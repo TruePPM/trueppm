@@ -183,7 +183,7 @@ The classification test: "Would a PM or program manager need this to run their p
 - An issue describing enterprise functionality (cross-program/portfolio coordination, org identity governance — SAML/SCIM/LDAP directory sync, enforced org-wide SSO — audit trail, approval workflows, multi-tenancy, AI scheduling) must be filed in `trueppm-enterprise` from the start — not in the OSS tracker. **Basic OIDC/OAuth login is OSS** (see the Auth carve-out above) — do not bounce it to enterprise
 - Cross-project coordination **within a single program** belongs in OSS — only cross-program and portfolio-level governance belongs in `trueppm-enterprise`
 - The OSS `enterprise` and `portfolio` labels are reserved for **OSS-side extension-point work** that enterprise registers against (slot registration per ADR-0029, edition-based routing per ADR-0030) — not for enterprise features themselves
-- Before opening an OSS issue with cross-program, portfolio, SAML/SCIM/LDAP identity-governance, audit-trail, or approval-workflow scope, run the `enterprise-check` agent (basic OIDC/OAuth login does not need this gate — it is OSS)
+- Before opening an OSS issue with cross-program, portfolio, SAML/SCIM/LDAP identity-governance, audit-trail, or approval-workflow scope, run the `enterprise-check` skill (basic OIDC/OAuth login does not need this gate — it is OSS)
 - Enforced by CI: `boundary:check` runs on main pushes and on schedule; it fails the pipeline if any open OSS issue carries the `enterprise` or `portfolio` label. See `scripts/check-issue-boundary.sh`
 
 ## Migration discipline
@@ -336,7 +336,7 @@ When writing or editing any file under `packages/website/src/content/docs/` (and
 
 This rule applies to every doc edit — there is no "fast path" carve-out. A wrong tense on a version banner is a user-facing accuracy bug, not a stylistic preference.
 
-### Mandatory agents for docs work
+### Mandatory skills for docs work
 - **`docs-writer`** for any change touching `docs/features/`, `docs/getting-started/`, `docs/architecture/`, or `docs/administration/`
 - **`api-docs`** for any endpoint, serializer field, or permission rule change
 
@@ -360,28 +360,16 @@ parser matches on them (`.claude/skills/mr/SKILL.md`). `accessibility` is delibe
 are recorded under `ux-review`, which checks WCAG 2.1 AA by definition.
 
 ## Available Skills
-Run `/skills` to see all available skills. Key ones:
-- `/dotplanning` — Plan a dot release (0.x) before development starts: feature→asset map, missing screens/flows/decisions, open questions, sequenced gated workstreams, HTML report to `~/Downloads`. Begin-gate bookend to `/pre-release`; run once at kickoff
-- `/architect` — System design decisions with ADR output
-- `/ai-review` — AI-readiness design gate: verifies new/changed features keep values server-side (API-first/MCP-reachable), explainable, write-safe, and on the correct OSS team-AI vs Enterprise AI-governance side. Runs after `/architect`, paired with `/enterprise-check`
-- `/security-review` — Security audit of code or design
-- `/brand` — Design system reference: colors, typography, spacing, WCAG compliance
-- `/ux-design` — UI/UX design for new features
-- `/ux-review` — Review existing UI for usability issues
-- `/voice-of-customer` — Persona-based feedback on features
-- `/api-design` — Design REST/WS API endpoints
-- `/code-review` — Code review with TruePPM conventions
-- `/test-strategy` — Test plan for a feature
-- `/data-model` — Django model design with migration plan
-- `/devops` — Kubernetes, Helm, CI/CD, infrastructure
-- `/performance` — Performance audit and optimization
-- `/accessibility` — WCAG compliance review
-- `/docs-writer` — Documentation generation
-- `/git-workflow` — Branch, commit, PR management
-- `/mr` — Open a GitLab MR for the current branch (pre-flight checks, structured description, creates via glab). **User-invoked only** (`disable-model-invocation`) — an agent can't call it; it reproduces the skill's `glab mr create` format directly instead. The skill file is the canonical format for both paths.
-- `/fix-mr` — Watch and fix a failing MR pipeline until green. **User-invoked only** (`disable-model-invocation`) — an agent runs the equivalent `glab pipeline`/log-reading loop directly.
-- `/scheduler-engine` — CPM/Monte Carlo algorithm work
-- `/test-scaffold` — Scaffold the three-layer test pattern (pytest / vitest / Playwright) for a new feature
-- `/threat-model` — STRIDE threat model at architecture stage; pairs with `/architect` on auth, sync, or boundary-crossing features
-- `/mobile-design` — UI/UX design for the React Native mobile app (offline-first, touch-primary)
-- `/mobile-review` — Review React Native code against mobile-specific requirements (touch targets, offline, platform conventions)
+
+Run `/skills`, or read the skill roster the harness injects into context — every skill in
+`.claude/skills/` is listed there with its own `description:` frontmatter, which is the
+single source of truth for when to reach for it. A hand-maintained copy of that roster in
+this file can only drift out of date, so there isn't one.
+
+Two skills are **not** in the injected roster, because they are `disable-model-invocation`
+and can only be started by the user typing them. Their contract has to live here:
+
+- `/mr` — Open a GitLab MR for the current branch (pre-flight checks, structured description, creates via glab). **User-invoked only** — an agent can't call it through the Skill tool; it reproduces the skill's `glab mr create` format directly instead. `.claude/skills/mr/SKILL.md` is the canonical format for both paths.
+- `/fix-mr` — Watch and fix a failing MR pipeline until green. **User-invoked only** — an agent runs the equivalent `glab pipeline` / log-reading loop directly.
+
+The same applies to `/release` and `/mass_merge`.

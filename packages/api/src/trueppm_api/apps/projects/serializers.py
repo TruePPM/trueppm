@@ -64,6 +64,7 @@ from trueppm_api.apps.projects.models import (
     PhaseGateConfig,
     Program,
     ProgramExportJob,
+    ProgramImportJob,
     Project,
     ProjectApiToken,
     ProjectCustomField,
@@ -1485,6 +1486,58 @@ class ProgramExportJobSerializer(serializers.ModelSerializer[ProgramExportJob]):
         if obj.status != ExportJobStatus.SUCCESS:
             return None
         return f"/api/v1/programs/{obj.program_id}/export/jobs/{obj.id}/download/"
+
+
+class ProgramImportJobSerializer(serializers.ModelSerializer[ProgramImportJob]):
+    """Read serializer for an async program seed import job (ADR-0726, #2574).
+
+    What the client polls after its ``202``. ``result_summary`` carries the entity
+    counts on success and ``error_detail`` the reason on failure — both live on the
+    row rather than only in the worker log, because an async import failure has to
+    be visible on the surface that launched it or the job handle buys nothing.
+
+    ``file_path`` is deliberately **not** exposed: it is a storage key for the
+    uploaded payload, and the job status surface is not a file-read surface.
+    """
+
+    class Meta:
+        model = ProgramImportJob
+        fields = [
+            "id",
+            "program",
+            "status",
+            "filename",
+            "replace",
+            "replaced_program_id",
+            "result_summary",
+            "error_detail",
+            "expires_at",
+            "created_at",
+            "started_at",
+            "completed_at",
+        ]
+        read_only_fields = fields
+
+
+class SeedImportRequestSerializer(serializers.Serializer[Any]):
+    """The two consent fields on ``POST /programs/import/`` (ADR-0726 §1).
+
+    Declared as a serializer rather than read off ``request.data`` so
+    drf-spectacular describes them and the OpenAPI schema tells a client how to
+    confirm a destructive re-import without reading the source.
+
+    ``replace`` is the blunt confirmation. ``expected_program_id`` is the
+    compare-and-swap: when supplied it must equal the program that would actually
+    be replaced, which protects a client acting on an earlier dry run from a
+    collision set that moved underneath it. Neither is required — and the default
+    of both absent is a refusal, which is the point.
+
+    The seed document itself arrives as a multipart ``file`` or as the JSON body,
+    so this serializer deliberately validates neither.
+    """
+
+    replace = serializers.BooleanField(required=False, default=False)
+    expected_program_id = serializers.UUIDField(required=False, allow_null=True)
 
 
 # Program-context labels for the shared ``Role`` enum (#1794). The enum labels
@@ -3047,6 +3100,13 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             # ADR-0102: only the accept/reject services may change this — never a
             # client PATCH (so a contributor cannot self-accept by writing it).
             "sprint_pending",
+            # ADR-0032: the value is owned by the server. It is set to pending by
+            # _apply_estimate_governance when PERT durations are written, and only
+            # the Scheduler-gated approve-estimates action may raise it to accepted.
+            # Writable here, an assignee could self-approve their own estimate with a
+            # bare PATCH — the governance hook fires only on a PERT co-write, so it
+            # never saw that payload (#2570).
+            "estimate_status",
             "sprint_scope_changes",
             "milestone_rollup",
             # Computed product-backlog reads (the writable backing fields type /
@@ -4268,8 +4328,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
 
         Estimate governance:
         - If any PERT field is being written and the project is in SUGGEST_APPROVE
-          mode, set estimate_status=pending (unless the caller is Scheduler+ — that
-          is enforced upstream in the view by calling approve_estimates() instead).
+          mode, set estimate_status=pending. There is no role branch here, and none
+          is needed: this method can only ever write 'pending' or null, so whoever
+          reaches it cannot use it to approve anything.
         - In OPEN or PM_ONLY modes estimate_status is left null (not tracked).
         - estimate_status is never set by this method to 'accepted' — that path goes
           through the dedicated approve-estimates action on TaskViewSet.
@@ -4471,8 +4532,20 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     def _apply_estimate_governance(self, instance: Task, validated_data: dict[str, Any]) -> None:
         """Mark estimate_status pending when PERT fields are written in suggest_approve mode.
 
-        Caller must not pass estimate_status directly; the approve-estimates action
-        is the only path to 'accepted'.
+        estimate_status is in ``Meta.read_only_fields``, so a client-supplied value is
+        dropped before it reaches ``validated_data`` and this hook is the only thing
+        that writes the field on the PATCH path. That read-only declaration is the
+        enforcement — this hook cannot be, because it fires only when a PERT duration
+        is co-written, and a payload carrying estimate_status alone would sail past it
+        (#2570). approve-estimates remains the only path to 'accepted' *over the task
+        API*; it writes the model directly and so is unaffected by the read-only
+        declaration. The MS Project and seed importers also write 'accepted' directly
+        on the model (ADR-0093 Q4), bypassing the serializer. Importing into an
+        *existing* project requires Project Manager (msproject/views.py), but the
+        create-from-import and seed-import endpoints require only authentication —
+        what makes them safe is not a role gate but that they only ever create a new
+        project/program on which the caller immediately becomes Owner. Neither can
+        reach an existing task.
         """
         _pert_fields = {"optimistic_duration", "most_likely_duration", "pessimistic_duration"}
         if _pert_fields & set(validated_data):
@@ -4598,6 +4671,41 @@ class TaskDurationChangeEventSerializer(serializers.ModelSerializer[TaskDuration
             return None
         name: str = obj.actor.get_full_name() or obj.actor.get_username()
         return name
+
+
+class SprintDurationChangeEventSerializer(serializers.Serializer[Any]):
+    """One duration-change event in a sprint's changes-log (ADR-0151)."""
+
+    # Documentation-only: the per-sprint aggregate is built as plain dicts in
+    # ``services.sprint_duration_change_payload`` (so the changes-log renders task
+    # attribution without a second round trip), and this class exists purely to give
+    # ``GET /api/v1/sprints/{id}/duration-events/`` a truthful OpenAPI component —
+    # it published a ``Sprint`` before #2583. Deliberately NOT
+    # ``TaskDurationChangeEventSerializer``: the per-sprint rows denormalize
+    # ``task_name``/``actor_name`` and drop ``source``/``sprint``, so reusing the
+    # per-task serializer would publish a second contract the endpoint does not meet.
+    # Keep these fields in lockstep with ``sprint_duration_change_payload``; the
+    # declared-vs-actual test in ``tests/test_openapi_response_conformance.py``
+    # fails if they drift.
+
+    id = serializers.UUIDField(read_only=True)
+    task_id = serializers.UUIDField(read_only=True)
+    task_name = serializers.CharField(read_only=True, allow_null=True)
+    old_duration = serializers.IntegerField(read_only=True)
+    new_duration = serializers.IntegerField(read_only=True)
+    percent_complete_at_change = serializers.FloatField(read_only=True)
+    # Non-null only when the policy actually mutated % (prorate); the client
+    # renders the "% recalculated" line only then.
+    percent_complete_after = serializers.FloatField(read_only=True, allow_null=True)
+    # ChoiceField, not CharField: the sibling per-task component publishes
+    # PolicyAppliedEnum for the same underlying field, and an SDK that got a bare
+    # `string` from one endpoint and an enum from the other would have to hand-write
+    # the union back. Reuses the existing enum component rather than minting a second.
+    policy_applied = serializers.ChoiceField(
+        choices=DurationChangePercentPolicy.choices, read_only=True
+    )
+    actor_name = serializers.CharField(read_only=True, allow_null=True)
+    created_at = serializers.DateTimeField(read_only=True)
 
 
 class TaskReorderSerializer(serializers.Serializer[Any]):

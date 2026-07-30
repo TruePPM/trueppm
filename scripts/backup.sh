@@ -24,6 +24,10 @@
 # selectively; it preserves the ltree / pg_trgm extensions and the wbs_path
 # GiST index required by the schema.
 #
+# Off-cluster destination: set S3_BUCKET (or --s3-bucket) and the finished
+# artifact is uploaded to an S3-compatible bucket after it is written locally.
+# See scripts/lib/s3.sh for the client selection and the path-style rationale.
+#
 set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
@@ -49,11 +53,30 @@ Options:
                          $TRUEPPM_REDIS_RDB_PATH, else /data/dump.rdb).
   -k, --keep-daily N     Prune local *.tar.gz backups in the output dir, keeping
                          the N newest (default: $TRUEPPM_KEEP_DAILY, else no prune).
+      --s3-bucket NAME   Upload the finished artifact to this S3-compatible
+                         bucket (default: $S3_BUCKET). Enables the upload step.
+      --s3-endpoint URL  S3-compatible endpoint (default: $S3_ENDPOINT). Omit for
+                         real AWS S3; set it for MinIO and friends.
+      --s3-prefix PATH   Key prefix within the bucket (default: $S3_PREFIX, else
+                         none). The object key is <prefix>/<artifact filename>.
   -h, --help             Show this help and exit.
 
 Environment variables (flags take precedence):
   DATABASE_URL, REDIS_URL, TRUEPPM_MEDIA_ROOT, TRUEPPM_BACKUP_DIR,
-  TRUEPPM_REDIS_RDB_PATH, TRUEPPM_KEEP_DAILY
+  TRUEPPM_REDIS_RDB_PATH, TRUEPPM_KEEP_DAILY,
+  S3_BUCKET, S3_ENDPOINT, S3_PREFIX, AWS_DEFAULT_REGION,
+  AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, TRUEPPM_S3_CLIENT
+
+Off-cluster upload: when a bucket is configured, the artifact is uploaded after
+it is written locally, using the AWS CLI (preferred) or the MinIO client. Both
+are looked up on PATH; if a bucket is configured and neither is installed the
+run FAILS rather than leaving the artifact only on local disk. Path-style
+addressing is forced whenever a custom endpoint is set, because a self-hosted
+MinIO usually cannot serve virtual-hosted-style bucket hostnames.
+
+Retention and the bucket: --keep-daily prunes the LOCAL output directory only.
+Nothing is ever deleted from the bucket — set a lifecycle policy on the bucket
+for remote retention. See docs/administration/backup-restore.md.
 
 Exit codes: 0 success; non-zero on any failure (the artifact is only finalized
 after every step succeeds — a partial backup is never left behind).
@@ -77,6 +100,9 @@ INCLUDE_REDIS="false"
 REDIS_URL_ARG="${REDIS_URL:-}"
 REDIS_RDB_PATH="${TRUEPPM_REDIS_RDB_PATH:-/data/dump.rdb}"
 KEEP_DAILY="${TRUEPPM_KEEP_DAILY:-}"
+S3_BUCKET="${S3_BUCKET:-}"
+S3_ENDPOINT="${S3_ENDPOINT:-}"
+S3_PREFIX="${S3_PREFIX:-}"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -87,10 +113,14 @@ while [ "$#" -gt 0 ]; do
     --redis-url)     REDIS_URL_ARG="${2:?--redis-url needs a value}"; shift 2 ;;
     --redis-rdb-path) REDIS_RDB_PATH="${2:?--redis-rdb-path needs a value}"; shift 2 ;;
     -k|--keep-daily) KEEP_DAILY="${2:?--keep-daily needs a value}"; shift 2 ;;
+    --s3-bucket)     S3_BUCKET="${2:?--s3-bucket needs a value}"; shift 2 ;;
+    --s3-endpoint)   S3_ENDPOINT="${2:?--s3-endpoint needs a value}"; shift 2 ;;
+    --s3-prefix)     S3_PREFIX="${2:?--s3-prefix needs a value}"; shift 2 ;;
     -h|--help)       usage; exit 0 ;;
     *)               usage >&2; die "unknown argument: $1" ;;
   esac
 done
+export S3_BUCKET S3_ENDPOINT
 
 # ---- context detection (informational; connection is via DB_URL) -----------
 CONTEXT="host"
@@ -104,6 +134,22 @@ log "detected run context: $CONTEXT"
 # ---- preconditions ---------------------------------------------------------
 [ -n "$DB_URL" ] || die "no database URL — set DATABASE_URL or pass --db-url"
 command -v pg_dump >/dev/null 2>&1 || die "pg_dump not found (install postgresql-client)"
+
+# Upload support is loaded (and validated) before the dump starts. A missing
+# object-storage client must fail in the first second, not after a half-hour
+# pg_dump has already run — and it must fail loudly rather than silently leaving
+# the artifact on local disk while the operator believes it went off-cluster.
+if [ -n "$S3_BUCKET" ]; then
+  # shellcheck source-path=SCRIPTDIR source=lib/s3.sh
+  . "$(cd "$(dirname "$0")" && pwd)/lib/s3.sh"
+  S3_CLIENT="$(s3_client)" \
+    || die "S3 upload requested (bucket: $S3_BUCKET) but no client found — $(s3_client_hint)"
+  [ -n "${AWS_ACCESS_KEY_ID:-}" ] \
+    || die "S3 upload requested but AWS_ACCESS_KEY_ID is unset"
+  [ -n "${AWS_SECRET_ACCESS_KEY:-}" ] \
+    || die "S3 upload requested but AWS_SECRET_ACCESS_KEY is unset"
+  log "S3 upload enabled: bucket=$S3_BUCKET endpoint=${S3_ENDPOINT:-<aws default>} client=$S3_CLIENT"
+fi
 
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 ARTIFACT="$OUTPUT_DIR/trueppm-backup-$TIMESTAMP.tar.gz"
@@ -182,18 +228,41 @@ fi
   echo "db_included: yes"
   echo "media_included: $MEDIA_INCLUDED"
   echo "redis_included: $REDIS_INCLUDED"
+  # Records the intended destination, not a confirmed upload — the manifest is
+  # sealed inside the tarball before the upload can run. A failed upload fails
+  # the whole run, so a bucket named here on a downloaded artifact did receive it.
+  echo "s3_destination: ${S3_BUCKET:-none}"
 } > "$WORKDIR/MANIFEST"
 
 log "creating artifact: $ARTIFACT"
 tar -czf "$ARTIFACT" -C "$WORKDIR" .
 log "backup complete: $ARTIFACT ($(du -h "$ARTIFACT" | cut -f1))"
 
-# ---- 5. Local retention prune (optional) -----------------------------------
+# ---- 5. Off-cluster upload (optional) --------------------------------------
+# Runs before the prune so a failed upload cannot be followed by the prune
+# deleting an older artifact that is still the newest copy in the bucket.
+if [ -n "$S3_BUCKET" ]; then
+  S3_KEY="$(basename "$ARTIFACT")"
+  if [ -n "$S3_PREFIX" ]; then
+    # Tolerate a prefix given with or without surrounding slashes.
+    S3_KEY="$(printf '%s' "$S3_PREFIX" | sed 's#^/*##; s#/*$##')/$S3_KEY"
+  fi
+  log "uploading to s3://$S3_BUCKET/$S3_KEY via $S3_CLIENT..."
+  s3_put "$ARTIFACT" "$S3_KEY" \
+    || die "upload to s3://$S3_BUCKET/$S3_KEY failed — the local artifact at $ARTIFACT is intact"
+  log "uploaded: s3://$S3_BUCKET/$S3_KEY"
+fi
+
+# ---- 6. Local retention prune (optional) -----------------------------------
 if [ -n "$KEEP_DAILY" ]; then
   case "$KEEP_DAILY" in
     ''|*[!0-9]*) die "--keep-daily must be a non-negative integer, got: $KEEP_DAILY" ;;
   esac
-  log "pruning local backups, keeping the $KEEP_DAILY newest in $OUTPUT_DIR"
+  # LOCAL ONLY. Nothing here reaches the bucket: remote retention is the object
+  # store's lifecycle policy, deliberately, because a cron job that deletes
+  # remote backups is the one component whose bug destroys the thing it exists
+  # to protect. Same division keepWeekly already documents.
+  log "pruning local backups, keeping the $KEEP_DAILY newest in $OUTPUT_DIR (local only; bucket retention is its lifecycle policy)"
   # Artifact names embed a UTC timestamp (trueppm-backup-YYYYmmddTHHMMSSZ.tar.gz)
   # that sorts lexicographically in chronological order and contains no spaces,
   # so a plain name sort is a safe newest-first ordering with no GNU-only find

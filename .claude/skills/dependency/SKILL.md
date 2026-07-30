@@ -53,6 +53,16 @@ You are auditing a new dependency before it is added to TruePPM.
 - npm/pnpm: use `^X.Y.Z` with lock file committed
 - Dev dependencies: can be more permissive (`>=X.Y`)
 
+## Audit the Gate's Scope, Not Just Its Result
+
+A green `security:osv` or `license:check` proves only that the manifests **in the scan list** are clean. This project's recurring dependency failure has never been a missed CVE — it has been a **manifest nobody was scanning**. An unscanned lockfile is worse than a known vulnerability, because nothing will ever tell you about it.
+
+- [ ] **Enumerate every lockfile in the repo, then diff that list against what CI actually scans.** Run something like `find . -name 'uv.lock' -o -name 'package-lock.json' -o -name 'Cargo.lock' | grep -v node_modules` and compare it to the `-L` arguments in `security:osv` and the hardcoded paths in the `license:check:*` jobs. Any lockfile in the first list and not the second is a finding — report it with the same severity you would give a moderate CVE.
+- [ ] **Weight a scope gap by whether the package is published.** A gap on an internal package is bad; a gap on a package that ships to PyPI or npm is a supply-chain hole in an artifact other people install.
+- [ ] **When a new package is added to the monorepo, its lockfile joins the gates in the same MR.** New packages are exactly how these gaps appear — the scanner's path list is written once and never revisited.
+- [ ] **Widening a scan usually requires widening the allow-list first.** Adding a previously-unscanned manifest will surface licenses the current `--onlyAllow` list does not name (e.g. an image or CSS toolchain pulling LGPL or MPL transitively). Check what the newly-covered manifests actually resolve to and stage the allow-list change ahead of the scope change, or the "fix" lands as a red pipeline.
+- [ ] **A published package's declared version floor is part of its security surface.** The resolved version in *our* lockfile being patched does not help a downstream consumer who installs against our declared range. When a dependency has a known advisory, raise the **floor** in `pyproject.toml`/`package.json`, not just the lock.
+
 ## Output Format
 
 ```

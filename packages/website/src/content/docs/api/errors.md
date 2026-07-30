@@ -106,6 +106,8 @@ capped sample naming them:
 | `not_live` | `409` | The planning-poker session is not live | — |
 | `not_revealed` | `409` | The planning-poker round has not been revealed yet | — |
 | `sprint_not_planned` | `409` | The sprint is not in the PLANNED state | — |
+| `seed_replace_required` | `409` | A live program you own already uses this seed's slug as its code, and the import did not confirm the replacement | `conflict` |
+| `seed_replace_mismatch` | `409` | `expected_program_id` does not name the program that would actually be replaced | `conflict` |
 | `not_found` | `404` | The targeted poker round or ceiling proposal does not exist | — |
 
 A `sync_conflict` carries the field-level divergence so the client can render a
@@ -120,6 +122,30 @@ merge rather than guess:
   "server_version": 41
 }
 ```
+
+Both `seed_replace_*` codes carry a `conflict` object describing the program the
+import would replace, so a client can render a confirmation naming a number and
+not just a name:
+
+```json
+{
+  "detail": "A program you own already uses the code \"atlas\". Re-importing moves its projects to Trash. Confirm to continue.",
+  "code": "seed_replace_required",
+  "conflict": {
+    "program_id": "9c2d…",
+    "name": "Atlas Platform Launch",
+    "code": "atlas",
+    "project_count": 3,
+    "task_count": 214
+  }
+}
+```
+
+Re-send with `replace=true` to confirm, optionally pinned to
+`expected_program_id`. The replaced program's projects move to project Trash,
+where each can be restored individually as a standalone project — the program
+shell itself is **not** recoverable, and a restored project does not return to
+it. See [Programs](/api/reference/#programs).
 
 ### 422 — well-formed but unprocessable
 

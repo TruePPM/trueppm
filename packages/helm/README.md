@@ -73,6 +73,12 @@ kubectl get secret <release>-trueppm-connection \
 | `containerSecurityContext` | restricted profile | Container-level hardening for API/worker. |
 | `resources.api` / `resources.worker` / `resources.beat` / `resources.web` | see values.yaml | Per-container resources. |
 | `web.enabled` | `true` | Render the nginx-served React SPA tier + `Service`. |
+| `web.adminAccess.enabled` | `true` | Render the `/admin/` proxy; `false` returns `404` instead. |
+| `web.adminAccess.allowCIDRs` | `[]` | Sources allowed to reach `/admin/`. **Empty = deny all** — port-forward to the API Service instead ([Reaching Django admin](https://trueppm.com/administration/security/#reaching-django-admin)). Only binds while `web.enabled` is true. |
+| `web.adminAccess.rateLimit.*` | `5r/m`, burst `2` | nginx `limit_req` on the admin login surface (no DRF throttle covers Django admin). |
+| `celeryWorker.concurrency` | `2` | **Pinned** prefork pool size. Unset, Celery's `cpu_count()` reads the node's cores, not the cgroup limit, and OOM-kills the worker. |
+| `celeryWorker.maxTasksPerChild` | `100` | Recycle prefork children to bound RSS growth on long tasks; `0` disables. |
+| `celeryWorker.extraArgs` | `[]` | Extra `celery worker` flags, appended in order. |
 | `image.webRepository` | `.../web` | Web tier image (shares `image.tag`/`pullPolicy` with the API). |
 | `probes.api.readinessPath` | `/api/v1/readyz` | Deep API readiness check; liveness stays on `probes.api.livenessPath` (`/api/v1/health/`). |
 | `probes.worker.enabled` / `probes.beat.enabled` | `true` | `celery inspect ping` exec probe on the worker/beat tiers. |
@@ -87,19 +93,34 @@ kubectl get secret <release>-trueppm-connection \
 | `global.trueppm.connectionSecretName` | `""` (derived) | Override only if you renamed the connection Secret. |
 | `backup.enabled` | `false` | Opt-in scheduled `pg_dump` backup CronJob (see below). |
 | `backup.schedule` | `0 2 * * *` | Cron schedule (cluster timezone). |
-| `backup.keepDaily` / `backup.keepWeekly` | `7` / `4` | Retention: `keepDaily` is enforced in-job; `keepWeekly` is advisory for an off-cluster lifecycle policy. |
+| `backup.keepDaily` / `backup.keepWeekly` | `7` / `4` | Retention for the **local** output directory only. Neither ever deletes from a bucket — use the object store's lifecycle policy for remote retention. |
 | `backup.persistence.enabled` | `false` | Mount a chart-managed PVC at `backup.outputDir`. |
-| `backup.s3.enabled` | `false` | Inject S3-compatible env vars for an off-cluster destination. |
+| `backup.s3.enabled` | `false` | Upload each finished artifact to an S3-compatible bucket. Adds a second container to the job (the PostgreSQL image has no S3 client). A failed upload fails the job. |
+| `backup.s3.endpoint` | `""` | Leave empty for real AWS S3. Set it for MinIO — a custom endpoint forces path-style addressing. |
+| `backup.s3.prefix` | `""` | Optional key prefix; the object key is `<prefix>/trueppm-backup-<UTC>.tar.gz`. |
+| `backup.s3.image.repository` / `.tag` | `amazon/aws-cli` / `2.17.0` | Image for the upload container. Must provide `aws`. |
 
 ## Scheduled backups (opt-in)
 
 `backup.enabled=true` renders a CronJob that runs `pg_dump --format=custom` against
 the database (using the same chart-owned connection Secret as the API — no second
-password copy) and writes a single timestamped artifact to a PVC or S3-compatible
-bucket, pruning to `backup.keepDaily`. It is **off by default** so enabling it never
-creates a PersistentVolumeClaim you did not ask for. Restore is a deliberate manual
-action with `scripts/restore.sh`. Full runbook: docs → Administration → Backup &
-Restore.
+password copy) and writes a single timestamped artifact to `backup.outputDir`,
+pruning that directory to `backup.keepDaily`. It is **off by default** so enabling it
+never creates a PersistentVolumeClaim you did not ask for.
+
+Adding `backup.s3.enabled=true` uploads each artifact off-cluster. The job then runs
+in two phases — an initContainer dumps (it needs `pg_dump`, so it uses the PostgreSQL
+image) and the main container uploads (it needs an S3 client, so it uses
+`backup.s3.image`). No stock image carries both, which is why the upload cannot share
+a container with the dump. **If the upload fails the job fails**, so a green job means
+the artifact really did leave the cluster.
+
+Retention splits along the same line: `keepDaily` prunes the local directory and never
+touches the bucket. Set bucket retention with a lifecycle policy on the bucket itself.
+
+Restore is a deliberate manual action with `scripts/restore.sh`, which can pull
+straight back from the bucket (`--from-s3 latest`). Full runbook: docs →
+Administration → Backup & Restore.
 
 ## Public read-only demo mode (#2440, ADR-0658)
 

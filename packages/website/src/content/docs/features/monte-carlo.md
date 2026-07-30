@@ -549,6 +549,15 @@ of the distribution:
   three-point estimates do not feed the forecast until a Scheduler approves them
   (`estimate_status = accepted`). The estimates are visible on the tasks, but the
   forecast treats them as not-yet-trusted. Approve them to fold their range in.
+  `estimate_status` is read-only on the task API: `POST /api/v1/tasks/{id}/approve-estimates/`
+  is the only way to reach `accepted` over the API, and it requires the Resource
+  Manager role or above. A task's assignee cannot approve their own estimate by
+  writing the field on a task update. The one exception is imported data — MS Project
+  and seed imports write `accepted` directly, because the values are PM-authored
+  migration data rather than contributor suggestions. Importing into an existing
+  project requires Project Manager; the import-as-new-project and seed-import
+  endpoints need only a signed-in user, but they can only ever create a new project
+  or program that the importer owns, never modify an existing task.
 - **No estimate ranges** — tasks carry only a single duration (or a degenerate
   range where optimistic = pessimistic). Add genuine optimistic/most-likely/
   pessimistic estimates to the tasks you are unsure about.

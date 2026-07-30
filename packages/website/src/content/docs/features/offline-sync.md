@@ -40,7 +40,7 @@ Any project member (Viewer+) may call this endpoint.
     "time_entries":           { "created": [], "updated": [...], "deleted": [...] }
   },
   "timestamp": 42,
-  "next_cursor": "eyJpIjoxLCJ2IjoxLCJpZCI6Ii4uLiJ9",
+  "next_cursor": "eyJpIjoxLCJ2IjoxLCJpZCI6Ii4uLiIsInciOjQyfQ==",
   "has_more": true
 }
 ```
@@ -48,7 +48,7 @@ Any project member (Viewer+) may call this endpoint.
 - `created` is always empty — WatermelonDB uses upsert semantics
 - `updated` — full row objects for live (non-deleted) rows
 - `deleted` — string IDs of soft-deleted rows (tombstones)
-- `timestamp` — high-water mark to adopt as `since` **after** the delta is fully drained
+- `timestamp` — high-water mark to adopt as `since` **after** the delta is fully drained. Pinned when the session's first page is served, so it is identical on every page of that session
 - `next_cursor` — opaque continuation token, or `null` when the delta is exhausted
 - `has_more` — `true` while more pages remain for this `since` session
 
@@ -62,6 +62,14 @@ The pull is **cursor-paginated** so a cold start (`since=0`) on a large project 
 4. When `has_more` is `false` (`next_cursor` is `null`), the session is complete — adopt `timestamp` as the `since` for the next sync.
 
 The cursor is a **compound keyset** on `(collection, sync_seq, id)`, not a scalar `sync_seq` ceiling. Rows written together share a `sync_seq`, and a scalar cursor could not split a page between two rows of the same value without either dropping rows or leaving the page unbounded. Keying on the row `id` (a unique UUID) as a tiebreak makes every page boundary unambiguous — **no row is skipped and no row is duplicated**, even when thousands of rows share a value. Because the cursor only ever increases, a row edited mid-session moves forward in the stream and is either delivered later or re-delivered under upsert — never lost.
+
+### The checkpoint belongs to the session, not the page
+
+`timestamp` is computed **once**, when the first (cursor-less) page of a session is served, and carried inside the opaque cursor. Every continuation page echoes that same value; it is safe to read the checkpoint off any page of the drain.
+
+That pinning is what makes step 4 sound. Collections are drained in a fixed order, so once the cursor has passed a collection the session can no longer deliver anything written into it. If each page recomputed the checkpoint, the last page would report a value **above** such a mid-drain write, and the client adopting it would filter that row out of every future pull — the edit would be lost silently, with no error and no retry path. Holding the checkpoint at the first page's value errs the safe way instead: the mid-drain row stays above the adopted `since` and arrives on the next pull, and any row the session *did* deliver above the pin is simply re-delivered under upsert.
+
+The practical rule for clients is unchanged — keep `since` constant, loop until `has_more` is `false`, then adopt `timestamp`. Because the pin lives in the cursor, a continuation token from an older server is rejected with a `400`; restart the drain at the same `since`, which loses nothing.
 
 Retro rows are visibility-filtered (ADR-0071): a Viewer pulling a project whose retros are **team-only** does not receive the retro's raw notes or action-item text — those rows are excluded at the queryset level, and tombstones are delivered for visibility-removed rows so the local database drops them.
 
@@ -141,7 +149,7 @@ cannot reorder).
 
 ## TOCTOU safety
 
-The server snapshots the project's cursor **before** running the delta queries. This prevents the race where a write lands between the checkpoint read and the row queries, causing a row to be included in `updated` but the `timestamp` to be set too low — making the client miss it on the next sync.
+The server snapshots the project's cursor **before** running the delta queries. This prevents the race where a write lands between the checkpoint read and the row queries, causing a row to be included in `updated` but the `timestamp` to be set too low — making the client miss it on the next sync. On a paginated pull the snapshot is taken once for the whole session and echoed on every continuation page (see [The checkpoint belongs to the session](#the-checkpoint-belongs-to-the-session-not-the-page)).
 
 Cursor allocation takes the project row's write lock, so concurrent writes to one project serialize and commit in allocation order. Without that a transaction could take a cursor value, a later one take the next value and commit first, and a pull in between would report the higher checkpoint and permanently skip the lower row.
 

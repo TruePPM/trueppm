@@ -192,6 +192,7 @@ from trueppm_api.apps.projects.serializers import (
     SprintBurnSnapshotSerializer,
     SprintCloseRequestSerializer,
     SprintDailyDeltaSerializer,
+    SprintDurationChangeEventSerializer,
     SprintForecastSerializer,
     SprintOutcomeSerializer,
     SprintSerializer,
@@ -1170,29 +1171,14 @@ class ProjectViewSet(
             .values_list("user_id", flat=True)
         ]
 
-        # Tombstone the project ROW synchronously — instant and cheap — then
-        # offload the child cascade (#1112). Overview/retrieve/list all filter
-        # is_deleted=False, so the project reads as gone the moment this commits,
-        # even while the enqueued cascade is still draining its children.
-        # Record who deleted it (#1113) so the Trash list can show "Deleted by X";
-        # set before soft_delete() so it lands in the same UPDATE as is_deleted.
-        instance.deleted_by = actor
-        instance.soft_delete()
-        _record_project_audit_event(
-            event_type="project_deleted",
-            actor=self.request.user,
-            project=instance,
-            metadata={"mode": "soft"},
-        )
-        # Offload the (potentially ~24k round-trip) child tombstone cascade to a
-        # background task; enqueue_* defers dispatch via transaction.on_commit so a
-        # rolled-back request never fires the worker.
-        from trueppm_api.apps.projects.services import enqueue_project_cascade_soft_delete
+        # Tombstone the row, audit it, offload the child cascade, and broadcast —
+        # all four in ``soft_delete_project`` (ADR-0726 §3), which the seed
+        # importer's confirmed replace calls too. Sharing one implementation is
+        # the point: the two paths diverging is what #2581 was, and a second copy
+        # here would let them diverge again the next time either changes.
+        from trueppm_api.apps.projects.services import soft_delete_project
 
-        enqueue_project_cascade_soft_delete(project_id)
-        transaction.on_commit(
-            lambda: broadcast_board_event(project_id, "project_deleted", {"id": project_id})
-        )
+        soft_delete_project(instance, actor=actor)
         # In-app team notification (#1115). Only on soft-delete: the project row
         # survives the retention window, so the Notification.project FK stays valid
         # and the member can restore it from Trash. The hard-delete path removes the
@@ -12103,6 +12089,20 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         self.check_object_permissions(request, sprint)
         return Response(sprint_scope_change_payload(sprint), status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Duration-change audit events captured during a sprint (ADR-0151, #1254)",
+        # Without this the action inherits SprintViewSet.serializer_class and the
+        # schema promised a `Sprint` for a `{events: [...]}` body — a generated SDK
+        # was handed a type the endpoint never returns (#2583). The sibling
+        # TaskViewSet.duration_events has always declared its response; only this
+        # one was bare.
+        responses={
+            200: inline_serializer(
+                name="SprintDurationChangeEventList",
+                fields={"events": SprintDurationChangeEventSerializer(many=True)},
+            )
+        },
+    )
     @action(detail=True, methods=["get"], url_path="duration-events")
     def duration_events(self, request: Request, pk: str | None = None) -> Response:
         """Read the sprint's mid-sprint duration-change events (ADR-0151, issue 1254).

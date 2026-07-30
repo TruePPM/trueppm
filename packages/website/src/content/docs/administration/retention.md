@@ -46,7 +46,7 @@ the window — the next scheduled or manual run enforces it.
 |---|---|---|---|
 | `TRUEPPM_HISTORY_RETENTION_DAYS` | `90` | days | django-simple-history object-change records |
 | `TRUEPPM_TASK_RUN_RETENTION_DAYS` | `30` | days | Completed/failed/canceled `TaskRun` records |
-| `TRUEPPM_IMPORT_RETENTION_DAYS` | `7` | days | Terminal (`DONE`/`DEAD`) `ImportRequest` rows, including their multi-MB `file_content_b64` blobs |
+| `TRUEPPM_IMPORT_RETENTION_DAYS` | `7` | days | Terminal (`DONE`/`DEAD`) `ImportRequest` rows, including their multi-MB `file_content_b64` blobs; also terminal `ProgramImportJob` rows and their stored seed payloads |
 | `TRUEPPM_WEBHOOK_RETENTION_DAYS` | `7` | days | Terminal (`SUCCESS`/`FAILED`) `WebhookDelivery` rows |
 | `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` | `24` | hours | `SyncBatch` mobile-upload idempotency rows past the dedup window (ADR-0082) |
 | `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` | `30` | days | Soft-deleted ("trashed") `Project` rows, hard-deleted with all child data (see [Trashed projects](#trashed-projects-are-hard-deleted-after-the-window) below) |
@@ -99,6 +99,24 @@ reaped by the standalone nightly `purge_expired_program_exports` Beat task
 (04:30 UTC), which deletes both the `ProgramExportJob` row **and** its stored
 archive. All three export purges run a few minutes apart and honor the single
 `TRUEPPM_EXPORT_RETENTION_DAYS` setting.
+
+**Program seed import jobs share the MS Project import knob.** A queued program
+seed import (`POST /api/v1/programs/import/`) writes a `ProgramImportJob` row and
+stores the uploaded seed document. Terminal rows and their stored payloads are
+reaped by the standalone nightly `purge_expired_program_imports` Beat task
+(04:35 UTC) using `TRUEPPM_IMPORT_RETENTION_DAYS` (same default `7`; `None`
+disables) — the same knob the MS Project import outbox uses. Like the export
+purges it is a standalone task rather than a coordinator entry, because it
+deletes a storage object as well as a database row.
+
+:::caution[Import retention is not project retention]
+Re-importing a seed over a live program moves that program's **projects** to
+project Trash, and those are governed by the project retention window, not by
+`TRUEPPM_IMPORT_RETENTION_DAYS` — which only bounds how long the *job record and
+its uploaded file* are kept. The replaced program shell is not recoverable at
+all: there is no program Trash
+([#2587](https://gitlab.com/trueppm/trueppm/-/issues/2587)).
+:::
 
 **`TRUEPPM_SYNC_BATCH_RETENTION_HOURS` is in hours, not days.** Unlike the other knobs,
 this window is measured in **hours** because it doubles as the mobile sync upload **dedup
@@ -227,6 +245,15 @@ also restored.
 
 Once a project has been in the trash past the window it is purged and no longer restorable;
 recover it before the countdown reaches zero.
+
+:::caution[Projects replaced by a seed re-import come back standalone]
+Re-importing a JSON seed over a program you own sends that program's projects to Trash
+individually, **detached from the program at delete time**. Restoring one puts the project
+back as a standalone project — it does not return to the program it belonged to, because
+the program shell is gone and is not itself recoverable
+([#2587](https://gitlab.com/trueppm/trueppm/-/issues/2587)). See
+[Data export](/administration/data-export/#check-a-file-before-you-import-it).
+:::
 
 ## Purge schedule
 

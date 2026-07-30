@@ -38,6 +38,33 @@ may not be present.
 | `web.containerPort` | `8080` | Port the unprivileged nginx image listens on (satisfies `runAsNonRoot`). |
 | `web.service.type` / `web.service.port` | `ClusterIP` / `80` | Web Service. |
 
+## Django admin exposure
+
+:::caution[Denied by default]
+The web tier **denies `/admin/` from every source** unless you add a CIDR. Django
+admin is a plain Django view, so none of the API's login throttles apply to it,
+there is no account-lockout backend, and the [admin
+bootstrap](/administration/admin-password/) guarantees a superuser exists to
+guess against. Leaving it deny-by-default is deliberate — see
+[Reaching Django admin](/administration/security/#reaching-django-admin).
+:::
+
+| Key | Default | What it does |
+|---|---|---|
+| `web.adminAccess.enabled` | `true` | Render the `/admin/` proxy at all. Set `false` to return `404` instead — removes the path from the public listener entirely. |
+| `web.adminAccess.allowCIDRs` | `[]` | Source CIDRs permitted to reach `/admin/`. **Empty means deny everything.** Matched against nginx's `$remote_addr`, which behind an Ingress is the *controller's* pod IP, not the operator's — so this is only meaningful when the web tier sees real client addresses. |
+| `web.adminAccess.rateLimit.enabled` | `true` | Apply an nginx `limit_req` zone to the admin login surface. |
+| `web.adminAccess.rateLimit.rate` | `5r/m` | Requests per source IP, matching the Docker Compose deployment. |
+| `web.adminAccess.rateLimit.burst` | `2` | Burst allowance above the sustained rate. |
+
+## Celery worker tuning
+
+| Key | Default | What it does |
+|---|---|---|
+| `celeryWorker.concurrency` | `2` | Prefork pool size, **pinned**. Never left unset: Celery's `cpu_count()` default reads the *node's* core count rather than the cgroup CPU limit, so an unpinned worker forks a node-sized pool into a 2Gi pod and OOM-kills the whole background tier. Raise toward the pod's CPU limit per the [sizing profiles](/administration/sizing/). |
+| `celeryWorker.maxTasksPerChild` | `100` | Recycle each prefork child after this many tasks so long-running jobs (workspace export, MS Project import) cannot accumulate RSS for the pod's lifetime. `0` disables recycling. |
+| `celeryWorker.extraArgs` | `[]` | Extra `celery worker` flags, appended verbatim and in order — e.g. `["--queues=exports", "--prefetch-multiplier=1"]`. |
+
 ## Ingress
 
 Off by default — the ingress class, hostnames, and certificate source are

@@ -95,6 +95,23 @@ docker compose exec -T \
 The script writes a single timestamped `trueppm-backup-<UTC>.tar.gz` containing
 `db.dump`, `media.tar.gz` (when a media dir is given), and a `MANIFEST`.
 
+To upload the artifact to a bucket in the same run, add `--s3-bucket` (and
+`--s3-endpoint` for MinIO):
+
+```bash
+export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...
+DATABASE_URL="postgres://trueppm:trueppm@localhost:5432/trueppm" \
+  ./scripts/backup.sh --output-dir ./backups \
+    --s3-bucket trueppm-backups \
+    --s3-endpoint http://minio.example.internal:9000 \
+    --s3-prefix prod/daily
+```
+
+The upload uses the AWS CLI (`aws`) when it is installed and the MinIO client
+(`mc`) otherwise; force one with `TRUEPPM_S3_CLIENT`. If a bucket is configured
+and neither client is installed, the run **fails before the dump starts** rather
+than quietly leaving the artifact on local disk.
+
 ### Kubernetes / Helm
 
 Take an on-demand backup by running the script inside a client pod that can reach
@@ -132,6 +149,25 @@ DATABASE_URL="postgres://trueppm:trueppm@localhost:5432/trueppm" \
 `restore.sh` does **not** restore the Redis snapshot even when the artifact
 contains one — the cache and broker rebuild themselves. After a database restore,
 restart the API and worker pods so any cached state is discarded.
+
+### Restoring straight from the bucket
+
+When the artifact was uploaded off-cluster, `--from-s3` downloads it and restores
+in one step — no manual `aws s3 cp` first:
+
+```bash
+export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...
+DATABASE_URL="postgres://trueppm:trueppm@localhost:5432/trueppm" \
+  ./scripts/restore.sh --from-s3 latest \
+    --s3-bucket trueppm-backups \
+    --s3-endpoint http://minio.example.internal:9000 \
+    --s3-prefix prod/daily --yes
+```
+
+`latest` selects the newest `trueppm-backup-*.tar.gz` under the prefix; pass an
+explicit object key instead to restore a specific one. The downloaded copy lands
+in a scratch directory and is deleted when the script exits — use `--artifact`
+with a local path if you want to keep it.
 
 ### Why the `ltree` / `pg_trgm` extension ordering matters
 
@@ -196,8 +232,12 @@ backup:
 
 The CronJob runs a `pg_dump --format=custom` against the database (connection from
 the same chart-owned Secret the API uses — no second copy of the password) and
-writes a timestamped artifact to the PVC, pruning to `keepDaily`. To ship the
-artifact off-cluster instead, point it at an S3-compatible bucket:
+writes a timestamped artifact to the PVC, pruning to `keepDaily`.
+
+### Shipping the artifact off-cluster
+
+Add `backup.s3.*` and each artifact is uploaded to an S3-compatible bucket after
+it is written locally:
 
 ```yaml
 backup:
@@ -205,21 +245,62 @@ backup:
   s3:
     enabled: true
     bucket: trueppm-backups
-    endpoint: https://s3.us-east-1.amazonaws.com
+    endpoint: ""              # empty for real AWS S3; set it for MinIO
     region: us-east-1
+    prefix: prod/daily        # optional key prefix
     existingSecret: trueppm-backup-s3   # keys: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
 ```
+
+The object key is `<prefix>/trueppm-backup-<UTC timestamp>.tar.gz`.
+
+**If the upload fails, the job fails.** The artifact is never left sitting on the
+PVC while the CronJob reports success — a green backup job means the copy really
+did leave the cluster.
+
+For MinIO or another self-hosted store, set `endpoint` to its URL:
+
+```yaml
+backup:
+  s3:
+    enabled: true
+    bucket: trueppm-backups
+    endpoint: http://minio.storage.svc.cluster.local:9000
+    region: us-east-1
+    existingSecret: trueppm-backup-s3
+```
+
+Setting `endpoint` switches the upload to **path-style addressing**
+(`endpoint/bucket/key` rather than `bucket.endpoint/key`), which is what a
+self-hosted store reached by IP or by a single hostname can actually serve.
+
+:::note[Why the job has two containers]
+With `s3.enabled`, the CronJob runs an initContainer that dumps and a main
+container that uploads. They use different images because no stock image carries
+both `pg_dump` and an S3 client — `postgres:16-alpine` has the PostgreSQL client
+binaries and neither `aws` nor `mc`. Override the uploader with
+`backup.s3.image` if you would rather supply your own.
+
+The chart's own NetworkPolicies do not restrict egress from the backup pod. If
+your cluster applies a default-deny egress policy of its own, allow the backup
+pod (`app.kubernetes.io/component: backup`) to reach your object store, or the
+upload will time out.
+:::
 
 To include local-disk media in the scheduled artifact, set `backup.mediaDir` and
 mount your media claim read-only via `backup.extraVolumes` /
 `backup.extraVolumeMounts`.
 
-:::caution
-`keepWeekly` is **advisory** — the in-cluster CronJob does not promote dailies to
-weeklies. Enforce longer retention with your object store's lifecycle rules (S3)
-or an external sweep. Treat the PVC as a staging area, not your only copy: a
-backup that lives on the same cluster as the database it protects does not survive
-a cluster loss. Replicate the artifact off-cluster.
+:::caution[Retention is local-only]
+**Neither `keepDaily` nor `keepWeekly` ever deletes anything from your bucket.**
+`keepDaily` prunes the local output directory to the N newest artifacts;
+`keepWeekly` is advisory metadata and the CronJob does not promote dailies to
+weeklies. Remote retention is your object store's **lifecycle policy** — set one,
+or the bucket grows without bound. This division is deliberate: a scheduled job
+that deletes remote backups is the one component whose bug destroys the thing it
+exists to protect.
+
+Treat the PVC as a staging area, not your only copy: a backup that lives on the
+same cluster as the database it protects does not survive a cluster loss.
 :::
 
 ## Restore drills

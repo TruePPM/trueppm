@@ -7373,6 +7373,76 @@
                 }
             }
         },
+        "/api/v1/programs/{id}/import/jobs/{job_id}/": {
+            "get": {
+                "operationId": "v1_programs_import_jobs_retrieve",
+                "description": "Poll an async seed import job (ADR-0726, #2574).\n\nThe mirror of ``export_job_detail``, and scoped the same way: the job is\nlooked up against the resolved (membership-checked) program, so a\n``job_id`` belonging to another program 404s rather than leaking\n(object-level IDOR guard).",
+                "summary": "Poll one async program seed import job's status",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "job_id",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f-]{36}$"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "import-export"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProgramImportJob"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/programs/{id}/integrations-summary/": {
             "get": {
                 "operationId": "v1_programs_integrations_summary_retrieve",
@@ -12100,39 +12170,12 @@
                         "required": true
                     },
                     {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "page",
-                        "required": false,
-                        "in": "query",
-                        "description": "A page number within the paginated result set.",
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
                         "in": "path",
                         "name": "program_pk",
                         "schema": {
                             "type": "string"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -12151,7 +12194,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/PaginatedWebhookDeliveryList"
+                                    "$ref": "#/components/schemas/WebhookDeliveryCursorPage"
                                 }
                             }
                         },
@@ -12325,8 +12368,8 @@
         "/api/v1/programs/import/": {
             "post": {
                 "operationId": "v1_programs_import_create",
-                "description": "Import a JSON seed document, creating (or replacing) a program.\n\nAccepts either a ``file`` multipart upload or a raw JSON body. The caller\nbecomes the program OWNER (same authorization as ``create`` — any\nauthenticated user may create a program). ``create_users`` is forced off:\nimporting a seed on a live instance must never mint arbitrary logins.\n\nRate-limited to the ``seed_import`` scope (:class:`SeedImportThrottle`),\nwhich replaces the viewset's general ``user`` default: this runs the same\nimporter as ``load_sample`` — a program teardown plus a full synchronous\nrebuild — on a payload the *caller* sizes, so an unbounded loop here is\nthe cheaper of the two exhaustion vectors (#2402).\n\nPermission parity (#1957): import stays ``IsAuthenticated`` (via the\nget_permissions default) deliberately, because program ``create`` is\nlikewise ``IsAuthenticated`` — both mint a brand-new program owned by the\ncaller, touching no existing data. Import is not tightened beyond create;\nif create ever becomes workspace-gated, this action must move with it.",
-                "summary": "Import a JSON seed bundle as a new program",
+                "description": "Queue a JSON seed import, returning ``202`` with the program and job ids.\n\nAccepts either a ``file`` multipart upload or a raw JSON body. The caller\nbecomes the program OWNER (same authorization as ``create`` — any\nauthenticated user may create a program). ``create_users`` is forced off:\nimporting a seed on a live instance must never mint arbitrary logins.\n\n**The split (ADR-0726 §4).** Validation, the replace decision, the\nreplacement itself, and the program shell all happen *here*, inside the\nrequest; only the O(n) subtree build is queued. Two reasons, both\ndeliberate: a destructive act belongs in the request the operator\nauthorized rather than behind a queue, and resolving the collision here\ncloses the TOCTOU window between \"nothing collides\" and a worker deleting\nsomething. What is left to the worker is purely additive, which is why a\n100k-entity document no longer 504s mid-transaction (#2574).\n\n**Replacement requires consent (#2581).** A live program of the caller's\nwhose ``code`` matches this seed's slug is refused with ``409`` unless\n``replace=true`` is sent. Confirmed, its projects are **soft**-deleted —\nthey land in project Trash individually, as standalone projects, and\noffline clients receive tombstones. The program shell itself is not\nrecoverable; there is no program Trash (#2587).\n\nRate-limited to the ``seed_import`` scope (:class:`SeedImportThrottle`).\nThe bucket now bounds *job creation* rather than request CPU, which is\nthe correct unit once the build is async — paired with the per-program\nin-flight de-dupe in ``enqueue_program_import``, that is what keeps this\nfrom trading a CPU exhaustion vector for a queue backlog.\n\nPermission parity (#1957): import stays ``IsAuthenticated`` (via the\nget_permissions default) deliberately, because program ``create`` is\nlikewise ``IsAuthenticated``. The *replace* is separately scoped to\nprograms the caller owns outright (#994), so the looser gate on create\nnever widens what a seed can destroy.",
+                "summary": "Queue a JSON seed bundle as a new program",
                 "tags": [
                     "import-export"
                 ],
@@ -12334,21 +12377,20 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/ProgramRequest"
+                                "$ref": "#/components/schemas/SeedImportRequestRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/ProgramRequest"
+                                "$ref": "#/components/schemas/SeedImportRequestRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/ProgramRequest"
+                                "$ref": "#/components/schemas/SeedImportRequestRequest"
                             }
                         }
-                    },
-                    "required": true
+                    }
                 },
                 "security": [
                     {
@@ -12362,15 +12404,28 @@
                     }
                 ],
                 "responses": {
-                    "201": {
+                    "202": {
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Program"
+                                    "$ref": "#/components/schemas/SeedImportQueuedResponse"
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "Import queued (ADR-0726). The program shell exists at `program_id` immediately; its projects and tasks are built in the background. Poll GET /programs/{program_id}/import/jobs/{import_request_id}/ until `status` is 'success' or 'failed'."
+                    },
+                    "400": {
+                        "description": "Unreadable request, or a document that fails validation."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SeedReplaceConflictResponse"
+                                }
+                            }
+                        },
+                        "description": "A live program you own already holds this seed's slug. Re-send with `replace=true` to confirm; optionally pin the target with `expected_program_id`. The replaced program's projects move to Trash individually as standalone projects; the program shell itself is not recoverable. `code` is `seed_replace_required`, `seed_replace_mismatch`, or `seed_replace_ambiguous`."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -17405,7 +17460,7 @@
         "/api/v1/projects/{id}/sync/": {
             "get": {
                 "operationId": "v1_projects_sync_retrieve",
-                "description": "Pull-only delta sync endpoint for the mobile offline store.\n\nReturns all rows (live and soft-deleted) whose ``sync_seq`` is strictly\ngreater than `since` for the given project, formatted for WatermelonDB's\nsynchronize() helper.\n\n``sync_seq`` — not ``server_version`` — is the cursor (ADR-0686, #2491). It is\ndrawn from the project's own monotonic sequence, so every synced row in the\nproject is totally ordered against every other one and the project-wide\nmaximum is a meaningful checkpoint. ``server_version`` counts a single row's\nsaves; comparing it against that maximum let a frequently-edited row raise the\ncheckpoint above every other row's counter and drop those rows from the delta\npermanently.\n\nThe response `timestamp` is snapshotted *before* the delta queries run\n(inside REPEATABLE READ isolation) to eliminate the TOCTOU gap where a\nwrite could land between the watermark read and the row queries.\n\nUsage:\n    GET /api/v1/projects/{pk}/sync/?since=0",
+                "description": "Pull-only delta sync endpoint for the mobile offline store.\n\nReturns all rows (live and soft-deleted) whose ``sync_seq`` is strictly\ngreater than `since` for the given project, formatted for WatermelonDB's\nsynchronize() helper.\n\n``sync_seq`` — not ``server_version`` — is the cursor (ADR-0686, #2491). It is\ndrawn from the project's own monotonic sequence, so every synced row in the\nproject is totally ordered against every other one and the project-wide\nmaximum is a meaningful checkpoint. ``server_version`` counts a single row's\nsaves; comparing it against that maximum let a frequently-edited row raise the\ncheckpoint above every other row's counter and drop those rows from the delta\npermanently.\n\nThe response `timestamp` is snapshotted *before* the delta queries run\n(inside REPEATABLE READ isolation) to eliminate the TOCTOU gap where a\nwrite could land between the watermark read and the row queries. It is\nsnapshotted once per *paging session*, not per request: continuation pages\necho the value pinned in the cursor (#2568).\n\nUsage:\n    GET /api/v1/projects/{pk}/sync/?since=0",
                 "summary": "Pull the offline sync delta for a project",
                 "parameters": [
                     {
@@ -20418,7 +20473,14 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectHistoryPage"
+                                }
+                            }
+                        },
+                        "description": ""
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -28180,39 +28242,12 @@
                         "required": true
                     },
                     {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "page",
-                        "required": false,
-                        "in": "query",
-                        "description": "A page number within the paginated result set.",
-                        "schema": {
-                            "type": "integer"
-                        }
-                    },
-                    {
                         "in": "path",
                         "name": "project_pk",
                         "schema": {
                             "type": "string"
                         },
                         "required": true
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -28231,7 +28266,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/PaginatedWebhookDeliveryList"
+                                    "$ref": "#/components/schemas/WebhookDeliveryCursorPage"
                                 }
                             }
                         },
@@ -32215,6 +32250,7 @@
             "get": {
                 "operationId": "v1_sprints_duration_events_retrieve",
                 "description": "Read the sprint's mid-sprint duration-change events (ADR-0151, issue 1254).\n\nRead-only; any project member (Viewer+) — the team-readable audit that\nsurfaces on the sprint changes-log so a duration change made during the\nsprint is visible alongside scope changes. The per-task read action\nalready exists; this per-sprint aggregate exists so the changes-log does\nnot fan out one request per sprint task. No mutation, no new table.",
+                "summary": "Duration-change audit events captured during a sprint (ADR-0151, #1254)",
                 "parameters": [
                     {
                         "in": "path",
@@ -32246,7 +32282,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Sprint"
+                                    "$ref": "#/components/schemas/SprintDurationChangeEventList"
                                 }
                             }
                         },
@@ -32268,8 +32304,7 @@
                             }
                         }
                     }
-                },
-                "summary": "Retrieve duration event"
+                }
             }
         },
         "/api/v1/sprints/{id}/incoming_carryover/": {
@@ -37667,6 +37702,7 @@
             "get": {
                 "operationId": "v1_workspace_audit_events_list",
                 "description": "GET /api/v1/workspace/audit-events/ — operational audit log (ADR-0157, #859).\n\nOwner/Admin only (``IsWorkspaceAuditViewer``). Cursor-paginated, newest first.\nOptional filters, all ANDed: ``?event_type=`` (an ``AuditEventType`` value),\n``?actor=`` (user id), ``?since=`` / ``?until=`` (ISO-8601 on ``created_at``).",
+                "summary": "List workspace audit events",
                 "parameters": [
                     {
                         "in": "query",
@@ -37717,10 +37753,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "array",
-                                    "items": {
-                                        "$ref": "#/components/schemas/AuditEvent"
-                                    }
+                                    "$ref": "#/components/schemas/AuditEventCursorPage"
                                 }
                             }
                         },
@@ -37742,8 +37775,7 @@
                             }
                         }
                     }
-                },
-                "summary": "Retrieve audit event"
+                }
             }
         },
         "/api/v1/workspace/email-settings/": {
@@ -40690,6 +40722,32 @@
                     "target_type"
                 ]
             },
+            "AuditEventCursorPage": {
+                "type": "object",
+                "properties": {
+                    "next": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true
+                    },
+                    "previous": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AuditEvent"
+                        }
+                    }
+                },
+                "required": [
+                    "next",
+                    "previous",
+                    "results"
+                ]
+            },
             "BacklogItem": {
                 "type": "object",
                 "description": "Read/write serializer for program backlog items (ADR-0069, #737).\n\n``program`` is bound by URL (set in the view's ``perform_create``) and is\nread-only here so a client cannot retarget an item to another program by\npayload. ``pulled_*`` are read-only — they are written only by the ``pull``\naction via ``backlog_services``. ``status`` is writable for archive /\nun-archive (PROPOSED ↔ ARCHIVED) but ``validate_status`` rejects a direct\nset to ``PULLED``: the only PROPOSED→PULLED path is the ``pull`` action.\n``tags`` is a free-form list of short strings.\n\n``pulled_task_project_*`` expose where a PULLED item landed (#1994): the list\nserializer returned only the task *id*, so the web client knew the project\nonly optimistically (from the pull the user just performed) and lost it after\na reload — the \"Pulled\" row could no longer say where the item went, and no\ndeep-link to the created task was reconstructable. These read-only fields\ncarry the target project id + name so wayfinding survives a refetch. Both are\n``None`` for a not-yet-pulled item (DRF short-circuits the source traversal\nwhen ``pulled_task`` is ``None``); ``get_queryset`` select_relates\n``pulled_task__project`` so they cost no extra query.",
@@ -43448,6 +43506,49 @@
                     "status"
                 ]
             },
+            "HistoryRecord": {
+                "type": "object",
+                "description": "One change record: when it happened, what changed, and (for Admins) by whom.\n\n``history_user`` is null for callers below Admin, so a client must treat it as\noptional rather than assume the actor is always present.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "history_date": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "history_type": {
+                        "type": "string"
+                    },
+                    "history_change_reason": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "history_user": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "diff": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "diff",
+                    "history_change_reason",
+                    "history_date",
+                    "history_type",
+                    "history_user",
+                    "id"
+                ]
+            },
             "InboundTaskSyncPayloadRequest": {
                 "type": "object",
                 "description": "Validates the inbound push payload.\n\nLoose by design: most fields are optional so a wide range of external\nsources can integrate without re-shaping their data.  Strict only on the\nidentifiers (``source``, ``external_id``) and on the assignee email\nformat.",
@@ -46195,37 +46296,6 @@
                     }
                 }
             },
-            "PaginatedWebhookDeliveryList": {
-                "type": "object",
-                "required": [
-                    "count",
-                    "results"
-                ],
-                "properties": {
-                    "count": {
-                        "type": "integer",
-                        "example": 123
-                    },
-                    "next": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=4"
-                    },
-                    "previous": {
-                        "type": "string",
-                        "nullable": true,
-                        "format": "uri",
-                        "example": "http://api.example.org/accounts/?page=2"
-                    },
-                    "results": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/WebhookDelivery"
-                        }
-                    }
-                }
-            },
             "PaginatedWebhookList": {
                 "type": "object",
                 "required": [
@@ -47612,21 +47682,6 @@
                         "minimum": 0,
                         "nullable": true
                     },
-                    "estimate_status": {
-                        "nullable": true,
-                        "description": "Approval state for three-point estimates (suggest_approve mode only).\n\n* `pending` - Pending Approval\n* `accepted` - Accepted",
-                        "oneOf": [
-                            {
-                                "$ref": "#/components/schemas/EstimateStatusEnum"
-                            },
-                            {
-                                "$ref": "#/components/schemas/BlankEnum"
-                            },
-                            {
-                                "$ref": "#/components/schemas/NullEnum"
-                            }
-                        ]
-                    },
                     "blocked_reason": {
                         "type": "string",
                         "description": "Why the task is blocked; empty means not blocked."
@@ -48954,6 +49009,88 @@
                     "file_size",
                     "id",
                     "program",
+                    "started_at",
+                    "status"
+                ]
+            },
+            "ProgramImportJob": {
+                "type": "object",
+                "description": "Read serializer for an async program seed import job (ADR-0726, #2574).\n\nWhat the client polls after its ``202``. ``result_summary`` carries the entity\ncounts on success and ``error_detail`` the reason on failure — both live on the\nrow rather than only in the worker log, because an async import failure has to\nbe visible on the surface that launched it or the job handle buys nothing.\n\n``file_path`` is deliberately **not** exposed: it is a storage key for the\nuploaded payload, and the job status surface is not a file-read surface.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "program": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/WorkspaceExportJobStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "filename": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "replace": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "replaced_program_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "result_summary": {
+                        "readOnly": true
+                    },
+                    "error_detail": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "completed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "completed_at",
+                    "created_at",
+                    "error_detail",
+                    "expires_at",
+                    "filename",
+                    "id",
+                    "program",
+                    "replace",
+                    "replaced_program_id",
+                    "result_summary",
                     "started_at",
                     "status"
                 ]
@@ -50893,6 +51030,40 @@
                     "name"
                 ]
             },
+            "ProjectHistoryPage": {
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer"
+                    },
+                    "next": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true
+                    },
+                    "previous": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/HistoryRecord"
+                        }
+                    },
+                    "count_truncated": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "count",
+                    "count_truncated",
+                    "next",
+                    "previous",
+                    "results"
+                ]
+            },
             "ProjectMembershipRead": {
                 "type": "object",
                 "description": "Response serializer — includes user_detail and role_label for list/retrieve.\n\nrole                       — integer ordinal (canonical wire format; use for comparisons)\nrole_label                 — human-readable label e.g. \"Project Manager\" (display only)\njoined_at                  — when this membership row was created (per-project access evidence)\nrole_changed_at            — when the role last changed, or null if unchanged since joining\nother_active_project_count — how many OTHER active (non-archived, non-deleted) projects this\n                             user belongs to, excluding the current one. A resource-load\n                             signal for the assigner (#598). The full count is shown; it is a\n                             number only and leaks no project identities.\nother_active_project_names — names of those other projects, but ONLY the ones the *requesting*\n                             user is OWNER of (visibility gate — never reveal the name of a\n                             project the requester cannot already see). Empty for non-OWNERs.",
@@ -52665,6 +52836,95 @@
                 "type": "string",
                 "description": "* `legacy:full` - legacy:full\n* `mcp:read` - mcp:read"
             },
+            "SeedImportQueuedResponse": {
+                "type": "object",
+                "properties": {
+                    "queued": {
+                        "type": "boolean"
+                    },
+                    "program_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "import_request_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "replaced_program_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "import_request_id",
+                    "program_id",
+                    "queued",
+                    "replaced_program_id"
+                ]
+            },
+            "SeedImportRequestRequest": {
+                "type": "object",
+                "description": "The two consent fields on ``POST /programs/import/`` (ADR-0726 §1).\n\nDeclared as a serializer rather than read off ``request.data`` so\ndrf-spectacular describes them and the OpenAPI schema tells a client how to\nconfirm a destructive re-import without reading the source.\n\n``replace`` is the blunt confirmation. ``expected_program_id`` is the\ncompare-and-swap: when supplied it must equal the program that would actually\nbe replaced, which protects a client acting on an earlier dry run from a\ncollision set that moved underneath it. Neither is required — and the default\nof both absent is a refusal, which is the point.\n\nThe seed document itself arrives as a multipart ``file`` or as the JSON body,\nso this serializer deliberately validates neither.",
+                "properties": {
+                    "replace": {
+                        "type": "boolean",
+                        "default": false
+                    },
+                    "expected_program_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    }
+                }
+            },
+            "SeedReplaceConflict": {
+                "type": "object",
+                "properties": {
+                    "program_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "code": {
+                        "type": "string"
+                    },
+                    "project_count": {
+                        "type": "integer"
+                    },
+                    "task_count": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "code",
+                    "name",
+                    "program_id",
+                    "project_count",
+                    "task_count"
+                ]
+            },
+            "SeedReplaceConflictResponse": {
+                "type": "object",
+                "properties": {
+                    "detail": {
+                        "type": "string"
+                    },
+                    "code": {
+                        "type": "string"
+                    },
+                    "conflict": {
+                        "$ref": "#/components/schemas/SeedReplaceConflict"
+                    }
+                },
+                "required": [
+                    "code",
+                    "conflict",
+                    "detail"
+                ]
+            },
             "SeedValidateResponse": {
                 "type": "object",
                 "properties": {
@@ -52697,6 +52957,9 @@
                     },
                     "resource_count": {
                         "type": "integer"
+                    },
+                    "replaces": {
+                        "$ref": "#/components/schemas/SeedReplaceConflict"
                     }
                 },
                 "required": [
@@ -52704,6 +52967,7 @@
                     "program_name",
                     "program_slug",
                     "project_count",
+                    "replaces",
                     "resource_count",
                     "schema_version",
                     "task_count",
@@ -53384,6 +53648,90 @@
                     "until"
                 ]
             },
+            "SprintDurationChangeEvent": {
+                "type": "object",
+                "description": "One duration-change event in a sprint's changes-log (ADR-0151).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "task_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "old_duration": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "new_duration": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "percent_complete_at_change": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true
+                    },
+                    "percent_complete_after": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "policy_applied": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/PolicyAppliedEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "actor_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "actor_name",
+                    "created_at",
+                    "id",
+                    "new_duration",
+                    "old_duration",
+                    "percent_complete_after",
+                    "percent_complete_at_change",
+                    "policy_applied",
+                    "task_id",
+                    "task_name"
+                ]
+            },
+            "SprintDurationChangeEventList": {
+                "type": "object",
+                "properties": {
+                    "events": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SprintDurationChangeEvent"
+                        }
+                    }
+                },
+                "required": [
+                    "events"
+                ]
+            },
             "SprintForecast": {
                 "type": "object",
                 "description": "Unified backlog delivery forecast response (#487, ADR-0130 D3 #1161).\n\nP50/P80/P95 calendar dates for clearing the remaining backlog at the team's\nhistorical pace, from one of two bases:\n\n- **velocity** (closed-sprint story points): ``forecast_basis=\"velocity\"``,\n  ``remaining_points`` + ``p50/p80_sprints`` populated, ``status`` ``\"ready\"``\n  once there are ≥2 closed sprints and a backlog, else ``\"warming_up\"``.\n- **throughput** (weekly item completions — a continuous-flow / kanban team):\n  ``forecast_basis=\"throughput\"``, ``remaining_count`` populated, ``status``\n  ``\"ready\"`` once there are ≥4 non-zero throughput weeks and a backlog, else\n  the honest ``\"insufficient_flow_history\"`` (no false precision).\n\n``forecast_basis`` is the ADR-0130 D3 input discriminator so a consumer never\ncompares a throughput forecast to a velocity one unknowingly. ``basis`` is kept\nas the legacy ``\"monte_carlo\"`` constant for existing clients; both bases are\nreal Monte Carlo simulations, so percentile vocabulary is honest (web-rule 166).\n\nThe forecast *dates* follow the velocity precedent under ADR-0104/0130 D4 —\nschedule confidence remains visible — but every velocity/throughput-derived\nfield is nulled for readers below the relevant signal audience, in which case\n``velocity_suppressed`` is true.",
@@ -54036,7 +54384,7 @@
                     },
                     "timestamp": {
                         "type": "integer",
-                        "description": "High-water mark to adopt as `since` once the delta is fully drained (after the last page)."
+                        "description": "High-water mark to adopt as `since` once the delta is fully drained (after the last page). Pinned when the session's first page is served and identical on every page of that session. On the project pull, whose cursor is the project's monotonic `sync_seq`, that means a row written into an already-drained collection mid-drain still falls above the adopted checkpoint and arrives on the next pull. The program pull keys on the per-row `server_version` rather than a session sequence, so pinning stops its checkpoint climbing mid-drain but does not yet deliver that guarantee — see issue #2498."
                     },
                     "next_cursor": {
                         "type": "string",
@@ -54308,14 +54656,12 @@
                         "nullable": true
                     },
                     "estimate_status": {
+                        "readOnly": true,
                         "nullable": true,
                         "description": "Approval state for three-point estimates (suggest_approve mode only).\n\n* `pending` - Pending Approval\n* `accepted` - Accepted",
                         "oneOf": [
                             {
                                 "$ref": "#/components/schemas/EstimateStatusEnum"
-                            },
-                            {
-                                "$ref": "#/components/schemas/BlankEnum"
                             },
                             {
                                 "$ref": "#/components/schemas/NullEnum"
@@ -54715,6 +55061,7 @@
                     "dwell_days",
                     "early_finish",
                     "early_start",
+                    "estimate_status",
                     "external_link_summary",
                     "free_float",
                     "has_recurrence",
@@ -55891,21 +56238,6 @@
                         "maximum": 36525,
                         "minimum": 0,
                         "nullable": true
-                    },
-                    "estimate_status": {
-                        "nullable": true,
-                        "description": "Approval state for three-point estimates (suggest_approve mode only).\n\n* `pending` - Pending Approval\n* `accepted` - Accepted",
-                        "oneOf": [
-                            {
-                                "$ref": "#/components/schemas/EstimateStatusEnum"
-                            },
-                            {
-                                "$ref": "#/components/schemas/BlankEnum"
-                            },
-                            {
-                                "$ref": "#/components/schemas/NullEnum"
-                            }
-                        ]
                     },
                     "blocked_reason": {
                         "type": "string",
@@ -57257,6 +57589,32 @@
                     "response_status",
                     "sequence_number",
                     "status"
+                ]
+            },
+            "WebhookDeliveryCursorPage": {
+                "type": "object",
+                "properties": {
+                    "next": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true
+                    },
+                    "previous": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/WebhookDelivery"
+                        }
+                    }
+                },
+                "required": [
+                    "next",
+                    "previous",
+                    "results"
                 ]
             },
             "WebhookDeliveryStatusEnum": {

@@ -7,7 +7,7 @@ import logging
 import redis as redis_lib
 from django.db import transaction
 from django.db.models import QuerySet
-from drf_spectacular.utils import extend_schema, inline_serializer
+from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
 from kombu.exceptions import (  # type: ignore[import-untyped]
     OperationalError as KombuOperationalError,
 )
@@ -60,6 +60,26 @@ class WebhookDeliveryCursorPagination(CursorPagination):
     page_size = 50
     page_size_query_param = "page_size"
     max_page_size = 200
+
+
+# The real 200 body of a webhook's delivery log. Declared once and shared by the
+# project- and program-scoped viewsets so both publish the identical component
+# (two `inline_serializer` calls with the same name would be a duplicate-component
+# hazard). This action paginates with a CURSOR while its viewset's own
+# pagination_class is page-number, and drf-spectacular's auto-wrap reads the class
+# attribute — so a `many=True` response was wrapped in the page-number envelope and
+# published `count` as *required* for a body that never carries one. Same defect
+# class as #2583's named instances: a client typing `count` as non-optional breaks
+# on first call. Declare the envelope rather than lean on a heuristic that cannot
+# see which paginator actually runs.
+WEBHOOK_DELIVERY_PAGE = inline_serializer(
+    name="WebhookDeliveryCursorPage",
+    fields={
+        "next": serializers.URLField(allow_null=True),
+        "previous": serializers.URLField(allow_null=True),
+        "results": WebhookDeliverySerializer(many=True),
+    },
+)
 
 
 class WebhookViewSet(
@@ -179,7 +199,16 @@ class WebhookViewSet(
 
     @extend_schema(
         summary="List recent webhook deliveries",
-        responses={200: WebhookDeliverySerializer(many=True)},
+        responses={200: WEBHOOK_DELIVERY_PAGE},
+        # Pinned because declaring the envelope changes what drf-spectacular
+        # thinks this operation is. It derives the operationId's `_list`/
+        # `_retrieve` suffix from whether the 200 is a ``many=True`` serializer,
+        # so switching to an object envelope silently renamed
+        # ``…_deliveries_list`` to ``…_deliveries_retrieve`` — and operationId is
+        # the *method name* in a generated client. Fixing a broken response type
+        # by breaking every caller's method name would trade one #2583 for
+        # another, so the shipped id is held fixed.
+        operation_id="v1_projects_webhooks_deliveries_list",
     )
     @action(detail=True, methods=["get"], url_path="deliveries")
     def deliveries(self, request: Request, **kwargs: object) -> Response:
@@ -198,6 +227,20 @@ class WebhookViewSet(
         return paginator.get_paginated_response(serializer.data)
 
 
+@extend_schema_view(
+    # Annotates the INHERITED action rather than redefining it. A single pinned
+    # operation_id on the base class would publish the same id on both the
+    # project- and program-scoped paths — a duplicate-operationId collision — so
+    # each concrete viewset needs its own. `extend_schema_view` does that without
+    # a subclass override, which would duplicate the handler for no runtime
+    # reason. See WebhookViewSet.deliveries for why the envelope must be explicit
+    # and why the id is pinned at all (#2583).
+    deliveries=extend_schema(
+        summary="List recent webhook deliveries",
+        responses={200: WEBHOOK_DELIVERY_PAGE},
+        operation_id="v1_programs_webhooks_deliveries_list",
+    )
+)
 class ProgramWebhookViewSet(WebhookViewSet):
     """CRUD for outbound webhooks scoped to a program (ADR-0076).
 

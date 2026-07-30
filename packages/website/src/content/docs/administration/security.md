@@ -238,6 +238,81 @@ the operator-facing highlights:
   demo-seed tiers — and applying a default-deny **egress** posture to the datastore
   pods themselves. See [datastore network isolation](#datastore-network-isolation)
   for what enforcement requires and how it is verified.
+- **Django admin denied at the edge** (`web.adminAccess.allowCIDRs: []`). The web
+  tier's nginx answers `403` for `/admin/` from every source until you name one,
+  and rate-limits the surface at 5 requests/minute per IP. See
+  [Reaching Django admin](#reaching-django-admin).
+
+### Reaching Django admin
+
+The web tier **denies `/admin/` by default**, and this is deliberate rather than
+conservative. Django admin is a plain Django view, so none of the API's DRF login
+throttle scopes apply to it; there is no account-lockout backend in the
+dependency set; and the [admin bootstrap](/administration/admin-password/)
+creates a superuser on every deploy. An unrestricted `/admin/` on an
+ingress-exposed install is therefore an unthrottled credential-guessing surface
+against a known-present privileged account.
+
+**The recommended access path needs no chart change and no exposure at all.**
+Port-forward straight to the API Service, bypassing the web tier:
+
+```bash
+# Resolve the API Service by label — the chart's fullname helper collapses the
+# release name when it already contains "trueppm", so `helm install trueppm ...`
+# yields `trueppm-api` while `helm install foo ...` yields `foo-trueppm-api`.
+kubectl port-forward "svc/$(kubectl get svc \
+  -l app.kubernetes.io/component=api \
+  -o jsonpath='{.items[0].metadata.name}')" 8000:8000
+# then visit http://localhost:8000/admin/
+```
+
+This is the in-cluster equivalent of the SSH tunnel the Docker Compose
+deployment documents inline (`ssh -L 8443:127.0.0.1:443 user@yourserver`), and it
+is the right answer for the occasional administrative task.
+
+If you genuinely need `/admin/` on the public listener — a jump host or an office
+egress range, for example — allowlist it explicitly:
+
+```yaml
+web:
+  adminAccess:
+    allowCIDRs:
+      - 203.0.113.0/24
+```
+
+:::caution[Allowlists and proxied client IPs]
+nginx matches `allowCIDRs` against `$remote_addr`. Behind an Ingress controller
+that is the **controller's pod IP**, not the operator's address — so an allowlist
+can be simultaneously useless (your real address never matches) and dangerously
+permissive (the whole cluster pod CIDR matches). It is only meaningful when the
+web tier sees real client addresses: a `LoadBalancer` with
+`externalTrafficPolicy: Local`, a `hostPort`, or an ingress configured to
+preserve the source IP. When in doubt, leave it empty and port-forward.
+:::
+
+To remove the path from the public listener entirely — nginx returns `404`
+instead of `403`, so the surface is not even advertised — set:
+
+```yaml
+web:
+  adminAccess:
+    enabled: false
+```
+
+Port-forwarding still works, because it never traverses nginx.
+
+:::danger[This control does not apply when `web.enabled: false`]
+`adminAccess` is enforced by the web tier's nginx. If you disable the web tier
+to front the SPA from your own CDN, the chart-managed Ingress routes `/`
+**straight to the API Service**, and Django serves `/admin/` there with no
+allowlist and no rate limit — the same exposure this setting exists to prevent.
+
+If you run `web.enabled: false` with a public Ingress, you must restrict
+`/admin/` at your own edge (ingress-controller annotation, WAF, or CDN rule).
+The same applies if you change `service.type` away from `ClusterIP`, or add an
+`ingress.hosts[].paths[]` entry that targets `service: api` — any path that
+reaches the API Service directly bypasses the nginx control.
+:::
 
 ### Datastore network isolation
 

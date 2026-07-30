@@ -74,6 +74,56 @@ function DecisionRow({ decision, projectId }: { decision: DecisionNote; projectI
   );
 }
 
+/**
+ * Everything the panel shows instead of a decision list, worst-first.
+ *
+ * Locked outranks loading outranks error outranks empty: a viewer without
+ * visibility must be told that first, because for them the other three states
+ * are indistinguishable from "there are no decisions" and would misinform.
+ */
+function DecisionsPlaceholder({
+  isLocked,
+  isLoading,
+  error,
+}: {
+  isLocked: boolean;
+  isLoading: boolean;
+  error: unknown;
+}) {
+  if (isLocked) {
+    return (
+      <p className="rounded border border-neutral-border bg-neutral-surface-raised p-4 text-sm text-neutral-text-secondary">
+        Decisions are visible to the team and project managers. A project admin can extend
+        visibility to oversight stakeholders.
+      </p>
+    );
+  }
+  if (isLoading) {
+    return (
+      <div className="flex flex-col gap-2" aria-busy="true" aria-label="Loading decisions">
+        {[0, 1, 2].map((i) => (
+          <div
+            key={i}
+            className="h-16 rounded border border-neutral-border bg-neutral-surface-raised motion-safe:animate-pulse"
+          />
+        ))}
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <p className="text-sm text-semantic-critical" role="alert">
+        Couldn&apos;t load decisions.
+      </p>
+    );
+  }
+  return (
+    <p className="px-1 text-sm text-neutral-text-secondary">
+      No decisions recorded yet — mark a task note as a Decision to start the log.
+    </p>
+  );
+}
+
 export function DecisionsPanel({ projectId }: { projectId: string }) {
   const itl = useIterationLabel();
   const [scope, setScope] = useState<Scope>('all');
@@ -152,28 +202,12 @@ export function DecisionsPanel({ projectId }: { projectId: string }) {
         })}
       </div>
 
-      {isLocked ? (
-        <p className="rounded border border-neutral-border bg-neutral-surface-raised p-4 text-sm text-neutral-text-secondary">
-          Decisions are visible to the team and project managers. A project admin can extend
-          visibility to oversight stakeholders.
-        </p>
-      ) : isLoading ? (
-        <div className="flex flex-col gap-2" aria-busy="true" aria-label="Loading decisions">
-          {[0, 1, 2].map((i) => (
-            <div
-              key={i}
-              className="h-16 rounded border border-neutral-border bg-neutral-surface-raised motion-safe:animate-pulse"
-            />
-          ))}
-        </div>
-      ) : error ? (
-        <p className="text-sm text-semantic-critical" role="alert">
-          Couldn&apos;t load decisions.
-        </p>
-      ) : decisions.length === 0 ? (
-        <p className="px-1 text-sm text-neutral-text-secondary">
-          No decisions recorded yet — mark a task note as a Decision to start the log.
-        </p>
+      {isLocked || isLoading || error || decisions.length === 0 ? (
+        <DecisionsPlaceholder
+          isLocked={isLocked}
+          isLoading={isLoading}
+          error={error}
+        />
       ) : (
         <div className="flex flex-col gap-5">
           {groups.map((g) => (

@@ -17,6 +17,21 @@ between releases. Pin an exact version (e.g. `trueppm-scheduler==0.4.0b1`).
 
 ### Fixed
 
+- **`monte_carlo()` ignored the `planned_start` floor and every predecessor
+  constraint on a task complete by `percent_complete` alone, so its percentiles
+  could land *earlier* than the `schedule()` finish** — a risk forecast
+  under-reporting risk. `_forward_pass` runs this third completed-task branch
+  (100% complete, `actual_start` and `actual_finish` both `None`) through network
+  logic, taking the latest of the project-start anchor, the `planned_start` SNET
+  floor, and each predecessor constraint (ADR-0136). The Monte Carlo pass pinned it
+  at the bare project-start anchor instead: a 10-day task pinned to start two weeks
+  out simulated ten working days early, in every run. Completed tasks' pins are now
+  read off an actual deterministic forward pass rather than a transcription of one,
+  so the branch cannot drift again; both dropped constraints are run-invariant, so
+  the constant pin the vectorized path relies on is preserved. Reachable from any
+  import path that carries `percent_complete` without actuals (MS Project, CSV,
+  Jira), from seed data, and from direct library use, where the caller builds
+  `Task` objects itself (#2572).
 - **`monte_carlo()` mis-anchored successors of a completed task, so its
   percentiles disagreed with the `schedule()` finish.** Both defects broke the
   documented contract that a fully deterministic project simulates to precisely

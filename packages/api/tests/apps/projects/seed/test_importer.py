@@ -243,15 +243,16 @@ def test_import_creates_full_program(owner: Any) -> None:
 
 
 def test_reimport_is_idempotent(owner: Any) -> None:
+    """A *confirmed* re-import rebuilds in place (ADR-0726): one live program."""
     import_seed(_seed(), owner=owner, create_users=True)
-    import_seed(_seed(), owner=owner, create_users=True)
+    import_seed(_seed(), owner=owner, create_users=True, replace=True)
 
-    # exactly one live program with the slug; old subtree hard-deleted
+    # exactly one live program with the slug; the old subtree is tombstoned
     assert Program.objects.filter(code="atlas", is_deleted=False).count() == 1
     program = Program.objects.get(code="atlas", is_deleted=False)
-    assert Project.objects.filter(program=program).count() == 2
+    assert Project.objects.filter(program=program, is_deleted=False).count() == 2
     # tasks belong only to the surviving program
-    assert Task.objects.filter(project__program=program).count() == 3
+    assert Task.objects.filter(project__program=program, is_deleted=False).count() == 3
 
 
 def test_create_users_false_does_not_mint_logins(owner: Any) -> None:
@@ -354,7 +355,7 @@ def test_sample_reload_same_owner_is_idempotent(owner: Any) -> None:
     """#994: re-importing the same sample as the same owner replaces (rebuilds)
     the prior sample program rather than accumulating duplicates."""
     p1 = import_seed(_seed(), owner=owner, create_users=True, is_sample=True)
-    p2 = import_seed(_seed(), owner=owner, create_users=True, is_sample=True)
+    p2 = import_seed(_seed(), owner=owner, create_users=True, is_sample=True, replace=True)
 
     assert Program.objects.filter(code="atlas", is_deleted=False).count() == 1
     assert not Program.objects.filter(pk=p1.pk, is_deleted=False).exists()

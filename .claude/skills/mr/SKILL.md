@@ -112,7 +112,13 @@ Rules:
   `security-review`, `rbac-check`, `perf-check`, `broadcast-check`, `migration-check`,
   `architect`, `ux-design`, `ux-review`, `voc`, `test-scaffold`, `enterprise-check`,
   `ai-review`, `threat-model`, `api-docs`, `dependency`). Exact names matter — the
-  parser matches on them.
+  parser matches on them. Every name above resolves to a skill in `.claude/skills/`
+  with one deliberate exception: `voc` is the established shorthand for the
+  `voice-of-customer` skill, and is the form both CLAUDE.md files and `/kaizen`'s yield
+  query already use — keep writing `voc`. A name in this list that resolves to
+  *nothing* is a phantom gate: the ledger will tally it as covered while it can never
+  run, which is worse than no gate at all (#2612). Before adding a name here, confirm
+  the skill exists.
 - **Design-stage gates belong on the ledger too, and carry their own scope conditions.**
   `architect`, `ux-design`, `voc`, and `enterprise-check` already run before any code
   exists; `ai-review` and `threat-model` are the same shape and record the same way.

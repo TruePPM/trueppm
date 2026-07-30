@@ -32,12 +32,39 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          # --concurrency is PINNED, never left to Celery's cpu_count() default:
+          # cpu_count() reads the node's cores, not the cgroup limit, so an
+          # unpinned worker forks a node-sized prefork pool into a 2Gi pod and
+          # OOMKills the whole background tier at zero load (#2571).
+          #
+          # 0 is rejected rather than passed through: `--concurrency=0` does not
+          # mean "no workers", it means "fall back to the default" — i.e. exactly
+          # the cpu_count() behavior this flag exists to prevent. Failing the
+          # render is the only way that footgun stays unreachable.
+          {{- $concurrency := int (required "celeryWorker.concurrency must be set (Celery's cpu_count() default OOMKills the worker on multi-core nodes)" .Values.celeryWorker.concurrency) }}
+          {{- if lt $concurrency 1 }}
+            {{- fail (printf "celeryWorker.concurrency must be >= 1, got %d — 0 makes Celery fall back to cpu_count(), which is the OOMKill this setting prevents (#2571)" $concurrency) }}
+          {{- end }}
           command:
             - celery
             - -A
             - trueppm_api.celery
             - worker
             - --loglevel=info
+            - --concurrency={{ $concurrency }}
+            {{- with .Values.celeryWorker.maxTasksPerChild }}
+            {{- /* Validated, not interpolated raw: a string value carrying a
+                   newline would otherwise inject extra argv entries into the
+                   command list, and a bare `| int` would silently coerce any
+                   non-numeric value to 0 rather than saying so. */}}
+            {{- if not (regexMatch "^[0-9]+$" (toString .)) }}
+              {{- fail (printf "celeryWorker.maxTasksPerChild must be a non-negative integer, got %q" (toString .)) }}
+            {{- end }}
+            - --max-tasks-per-child={{ . | int }}
+            {{- end }}
+            {{- range .Values.celeryWorker.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
           {{- with .Values.envFrom }}
           envFrom:
             {{- toYaml . | nindent 12 }}

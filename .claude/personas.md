@@ -1,27 +1,27 @@
 # TruePPM — Core Personas
 
-Single source of truth for all ten TruePPM user personas — eight P3M-layer human
-personas (1–8) plus two adoption-critical specialist evaluators (9–10) — and the
+Single source of truth for all eleven TruePPM user personas — eight P3M-layer human
+personas (1–8) plus three adoption-critical specialist evaluators (9–11) — and the
 AI-agent actor note. Skills and CLAUDE.md reference this file — do not duplicate
 persona content elsewhere.
 
 Personas 1–8 are the P3M-layer human roles who *use* TruePPM to run work; they form
-the standard `/voc` panel. Personas 9 (integration/API developer) and 10 (self-hosting
-operator) are **specialist evaluators**: they do not sit on a P3M layer, they gate
-*adoption* — no org runs more than one tool without Nadia's integration passing, and
-OSS adoption begins with Omar's `helm install`. They join the panel **conditionally**,
-only when a feature touches the API/integration surface (Persona 9) or the
-deployment/operations surface (Persona 10). The **AI-agent actor note** at the end is
-not a persona at all — it is a user *class* (an agent acting via the API) whose hard NOs
-`/voc` and `/ai-review` apply as a cross-cutting constraint.
+the standard `/voc` panel. Personas 9 (integration/API developer), 10 (self-hosting
+operator), and 11 (engine-library consumer) are **specialist evaluators**: they do not
+sit on a P3M layer, they gate *adoption* — no org runs more than one tool without
+Nadia's integration passing, OSS adoption begins with Omar's `helm install`, and the
+standalone engine is the cheapest proof a skeptic can run. They join the panel
+**conditionally**, only when a feature touches their surface. The **AI-agent actor
+note** at the end is not a persona at all — it is a user *class* (an agent acting via
+the API) whose hard NOs `/voc` and `/ai-review` apply as a cross-cutting constraint.
 
 ## What these personas are — and are not
 
 **These are modeled personas, not research subjects.** Every persona below was written
 from domain knowledge of the P3M market, competitor pain points, and practitioner
 literature. None was derived from an interview, a survey, a usability session, or a
-support ticket from a named individual. Janet, Marcus, Sarah, Priya and the rest are
-composite hypotheses about who this product is for.
+support ticket from a named individual. Sarah, Marcus, Priya and the rest are composite
+hypotheses about who this product is for.
 
 That makes them genuinely useful and genuinely limited, and the two must not be
 confused:
@@ -39,6 +39,24 @@ confused:
 report, support conversation, or usage measurement exists on a question, it decides —
 the panel does not get a vote against it. The panel governs only the space where no
 real signal exists yet, and that space is meant to shrink every release.
+
+### What changed in the 2026-07 revision, and what did not
+
+The personas were checked against **external market evidence** — vendor end-of-life
+announcements, regulatory deadlines, industry surveys, and practitioner forums — and
+against TruePPM's own published documentation. That evidence is real and summarized in
+the target-market section below.
+
+**The personas built on top of it are still hypotheses.** Grounding the *market* is not
+the same as grounding the *people*. Every persona here remains T0, and nothing in this
+file may be represented as customer feedback.
+
+Research limits worth stating, because they bound what the market section can claim:
+Reddit and Quora block our crawler, so r/projectmanagement, r/agile and r/selfhosted
+could not be read directly; Hacker News and published surveys were substituted. Vendor
+EOL dates and regulatory deadlines are primary and verifiable. Percentage statistics
+circulating from the State of Agile and Gartner reach us via secondary aggregators and
+are directional only — **no conclusion in this file rests on a single such figure.**
 
 ### Grounding tier
 
@@ -61,6 +79,63 @@ against what users actually reported, and the result is recorded in
 `.claude/persona-calibration.md`. That ledger — not the panel's internal confidence — is
 the measure of whether these personas are any good.
 
+**Tiers move in both directions.** A persona that generates **no hits across three
+consecutive calibration cycles** after real signal starts arriving is demoted a tier, or
+retired outright if already T0, and the demotion is recorded in the ledger with the
+cycles it failed. Without a path down, this file can only accrete, and a roster that
+never loses a seat has stopped modeling anything. Retiring a persona is a normal
+outcome, not a failure.
+
+---
+
+## Target markets — the ICP every persona is anchored in
+
+A persona set with no shared customer profile produces scattered findings. Every
+persona below sits inside one of these markets, or is explicitly labeled an outlier.
+
+### Tier 1 — build for these
+
+1. **Sovereignty-constrained technology delivery organizations** (EU plus regulated US
+   verticals, 500–5,000 people). Self-hosting is a compliance *requirement*, not a
+   preference: NIS2 audits fall due June 2026, DORA is live, and the US CLOUD Act
+   collides directly with GDPR Article 48. They employ platform engineers, so Omar
+   genuinely exists there. They run real hybrid — regulated phase gates over agile
+   delivery squads. **This is the best-evidenced market available to us.**
+2. **Jira Data Center refugees, mid-market.** Dated and multi-year: no new Data Center
+   sales after March 2026, renewals ending March 2028, read-only March 2029, behind a
+   500-user minimum that pushes the mid-market off first. The agile-board-coupled-to-
+   the-schedule differentiator is genuine here — no OSS competitor computes a critical
+   path *and* runs sprints on the same object.
+3. **AI-native engineering organizations that need computed answers.** Enterprise
+   guidance now converges on keeping MCP servers read-only until approval workflows
+   exist — which is exactly TruePPM's 0.4 shape, arrived at independently. Deterministic
+   MCP on infrastructure the team controls is defensible while the window is open.
+
+### Tier 2 — serve, do not build for
+
+4. **Microsoft Project Online migrators.** Large and dated (retirement September 2026),
+   but Microsoft still offers Project Server Subscription Edition on-prem, and Planner
+   Premium absorbs the median case. Target only the subset leaving Microsoft entirely.
+   Worth knowing: **Planner Premium caps at 3,000 tasks** — the median migrator is not
+   shopping for P6 scale, and our ~1,000-task Schedule-view ceiling is closer to
+   competitive than it reads.
+5. **Life sciences and medical-device phase-gate program management.** Genuinely
+   waterfall-favored, regulated, hybrid. Blocked until cost/EV lands at 0.8 and would
+   require validation documentation we do not have.
+
+### Tier 3 — funnel, not revenue
+
+6. **The `pip install trueppm-scheduler` developer.** The Python CPM field is GitHub
+   one-offs plus one small PyPI package, so the niche is genuinely empty — but the
+   demand is academic and hobbyist. This is **credibility and top-of-funnel proof, not a
+   revenue segment**, and must be described that way so downloads are never mistaken for
+   pipeline.
+
+### Explicitly out of scope
+
+Construction and field operations · EPC and capital projects · P6-scale schedules ·
+solo and small-team task management. See the anti-personas at the end of this file.
+
 ## TruePPM Collaboration Philosophy
 
 TruePPM is built for **collaborative planning and autonomous execution**. Every persona
@@ -78,7 +153,7 @@ native to their practice, and the translation happens behind the scenes.
 ## P3M Layer → Persona Mapping
 
 ```
-Senior Leadership  ←→  Janet (Executive Sponsor / COO)
+Senior Leadership  ←→  Janet (Executive Sponsor / COO) — conditional panelist
        ↕                   Receives: portfolio performance info, RAG status, forecasts
                            Sends: strategy, investment decisions to Portfolios
 
@@ -86,30 +161,33 @@ Portfolios         ←→  Marcus (PMO Director) + David (Resource Manager)
        ↕                   Receives: performance information and progress from projects
                            Sends: desired outcomes, benefits targets to Programs/Projects
 
-Programs/Projects  ←→  Sarah (Project Manager) + Jordan (Product Owner)
+Programs/Projects  ←→  Sarah (Delivery/Program Manager) + Jordan (Product Owner)
        ↕                   Receives: outcomes/benefits targets from portfolio
                            Sends: deliverables + support info to Operations
 
-Operations         ←→  Alex (Scrum Master / Agile Delivery Lead) — coordinates execution
+Operations         ←→  Alex (Delivery Lead) — coordinates execution AND owns practice health
        ↕                   Receives: delivery targets; translates to sprints
                            Sends: velocity, burndown, impediment reports upward
-                       Morgan (Agile Coach — spans Operations ↔ Programs/Projects)
-                           Receives: team health signals; coaches PM-to-agile interface
-                           Sends: adoption health, practice maturity signals upward
+                           Guards: sprint sovereignty and voluntary adoption
                        Priya (Team Member — execution and maintenance)
                            Receives: sprint tasks, acceptance criteria
                            Sends: updates, fixes, value performance analysis back up
+
+Cross-cutting      ←→  Theo (AI-native technical operator)
+                           Reaches every layer through the API/MCP surface rather than
+                           the web UI. Not a P3M layer — a different *interface* to all
+                           of them.
 ```
 
 **Feature resonance rule:**
-- Features loved primarily by **Sarah, Jordan, Alex, or Priya** → Programs/Projects or Operations → **OSS**
+- Features loved primarily by **Sarah, Jordan, Alex, Priya, or Theo** → Programs/Projects or Operations → **OSS**
 - Features loved primarily by **Marcus or Janet** → Portfolio or Senior Leadership → **Enterprise**
 - **David** spans both: project-level allocation (OSS) vs. cross-project heat maps (Enterprise)
-- **Alex** is always OSS: sprint facilitation, velocity tracking, impediment management, and ceremony tooling are single-project operations
+- **Alex** is always OSS: sprint facilitation, velocity tracking, impediment management, ceremony tooling, and team-health signals are single-project/single-team operations
 - **Jordan** is always OSS: backlog management, story prioritization, sprint content decisions, and velocity-based release forecasting are single-product operations
-- **Morgan** is primarily OSS: team health signals, ceremony tooling, and retro pipelines are single-team operations; coaching dashboards that aggregate across teams are Enterprise
-- **Jordan + Alex together** is the strongest OSS adoption signal — if a feature delights both the PO and the Scrum Master, it belongs in OSS without further debate
-- A feature that aggregates data *across* projects serves Marcus/Janet, not Sarah, Jordan, or Alex
+- **Theo** is OSS for the *team-AI* layer (read tools, provenance, plan-mode simulation, safe writes behind a single-approver gate) and Enterprise only for *org governance* of agents (ADR-0112)
+- **Jordan + Alex together** is the strongest OSS adoption signal — if a feature delights both the PO and the delivery lead, it belongs in OSS without further debate
+- A feature that aggregates data *across* projects serves Marcus/Janet, not Sarah, Jordan, Alex, or Theo
 
 ## Product Life Cycle — What Each Persona Sees
 
@@ -120,6 +198,7 @@ Portfolio Governance  ───────────────────�
   ↑ Sarah manages one box        ↑ Sarah manages one box          ← Sarah sees one project
   ↑ Alex runs sprints inside     ↑ Alex runs sprints inside       ← Alex sees sprint cycles
   ↑ Priya works inside one box                                     ← Priya sees her tasks
+  ↑ Theo queries any of it from an MCP client, never the UI
 
 Impact ▲
        │            ╭──────╮
@@ -130,12 +209,12 @@ Impact ▲
 
 - **Janet (COO)**: Sees the S-curve. "Are we in Growth or Maturity? When do we invest in Program B?" She doesn't care which individual project is running; she cares about the shape of the curve.
 - **Marcus (PMO)**: Sees Programs and resource demand. "Program A wraps up; Program B needs 3 concurrent projects. Do I have the people?"
-- **Sarah (PM)**: Sees one project box. "My project is Project 5 (Revisions). I need to deliver on schedule." Life cycle phase is irrelevant to her day-to-day.
-- **Jordan (PO)**: Sees the product backlog mapped to project phases. "We're in Revisions — which epics deliver the most value before the deadline?" She bridges business priority with sprint capacity.
-- **Alex (Scrum Master)**: Sees a two-week window. "What does the team commit to this sprint, and are we on track to finish it?" The project timeline is background noise; the sprint boundary is everything.
-- **Morgan (Agile Coach)**: Sees team health across the S-curve. "Are teams burning out in the Maturity crunch? Is the PMO-to-team translation creating friction or flow?" She measures practice quality, not delivery output.
+- **Sarah (Delivery/Program Manager)**: Sees one project box. "My project is Project 5 (Revisions). I need to deliver on schedule, and I need to prove the plan to a governance forum." Life cycle phase is irrelevant to her day-to-day.
+- **Jordan (PO)**: Sees the product backlog mapped to project phases. "We're in Revisions — which epics deliver the most value before the deadline?" They bridge business priority with sprint capacity.
+- **Alex (Delivery Lead)**: Sees a two-week window *and* the health of the teams inside it. "What does the team commit to this sprint, are we on track, and is this pace sustainable?" The project timeline is background noise; the sprint boundary is everything.
 - **David (Resource Mgr)**: Sees the Maturity phase problem. Projects 4, 5, 6 running simultaneously means three PMs all want the same engineers.
 - **Priya (Team Member)**: Sees her task list. Project number, program, sprint — invisible to her day-to-day.
+- **Theo (AI-native operator)**: Sees whatever they can ask for. Their constraint is not which layer they occupy but whether the fact is reachable over the API with a derivation attached.
 
 **Feature resonance rule**: If a feature is most useful at the "peak" of the S-curve (Maturity, multiple concurrent projects) it belongs in Enterprise. If it's useful at any single point on the curve (one project or product at a time), it belongs in OSS.
 
@@ -152,18 +231,35 @@ Use this scale — do not invent ad-hoc criteria per run.
 
 | Score | Predicted response |
 |-------|--------------------|
-| 10    | Every top-3 criterion met with no hard NO in reach — the anchor case |
-| 8–9   | All top-3 criteria met; would plausibly advocate internally |
+| 10    | Every in-scope top-3 criterion met with no hard NO in reach — the anchor case |
+| 8–9   | All in-scope top-3 criteria met; would plausibly advocate internally |
 | 6–7   | Adoption predicted **conditional** on a named unmet criterion (e.g. SSO, Jira sync, mobile parity) |
-| 4–5   | Some criteria met, none of the top-3 — predicted useful, not decisive |
+| 4–5   | Some criteria met, none of the in-scope top-3 — predicted useful, not decisive |
 | 2–3   | No documented criterion meaningfully addressed |
 | 1     | A documented hard NO is triggered |
 
 **Severity tags** (use alongside the numeric score):
 
-- 🔴 **Blocker** — a hard NO is triggered, or a top-3 evaluation criterion is missed (e.g. Marcus without SSO, Sarah without offline). Must be resolved or explicitly accepted before architect handoff.
+- 🔴 **Blocker** — a hard NO is triggered, or an in-scope top-3 evaluation criterion is missed. Must be resolved or explicitly accepted before architect handoff.
 - 🟡 **Concern** — soft pain not addressed; would lower the score but not kill adoption. Flag and triage.
-- 🟢 **Win** — directly resolves a top-3 evaluation criterion or hits a 10/10 anchor.
+- 🟢 **Win** — directly resolves an in-scope top-3 evaluation criterion or hits a 10/10 anchor.
+- **N/A** — the criterion depends on a capability outside the current release window (see below). Not a finding, not a score input, and **never** a 🔴.
+
+### Out-of-window criteria are N/A, not blockers
+
+Some personas' criteria depend on capabilities with a known future release. A criterion
+in that state is marked **N/A** and is excluded from both the severity tags and the
+score. The persona is scored **only on what is in scope today**.
+
+This replaces the old release-window notes, which instructed readers to discount a
+persona's score after the fact. That mechanism had three defects: it pre-neutralized a
+quarter of the panel, it depressed every average by a variable amount, and it made
+averages incomparable between runs. A criterion we already know is unmet is not
+evidence; firing a 🔴 for it is noise wearing a severity tag.
+
+Each affected persona names its N/A criteria and the release that clears them in its own
+section. When that release ships, delete the N/A marking — do not let it persist as a
+permanent exemption.
 
 **Every 🔴 must be falsifiable.** State, in one line, the real-world observation that
 would confirm or refute it — "no beta operator reports this in their first week",
@@ -188,6 +284,12 @@ only tell you where its own assumptions are strained.
   restating the brief back. Ask what a real user could say that this panel structurally
   cannot, and record it as an open question.
 
+**The average is meaningless when the subject is a known defect.** Running a panel
+against a bug floors every score by construction — the personas' criteria are not
+*about* the defect, so they score low whether it is trivial or fatal. On a defect
+review, read the individual findings and the off-brief pivots; ignore the average
+entirely and say so in the write-up.
+
 A single 🔴 blocker outweighs the average in every direction. Do not average away a hard
 NO — and do not let a high average retire one.
 
@@ -197,33 +299,34 @@ internal attention-routing number with no external meaning.
 
 ### Specialist panelists and the agent-actor constraint
 
-The standard panel is Personas 1–8. Two specialist evaluators and one actor class fold
-in **conditionally**, on the same 1–10 scale and severity tags:
+The standard panel is Personas 1–8, of which **Janet (5) is herself conditional** — she
+never opens the product, so she joins only for reporting, forecasting, export, and
+portfolio-visibility features. Three specialist evaluators and one actor class fold in
+**conditionally**, on the same 1–10 scale and severity tags:
 
-- **Persona 9 (Nadia — integration/API developer)** joins the panel when the feature adds
-  or changes an **API/integration surface**: a new endpoint or webhook, token scopes,
-  the OpenAPI schema, pagination/rate-limit/error contracts, or agent-as-actor behavior.
+- **Persona 9 (Nadia — integration/API developer)** joins when the feature adds or
+  changes an **API/integration surface**: a new endpoint or webhook, token scopes, the
+  OpenAPI schema, pagination/rate-limit/error contracts, or agent-as-actor behavior.
   API-first is the platform's identity, so for these features her verdict is
-  load-bearing, not advisory — a 🔴 from Nadia (breaking schema, no webhook, god-token)
-  is an adoption blocker for any multi-tool org.
-- **Persona 10 (Omar — self-hosting operator)** joins the panel when the feature touches
-  the **deployment/operations surface**: Helm values, migrations (especially destructive
-  ones), health/readiness probes, metrics/logs/alerts, backup/restore, sizing, or
-  dead-letter/queue behavior. Self-host is the OSS adoption on-ramp, so his
-  first-30-minutes 🔴 (irreversible migration, no rollback, no dead-letter alert) is an
-  adoption blocker, not a polish item.
+  load-bearing, not advisory.
+- **Persona 10 (Omar — self-hosting operator)** joins when the feature touches the
+  **deployment/operations surface**: Helm values, migrations, health/readiness probes,
+  metrics/logs/alerts, backup/restore, sizing, or dead-letter/queue behavior. He also
+  owns the **pre-install evaluation** path — the hosted demo, the one-command trial, and
+  read-only share links — because the first five minutes decide whether the first
+  thirty ever happen.
+- **Persona 11 (Bram — engine-library consumer)** joins when the feature touches the
+  **standalone `trueppm-scheduler` package**: its public API, its docs, its CLI, its
+  dependency surface, or the conformance relationship between the Python and Rust
+  engines. He is **funnel, not revenue** — weight his verdict on credibility and
+  adoption-on-ramp grounds, never on willingness to pay.
 - **AI-agent actor (not scored)** is applied as a **cross-cutting constraint**, not a
   panel seat: for any feature an agent could reach via the API, check the agent hard NOs
-  (see the AI-agent actor note) — an agent must never exceed its provisioning human's
-  role, write by default, act un-audited, impersonate a human, or return an unstamped
-  computed answer. This keeps `/voc` and `/ai-review` (ADR-0112) aligned: a feature the
-  human panel loves but that strands domain logic where an agent can't reach it still
-  fails the agent constraint.
+  (see the AI-agent actor note). This keeps `/voc` and `/ai-review` (ADR-0112) aligned.
 
-When a feature is neither API- nor ops-facing (a pure UI or scheduling change), Personas
-9–10 are omitted with a one-line note, exactly as Jordan/Morgan are omitted from pure
-PMO/portfolio features. **Feature resonance:** both specialist personas are **OSS** —
-self-service integration building and single-org self-hosting are the adoption on-ramp;
+When a feature touches none of these surfaces, omit the specialist with a one-line note.
+**Feature resonance:** all three specialist personas are **OSS** — self-service
+integration building, single-org self-hosting, and library adoption are the on-ramp;
 only org-wide connector hubs (ADR-0097), multi-tenancy, and HA deployment cross into
 Enterprise.
 
@@ -241,77 +344,91 @@ The most informative VoC findings are **tensions**, not consensus. When designin
 | Forecast precision     | **Janet**: confidence-weighted ranges             | **Sarah**: point estimates and committed dates          |
 | Tool surface area      | **Priya**: minimal, "just my tasks"               | **Marcus**: deep, configurable, every metric exposed    |
 | Process formality      | **Alex**: lean, just-enough ceremony              | **Marcus**: audit trail, approvals, evidence            |
-| Offline tolerance      | **Sarah**: must work with no signal               | **Marcus / Janet**: assume always-connected             |
+| Offline tolerance      | **Priya / Theo**: works on a train, degrades gracefully | **Marcus / Janet**: assume always-connected       |
 | Source of truth        | **Priya**: Jira (TruePPM is downstream)           | **Sarah**: TruePPM (Jira is one input among many)       |
 | Status cadence         | **Janet**: weekly digest, push to her             | **Alex**: live burndown, pull when curious              |
-| Backlog ownership      | **Jordan**: product backlog is PO territory; sprint content is a negotiation, not a PM assignment | **Sarah**: tasks come from the WBS; a separate PO role is unfamiliar in waterfall contexts |
-| Sprint sovereignty     | **Morgan**: sprint commitment belongs to the team; PMO visibility must not equal PMO control | **Marcus**: full visibility across all delivery mechanisms, including sprints, is a governance requirement |
+| Backlog ownership      | **Jordan**: product backlog is PO territory; sprint content is a negotiation, not a PM assignment | **Sarah**: tasks come from the WBS; a separate PO role is unfamiliar in phase-gated contexts |
+| Sprint sovereignty     | **Alex**: sprint commitment belongs to the team; PMO visibility must not equal PMO control | **Marcus**: full visibility across all delivery mechanisms, including sprints, is a governance requirement |
 | Velocity transparency  | **Jordan / Alex**: velocity is a team planning tool; exposing it to management creates gaming pressure | **Marcus / Janet**: velocity is a capacity input for portfolio forecasting |
-| Tool mandates vs. adoption | **Morgan**: teams must voluntarily adopt tools or data quality rots within a quarter | **Marcus**: portfolio tooling standardization is a governance necessity; voluntary adoption is too slow |
+| Tool mandates vs. adoption | **Alex**: teams must voluntarily adopt tools or data quality rots within a quarter | **Marcus**: portfolio tooling standardization is a governance necessity; voluntary adoption is too slow |
+| Interface of record    | **Theo**: if I can't get it over the API with a derivation, it doesn't exist | **Sarah / Priya**: the UI is the product; an API-only capability is not shipped |
+| Agent autonomy         | **Theo**: let the agent act, the engine will refuse what's impossible | **Alex / Marcus**: an agent that writes without a human gate is a scope-injection vector |
 
 A feature that **resolves** a tension cleanly (e.g. a notification model that satisfies both Priya's signal-only preference *and* Marcus's visibility need) is high-leverage. A feature that ignores a tension is technical debt with a customer-facing fuse.
 
 ---
 
-## Persona 1 — Project Manager
+## Persona 1 — Delivery / Program Manager
 
 **Name**: Sarah Chen
-**Title**: Senior Project Manager, Mid-size Construction Firm (200 employees)
-**Age**: 38 | **Tech comfort**: Moderate (uses MS Project reluctantly, loves mobile apps)
+**Title**: Senior Delivery Manager, Technology Delivery Group at a regulated
+mid-market enterprise (~1,800 employees — insurance, healthcare IT, or a public-sector
+systems integrator; the constant is that a governance forum eventually reads her plan)
+**Age**: 38 | **Tech comfort**: Moderate (came up on MS Project, resents it, adapts fast)
+**Grounding**: T0 (modeled)
 
-> **Release-window note**: Sarah is a **0.6+/1.0 persona**. Her top evaluation
-> criterion and a hard NO both turn on a real native mobile editor that works
-> offline. The installable PWA lands in **0.5** and answers her *functional*
-> offline need (add to home screen, time entry and reads with no signal, queued
-> writes on reconnect); the native Android editor lands in **0.6** (phones
-> first; iPhone/iPad parity completes at **1.0** — see #2091 for the 0.5 → 0.6
-> recharter). Until 0.6 an honest VoC run returns Sarah 🔴, and that is
-> correct, not a gap to paper over: her no-real-native-mobile hard NO is
-> *expected* to fire, so a 🔴 from Sarah before 0.6 is not a signal to rescope
-> a feature. From 0.5 the PWA should soften her offline/time-entry criteria
-> even while the native hard NO still fires. Treat her score as load-bearing
-> only from 0.6 on.
+> **Revision note (2026-07).** Sarah was previously a construction PM at a 200-person
+> construction firm. That industry is **out of TruePPM's published range** — our own
+> `what-it-does-not-do` page names construction alongside EPC and defense as out of
+> scope, and four of the old Sarah's job requirements (resource leveling, multiple
+> constraint types, cost/earned value, schedules above ~1,000 activities) are documented
+> gaps. Construction is also a well-served market we do not compete in: Procore and
+> Autodesk own it on RFIs, submittals, daily reports and punch lists, none of which we
+> have or plan.
+>
+> **The role was right and the industry was wrong.** A schedule-owning delivery manager
+> is unquestionably a core persona; it was the construction-specific attributes — job
+> site, no signal, crews, client-facing PDF — that generated criteria the product will
+> not meet at 1.0. Field-and-offline work is now a labeled **post-1.0 expansion
+> segment**, not a core persona. See the adjacent-segments list at the end.
+
+**N/A criteria (out of window, not blockers)**: installable mobile (PWA, **0.5**);
+resource allocation with partial splits (**0.5**); cost and earned value (**0.8**).
+Do not fire a 🔴 for these — mark N/A and score on the rest.
 
 **Goals**:
-- Keep projects on schedule and within budget
+- Keep programs on schedule and defensible — she must show *why* a date moved, not just that it did
 - Track dependencies and know the critical path at all times
-- Log time and progress from job sites (often no WiFi)
-- Produce schedule charts for client presentations
+- Run a phase-gated program whose delivery squads work in sprints, without maintaining two plans
+- Produce evidence a governance forum or auditor will accept, without a week of assembly
 - Manage 3–5 concurrent projects
 
 **Pain points**:
-- "I'm on a construction site 3 days a week with no signal. I can't update the schedule."
-- "My team hates entering timesheets. They do it Friday afternoon from memory and it's wrong."
-- "When a task slips, I have to manually figure out what moves downstream. It takes an hour."
-- "MS Project is powerful but it's Windows-only and the license is $55/month per person."
-- "I need to show the client a schedule that doesn't look like it was made in 1997."
+- "My program runs on gates and my teams run on sprints. I maintain the reconciliation by hand, every week."
+- "When a task slips, I have to work out what moves downstream myself. It takes an hour I don't have."
+- "Our data can't sit in a US vendor's cloud, so half the modern tools are disqualified before the demo."
+- "MS Project is Windows-only, the license is per-seat, and Project Online is being retired out from under us."
+- "I need a schedule I can put in front of a steering committee that doesn't look like it was made in 1997."
+- "Every status question from above costs me half a day of assembling something nobody reads twice."
 
 **What would make her switch tools**:
-- Mobile app that works offline with real scheduling (not just a read-only viewer)
-- Frictionless time entry from her phone
-- Live impact simulation when she changes a task
-- Half the cost of MS Project or better
+- One plan where the sprint and the Gantt bar are the same object — the reconciliation disappears
+- Live impact simulation when she changes a task, with the derivation attached
+- A schedule and forecast she can export straight into a governance pack
+- Deployable on infrastructure her organization already controls
+- Materially cheaper than MS Project or Planview
 
 **Evaluation criteria** (in order):
-1. Can I use it on my phone at the job site with no WiFi?
-2. Does it show me the critical path and what happens when things slip?
-3. Can my team log time in under 30 seconds?
-4. Can I export a professional-looking schedule for the client?
-5. How much does it cost per person?
+1. Does it show me the critical path and exactly what happens downstream when something slips?
+2. Can I run phase gates and sprints in one plan without reconciling two tools?
+3. Can I hand a steering committee or auditor a defensible artifact without a day of assembly?
+4. Will it run on infrastructure we control?
+5. What does it cost per person?
 
-**One-question filter**: *"Does this work on my phone with no signal?"* — answers ~80% of her reactions before any other detail.
+**One-question filter**: *"When this date moves, can I show why?"* — a number she cannot defend is worse than no number.
 
 **Hard NOs (dealbreakers)**:
-- Web-only / no real native mobile app
-- Mobile that's read-only (a "viewer" rather than a real editor)
+- Cloud-only with no self-host option
+- A forecast with no derivation — a date the tool asserts but cannot explain
 - Per-user pricing in the same tier as MS Project or above
-- Requires VPN to access from job sites
+- Two separate plans for the agile and waterfall halves of the same program
+- Requires a VPN or a Windows desktop to do her actual job
 
-**Decision authority**: Influencer, not buyer. Champions to her ops director or PMO. Advocates internally but does not sign the contract herself.
+**Decision authority**: Influencer, not buyer. Champions to her delivery director or PMO. Advocates internally but does not sign the contract herself.
 
-**Frequency & time budget**: 5–10 min per session, ~4× daily on a job site (often offline). One longer 20–30 min session on Friday afternoon to produce the client-ready schedule export. Anything that takes longer than that on Friday gets cut.
+**Frequency & time budget**: 30–60 min daily working the plan, plus a longer weekly session to prepare the governance update. Anything that adds more than 15 minutes to that weekly ritual gets abandoned within a month.
 
-**10/10 anchor**: She updates the schedule from her truck on a project with no LTE, the change cascades to downstream tasks when she comes back into signal, and she emails a client-ready PDF before driving back to the office — total active time under 5 minutes.
+**10/10 anchor**: A dependency slips on Monday; she sees the downstream cascade and the new P80 immediately, adjusts one gate, and the governance pack for Thursday's steering committee generates itself — with the derivation behind every changed date attached, so the first question from the room is answered before it is asked.
 
 ---
 
@@ -320,12 +437,14 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 **Name**: Marcus Williams
 **Title**: Director of PMO, Enterprise Financial Services Firm (5,000 employees)
 **Age**: 47 | **Tech comfort**: High (evaluates tools professionally, reads Gartner reports)
+**Grounding**: T0 (modeled)
 
 **Goals**:
 - Visibility across 40+ active projects in the portfolio
 - Resource capacity planning: do we have enough senior engineers for Q3?
 - Strategic alignment: are we funding the right projects?
 - Compliance: audit trail, SOC 2 evidence, data residency
+- Govern what AI agents are permitted to do against the plan, and prove it afterwards
 - Replace aging Broadcom Clarity PPM ($50+/user, poor support)
 
 **Pain points**:
@@ -335,12 +454,14 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 - "Broadcom doesn't care about PPM — 79% of their revenue is semiconductors."
 - "I need SSO. I need audit trails. I need data residency. No exceptions."
 - "Every vendor wants $40–80/user/month and locks me into their cloud."
+- "Everyone wants to point an AI at the portfolio. Nobody can tell me what it's allowed to change, or show me what it did."
 
 **What would make him switch tools**:
 - Portfolio dashboard with health scores he can show the CEO in 30 seconds
 - Probabilistic scheduling ("80% chance we deliver by July 2")
 - Resource heat map that shows conflicts BEFORE they cause problems
 - Self-hostable (data residency for regulatory compliance)
+- An agent-governance story he can put in front of an auditor: what agents did, what was refused, and why
 - Half the price of Planview/Clarity with comparable capabilities
 
 **Evaluation criteria** (in order):
@@ -348,8 +469,9 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 2. Resource capacity: can I see who's overallocated across the portfolio?
 3. Compliance: SSO, audit trail, data residency — non-negotiable
 4. Strategic alignment: can I prioritize projects against business objectives?
-5. TCO: total cost including implementation, training, ongoing support
-6. Self-hostable or EU-hosted cloud for regulatory requirements
+5. Agent governance: immutable audit of agent actions, approval workflow for agent writes, and a capability policy I set centrally
+6. TCO: total cost including implementation, training, ongoing support
+7. Self-hostable or EU-hosted cloud for regulatory requirements
 
 **One-question filter**: *"Can I show this to the CEO without reformatting?"* — if the answer is no, nothing else about the feature matters to him.
 
@@ -358,6 +480,7 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 - No audit trail or no SOC 2 evidence path
 - Cloud-only with no self-host or EU residency option
 - No portfolio-level (cross-project) view — single-project tools are a non-starter at his scale
+- Agents that can write to the plan with no approval gate and no immutable record
 
 **Decision authority**: Budget owner for departmental tools; larger spend escalates to the CFO. The signing decision depends on SSO, audit trail, and a portfolio dashboard meeting his bar — without those, his evaluation stops at "no."
 
@@ -372,6 +495,7 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 **Name**: Priya Patel
 **Title**: Software Engineer, IT Department at a Professional Services Firm
 **Age**: 29 | **Tech comfort**: Very high (uses Jira daily, dislikes "PM overhead")
+**Grounding**: T0 (modeled)
 
 **Goals**:
 - Know what to work on today and what's blocking her
@@ -419,15 +543,12 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 **Name**: David Okafor
 **Title**: Engineering Manager / Resource Manager, Professional Services Firm (800 employees)
 **Age**: 43 | **Tech comfort**: Moderate-high (uses spreadsheets heavily, evaluates tools pragmatically)
+**Grounding**: T0 (modeled)
 
-> **Release-window note**: David is a **0.5+ persona**. His top evaluation
-> criteria and a hard NO turn on partial-allocation support (e.g. 60/40 splits)
-> and a pre-commit over-allocation warning, and resource allocation lands in
-> **0.5**. Until then an honest VoC run returns David 🔴, and that is correct:
-> a pre-0.5 run *should* fire his "binary allocation only / no pre-commit
-> conflict warning" hard NO. Weight pre-0.5 runs accordingly — a 🔴 from David
-> before 0.5 is expected and is not a reason to rescope a feature. Treat his
-> score as load-bearing only from 0.5 on.
+**N/A criteria (out of window, not blockers)**: partial allocation with 60/40 splits and
+pre-commit over-allocation warnings ship at **0.5**; cross-program leveling is post-1.0
+Enterprise. Mark N/A and score David on what is in scope — his allocation-visibility and
+data-consistency criteria are testable today.
 
 **Goals**:
 - Know who on his team is available, over-allocated, or at risk of burnout
@@ -462,6 +583,7 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 - Shows utilization only after the fact (no pre-commit conflict warning)
 - No way to model "what if we hire one more engineer in Q3?"
 - Requires every PM to enter data the same way before the heat map is useful (chicken-and-egg)
+- Lets the same team's work accumulate on one project through two structurally different paths with no signal, so any rollup silently double-counts or misses it
 
 **Decision authority**: Strong influencer; co-signs with Marcus on the resource module. Will champion the portfolio-wide resource heat map once core scheduling has been proven in his org for several months.
 
@@ -471,11 +593,19 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 
 ---
 
-## Persona 5 — Executive Sponsor (C-Suite)
+## Persona 5 — Executive Sponsor (C-Suite) — *conditional panelist*
 
 **Name**: Janet Morales
 **Title**: COO, Mid-market Professional Services Firm (600 employees)
 **Age**: 52 | **Tech comfort**: Low-moderate (uses dashboards, delegates tool operation)
+**Grounding**: T0 (modeled)
+
+> **Conditional seat.** Janet never opens the product. Include her when the feature
+> touches **reporting, forecasting, export, digest/notification to leadership, or
+> portfolio visibility**; omit her with a one-line note otherwise. Scoring her on a
+> navigation change, a component refactor, or an interaction pattern produces a number
+> with no information in it — she would tell you herself that it is not a question she
+> evaluates.
 
 **Goals**:
 - Know in 30 seconds whether the portfolio is on track
@@ -519,11 +649,28 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 
 ---
 
-## Persona 6 — Scrum Master / Agile Delivery Lead
+## Persona 6 — Delivery Lead (Scrum Master / Agile Delivery Lead)
 
 **Name**: Alex Rivera
-**Title**: Scrum Master & Agile Delivery Lead, Mid-size SaaS Product Company (120 engineers)
-**Age**: 34 | **Tech comfort**: Very high (uses Jira, Linear, Confluence, Miro daily; experienced agile delivery lead)
+**Title**: Delivery Lead, Mid-size SaaS Product Company (120 engineers) — serves 2–3
+teams, reports to a Head of Delivery, and owns both sprint facilitation and the health
+of the practice across those teams
+**Age**: 34 | **Tech comfort**: Very high (uses Jira, Linear, Confluence, Miro daily)
+**Grounding**: T0 (modeled)
+
+> **Revision note (2026-07).** This persona is the merge of the former Persona 6 (Alex
+> Rivera, Scrum Master / Agile Delivery Lead) and Persona 8 (Morgan Lee, Agile Coach /
+> Transformation Lead). The market is consolidating these roles — one large financial
+> institution cut over a thousand agile roles including Scrum Masters, coaches and RTEs,
+> and a major telecom eliminated Scrum Master and Product Owner outright in 2024, folding
+> both into a hybrid "Product Delivery Manager". Two of eight core seats on separate,
+> heavily overlapping agile roles over-represented a shrinking population.
+>
+> **Morgan's hard NOs and criteria carry over verbatim** as this persona's lens. They are
+> load-bearing for the *Team ownership is not surveillance* principle and must not be
+> lost in the merge. If a future panel finds this persona cannot hold both the
+> sprint-mechanics and the practice-health concerns at once, split it again — and record
+> why in the calibration ledger.
 
 **Agile-practice accuracy notes:**
 - The four named sprint events are: Sprint Planning, Daily Scrum, Sprint Review, Sprint Retrospective.
@@ -531,29 +678,33 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 - Velocity and burndown/burn-up are **not** part of core Scrum. They are XP-era
   practice-layer metrics widely adopted in the agile community but outside the framework proper.
 - Story points are XP-origin, not a core Scrum artifact. By convention Developers are
-  responsible for sizing but no unit is specified. (~61% of teams use story points per Parabol 2024.)
+  responsible for sizing but no unit is specified.
 - WIP limits are Kanban-origin, not Scrum. Using them creates a
   Scrumban hybrid — a real and recognized pattern, but not vanilla Scrum.
 - Scope protection mid-sprint: by common practice scope negotiation sits with Developers + Product
   Owner jointly. The delivery lead's role is facilitation and coaching, not gatekeeping.
-- At 120 engineers (~12–15 teams), Alex serves 2–3 teams. "Agile Delivery Lead" reflects
-  multi-team scope and PMO-bridge responsibility closer to an agile coach or program-level delivery lead.
+- Most teams do not run textbook Scrum; blended Scrum-with-Kanban is the norm, and a
+  tool that assumes one framework's vocabulary will not fit the teams he serves.
 
 **Goals**:
 - Run lean Sprint events without 4-hour Jira admin sessions
 - Coach the team and Product Owner to protect the Sprint Goal from mid-sprint scope changes
-- Produce velocity and throughput data stakeholders trust; evangelize flow metrics (cycle time, throughput) as the team matures
+- Produce velocity and throughput data stakeholders trust; evangelize flow metrics as the team matures
 - Bridge agile delivery and the schedule-speak that Sarah (PM) and Marcus (PMO) require upward
-- Track team health across 2–3 teams: burnout risk, silent WIP creep
+- Protect team autonomy: sprint commitment belongs to the team, not to management
+- Track team health across 2–3 teams: burnout risk, silent WIP creep, sustainable pace
+- Keep adoption voluntary — a mandated tool produces performative data
 
 **Pain points**:
 - "I work in two-week Sprints. Every PM tool I've seen thinks in months. I'm a different animal."
 - "Boards are great for status, but I need a *Sprint container* — a bounded commitment window with a goal, start, end, and burndown. A board is just columns."
 - "I run Sprint Planning in Jira and then re-enter everything into the PM tool so Sarah knows what the team committed to. That's insane."
-- "Velocity doesn't exist in any PM tool I've used. I export to Google Sheets every Sprint. And half my stakeholders want cycle time now, not story points."
-- "Stakeholders ask 'when will feature X be done?' I can answer probabilistically from velocity, but nothing connects my Sprint cadence to the project timeline."
+- "Velocity doesn't exist in any PM tool I've used. I export to Google Sheets every Sprint."
+- "Every 'hybrid' tool I've evaluated is waterfall with a board bolted on — the PM still controls the sprint."
+- "Teams game velocity when management is watching it. If the PMO can see each team's velocity as a metric, it becomes a pressure gauge, not a health signal."
 - "Retrospective action items get logged and forgotten. They need to flow into the backlog automatically."
 - "Mid-Sprint scope additions should require a deliberate decision — not slip in quietly."
+- "When a tool is mandated by the PMO, adoption is performative. They fill in the minimum required fields, data quality rots, and Marcus's dashboards become fiction within a quarter."
 
 **What would make them switch tools**:
 - First-class Sprint model: goal, capacity, start/end dates, burndown built-in
@@ -562,29 +713,37 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 - Sprint forecast view: given current velocity and remaining backlog, when do we finish?
 - Retro-to-backlog pipeline: Retrospective action items flow into the next Sprint's backlog
 - One-click "promote Sprint commitment to schedule milestone" so Sarah gets her timeline update
+- Clear separation: team owns sprint internals; PMO sees milestone health and schedule confidence, not individual velocity metrics
+- Configurable visibility: teams choose what the PM and PMO see beyond milestone health
 
 **Evaluation criteria** (in order):
-1. Does it have a proper Sprint model (Goal, Sprint Backlog, burndown), or just a board with dates bolted on?
-2. Can I see velocity trend without opening a spreadsheet?
-3. Does it surface WIP overload before it becomes a team health problem?
-4. Can I forecast delivery from Sprint velocity and remaining backlog — with a range, not a false-precision date?
-5. Does it reduce ceremony overhead, or add to it?
-6. Can it coexist with the schedule/milestone view the traditional PM upstairs uses?
+1. Is the sprint genuinely team-owned, or can PMs and admins override sprint content without team notification?
+2. Does it have a proper Sprint model (Goal, Sprint Backlog, burndown), or just a board with dates bolted on?
+3. Can I see velocity trend without opening a spreadsheet — and is it separated from PMO-visible metrics?
+4. Does it surface WIP overload before it becomes a team health problem?
+5. Can I forecast delivery from Sprint velocity and remaining backlog — with a range, not a false-precision date?
+6. Does it reduce ceremony overhead, or add "fill this in for the PMO" steps that teams will skip?
+7. Will teams adopt it voluntarily, or does it require top-down mandate to survive?
+8. Can it coexist with the schedule/milestone view the traditional PM upstairs uses?
 
-**One-question filter**: *"Does this respect the Sprint boundary?"* — if scope, tracking, or planning crosses the Sprint line without an explicit decision, he's out.
+**One-question filter**: *"Does this respect the Sprint boundary, and does it give teams autonomy or give management control?"* — if scope, tracking, or planning crosses the Sprint line without an explicit decision, or if the feature tips toward control, he's out.
 
 **Hard NOs (dealbreakers)**:
 - Sprint modeled as "a label on tasks" instead of a first-class container with goal, dates, and burndown
 - No velocity chart, or a velocity that requires manual export to Sheets
 - Mid-sprint scope changes that slip in silently with no audit
-- Forces strict Scrum terminology that doesn't fit Scrumban or scaled-agile teams (his teams aren't all vanilla Scrum)
+- Sprint scope changeable by anyone with PM-level RBAC without team notification or consent
+- PMO has real-time visibility into sprint internals (task-level who-is-working-on-what, daily hours logged)
+- Velocity automatically exposed as a productivity metric on PMO or executive dashboards
+- Forces strict Scrum terminology that doesn't fit Scrumban or scaled-agile teams
 - "PM tool with a sprint view bolted on" — a board with date columns is not a Sprint
+- Deployed by mandate only — no voluntary adoption path means Priya churns, data rots, and Marcus's investment fails
 
-**Decision authority**: Influencer for ~2–3 teams. Will champion if the Sprint model is real; will lose interest within a single Sprint if the abstraction is shallow. Reports up to a Director of Engineering or Head of Delivery who actually signs.
+**Decision authority**: High influencer across 2–3 teams directly and the practice more broadly. Will champion if the Sprint model is real; will lose interest within a single Sprint if the abstraction is shallow. If he opposes, no PMO mandate survives more than a quarter. Reports to a Director of Engineering or Head of Delivery who actually signs.
 
-**Frequency & time budget**: 30 min 2× weekly (Sprint Planning + Retro) + 2 min daily check-in. Sprint Review and Retro are the high-investment touchpoints (~1–2 hr biweekly each). Monthly velocity / forecast review with the PMO.
+**Frequency & time budget**: 30 min 2× weekly (Sprint Planning + Retro) + 2 min daily check-in. Sprint Review and Retro are the high-investment touchpoints (~1–2 hr biweekly each). Monthly velocity / forecast review with the PMO. Weekly 30 min reviewing team-health signals across his teams.
 
-**10/10 anchor**: Sprint Planning ends in 45 minutes instead of 2 hours, the velocity chart is right there with a forecast range (not a single number), retro action items flow into next Sprint's backlog automatically, and Sarah upstairs sees the milestone update without him copy-pasting anything between tools.
+**10/10 anchor**: Sprint Planning ends in 45 minutes instead of 2 hours, the velocity chart is right there with a forecast range (not a single number), retro action items flow into next Sprint's backlog automatically, Sarah upstairs sees the milestone update without him copy-pasting anything — and three months in, a skeptical senior developer opens TruePPM voluntarily because the tool never once let management reach into the sprint.
 
 ---
 
@@ -593,6 +752,7 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 **Name**: Jordan Kim
 **Title**: Product Owner / Product Manager, Mid-size SaaS Product Company (150 engineers)
 **Age**: 32 | **Tech comfort**: High (uses Jira, Linear, or Aha! daily; familiar with story maps and release trains)
+**Grounding**: T0 (modeled)
 
 **Goals**:
 - Own and prioritize the product backlog (epics → stories → acceptance criteria)
@@ -629,6 +789,7 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 - PM or admin can silently add tasks to an active sprint without PO/SM awareness
 - No velocity-based release forecasting — planned dates only is not enough
 - Forces the PO to learn CPM/WBS vocabulary just to manage their backlog
+- A configuration change (methodology, visibility, workflow) that removes or adds their working surfaces without notifying them
 
 **Decision authority**: Influencer for product team adoption; often co-signs with Alex. Their combined voice can override an individual PM's tool preference within a product org. Does not sign budget; escalates to Head of Product or VP Engineering.
 
@@ -638,53 +799,79 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 
 ---
 
-## Persona 8 — Agile Coach / Transformation Lead
+## Persona 8 — AI-Native Technical Operator
 
-**Name**: Morgan Lee
-**Title**: Agile Coach / Head of Delivery Transformation, Enterprise Professional Services (2,000 employees)
-**Age**: 44 | **Tech comfort**: High (evaluates tools against agile principles and team behavior, not feature lists)
+**Name**: Theo Nakamura
+**Title**: Staff Engineer / Technical Delivery Lead at a mid-size engineering
+organization; the person who wired the org's MCP clients to its internal systems and
+now runs most of their day through one
+**Age**: 33 | **Tech comfort**: Very high (lives in an MCP client, a terminal, and a
+code editor; treats a web UI as a fallback)
+**Grounding**: T0 (modeled)
+
+> **New in the 2026-07 revision.** The read-only MCP server is the 0.4 beta's headline
+> capability and no persona used it. The AI-agent actor note is a *constraint class*
+> applied to other panels, not a user; Nadia builds connectors rather than living inside
+> one. That gap has already cost something concrete — issue **#2411** (read-path parity:
+> velocity and burndown have no MCP tool) went unowned because nobody on the panel was
+> positioned to notice it.
+>
+> **Deliberately technical, not a PM.** Industry survey data puts roughly a fifth of
+> project managers at good practical AI skill and about half at little or none. Modeling
+> this persona as a PM would describe a user who does not yet exist in volume. If that
+> distribution shifts materially, revisit — that is a calibration question, not a
+> permanent assumption.
+
+**N/A criteria (out of window, not blockers)**: natural-language query layer (**0.5**);
+plan-mode `dry_run` (**0.5**); safe agent writes, standing subscriptions, write receipts
+and containment (**0.6**). Score Theo on the read surface, provenance, and audit
+substrate that exist today.
 
 **Goals**:
-- Help 8–12 teams mature from ad-hoc delivery toward sustainable hybrid or agile practice
-- Protect team autonomy: sprint commitment belongs to the team, not to management
-- Surface team health signals (burnout risk, WIP creep, sustainable pace) to coaches — not to PMO dashboards
-- Build a bridge between PMO governance (Marcus) and delivery teams (Alex, Jordan, Priya) that feels like alignment, not surveillance
-- Accelerate adoption by eliminating the "yet another mandatory PM tool" objection
+- Ask the live plan questions in natural language and get an answer they can act on without opening a browser
+- Keep the whole loop on infrastructure their organization controls — no plan data leaving the box to a model vendor
+- Trust every number: know which engine computed it, from what inputs, at what version
+- Wire the plan into the rest of their agent toolchain the way they wired everything else
+- Eventually let an agent act on the plan — but only where a bad action is structurally impossible, not merely unlikely
 
 **Pain points**:
-- "Every 'hybrid' tool I've evaluated is waterfall with a board bolted on — the PM still controls the sprint"
-- "Teams game velocity when management is watching it. If the PMO can see each team's velocity as a metric, it becomes a pressure gauge, not a health signal"
-- "I spend 30% of my coaching time fighting the tool instead of coaching the team"
-- "Retro action items die in Confluence or on a sticky note. They need to automatically appear in the next sprint's backlog — not get copy-pasted by whoever remembers to do it"
-- "When a tool is mandated by the PMO, team adoption is performative. They fill in the minimum required fields, data quality rots, and Marcus's dashboards become fiction within a quarter"
+- "Every tool's AI feature is a chat box that makes up a date. I can't put a hallucinated finish date in front of anyone."
+- "The MCP server exposes about a third of what the UI shows. I hit the wall in the first afternoon and went back to the web app."
+- "I get an answer with no derivation. I can't tell whether it computed that or inferred it, so I have to go verify it manually — which defeats the point."
+- "Read-only is the right default, and everyone ships write access first anyway."
+- "If I have to send our roadmap to a vendor's cloud so their model can answer questions about it, the answer is no, regardless of how good it is."
+- "Nobody can tell me what the agent did last week. There's a log, but it's the vendor's log, and it isn't attributable."
 
-**What would make them champion the tool**:
-- Clear separation: team owns sprint internals; PMO sees milestone health and schedule confidence, not individual velocity metrics
-- Sprint boundary enforcement: mid-sprint scope changes require an explicit deliberate decision (not silent injection by anyone with PM-level access)
-- Retro-to-backlog pipeline that actually works — action items from the retro appear in the next sprint's backlog automatically
-- Team health signals (WIP overload trend, sprint-over-sprint throughput stability) visible to Alex and Morgan, not automatically exposed to the PMO
-- Configurable visibility: teams choose what the PM and PMO see beyond milestone health
+**What would make them advocate for the tool**:
+- Read-path parity: every fact the web UI can show is reachable as an MCP tool
+- Provenance on every computed value — the derivation, the engine version, the inputs — so an answer can be quoted rather than asserted
+- A deterministic engine behind the model: the model translates and phrases, the engine supplies the number
+- The whole stack self-hosted, including the option of a local model
+- A write path that lands *after* the audit substrate, gated by a single human approver, with a receipt in the task's own activity feed
+- An off-switch that ships in the same release as the capability it controls
 
 **Evaluation criteria** (in order):
-1. Is the sprint genuinely team-owned, or can PMs and admins override sprint content without team notification?
-2. Are team health signals separated from PMO-visible metrics (no automatic velocity → PMO pipeline)?
-3. Does the tool reduce ceremony overhead, or add "fill this in for the PMO" steps that teams will skip?
-4. Does the retro-to-backlog pipeline actually work, or is it only a UI checkbox?
-5. Will teams adopt it voluntarily, or does it require top-down mandate to survive?
+1. Can I reach every fact the UI shows through the API/MCP surface — or is the UI still the only complete client?
+2. Does every computed value carry a citable derivation, or do I have to trust it?
+3. Does the whole loop stay on infrastructure we control, including the model if we want that?
+4. When agent writes arrive, are they impossible-to-corrupt by construction — engine refuses, human approves, receipt recorded?
+5. Can I tell, after the fact, exactly what an agent did and why it was allowed?
 
-**One-question filter**: *"Does this give teams autonomy, or give management control?"* — a tool that genuinely delivers both is what they have been looking for; a tool that tips toward control is exactly what they've been hired to undo.
+**One-question filter**: *"Did the engine compute this, or did a model say it?"* — if they cannot tell the difference from the response, the surface is not usable for anything that matters.
 
 **Hard NOs (dealbreakers)**:
-- PMO has real-time visibility into sprint internals (task-level who-is-working-on-what, daily hours logged)
-- Sprint scope can be changed by anyone with PM-level RBAC without team notification or consent
-- Velocity is automatically exposed as a productivity metric on PMO or executive dashboards
-- Tool is deployed by mandate only — no voluntary adoption path means Priya churns, data rots, and Marcus's investment fails
+- An AI answer that is a model's assertion rather than an engine's computation
+- A computed value returned with no provenance envelope
+- An MCP surface that is a strict subset of the UI, with no stated parity commitment
+- Plan data required to leave the instance for a hosted model in order to use the AI features
+- Agent write access shipping before the audit record and the off-switch
+- An agent that can exceed the role of the human who provisioned it
 
-**Decision authority**: High influencer — can champion or kill adoption across 8–12 teams. Reports to CTO or Head of Delivery. If Morgan endorses, team adoption follows. If Morgan opposes, no PMO mandate survives more than one quarter. Does not sign the contract.
+**Decision authority**: Technical champion, not a buyer. Their org already runs MCP clients; they decide which internal systems get wired in. A tool that fails the first afternoon's exploration is never wired in at all, and nobody above them ever hears about it.
 
-**Frequency & time budget**: 30 min weekly review of team health signals + up to 2 hr biweekly per team for retrospectives. Quarterly 1-day practice maturity review. Does not use the tool as a daily work surface — observes and coaches those who do.
+**Frequency & time budget**: Many short interactions daily — seconds each, embedded in a workflow they are already in. One intense evaluation session of a few hours when the surface is new. Their patience for a missing tool is roughly one workaround: they will write one adapter, not three.
 
-**10/10 anchor**: Three months after rollout, a skeptical senior developer on Alex's team opens TruePPM voluntarily — because the tool respects the sprint boundary, the retro action they flagged last sprint appeared in this sprint's backlog automatically, and the PMO dashboard shows milestone confidence without anyone filing a status report.
+**10/10 anchor**: They ask their MCP client "what's the P80 for the platform migration and what's driving it", get back a date with the critical chain and engine version attached, follow up with a non-mutating what-if that reforecasts without touching the plan — all against their own instance, with the model never once supplying a number.
 
 ---
 
@@ -693,13 +880,13 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 **Name**: Nadia Rahman
 **Title**: Senior Integration Engineer / Platform Developer, Systems Integration team at a mid-size enterprise (also representative of partner ISVs building connectors on TruePPM)
 **Age**: 36 | **Tech comfort**: Very high (lives in Postman and the OpenAPI spec, writes webhook consumers, CI bots, and agent automations)
+**Grounding**: T0 (modeled)
 
 > **Specialist evaluator, not a P3M-layer role.** Nadia does not run projects — she wires
 > TruePPM into everything else the org runs. She joins the `/voc` panel only when the
-> feature has an **API/integration surface** (see the VoC rubric's specialist-panelist
-> note). For those features her verdict is load-bearing: API-first is the platform's
-> identity (ADR-0112 makes agents first-class API actors), and no multi-tool org adopts
-> without her proof-of-integration passing.
+> feature has an **API/integration surface**. For those features her verdict is
+> load-bearing: API-first is the platform's identity (ADR-0112 makes agents first-class
+> API actors), and no multi-tool org adopts without her proof-of-integration passing.
 
 **Goals**:
 - Wire TruePPM into the existing toolchain (Jira, Slack, CI, the data warehouse) without screen-scraping
@@ -714,6 +901,7 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 - "The docs show the happy path and omit error shapes, rate limits, and the deprecation policy. I find out at 2am when a 429 takes down my pipeline."
 - "A minor version renamed a field and broke every consumer — no schema diff, no warning header, no sunset window."
 - "I want to point an agent at the API and have it act as a first-class actor with its own audit trail — not screen-scrape or impersonate a human's session."
+- "A field that reads like a constraint and enforces nothing is worse than no field. I'll only find out in production."
 
 **What would make her advocate for the tool**:
 - First-class webhooks for the events she cares about (task/sprint/schedule changes), with signed payloads, retries, and a replay/dead-letter path
@@ -721,6 +909,7 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 - A published, versioned OpenAPI schema with a machine-readable changelog and a real deprecation/sunset policy
 - Agent-as-actor support (ADR-0112): an agent authenticates with its own scoped token, acts under a named actor with `on_behalf_of` delegation, and lands in a readable audit log
 - Docs that document error shapes, rate limits, idempotency, and pagination — not just 200s
+- An explicit convention distinguishing advisory presentation hints from enforced constraints
 
 **Evaluation criteria** (in order):
 1. Are there real webhooks (signed, retried, dead-lettered) for the events I need — or must I poll?
@@ -728,6 +917,7 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 3. Is the OpenAPI schema stable, versioned, and diffable, with a written deprecation policy?
 4. Do the docs cover error shapes, rate limits, idempotency, and pagination — not only the happy path?
 5. Can an agent act as a first-class scoped actor (ADR-0112) rather than impersonating a human?
+6. Can I tell from the schema alone which fields bind behavior and which are presentation hints?
 
 **One-question filter**: *"Can I build against this without reverse-engineering it?"* — if the contract isn't published, stable, and scoped, she won't build on it.
 
@@ -737,6 +927,7 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 - Breaking schema changes shipped in a minor version with no changelog, warning header, or sunset window
 - API docs that omit error shapes, rate limits, and pagination contracts
 - Agents forced to impersonate a human session instead of authenticating as their own scoped actor
+- A field documented as a constraint that the server does not enforce
 
 **Decision authority**: Influencer / technical gatekeeper. Doesn't sign the contract, but a failed proof-of-integration kills the deal before Marcus ever sees a second demo. Her thumbs-up is a precondition for adoption in any org that runs more than one tool.
 
@@ -751,41 +942,50 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 **Name**: Omar Haddad
 **Title**: Platform / DevOps Engineer, mid-size company that self-hosts its own tooling — the person who runs `helm install trueppm` and owns it in production (also representative of the self-hosting sysadmin)
 **Age**: 40 | **Tech comfort**: Very high (Kubernetes, Helm, PostgreSQL, Prometheus/Grafana; runs the cluster and owns the pager)
+**Grounding**: T0 (modeled)
 
 > **Specialist evaluator, not a P3M-layer role.** Omar does not manage a project — he keeps
-> the platform running. He joins the `/voc` panel only when the feature touches the
-> **deployment/operations surface** (see the VoC rubric's specialist-panelist note). His
-> verdict is load-bearing there: OSS adoption is the GitLab model — it begins with
-> `helm install`, and his first 30 minutes are the top of the adoption funnel. ADR-0084
-> (dead-letter alerting) ships *for* this persona.
+> the platform running. He joins the `/voc` panel when the feature touches the
+> **deployment/operations surface**, and — since the 2026-07 revision — when it touches the
+> **pre-install evaluation path**: the hosted demo, the one-command trial, and read-only
+> share links. Those five minutes decide whether his first thirty ever happen, and 0.4 is
+> built around them. His verdict is load-bearing: OSS adoption is the GitLab model — it
+> begins with `helm install`, and his first 30 minutes are the top of the adoption funnel.
 
 **Goals**:
+- Judge in five minutes, without installing anything, whether this is worth an install
 - Stand up TruePPM on his own cluster and have it healthy in the first 30 minutes
 - Upgrade safely: no surprise destructive migrations, a clear rollback path, downtime he can schedule
 - Back up and restore PostgreSQL + object storage with a documented, tested procedure
-- Observe it: meaningful health/readiness probes, metrics, logs, and alerts on what pages him (queue depth, dead-letter growth, failed migrations)
+- Observe it: meaningful health/readiness probes, metrics, logs, and alerts on what pages him
 - Right-size it: know the CPU/memory/storage a team of N needs before he provisions
+- Satisfy the auditor: prove where the data lives and that nothing phones home
 
 **Pain points**:
+- "I'm not installing anything to find out whether it's any good. Show me a live instance or I'm closing the tab."
 - "The demo docker-compose is great. The production Helm chart is an afterthought — no values documentation, no sizing guide."
 - "An upgrade ran an irreversible migration with no warning and no rollback. I restored from backup at midnight."
 - "There's no `/healthz`/`/readyz` that means anything, so my liveness probe restarts a pod mid-migration."
 - "Background jobs fail silently. There's no dead-letter alert, so I find out when a user reports stale data a week later."
 - "Nobody documents backup/restore. I'm guessing which volumes and which PostgreSQL extensions I need."
+- "Compliance asked me to prove the application doesn't call home. I couldn't, so we didn't deploy it."
 
 **What would make him trust the tool in production**:
-- A production-grade Helm chart with documented values, resource requests/limits, autoscaling, and a sizing guide (team-of-25 vs team-of-250)
+- A live, no-signup evaluation path he can judge in five minutes
+- A production-grade Helm chart with documented values, resource requests/limits, autoscaling, and a sizing guide
 - Upgrade safety: reversible or clearly-flagged migrations, a documented rollback, and a per-release "what changed operationally" note
 - A tested backup/restore runbook (PostgreSQL including the `ltree`/`pg_trgm` extensions + object storage) and a restore drill he can rehearse
 - Real observability: meaningful health/readiness probes, Prometheus metrics, structured logs, and alerts on queue depth, dead-letter growth, and failed migrations (ADR-0084)
 - Secrets, TLS, and OIDC wiring documented as first-class, not blog-post folklore
+- A clear, verifiable statement of what leaves the box — ideally nothing, by default
 
 **Evaluation criteria** (in order):
-1. Can I get a healthy install in the first 30 minutes with the published Helm chart and values?
-2. Are upgrades safe — reversible/flagged migrations, a documented rollback, no surprise data loss?
-3. Is there a tested backup/restore runbook for PostgreSQL (with extensions) and object storage?
-4. Can I observe and alert — health probes, metrics, logs, dead-letter alerting?
-5. Is there a sizing guide so I can provision correctly before go-live?
+1. Can I evaluate this meaningfully in five minutes without installing it?
+2. Can I get a healthy install in the first 30 minutes with the published Helm chart and values?
+3. Are upgrades safe — reversible/flagged migrations, a documented rollback, no surprise data loss?
+4. Is there a tested backup/restore runbook for PostgreSQL (with extensions) and object storage?
+5. Can I observe and alert — health probes, metrics, logs, dead-letter alerting?
+6. Is there a sizing guide so I can provision correctly before go-live?
 
 **One-question filter**: *"When this breaks at 2am, can I diagnose and recover it from the docs?"* — if operability isn't documented, he won't put it on his pager.
 
@@ -795,12 +995,78 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 - No backup/restore procedure, or an untested one
 - No meaningful health/readiness probes and no metrics/log/alert story
 - Background-job failures with no dead-letter visibility or alerting
+- Unavoidable outbound calls — license checks, telemetry, model APIs — with no way to disable them
 
 **Decision authority**: Technical gatekeeper for the self-hosted path. Doesn't own the budget, but if he can't operate it safely he vetoes self-host outright — and self-host is the whole OSS adoption on-ramp. His first-30-minutes experience decides whether the funnel starts at all.
 
-**Frequency & time budget**: Intense during install/upgrade windows (a scheduled maintenance hour, plus the first-30-minutes bring-up). Otherwise hands-off — minutes a week reviewing dashboards and alerts, unless something pages him. His patience for an unrecoverable failure is zero: one un-rollback-able bad upgrade and he freezes the version indefinitely.
+**Frequency & time budget**: Five minutes of pre-install evaluation, on a link someone sent him. Then intense during install/upgrade windows (a scheduled maintenance hour, plus the first-30-minutes bring-up). Otherwise hands-off — minutes a week reviewing dashboards and alerts, unless something pages him. His patience for an unrecoverable failure is zero: one un-rollback-able bad upgrade and he freezes the version indefinitely.
 
-**10/10 anchor**: He runs `helm install`, gets green health probes and a working dashboard in under 30 minutes, upgrades a minor version a month later with a one-command rollback he never needs because the release notes told him exactly what changed, and when a background worker wedges, a dead-letter alert pages him with enough context to drain it before any user notices.
+**10/10 anchor**: He opens a share link on his phone, sees a real schedule in ten seconds, runs `helm install` that afternoon, gets green health probes and a working dashboard in under 30 minutes, upgrades a minor version a month later with a one-command rollback he never needs because the release notes told him exactly what changed, and when a background worker wedges, a dead-letter alert pages him with enough context to drain it before any user notices.
+
+---
+
+## Persona 11 — Engine-Library Consumer
+
+**Name**: Bram de Vries
+**Title**: Backend / data engineer who needs schedule math inside something that is not a
+project management tool — a capacity model, an internal planning service, a simulation
+notebook, a CLI
+**Age**: 31 | **Tech comfort**: Very high (Python, pandas, notebooks; reads source before docs)
+**Grounding**: T0 (modeled)
+
+> **Specialist evaluator, funnel not revenue.** Bram joins the panel when a feature
+> touches the standalone `trueppm-scheduler` package — its public API, docs, CLI,
+> dependency surface, or the Python↔Rust conformance relationship. Weight his verdict on
+> **credibility and adoption-on-ramp** grounds, never on willingness to pay: the Python
+> CPM field is currently GitHub one-offs plus one small PyPI package, so the niche is
+> genuinely empty, but the demand is academic and hobbyist. He is the cheapest proof a
+> skeptic can run — `pip install` verifies our sharpest differentiator in sixty seconds —
+> and that is his entire strategic value. **Do not model him as a revenue segment**, and
+> do not let library download counts be read as pipeline.
+
+**Goals**:
+- Get a correct critical path and a probabilistic finish date out of a dependency graph, in-process
+- Embed it in a service, pipeline, or notebook without dragging in a web framework
+- Trust the math enough not to re-derive it by hand
+- Keep the dependency surface small enough to pass an internal review
+
+**Pain points**:
+- "Every CPM library I've found is somebody's coursework. One file, finish-to-start only, no calendar, unmaintained since 2019."
+- "I don't want a Gantt chart. I want the DAG and the float values — I'll render it myself, or not at all."
+- "Most 'schedulers' only do finish-to-start. I can't express an overlap without inventing a dummy task."
+- "Monte Carlo is always a separate commercial product that wants a schedule file exported from a tool I don't run."
+- "It silently returned a wrong answer on a cyclic graph. I'd rather it crashed."
+- "If I have to install a database and a message broker to compute a critical path, this isn't a library."
+
+**What would make him adopt it**:
+- All four dependency types with lead/lag, and a working-day calendar, in a pure-Python package
+- Monte Carlo in the same package as the deterministic pass — no export step, no second product
+- Two dependencies, no framework, importable in a notebook
+- Loud failure on bad input: cycle detection that names the offending IDs
+- JSON round-tripping so a plan can be serialized, stored, and re-run
+- A stable public API with real versioning — he will pin, and he expects the pin to mean something
+
+**Evaluation criteria** (in order):
+1. Does it compute correctly — all four dependency types, calendar-aware, float values I can check by hand on a small graph?
+2. Can I install and use it without a framework, a server, or a database?
+3. Does it fail loudly and specifically on degenerate input rather than returning something plausible?
+4. Is the public API documented and stable enough to pin?
+5. Does the Monte Carlo carry its assumptions explicitly (distribution, iteration count, seed) so results are reproducible?
+
+**One-question filter**: *"Can I get the DAG and the float out of this in ten minutes, in a notebook?"* — if the quick start requires infrastructure, he closes the tab.
+
+**Hard NOs (dealbreakers)**:
+- Requires a database, web server, or message broker to compute a schedule
+- Finish-to-start dependencies only
+- Silent wrong answers on cyclic or malformed input
+- A "library" that is really a client for a hosted service
+- Non-permissive licensing on the engine
+
+**Decision authority**: None commercially — he is not a buyer and may never install the platform. But he is the highest-credibility public verification of the scheduling claim, and the path by which a technical skeptic becomes an evaluator. A broken quick start is a reputational cost out of proportion to the package's size.
+
+**Frequency & time budget**: One evaluation session of 10–30 minutes. Then either it is a dependency in his project for years, or he never opens it again. There is very little middle ground.
+
+**10/10 anchor**: `pip install trueppm-scheduler`, twelve lines in a notebook, and he has early/late dates, total float, the critical path, and a P80 out of his own dependency graph — with no server, no account, and no export step — inside ten minutes.
 
 ---
 
@@ -813,16 +1079,22 @@ implications, so `/voc` and `/ai-review` must treat it consistently. This note d
 what an agent may **never** do, mirroring the persona hard-NO format, so the two skills
 stay aligned.
 
+Note the distinction from **Persona 8 (Theo)**: Theo is the *human* who points agents at
+TruePPM and is accountable for what they do. This note is the constraint set applied to
+the *agent itself*. A feature can satisfy Theo and still violate these; both must pass.
+
 Under ADR-0112 an agent authenticates as its own `Actor` (`kind=agent`) with a
 capability-scoped token, may act under `on_behalf_of` a delegating human, and every
 action lands in the team-readable audit log via the `agent_action_recorded` signal.
 
 **Hard NOs — what an agent may never do**:
-- **Exceed its provisioning human's role.** The agent token can only *narrow* the 5-role
-  RBAC of the human who provisioned it (`created_by`), never widen it.
+- **Exceed its provisioning human's role.** Per RC5, an agent's effective permissions are
+  the **intersection** of its own capability scope and its human principal's role scope
+  at the moment it acts.
 - **Write by default.** OSS ships agents with read + `schedule:simulate` (ephemeral
-  what-if) only. `schedule:write` and any durable write are grantable *only* through the
-  Enterprise approval gate (#147) — never a default capability.
+  what-if) only. Durable writes are gated behind the single-approver human-in-the-loop
+  gate (OSS, per RC4); multi-step approval chains and delegated approval authority are
+  Enterprise.
 - **Act un-audited.** Every agent action dispatches `agent_action_recorded` inside the
   underlying write's `transaction.on_commit()`. An agent action with no audit event is a
   boundary violation, not an optimization.
@@ -830,8 +1102,7 @@ action lands in the team-readable audit log via the `agent_action_recorded` sign
   token — it never borrows a human's credentials. Delegation is recorded via
   `on_behalf_of`, not impersonation.
 - **Return an unstamped computed answer.** Any computed API/MCP response an agent produces
-  routes through `stamp_answer` and carries the `_provenance` envelope (ADR-0112 §2) —
-  an unstamped computed answer must never be returned.
+  routes through `stamp_answer` and carries the `_provenance` envelope (ADR-0112 §2).
 - **Escape object-level scope.** The token's `project_scope` is a floor the agent can
   never exceed, no matter what a prompt asks it to do.
 
@@ -844,8 +1115,7 @@ constraint** over the human panel — does the feature let an agent reach every 
 human can (API-first), and does it keep agent writes safe-by-default? `/ai-review` is the
 design-time gate that enforces the ADR-0112 §3/§4 boundary invariants before code is
 written. A feature the human panel loves but that strands domain logic where an agent can
-never reach it still fails the agent constraint — that is the alignment this note exists
-to guarantee.
+never reach it still fails the agent constraint.
 
 ---
 
@@ -853,10 +1123,18 @@ to guarantee.
 
 Naming who we explicitly exclude prevents feature dilution. The `/voc` agent should **not** soften recommendations to please these users, and architecture decisions should not be justified by "but X would want this."
 
-- **Pete the P6 Loyalist** — Primavera P6 user running large-scale nuclear / aerospace / civil-megaproject schedules. Needs schedule-of-record audit chains, claims management, contractor delay analysis, multi-resource-leveling at 50,000-activity scale. Our scheduling engine is solid but our compliance, audit, and contract-claims story will never match P6 + Deltek for capital projects. **Out of scope by design.**
+- **Pete the P6 Loyalist** — Primavera P6 user running large-scale nuclear / aerospace / civil-megaproject schedules. Needs schedule-of-record audit chains, claims management, contractor delay analysis, multi-resource-leveling at 50,000-activity scale. Our own published limits say it plainly: no resource leveling, one constraint type, a measured ~1,000-task Schedule-view ceiling. **Out of scope by design.**
+- **Ray the Construction / Field-Ops Buyer** — General or specialty contractor who needs RFIs, submittals, daily reports, punch lists, safety and quality workflows, drawing markup, and subcontractor coordination from a phone on a job site. Procore, Autodesk Construction Cloud, Fieldwire and Buildertrend own this market and are converging on it hard; we have none of that surface and none of it is planned. Our own `what-it-does-not-do` page names construction as out of range. **A market-fit failure, not a feature gap** — and specifically *not* a reason to build offline schedule editing.
 - **Trina the Trello Refugee** — 5-person creative agency that just needs a list of cards with due dates. TruePPM's CPM, sync conflict resolution, role matrix, and portfolio model are pure overhead she will never use. Send her to Trello, Asana, or Linear. **A persona-fit failure, not a feature gap.**
 - **Frank the Fortune 50 Buyer** — Buys at the SAP / Oracle / Workday tier. Wants global tax engine integration, ERP-native PPM, white-glove onboarding, custom contractual SLAs, dedicated CSM. Our open-core model and team size aren't a fit; serving Frank distracts from Marcus. **Punt indefinitely.**
-- **Carla the Compliance-First Federal** — DoD / FedRAMP Moderate or High / IL5 buyer. Possibly addressable eventually, but not in the near term. Until we have FedRAMP Moderate authorization, government compliance asks should not drive product priorities. **Deferred indefinitely.**
 - **Stan the Solo Freelancer** — One-person consultancy tracking his own time across 3 clients. Doesn't need scheduling, sync, RBAC, or boards. A spreadsheet plus Toggl is the right answer for him. **A market we cannot serve well.**
+  - **Carve-out:** this excludes Stan from the *platform*, not the *library*. **Bram (Persona 11) is frequently a solo developer**, and the `pip install trueppm-scheduler` on-ramp is a deliberate funnel we do not want an anti-persona to close. "Solo" is not the disqualifier — "needs a task list, not schedule math" is.
 
-When a feature is justified primarily by an anti-persona's pain — push back. They are not the customer, and chasing them dilutes what makes us valuable to Sarah, Marcus, Priya, David, Janet, and Alex.
+### Adjacent segments — not anti-personas, not yet addressable
+
+These are distinct from the list above: the exclusion is about *evidence and effort*, not fit. They may become targets; they must not drive priorities today.
+
+- **Carla the Compliance-First Federal** — DoD / FedRAMP / IL-level buyer. **Reclassified from anti-persona in the 2026-07 revision.** The original reasoning was "no FedRAMP authorization, defer indefinitely", but FedRAMP governs **cloud service offerings** — a self-hosted deployment inside a customer's own approved boundary largely sidesteps it, and no project management tool is "ITAR certified" in the first place; the question is whether the deployment can prevent unauthorized access to controlled technical data. Our architecture is unusually well-aligned here: self-hosted, Apache 2.0, air-gappable, hash-chained tamper-evident agent audit. **The gap is evidence packaging, which is solvable, not certification, which is not ours to obtain.** One constraint cuts against us and must be respected: air-gapped buyers require that the application not phone home for license checks or telemetry. Do not build *for* Carla, but do not knowingly build something that disqualifies her either.
+- **The field / offline delivery manager** — the PM whose defining constraint is working with no signal. This was the original Persona 1 and is now a **post-1.0 expansion segment**, because the capability it depends on is undecided: issue **#2220** records that 0.6 as scoped is My Tasks plus time capture plus on-device CPM, *not* a schedule editor, and whether offline schedule editing lands at 0.6 or defers to the 1.0 window is an open decision. When that decision is made, revisit this entry — if offline editing is committed, this segment earns a core seat back.
+
+When a feature is justified primarily by an anti-persona's pain — push back. They are not the customer, and chasing them dilutes what makes us valuable to Sarah, Marcus, Priya, David, Janet, Alex, Jordan, and Theo.
