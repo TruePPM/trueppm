@@ -170,6 +170,26 @@ type PreviewableRule = MatchableRule &
  * when an end condition (ON_DATE / AFTER_N) caps the series first, and `[]` for a
  * rule that can never fire (e.g. WEEKLY with no weekday selected).
  */
+/**
+ * The two ways a rule can stop: a remaining count, or a hard end date.
+ *
+ * Returns `null` when an `AFTER_N` rule has already produced all its
+ * occurrences — distinct from `remaining: 0`, so the caller can return early
+ * instead of entering a scan that could never emit anything.
+ */
+function occurrenceBounds(
+  rule: PreviewableRule,
+): { remaining: number | null; endDate: Date | null } | null {
+  let remaining: number | null = null;
+  if (rule.end_type === 'AFTER_N' && rule.end_count != null) {
+    remaining = Math.max(rule.end_count - (rule.occurrence_count ?? 0), 0);
+    if (remaining === 0) return null;
+  }
+  const endDate =
+    rule.end_type === 'ON_DATE' && rule.end_date ? parseIsoDate(rule.end_date) : null;
+  return { remaining, endDate };
+}
+
 export function computeNextOccurrences(
   rule: PreviewableRule,
   n: number,
@@ -179,13 +199,9 @@ export function computeNextOccurrences(
   const anchor = new Date(from.getFullYear(), from.getMonth(), from.getDate());
   const time = (rule.time_of_day || '09:00').slice(0, 5);
 
-  let remaining: number | null = null;
-  if (rule.end_type === 'AFTER_N' && rule.end_count != null) {
-    remaining = Math.max(rule.end_count - (rule.occurrence_count ?? 0), 0);
-    if (remaining === 0) return [];
-  }
-  const endDate =
-    rule.end_type === 'ON_DATE' && rule.end_date ? parseIsoDate(rule.end_date) : null;
+  const bounds = occurrenceBounds(rule);
+  if (bounds === null) return []; // AFTER_N rule already exhausted.
+  const { remaining, endDate } = bounds;
 
   const out: OccurrencePreviewItem[] = [];
   const cursor = new Date(anchor);

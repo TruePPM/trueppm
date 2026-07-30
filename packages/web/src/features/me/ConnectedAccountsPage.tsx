@@ -36,6 +36,7 @@ import {
   useExternalConnection,
   useExternalItems,
   useSyncExternalSource,
+  type ExternalConnectionSummary,
 } from '@/hooks/useExternalConnection';
 import { ExternalSourceConnectDialog } from './ExternalSourceConnectDialog';
 
@@ -594,20 +595,7 @@ function SourceCard({ source }: { source: ExternalTaskSourceEntry }) {
             <p className="mt-0.5 text-xs text-neutral-text-secondary">
               {source.description}
             </p>
-            {isConnected && connection ? (
-              <p className="mt-1 text-xs text-neutral-text-secondary">
-                Linked as {connection.account_email || 'your account'}
-                {connection.base_url ? <> · {connection.base_url}</> : null}
-                {connection.last_synced_at ? (
-                  <> · synced {formatRelativeDate(connection.last_synced_at)}</>
-                ) : (
-                  // A connected row with no last-sync stamp yet: the first pull
-                  // enqueued at connect time has not landed. Data-driven (not a
-                  // polling route) — ADR-0313.
-                  <> · first sync in progress…</>
-                )}
-              </p>
-            ) : null}
+            {isConnected && connection ? <ConnectionDetailLine connection={connection} /> : null}
           </div>
         </div>
         <div className="sm:shrink-0">
@@ -622,15 +610,12 @@ function SourceCard({ source }: { source: ExternalTaskSourceEntry }) {
         </div>
       </div>
 
-      {isConnected && connection?.status === 'auth_failed' ? (
-        <ReconnectBanner
+      {isConnected ? (
+        <ConnectionHealthNotice
+          connection={connection}
           sourceName={source.name}
           onReconnect={() => setShowConnect(true)}
         />
-      ) : isConnected && isStaleSync(connection?.last_synced_at ?? null) ? (
-        <p className="text-xs text-neutral-text-secondary">
-          Last synced {formatRelative(new Date(connection?.last_synced_at as string))}
-        </p>
       ) : null}
 
       {isConnected && sourceItems.length > 0 ? (
@@ -666,6 +651,57 @@ function SourceCard({ source }: { source: ExternalTaskSourceEntry }) {
  * `auth_failed` state on the backend. Amber (recoverable), never red — this
  * mirrors the tone of the My Work freshness line.
  */
+/**
+ * "Linked as … · host · synced …" under a connected source.
+ *
+ * A connected row with no last-sync stamp yet says so explicitly rather than
+ * omitting the clause: the first pull is enqueued at connect time and is
+ * data-driven, not a polling route (ADR-0313), so silence would read as a
+ * failure when it is normal.
+ */
+function ConnectionDetailLine({ connection }: { connection: ExternalConnectionSummary }) {
+  return (
+    <p className="mt-1 text-xs text-neutral-text-secondary">
+      Linked as {connection.account_email || 'your account'}
+      {connection.base_url ? <> · {connection.base_url}</> : null}
+      {connection.last_synced_at ? (
+        <> · synced {formatRelativeDate(connection.last_synced_at)}</>
+      ) : (
+        <> · first sync in progress…</>
+      )}
+    </p>
+  );
+}
+
+/**
+ * The one health notice a connected source may need: re-auth, or a stale sync.
+ *
+ * Re-auth wins — a connection whose token failed is also, necessarily, stale,
+ * and telling the user it is stale would point them at the wrong fix.
+ */
+function ConnectionHealthNotice({
+  connection,
+  sourceName,
+  onReconnect,
+}: {
+  connection: ExternalConnectionSummary | null | undefined;
+  sourceName: string;
+  onReconnect: () => void;
+}) {
+  if (connection?.status === 'auth_failed') {
+    return <ReconnectBanner sourceName={sourceName} onReconnect={onReconnect} />;
+  }
+  const lastSynced = connection?.last_synced_at ?? null;
+  if (lastSynced && isStaleSync(lastSynced)) {
+    return (
+      <p className="text-xs text-neutral-text-secondary">
+        Last synced {formatRelative(new Date(lastSynced))}
+      </p>
+    );
+  }
+  return null;
+}
+
 function ReconnectBanner({
   sourceName,
   onReconnect,
