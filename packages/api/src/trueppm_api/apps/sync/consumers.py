@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import logging
 import sys
@@ -15,7 +17,26 @@ from trueppm_api.apps.sync.ws_auth import authenticate_scope, warn_if_legacy
 
 logger = logging.getLogger(__name__)
 
-_PRESENCE_TTL = 60  # seconds — refreshed on every received message (heartbeat)
+_PRESENCE_TTL = 60  # seconds — refreshed by the per-socket keepalive below
+
+# How often each open socket re-arms the presence TTL (#2607).
+#
+# The TTL was originally refreshed only from ``receive_json`` — a heartbeat no
+# client sends. The web client's project socket is receive-only (grep for
+# ``.send(`` under packages/web/src: the only sender is the workshop socket), so
+# in practice nothing ever refreshed it and the roster emptied about a minute
+# into every session while everyone was still connected and editing.
+#
+# Refreshing on *traffic* would not fix it either: a quiet project generates no
+# frames, and presence means "this person is here", not "this person is busy".
+# So each socket re-arms its own TTL on a timer for as long as it is open, which
+# needs no client change and therefore covers mobile and any future client for
+# free. The TTL keeps doing the job it is actually good at — reaping a socket
+# that died without ``disconnect`` running (worker kill, network partition).
+#
+# Half the TTL: one missed tick (a slow event loop, a brief Redis blip) still
+# leaves a full interval of margin before anyone is wrongly reaped.
+_PRESENCE_REFRESH_INTERVAL = _PRESENCE_TTL // 2
 
 # Upper bound on events replayed on a single reconnect (ADR-0236). A client
 # further behind than this is cheaper to fully refetch than to stream, so it gets
@@ -65,11 +86,15 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
                      `project:{pk}:presence`.  A `presence_join` event is
                      broadcast to the group.  On disconnect, the entry is
                      removed and a `presence_leave` event is broadcast.
-                     The hash expires after _PRESENCE_TTL seconds; each
-                     received message (heartbeat) resets the expiry.
+                     The hash expires after _PRESENCE_TTL seconds and is re-armed
+                     every _PRESENCE_REFRESH_INTERVAL by a per-socket keepalive
+                     task, so the roster reflects who is connected rather than
+                     who is generating traffic (#2607). The TTL remains the
+                     backstop for a socket that dies without `disconnect`.
 
-    Receive:         Client→server messages reset the presence TTL.  All other
-                     content is silently discarded.
+    Receive:         Client→server messages also reset the presence TTL, but no
+                     client sends any — the keepalive above is what keeps the
+                     roster alive.  All content is silently discarded.
     """
 
     #: One async Redis client per socket, created lazily on the first presence
@@ -115,6 +140,13 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         # Register presence in Redis and notify other clients.
         await self._presence_join()
 
+        # Keep this socket's presence alive for as long as it is open (#2607).
+        # Started before accept so a socket that never sees a single frame is
+        # still represented in the roster.
+        self._presence_task: asyncio.Task[None] | None = asyncio.create_task(
+            self._presence_keepalive()
+        )
+
         await super().websocket_connect(message)
 
         # Count this socket into the active-connections gauge only after accept, so
@@ -147,6 +179,15 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
 
         if hasattr(self, "group_name"):
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
+
+        # Stop the keepalive before releasing presence, so a tick in flight cannot
+        # re-arm the TTL on a key the leave below is about to clean up.
+        task = getattr(self, "_presence_task", None)
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(BaseException):
+                await task
+            self._presence_task = None
 
         if hasattr(self, "_user"):
             await self._presence_leave()
@@ -331,6 +372,32 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         """Refresh the presence TTL so an active user is not evicted."""
         r = await self._get_redis()
         await r.expire(_presence_key(self.project_pk), _PRESENCE_TTL)
+
+    async def _presence_keepalive(self) -> None:
+        """Re-arm the presence TTL every interval for as long as this socket is open.
+
+        Started at connect and cancelled at disconnect, so presence tracks socket
+        lifetime rather than traffic (#2607) — an idle project's roster is as
+        correct as a busy one's.
+
+        Never allowed to kill the socket. A Redis blip here means one skipped
+        refresh, and the next tick re-arms a TTL that has not yet expired; letting
+        the exception escape would tear down a working connection over a
+        supporting affordance. ``CancelledError`` is re-raised so ``disconnect``'s
+        await returns promptly rather than swallowing its own cancellation.
+        """
+        while True:
+            try:
+                await asyncio.sleep(_PRESENCE_REFRESH_INTERVAL)
+                await self._presence_heartbeat()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning(
+                    "presence keepalive refresh failed for project %s",
+                    getattr(self, "project_pk", "?"),
+                    exc_info=True,
+                )
 
     async def _get_redis(self) -> Any:
         """Return this consumer's async Redis client, creating it once and caching it.
