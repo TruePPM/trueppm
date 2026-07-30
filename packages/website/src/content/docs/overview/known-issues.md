@@ -112,15 +112,6 @@ same way, so the same caveat applies to the throughput forecast.
   See [Interpreting results](/features/monte-carlo/#velocity-and-throughput-forecasts-are-a-floor).
 - **Fix planned for 0.6** — [#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469).
 
-### Open correctness defects
-
-Found by the 2026-07-27 red-team pass and under active fix:
-
-| Issue | Symptom | Fix planned for |
-|---|---|---|
-| [#2460](https://gitlab.com/trueppm/trueppm/-/issues/2460) | `monte_carlo()` pins a completed task's start one working day back regardless of duration, so its forecast diverges from `schedule()` on the same input | 0.4 |
-| [#2462](https://gitlab.com/trueppm/trueppm/-/issues/2462) | A calendar's exception index cache goes stale after a same-length in-place mutation, so `is_working_day` returns the previous answer | 0.4 |
-
 ## The second engine (Rust / WASM)
 
 TruePPM ships two coordinated CPM implementations: the Python library
@@ -145,24 +136,6 @@ as a fixed Mon–Fri week.
 The Rust engine implements forward pass, backward pass, floats, and incremental
 recompute. It has **no Monte Carlo at all**. Offline and in-browser recompute is
 therefore deterministic-only; every probabilistic answer requires the server.
-
-### The Rust engine refuses per-task calendars — planned for 0.4
-
-`validate.rs` rejects a project declaring a non-empty `calendars` registry, so the
-Rust engine cannot schedule a program-scoped, multi-calendar project that the Python
-engine handles.
-
-- **Fix planned for 0.4** — [#1504](https://gitlab.com/trueppm/trueppm/-/issues/1504).
-
-### Cross-engine conformance fixtures do not cover per-task calendars — planned for 0.4
-
-The conformance suite compares both engines against shared fixtures, and the gate
-itself is sound (a missing snapshot hard-fails). The **fixtures** have one real
-hole: none exercises per-task calendars, so the semantics the two engines most
-recently diverged on are the semantics the suite cannot check. Dependency lag
-(including negative leads) and non-standard working-day masks *are* covered.
-
-- **Fix planned for 0.4** — [#1497](https://gitlab.com/trueppm/trueppm/-/issues/1497).
 
 ## Test and quality gates
 
