@@ -255,6 +255,11 @@ def test_timestamp_is_pinned_for_the_whole_paging_session(user: object) -> None:
     The program slice pages the same cursor as the project slice, so it inherits
     the same defect: a mid-drain write to an already-drained collection would be
     filtered out by a checkpoint the session never drained to.
+
+    Pinning is a strict improvement here but not a full guarantee: this slice
+    still keys on the per-row ``server_version`` rather than a session sequence,
+    so a low-version program edited mid-drain can sit *below* the pinned max.
+    That is the separate #2498 defect class — not fixed, and not made worse.
     """
     progs = [Program.objects.create(name=f"Q{i}") for i in range(5)]
     for p in progs:

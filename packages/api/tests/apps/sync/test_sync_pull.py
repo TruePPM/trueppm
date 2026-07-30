@@ -12,7 +12,16 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Project, Risk, Task
+from trueppm_api.apps.projects.models import (
+    Calendar,
+    Project,
+    RetroActionItem,
+    RetroVisibility,
+    Risk,
+    Sprint,
+    SprintRetro,
+    Task,
+)
 from trueppm_api.apps.sync.serializers import SyncTaskSerializer
 
 User = get_user_model()
@@ -733,6 +742,76 @@ def test_sync_unmodified_cursor_survives_the_ceiling_check(
             break
         assert pages < 100, "pager failed to terminate"
     assert pages > 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("role", "may_read"),
+    [
+        pytest.param(Role.VIEWER, False, id="viewer-excluded"),
+        pytest.param(Role.MEMBER, True, id="member-included"),
+    ],
+)
+def test_team_only_retro_gating_holds_on_every_page_of_a_drain(
+    user: object,
+    project: Project,
+    role: int,
+    may_read: bool,
+) -> None:
+    """ADR-0071 §3 visibility survives pagination (#2568 guard-rail).
+
+    The drain is now session-stateful — state travels in a client-supplied
+    cursor — so the risk worth pinning is a future change that moves role or
+    filter state into that cursor. The role-dependent exclusion is applied to
+    querysets rebuilt on every request, so it must hold on continuation pages
+    exactly as it does on page 1. ``sprint_retros`` sits late in the fixed
+    collection order, so a small ``page_size`` guarantees it is only reached
+    after several continuations.
+    """
+    ProjectMembership.objects.create(project=project, user=user, role=role)
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    sprint = Sprint.objects.create(
+        project=project,
+        name="S1",
+        start_date=date(2026, 1, 1),
+        finish_date=date(2026, 1, 14),
+    )
+    retro = SprintRetro.objects.create(
+        sprint=sprint,
+        notes="CONFIDENTIAL_RETRO_NOTES",
+        team_visibility=RetroVisibility.TEAM_ONLY,
+    )
+    action = RetroActionItem.objects.create(retro=retro, text="CONFIDENTIAL_ACTION_TEXT")
+    _seed_tasks(project, 30, sync_seq=1)
+
+    retro_ids: set[str] = set()
+    action_ids: set[str] = set()
+    blob = ""
+    cursor: str | None = None
+    pages = 0
+    while True:
+        params = {"since": "0", "page_size": "4"}
+        if cursor is not None:
+            params["cursor"] = cursor
+        resp = client.get(_url(project), params)
+        assert resp.status_code == 200, resp.data
+        pages += 1
+        blob += json.dumps(resp.data, default=str)
+        retro_ids |= {r["id"] for r in resp.data["changes"]["sprint_retros"]["updated"]}
+        action_ids |= {r["id"] for r in resp.data["changes"]["retro_action_items"]["updated"]}
+        cursor = resp.data["next_cursor"]
+        if not resp.data["has_more"]:
+            break
+        assert pages < 100, "pager failed to terminate"
+
+    assert pages > 1, "fixture assumption: the retro is reached on a continuation page"
+    assert (str(retro.pk) in retro_ids) is may_read
+    assert (str(action.pk) in action_ids) is may_read
+    # The raw text must not leak through any other collection's payload either.
+    assert ("CONFIDENTIAL_RETRO_NOTES" in blob) is may_read
+    assert ("CONFIDENTIAL_ACTION_TEXT" in blob) is may_read
 
 
 @pytest.mark.django_db
