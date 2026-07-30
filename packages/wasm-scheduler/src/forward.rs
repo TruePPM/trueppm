@@ -17,6 +17,64 @@ use crate::calendar::{
 use crate::graph::ProjectGraph;
 use crate::models::{Calendar, Dependency, DependencyType, Task};
 
+/// The (un-floored, floored) start pair for one calendar, memoized.
+///
+/// The project-start floor and the data-date floor snap to the task's *own*
+/// calendar — a task can never begin on a day it cannot work. Under one project
+/// calendar every task resolves the same pair, so the result is byte-identical
+/// to the pre-ADR-0120 hoist. With per-task calendars the pair is memoized by
+/// calendar address (mirroring the Python pass's `id(cal)` memo, #1824) so the
+/// snap runs once per calendar rather than once per task — a sparse calendar's
+/// snap walk is not free.
+fn start_floors_for(
+    memo: &mut HashMap<*const Calendar, (NaiveDate, NaiveDate)>,
+    node_cal: &Calendar,
+    project_start: NaiveDate,
+    status_date: Option<NaiveDate>,
+) -> Result<(NaiveDate, NaiveDate), String> {
+    match memo.entry(node_cal as *const Calendar) {
+        Entry::Occupied(e) => Ok(*e.get()),
+        Entry::Vacant(e) => {
+            let base = next_working_day(project_start, node_cal)?;
+            let floored = match status_date {
+                // A status date at or before project start is already covered
+                // by the project-start floor, hence the max().
+                Some(sd) => base.max(next_working_day(sd, node_cal)?),
+                None => base,
+            };
+            Ok(*e.insert((base, floored)))
+        }
+    }
+}
+
+/// Pull ES/EF forward to satisfy the FF/SF constraints, if any bind.
+///
+/// An EF constraint that lands later than the duration-derived finish forces the
+/// task to start later too, so the finish is re-derived from the back-solved
+/// start — and then re-floored at `min_ef`, because snapping the start onto a
+/// working day can push the finish back past the constraint that caused it.
+fn apply_ef_constraints(
+    es: NaiveDate,
+    ef: NaiveDate,
+    es_constraints: &[NaiveDate],
+    ef_constraints: &[NaiveDate],
+    duration_days: i32,
+    node_cal: &Calendar,
+) -> Result<(NaiveDate, NaiveDate), String> {
+    if ef_constraints.is_empty() {
+        return Ok((es, ef));
+    }
+    let min_ef = *ef_constraints.iter().max().unwrap();
+    if min_ef <= ef {
+        return Ok((es, ef));
+    }
+    let back_start = start_from_finish(min_ef, duration_days, node_cal)?;
+    let max_es = *es_constraints.iter().max().unwrap();
+    let final_es = back_start.max(max_es);
+    let final_ef = finish_from_start(final_es, duration_days, node_cal)?.max(min_ef);
+    Ok((final_es, final_ef))
+}
+
 /// Compute early_start and early_finish for every task (in-place).
 ///
 /// Progress-aware (ADR-0132), mirroring the Python `_forward_pass`: a completed
@@ -51,13 +109,7 @@ pub fn forward_pass(
     cals: &PassCalendars,
     status_date: Option<NaiveDate>,
 ) -> Result<(), String> {
-    // The project-start floor and the data-date floor snap to *this task's own*
-    // calendar — a task can never begin on a day it cannot work. Under one project
-    // calendar every task resolves the same pair, so they are computed once and the
-    // result is byte-identical to the pre-ADR-0120 hoist. With per-task calendars
-    // they are memoized per distinct calendar (keyed by address, mirroring the
-    // Python pass's `id(cal)` memo, #1824) so the snap runs once per calendar
-    // rather than once per task — a sparse calendar's snap walk is not free.
+    // Memoized per distinct calendar — see `start_floors_for`.
     let mut floors_by_cal: HashMap<*const Calendar, (NaiveDate, NaiveDate)> = HashMap::new();
 
     for &idx in topo_order {
@@ -67,19 +119,8 @@ pub fn forward_pass(
         // every predecessor constraint (lag is consumed on the successor's
         // calendar). With no per-task calendars this is always the pass-level one.
         let node_cal = cals.for_node(i);
-        let (start_base, start) = match floors_by_cal.entry(node_cal as *const Calendar) {
-            Entry::Occupied(e) => *e.get(),
-            Entry::Vacant(e) => {
-                let base = next_working_day(project_start, node_cal)?;
-                let floored = match status_date {
-                    // A status date at or before project start is already covered
-                    // by the project-start floor, hence the max().
-                    Some(sd) => base.max(next_working_day(sd, node_cal)?),
-                    None => base,
-                };
-                *e.insert((base, floored))
-            }
-        };
+        let (start_base, start) =
+            start_floors_for(&mut floors_by_cal, node_cal, project_start, status_date)?;
 
         if let Some((es, ef)) = pinned_placement(&tasks[i], node_cal)? {
             let t = &mut tasks[i];
@@ -107,20 +148,17 @@ pub fn forward_pass(
 
         // ES = latest of all ES constraints.
         let es = *es_constraints.iter().max().unwrap();
-        let mut ef = finish_from_start(es, duration_days, node_cal)?;
+        let ef = finish_from_start(es, duration_days, node_cal)?;
 
         // Apply EF constraints (from FF/SF dependencies).
-        let mut final_es = es;
-        if !ef_constraints.is_empty() {
-            let min_ef = *ef_constraints.iter().max().unwrap();
-            if min_ef > ef {
-                ef = min_ef;
-                let back_start = start_from_finish(ef, duration_days, node_cal)?;
-                let max_es = *es_constraints.iter().max().unwrap();
-                final_es = back_start.max(max_es);
-                ef = finish_from_start(final_es, duration_days, node_cal)?.max(min_ef);
-            }
-        }
+        let (final_es, ef) = apply_ef_constraints(
+            es,
+            ef,
+            &es_constraints,
+            &ef_constraints,
+            duration_days,
+            node_cal,
+        )?;
 
         let task = &mut tasks[i];
         task.early_start = Some(final_es);
