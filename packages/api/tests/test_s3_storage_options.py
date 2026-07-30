@@ -217,12 +217,23 @@ def test_storage_expire_seconds_reads_both_spellings() -> None:
     assert _storage_expire_seconds(_Neither()) is None
 
 
-def test_bare_backend_without_options_fails_on_save() -> None:
+def test_bare_backend_without_options_fails_on_save(monkeypatch: pytest.MonkeyPatch) -> None:
     """Documents the exact pre-fix failure mode, so the reason the OPTIONS plumbing
     exists cannot be refactored away by someone who assumes the BACKEND string was
-    sufficient on its own."""
+    sufficient on its own.
+
+    The credentials are pinned only to keep the test hermetic: boto3 resolves them
+    before it validates the bucket name, and with none in the environment it walks
+    its chain all the way to the EC2 metadata endpoint — a real outbound connect
+    that the socket ban blocks, masking the ValueError this asserts. Env vars sit
+    first in that chain, so it short-circuits there. The missing bucket_name, not
+    the credentials, is the failure being documented.
+    """
     from django.core.files.base import ContentFile
     from storages.backends.s3 import S3Storage
+
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "ak")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "sk")
 
     with pytest.raises(ValueError, match="Required parameter name not set"):
         S3Storage().save("probe.txt", ContentFile(b"x"))
