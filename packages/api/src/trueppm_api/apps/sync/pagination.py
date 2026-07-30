@@ -112,6 +112,14 @@ class SyncCursor:
         client adopts, which makes a junk value a data-loss vector rather than a
         cosmetic one.
 
+        ``OverflowError`` is caught alongside the rest because Python's ``json``
+        accepts the non-standard literals ``Infinity``, ``-Infinity`` and
+        overflowing floats such as ``1e400``, and ``int()`` rejects them with an
+        ``ArithmeticError`` rather than the ``ValueError`` the other bad inputs
+        raise. Without it a one-token request reached an unhandled 500 — and this
+        endpoint is deliberately unthrottled (``get_throttles`` returns ``[]``
+        for GET), so that was a free error-log amplifier for any member.
+
         A token minted before ``w`` existed carries no such key and is rejected
         as malformed. That costs a drain straddling the deploy one 400; the
         client restarts it at the same unchanged ``since`` and loses nothing.
@@ -123,7 +131,14 @@ class SyncCursor:
             version = int(data["v"])
             row_id = data["id"]
             watermark = int(data["w"])
-        except (binascii.Error, ValueError, KeyError, TypeError, UnicodeDecodeError) as err:
+        except (
+            binascii.Error,
+            ValueError,
+            KeyError,
+            TypeError,
+            OverflowError,
+            UnicodeDecodeError,
+        ) as err:
             raise ValidationError({"cursor": "Malformed pagination cursor."}) from err
         if (
             index < 0

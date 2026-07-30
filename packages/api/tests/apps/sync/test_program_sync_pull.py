@@ -11,6 +11,8 @@ import uuid
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProgramMembership, Role
@@ -278,6 +280,32 @@ def test_timestamp_is_pinned_for_the_whole_paging_session(user: object) -> None:
 
     assert len(stamps) > 1, "fixture assumption: the delta spans multiple pages"
     assert len(set(stamps)) == 1, f"timestamp drifted across pages: {stamps}"
+
+
+@pytest.mark.django_db
+def test_continuation_page_issues_no_watermark_aggregates(user: object) -> None:
+    """A continuation page must not re-run the watermark aggregates (#2568).
+
+    ``UserProgramSyncView._watermark`` costs two ``Max(server_version)`` aggregates,
+    the second scanning every membership of every accessible program. Reading the
+    pinned value off the cursor removes both from continuation pages, turning
+    O(pages x rows) repeated work into O(rows) paid once. Asserting on the absence
+    of ``MAX(`` rather than a bare query count keeps the test aimed at that
+    regression and immune to unrelated churn in the surrounding queries.
+    """
+    progs = [Program.objects.create(name=f"R{i}") for i in range(5)]
+    for p in progs:
+        ProgramMembership.objects.create(program=p, user=user, role=Role.VIEWER)
+    c = APIClient()
+    c.force_authenticate(user=user)
+
+    first = c.get(f"{URL}?page_size=2").json()
+    assert first["has_more"] is True, "fixture assumption: the delta spans multiple pages"
+
+    with CaptureQueriesContext(connection) as ctx:
+        c.get(f"{URL}?page_size=2&cursor={first['next_cursor']}")
+    aggregates = [q["sql"] for q in ctx.captured_queries if "MAX(" in q["sql"].upper()]
+    assert not aggregates, f"continuation page recomputed the watermark: {aggregates}"
 
 
 @pytest.mark.django_db

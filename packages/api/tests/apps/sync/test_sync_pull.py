@@ -625,6 +625,13 @@ def test_sync_cursor_pins_watermark_in_the_token(
         pytest.param("not-an-int", id="non-numeric-string"),
         pytest.param(None, id="null"),
         pytest.param({"nested": 1}, id="object"),
+        # Python's json emits/accepts these non-standard literals, and int()
+        # rejects them with OverflowError — an ArithmeticError, not the
+        # ValueError every other bad input raises. They reached an unhandled 500
+        # until OverflowError was added to the decode's except tuple.
+        pytest.param(float("inf"), id="infinity"),
+        pytest.param(float("-inf"), id="negative-infinity"),
+        pytest.param(float("nan"), id="nan"),
     ],
 )
 def test_sync_cursor_with_bad_watermark_returns_400(
@@ -669,6 +676,63 @@ def test_sync_cursor_without_watermark_field_returns_400(
         _url(project), {"since": "0", "page_size": "3", "cursor": _encode_token(payload)}
     )
     assert resp.status_code == 400, resp.data
+
+
+@pytest.mark.django_db
+def test_sync_cursor_watermark_above_the_live_sequence_returns_400(
+    authed_client: APIClient,
+    project: Project,
+    membership: ProjectMembership,
+) -> None:
+    """`w` is ceiling-checked against the project sequence, not just floor-checked.
+
+    The cursor is unsigned, and unlike ``i``/``v`` — stream positions the pager
+    re-derives and bounds naturally — ``w`` is a checkpoint the client is told to
+    persist and echo back as ``since`` indefinitely. An inflated value would be
+    permanent for that device, so it is rejected rather than echoed. The sequence
+    only ever increases, so this rejects nothing legitimate.
+    """
+    _seed_tasks(project, 20, sync_seq=1)
+    first = authed_client.get(_url(project), {"since": "0", "page_size": "3"})
+    payload = _decode_token(first.data["next_cursor"])
+    payload["w"] = int(project.last_sync_version) + 10_000
+    resp = authed_client.get(
+        _url(project), {"since": "0", "page_size": "3", "cursor": _encode_token(payload)}
+    )
+    assert resp.status_code == 400, resp.data
+
+
+@pytest.mark.django_db
+def test_sync_unmodified_cursor_survives_the_ceiling_check(
+    authed_client: APIClient,
+    project: Project,
+    membership: ProjectMembership,
+) -> None:
+    """The ceiling check must not reject a legitimate drain (#2568 guard-rail).
+
+    The pinned watermark is by construction at or below the live sequence, and the
+    sequence only climbs, so every honest continuation page passes. Pinned here so
+    a future tightening of the check cannot silently break paging.
+    """
+    _seed_tasks(project, 40, sync_seq=1)
+    cursor: str | None = None
+    pages = 0
+    while True:
+        params = {"since": "0", "page_size": "5"}
+        if cursor is not None:
+            params["cursor"] = cursor
+        resp = authed_client.get(_url(project), params)
+        assert resp.status_code == 200, resp.data
+        pages += 1
+        # Advance the live sequence between pages: the ceiling rises, the pin does
+        # not, so the check must keep passing.
+        project.name = f"Churn {pages}"
+        project.save()
+        cursor = resp.data["next_cursor"]
+        if not resp.data["has_more"]:
+            break
+        assert pages < 100, "pager failed to terminate"
+    assert pages > 1
 
 
 @pytest.mark.django_db

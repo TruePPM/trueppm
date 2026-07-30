@@ -224,7 +224,24 @@ class ProjectSyncView(IdempotencyMixin, APIView):
         # would filter those rows out of every future pull. Pinning page 1's value
         # errs the safe way — such rows simply arrive on the next pull, and rows
         # this drain did deliver above the pin are re-delivered under upsert.
-        timestamp = cursor.watermark if cursor is not None else self._watermark(project)
+        #
+        # The cursor is unsigned, so `w` is also ceiling-checked against the live
+        # sequence. `i` and `v` are stream *positions* the pager re-derives and
+        # bounds naturally, but `w` is a checkpoint the client is told to persist
+        # and echo back as `since` indefinitely — a junk value is permanent for
+        # that device rather than transient. The check is free here (the watermark
+        # is an attribute of the project row already fetched above) and rejects
+        # nothing legitimate, because the sequence only ever increases. It is
+        # deliberately NOT mirrored in UserProgramSyncView, whose watermark costs
+        # two aggregates over the caller's whole accessible set: paying them per
+        # page would reinstate the O(pages x rows) cost this fix removed, to guard
+        # a value that can only ever corrupt the tampering client's own cursor.
+        if cursor is not None:
+            timestamp = cursor.watermark
+            if timestamp > self._watermark(project):
+                raise ValidationError({"cursor": "Malformed pagination cursor."})
+        else:
+            timestamp = self._watermark(project)
 
         # Retros are visibility-gated per ADR-0071 §3. A VIEWER on a TEAM_ONLY
         # retro does not receive the retro's raw notes — the sync filters them
