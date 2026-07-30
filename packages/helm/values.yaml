@@ -39,6 +39,44 @@ web:
   service:
     type: ClusterIP
     port: 80
+  # Django admin exposure through the web tier's nginx (#2569).
+  #
+  # Django admin is a plain Django view, so NONE of the DRF `login` throttle
+  # scopes apply to it, there is no lockout backend in the dependency set, and
+  # the api Deployment's `bootstrap` initContainer guarantees a valid superuser
+  # exists to guess against. Proxying it unrestricted — as this chart did before
+  # 0.4 — turns a default ingress-enabled install into an unthrottled, publicly
+  # reachable credential-guessing surface against a known-present privileged
+  # account. So the block below fails CLOSED: with the default empty allowlist
+  # nginx renders a bare `deny all`, and admin is reached out-of-band with
+  #   kubectl port-forward svc/<release>-trueppm-api 8000:8000
+  # which bypasses the web tier entirely and needs no chart change.
+  #
+  # SCOPE: this is an nginx control, so it only binds while the web tier is
+  # deployed. With web.enabled=false the Ingress routes / straight to the API
+  # Service and Django serves /admin/ there unrestricted — restrict it at your
+  # own edge in that topology. Same caveat for any ingress path pointing at
+  # `service: api`, or a non-ClusterIP service.type.
+  adminAccess:
+    # false renders `return 404` instead of the proxy — the demo posture, for
+    # operators who never want the path to exist on the public listener.
+    enabled: true
+    # Source CIDRs allowed to reach /admin/. EMPTY MEANS DENY EVERYTHING.
+    #
+    # nginx matches these against $remote_addr, which behind an Ingress is the
+    # INGRESS CONTROLLER's pod IP, not the operator's address — so an allowlist
+    # is only meaningful when the web tier sees real client addresses (hostPort,
+    # a LoadBalancer with externalTrafficPolicy: Local, or an ingress configured
+    # to preserve the source IP). If in doubt leave this empty and port-forward.
+    allowCIDRs: []
+    # Per-source-IP rate limit on the admin login surface, matching the
+    # docker-compose sibling (nginx/app.conf.template): 5 requests/minute with a
+    # burst of 2. Defense in depth behind the allowlist — an allowlisted subnet
+    # is still not a reason to permit unbounded password guessing.
+    rateLimit:
+      enabled: true
+      rate: 5r/m
+      burst: 2
 
 # Chart-managed Ingress + edge TLS (#1714). Off by default: the ingress class,
 # hostnames, and certificate source are cluster-specific, so a default-on ingress
@@ -210,6 +248,29 @@ containerSecurityContext:
       - ALL
   seccompProfile:
     type: RuntimeDefault
+
+# Celery worker process tuning (#2571).
+#
+# Celery prefork defaults its pool size to `cpu_count()`, which inside a
+# container reads the NODE's core count and ignores the cgroup CPU limit. On a
+# 32-core node that forks 32 children at ~150-250 MB RSS each — roughly 6.4 GB
+# against the 2Gi limit below — so the worker OOMKills at zero load and takes
+# CPM recalculation, imports, notification email, and Beat down with it. The
+# break-even is around 10 cores, well under a routine cloud node size, so the
+# concurrency MUST be pinned in-chart rather than left to auto-detection.
+celeryWorker:
+  # Pinned, not auto-detected. 2 matches the small-profile sizing guidance and
+  # the dev compose file; raise it toward the pod's CPU limit as you scale
+  # (see /administration/sizing/). Must be >= 1.
+  concurrency: 2
+  # Recycle each prefork child after this many tasks so a long-running job
+  # (workspace export and MS Project import can run for minutes and hold large
+  # parse buffers) cannot accumulate RSS for the pod's whole lifetime. Set to 0
+  # to disable recycling.
+  maxTasksPerChild: 100
+  # Escape hatch for flags the chart does not model, appended verbatim and in
+  # order after the flags above — e.g. ["--queues=exports", "--prefetch-multiplier=1"].
+  extraArgs: []
 
 # Default resource requests/limits for the API and Celery worker containers.
 # Tune for your workload; these are conservative single-team defaults.
