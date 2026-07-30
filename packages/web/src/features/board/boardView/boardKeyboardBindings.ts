@@ -50,27 +50,42 @@ export interface BoardKeyboardBindingInputs {
 }
 
 /**
+ * Bind a handler only while `live`, otherwise leave the key unbound.
+ *
+ * This is the suppression gate itself, named once. It replaced eight sibling
+ * `overlayOpen ? undefined : handler` ternaries — which said the same thing but
+ * made the shared gate look like eight independent decisions, and cost enough
+ * cognitive complexity to trip S3776 on a function that is really one rule
+ * applied uniformly.
+ */
+function whenLive<T>(live: boolean, handler: T): T | undefined {
+  return live ? handler : undefined;
+}
+
+/**
  * `undefined` for a handler means "this key is not bound right now" — that is
  * how `useBoardKeyboard` distinguishes an inert key from a handled one, so the
  * suppressed branches must yield `undefined` rather than a no-op function.
  */
 export function boardKeyboardBindings(input: BoardKeyboardBindingInputs): BoardKeyboardHandlers {
   const { overlayOpen, focusedTask } = input;
+  const boardLive = !overlayOpen;
   // A card action needs both an unobstructed board and something focused to act
-  // on; `undefined` when either is missing.
-  const cardActionsLive = !overlayOpen && focusedTask;
+  // on; null when either is missing, so the two card bindings stay unbound.
+  const focusedCard = boardLive ? (focusedTask ?? null) : null;
   return {
-    onMoveCardFocus: overlayOpen ? undefined : input.moveFocusInColumn,
-    onMoveColumnFocus: overlayOpen ? undefined : input.moveFocusInPhase,
+    onMoveCardFocus: whenLive(boardLive, input.moveFocusInColumn),
+    onMoveColumnFocus: whenLive(boardLive, input.moveFocusInPhase),
     // `E` edits the focused card (#2194 — the cheatsheet advertised this but the
     // handler was never wired). Enter/Space open detail via the card's own
     // key handler, which now receives real DOM focus from j/k/l/h.
-    onEditCard: cardActionsLive ? () => input.onEditTask(focusedTask.id) : undefined,
-    onShowDeps: cardActionsLive ? () => input.onShowDeps(focusedTask) : undefined,
-    onShowCheatsheet: overlayOpen ? undefined : input.onShowCheatsheet,
-    onFocusSearch: overlayOpen ? undefined : input.onFocusSearch,
-    onOpenFilter: overlayOpen ? undefined : input.onOpenFilter,
-    onCloseOverlay: overlayOpen ? input.onCloseOverlay : undefined,
+    onEditCard: focusedCard ? () => input.onEditTask(focusedCard.id) : undefined,
+    onShowDeps: focusedCard ? () => input.onShowDeps(focusedCard) : undefined,
+    onShowCheatsheet: whenLive(boardLive, input.onShowCheatsheet),
+    onFocusSearch: whenLive(boardLive, input.onFocusSearch),
+    onOpenFilter: whenLive(boardLive, input.onOpenFilter),
+    // The one binding the gate deliberately inverts: Esc belongs to the overlay.
+    onCloseOverlay: whenLive(overlayOpen, input.onCloseOverlay),
     // Arrows are claimed only once the board's virtual focus is engaged, so an
     // idle board doesn't hijack native page scroll (#2205).
     boardFocusActive: input.focusedCardId !== null || input.focusedColumn !== null,

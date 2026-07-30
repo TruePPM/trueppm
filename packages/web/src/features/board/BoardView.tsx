@@ -256,26 +256,43 @@ interface Phase {
  * is_summary=true once children exist).  Empty phases are also kept visible
  * so participants can see and fill them during the session.
  */
-function buildPhases(allTasks: Task[], workshopMode = false): Phase[] {
+/**
+ * The tasks that become columns, in board order.
+ *
+ * Workshop mode additionally promotes every childless root task to a column, so
+ * a freshly-drafted phase shows up before the backend flips `is_summary` (which
+ * it only does once children exist).
+ */
+function collectPhaseHeads(
+  allTasks: Task[],
+  workshopMode: boolean,
+): { summaryById: Map<string, Task>; summaryOrder: string[] } {
   const summaryById = new Map<string, Task>();
   const summaryOrder: string[] = [];
+  const claim = (t: Task) => {
+    summaryById.set(t.id, t);
+    summaryOrder.push(t.id);
+  };
 
   for (const t of allTasks) {
-    if (t.isSummary) {
-      summaryById.set(t.id, t);
-      summaryOrder.push(t.id);
-    }
+    if (t.isSummary) claim(t);
   }
-
   if (workshopMode) {
     for (const t of allTasks) {
-      if (!t.isSummary && t.parentId === null && !summaryById.has(t.id)) {
-        summaryById.set(t.id, t);
-        summaryOrder.push(t.id);
-      }
+      if (!t.isSummary && t.parentId === null && !summaryById.has(t.id)) claim(t);
     }
   }
+  return { summaryById, summaryOrder };
+}
 
+/**
+ * Split the non-column tasks into per-column buckets and the leftovers that
+ * hang off no column at all (rendered as the "Project Tasks" catch-all).
+ */
+function bucketByPhase(
+  allTasks: Task[],
+  summaryById: Map<string, Task>,
+): { byPhase: Map<string, Task[]>; rootTasks: Task[] } {
   const byPhase = new Map<string, Task[]>();
   const rootTasks: Task[] = [];
 
@@ -290,6 +307,12 @@ function buildPhases(allTasks: Task[], workshopMode = false): Phase[] {
       rootTasks.push(t);
     }
   }
+  return { byPhase, rootTasks };
+}
+
+function buildPhases(allTasks: Task[], workshopMode = false): Phase[] {
+  const { summaryById, summaryOrder } = collectPhaseHeads(allTasks, workshopMode);
+  const { byPhase, rootTasks } = bucketByPhase(allTasks, summaryById);
 
   const phases: Phase[] = summaryOrder
     .map((id) => ({
