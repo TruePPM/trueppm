@@ -54,11 +54,13 @@ SHELL_SRC="packages/web/src/features/shell"
 
 # ── Baselines (ratchet floors). See header. Drive these to zero over time. ──
 # BASELINE_HEX counts hex literals in a COLOR context only (see hex_count and the
-# header). It dropped from 1195 to 129 when the count stopped miscounting `#NNNN`
-# issue references as colors — the 129 are the real hardcoded color literals.
-# 121 → 117 (#2651) when the pattern gained a CLOSING delimiter, which excluded the
-# four remaining issue references that happened to sit after a quote or a colon.
-BASELINE_HEX=117
+# header). Two re-baselines, both from removing `#NNNN` issue references that were
+# never colors — the count is real hardcoded color literals, nothing else:
+#   1195 → 129  the pattern gained its color-CONTEXT prefix (quote / `[` / `value:`).
+#    121 →  118  the all-decimal branch gained a closing delimiter (#2651), dropping
+#                the three refs that sat right after a colon. (129 → 121 in between
+#                is genuine debt paid down by tokenizing colors.)
+BASELINE_HEX=118
 BASELINE_ARBITRARY=4
 BASELINE_SHADOW=0
 # Inline `rgba(0,0,0,α)` color VALUES in component/style source. These bypass the
@@ -91,32 +93,49 @@ BASELINE_TINY_TEXT=2
 
 EXCLUDE='\.test\.|\.spec\.|\.stories\.'
 
-# A hex COLOR literal, as it actually appears in TSX/CSS-in-JS. Two anchors, and
-# BOTH are load-bearing:
+# A hex COLOR literal, as it actually appears in TSX/CSS-in-JS. Every branch shares
+# the same PREFIX — the `#` is preceded by a string quote (' " `), a Tailwind
+# arbitrary-value `[`, or a CSS `value:` colon — and then splits on a single
+# question: does the run contain a letter?
 #
-#   prefix — the `#` is preceded by a string quote (' " `), a Tailwind
-#            arbitrary-value `[`, or a CSS `value:` colon.
-#   suffix — the hex run is CLOSED: by a quote/bracket/paren/brace, a `;` or `,`,
-#            or end of line. Whitespace counts only when what follows is a digit or
-#            `!` (a gradient stop, `#fff 0%`, or `#fff !important`).
+#   HEX_LETTER_PAT — the run has an `a-f`, so it CANNOT be an issue number. Ends at
+#                    a word boundary, exactly as this check always did.
+#   HEX_DECIMAL_PAT — the run is all digits, so `#2495` is ambiguous: a valid RGBA
+#                    shorthand and a plausible issue number. Only here is a CLOSING
+#                    delimiter required — a quote/bracket/paren/brace, `;` or `,`,
+#                    or end of line; whitespace counts only before a digit or `!`,
+#                    which keeps `#123456 0%` and `#123456 !important`.
 #
-# The prefix alone was not enough. It skips a BARE `#1236` issue reference, but a
-# quote- or colon-adjacent one — `the "#2495 scope boundary" test`, or
-# `deliberate: #1788 tuned …` — still matched, because most issue numbers are valid
-# hex. That failed MRs which added no color at all and sent the reader hunting for
-# one (#2651). Prose continues after the number; a real literal is closed by its own
-# delimiter, which is exactly what the suffix tests.
+# Why the split. The prefix alone was not enough: it skips a BARE `#1236` issue
+# reference, but a quote- or colon-adjacent one — `the "#2495 scope boundary" test`,
+# or `deliberate: #1788 tuned …` — still matched, because most issue numbers are
+# valid hex. That failed MRs which added no color at all and sent the reader hunting
+# for one (#2651).
 #
-# Both anchors are deliberately conservative — a `#` reached from neither (say
-# `border: 1px solid #ccc`, where `solid ` precedes it) is not counted at all. That
-# under-count predates #2651 and is unchanged by it; widening the PREFIX is separate
-# work, and would need its own re-baseline.
+# Requiring a closing delimiter of EVERY run was the first attempt, and it was WRONG:
+# it dropped `stroke: #abcdef inherit;` and `background: #0e1626 url(…)`, which the
+# old word-boundary caught — a genuine hole in the ratchet, since a new hardcoded
+# color could then be merged just by leaving it unquoted. Letters are the honest
+# discriminator: an issue reference is decimal, always. So only the decimal branch
+# pays the stricter test, and no letter-bearing color loses coverage.
+#
+# Residual, accepted: an ALL-DECIMAL color that is both unquoted and followed by a
+# word — `color: #123456 inherit` — is not counted. That is the unavoidable price of
+# excluding `deliberate: #1788 tuned`; the two are textually identical. Quoted and
+# Tailwind forms, which dominate this codebase, are unaffected.
+#
+# Separately, the PREFIX is conservative: a `#` reached from neither quote, bracket,
+# nor colon (say `border: 1px solid #ccc`) is not counted at all. That under-count
+# predates #2651 and is unchanged by it; widening the prefix is separate work and
+# would need its own re-baseline.
 #
 # NOTE the `]` sits FIRST in the closing bracket expression. POSIX ERE gives `\` no
 # special meaning inside `[...]`, so the intuitive `[...\]}]` does not escape it —
 # the class ends at that `]` and the rest leaks into the pattern, which silently
 # matches nothing and reports hex=0. Leading `]` is the only portable spelling.
-HEX_COLOR_PAT='(["'\''`[]|:[[:space:]]*)#[0-9a-fA-F]{3,8}([]"'\''`);,}]|[[:space:]]+[0-9!]|$)'
+HEX_LETTER_PAT='(["'\''`[]|:[[:space:]]*)#[0-9a-fA-F]{0,7}[a-fA-F][0-9a-fA-F]{0,7}\b'
+HEX_DECIMAL_PAT='(["'\''`[]|:[[:space:]]*)#[0-9]{3,8}([]"'\''`);,}]|[[:space:]]+[0-9!]|$)'
+HEX_COLOR_PAT="$HEX_LETTER_PAT|$HEX_DECIMAL_PAT"
 
 # Self-test: a ratchet whose pattern matches nothing reports 0 and PASSES, so a
 # malformed pattern disarms this check silently instead of failing it. That is not
@@ -124,9 +143,13 @@ HEX_COLOR_PAT='(["'\''`[]|:[[:space:]]*)#[0-9a-fA-F]{3,8}([]"'\''`);,}]|[[:space
 # run looked clean. Assert both directions on fixtures before counting anything.
 hex_pat_self_test() {
   local s rc=0
-  # MUST match — a real literal in each of the three supported contexts.
+  # MUST match — a real literal in each supported context. The unquoted-then-word
+  # cases (`#abcdef inherit`, `#0e1626 url(…)`) are the regression a closing-delimiter
+  # requirement introduced during #2651; they are fixtures so it cannot come back.
   for s in "const c = '#f59e0b';" '<div className="bg-[#7C3AED]">' '  stroke: #fff;' \
-           '  color: #1A1917,' '  color: #fff !important;'; do
+           '  color: #1A1917,' '  color: #fff !important;' '  stroke: #abcdef inherit;' \
+           '  background: #0e1626 url(/x.png);' '  border-bottom: #ccc solid;' \
+           '  color: #123456;'; do
     grep -qE "$HEX_COLOR_PAT" <<<"$s" || { echo "::error:: hex pattern MISSED a color: $s"; rc=1; }
   done
   # MUST NOT match — issue references, the false-positive class this pattern exists
