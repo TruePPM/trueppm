@@ -82,6 +82,44 @@ every synced write allocates from the *same* project-scoped sequence,
 `sync_seq` values are totally ordered within a project, and "greater than the
 last checkpoint" becomes a question that actually has a correct answer.
 
+### The program slice needs a different sequence
+
+There is a second delta endpoint — `GET /api/v1/sync/user/programs/`, which
+delivers the caller's `Program` and `ProgramMembership` rows — and the
+per-project sequence cannot serve it. A program has no owning project to
+allocate from, and the accessible set is **per-user**: the union of every program
+the caller is a member of, which are independent of one another.
+
+That matters because a scalar cursor over independent sequences reproduces the
+identical failure one level up. Even giving each program its own counter, a
+single `since` taken as the maximum across N programs lets a hot program's
+sequence outrun a cold one's, and the cold program's edits fall out of the delta
+— exactly the shape described above, with "program" substituted for "row".
+
+So program-scoped writes allocate from **one installation-wide sequence**
+instead:
+
+```sql
+UPDATE sync_programsyncsequence SET value = value + 1
+ WHERE id = 1 RETURNING value
+```
+
+Every `Program` and `ProgramMembership` write in the installation is ordered
+against every other one, which is what makes a scalar checkpoint meaningful
+again. The watermark is that counter read directly — deliberately *not* scoped
+to the caller's programs, since scoping it per caller is precisely what made it
+a maximum-over-many-rows.
+
+The cost is stated plainly rather than hidden: **program writes serialize
+installation-wide**, because allocation holds the counter row's write lock until
+commit. That lock is the correctness mechanism, not overhead — without it a
+transaction could allocate 100, a later one allocate 101 and commit first, and a
+pull between the two commits would skip 100 permanently. (A PostgreSQL
+`SEQUENCE` would avoid the lock and reintroduce exactly that race, because
+sequences are non-transactional.) The trade is acceptable here because program
+writes are rare and administrative — create, rename, add or remove a member —
+never a hot path or a bulk import.
+
 `server_version` is untouched by any of this — it still counts a row's own
 saves, and it is still what the conflict-detection mechanism below uses as an
 optimistic-lock token. The two fields answer two different questions on

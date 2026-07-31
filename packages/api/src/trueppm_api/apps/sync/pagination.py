@@ -10,8 +10,9 @@ cursor is exhausted.
 Why a compound ``(table_index, version, id)`` keyset and not a scalar ceiling
 --------------------------------------------------------------------------------
 Rows share version values. Under the project sync cursor (``sync_seq``,
-ADR-0686) every row written in one batch draws the same value; under the program
-slice's per-row ``server_version`` every freshly created row starts at ``1``. A
+ADR-0686) every row written in one batch draws the same value, and the program
+slice (ADR-0747) allocates from one installation-wide counter, so ties are rarer
+there but still possible across a single transaction's writes. A
 scalar "return ``since < version <= ceiling``, then ``next_since = ceiling``"
 cursor cannot bound page size in either case: to avoid splitting a version (which
 would silently drop rows) it must return *all* rows at the boundary version, and
@@ -40,10 +41,13 @@ echoed unchanged on every continuation page (#2568). Recomputing it per request
 published a checkpoint above rows the session never returned, and the client
 adopting the last page's value skipped them permanently.
 
-The field itself is caller-supplied (``version_field``) because the two sync
-endpoints key on different columns: the project pull uses ``sync_seq``, the
-project-scoped replication cursor; the program pull still uses ``server_version``
-and carries the ordering defect ADR-0686 fixed for projects (tracked in #2498).
+The field is caller-supplied (``version_field``) rather than hard-coded, but both
+sync endpoints now pass ``sync_seq``: the project pull draws it from its project's
+sequence (ADR-0686) and the program pull from the installation-wide program
+sequence (ADR-0747). The parameter stays because the ordering column and the
+sources' ``__gt=since`` floor must agree, and making that agreement explicit at
+each call site is what stops the two drifting apart — the program pull used to
+default to ``server_version`` and carried the ordering defect #2498 fixed.
 """
 
 from __future__ import annotations
