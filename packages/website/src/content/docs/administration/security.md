@@ -1,9 +1,24 @@
 ---
 title: Security
 description: Security considerations for deploying and operating TruePPM.
+documentedFor: "0.4"
 ---
 
 ## Authentication
+
+:::note[Ships in 0.4]
+Three items on this page ship in **TruePPM 0.4**, the first beta, and are **not**
+in `v0.3.0-alpha.3`, the latest release:
+
+- **Session-only "Remember me"** — in 0.3 the checkbox is present but inert; every
+  login gets the long-lived persistent cookie regardless of the choice.
+- **A separate `JWT_SIGNING_KEY`** — in 0.3 JWTs are always signed with
+  `SECRET_KEY`, so the rotate-to-sign-everyone-out lever below rotates session
+  and CSRF signing with it.
+- **Per-account login lockout** — in 0.3 only the per-IP login throttle exists.
+
+Everything else on this page describes 0.3 behavior and is current.
+:::
 
 TruePPM uses JWT (JSON Web Tokens) via `djangorestframework-simplejwt`:
 
@@ -47,7 +62,45 @@ same one that drives retention and outbox-drain jobs); deployments that run the
 API without Beat should schedule the `flushexpiredtokens` management command
 out-of-band instead. See [Management commands](/administration/management-commands/).
 
-WebSocket connections authenticate via `?token=<jwt>` on the connection URL.
+WebSocket connections authenticate with a short-lived, single-use **ticket**
+(`?ticket=<ticket>`), minted via `POST /api/v1/ws/ticket/`, so no JWT ever
+reaches a URL or an access log. The legacy `?token=<jwt>` handshake is disabled
+by default and opt-in only via `TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED`
+(deprecated). See [WebSocket connections](/administration/deployment/#websocket-connections).
+
+### Login rate limiting and per-account lockout
+
+The login endpoint carries **two stacked throttles**, because one of them alone
+leaves a hole:
+
+| Scope | Keyed on | Default | Bounds |
+|---|---|---|---|
+| `login` | client IP | `10/min`, fixed | Guesses from a single source address |
+| `login_account` | hashed, normalized submitted username | `5/min`, tunable via `TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE` | Guesses against **one account**, from any number of addresses |
+
+The per-IP throttle on its own is not a lockout. A credential-stuffing run from
+a rotating IP pool gets the full per-IP allowance from **every fresh address**,
+so attempts against a single account are unbounded in aggregate — which is
+exactly the shape of a real attack. `login_account` keys on the submitted
+username instead, so targeting one account stays expensive no matter how many
+addresses participate. The username is hashed before it becomes a cache key: the
+key needs to be stable and collision-resistant, not reversible.
+
+A request carrying no username skips `login_account` entirely rather than being
+charged against an empty-string bucket — the per-IP throttle still applies to
+those.
+
+This is brute-force hardening, not an org-wide lockout **policy**. Admin-configurable
+escalation, unlock workflows, and the auth-event audit trail are Enterprise
+capabilities; what is described here is the table-stakes protection every
+self-hosted install gets.
+
+:::caution[Django admin is not covered]
+Both throttles are DRF scopes on the API login view. Django admin is a plain
+Django view, so neither applies to it and there is no account-lockout backend
+behind it — which is why the Helm chart
+[denies `/admin/` at the edge by default](#reaching-django-admin).
+:::
 
 ### Single sign-on (OIDC / OAuth2)
 
@@ -246,9 +299,10 @@ the operator-facing highlights:
 ### Reaching Django admin
 
 The web tier **denies `/admin/` by default**, and this is deliberate rather than
-conservative. Django admin is a plain Django view, so none of the API's DRF login
-throttle scopes apply to it; there is no account-lockout backend in the
-dependency set; and the [admin bootstrap](/administration/admin-password/)
+conservative. Django admin is a plain Django view, so neither of the API's
+[login throttles](#login-rate-limiting-and-per-account-lockout) applies to it —
+including the per-account lockout — and there is no account-lockout backend in
+the dependency set; and the [admin bootstrap](/administration/admin-password/)
 creates a superuser on every deploy. An unrestricted `/admin/` on an
 ingress-exposed install is therefore an unthrottled credential-guessing surface
 against a known-present privileged account.

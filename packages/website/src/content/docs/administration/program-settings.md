@@ -1,6 +1,7 @@
 ---
 title: Program Settings
 description: Configure a program's identity, delivery model, rollup KPIs, cadence, risk policy, and lifecycle — and how each setting inherits from the workspace or is overridden per program.
+documentedFor: "0.4"
 ---
 
 :::note[Added in 0.2 (alpha)]
@@ -92,6 +93,14 @@ Owner is assigned. Program membership is independent of the membership on the
 projects inside the program. See [Roles & Permissions](/administration/rbac/).
 
 ## External stakeholders
+
+:::note[Ships in 0.4]
+This whole section — the registry, its CRUD form, and the
+`/external-stakeholders/` endpoints — ships in **TruePPM 0.4**, the first beta.
+It is not present in `v0.3.0-alpha.3`, the latest release. The nested callout
+below narrows further: the reach summary is the last part of the section to
+land.
+:::
 
 The **External stakeholders** section is a registry of people **without a
 TruePPM account** — client sponsors, vendor contacts, external reviewers — kept
