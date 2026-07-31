@@ -460,6 +460,29 @@ bump_manifest packages/web/package.json \
   "s/\"version\": \"${CURRENT_ESCAPED}\"/\"version\": \"${NEW_VERSION}\"/" \
   "\"version\": \"${NEW_VERSION}\""
 
+# The Rust/WASM engine carries the SAME semver string as api/web (#2602). It is
+# one semantic artifact held in CI conformance with the Python engine, so the
+# version has to name which semantics you get — a reader must be able to tell
+# that trueppm-wasm-scheduler and trueppm-scheduler implement the same CPM rules.
+# It sat at 0.1.0 through three releases because it was never in this list; that
+# is the drift this entry closes. Cargo takes the semver form directly (it is the
+# same grammar), so no PEP 440 translation is needed.
+bump_manifest packages/wasm-scheduler/Cargo.toml \
+  "s/^version = \"${CURRENT_ESCAPED}\"/version = \"${NEW_VERSION}\"/" \
+  "version = \"${NEW_VERSION}\""
+
+# Cargo.lock records the local crate's own version under its self-entry, exactly
+# as uv.lock does (#1389) — bumping the manifest without it leaves the lock
+# claiming the previous version. Done with a range-scoped sed rather than by
+# shelling out to cargo, deliberately: a release must not require a Rust
+# toolchain on the release machine, and the self-entry's version carries no
+# dependency-resolution semantics, so rewriting that one line cannot change what
+# resolves. The range anchors on the package's `name =` line so a dependency that
+# happens to share the current version string can never be rewritten instead.
+bump_manifest packages/wasm-scheduler/Cargo.lock \
+  "/^name = \"trueppm-wasm-scheduler\"$/,/^version = / s/^version = \"${CURRENT_ESCAPED}\"/version = \"${NEW_VERSION}\"/" \
+  "version = \"${NEW_VERSION}\""
+
 echo "  Bumped manifests to $NEW_VERSION (scheduler PyPI: $NEW_PEP440)"
 
 # Re-lock after bumping the Python manifests. Each uv.lock records the project's
@@ -475,17 +498,26 @@ command -v uv >/dev/null 2>&1 || die \
 ( cd packages/api && uv lock ) || die "Failed to regenerate packages/api/uv.lock"
 echo "  Regenerated uv.lock for scheduler and api"
 
-# Keep the OpenAPI schema's info.version in lockstep with the release. The schema
-# has always tracked the base semver with the pre-release suffix stripped
-# (SPECTACULAR_SETTINGS["VERSION"] was "0.2.0", not "0.2.0-alpha.1"), so a tag
-# could ship a schema that still claimed the previous minor (#1018). Bump the
-# setting, then regenerate so the committed schema matches the tag exactly.
-SCHEMA_VERSION="${NEW_VERSION%%-*}"
-bump_manifest packages/api/src/trueppm_api/settings/base.py \
-  "s/\"VERSION\": \"[^\"]*\"/\"VERSION\": \"${SCHEMA_VERSION}\"/" \
-  "\"VERSION\": \"${SCHEMA_VERSION}\""
-bash scripts/export-openapi.sh
-echo "  Bumped OpenAPI schema version to $SCHEMA_VERSION and regenerated docs/api/openapi.json"
+# Regenerate the OpenAPI schema so its info.version matches the tag.
+#
+# SPECTACULAR_SETTINGS["VERSION"] used to be a literal that this script rewrote
+# by sed at tag time — which meant it was correct only at the moment of a
+# release and drifted for the whole cycle after it. It read "0.3.0" against a
+# 0.4.0-beta.1 package, so every generated client and schema consumer was told
+# the wrong version (#2605). It is now derived from TRUEPPM_VERSION, so there is
+# nothing left to bump here.
+#
+# TRUEPPM_VERSION is passed explicitly rather than relying on the default: that
+# default reads *installed* package metadata, and the pyproject bump above has
+# not been re-installed into the venv at this point, so a bare regenerate would
+# emit the previous version. The env var is the same knob an operator uses to
+# override the reported build identity.
+#
+# The suffix is no longer stripped. The schema used to claim "0.2.0" for
+# 0.2.0-alpha.1; a pre-release schema now says so, because a consumer generating
+# a client deserves to know it is building against a beta.
+TRUEPPM_VERSION="$NEW_PEP440" bash scripts/export-openapi.sh
+echo "  Regenerated docs/api/openapi.json at info.version $NEW_PEP440"
 
 # ---------------------------------------------------------------------------
 # CHANGELOG rotation (every release — alpha/beta/rc and stable)
@@ -619,6 +651,8 @@ git add \
   packages/api/pyproject.toml \
   packages/api/uv.lock \
   packages/web/package.json \
+  packages/wasm-scheduler/Cargo.toml \
+  packages/wasm-scheduler/Cargo.lock \
   packages/api/src/trueppm_api/settings/base.py \
   docs/api/openapi.json \
   CHANGELOG.md \

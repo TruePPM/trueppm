@@ -43,7 +43,11 @@ export function FeedbackDialog({ onClose }: FeedbackDialogProps) {
     [build.version, build.edition, build.buildSha],
   );
 
-  const [body, setBody] = useState(() => buildFeedbackBody(context));
+  // Derived until the user types, then theirs. `useBuildInfo` reads a query that
+  // may still be in flight when the dialog mounts, so a body snapshotted at mount
+  // freezes the "unknown" placeholder and reports it forever.
+  const [draft, setDraft] = useState<string | null>(null);
+  const body = draft ?? buildFeedbackBody(context);
 
   // An operator-set URL wins; empty means the built-in public tracker. The
   // default is resolved here rather than stored, so an upgrade can move it.
@@ -86,7 +90,7 @@ export function FeedbackDialog({ onClose }: FeedbackDialogProps) {
         <textarea
           id="feedback-body"
           value={body}
-          onChange={(e) => setBody(e.target.value)}
+          onChange={(e) => setDraft(e.target.value)}
           rows={12}
           className="tppm-mono mt-3 w-full rounded-control border border-neutral-border bg-neutral-surface-sunken
             p-2 text-[11px] text-neutral-text-primary

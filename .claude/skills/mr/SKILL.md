@@ -111,13 +111,37 @@ Rules:
 - **One line per gate that ran**, using the gate's skill name exactly (`regression-check`,
   `security-review`, `rbac-check`, `perf-check`, `broadcast-check`, `migration-check`,
   `architect`, `ux-design`, `ux-review`, `voc`, `test-scaffold`, `enterprise-check`,
-  `api-docs`, `dependency`). Exact names matter — the parser matches on them. Every
-  name above resolves to a skill in `.claude/skills/` with one deliberate exception:
-  `voc` is the established shorthand for the `voice-of-customer` skill, and is the
-  form both CLAUDE.md files and `/kaizen`'s yield query already use — keep writing
-  `voc`. A name in this list that resolves to *nothing* is a phantom gate: the ledger
-  will tally it as covered while it can never run, which is worse than no gate at all
-  (#2612). Before adding a name here, confirm the skill exists.
+  `ai-review`, `threat-model`, `api-docs`, `dependency`). Exact names matter — the
+  parser matches on them. Every name above resolves to a skill in `.claude/skills/`
+  with one deliberate exception: `voc` is the established shorthand for the
+  `voice-of-customer` skill, and is the form both CLAUDE.md files and `/kaizen`'s yield
+  query already use — keep writing `voc`. A name in this list that resolves to
+  *nothing* is a phantom gate: the ledger will tally it as covered while it can never
+  run, which is worse than no gate at all (#2612). Before adding a name here, confirm
+  the skill exists.
+- **Design-stage gates belong on the ledger too, and carry their own scope conditions.**
+  `architect`, `ux-design`, `voc`, and `enterprise-check` already run before any code
+  exists; `ai-review` and `threat-model` are the same shape and record the same way.
+  Their `<N>` is the count of findings that **changed the design** — a GAP closed before
+  coding, a risk mitigated or consciously accepted — never the number of rows in the
+  skill's output template. `threat-model`'s "top 3 risks" is a fixed-size ranking;
+  writing `3 findings` because the template has three slots is exactly the inflation the
+  rules below forbid. Scope:
+  - `ai-review` — `n/a` unless the change adds or alters a **server-computed value or a
+    mutation**. Its own "when NOT to use" is the boundary: styling, copy, dependency
+    bumps, CI config, docs-only. It runs paired with `enterprise-check`; if one is on the
+    ledger and the other is silently absent, the pair is half-measured.
+  - `threat-model` — `n/a` unless the feature **crosses a trust boundary**: a new
+    authentication path, a changed authorization boundary, external data ingress, a
+    sync-protocol change, or a new OSS↔Enterprise extension point.
+- **Some mandated skills are deliberately absent from the list — do not "fix" them in.**
+  `changelog` and `docs-writer` produce a **deliverable** (a fragment, a docs page), and
+  `0 findings` is meaningless for a step whose only outcome is that the artifact exists.
+  `accessibility` and `brand` are **reference** skills — rule sets a reviewer reads, with
+  no verdict format of their own; on a UI diff their findings are already recorded under
+  `ux-review`, which checks WCAG 2.1 AA by definition, and giving them a second name
+  would split one diff's findings across two counters and corrupt both yields. Absence
+  from this list means "not a findings gate", not "forgotten" (#2616).
 - **`0 findings` is a real and expected outcome — record it.** The temptation is to omit
   a gate that found nothing because the line looks like noise. That omission is precisely
   what destroys the metric: zeros are the signal that a gate has stopped earning its

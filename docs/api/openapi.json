@@ -2,7 +2,7 @@
     "openapi": "3.0.3",
     "info": {
         "title": "TruePPM API",
-        "version": "0.3.0",
+        "version": "0.4.0b1",
         "description": "REST API for the TruePPM project scheduling platform."
     },
     "paths": {
@@ -30336,7 +30336,7 @@
         "/api/v1/share/board/{token}/": {
             "get": {
                 "operationId": "v1_share_board_retrieve",
-                "description": "GET ``/api/v1/share/board/{token}/`` — public, unauthenticated, read-only.\n\nReturns a minimized board snapshot. ``410`` for a revoked link, ``404`` for an\nunknown/invalid token or when the instance kill switch is off (uniform 404 hides\nwhether the feature or a given link exists). A weak ``ETag`` + short\n``Cache-Control`` lets embeds re-poll cheaply.",
+                "description": "GET ``/api/v1/share/board/{token}/`` — public, unauthenticated, read-only.\n\nReturns a minimized board snapshot. ``410`` for a revoked or expired link or a\nTrashed project, ``404`` for an\nunknown/invalid token or when the instance kill switch is off (uniform 404 hides\nwhether the feature or a given link exists). A weak ``ETag`` + short\n``Cache-Control`` lets embeds re-poll cheaply.",
                 "summary": "Public read-only board snapshot for a share token",
                 "parameters": [
                     {
@@ -30362,7 +30362,7 @@
                         "description": "Unknown/invalid token, or sharing disabled."
                     },
                     "410": {
-                        "description": "This share link has been revoked."
+                        "description": "This share link has been revoked or has expired, or the project was moved to Trash."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -30412,7 +30412,7 @@
                         "description": "Unknown/invalid token, or sharing disabled."
                     },
                     "410": {
-                        "description": "This share link has been revoked."
+                        "description": "This share link has been revoked or has expired, or the project was moved to Trash."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",

@@ -122,7 +122,10 @@ def import_jira(
 
         from django.db import transaction
 
-        from trueppm_api.apps.msproject.importer import import_project
+        from trueppm_api.apps.msproject.importer import (
+            broadcast_import_project_record_change,
+            import_project,
+        )
 
         # Make the additive Jira import idempotent under re-dispatch (#1673).
         # import_project defaults to wipe_existing=False, so a second delivery
@@ -162,6 +165,10 @@ def import_jira(
             transaction.on_commit(
                 lambda: broadcast_board_event(project_id, "tasks_restructured", {})
             )
+
+        # See the CSV importer's note: a start shift is not a task-tree change,
+        # so tasks_restructured does not cover it.
+        broadcast_import_project_record_change(project_id, summary)
 
     return summary
 

@@ -139,6 +139,36 @@ else
   check "rotation rejects file without [Unreleased]" 0
 fi
 
+# --- Case 5: a hand-written dated heading for an UNRELEASED version ---------
+# The #2605 shape. Someone writes "## [0.9.9a1] - <date>" ahead of the release;
+# every entry written afterwards lands under [Unreleased]; and the idempotency
+# guard then silently skips the rotation, so the wheel ships the new work filed
+# as unreleased and the version's own section describing an older state. The
+# guard must refuse rather than no-op, because a PyPI release cannot be retracted.
+#
+# 0.9.9a1 is chosen precisely because no scheduler-v0.9.9a1 tag exists — that is
+# the condition under test. Contrast Case 2, which re-runs against 0.3.0a1, a tag
+# that DOES exist, and must still no-op quietly (a genuine release retry).
+echo "Case 5: dated heading for a version with no tag"
+CL4="$TMP/case5.md"
+write_populated "$CL4"
+python3 - "$CL4" <<'PYEOF'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+s = s.replace("## [Unreleased]", "## [Unreleased]\n\n### Changed\n\n- BREAKING: a thing changed.\n\n## [0.9.9a1] - 2026-01-01\n\n### Added\n\n- something older\n", 1)
+open(p, "w").write(s)
+PYEOF
+if out="$(bash "$ROTATE" 0.9.9a1 0.3.0a3 2026-08-17 "$CL4" 2>&1)"; then
+  check "rotation refuses a premature dated heading" 1
+else
+  check "rotation refuses a premature dated heading" 0
+fi
+echo "$out" | grep -q "no scheduler-v0.9.9a1 tag" && r=0 || r=1
+check "error names the missing tag" "$r"
+echo "$out" | grep -q "would ship" && r=0 || r=1
+check "error warns the pending entries would ship as unreleased" "$r"
+
 echo ""
 echo "rotate-scheduler-changelog: $pass passed, $fail failed"
 [[ "$fail" -eq 0 ]]

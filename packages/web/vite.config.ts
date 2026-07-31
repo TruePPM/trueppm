@@ -53,7 +53,10 @@ const coveragePlugins: PluginOption[] = coverage
           'src/**/*.test.ts',
           'src/**/*.test.tsx',
           'src/**/*.d.ts',
-          'src/api/types.ts', // openapi-typescript generated — not hand-authored
+          // Hand-maintained, despite the generate:types script (#2609). Excluded
+          // because it is a pure type-declaration file with no runtime code, not
+          // because a generator owns it.
+          'src/api/types.ts',
           'src/features/schedule/engine/GanttEngineStub.ts', // test double
         ],
         extension: ['.ts', '.tsx'],

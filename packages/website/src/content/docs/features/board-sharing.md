@@ -72,6 +72,12 @@ immediately: the link stops resolving and anyone who opens it sees a *"This link
 longer active"* page. The same page appears once a link's expiry passes. A revoked or
 expired link can never be reactivated — create a new one instead.
 
+**Moving the project to Trash also stops every link resolving.** Anyone who opens one
+sees the same *"no longer active"* page. Unlike revocation this is not permanent:
+restoring the project from Trash brings its links back exactly as they were, so a link
+you revoked while the project sat in Trash stays revoked. If you want a link gone for
+good, revoke it — Trash is reversible by design.
+
 ## Requirements
 
 Public sharing is **opt-in at two levels**:

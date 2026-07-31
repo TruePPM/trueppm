@@ -45,7 +45,7 @@ trueppm-suite/
 ### Key Design Principles
 1. **API-First**: Every feature is a REST or WebSocket endpoint first. Web and mobile are API consumers with no privileged access. If it's not in the API, it doesn't exist. **Boundary (ADR-0599):** this governs *authoritative* state — the real value of any persisted fact, including every scheduled date and forecast, is computed server-side and reached over the API. Three narrow paths run outside the API on purpose: the interactive Gantt drag/keyboard **preview** (recomputes locally for 60fps, never persisted, server reconciles on commit), **offline on-device recompute** (no network → no API; the Rust/WASM engine is kept in CI conformance with the Python engine, future work #1777), and the **engine-as-library** (`trueppm-scheduler`). The invariant that keeps them safe: the server always has the last word — client compute is preview or offline stand-in, never source of truth. Do not read the slogan as forbidding these.
 2. **Mobile-First**: Design from mobile constraints upward. Offline works. Touch is primary. Bandwidth is limited.
-3. **Apache 2.0 boundary is sacred**: The community edition NEVER imports from `trueppm-enterprise`. The dependency is one-way: enterprise → core. Run `grep -r "trueppm_enterprise" packages/` to verify — it must return zero results in OSS code.
+3. **Apache 2.0 boundary is sacred**: The community edition NEVER imports from `trueppm-enterprise`. The dependency is one-way: enterprise → core. Verify with `make enterprise-boundary-check` (also `boundary:imports` in CI, and part of `make pre-push`). A plain `grep -r "trueppm_enterprise" packages/` is **not** the check — the tree legitimately carries prose that names the package in extension-point docstrings and ADR pointers; the gate matches import syntax and quoted module paths and ignores comments (#2603).
 
 ## Code Conventions
 
@@ -71,7 +71,7 @@ trueppm-suite/
 - State: Zustand for client state, TanStack Query for server state
 - Styling: Tailwind CSS with Design System v1.0 tokens
 - No `any` types. Use `unknown` and narrow.
-- Shared types: generate from OpenAPI schema (packages/api → packages/web/src/api/types.ts)
+- Shared types: `packages/web/src/api/types.ts` is **hand-maintained**, not generated (#2609). The `generate:types` script exists but emits a different (paths/components) shape that breaks the build — do not run it blindly. When the API schema changes, update the affected interfaces by hand and check them against `docs/api/openapi.json`. There is no drift gate (#2633); see the file's own header
 
 ### Git
 - Branch naming: `feat/`, `fix/`, `docs/`, `chore/` prefix + short description (e.g. `feat/cpm-engine`, `fix/sync-conflict`)
@@ -177,7 +177,7 @@ The classification test: "Would a PM or program manager need this to run their p
 ### OSS / Enterprise boundary rules
 - The OSS core must remain fully functional without the enterprise repo — no hard dependencies on enterprise hooks, signals, or settings
 - Extension points (settings includes, URL patterns, signal hooks) must remain stable — enterprise code registers against them; changing their shape is a breaking change for enterprise customers
-- Verify with: `grep -r "trueppm_enterprise" packages/` — must return zero results in OSS code
+- Verify with: `make enterprise-boundary-check` — zero imports of `trueppm_enterprise` in OSS code. Enforced in CI by `boundary:imports` on every MR and on main. Naming the package in prose is fine; importing it is not
 
 ### Issues are part of the boundary
 - An issue describing enterprise functionality (cross-program/portfolio coordination, org identity governance — SAML/SCIM/LDAP directory sync, enforced org-wide SSO — audit trail, approval workflows, multi-tenancy, AI scheduling) must be filed in `trueppm-enterprise` from the start — not in the OSS tracker. **Basic OIDC/OAuth login is OSS** (see the Auth carve-out above) — do not bounce it to enterprise
@@ -339,6 +339,25 @@ This rule applies to every doc edit — there is no "fast path" carve-out. A wro
 ### Mandatory skills for docs work
 - **`docs-writer`** for any change touching `docs/features/`, `docs/getting-started/`, `docs/architecture/`, or `docs/administration/`
 - **`api-docs`** for any endpoint, serializer field, or permission rule change
+
+### Mandatory design-stage gates
+
+These run **after `/architect` and before implementation** — not in the pre-MR gate
+batch. By pre-MR time the code exists, and both gates produce design changes that would
+arrive too late to act on. Each is scoped; outside its scope record `n/a` and do not run
+it, or the gate becomes the habitual ceremony the fast-path table exists to strip out.
+
+- **`ai-review`** — for any change that adds or alters a **server-computed value or a
+  mutation**. Run paired with `enterprise-check`, whose AI boundary it extends. Not for
+  styling, copy, dependency bumps, CI config, or docs-only changes.
+- **`threat-model`** — for any feature that **crosses a trust boundary**: a new
+  authentication path, a changed authorization boundary, external data ingress, a
+  sync-protocol change, or a new OSS↔Enterprise extension point.
+
+Record both in the MR's `## Gates` section under their exact skill names — the ledger
+parser matches on them (`.claude/skills/mr/SKILL.md`). `accessibility` is deliberately
+**not** a ledger gate: it is a reference rule set, and WCAG findings against a UI diff
+are recorded under `ux-review`, which checks WCAG 2.1 AA by definition.
 
 ## Available Skills
 

@@ -1793,7 +1793,13 @@ IDEMPOTENCY_MAX_BODY_BYTES: int = env.int(
 SPECTACULAR_SETTINGS = {
     "TITLE": "TruePPM API",
     "DESCRIPTION": "REST API for the TruePPM project scheduling platform.",
-    "VERSION": "0.3.0",
+    # Derived, never restated (#2605). This read "0.3.0" while the package was
+    # 0.4.0-beta.1, so every generated client and every published schema consumer
+    # was told the wrong version — and the literal sat ~900 lines below
+    # _package_version(), the anti-drift helper written to prevent exactly this.
+    # A version that has to be updated by hand at tag time is a version that will
+    # be wrong between tags.
+    "VERSION": TRUEPPM_VERSION,
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
     # Meaningful top-level tag block (#1333). drf-spectacular defaults every
