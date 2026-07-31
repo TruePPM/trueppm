@@ -85,3 +85,20 @@ export function canCreateLabel(role: number | null | undefined): boolean {
 export function canManageLabels(role: number | null | undefined): boolean {
   return role != null && role >= ROLE_ADMIN;
 }
+
+/**
+ * Target status the server auto-promotes a task to when `percent_complete` is
+ * set to 100 with no explicit `status` in the same write (Option E, #381
+ * follow-up; #2639). Contributors (role < ROLE_ADMIN) route through REVIEW so
+ * a PM/PMO sign-off step survives; ROLE_ADMIN+ (Project Manager, Project
+ * Admin) complete directly.
+ *
+ * Mirrors `TaskSerializer._apply_percent_complete_auto_status` exactly — this
+ * is a UX preview so the confirmation dialog can name the real outcome before
+ * the write commits, never a substitute for the server decision. `null`/
+ * `undefined` (role still loading) is treated as below-Admin (REVIEW) so the
+ * dialog never over-promises COMPLETE before the role resolves.
+ */
+export function progressCompleteAutoStatus(role: number | null | undefined): 'REVIEW' | 'COMPLETE' {
+  return role != null && role >= ROLE_ADMIN ? 'COMPLETE' : 'REVIEW';
+}

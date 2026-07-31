@@ -204,6 +204,30 @@ The tabs are extension points: each section registers against the
 `task_detail.section` slot with a priority and a tab, so TruePPM Enterprise can
 add its own sections without the community edition knowing about them.
 
+### Progress-to-100 auto status
+
+Dragging the progress slider (or the schedule grid's inline percent cell) to
+**100%** is a status transition, not just a number. If the edit doesn't also
+set a status explicitly, and the task isn't already past sign-off, TruePPM
+auto-promotes it:
+
+- **Project Manager and Project Admin** (Admin+): straight to **Complete**,
+  which also stamps today as the actual finish date.
+- **Everyone else who can edit the task** (Team Member): to **Review**,
+  pending PM/PMO sign-off — the task does not show as Complete yet.
+
+A task already in **Review**, **Complete**, or **Backlog** is left alone —
+promoting a Backlog idea straight to done is an edge case that requires an
+explicit status change instead.
+
+Because the outcome depends on who is dragging the slider, a confirmation
+dialog names the actual target status before the write commits — "Mark task
+Complete?" or "Send task to Review?" — so the same gesture never produces a
+surprising, invisible difference between two people's screens. Cancel and the
+slider reverts to its last saved value with no write sent. Setting status
+directly (from the **Status** dropdown, or from the Board) always takes that
+explicit value and skips this auto-promotion entirely.
+
 ## Canvas renderer
 
 TruePPM ships its own canvas Schedule renderer in `packages/web/src/features/schedule/engine/`. It replaced an earlier SVAR React Gantt integration to remove third-party constraints on drag UX, accessibility (ARIA grid overlay), and dark-mode rendering. Three layered canvases (background, bars, interaction) are dirty-rect repainted; row virtualization is mandatory from the first commit. See [ADR-0040](/architecture/decisions/) for the full rationale.

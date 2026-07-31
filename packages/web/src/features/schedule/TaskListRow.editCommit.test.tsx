@@ -30,6 +30,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import type { Task } from '@/types';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
+import { ROLE_MEMBER, ROLE_ADMIN } from '@/lib/roles';
 
 const mocks = vi.hoisted(() => ({
   updateMutate: vi.fn(),
@@ -37,6 +38,14 @@ const mocks = vi.hoisted(() => ({
   reorderMutate: vi.fn(),
   toggleMutate: vi.fn(),
   duplicateMutate: vi.fn(),
+  // #2639: the auto-status confirmation dialog names the target status from
+  // the acting user's role. Defaults to null (unresolved) like the real hook
+  // returns synchronously before its query settles; individual tests set it.
+  currentRole: null as number | null,
+}));
+
+vi.mock('@/hooks/useCurrentUserRole', () => ({
+  useCurrentUserRole: () => ({ role: mocks.currentRole, roleLabel: null, isLoading: false }),
 }));
 
 vi.mock('@/hooks/useTaskMutations', async (importOriginal) => {
@@ -184,6 +193,7 @@ function renderBuild(props: Omit<HarnessProps, 'focusRef'> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.currentRole = null;
   useScheduleStore.setState({
     selectedTaskId: null,
     scheduleError: null,
@@ -340,6 +350,78 @@ describe('TaskListRow — Progress cell commit error handling', () => {
     const [, opts] = commitProgress('80');
     act(() => opts.onError(new Error('network')));
     expect(useScheduleStore.getState().scheduleError).toBeNull();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Progress cell — the #2639 auto-status confirmation gate. Committing 100%
+// from a NOT_STARTED/IN_PROGRESS task (the `base` fixture's status) with no
+// explicit status is exactly the server's silent-promotion trigger; the grid
+// cell must gate it behind a dialog naming the caller's role-dependent target,
+// same as the drawer's OverviewSection.
+// ───────────────────────────────────────────────────────────────────────────
+describe('TaskListRow — Progress cell auto-status confirm (#2639)', () => {
+  function enterProgressCellAndType(value: string) {
+    const { focus } = renderBuild();
+    act(() => { focus().focusRow('t1'); focus().enterCellEdit('t1', 'progress'); });
+    const input = screen.getByLabelText('Progress: 50%. Press Enter to edit.');
+    fireEvent.change(input, { target: { value } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+  }
+
+  it('does not PATCH immediately at 100% — shows a confirmation first', () => {
+    enterProgressCellAndType('100');
+    expect(mocks.updateMutate).not.toHaveBeenCalled();
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+  });
+
+  it('names Review for a contributor (role unresolved / below Admin)', () => {
+    mocks.currentRole = ROLE_MEMBER;
+    enterProgressCellAndType('100');
+    expect(screen.getByText(/Send task to Review\?/i)).toBeInTheDocument();
+  });
+
+  it('names Complete for an Admin', () => {
+    mocks.currentRole = ROLE_ADMIN;
+    enterProgressCellAndType('100');
+    expect(screen.getByText(/Mark task Complete\?/i)).toBeInTheDocument();
+  });
+
+  it('PATCHes percent_complete=100 only after the contributor confirms Review', () => {
+    mocks.currentRole = ROLE_MEMBER;
+    enterProgressCellAndType('100');
+    fireEvent.click(screen.getByRole('button', { name: /Send to Review/i }));
+    expect(mocks.updateMutate).toHaveBeenCalledWith(
+      { id: 't1', projectId: 'p1', percent_complete: 100 },
+      expect.any(Object),
+    );
+  });
+
+  it('PATCHes percent_complete=100 only after the Admin confirms Complete', () => {
+    mocks.currentRole = ROLE_ADMIN;
+    enterProgressCellAndType('100');
+    fireEvent.click(screen.getByRole('button', { name: /Mark Complete/i }));
+    expect(mocks.updateMutate).toHaveBeenCalledWith(
+      { id: 't1', projectId: 'p1', percent_complete: 100 },
+      expect.any(Object),
+    );
+  });
+
+  it('cancelling sends no PATCH', () => {
+    mocks.currentRole = ROLE_MEMBER;
+    enterProgressCellAndType('100');
+    fireEvent.click(screen.getByRole('button', { name: /Cancel/i }));
+    expect(mocks.updateMutate).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('skips the confirmation entirely below 100% (existing behavior unchanged)', () => {
+    enterProgressCellAndType('80');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(mocks.updateMutate).toHaveBeenCalledWith(
+      { id: 't1', projectId: 'p1', percent_complete: 80 },
+      expect.any(Object),
+    );
   });
 });
 

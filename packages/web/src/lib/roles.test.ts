@@ -18,6 +18,7 @@ import {
   ROLE_OWNER,
   canEditTask,
   canEditRisk,
+  progressCompleteAutoStatus,
 } from './roles';
 
 const LADDER = [ROLE_VIEWER, ROLE_MEMBER, ROLE_SCHEDULER, ROLE_ADMIN, ROLE_OWNER];
@@ -108,5 +109,27 @@ describe('canEditRisk', () => {
     expect(canEditRisk(ROLE_VIEWER)).toBe(false);
     expect(canEditRisk(ROLE_MEMBER)).toBe(true);
     expect(canEditRisk(ROLE_OWNER)).toBe(true);
+  });
+});
+
+describe('progressCompleteAutoStatus (#2639)', () => {
+  it('routes below-Admin roles (Viewer, Member, Scheduler) to REVIEW', () => {
+    expect(progressCompleteAutoStatus(ROLE_VIEWER)).toBe('REVIEW');
+    expect(progressCompleteAutoStatus(ROLE_MEMBER)).toBe('REVIEW');
+    expect(progressCompleteAutoStatus(ROLE_SCHEDULER)).toBe('REVIEW');
+  });
+
+  it('routes Admin+ roles (Admin, Owner) to COMPLETE', () => {
+    expect(progressCompleteAutoStatus(ROLE_ADMIN)).toBe('COMPLETE');
+    expect(progressCompleteAutoStatus(ROLE_OWNER)).toBe('COMPLETE');
+  });
+
+  it('allows an Enterprise custom role in the Admin band (>= semantics)', () => {
+    expect(progressCompleteAutoStatus(ROLE_ADMIN + 50)).toBe('COMPLETE');
+  });
+
+  it('treats null/undefined (role still loading) as below-Admin — never over-promises COMPLETE', () => {
+    expect(progressCompleteAutoStatus(null)).toBe('REVIEW');
+    expect(progressCompleteAutoStatus(undefined)).toBe('REVIEW');
   });
 });
