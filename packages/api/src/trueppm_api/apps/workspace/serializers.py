@@ -146,6 +146,12 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
             # scale is a plain PO/team preference, freely overridable at every scope
             # (no enforcement seam). Display/input-only — never touches story_points.
             "estimation_scale",
+            # Workspace-wide default for the sprint story picker's "Ready only" filter
+            # (ADR-0758, #2670) — the non-null root of the Workspace → Program →
+            # Project chain. No override_policy: this is advisory UI guidance (which
+            # stories the picker defaults to showing), freely overridable at every
+            # scope, never a commit-time block.
+            "sprint_picker_ready_only_default",
             # Per-workspace attachment policy (ADR-0153, #976) — the non-null root of
             # the Workspace → Program → Project chain. attachments_enabled gates task
             # file uploads (external links unaffected); allowed_attachment_types is the

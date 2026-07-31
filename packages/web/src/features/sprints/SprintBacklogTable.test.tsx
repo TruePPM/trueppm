@@ -216,20 +216,23 @@ describe('SprintBacklogTable', () => {
     expect(screen.getByLabelText(/1 more owners/i)).toBeInTheDocument();
   });
 
-  it('renders the Pull from backlog header link to the Product Backlog when showBacklogLink is set (#1347)', () => {
+  it('renders the Pull from backlog header button that opens the story picker when onOpenPicker is set (#2670)', async () => {
+    const user = userEvent.setup();
+    const onOpenPicker = vi.fn();
     renderWithRouter(
       <SprintBacklogTable
         projectId="proj-1"
         sprintId="sp-planned"
         tasks={[task({ id: '1', status: 'NOT_STARTED' })]}
-        showBacklogLink
+        onOpenPicker={onOpenPicker}
       />,
     );
-    const link = screen.getByRole('link', { name: /Pull from backlog/i });
-    expect(link).toHaveAttribute('href', '/projects/proj-1/product-backlog');
+    const button = screen.getByRole('button', { name: /Pull from backlog/i });
+    await user.click(button);
+    expect(onOpenPicker).toHaveBeenCalledTimes(1);
   });
 
-  it('does not render the Pull from backlog link by default (active/closed surface)', () => {
+  it('does not render the Pull from backlog button by default (active/closed surface)', () => {
     renderWithRouter(
       <SprintBacklogTable
         projectId="proj-1"
@@ -238,23 +241,30 @@ describe('SprintBacklogTable', () => {
       />,
     );
     expect(
-      screen.queryByRole('link', { name: /Pull from backlog/i }),
+      screen.queryByRole('button', { name: /Pull from backlog/i }),
     ).not.toBeInTheDocument();
   });
 
-  it('offers a Product Backlog link in the empty state when showBacklogLink is set (#1347)', () => {
+  it('offers a Pull from backlog button in the empty state when onOpenPicker is set (#2670)', async () => {
+    const user = userEvent.setup();
+    const onOpenPicker = vi.fn();
     renderWithRouter(
       <SprintBacklogTable
         projectId="proj-1"
         sprintId="sp-planned"
         tasks={[]}
         onAddTask={vi.fn()}
-        showBacklogLink
+        onOpenPicker={onOpenPicker}
       />,
     );
-    expect(screen.getByText(/Pull existing stories from the/i)).toBeInTheDocument();
-    const link = screen.getByRole('link', { name: /Product Backlog/i });
-    expect(link).toHaveAttribute('href', '/projects/proj-1/product-backlog');
+    expect(screen.getByText(/Pull existing stories from the backlog/i)).toBeInTheDocument();
+    // Two "Pull from backlog" affordances render on the empty planned surface —
+    // the persistent header button and this section's own — so scope to the
+    // one inside the empty-state region to avoid a strict-mode collision.
+    const emptyState = screen.getByRole('status');
+    const button = within(emptyState).getByRole('button', { name: /Pull from backlog/i });
+    await user.click(button);
+    expect(onOpenPicker).toHaveBeenCalledTimes(1);
     // The add-a-new-task affordance still stands alongside the backlog handoff.
     expect(
       screen.getAllByRole('button', { name: /\+ Add task/i }).length,

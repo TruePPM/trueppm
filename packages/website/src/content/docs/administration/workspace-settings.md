@@ -1,6 +1,7 @@
 ---
 title: Workspace Settings
 description: Configure the TruePPM workspace — general settings, workspace roles, email invites, and groups with project-access cascade.
+documentedFor: "0.4"
 ---
 
 
@@ -83,6 +84,7 @@ On the General page the ⓘ appears on these fields:
 | Keep Monte Carlo run history | [Forecast history](/features/monte-carlo/#forecast-history) |
 | Run history limit | [Forecast history](/features/monte-carlo/#forecast-history) |
 | Run attribution visible to | [Forecast history](/features/monte-carlo/#forecast-history) |
+| Story picker shows Ready stories only, by default | [Sprint backlog table](/features/sprint-backlog/#story-picker) |
 | Duration change → percent complete | This page |
 | Program & project overrides | This page |
 | Forecast-history overrides | [Retention](/administration/retention/#forecast-snapshots) |
@@ -110,6 +112,7 @@ The same affordance appears throughout the
 | `allow_guests` | boolean | `true` | Whether users with `guest` status may be added to projects. This is the **workspace default**; programs and projects inherit it and may override it per scope. See [Sharing & Access Inheritance](/administration/sharing-and-access/). |
 | `public_sharing` | boolean | `false` | When `true`, designated read-only views may be shared via link so anyone with the link can view without signing in. This is the **workspace default**; programs and projects inherit it and may override it per scope. See [Sharing & Access Inheritance](/administration/sharing-and-access/). |
 | `public_sharing_override_policy` | string | `"suggest"` | Whether downstream scopes may override the workspace sharing values. `"suggest"` (default) lets programs/projects override; `"enforce"` makes the workspace value a hard ceiling. **`enforce` is an Enterprise capability — in the community edition it degrades to `suggest` (no lock).** |
+| `sprint_picker_ready_only_default` <br/>*(ships in 0.4)* | boolean | `true` | Whether the [sprint story picker](/features/sprint-backlog/#story-picker) starts filtered to Definition-of-Ready stories. This is the **workspace default**; programs and projects inherit it and may override it per scope (Shape A: `null` override = inherit). Advisory only — the picker's own "Show all" toggle always reveals a not-ready story, and committing one is never blocked. There is no override policy / enforcement seam for this field. |
 
 ### Access
 

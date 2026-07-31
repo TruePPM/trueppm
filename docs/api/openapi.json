@@ -48503,6 +48503,10 @@
                             }
                         ]
                     },
+                    "sprint_picker_ready_only_default": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
                     "iteration_label": {
                         "type": "string",
                         "nullable": true,
@@ -48759,6 +48763,10 @@
                                 "$ref": "#/components/schemas/NullEnum"
                             }
                         ]
+                    },
+                    "sprint_picker_ready_only_default": {
+                        "type": "boolean",
+                        "nullable": true
                     },
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
@@ -49786,6 +49794,9 @@
                     "estimation_scale": {
                         "$ref": "#/components/schemas/EstimationScaleEnum"
                     },
+                    "sprint_picker_ready_only_default": {
+                        "type": "boolean"
+                    },
                     "attachments_enabled": {
                         "type": "boolean"
                     },
@@ -50282,6 +50293,18 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "sprint_picker_ready_only_default": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "effective_sprint_picker_ready_only_default": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "inherited_sprint_picker_ready_only_default": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "iteration_label": {
                         "type": "string",
                         "nullable": true,
@@ -50563,6 +50586,7 @@
                     "effective_mcp_enabled",
                     "effective_methodology",
                     "effective_public_sharing",
+                    "effective_sprint_picker_ready_only_default",
                     "effective_task_duration_change_percent_policy",
                     "id",
                     "inherited_allow_guests",
@@ -50577,6 +50601,7 @@
                     "inherited_mcp_enabled",
                     "inherited_methodology",
                     "inherited_public_sharing",
+                    "inherited_sprint_picker_ready_only_default",
                     "inherited_task_duration_change_percent_policy",
                     "is_closed",
                     "is_pinned",
@@ -51025,6 +51050,10 @@
                             }
                         ]
                     },
+                    "sprint_picker_ready_only_default": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
                     "iteration_label": {
                         "type": "string",
                         "nullable": true,
@@ -51406,6 +51435,18 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "sprint_picker_ready_only_default": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "effective_sprint_picker_ready_only_default": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "inherited_sprint_picker_ready_only_default": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
                     },
@@ -51705,6 +51746,7 @@
                     "effective_mcp_enabled",
                     "effective_methodology",
                     "effective_public_sharing",
+                    "effective_sprint_picker_ready_only_default",
                     "effective_surface_visibility",
                     "effective_task_duration_change_percent_policy",
                     "id",
@@ -51719,6 +51761,7 @@
                     "inherited_mcp_enabled",
                     "inherited_methodology",
                     "inherited_public_sharing",
+                    "inherited_sprint_picker_ready_only_default",
                     "inherited_surface_visibility",
                     "inherited_task_duration_change_percent_policy",
                     "is_archived",
@@ -52058,6 +52101,18 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "sprint_picker_ready_only_default": {
+                        "type": "boolean",
+                        "nullable": true
+                    },
+                    "effective_sprint_picker_ready_only_default": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "inherited_sprint_picker_ready_only_default": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
                     },
@@ -52393,6 +52448,7 @@
                     "effective_mcp_enabled",
                     "effective_methodology",
                     "effective_public_sharing",
+                    "effective_sprint_picker_ready_only_default",
                     "effective_surface_visibility",
                     "effective_task_duration_change_percent_policy",
                     "id",
@@ -52407,6 +52463,7 @@
                     "inherited_mcp_enabled",
                     "inherited_methodology",
                     "inherited_public_sharing",
+                    "inherited_sprint_picker_ready_only_default",
                     "inherited_surface_visibility",
                     "inherited_task_duration_change_percent_policy",
                     "is_archived",
@@ -52962,6 +53019,10 @@
                                 "$ref": "#/components/schemas/NullEnum"
                             }
                         ]
+                    },
+                    "sprint_picker_ready_only_default": {
+                        "type": "boolean",
+                        "nullable": true
                     },
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
@@ -59753,6 +59814,9 @@
                     },
                     "estimation_scale": {
                         "$ref": "#/components/schemas/EstimationScaleEnum"
+                    },
+                    "sprint_picker_ready_only_default": {
+                        "type": "boolean"
                     },
                     "attachments_enabled": {
                         "type": "boolean"

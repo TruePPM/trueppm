@@ -157,6 +157,10 @@ export function ProjectGeneralPage() {
   // null = inherit the program/workspace value (ADR-0151, issue 1254).
   const [taskDurationChangePercentPolicy, setTaskDurationChangePercentPolicy] =
     useState<DurationChangePercentPolicy | null>(null);
+  // null = inherit the program/workspace default (ADR-0758, #2670).
+  const [sprintPickerReadyOnlyDefault, setSprintPickerReadyOnlyDefault] = useState<boolean | null>(
+    null,
+  );
 
   // Re-seed whenever the loaded project's identity changes. React Router reuses
   // this component across `:projectId` changes (no `key` → no remount), so a
@@ -193,6 +197,9 @@ export function ProjectGeneralPage() {
     useState<MCAttributionAudience | null>(null);
   const [initialTaskDurationChangePercentPolicy, setInitialTaskDurationChangePercentPolicy] =
     useState<DurationChangePercentPolicy | null>(null);
+  const [initialSprintPickerReadyOnlyDefault, setInitialSprintPickerReadyOnlyDefault] = useState<
+    boolean | null
+  >(null);
 
   useEffect(() => {
     if (!project || seededProjectIdRef.current === project.id) return;
@@ -217,6 +224,7 @@ export function ProjectGeneralPage() {
     setMcHistoryRetentionCap(project.mc_history_retention_cap ?? null);
     setMcHistoryAttributionAudience(project.mc_history_attribution_audience ?? null);
     setTaskDurationChangePercentPolicy(project.task_duration_change_percent_policy ?? null);
+    setSprintPickerReadyOnlyDefault(project.sprint_picker_ready_only_default ?? null);
     setInitialName(project.name);
     setInitialDescription(project.description ?? '');
     setInitialCode(project.code);
@@ -237,6 +245,7 @@ export function ProjectGeneralPage() {
     setInitialMcHistoryRetentionCap(project.mc_history_retention_cap ?? null);
     setInitialMcHistoryAttributionAudience(project.mc_history_attribution_audience ?? null);
     setInitialTaskDurationChangePercentPolicy(project.task_duration_change_percent_policy ?? null);
+    setInitialSprintPickerReadyOnlyDefault(project.sprint_picker_ready_only_default ?? null);
   }, [project]);
 
   const values = useMemo(
@@ -261,6 +270,7 @@ export function ProjectGeneralPage() {
       mc_history_retention_cap: mcHistoryRetentionCap,
       mc_history_attribution_audience: mcHistoryAttributionAudience,
       task_duration_change_percent_policy: taskDurationChangePercentPolicy,
+      sprint_picker_ready_only_default: sprintPickerReadyOnlyDefault,
     }),
     [
       name,
@@ -283,6 +293,7 @@ export function ProjectGeneralPage() {
       mcHistoryRetentionCap,
       mcHistoryAttributionAudience,
       taskDurationChangePercentPolicy,
+      sprintPickerReadyOnlyDefault,
     ],
   );
   const initialValues = useMemo(
@@ -307,6 +318,7 @@ export function ProjectGeneralPage() {
       mc_history_retention_cap: initialMcHistoryRetentionCap,
       mc_history_attribution_audience: initialMcHistoryAttributionAudience,
       task_duration_change_percent_policy: initialTaskDurationChangePercentPolicy,
+      sprint_picker_ready_only_default: initialSprintPickerReadyOnlyDefault,
     }),
     [
       initialName,
@@ -329,6 +341,7 @@ export function ProjectGeneralPage() {
       initialMcHistoryRetentionCap,
       initialMcHistoryAttributionAudience,
       initialTaskDurationChangePercentPolicy,
+      initialSprintPickerReadyOnlyDefault,
     ],
   );
 
@@ -365,6 +378,8 @@ export function ProjectGeneralPage() {
       mc_history_attribution_audience: mcHistoryAttributionAudience,
       // null clears the duration-change override so the project inherits program/workspace (ADR-0151).
       task_duration_change_percent_policy: taskDurationChangePercentPolicy,
+      // null clears the sprint-picker override so the project inherits program/workspace (ADR-0758).
+      sprint_picker_ready_only_default: sprintPickerReadyOnlyDefault,
     });
     const savedIterationLabel = iterationLabel === null ? null : iterationLabel.trim() || null;
     setIterationLabel(savedIterationLabel);
@@ -389,6 +404,7 @@ export function ProjectGeneralPage() {
     setInitialMcHistoryRetentionCap(mcHistoryRetentionCap);
     setInitialMcHistoryAttributionAudience(mcHistoryAttributionAudience);
     setInitialTaskDurationChangePercentPolicy(taskDurationChangePercentPolicy);
+    setInitialSprintPickerReadyOnlyDefault(sprintPickerReadyOnlyDefault);
   }, [
     updateProject,
     name,
@@ -412,6 +428,7 @@ export function ProjectGeneralPage() {
     mcHistoryRetentionCap,
     mcHistoryAttributionAudience,
     taskDurationChangePercentPolicy,
+    sprintPickerReadyOnlyDefault,
   ]);
 
   const handleReset = useCallback(() => {
@@ -435,6 +452,7 @@ export function ProjectGeneralPage() {
     setMcHistoryRetentionCap(initialMcHistoryRetentionCap);
     setMcHistoryAttributionAudience(initialMcHistoryAttributionAudience);
     setTaskDurationChangePercentPolicy(initialTaskDurationChangePercentPolicy);
+    setSprintPickerReadyOnlyDefault(initialSprintPickerReadyOnlyDefault);
   }, [
     initialName,
     initialDescription,
@@ -456,6 +474,7 @@ export function ProjectGeneralPage() {
     initialMcHistoryRetentionCap,
     initialMcHistoryAttributionAudience,
     initialTaskDurationChangePercentPolicy,
+    initialSprintPickerReadyOnlyDefault,
   ]);
 
   useDirtyForm({
@@ -727,6 +746,34 @@ export function ProjectGeneralPage() {
               onLabel="On"
               offLabel="Off"
               ariaLabel="Allow public link sharing"
+              canEdit={canEdit}
+            />
+          </FieldRow>
+
+          {/* Sprint planning (ADR-0758, #2670). Inherits the program or workspace
+              default unless this project overrides. */}
+          <h3 className="mt-8 mb-1 text-[13px] font-semibold text-neutral-text-primary">
+            Sprint planning
+          </h3>
+
+          <FieldRow
+            label="Story picker shows Ready stories only, by default"
+            hint="The sprint story picker starts filtered to Definition-of-Ready stories. Anyone can still reveal and pull a not-ready story — this only sets the picker's starting view. Inherits the program or workspace setting unless you override it here."
+            help={fieldHelp({
+              label: 'Story picker shows Ready stories only, by default',
+              body: "When on, the Sprints page's story picker opens showing only stories marked Ready (estimated, with all acceptance criteria met). A `Show all` toggle inside the picker always reveals the rest, dimmed, with the reason each is blocked — this setting never prevents pulling a not-ready story into a sprint, it only sets what the picker shows first. Inherits the program or workspace setting unless you override it here.",
+              docHref: 'features/sprint-backlog/#story-picker',
+            })}
+          >
+            <InheritableToggleField
+              value={sprintPickerReadyOnlyDefault}
+              onChange={setSprintPickerReadyOnlyDefault}
+              inherited={project?.inherited_sprint_picker_ready_only_default ?? true}
+              inheritFromLabel="the program or workspace default"
+              scopeNoun="project"
+              onLabel="Ready only"
+              offLabel="Show all"
+              ariaLabel="Story picker shows Ready stories only, by default"
               canEdit={canEdit}
             />
           </FieldRow>

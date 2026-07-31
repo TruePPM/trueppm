@@ -49,6 +49,7 @@ export interface UpdateProgramInput {
       | 'mc_history_attribution_audience'
       | 'task_duration_change_percent_policy'
       | 'estimation_scale'
+      | 'sprint_picker_ready_only_default'
       | 'attachments_enabled'
       | 'allowed_attachment_types'
       | 'calendar'

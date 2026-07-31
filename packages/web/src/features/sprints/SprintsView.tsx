@@ -47,6 +47,7 @@ import { GuardrailHealthBadges } from './GuardrailHealthBadges';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { MultiTeamLens } from './MultiTeamLens';
 import { PlanSprintModal } from './PlanSprintModal';
+import { StoryPickerModal } from './StoryPickerModal';
 import {
   SprintFilterPopover,
   applySprintFilter,
@@ -546,6 +547,11 @@ export function SprintsView() {
   const showLensToggle = myTeamsCount >= 2;
   const [scope, setScope] = useState<SprintScope>('project');
   const [planOpen, setPlanOpen] = useState(false);
+  // Story picker (issue #2670) — multi-select existing backlog stories into the
+  // PLANNED sprint without leaving this page. Opened from the planned surface's
+  // "Pull from backlog" button; SprintModals renders the modal itself so its
+  // focus trap sits alongside the other sprint-lifecycle modals.
+  const [storyPickerOpen, setStoryPickerOpen] = useState(false);
   // Edit-mode for the planned sprint card "Edit" button (#299).
   const [editSprintId, setEditSprintId] = useState<string | null>(null);
   // Scope-injection review slide-over (ADR-0102 §5) — alt entry to the board
@@ -778,6 +784,7 @@ export function SprintsView() {
               onAddTask={setAddTaskForSprintId}
               onRemoveTask={handleRemoveFromSprint}
               onOpenTask={setSelectedTaskId}
+              onOpenPicker={() => setStoryPickerOpen(true)}
             />
 
             <SprintRetroSection
@@ -812,6 +819,13 @@ export function SprintsView() {
         taskIndex={taskIndex}
         onCloseTaskDrawer={() => setSelectedTaskId(null)}
         onSwapCanceled={(keptId) => setSelectedTaskId(keptId)}
+        storyPickerOpen={storyPickerOpen}
+        plannedSprint={plannedSprint}
+        plannedDraftPoints={plannedDraftPoints}
+        sprintPickerReadyOnlyDefault={
+          projectQuery.data?.effective_sprint_picker_ready_only_default ?? true
+        }
+        onCloseStoryPicker={() => setStoryPickerOpen(false)}
       />
     </div>
   );
@@ -1432,6 +1446,7 @@ function PlannedSprintSurface({
   onAddTask,
   onRemoveTask,
   onOpenTask,
+  onOpenPicker,
 }: {
   ready: boolean;
   selectedSprint: ApiSprint | null;
@@ -1446,6 +1461,8 @@ function PlannedSprintSurface({
   onAddTask: (sprintId: string) => void;
   onRemoveTask: (taskId: string) => void;
   onOpenTask: (taskId: string) => void;
+  /** Opens the story picker (issue #2670) — SCHEDULER+ only, mirroring onAddTask. */
+  onOpenPicker: () => void;
 }) {
   if (!ready || selectedSprint?.id !== plannedSprint?.id || !plannedSprint || !projectId) {
     return null;
@@ -1462,7 +1479,7 @@ function PlannedSprintSurface({
           onOpenTask={onOpenTask}
           showCarryoverLane
           canPullCarryover={canPullCarryover}
-          showBacklogLink
+          onOpenPicker={canManageLifecycle ? onOpenPicker : undefined}
         />
       </div>
       <div className="lg:col-span-2 flex flex-col gap-4">
@@ -1560,6 +1577,11 @@ function SprintModals({
   taskIndex,
   onCloseTaskDrawer,
   onSwapCanceled,
+  storyPickerOpen,
+  plannedSprint,
+  plannedDraftPoints,
+  sprintPickerReadyOnlyDefault,
+  onCloseStoryPicker,
 }: {
   projectId: string | undefined;
   buckets: ReturnType<typeof useSprintsByState>;
@@ -1583,6 +1605,12 @@ function SprintModals({
   taskIndex: Map<string, Task>;
   onCloseTaskDrawer: () => void;
   onSwapCanceled: (keptId: string) => void;
+  /** Story picker (issue #2670). */
+  storyPickerOpen: boolean;
+  plannedSprint: ApiSprint | null;
+  plannedDraftPoints: number;
+  sprintPickerReadyOnlyDefault: boolean;
+  onCloseStoryPicker: () => void;
 }) {
   return (
     <>
@@ -1653,6 +1681,16 @@ function SprintModals({
           onClose={onCloseTaskDrawer}
           // Restore selection to the still-shown task when a dirty swap is kept (#1978).
           onSwapCanceled={onSwapCanceled}
+        />
+      )}
+
+      {storyPickerOpen && projectId && plannedSprint && (
+        <StoryPickerModal
+          projectId={projectId}
+          sprint={plannedSprint}
+          committedPoints={plannedDraftPoints}
+          readyOnlyDefault={sprintPickerReadyOnlyDefault}
+          onClose={onCloseStoryPicker}
         />
       )}
     </>

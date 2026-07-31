@@ -522,10 +522,10 @@ test.describe('Wave 10 — Sprints backlog table', () => {
     const link = backlog.getByRole('link', { name: /Open in board/i });
     await expect(link).toHaveAttribute('href', `/projects/${PROJECT_ID}/board?sprint=sp-active`);
 
-    // The "Pull from backlog" handoff (#1347) is a PLANNED-surface affordance —
-    // it must not appear on the active sprint's backlog (commit only targets a
-    // planned sprint).
-    await expect(backlog.getByRole('link', { name: /Pull from backlog/i })).toHaveCount(0);
+    // The "Pull from backlog" story picker (#2670, formerly the #1347 link) is a
+    // PLANNED-surface affordance — it must not appear on the active sprint's
+    // backlog (the picker only targets a planned sprint).
+    await expect(backlog.getByRole('button', { name: /Pull from backlog/i })).toHaveCount(0);
   });
 
   test('clicking a backlog task name opens the task detail drawer', async ({ page }) => {
@@ -669,6 +669,30 @@ async function setupPlanned(page: import('@playwright/test').Page) {
       body: JSON.stringify({ items: [] }),
     }),
   );
+  // The story picker (#2670) reads the grooming view when opened — an object
+  // endpoint the /tasks/ catch-all does not cover. Empty here; the picker's own
+  // interaction is covered end-to-end in sprint-story-picker.spec.ts.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/product-backlog/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        epics: [],
+        ungrouped: [],
+        health: {
+          dor_pct: 0,
+          ready_count: 0,
+          ready_points: 0,
+          capacity_points: null,
+          unestimated: 0,
+          ac_met: 0,
+          ac_total: 0,
+          story_count: 0,
+        },
+        scoring: { model: 'none' },
+      }),
+    }),
+  );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/velocity/`, (route) =>
     route.fulfill({
       status: 200,
@@ -740,8 +764,8 @@ async function setupPlanned(page: import('@playwright/test').Page) {
   await setupAmbientReads(page);
 }
 
-test.describe('Wave 10 — Planned sprint backlog handoff (#1347)', () => {
-  test('offers a "Pull from backlog" link to the Product Backlog and navigates there', async ({
+test.describe('Wave 10 — Planned sprint backlog handoff (#2670, formerly #1347)', () => {
+  test('offers a "Pull from backlog" button that opens the in-place story picker', async ({
     page,
   }) => {
     await setupPlanned(page);
@@ -751,18 +775,23 @@ test.describe('Wave 10 — Planned sprint backlog handoff (#1347)', () => {
     await expect(backlog).toBeVisible();
 
     // Positive counterpart to the active-sprint negative assertion: on the planned
-    // surface the header handoff link is present and points at the Product Backlog.
-    const pullLink = backlog.getByRole('link', { name: /Pull from backlog/i });
-    await expect(pullLink).toHaveCount(1);
-    await expect(pullLink).toHaveAttribute('href', `/projects/${PROJECT_ID}/product-backlog`);
+    // surface the header handoff is present. It is a BUTTON now (#2670) — the
+    // #1347 link it replaces navigated away and lost all sprint context. The
+    // header copy carries the trailing arrow; the empty-state's own button
+    // (below) does not, so an exact match distinguishes the two.
+    const pullButton = backlog.getByRole('button', { name: 'Pull from backlog →', exact: true });
+    await expect(pullButton).toHaveCount(1);
 
-    // With no committed tasks the empty-state CTA (the heart of the #1347 fix —
-    // "Plan sprint showed no story list") points at the same Product Backlog.
-    const emptyStateLink = backlog.getByRole('link', { name: /^Product Backlog$/i });
-    await expect(emptyStateLink).toHaveAttribute('href', `/projects/${PROJECT_ID}/product-backlog`);
+    // With no committed tasks the empty-state CTA also opens the picker, alongside
+    // the "+ Add task" affordance — not a Link to a separate page.
+    const emptyStateButton = backlog.getByRole('button', { name: 'Pull from backlog', exact: true });
+    await expect(emptyStateButton).toBeVisible();
 
-    // The link actually navigates (client-side route change), proving the handoff.
-    await pullLink.click();
-    await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/product-backlog`));
+    // Opens the picker in place — no navigation away from the Sprints page. The
+    // picker's own interaction (DoR badges, multi-select, commit) is covered end
+    // to end in sprint-story-picker.spec.ts.
+    await pullButton.click();
+    await expect(page.getByRole('dialog', { name: /Pull stories into/i })).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/sprints`));
   });
 });

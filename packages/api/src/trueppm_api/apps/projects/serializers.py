@@ -486,6 +486,13 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # override were cleared (drives the settings "Inherit (X)" affordance).
     effective_estimation_scale = serializers.SerializerMethodField()
     inherited_estimation_scale = serializers.SerializerMethodField()
+    # Server-resolved sprint-picker "Ready only" default (ADR-0758, #2670): project
+    # override ?? program ?? workspace. Clients read ``effective_*`` to seed the
+    # picker's default filter state; ``inherited_*`` is what the project would
+    # resolve to if its own override were cleared (drives the settings "Inherit
+    # (X)" affordance). Advisory only — never a commit-time block.
+    effective_sprint_picker_ready_only_default = serializers.SerializerMethodField()
+    inherited_sprint_picker_ready_only_default = serializers.SerializerMethodField()
     # Server-resolved attachment policy (ADR-0153, #976): project override ??
     # program override ?? workspace value. Clients read the ``effective_*`` fields;
     # ``inherited_*`` is what the project would show if its own override were cleared
@@ -595,6 +602,13 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "estimation_scale",
             "effective_estimation_scale",
             "inherited_estimation_scale",
+            # Sprint-picker "Ready only" default OVERRIDE (ADR-0758, #2670). Nullable:
+            # NULL = inherit program/workspace. Scheduler+-writable — it is in
+            # _SCHEDULER_WRITABLE_FIELDS (PO/team territory, beside estimation_scale),
+            # so the validate() gate lets a Scheduler set it.
+            "sprint_picker_ready_only_default",
+            "effective_sprint_picker_ready_only_default",
+            "inherited_sprint_picker_ready_only_default",
             # Product-backlog prioritization model (ADR-0105 §3). Admin+-gated write,
             # enforced in ProjectViewSet alongside estimation_mode.
             "prioritization_model",
@@ -694,6 +708,8 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "inherited_task_duration_change_percent_policy",
             "effective_estimation_scale",
             "inherited_estimation_scale",
+            "effective_sprint_picker_ready_only_default",
+            "inherited_sprint_picker_ready_only_default",
             "effective_public_sharing",
             "inherited_public_sharing",
             "effective_allow_guests",
@@ -994,7 +1010,13 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # is an explicit allowlist — any new writable field is Admin-only by default
     # until deliberately added here (#769; ADR-0041 estimation governance).
     _SCHEDULER_WRITABLE_FIELDS = frozenset(
-        {"methodology", "board_cadence", "estimation_mode", "estimation_scale"}
+        {
+            "methodology",
+            "board_cadence",
+            "estimation_mode",
+            "estimation_scale",
+            "sprint_picker_ready_only_default",
+        }
     )
 
     def validate_stale_task_threshold_days(self, value: int) -> int:
@@ -1178,6 +1200,20 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         from .estimation_scale import resolve_inherited_estimation_scale
 
         return resolve_inherited_estimation_scale(obj, workspace=self._iteration_workspace())
+
+    def get_effective_sprint_picker_ready_only_default(self, obj: Project) -> bool:
+        from .sprint_picker_settings import resolve_effective_sprint_picker_ready_only
+
+        return resolve_effective_sprint_picker_ready_only(
+            obj, workspace=self._iteration_workspace()
+        )
+
+    def get_inherited_sprint_picker_ready_only_default(self, obj: Project) -> bool:
+        from .sprint_picker_settings import resolve_inherited_sprint_picker_ready_only
+
+        return resolve_inherited_sprint_picker_ready_only(
+            obj, workspace=self._iteration_workspace()
+        )
 
     def get_effective_public_sharing(self, obj: Project) -> bool:
         from .sharing_settings import resolve_effective_sharing
@@ -1599,6 +1635,11 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
     # workspace value the program shows when its own override is cleared.
     effective_estimation_scale = serializers.SerializerMethodField()
     inherited_estimation_scale = serializers.SerializerMethodField()
+    # Server-resolved sprint-picker "Ready only" default (ADR-0758, #2670): program
+    # ?? workspace. Clients read ``effective_*``; ``inherited_*`` is the workspace
+    # value the program shows when its own override is cleared.
+    effective_sprint_picker_ready_only_default = serializers.SerializerMethodField()
+    inherited_sprint_picker_ready_only_default = serializers.SerializerMethodField()
     # Server-resolved sharing settings (ADR-0135, #978): program override ?? workspace
     # value. Clients read ``effective_*``; ``inherited_*`` is the workspace value the
     # program shows when its own override is cleared (drives the "Inherit (On/Off)" chip).
@@ -1668,6 +1709,12 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "estimation_scale",
             "effective_estimation_scale",
             "inherited_estimation_scale",
+            # Sprint-picker "Ready only" default override for the program (ADR-0758,
+            # #2670). Nullable: NULL = inherit workspace. Admin+-gated write (program
+            # update is IsProgramAdmin).
+            "sprint_picker_ready_only_default",
+            "effective_sprint_picker_ready_only_default",
+            "inherited_sprint_picker_ready_only_default",
             # Iteration-container label override for the program (ADR-0116, #1106).
             # Nullable: NULL = inherit the workspace default.
             "iteration_label",
@@ -1766,6 +1813,8 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "inherited_task_duration_change_percent_policy",
             "effective_estimation_scale",
             "inherited_estimation_scale",
+            "effective_sprint_picker_ready_only_default",
+            "inherited_sprint_picker_ready_only_default",
             "effective_public_sharing",
             "inherited_public_sharing",
             "effective_allow_guests",
@@ -1952,6 +2001,16 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         from .estimation_scale import resolve_inherited_estimation_scale
 
         return resolve_inherited_estimation_scale(obj, workspace=self._sharing_workspace())
+
+    def get_effective_sprint_picker_ready_only_default(self, obj: Program) -> bool:
+        from .sprint_picker_settings import resolve_effective_sprint_picker_ready_only
+
+        return resolve_effective_sprint_picker_ready_only(obj, workspace=self._sharing_workspace())
+
+    def get_inherited_sprint_picker_ready_only_default(self, obj: Program) -> bool:
+        from .sprint_picker_settings import resolve_inherited_sprint_picker_ready_only
+
+        return resolve_inherited_sprint_picker_ready_only(obj, workspace=self._sharing_workspace())
 
     def _sharing_workspace(self) -> Workspace:
         """Load the Workspace singleton once per serializer instance so a list of

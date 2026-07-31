@@ -26,6 +26,7 @@ const WS: WorkspaceSettings = {
   taskDurationChangePercentPolicy: 'prorate',
   taskDurationChangePercentOverridePolicy: 'suggest',
   estimationScale: 'fibonacci',
+  sprintPickerReadyOnlyDefault: true,
   methodology: 'HYBRID',
   methodologyOverridePolicy: 'suggest',
   attachmentsEnabled: true,

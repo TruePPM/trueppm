@@ -44,6 +44,7 @@ const WS: WorkspaceSettings = {
   taskDurationChangePercentPolicy: 'keep',
   taskDurationChangePercentOverridePolicy: 'suggest',
   estimationScale: 'fibonacci',
+  sprintPickerReadyOnlyDefault: true,
   methodology: 'WATERFALL',
   methodologyOverridePolicy: 'suggest',
   attachmentsEnabled: true,
