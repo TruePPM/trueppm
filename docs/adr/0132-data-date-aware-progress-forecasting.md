@@ -3,6 +3,21 @@
 ## Status
 Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: status_date)
 
+> **Two claims below do not match the shipped code** (verified 2026-07-31, #2622). Read them
+> with this note:
+>
+> - **§2 — "It is *not* floored at the status date" is wrong.** Both engines *do* apply the
+>   data-date floor to in-progress work (`engine.py:840-856` takes the floored `start`;
+>   `wasm-scheduler/src/forward.rs:138` matches). The prose describes an engine we do not ship.
+> - **§1 — "When null, the engine anchors to the server's current date" is not true on the
+>   CPM path.** `scheduling/views.py:1021-1022` passes `status_date` raw to `schedule()`
+>   (null ⇒ no floor) and defaults to today only for `monte_carlo()`. Since `status_date` is
+>   unset on most projects, the floor described in §2 is implemented but almost never armed —
+>   which is the condition #2621 reproduces.
+>
+> ADR-0752 corrects §2's prose and arms §1 on the CPM path. Do not cite §1 or §2 as the
+> shipped contract until it is accepted.
+
 ## Context
 
 The scheduling engine — both the deterministic CPM pass (`schedule()`) and the
