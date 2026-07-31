@@ -271,7 +271,7 @@ function VelocityColumn({
           {/* Visible on-screen (not a title tooltip — web-rules 22a/121/166): the
               honesty qualifier keeps a velocity band from reading as false precision.
               Deliberately NOT accompanied by #2495's ForecastHorizonHelp — see the
-              "#2495 scope boundary" test in this component's spec. That affordance
+              #2495 scope-boundary test in this component's spec. That affordance
               states a *floor* bias, which comes from the clamped sampler behind
               /sprint-forecast/. This card reads /forecast/, whose snapshots are the
               deterministic, unclamped `_velocity_band_percentiles` derivation, so a
