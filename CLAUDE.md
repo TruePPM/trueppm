@@ -337,6 +337,13 @@ When writing or editing any file under `packages/website/src/content/docs/` (and
 
 This rule applies to every doc edit — there is no "fast path" carve-out. A wrong tense on a version banner is a user-facing accuracy bug, not a stylistic preference.
 
+**A version-anchored phrase is not the only way to mislead — declare the version instead.** The tense rule above only reaches text that names a version. A page can describe an entirely unreleased feature in plain present tense ("Click **Share** to generate a public link"), never mention a version, and read to a self-hoster on the latest release as a description of their install. `scripts/check-version-status.sh` is structurally blind to that, which is how four pages sailed past it on a green pipeline (#2608). So:
+
+- When a page documents behavior that is **not in the latest tag**, set `documentedFor: "0.X"` in its front matter and add a `:::note[Ships in 0.X]` callout saying what the current release does instead. The gate pairs the two against the roadmap and fails if either is missing or if they disagree.
+- **When 0.X ships, delete the callout.** The gate then fails in the other direction — a "Ships in 0.4" banner on a page whose `documentedFor` has moved into "## Shipped" is the same misinformation reversed, and it is the failure mode a release actually produces.
+- Scope the callout honestly: if only part of the page is unreleased, say which part (see `administration/security.md`, which lists its three unshipped items, and `administration/program-settings.md`, which nests a narrower callout inside a section-level one).
+- The key does **not** catch a page that documents an unreleased feature and declares nothing. It converts "did the author choose the right tense", which nothing can check, into "the author named a version once, and the banner is guaranteed to match it".
+
 ### Mandatory skills for docs work
 - **`docs-writer`** for any change touching `docs/features/`, `docs/getting-started/`, `docs/architecture/`, or `docs/administration/`
 - **`api-docs`** for any endpoint, serializer field, or permission rule change

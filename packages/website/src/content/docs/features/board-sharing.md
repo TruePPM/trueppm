@@ -1,6 +1,7 @@
 ---
 title: Public sharing (board & schedule)
 description: Generate a public, revocable, read-only link to a project's board or schedule so external stakeholders can view status without a TruePPM login.
+documentedFor: "0.4"
 ---
 
 **Public sharing** lets a project Admin hand a stakeholder — a client, a sponsor,
@@ -8,6 +9,12 @@ anyone without a TruePPM account — a link that opens the project's **board** o
 **schedule** in a browser, read-only, with no sign-in. Links are revocable at any
 time, can be given an expiry, and the shared view is deliberately minimized so
 internal detail never leaks.
+:::note[Ships in 0.4]
+Public sharing ships in **TruePPM 0.4**, the first beta. It is not present in
+`v0.3.0-alpha.3`, the latest release — there is no **Share** control and the
+`/share-links/` endpoints do not exist yet. Everything below describes 0.4.
+:::
+
 
 ## Generating a link
 
