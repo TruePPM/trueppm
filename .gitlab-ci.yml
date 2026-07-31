@@ -482,6 +482,14 @@ scripts:test:
   #   - check-suppression-issues — the stale-suppression gate (#2603). Its
   #     discovery half fails OPEN: a regex that stops matching reports "no
   #     markers found" and exits 0, which reads exactly like a clean tree.
+  #   - helm-netpol-probe — the ALLOWED/DENIED verdict logic inside
+  #     helm-netpol-drill.sh (#2647). The drill needs a kind cluster and Calico,
+  #     so helm:netpol can only run end to end and only in CI; this covers the
+  #     part that was actually wrong — deciding a verdict — in ~1s with no
+  #     cluster. It must prove the retry absorbs a transient silence AND that it
+  #     still fails on a real denial: a retry that swallowed both would convert
+  #     the drill from flaky into useless, and a useless netpol drill is how
+  #     #2560 shipped.
   # There is no other test harness for these scripts, so guard the logic
   # directly. Pinned python image (bash + python3), ~5s. The wt-reserve test
   # stages real throwaway git repos and runs scripts/wt against them, so this
@@ -509,6 +517,7 @@ scripts:test:
         - scripts/lib/s3.sh
         - scripts/check-enterprise-imports.sh
         - scripts/check-suppression-issues.sh
+        - scripts/helm-netpol-drill.sh
         - scripts/tests/rotate-scheduler-changelog.test.sh
         - scripts/tests/assemble-changelog.test.sh
         - scripts/tests/release-staging.test.sh
@@ -518,6 +527,7 @@ scripts:test:
         - scripts/tests/backup-s3.test.sh
         - scripts/tests/check-enterprise-imports.test.sh
         - scripts/tests/check-suppression-issues.test.sh
+        - scripts/tests/helm-netpol-probe.test.sh
         - .gitlab-ci.yml
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
@@ -531,6 +541,7 @@ scripts:test:
         - scripts/lib/s3.sh
         - scripts/check-enterprise-imports.sh
         - scripts/check-suppression-issues.sh
+        - scripts/helm-netpol-drill.sh
         - scripts/tests/rotate-scheduler-changelog.test.sh
         - scripts/tests/assemble-changelog.test.sh
         - scripts/tests/release-staging.test.sh
@@ -540,6 +551,7 @@ scripts:test:
         - scripts/tests/backup-s3.test.sh
         - scripts/tests/check-enterprise-imports.test.sh
         - scripts/tests/check-suppression-issues.test.sh
+        - scripts/tests/helm-netpol-probe.test.sh
         - .gitlab-ci.yml
   script:
     - bash scripts/tests/rotate-scheduler-changelog.test.sh
@@ -551,6 +563,7 @@ scripts:test:
     - bash scripts/tests/backup-s3.test.sh
     - bash scripts/tests/check-enterprise-imports.test.sh
     - bash scripts/tests/check-suppression-issues.test.sh
+    - bash scripts/tests/helm-netpol-probe.test.sh
 
 boundary:check:
   extends: .fast-job

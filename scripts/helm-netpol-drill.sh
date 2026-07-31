@@ -34,6 +34,13 @@
 #      cluster that silently dropped all pod traffic for an unrelated reason
 #      would look like a passing drill.
 #
+# How a verdict is measured, and why the two directions are not symmetric: a CNI
+# denies by DROPPING the packet, so "denied" can only ever be inferred from silence
+# — no connection within PROBE_TIMEOUT. Silence is therefore trustworthy evidence
+# of a drop only after the connection has been given a fair chance, which is why
+# every probe expecting ALLOWED is retried (PROBE_ALLOW_ATTEMPTS) and every probe
+# expecting DENIED is single-shot. See #2647.
+#
 # Expects a working Docker daemon (dind in CI) and helm, kind, kubectl, docker on
 # PATH. Registry auth via $CI_REGISTRY{,_USER,_PASSWORD} (set by GitLab CI).
 set -euo pipefail
@@ -53,14 +60,37 @@ CALICO_VERSION="${CALICO_VERSION:-v3.32.1}"
 PROBE_IMAGE="${PROBE_IMAGE:-busybox:1.37}"
 # Seconds nc waits before declaring the port unreachable. A DROPPED packet (which
 # is how a CNI denies) only manifests as a timeout, so this doubles as the "denied"
-# detection latency. Keep it short enough that 6 probes stay fast, long enough that
-# a slow-but-allowed connection is not misread as a denial.
+# detection latency. Keep it short: every NEGATIVE probe pays it in full on every
+# run, which is why the cure for a slow-but-allowed connection is the retry below
+# and NOT a longer timeout.
 PROBE_TIMEOUT="${PROBE_TIMEOUT:-6}"
+# Attempts allowed to a probe that EXPECTS to connect, before it is called denied
+# (#2647).
+#
+# A DENIED verdict is the absence of a completed connection within PROBE_TIMEOUT —
+# never a positive observation of a drop. That makes the measurement asymmetric:
+#
+#   * A false DENIED needs only a slow connection. A pod scheduled seconds ago may
+#     still be waiting on Calico to program its policy, or on a CoreDNS answer for
+#     the Service name; either lands past the timeout and reads as a denial.
+#   * A false ALLOWED would need a genuinely dropped packet to complete a
+#     handshake, which cannot happen.
+#
+# So only positive probes can flake, and retrying them cannot mask a real denial:
+# a policy that actually blocks the port fails all the attempts. Negative probes
+# stay single-shot — their timeout IS the measurement, and retrying them would add
+# PROBE_TIMEOUT to every run to re-observe a drop that was never in doubt.
+PROBE_ALLOW_ATTEMPTS="${PROBE_ALLOW_ATTEMPTS:-3}"
+PROBE_RETRY_DELAY="${PROBE_RETRY_DELAY:-3}"
 
 API_IMAGE="${IMAGE_REPO}/api:${RELEASE_IMAGE_TAG}"
 WEB_IMAGE="${IMAGE_REPO}/web:${RELEASE_IMAGE_TAG}"
 
 log() { echo "==> $*"; }
+# Progress emitted from inside a `$(...)` capture. It MUST go to stderr: the
+# probe helpers below echo their verdict on stdout, so a `log` there would be
+# captured as part of the verdict string and silently corrupt the comparison.
+note() { echo "==> $*" >&2; }
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 PG_SVC=""
@@ -207,12 +237,46 @@ probe() {
   fi
 }
 
+# Re-runs `probe` until it connects or the attempt budget is spent, and echoes the
+# final verdict. Only ever used where ALLOWED is expected — see PROBE_ALLOW_ATTEMPTS
+# for why retrying a positive probe is safe and retrying a negative one is not.
+#
+# A retry that eventually succeeds is REPORTED, not swallowed: a probe that needs a
+# second attempt on every run is a cluster degrading toward a real failure, and the
+# whole defect this fixes was a measurement that hid its own uncertainty.
+probe_until_allowed() {
+  local name="$1" labels="$2" host="$3" port="$4"
+  local got attempt=1
+  while :; do
+    got="$(probe "$name" "$labels" "$host" "$port")"
+    if [ "$got" = "ALLOWED" ]; then
+      if [ "$attempt" -gt 1 ]; then
+        note "  ${host}:${port} connected on attempt ${attempt}/${PROBE_ALLOW_ATTEMPTS} — slow, not denied (#2647)"
+      fi
+      echo "ALLOWED"
+      return 0
+    fi
+    if [ "$attempt" -ge "$PROBE_ALLOW_ATTEMPTS" ]; then
+      echo "DENIED"
+      return 0
+    fi
+    note "  ${host}:${port} silent for ${PROBE_TIMEOUT}s (attempt ${attempt}/${PROBE_ALLOW_ATTEMPTS}) — retrying in ${PROBE_RETRY_DELAY}s"
+    sleep "$PROBE_RETRY_DELAY"
+    attempt=$((attempt + 1))
+  done
+}
+
 expect_probe() {
   local want="$1" desc="$2" name="$3" labels="$4" host="$5" port="$6"
-  local got
-  got="$(probe "$name" "$labels" "$host" "$port")"
+  local got detail=""
+  if [ "$want" = "ALLOWED" ]; then
+    got="$(probe_until_allowed "$name" "$labels" "$host" "$port")"
+    detail=" after ${PROBE_ALLOW_ATTEMPTS} attempts"
+  else
+    got="$(probe "$name" "$labels" "$host" "$port")"
+  fi
   if [ "$got" != "$want" ]; then
-    fail "$desc — expected ${want}, got ${got} (${host}:${port})"
+    fail "$desc — expected ${want}, got ${got}${detail} (${host}:${port})"
   fi
   log "OK [${want}] ${desc}"
 }
@@ -238,12 +302,23 @@ log "positive probe from the real api pod (${api_pod})"
 for target in "${PG_SVC} 5432" "${VK_SVC} 6379"; do
   # shellcheck disable=SC2086
   set -- $target
-  kubectl exec "$api_pod" -c api -- python -c "
-import socket, sys
-s = socket.create_connection(('$1', $2), timeout=${PROBE_TIMEOUT})
-s.close()
-" >/dev/null 2>&1 || fail "api pod could NOT reach $1:$2 — the policy is over-restrictive"
-  log "OK [ALLOWED] api pod -> $1:$2"
+  host="$1"; port="$2"
+  attempt=1
+  # Retried on the same rule as probe_until_allowed: this is a positive assertion
+  # whose only failure signal is a timeout, so one silent attempt cannot tell an
+  # over-restrictive policy from a momentarily slow connection (#2647).
+  until kubectl exec "$api_pod" -c api -- python -c "
+import socket
+socket.create_connection(('${host}', ${port}), timeout=${PROBE_TIMEOUT}).close()
+" >/dev/null 2>&1; do
+    if [ "$attempt" -ge "$PROBE_ALLOW_ATTEMPTS" ]; then
+      fail "api pod could NOT reach ${host}:${port} in ${PROBE_ALLOW_ATTEMPTS} attempts — the policy is over-restrictive"
+    fi
+    log "  api pod -> ${host}:${port} silent for ${PROBE_TIMEOUT}s (attempt ${attempt}/${PROBE_ALLOW_ATTEMPTS}) — retrying in ${PROBE_RETRY_DELAY}s"
+    sleep "$PROBE_RETRY_DELAY"
+    attempt=$((attempt + 1))
+  done
+  log "OK [ALLOWED] api pod -> ${host}:${port}"
 done
 
 for component in celery-worker celery-beat; do
