@@ -174,12 +174,24 @@ export function ProgramStakeholdersPage() {
   const { data: program } = useProgram(programId);
   const { data: stakeholders = [], isLoading, isError } = useProgramExternalStakeholders(programId);
   const { create, update, remove } = useProgramExternalStakeholderMutations(programId ?? '');
-  const canManage = program?.my_role != null && program.my_role >= ROLE_ADMIN;
+  // Admin+ manages the list, but a closed program is read-only shell-wide (#530,
+  // IsProgramNotClosed): the server 403s create/update/destroy on this viewset
+  // even for an Admin (#2549), so the affordance itself must fold in `is_closed`
+  // rather than gating on role alone — otherwise Add/Edit/Remove render as live
+  // controls that every click turns into a confusing 403.
+  const isAdmin = program?.my_role != null && program.my_role >= ROLE_ADMIN;
+  const canManage = isAdmin && !program?.is_closed;
+  // Distinguishes "you don't have permission" (silent, unchanged) from "you would,
+  // but the program is closed" — the latter must say why per #2549's review note.
+  const closedToAdmin = isAdmin && program?.is_closed === true;
   // Server-computed (ADR-0697): the Viewer arm cannot be derived in the browser —
   // /programs/{id}/members/ returns ProgramMembership, which per ADR-0070 does not
   // propagate to project access, while the alias resolves the ProjectMembership
   // union at an exact Viewer role. Admin+ only, so a non-Admin never fires it.
-  const { data: reach, isPending: isReachPending } = useProgramMentionReach(programId, canManage);
+  // Gated on `isAdmin`, not `canManage`: `mention_reach` is a read with no
+  // `IsProgramNotClosed` gate (the alias stays inspectable on a closed program
+  // for forensics), so an Admin keeps seeing this even when the program is closed.
+  const { data: reach, isPending: isReachPending } = useProgramMentionReach(programId, isAdmin);
 
   // Only one row edits at a time — a single mutation object carries one error
   // envelope, so two concurrent edit rows could not tell whose 400 it was.
@@ -240,6 +252,16 @@ export function ProgramStakeholdersPage() {
         title="External stakeholders"
         count={stakeholders.length > 0 ? `${stakeholders.length}` : undefined}
         subtitle="People without a TruePPM account — client sponsors, vendors, reviewers — kept as a separate recipient list for @program-stakeholders mentions."
+        action={
+          closedToAdmin ? (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-medium bg-neutral-surface-sunken text-neutral-text-secondary"
+              title="This program is closed and cannot be modified. Reopen it first."
+            >
+              Read-only — program closed
+            </span>
+          ) : undefined
+        }
       />
 
       <div className="px-6 pb-8 max-w-[920px]">
@@ -247,12 +269,12 @@ export function ProgramStakeholdersPage() {
             settings shell renders every section in one scroll, so a two-step
             injection would shove every section below this one down twice.
             `isPending` stays true forever when the query is disabled, hence the
-            `!canManage` short-circuit. */}
-        {!isLoading && !isError && (!canManage || !isReachPending) && (
+            `!isAdmin` short-circuit (the read's own gate — see the hook above). */}
+        {!isLoading && !isError && (!isAdmin || !isReachPending) && (
           <StakeholderReachSummary
             externalCount={stakeholders.length}
             viewerMemberCount={reach?.viewer_member_count}
-            viewerCountRestricted={!canManage}
+            viewerCountRestricted={!isAdmin}
           />
         )}
         {/* Hidden below `md`: each read row's cells carry their own label there

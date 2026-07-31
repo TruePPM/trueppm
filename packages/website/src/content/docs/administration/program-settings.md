@@ -53,6 +53,13 @@ requires the program Admin or Owner role** — the program API gates
 roles are the 5-role model (Owner, Admin, Scheduler, Member, Viewer) and are
 **separate from project roles**; see [Roles & Permissions](/administration/rbac/).
 
+A **closed** program (see [Lifecycle](#lifecycle)) is read-only shell-wide: every
+Add/Edit/Remove-style control across these settings sections is disabled or
+hidden — and says so — even for an Admin/Owner, because the underlying write is
+rejected server-side once the program is closed. Reopen the program to resume
+editing. Member removal on the **Access** section is the one exception: it stays
+available on a closed program, since removing a member is not itself blocked.
+
 ## General
 
 The **General** section edits the program's identity and delivery model. Settings

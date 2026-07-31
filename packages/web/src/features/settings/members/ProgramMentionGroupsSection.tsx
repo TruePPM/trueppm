@@ -14,6 +14,14 @@ interface ProgramMentionGroupsSectionProps {
   myRole: number | null;
   /** Program members, used to populate the add-member picker. */
   members: ProgramMembership[];
+  /** Whether the program is closed (#2549). Every write on this viewset — create,
+   *  rename, delete, add-member, remove-member — is gated server-side by
+   *  IsProgramNotClosed (`destroy` is separately re-asserted in the view body
+   *  even though it sits in the permission class's bypass list, see
+   *  ProgramUserDefinedMentionGroupViewSet.destroy), so all of them fold this in.
+   *  Mute/unmute are exempt: they are a member's own subscription, not gated by
+   *  program-closed. */
+  isClosed?: boolean;
 }
 
 /**
@@ -30,6 +38,7 @@ export function ProgramMentionGroupsSection({
   programId,
   myRole,
   members,
+  isClosed = false,
 }: ProgramMentionGroupsSectionProps) {
   const { data: groups = [], isLoading, isError } = useProgramMentionGroups(programId);
   const { create, update, remove, addMember, removeMember, mute } =
@@ -38,8 +47,8 @@ export function ProgramMentionGroupsSection({
   const [newName, setNewName] = useState('');
   const [newDescription, setNewDescription] = useState('');
 
-  const canManageGroup = myRole != null && myRole >= ROLE_OWNER;
-  const canManageMembers = myRole != null && myRole >= ROLE_ADMIN;
+  const canManageGroup = myRole != null && myRole >= ROLE_OWNER && !isClosed;
+  const canManageMembers = myRole != null && myRole >= ROLE_ADMIN && !isClosed;
 
   // Members are selectable across all projects in the program (ADR-0248 §2); the
   // program-membership roster is that union, so dedupe by user id defensively.
@@ -151,6 +160,11 @@ export function ProgramMentionGroupsSection({
       )}
 
       {/* Create form — Owner only */}
+      {!canManageGroup && isClosed && myRole != null && myRole >= ROLE_OWNER && (
+        <p className="mt-2 text-xs text-neutral-text-secondary italic">
+          This program is closed — reopen it to manage mention groups.
+        </p>
+      )}
       {canManageGroup && (
         <form onSubmit={handleCreate} className="mt-4 space-y-2">
           <div className="flex flex-col sm:flex-row gap-2">

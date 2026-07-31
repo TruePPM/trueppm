@@ -37,6 +37,12 @@ interface RowProps {
   membership: ProgramMembership;
   isSelf: boolean;
   canManage: boolean;
+  /** Owner, independent of `is_closed` — member *removal* is not blocked by a
+   *  closed program server-side (see the `canManage` computation in
+   *  {@link ProgramAccessPage} for why), so Remove must not fold in `canManage`. */
+  isOwner: boolean;
+  /** Owner viewing a closed program — used only to pick the read-only tooltip. */
+  closedToOwner: boolean;
   isSoleOwner: boolean;
   onChangeRole: (membershipId: string, role: number) => void;
   onRemove: (membershipId: string) => void;
@@ -48,6 +54,8 @@ function MemberRow({
   membership,
   isSelf,
   canManage,
+  isOwner,
+  closedToOwner,
   isSoleOwner,
   onChangeRole,
   onRemove,
@@ -58,7 +66,7 @@ function MemberRow({
   const { user_detail, role, role_label } = membership;
   const isOwnerMember = role === ROLE_OWNER;
   const canEditRole = canManage && !isOwnerMember;
-  const canRemove = canManage && !(isSelf && isSoleOwner);
+  const canRemove = isOwner && !(isSelf && isSoleOwner);
 
   return (
     <div
@@ -93,7 +101,9 @@ function MemberRow({
             title={
               isOwnerMember
                 ? 'Owner role cannot be changed from here'
-                : 'Owners can change member roles'
+                : closedToOwner
+                  ? 'This program is closed and cannot be modified. Reopen it first.'
+                  : 'Owners can change member roles'
             }
           >
             —
@@ -179,7 +189,18 @@ export function ProgramAccessPage() {
   // (granting/revoking another person's access), distinct from reconfiguring an
   // already-scoped program. Mirrors the server gate on ProgramMembershipViewSet.
   // Do not lower this to Admin+ to "match" the other program settings.
-  const canManage = program?.my_role === ROLE_OWNER;
+  const isOwner = program?.my_role === ROLE_OWNER;
+  // #2549: Add-member (create) and role changes (partial_update with a role/user
+  // change) both hit ProgramMembershipViewSet actions that ARE gated by
+  // IsProgramNotClosed, so those two fold in `!is_closed`. Member *removal*
+  // (destroy) is deliberately excluded — "destroy" sits in the permission
+  // class's `_CLOSE_BYPASS_ACTIONS` and the view's own `destroy()` body does not
+  // re-assert the closed check (unlike ExternalStakeholderViewSet.perform_destroy
+  // and ProgramUserDefinedMentionGroupViewSet.destroy), so removing a member from
+  // a closed program actually succeeds server-side — hiding Remove here would be
+  // its own false negative, not a fix.
+  const canManage = isOwner && !program?.is_closed;
+  const closedToOwner = isOwner && program?.is_closed === true;
   const ownerCount = members.filter((m) => m.role === ROLE_OWNER).length;
 
   return (
@@ -198,6 +219,13 @@ export function ProgramAccessPage() {
             >
               {showInvite ? 'Cancel' : '+ Add member'}
             </button>
+          ) : closedToOwner ? (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-medium bg-neutral-surface-sunken text-neutral-text-secondary"
+              title="This program is closed and cannot be modified. Reopen it first."
+            >
+              Read-only — program closed
+            </span>
           ) : undefined
         }
       />
@@ -251,6 +279,8 @@ export function ProgramAccessPage() {
                 membership={m}
                 isSelf={user?.id === m.user}
                 canManage={canManage}
+                isOwner={isOwner}
+                closedToOwner={closedToOwner}
                 isSoleOwner={m.role === ROLE_OWNER && ownerCount === 1}
                 onChangeRole={(membershipId, role) => updateRole({ membershipId, role })}
                 onRemove={(membershipId) => removeMember(membershipId)}
@@ -264,6 +294,7 @@ export function ProgramAccessPage() {
           programId={programId}
           myRole={program?.my_role ?? null}
           members={members}
+          isClosed={program?.is_closed ?? false}
         />
       </div>
     </div>

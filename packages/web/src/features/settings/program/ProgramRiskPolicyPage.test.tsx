@@ -168,6 +168,28 @@ describe('ProgramRiskPolicyPage (settings)', () => {
     ).toBeInTheDocument();
   });
 
+  // #2549: the `risk-policy` PATCH is gated by IsProgramNotClosed, so an Admin
+  // on a closed program must not see a live, saveable form.
+  it('renders read-only values and a closed-specific pill for an Admin on a closed program', () => {
+    useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_ADMIN, is_closed: true } });
+    useProgramRiskPolicy.mockReturnValue({
+      data: defaultPolicy({ slip_propagation: 'warn', escalation_days: 5 }),
+      isLoading: false,
+      isError: false,
+      refetch,
+    });
+    renderPage();
+
+    const pill = screen.getByTitle('This program is closed and cannot be modified. Reopen it first.');
+    expect(pill).toHaveTextContent(/Read-only — program closed/i);
+    expect(screen.queryByRole('radio', { name: /Warn only/i })).toBeNull();
+    expect(
+      screen.getByLabelText(
+        'Slip policy: Warn only, program is closed — reopen it to change this. View only.',
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('publishes apiReady=true and dirty=false to the settings save store once seeded', () => {
     useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_OWNER } });
     useProgramRiskPolicy.mockReturnValue({

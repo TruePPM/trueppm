@@ -463,7 +463,12 @@ export function ProgramGeneralPage() {
   // arm-save-bar → 400 round-trip. `my_role` is undefined until the program loads,
   // so we gate pessimistically (read-only until proven Admin). The ADR-0135 sharing
   // toggles already used this exact gate; it now governs every field.
-  const canEdit = program?.my_role != null && program.my_role >= ROLE_ADMIN;
+  // `!is_closed` is folded in per #2549: ProgramViewSet.update/partial_update is
+  // also gated by IsProgramNotClosed, so an Admin on a closed program would
+  // otherwise still see a live form that 403s on save.
+  const isAdmin = program?.my_role != null && program.my_role >= ROLE_ADMIN;
+  const canEdit = isAdmin && !program?.is_closed;
+  const closedToAdmin = isAdmin && program?.is_closed === true;
 
   // Contextual-help ⓘ (web-rule 263) for a jargon/policy/cascade field. Gated on
   // `canEdit` because the whole form is wrapped in `<StubFieldset disabled={!canEdit}>`
@@ -494,6 +499,16 @@ export function ProgramGeneralPage() {
       <SettingsPageTitle
         title="General"
         subtitle="Program identity and delivery model. Settings here affect all projects within this program."
+        action={
+          closedToAdmin ? (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-medium bg-neutral-surface-sunken text-neutral-text-secondary"
+              title="This program is closed and cannot be modified. Reopen it first."
+            >
+              Read-only — program closed
+            </span>
+          ) : undefined
+        }
       />
 
       {/* Below Admin the whole form is read-only (issue 1084): StubFieldset disables
