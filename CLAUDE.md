@@ -340,6 +340,25 @@ This rule applies to every doc edit — there is no "fast path" carve-out. A wro
 - **`docs-writer`** for any change touching `docs/features/`, `docs/getting-started/`, `docs/architecture/`, or `docs/administration/`
 - **`api-docs`** for any endpoint, serializer field, or permission rule change
 
+### Mandatory design-stage gates
+
+These run **after `/architect` and before implementation** — not in the pre-MR gate
+batch. By pre-MR time the code exists, and both gates produce design changes that would
+arrive too late to act on. Each is scoped; outside its scope record `n/a` and do not run
+it, or the gate becomes the habitual ceremony the fast-path table exists to strip out.
+
+- **`ai-review`** — for any change that adds or alters a **server-computed value or a
+  mutation**. Run paired with `enterprise-check`, whose AI boundary it extends. Not for
+  styling, copy, dependency bumps, CI config, or docs-only changes.
+- **`threat-model`** — for any feature that **crosses a trust boundary**: a new
+  authentication path, a changed authorization boundary, external data ingress, a
+  sync-protocol change, or a new OSS↔Enterprise extension point.
+
+Record both in the MR's `## Gates` section under their exact skill names — the ledger
+parser matches on them (`.claude/skills/mr/SKILL.md`). `accessibility` is deliberately
+**not** a ledger gate: it is a reference rule set, and WCAG findings against a UI diff
+are recorded under `ux-review`, which checks WCAG 2.1 AA by definition.
+
 ## Available Skills
 
 Run `/skills`, or read the skill roster the harness injects into context — every skill in
