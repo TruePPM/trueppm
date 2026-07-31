@@ -121,6 +121,43 @@ describe('ProgramStakeholdersPage (settings)', () => {
     expect(screen.getByRole('form', { name: /Add external stakeholder/i })).toBeInTheDocument();
   });
 
+  // #2548: the header and read rows used to force a hard 5-column grid via an
+  // inline `gridTemplateColumns` at every breakpoint, leaving Name + Email + Note
+  // ~80px combined on a 375px viewport. Both now share one responsive Tailwind
+  // ruler instead, and each stacked cell keeps its own label since the header
+  // (the normal label source) hides below `md`.
+  it('replaces the inline column style with a responsive grid and labels each stacked cell', () => {
+    useProgram.mockReturnValue({ data: ADMIN });
+    useProgramExternalStakeholders.mockReturnValue({
+      data: [STAKEHOLDER],
+      isLoading: false,
+      isError: false,
+    });
+    const { container } = renderPage();
+
+    const header = container.querySelector('[class*="rounded-t-card"]');
+    expect(header).not.toBeNull();
+    expect(header).not.toHaveAttribute('style');
+    expect(header?.className).toContain('hidden');
+    expect(header?.className).toContain('md:grid');
+    expect(header?.className).toContain('grid-cols-1');
+    expect(header?.className).toContain('md:grid-cols-[1.4fr_1.6fr_1.6fr_118px_116px]');
+
+    // Unique to the read row in this render — the edit-row wrapper carries the
+    // same border classes but only mounts while a row is being edited.
+    const row = container.querySelector('[class*="last:border-b-0"]');
+    expect(row).not.toBeNull();
+    expect(row).not.toHaveAttribute('style');
+    expect(row?.className).toContain('grid-cols-1');
+    expect(row?.className).toContain('md:grid-cols-[1.4fr_1.6fr_1.6fr_118px_116px]');
+
+    const rowScope = within(row as HTMLElement);
+    expect(rowScope.getByText('Name')).toBeInTheDocument();
+    expect(rowScope.getByText('Email')).toBeInTheDocument();
+    expect(rowScope.getByText('Note')).toBeInTheDocument();
+    expect(rowScope.getByText('Added by')).toBeInTheDocument();
+  });
+
   it('hides the add form and remove controls for a viewer', () => {
     useProgram.mockReturnValue({ data: VIEWER });
     useProgramExternalStakeholders.mockReturnValue({

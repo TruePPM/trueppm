@@ -282,6 +282,40 @@ test.describe('Program Settings → External stakeholders', () => {
     await expect(page.getByRole('status').filter({ hasText: 'No external stakeholders yet' })).toBeVisible();
   });
 
+  // #2548: the header and read rows used to force a hard 5-column grid via an
+  // inline `gridTemplateColumns` at every breakpoint — on a 375px viewport the
+  // fixed "Added by" + actions tracks left ~80px for Name + Email + Note
+  // combined, truncating all three. Both now share a `grid-cols-1
+  // md:grid-cols-[...]` Tailwind ruler, so the row stacks its cells into one
+  // column below `md` and lays them out side by side again at `md` and up.
+  test('the read row stacks below md and lays out side by side again above it', async ({
+    page,
+  }) => {
+    await setup(page, { stakeholders: [stakeholderFixture()] });
+
+    await page.setViewportSize({ width: 375, height: 800 });
+    await page.goto(`/programs/${PROGRAM_ID}/settings/stakeholders`);
+    await expect(page.getByRole('heading', { name: 'External stakeholders' })).toBeVisible();
+
+    const nameMobile = await page.getByText('Jane Client').boundingBox();
+    const emailMobile = await page.getByText('jane@client.com').boundingBox();
+    expect(nameMobile).not.toBeNull();
+    expect(emailMobile).not.toBeNull();
+    // Stacked: the email value sits on its own line below the name value...
+    expect(emailMobile!.y).toBeGreaterThan(nameMobile!.y + nameMobile!.height - 1);
+    // ...and the name value spans most of the row instead of being squeezed
+    // into a fixed-width track alongside "Added by" (118px) and actions (116px).
+    expect(nameMobile!.width).toBeGreaterThan(250);
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const nameDesktop = await page.getByText('Jane Client').boundingBox();
+    const emailDesktop = await page.getByText('jane@client.com').boundingBox();
+    expect(nameDesktop).not.toBeNull();
+    expect(emailDesktop).not.toBeNull();
+    // Side by side again: name and email share the same row.
+    expect(Math.abs(nameDesktop!.y - emailDesktop!.y)).toBeLessThan(4);
+  });
+
   // #2529 — the strip is the page's stated job: state who @program-stakeholders
   // actually reaches. The two arms are never summed (the union #1675 removed from
   // the resolver must not reappear in the UI).
