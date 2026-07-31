@@ -25,17 +25,29 @@ export const MIN_BOARD_COLUMN_WIDTH = 200;
 /** Minimum phase-lane height (px) — enough to show two stacked cards (issue 285). */
 export const MIN_BOARD_PHASE_HEIGHT = 120;
 
+// Upper bounds (#2635). These exist for two reasons. Practically, an unbounded
+// drag let a column or lane grow to any size, stranding the rest of the board
+// off-screen with no way back except clearing storage. Semantically, the resize
+// handles are focusable `role="separator"` elements — WAI-ARIA window splitters —
+// and a splitter announces a *range*. Declaring `aria-valuemin` with no maximum
+// left `aria-valuemax` at its default of 100, i.e. below the minimum, which is
+// incoherent for a screen reader. A real ceiling makes the announced range true.
+/** Maximum column width (px) — beyond this the board stops being scannable. */
+export const MAX_BOARD_COLUMN_WIDTH = 800;
+/** Maximum phase-lane height (px). */
+export const MAX_BOARD_PHASE_HEIGHT = 800;
+
 const COLUMN_WIDTHS_KEY = 'trueppm.board.columnWidths.v1';
 const PHASE_HEIGHTS_KEY = 'trueppm.board.phaseHeights.v1';
 
-/** Clamp a proposed column width to the floor, rounded to a whole pixel. */
+/** Clamp a proposed column width into [MIN, MAX], rounded to a whole pixel. */
 export function clampBoardColumnWidth(px: number): number {
-  return Math.max(Math.round(px), MIN_BOARD_COLUMN_WIDTH);
+  return Math.min(Math.max(Math.round(px), MIN_BOARD_COLUMN_WIDTH), MAX_BOARD_COLUMN_WIDTH);
 }
 
-/** Clamp a proposed phase height to the floor, rounded to a whole pixel. */
+/** Clamp a proposed phase height into [MIN, MAX], rounded to a whole pixel. */
 export function clampBoardPhaseHeight(px: number): number {
-  return Math.max(Math.round(px), MIN_BOARD_PHASE_HEIGHT);
+  return Math.min(Math.max(Math.round(px), MIN_BOARD_PHASE_HEIGHT), MAX_BOARD_PHASE_HEIGHT);
 }
 
 type SizeMap = Record<string, number>;

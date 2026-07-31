@@ -463,16 +463,20 @@ test.describe('accessibility @a11y — routes', () => {
       timeout: 10_000,
     });
 
-    // Board carries the most in-flight audit debt: both resize handles are
-    // focusable `role="separator"` splitters missing the required `aria-valuenow`
-    // (`aria-required-attr`, BoardResizeHandle.tsx:84-98,168-183), a grid holds
-    // `[role=status]` + `button[aria-busy]` children (`aria-required-children`),
-    // and a card overlay nests interactive controls (`nested-interactive`).
-    // Excluded so the scan still gates name/role/region/valid-attr and (now #2265
-    // landed) contrast. SUPPRESSED-UNTIL(#2618)
+    // `aria-required-attr` is now ENFORCED on the Board (#2635). Both resize
+    // handles were focusable `role="separator"` splitters carrying `aria-valuemin`
+    // and no `aria-valuenow` — the one exclusion here that masked a live WCAG
+    // 4.1.2 failure rather than tracked debt. They now declare valuenow/valuemax
+    // (and a valuetext), so the rule runs.
+    //
+    // Two exclusions remain and are real: a grid holds `[role=status]` +
+    // `button[aria-busy]` children (`aria-required-children`), and a card overlay
+    // nests interactive controls (`nested-interactive`). Both verified still
+    // failing by deleting the entry and re-running — not stale.
+    // SUPPRESSED-UNTIL(#2618)
     await expectNoA11yViolations(page, testInfo, {
       gateModerate: true,
-      disableRules: ['aria-required-attr', 'aria-required-children', 'nested-interactive'],
+      disableRules: ['aria-required-children', 'nested-interactive'],
     });
   });
 

@@ -14,7 +14,12 @@ import { fireEvent, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactElement } from 'react';
 import { renderWithProviders } from '@/test/utils';
-import { MIN_BOARD_COLUMN_WIDTH, MIN_BOARD_PHASE_HEIGHT } from '@/hooks/useBoardResize';
+import {
+  MAX_BOARD_COLUMN_WIDTH,
+  MAX_BOARD_PHASE_HEIGHT,
+  MIN_BOARD_COLUMN_WIDTH,
+  MIN_BOARD_PHASE_HEIGHT,
+} from '@/hooks/useBoardResize';
 import { ColumnResizeHandle, PhaseResizeHandle } from './BoardResizeHandle';
 
 /**
@@ -434,5 +439,58 @@ describe('PhaseResizeHandle — pointer drag', () => {
     onResize.mockClear();
     fireEvent.pointerMove(handle, { clientY: 900 });
     expect(onResize).not.toHaveBeenCalled();
+  });
+});
+
+describe('window-splitter ARIA (#2635)', () => {
+  // A focusable role="separator" IS a WAI-ARIA window splitter, and aria-valuenow
+  // is REQUIRED on one. Both handles declared aria-valuemin and nothing else, so
+  // axe raised aria-required-attr — the failure the Board's exclusion masked while
+  // citing an issue (#2204) that had already closed. The gate was green partly by
+  // hiding a live WCAG 4.1.2 violation that no open issue tracked.
+  it('the column handle declares a complete, coherent value range', () => {
+    renderInSizedHost(<ColumnResizeHandle label="In Progress" onResize={vi.fn()} />, {
+      width: 320,
+      height: 400,
+    });
+    const handle = screen.getByTestId('board-column-resize');
+
+    expect(handle).toHaveAttribute('aria-valuenow', '320');
+    expect(handle).toHaveAttribute('aria-valuemin', String(MIN_BOARD_COLUMN_WIDTH));
+    expect(handle).toHaveAttribute('aria-valuemax', String(MAX_BOARD_COLUMN_WIDTH));
+    expect(handle).toHaveAttribute('aria-valuetext', 'In Progress column 320 pixels');
+    // min < max, or the announced range is nonsense. Omitting aria-valuemax would
+    // have defaulted it to 100 — below the 200px minimum.
+    expect(MIN_BOARD_COLUMN_WIDTH).toBeLessThan(MAX_BOARD_COLUMN_WIDTH);
+  });
+
+  it('the phase handle declares a complete, coherent value range', () => {
+    renderInSizedHost(<PhaseResizeHandle label="Design" onResize={vi.fn()} />, {
+      width: 600,
+      height: 240,
+    });
+    const handle = screen.getByTestId('board-phase-resize');
+
+    expect(handle).toHaveAttribute('aria-valuenow', '240');
+    expect(handle).toHaveAttribute('aria-valuemin', String(MIN_BOARD_PHASE_HEIGHT));
+    expect(handle).toHaveAttribute('aria-valuemax', String(MAX_BOARD_PHASE_HEIGHT));
+    expect(MIN_BOARD_PHASE_HEIGHT).toBeLessThan(MAX_BOARD_PHASE_HEIGHT);
+  });
+
+  it('keyboard nudging keeps the announced value in step with the persisted one', () => {
+    // An aria-valuenow that never updates is worse than none: it asserts a size the
+    // splitter no longer has.
+    const onResize = vi.fn();
+    renderInSizedHost(<ColumnResizeHandle label="In Progress" onResize={onResize} />, {
+      width: 320,
+      height: 400,
+    });
+    const handle = screen.getByTestId('board-column-resize');
+
+    fireEvent.keyDown(handle, { key: 'ArrowRight' });
+
+    expect(onResize).toHaveBeenCalledTimes(1);
+    const persisted = onResize.mock.calls[0][0] as number;
+    expect(handle).toHaveAttribute('aria-valuenow', String(persisted));
   });
 });
