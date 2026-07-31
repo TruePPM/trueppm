@@ -17,15 +17,6 @@ import { Button } from '@/components/Button';
  */
 
 /**
- * Column ruler for the header and the read rows (an inline `gridTemplateColumns`).
- * The edit row cannot consume it directly — Tailwind's JIT cannot read a runtime
- * constant — so it restates the same ratios as a static class below, collapsing
- * the two fixed tracks into one action column. **Change one, change the other:**
- * `md:grid-cols-[1.4fr_1.6fr_1.6fr_234px]` where `234 = 118 + 116`.
- */
-export const STAKEHOLDER_GRID = '1.4fr 1.6fr 1.6fr 118px 116px';
-
-/**
  * Deliberately permissive: the server's `EmailField` is the authority on what is
  * deliverable. This only catches the shapes that cannot possibly be an address
  * (no `@`, no dot in the domain, embedded whitespace, an empty domain label) so
