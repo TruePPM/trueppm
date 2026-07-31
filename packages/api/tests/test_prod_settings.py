@@ -119,10 +119,11 @@ def test_prod_boots_and_sets_security_headers() -> None:
     assert "^api/v1/edition/$" in prod.SECURE_REDIRECT_EXEMPT
 
 
-def test_prod_authenticates_with_jwt_only() -> None:
-    """Prod drops SessionAuthentication — no unused second auth surface (#2248)."""
+def test_prod_authenticates_with_jwt_and_owner_token_only() -> None:
+    """Prod drops SessionAuthentication — no unused second auth surface (#2248, #2547)."""
     prod = _load_prod(backend=_S3, allow_local=False)
     assert prod.REST_FRAMEWORK["DEFAULT_AUTHENTICATION_CLASSES"] == [
+        "trueppm_api.apps.projects.authentication.OwnerScopedApiTokenAuthentication",
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ]
 

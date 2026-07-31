@@ -1198,13 +1198,23 @@ _STRICT_RATE = "10/min"
 _STRICTEST_RATE = "5/min"
 
 REST_FRAMEWORK = {
-    # JWT only in the base/prod posture (#2248). The SPA authenticates with the
-    # bearer access token; there is no Django-session login path for the API and
-    # the browsable API is disabled (JSON-only renderer below), so
-    # SessionAuthentication would be an unused second auth surface (and its CSRF
+    # JWT + owner-scoped API token in the base/prod posture (#2248, #2547). The SPA
+    # authenticates with the bearer access token; there is no Django-session login
+    # path for the API and the browsable API is disabled (JSON-only renderer below),
+    # so SessionAuthentication would be an unused second auth surface (and its CSRF
     # coupling) in production. Dev settings re-add SessionAuthentication so
     # `client.force_login()` in the test suite can populate request.user.
+    #
+    # OwnerScopedApiTokenAuthentication is listed first (mirroring
+    # McpReadableViewMixin.get_authenticators' ordering): it returns None for any
+    # bearer that isn't one of our tppm_-prefixed tokens, so JWT still gets a turn
+    # for every human/SPA request. It only accepts an owner-scoped Personal Access
+    # Token carrying the legacy:full scope — project/program-scoped integration
+    # tokens and mcp:read-only tokens are rejected here and keep authenticating only
+    # via the narrow surfaces that reference ProjectApiTokenAuthentication directly
+    # (TaskSyncView, the acceptance-result view, the MCP-readable viewsets).
     "DEFAULT_AUTHENTICATION_CLASSES": [
+        "trueppm_api.apps.projects.authentication.OwnerScopedApiTokenAuthentication",
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
