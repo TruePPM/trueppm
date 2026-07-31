@@ -26,12 +26,15 @@ import { CalendarGrid } from './CalendarGrid';
 import { parseUTCDate, formatMonthLabel, formatDayLabel } from './calendarUtils';
 import { useCalendarTasks } from '@/hooks/useCalendarTasks';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useProject } from '@/hooks/useProject';
 import { useSprints } from '@/hooks/useSprints';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { ROLE_MEMBER } from '@/lib/roles';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { EmptyState } from '@/components/EmptyState';
+import { MethodologyEmptyState } from '@/features/shell/MethodologyEmptyState';
 import { Button } from '@/components/Button';
 import { CalendarIcon } from '@/components/Icons';
 import { TaskFormModal } from '@/features/board/TaskFormModal';
@@ -138,6 +141,12 @@ export function CalendarView() {
   const { calView, anchorIso, setCalView, goToToday, goNext, goPrev } = useCalendarFilter();
   const { tasks, isLoading, error, refetch } = useCalendarTasks();
   const projectId = useProjectId();
+  const itl = useIterationLabel(projectId);
+  // Server-resolved preset (web-rule 196) — AGILE hides this view's nav entry
+  // (methodologyTabs.ts), but the route stays reachable by direct URL on purpose
+  // (issue #2619). Drives the explanatory empty state below.
+  const { data: projectDetail } = useProject(projectId);
+  const effectiveMethodology = projectDetail?.effective_methodology ?? 'HYBRID';
   const { role } = useCurrentUserRole(projectId);
   const breakpoint = useBreakpoint();
   // Viewers (role < MEMBER) have no create affordance to offer — omit the CTA.
@@ -150,9 +159,7 @@ export function CalendarView() {
   // calendar without a new endpoint. Degrades to no dots when the project has no
   // sprints (or the list is still loading).
   const { sprints } = useSprints(projectId ?? null);
-  const sprintBoundaries = new Set<string>(
-    sprints.flatMap((s) => [s.start_date, s.finish_date]),
-  );
+  const sprintBoundaries = new Set<string>(sprints.flatMap((s) => [s.start_date, s.finish_date]));
 
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
@@ -184,7 +191,13 @@ export function CalendarView() {
               text-neutral-text-secondary hover:text-neutral-text-primary
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
-            <svg aria-hidden="true" className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+            <svg aria-hidden="true" className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+              <path
+                fillRule="evenodd"
+                d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
+                clipRule="evenodd"
+              />
+            </svg>
           </button>
 
           <button
@@ -205,7 +218,13 @@ export function CalendarView() {
               text-neutral-text-secondary hover:text-neutral-text-primary
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
-            <svg aria-hidden="true" className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" /></svg>
+            <svg aria-hidden="true" className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+              <path
+                fillRule="evenodd"
+                d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
+                clipRule="evenodd"
+              />
+            </svg>
           </button>
         </div>
 
@@ -267,6 +286,16 @@ export function CalendarView() {
               />
             ))}
           </div>
+        ) : tasks.length === 0 && effectiveMethodology === 'AGILE' ? (
+          <MethodologyEmptyState
+            className="h-full bg-neutral-surface"
+            projectId={projectId}
+            icon={CalendarIcon}
+            title="Calendar isn't part of this project's workflow"
+            description={`This project runs on ${itl.lowerPlural}, not a phase-gated calendar. If a calendar view fits better here, switch the methodology in Settings.`}
+            primaryLabel={`Go to ${itl.plural}`}
+            primaryTo={projectId ? `/projects/${projectId}/sprints` : '#'}
+          />
         ) : tasks.length === 0 ? (
           <EmptyState
             className="h-full bg-neutral-surface"

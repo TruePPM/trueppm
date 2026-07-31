@@ -66,15 +66,16 @@ describe('LocationSegment (#1643)', () => {
         options={OPTIONS}
         currentId="p1"
         currentName="Apollo"
-        currentSubtitle="Hybrid"
+        currentSubtitle="Hybrid methodology"
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: /Switch project/ }));
     // The current row folds the subtitle into its accessible name and shows it as a
-    // visible second line; other rows stay single-line (name only).
-    const current = screen.getByRole('option', { name: 'Apollo, current, Hybrid workspace' });
+    // visible second line; other rows stay single-line (name only). Rendered
+    // verbatim — this generic component appends no suffix of its own (#2619).
+    const current = screen.getByRole('option', { name: 'Apollo, current, Hybrid methodology' });
     expect(current).toHaveAttribute('aria-selected', 'true');
-    expect(within(current).getByText('Hybrid workspace')).toBeInTheDocument();
+    expect(within(current).getByText('Hybrid methodology')).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Gemini' })).toBeInTheDocument();
   });
 

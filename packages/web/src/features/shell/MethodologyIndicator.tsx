@@ -1,7 +1,7 @@
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import { useShellStore } from '@/stores/shellStore';
-import { methodologyLabel } from '@/lib/methodologyLabel';
+import { methodologyStatusLabel } from '@/lib/methodologyLabel';
 import { Tooltip } from '@/components/Tooltip';
 import type { Methodology } from '@/types';
 
@@ -36,15 +36,20 @@ const BADGE_CLASS =
  * matching the original #1469 gate.
  *
  * `role="img"` + `aria-label` carries the accessible name as the full methodology
- * word ("Hybrid workspace", etc.) — the two letters are a visual shorthand only,
- * never the sole signal (WCAG 1.4.1, rule 6).
+ * phrase (`methodologyStatusLabel`, e.g. "Hybrid methodology" or "Waterfall
+ * methodology (workspace default)") — the two letters are a visual shorthand
+ * only, never the sole signal (WCAG 1.4.1, rule 6). The phrase never says
+ * "workspace" as a bare suffix (issue #2619) — that wording described the
+ * *workspace's* methodology when the badge always renders this specific
+ * *project's* resolved value, which can differ from the org default by
+ * inheritance the project never explicitly touched.
  *
  * That label alone used to be the *whole* story, which meant a screen-reader user
- * heard "Waterfall workspace" and a sighted mouse user was left staring at two
- * undecodable letters (#2389). The `Tooltip` wrapper surfaces the same string on
- * hover, keyboard focus, and tap. `describe={false}` because the tooltip text and
- * the `aria-label` are the same sentence — wiring `aria-describedby` as well would
- * announce it twice.
+ * heard only the bare methodology word and a sighted mouse user was left staring
+ * at two undecodable letters (#2389). The `Tooltip` wrapper surfaces the same
+ * string on hover, keyboard focus, and tap. `describe={false}` because the
+ * tooltip text and the `aria-label` are the same sentence — wiring
+ * `aria-describedby` as well would announce it twice.
  */
 export function MethodologyIndicator() {
   const projectId = useProjectId();
@@ -56,11 +61,11 @@ export function MethodologyIndicator() {
   // Server-resolved preset (web-rule 196) — the same value the rail subtitle
   // reads, so the two surfaces can never drift on which methodology is "current".
   const methodology = project.data?.effective_methodology ?? 'HYBRID';
-  const label = methodologyLabel(methodology);
+  const statusLabel = methodologyStatusLabel(methodology, project.data?.inherited_methodology);
 
   return (
-    <Tooltip content={`${label} workspace`} describe={false}>
-      <span role="img" aria-label={`${label} workspace`} className={BADGE_CLASS}>
+    <Tooltip content={statusLabel} describe={false}>
+      <span role="img" aria-label={statusLabel} className={BADGE_CLASS}>
         {METHOD_CODE[methodology]}
       </span>
     </Tooltip>

@@ -8,12 +8,25 @@ import { CalendarView } from './CalendarView';
 
 const calendarTasksMock = vi.hoisted(() => vi.fn());
 const roleMock = vi.hoisted(() => vi.fn());
+const projectMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/hooks/useCalendarTasks', () => ({ useCalendarTasks: calendarTasksMock }));
 vi.mock('@/hooks/useCurrentUserRole', () => ({ useCurrentUserRole: roleMock }));
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'proj-1' }));
 vi.mock('@/hooks/useSprints', () => ({ useSprints: () => ({ sprints: [] }) }));
 vi.mock('@/hooks/useBreakpoint', () => ({ useBreakpoint: () => 'lg' }));
+// Server-resolved methodology (#2619) — drives the explanatory empty state.
+// Default (no data) lets the component's own `?? 'HYBRID'` fallback apply.
+vi.mock('@/hooks/useProject', () => ({ useProject: projectMock }));
+vi.mock('@/hooks/useIterationLabel', () => ({
+  useIterationLabel: () => ({
+    singular: 'Sprint',
+    plural: 'Sprints',
+    lower: 'sprint',
+    lowerPlural: 'sprints',
+    possessive: "Sprint's",
+  }),
+}));
 vi.mock('./useCalendarFilter', () => ({
   useCalendarFilter: () => ({
     calView: 'month',
@@ -40,10 +53,21 @@ vi.mock('@/features/board/TaskFormModal', () => ({
 }));
 
 const sampleTask: Task = {
-  id: 't1', wbs: '1', name: 'Task 1', start: '2026-05-05', finish: '2026-05-08',
-  duration: 4, progress: 0, parentId: null,
-  isCritical: false, isComplete: false, isSummary: false, isMilestone: false,
-  status: 'NOT_STARTED', assignees: [], notes: '',
+  id: 't1',
+  wbs: '1',
+  name: 'Task 1',
+  start: '2026-05-05',
+  finish: '2026-05-08',
+  duration: 4,
+  progress: 0,
+  parentId: null,
+  isCritical: false,
+  isComplete: false,
+  isSummary: false,
+  isMilestone: false,
+  status: 'NOT_STARTED',
+  assignees: [],
+  notes: '',
 };
 
 const refetch = vi.fn();
@@ -51,6 +75,7 @@ const refetch = vi.fn();
 beforeEach(() => {
   calendarTasksMock.mockReturnValue({ tasks: [], isLoading: false, error: null, refetch });
   roleMock.mockReturnValue({ role: ROLE_MEMBER, roleLabel: null, isLoading: false });
+  projectMock.mockReturnValue({ data: undefined, isLoading: false, error: null });
 });
 afterEach(() => vi.clearAllMocks());
 
@@ -65,7 +90,10 @@ describe('CalendarView state branches (#2161)', () => {
 
   it('shows a retry-able error state on fetch failure — never the empty copy', async () => {
     calendarTasksMock.mockReturnValue({
-      tasks: [], isLoading: false, error: new Error('boom'), refetch,
+      tasks: [],
+      isLoading: false,
+      error: new Error('boom'),
+      refetch,
     });
     renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
     const alert = screen.getByRole('alert');
@@ -95,9 +123,42 @@ describe('CalendarView state branches (#2161)', () => {
   });
 
   it('renders the grid when tasks are present', () => {
-    calendarTasksMock.mockReturnValue({ tasks: [sampleTask], isLoading: false, error: null, refetch });
+    calendarTasksMock.mockReturnValue({
+      tasks: [sampleTask],
+      isLoading: false,
+      error: null,
+      refetch,
+    });
     renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
     expect(screen.getByTestId('calendar-grid')).toBeInTheDocument();
     expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument();
+  });
+
+  // #2619: AGILE hides this route's nav entry, but it stays reachable by direct
+  // URL — the bug was the cold-start CTA never saying so.
+  it('shows the methodology-mismatch empty state on an AGILE project', () => {
+    projectMock.mockReturnValue({
+      data: { effective_methodology: 'AGILE' },
+      isLoading: false,
+      error: null,
+    });
+    renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
+    expect(screen.getByText("Calendar isn't part of this project's workflow")).toBeInTheDocument();
+    expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Go to Sprints' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Change methodology' })).toBeInTheDocument();
+  });
+
+  it('keeps the generic empty state on a non-AGILE project', () => {
+    projectMock.mockReturnValue({
+      data: { effective_methodology: 'HYBRID' },
+      isLoading: false,
+      error: null,
+    });
+    renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
+    expect(screen.getByText('No tasks yet')).toBeInTheDocument();
+    expect(
+      screen.queryByText("Calendar isn't part of this project's workflow"),
+    ).not.toBeInTheDocument();
   });
 });

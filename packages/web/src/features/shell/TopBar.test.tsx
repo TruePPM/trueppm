@@ -140,20 +140,20 @@ describe('TopBar (unified shell bar, ADR-0134)', () => {
     // dedicated `MethodologyIndicator` describe block below for the collapsed case.
     expect(screen.queryByRole('button', { name: 'Customize views' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /current sprint/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/workspace/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: /methodology/i })).not.toBeInTheDocument();
   });
 
   describe('MethodologyIndicator wiring (issue #1907)', () => {
     it('shows the always-visible methodology badge while the rail is collapsed', () => {
       useShellStore.setState({ sidebarCollapsed: true, sidebarUserControlled: false });
       renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
-      expect(screen.getByRole('img', { name: 'Hybrid workspace' })).toHaveTextContent('HY');
+      expect(screen.getByRole('img', { name: 'Hybrid methodology' })).toHaveTextContent('HY');
     });
 
     it('hides the bar badge once the rail is expanded, so the rail subtitle is the sole signal', () => {
       useShellStore.setState({ sidebarCollapsed: false, sidebarUserControlled: false });
       renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
-      expect(screen.queryByRole('img', { name: /workspace$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('img', { name: /methodology/i })).not.toBeInTheDocument();
     });
   });
 
@@ -203,7 +203,7 @@ describe('TopBar (unified shell bar, ADR-0134)', () => {
 
   // --- health drill-down routing (#2032) ---
 
-  it('routes a health-cluster task pick to that project\'s Schedule, not the landing page', () => {
+  it("routes a health-cluster task pick to that project's Schedule, not the landing page", () => {
     mockNavigate.mockClear();
     projectId = 'proj-42';
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
@@ -238,7 +238,9 @@ describe('TopBar (unified shell bar, ADR-0134)', () => {
     // strictly between the two.
     const bell = screen.getByRole('button', { name: /notifications/i });
     const account = screen.getAllByRole('button', { name: /account/i })[0];
-    const ordered = Array.from(container.querySelectorAll<HTMLElement>('button, span[aria-hidden="true"]'));
+    const ordered = Array.from(
+      container.querySelectorAll<HTMLElement>('button, span[aria-hidden="true"]'),
+    );
     const bellIndex = ordered.indexOf(bell);
     const dividerIndex = ordered.indexOf(divider as HTMLElement);
     const accountIndex = ordered.indexOf(account);
@@ -263,7 +265,7 @@ describe('TopBar (unified shell bar, ADR-0134)', () => {
       return Array.from(header!.children).map((c) => `${c.tagName}.${c.className}`);
     }
 
-    it('leaves the breadcrumb\'s layout untouched as the cluster grows from 3 to 7 segments', () => {
+    it("leaves the breadcrumb's layout untouched as the cluster grows from 3 to 7 segments", () => {
       healthSegmentCount = 3;
       const three = renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
       // Guard against a vacuous pass: the cluster really did grow.
@@ -313,7 +315,7 @@ describe('TopBar (unified shell bar, ADR-0134)', () => {
       expect(cls).toContain('motion-reduce:scroll-auto');
     });
 
-    it('makes the right region absorb the bar\'s shrink so the breadcrumb keeps its width', () => {
+    it("makes the right region absorb the bar's shrink so the breadcrumb keeps its width", () => {
       const { getByTestId } = renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
       const region = getByTestId('shell-status-cluster').closest('header > div');
       expect(region).not.toBeNull();

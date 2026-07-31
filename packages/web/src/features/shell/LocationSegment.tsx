@@ -25,7 +25,10 @@ interface Props {
    *  the name is the signal (rules 6/7/158). */
   leading?: ReactNode;
   /** Optional subtitle shown as a second line on the CURRENT (selected) option row
-   *  only (#1680 — the project segment passes the methodology label here). Other
+   *  only (#1680 — the project segment passes the full methodology status phrase
+   *  here, e.g. "Hybrid methodology"). Rendered verbatim — this generic component
+   *  does not append any suffix of its own (issue #2619: it used to hardcode
+   *  " workspace", which mislabeled a per-project value as workspace-wide). Other
    *  rows and other segments (e.g. program) stay single-line. */
   currentSubtitle?: string;
   /** Placeholder-picker mode (#2102, ADR-0508 D3): when `currentId` is undefined
@@ -391,9 +394,7 @@ export function LocationSegment({
                     role="option"
                     aria-selected={isCurrent}
                     aria-label={
-                      showSubtitle
-                        ? `${opt.name}, current, ${currentSubtitle} workspace`
-                        : undefined
+                      showSubtitle ? `${opt.name}, current, ${currentSubtitle}` : undefined
                     }
                     tabIndex={-1}
                     onMouseEnter={() => setActiveIndex(i)}
@@ -404,7 +405,7 @@ export function LocationSegment({
                       <span className="min-w-0 flex-1 flex flex-col">
                         <span className="truncate">{opt.name}</span>
                         <span className="truncate text-xs text-neutral-text-secondary">
-                          {currentSubtitle} workspace
+                          {currentSubtitle}
                         </span>
                       </span>
                     ) : (
