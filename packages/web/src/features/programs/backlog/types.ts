@@ -65,8 +65,14 @@ export interface BacklogItem {
   itemType: BacklogItemType;
   status: BacklogItemStatus;
   tags: string[];
-  /** Integer; lower = higher priority. Sort key for the list. */
-  priorityRank: number;
+  /**
+   * Integer; lower = higher priority. Sort key for the list. Nullable — the
+   * server field is `null`-able (an unranked pool is valid) and nothing
+   * assigns a rank on create until `useBacklogController.createItem` wires in
+   * `nextPriorityRank` (#2668); render `null` explicitly (e.g. "—"), never as
+   * a bare `#` or as rank 0.
+   */
+  priorityRank: number | null;
   /** Optional agile estimate (`story_points`); surfaced read-only where shown. */
   storyPoints?: number | null;
   serverVersion: number;

@@ -397,7 +397,9 @@ describe('MobileBacklogPage — detail sheet', () => {
     fireEvent.change(within(sheet).getByPlaceholderText(/No description yet/), {
       target: { value: 'Radar spike first' },
     });
-    fireEvent.click(within(sheet).getAllByRole('button', { name: 'Save changes' })[0]);
+    // #2668: the drawer now has exactly ONE "Save changes" affordance (the
+    // deferred bar), not two — getByRole (not getAllByRole) itself pins that.
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Save changes' }));
     expect(vi.mocked(controller.updateItem)).toHaveBeenCalledWith(
       'bi-1',
       expect.objectContaining({ description: 'Radar spike first' }),

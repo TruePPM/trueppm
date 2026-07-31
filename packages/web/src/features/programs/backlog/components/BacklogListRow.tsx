@@ -104,7 +104,9 @@ export function BacklogListRow({
         <span
           className={`tppm-mono text-xs tabular-nums text-neutral-text-disabled ${draggable ? 'group-hover:opacity-0' : ''}`}
         >
-          {item.priorityRank}
+          {/* Null is a real state (#2668) — an em dash, never a blank cell under
+              the "#" column header. */}
+          {item.priorityRank ?? '—'}
         </span>
         {draggable && (
           <DragHandleIcon

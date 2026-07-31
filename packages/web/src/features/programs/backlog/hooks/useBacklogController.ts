@@ -18,6 +18,7 @@ import {
   distinctTags,
   filterItems,
   matchesSearch,
+  nextPriorityRank,
   sortItems,
   splitPulled,
   type StatusCounts,
@@ -132,6 +133,16 @@ export function useBacklogController(
   const allItems = useMemo(() => itemsQuery.data ?? [], [itemsQuery.data]);
   const counts = useMemo(() => countByStatus(allItems), [allItems]);
   const tagUniverse = useMemo(() => distinctTags(allItems), [allItems]);
+
+  // Wires a rank onto every item created through the UI (#2668 — the create
+  // mutation never sent priority_rank, so it stayed null forever and "Sorted
+  // by priority" was vacuous on any pool created this way). Computed from the
+  // live, unfiltered set so the new item always lands at the true bottom.
+  const createItem = useCallback(
+    (input: CreateBacklogItemInput) =>
+      mutations.createItem({ ...input, priorityRank: nextPriorityRank(allItems) }),
+    [mutations, allItems],
+  );
 
   const searchActive = url.query.trim().length > 0;
 
@@ -269,7 +280,7 @@ export function useBacklogController(
     dismissToast,
     notify,
 
-    createItem: mutations.createItem,
+    createItem,
     updateItem: mutations.updateItem,
     archiveItem: mutations.archiveItem,
     restoreItem: mutations.restoreItem,

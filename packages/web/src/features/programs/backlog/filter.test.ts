@@ -115,6 +115,26 @@ describe('sortItems', () => {
     ];
     expect(sortItems(set).map((i) => i.id)).toEqual(['new', 'old', 'low']);
   });
+
+  // #2668: a null rank used to coerce to 0 under bare arithmetic, so an
+  // unranked item sorted AHEAD of every ranked one — the exact inverse of
+  // "unranked = lowest priority". Null must sort after every numeric rank.
+  it('sorts a null (unranked) priorityRank after every numeric rank, not ahead of it', () => {
+    const set = [
+      item({ id: 'unranked', priorityRank: null }),
+      item({ id: 'ranked-low', priorityRank: 5 }),
+      item({ id: 'ranked-high', priorityRank: 1 }),
+    ];
+    expect(sortItems(set).map((i) => i.id)).toEqual(['ranked-high', 'ranked-low', 'unranked']);
+  });
+
+  it('falls back to the createdAt tiebreak when both ranks are null', () => {
+    const set = [
+      item({ id: 'old', priorityRank: null, createdAt: '2026-01-01T00:00:00Z' }),
+      item({ id: 'new', priorityRank: null, createdAt: '2026-02-01T00:00:00Z' }),
+    ];
+    expect(sortItems(set).map((i) => i.id)).toEqual(['new', 'old']);
+  });
 });
 
 describe('splitPulled', () => {
@@ -151,5 +171,15 @@ describe('countByStatus / distinctTags / nextPriorityRank', () => {
   it('returns max rank + 1', () => {
     expect(nextPriorityRank(set)).toBe(6);
     expect(nextPriorityRank([])).toBe(1);
+  });
+
+  // #2668: a null rank (an item created before priority_rank was wired into
+  // the create payload) must not be coerced to 0 — that would let one stray
+  // unranked item drag every future create back down to rank 1 even when
+  // real ranked items already run higher.
+  it('ignores null ranks rather than coercing them to 0', () => {
+    const withUnranked = [...set, item({ status: 'PROPOSED', tags: [], priorityRank: null })];
+    expect(nextPriorityRank(withUnranked)).toBe(6);
+    expect(nextPriorityRank([item({ priorityRank: null })])).toBe(1);
   });
 });
