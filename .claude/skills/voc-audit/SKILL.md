@@ -113,6 +113,8 @@ Shipped-behavior brief (this is what actually ships today):
 
 Walk through how you would use this surface to accomplish a real task in your role. Identify the specific friction points — moments where the surface forces you to do something tedious, switch contexts, or work around a missing capability. For each friction point, propose a concrete, narrow improvement: not "redesign the page" but "add filter X to the existing list" or "persist Y between sessions" or "surface Z in the empty state."
 
+Every finding MUST carry a **falsification line**: a specific, checkable condition that would prove the finding wrong. "Falsified if the CPM date is already visible to a suppressed reader" is a falsification line; "falsified if users are happy" is not. A finding without one is `unscoreable` and counts against the panel, not for it.
+
 Return your response in this exact format and nothing else:
 
 ## <PERSONA_NAME>: N/10 [optional 🔴 / 🟡 / 🟢]
@@ -121,25 +123,74 @@ Return your response in this exact format and nothing else:
 ### Material improvements (ranked by daily-task impact)
 1. **<one-line title>** — <2–3 sentence description: what the friction is, what the improvement is, why it matters for this persona>
    - Hard-NO triggered? <yes/no — quote the hard-NO if yes>
+   - Falsification line: <the specific, checkable condition that would prove this finding wrong>
    - Estimated frequency in this persona's workflow: <daily / weekly / monthly / rare>
 2. **<title>** — <description>
    - Hard-NO triggered? <yes/no>
+   - Falsification line: <…>
    - Estimated frequency: <…>
 3. (up to 5 ranked improvements; fewer is fine; never more than 5)
 
 ### Already-acceptable aspects
 <bullet list of what the surface does well from this persona's lens — short, no more than 5 bullets>
+
+### What this persona could NOT see
+<1–3 bullets: questions about this surface this lens is structurally unable to answer>
 ```
 
 Spawn in P3M layer order so results aggregate predictably: Janet → Marcus → David → Sarah → Jordan → Alex → Theo → Priya. The Agent tool runs them in parallel when issued in one message.
 
 ---
 
-## Step 4 — Cross-reference each finding against GitLab issues
+## Step 4 — Verify every finding against the code, before touching the tracker
 
-Once all persona sub-agents return, **deduplicate first, then search**. Personas will surface overlapping concerns (e.g. "the empty state is silent" might come from Sarah, Priya, and Marcus simultaneously). Merge identical-substance findings into a single canonical entry and credit the personas that raised it.
+**Do this before the GitLab search.** The panel is simulated and every persona is T0 — its
+output is a hypothesis generator, and this is the only step in the run that touches ground
+truth. Searching the tracker first means filing model output as fact.
 
-Then for each merged finding, query GitLab in `all` state (open and closed) using 2–3 keywords drawn from the finding (file/feature stem, the verb of the missing capability, the affected entity):
+Deduplicate first: personas surface overlapping concerns (e.g. "the empty state is silent"
+might come from three lenses at once). Merge identical-substance findings into one canonical
+entry and credit the personas that raised it.
+
+Then, for each merged finding, **check its falsification line against the tree**. That is
+what the line is for — a falsification line nobody executes is decoration. Read the
+component, grep for the symbol, check the serializer, look at `openapi.json`, read the
+issue the finding assumes is open. Assign one of three outcomes:
+
+- **survived** — the check ran and the finding stands. Carry it into Step 5. Note what you
+  checked, so the report rests on the file:line, not on the persona.
+- **falsified** — the condition was met and the finding is wrong. **Drop it, and say so in
+  the report.** A falsified finding is a result, not an embarrassment: it is the run
+  proving it can tell its own hypotheses from reality, and it is what keeps duplicate and
+  incorrect issues out of the tracker.
+- **surfaced-during-verification** — the check falsified the finding as stated but exposed a
+  real defect one layer away, or you found something adjacent while reading. These are
+  frequently the strongest findings in a run. **Attribute them to the check, never to a
+  persona** — crediting a persona with a finding it did not make corrupts the calibration
+  ledger in Step 10.
+
+Findings that cannot be checked without running the product (frequency-in-practice,
+would-a-real-user-accept-this) are **unscoreable**: carry them, but mark them so, and do not
+present them with the same confidence as a verified one.
+
+Two rules that matter more than they look:
+
+- **A panel finding that rests on an absence must be verified as absent.** "There is no X"
+  is the single most common false finding, because the brief in Step 1 can be wrong or stale
+  and the personas take it as given. Grep before you believe it.
+- **Re-check the brief itself.** If verification shows the Step 1 brief misstated the shipped
+  behavior, every finding downstream of that statement is suspect — say so in the report
+  rather than quietly correcting one row.
+
+Record the counts. Step 6's report must state how many findings survived, how many were
+falsified, and how many were surfaced during verification, so panel yield can be told apart
+from verification yield over time.
+
+---
+
+## Step 5 — Cross-reference surviving findings against GitLab issues
+
+Only findings that **survived** Step 4 reach this step — a falsified finding is not searched for, it is reported as falsified and dropped. For each surviving finding, query GitLab in `all` state (open and closed) using 2–3 keywords drawn from the finding (file/feature stem, the verb of the missing capability, the affected entity):
 
 ```bash
 glab issue list --repo trueppm/trueppm -A --search "<keyword>" 2>/dev/null | head -20
@@ -166,14 +217,14 @@ not make. Say "raised again by the panel", never "confirmed by users".
 For each finding, assign one of these tracking states:
 
 - **`(tracked in #N — priority::<P>)`** — open issue exists. Capture its current priority label. If the persona feedback raises the urgency above the current priority (e.g. a hard-NO trigger on a `priority::P3`), mark this finding as a **boost candidate** in the report.
-- **`(closed #N — <date>, <one-line close reason>)`** — closed issue matches the finding's substance. Read the close reason. Do **not** silently re-file. Flag for user classification in Step 6 as one of: regression, new instance (same class, different location), already-decided (drop).
-- **`(untracked)`** — no open or closed match. Eligible for new-issue filing in Step 6.
+- **`(closed #N — <date>, <one-line close reason>)`** — closed issue matches the finding's substance. Read the close reason. Do **not** silently re-file. Flag for user classification in Step 7 as one of: regression, new instance (same class, different location), already-decided (drop).
+- **`(untracked)`** — no open or closed match. Eligible for new-issue filing in Step 7.
 
 If the user's milestone targeting is non-obvious (e.g. the finding is in-scope for an active milestone vs deferred to next major), record the reasoning inline so the user can decide quickly.
 
 ---
 
-## Step 5 — Consolidated report
+## Step 6 — Consolidated report
 
 Print this format to the user. Lead with the selection rationale so the user can correct a wrong persona panel before reading the verdict.
 
@@ -205,11 +256,24 @@ Print this format to the user. Lead with the selection rationale so the user can
 **OSS/Enterprise signal**: <which P3M layer responded best/worst, and what that says about positioning>
 **Hard-NO summary**: <list any triggered hard-NOs in plain language>
 
+### Verification yield
+| Outcome | Count |
+|---|---|
+| Panel findings that survived verification | N |
+| Panel findings falsified by verification | N |
+| Findings surfaced *during* verification (no persona raised them) | N |
+| Unscoreable (not checkable without running the product) | N |
+
+<one line on what this ratio says about the run — a panel whose findings mostly
+falsified was a weak panel, and a run whose best findings came from verification
+should say so rather than presenting them as panel output>
+
 ### Material improvements (ranked by impact × frequency × affected personas)
 
 #### 1. <title> — <tracking state>
-- **Raised by**: <list of personas who flagged it>
+- **Raised by**: <personas who flagged it — or "verification (no persona raised this)">
 - **What's missing**: <one paragraph>
+- **Verified**: <the file:line, grep, or query that confirms it — this is what the finding rests on, not the persona>
 - **Proposed improvement**: <narrow, concrete change>
 - **Why it matters**: <impact + frequency reasoning, drawn from persona quotes>
 - **Action**: file new / boost #N to priority::<P> / cross-link as new instance of closed #N / drop (already decided in #N)
@@ -218,6 +282,13 @@ Print this format to the user. Lead with the selection rationale so the user can
 …
 
 (cap at 8 improvements after deduplication; below 8 is fine; anything ranked lower lives under "Other observations")
+
+### Falsified by verification — reported, not filed
+<one line per dropped finding: the claim, the persona that raised it, and the check that
+killed it. Never omit this section because it looks like failure — it is the evidence the
+run can tell its own hypotheses from reality, and a reader who does not see it cannot know
+whether the surviving findings were checked at all. "None" is a valid entry only if every
+finding genuinely survived.>
 
 ### Already-tracked, no change needed
 <bulleted list of findings that map cleanly to an existing open issue at an appropriate priority>
@@ -234,7 +305,7 @@ Print this format to the user. Lead with the selection rationale so the user can
 
 ---
 
-## Step 6 — Act on the matrix (interactive)
+## Step 7 — Act on the matrix (interactive)
 
 For each finding requiring action, ask the user explicitly before mutating GitLab state. Never silently file, boost, or close.
 
@@ -242,6 +313,15 @@ For each finding requiring action, ask the user explicitly before mutating GitLa
    - `y` → file all with `glab issue create --repo trueppm/trueppm --milestone "$WORKING_RELEASE" --label "ux,voc-audit" --title "<title>" --description "<heredoc body that cites the persona(s), the friction, the proposed improvement>"`
    - `select` → ask which subset
    - `n` → list them as a manual checklist
+
+   **Every issue body carries its provenance and its evidence, and they are not the same
+   thing.** State that a simulated panel raised it and that the panel is not evidence; then
+   cite the file:line, grep, or query from Step 4 that the issue actually rests on. A
+   finding **surfaced during verification** must say so and must not be attributed to a
+   persona — crediting a persona with a finding it did not make inflates the panel's
+   apparent hit rate and corrupts the Step 10 ledger. Where verification lowered a
+   finding's severity below what the panel scored, file at the verified severity and say
+   that you did.
 2. **Boost candidates → offer to update priority labels.** Ask: "Boost M existing issues to a higher priority based on hard-NO triggers? (y / select / n)" — same flow. Use `glab issue update <iid> --label "priority::P<n>"` and remove the old priority label first.
 3. **Closed-issue matches → ask the user to classify each.** For each, present:
    > Finding X matches closed #N ("<title>", closed <date>, close reason: <one-line>). Options:
@@ -255,7 +335,7 @@ Cross-link related issues if two findings touch the same surface (e.g. two findi
 
 ---
 
-## Step 7 — Tighten upstream skills when patterns emerge
+## Step 8 — Tighten upstream skills when patterns emerge
 
 If voc-audit surfaces a pattern that a day-to-day skill *should* have caught (e.g. ux-design produced a surface that ux-review approved but personas reject), update the relevant skill file to add the missed check.
 
@@ -269,18 +349,19 @@ Most voc-audit findings should land as GitLab issues, not as skill changes. Upda
 
 ---
 
-## Step 8 — When invoked from `/pre-release full`
+## Step 9 — When invoked from `/pre-release full`
 
 `/pre-release` will pass `--from-pre-release` along with a list of surfaces shipped since the last release tag. In that mode:
 
 - Skip the interactive Step 0 question — the surface list is already resolved
 - Run voc-audit once per surface (in parallel if there are 3+ surfaces) but cap at the 5 highest-impact surfaces by changed-line count
-- Suppress the interactive prompts in Step 6 — return the structured matrix instead, and let `/pre-release` consolidate filing decisions across all surfaces at once
+- Suppress the interactive prompts in Step 7 — return the structured matrix instead, and let `/pre-release` consolidate filing decisions across all surfaces at once
 - Emit a single consolidated section per surface for `/pre-release` to fold into its report
+- **Do not skip Step 4.** Verification is the step that keeps unverified model output out of a release-gate report, which is the context where it is most likely to be read as fact. Return the verification-yield counts per surface so `/pre-release` can weigh a panel-heavy surface differently from a verified one.
 
 ---
 
-## Step 9 — Calibration pass (`--calibrate`)
+## Step 10 — Calibration pass (`--calibrate`)
 
 This is the step that makes the persona model falsifiable. Run it **once per release
 cycle that reached real users**, not per surface. Invoke as `/voc-audit --calibrate` with
@@ -290,7 +371,7 @@ subject is the panel itself rather than any shipped screen.
 Skip it, with a one-line note, if no real user signal arrived during the cycle. Do not
 manufacture an entry from an empty cycle.
 
-### 9a — Gather the cycle's real signal
+### 10a — Gather the cycle's real signal
 
 ```bash
 # Everything real users said this cycle
@@ -300,7 +381,7 @@ glab issue list --repo trueppm/trueppm --label "user-report" -A -P 100
 glab issue list --repo trueppm/trueppm --label "voc-audit" -A -P 100
 ```
 
-### 9b — Score three buckets
+### 10b — Score three buckets
 
 - **Hits** — a panel 🔴/🟡 that a real report independently matches. Cite both issue
   numbers. Only findings that carried a falsification line are scoreable; record any
@@ -312,7 +393,7 @@ glab issue list --repo trueppm/trueppm --label "voc-audit" -A -P 100
   raised it; repeated false alarms on a topic reduce that persona's weight on that topic
   in future `/voc` runs (see `/voc` Step 0).
 
-### 9c — Append to the ledger
+### 10c — Append to the ledger
 
 Append one cycle entry to `.claude/persona-calibration.md` in the format that file
 defines. Rules that file enforces and this step must respect:
@@ -323,7 +404,7 @@ defines. Rules that file enforces and this step must respect:
 - Carry forward the survivorship-bias caveat: silent evaluators who left are invisible
   to this method, so every hit rate is an upper bound
 
-### 9d — Report honestly
+### 10d — Report honestly
 
 Lead the calibration report with the miss count, not the hit count. A panel that scored
 6 hits and 14 misses did not perform well, and a report ordered by hits will read as
@@ -335,8 +416,10 @@ though it did.
 
 - Evaluate unmerged specs — use `/voice-of-customer` against the spec
 - **Treat agreement between two simulated panels as corroboration** — only a real user report corroborates a modeled finding
-- **Raise a persona's grounding tier** outside a Step 9 ledger entry with a citation
-- Audit the codebase for bugs, perf issues, or security gaps — those have dedicated skills
+- **File a finding it did not verify** — every issue opened from a run cites the check from Step 4, not only the persona that raised it
+- **Credit a persona with a finding that came from verification** — attribute it to the check; the ledger depends on the distinction
+- **Raise a persona's grounding tier** outside a Step 10 ledger entry with a citation
+- Audit the codebase for bugs, perf issues, or security gaps — those have dedicated skills. Verification in Step 4 checks *the panel's claims*; it is not licence to start a general bug hunt
 - File issues without explicit user approval — every mutation is opt-in
 - Re-flag the same finding across runs — track declined findings as `(declined <date>)` and demote on the next pass
 - Run more than once per surface per release cycle — re-running re-discovers the same friction and creates audit fatigue
