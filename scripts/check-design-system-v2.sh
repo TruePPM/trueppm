@@ -12,13 +12,14 @@
 #   2. raw hex color literals in component source — rule 8 ("no custom hex in
 #      components"). Only hex in a COLOR context is counted: quoted (`'#f59e0b'`),
 #      inside a Tailwind arbitrary value (`bg-[#7C3AED]`), or a CSS value after a
-#      colon (`stroke: #fff`). A bare `#1236`-style token in a comment or string —
-#      an issue reference, not a color — is deliberately NOT counted (it is decimal
-#      and never in color context). This is the fix for the false-positive class
-#      that made the gate a moving target: every `#NNNN` issue ref in a comment used
-#      to inflate the count and fail unrelated MRs (see the "issue N" rewrites in
-#      git history). The tree carries pre-existing debt, so this is a RATCHET: the
-#      count may not exceed the baseline. New code adds zero; debt only trends down.
+#      colon (`stroke: #fff`). A `#1236`-style issue reference is deliberately NOT
+#      counted — not when bare, and (since #2651) not when it sits right after a
+#      quote or colon either, which is where the last of the false positives hid.
+#      This is the fix for the false-positive class that made the gate a moving
+#      target: every `#NNNN` issue ref in a comment used to inflate the count and
+#      fail unrelated MRs (see the "issue N" rewrites in git history). The tree
+#      carries pre-existing debt, so this is a RATCHET: the count may not exceed the
+#      baseline. New code adds zero; debt only trends down.
 #   3. off-token box-shadow — named `shadow-{sm,md,lg,...}` utilities AND arbitrary
 #      `shadow-[...]` values. The v2 standard is borders-over-shadows; `shadow-card`
 #      / `shadow-pop` (the reserved pop-surface tokens) are NOT matched here. RATCHET.
@@ -55,7 +56,9 @@ SHELL_SRC="packages/web/src/features/shell"
 # BASELINE_HEX counts hex literals in a COLOR context only (see hex_count and the
 # header). It dropped from 1195 to 129 when the count stopped miscounting `#NNNN`
 # issue references as colors — the 129 are the real hardcoded color literals.
-BASELINE_HEX=121
+# 121 → 117 (#2651) when the pattern gained a CLOSING delimiter, which excluded the
+# four remaining issue references that happened to sit after a quote or a colon.
+BASELINE_HEX=117
 BASELINE_ARBITRARY=4
 BASELINE_SHADOW=0
 # Inline `rgba(0,0,0,α)` color VALUES in component/style source. These bypass the
@@ -88,12 +91,56 @@ BASELINE_TINY_TEXT=2
 
 EXCLUDE='\.test\.|\.spec\.|\.stories\.'
 
-# A hex COLOR literal, as it actually appears in TSX/CSS-in-JS: the `#` is preceded
-# by a string quote (' " `), a Tailwind arbitrary-value `[`, or a CSS `value:` colon.
-# This is what rule 8 forbids. It deliberately does NOT match a bare `#1236` issue
-# reference in a comment (decimal, never in color context) — the false-positive class
-# that used to inflate the ratchet and fail unrelated MRs.
-HEX_COLOR_PAT='(["'\''`[]|:[[:space:]]*)#[0-9a-fA-F]{3,8}\b'
+# A hex COLOR literal, as it actually appears in TSX/CSS-in-JS. Two anchors, and
+# BOTH are load-bearing:
+#
+#   prefix — the `#` is preceded by a string quote (' " `), a Tailwind
+#            arbitrary-value `[`, or a CSS `value:` colon.
+#   suffix — the hex run is CLOSED: by a quote/bracket/paren/brace, a `;` or `,`,
+#            or end of line. Whitespace counts only when what follows is a digit or
+#            `!` (a gradient stop, `#fff 0%`, or `#fff !important`).
+#
+# The prefix alone was not enough. It skips a BARE `#1236` issue reference, but a
+# quote- or colon-adjacent one — `the "#2495 scope boundary" test`, or
+# `deliberate: #1788 tuned …` — still matched, because most issue numbers are valid
+# hex. That failed MRs which added no color at all and sent the reader hunting for
+# one (#2651). Prose continues after the number; a real literal is closed by its own
+# delimiter, which is exactly what the suffix tests.
+#
+# Both anchors are deliberately conservative — a `#` reached from neither (say
+# `border: 1px solid #ccc`, where `solid ` precedes it) is not counted at all. That
+# under-count predates #2651 and is unchanged by it; widening the PREFIX is separate
+# work, and would need its own re-baseline.
+#
+# NOTE the `]` sits FIRST in the closing bracket expression. POSIX ERE gives `\` no
+# special meaning inside `[...]`, so the intuitive `[...\]}]` does not escape it —
+# the class ends at that `]` and the rest leaks into the pattern, which silently
+# matches nothing and reports hex=0. Leading `]` is the only portable spelling.
+HEX_COLOR_PAT='(["'\''`[]|:[[:space:]]*)#[0-9a-fA-F]{3,8}([]"'\''`);,}]|[[:space:]]+[0-9!]|$)'
+
+# Self-test: a ratchet whose pattern matches nothing reports 0 and PASSES, so a
+# malformed pattern disarms this check silently instead of failing it. That is not
+# hypothetical — the `\]` bracket bug above did exactly that during #2651, and the
+# run looked clean. Assert both directions on fixtures before counting anything.
+hex_pat_self_test() {
+  local s rc=0
+  # MUST match — a real literal in each of the three supported contexts.
+  for s in "const c = '#f59e0b';" '<div className="bg-[#7C3AED]">' '  stroke: #fff;' \
+           '  color: #1A1917,' '  color: #fff !important;'; do
+    grep -qE "$HEX_COLOR_PAT" <<<"$s" || { echo "::error:: hex pattern MISSED a color: $s"; rc=1; }
+  done
+  # MUST NOT match — issue references, the false-positive class this pattern exists
+  # to exclude. A bare ref, and the quote/colon-adjacent forms that #2651 fixed.
+  for s in '// plain bare ref #2640 in prose' '/* the "#2495 scope boundary" test */' \
+           'That is deliberate: #1788 tuned the phone bar'; do
+    grep -qE "$HEX_COLOR_PAT" <<<"$s" && { echo "::error:: hex pattern COUNTED an issue ref: $s"; rc=1; }
+  done
+  return $rc
+}
+if ! hex_pat_self_test; then
+  echo "design-system-v2: HEX_COLOR_PAT is broken — refusing to report a count it cannot be trusted to produce."
+  exit 1
+fi
 
 # grep wrapper for the count pipelines below. grep exits 1 on "no match", which
 # under `set -euo pipefail` would kill the gate the moment a count legitimately
