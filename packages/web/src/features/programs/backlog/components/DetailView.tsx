@@ -1,19 +1,30 @@
 /**
  * Right-pane detail/edit view for a selected item.
  *
- * Editable fields (description, type, status, tags) stage into a local draft;
- * an inline "Unsaved changes" banner (never a modal) offers Save / Discard
- * while the draft diverges from the server copy. The status dropdown omits
- * PULLED — that transition only happens through the Pull action (ADR-0069).
- * PULLED items show the linked-task card and a brief "Send back to proposed"
- * escape hatch. (The API models no assignee, so there is no owner field.)
+ * Editable fields (description, type, status, tags) stage into a local draft
+ * behind a single deferred Save/Cancel bar (web-rule 217) — the shared
+ * `useDirtyDraft` + `DialogFooter` + `useUnsavedChangesGuard` +
+ * `UnsavedChangesDialog` contract from `@/components/dialog`, the same one
+ * `DetailCreate` already uses (#2668, consolidating the drawer's previous
+ * two independent "Save changes" buttons into one). The status dropdown
+ * omits PULLED — that transition only happens through the Pull action
+ * (ADR-0069). PULLED items show the linked-task card and a brief "Send back
+ * to proposed" escape hatch. (The API models no assignee, so there is no
+ * owner field.)
  *
  * The parent keys this component by item id, so selecting a different row
  * remounts it with a fresh draft.
  */
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { CloseIcon, ExternalLinkIcon } from '@/components/Icons';
+import {
+  DialogFooter,
+  UnsavedChangesDialog,
+  useDirtyDraft,
+  useUnsavedChangesGuard,
+} from '@/components/dialog';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import {
   BACKLOG_ITEM_TYPES,
   SETTABLE_STATUSES,
@@ -24,14 +35,7 @@ import {
 import { ItemTypeBadge } from './ItemTypeBadge';
 import { StatusChip } from './StatusChip';
 import { TagInput } from './TagInput';
-import {
-  BTN_DANGER,
-  BTN_GHOST,
-  BTN_PRIMARY,
-  BTN_SECONDARY,
-  FOCUS_RING,
-  INPUT_BASE,
-} from './styles';
+import { BTN_DANGER, BTN_GHOST, BTN_PRIMARY, FOCUS_RING, INPUT_BASE } from './styles';
 import { StoryPointField } from '@/features/backlog/StoryPointField';
 import { formatStoryPoints } from '@/lib/storyPoints';
 import type { EstimationScale } from '@/api/types';
@@ -76,7 +80,12 @@ export interface DetailViewProps {
   canEdit: boolean;
   canDelete: boolean;
   onClose: () => void;
-  onSave: (patch: Partial<BacklogItem>) => void;
+  /**
+   * Resolves once the PATCH round-trips (rejects on failure) so the drawer can
+   * re-baseline the draft on success and keep it dirty — with a visible error —
+   * on failure (#2668; previously fire-and-forget with no save feedback at all).
+   */
+  onSave: (patch: Partial<BacklogItem>) => Promise<void>;
   onArchive: () => void;
   onRestore: () => void;
   onDelete: () => void;
@@ -100,33 +109,54 @@ export function DetailView({
   onPull,
   onOpenLinkedTask,
 }: DetailViewProps) {
-  const [draft, setDraft] = useState<DetailDraft>(() => toDraft(item));
+  // Draft/baseline/dirty + revert + post-save re-snapshot — the shared
+  // editable-surface contract (web-rule 217), replacing the hand-rolled copy
+  // that compared against the live `item` prop every render (and so never
+  // noticed a dirty draft belonged to a *different* item once #2668 wired up
+  // the missing `key` on this component).
+  const { draft, setField, dirty, reset, commit } = useDirtyDraft<DetailDraft>(toDraft(item));
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  const dirty = useMemo(() => {
-    const base = toDraft(item);
-    return (
-      base.description !== draft.description ||
-      base.itemType !== draft.itemType ||
-      base.status !== draft.status ||
-      base.tags.join(' ') !== draft.tags.join(' ') ||
-      base.storyPoints !== draft.storyPoints
-    );
-  }, [item, draft]);
+  // The wrapping mobile BottomSheet already handles Escape/scrim dismissal, so
+  // the desktop pane owns the Escape-to-close guard; on mobile it would double
+  // up with the sheet's own listener (mirrors DetailCreate, web-rule 217).
+  const isDesktop = useBreakpoint() !== 'sm';
+  const { requestClose, guardOpen, keepEditing, discard } = useUnsavedChangesGuard({
+    dirty,
+    onClose,
+    escapeToClose: isDesktop,
+  });
 
-  function save() {
-    onSave({
-      description: draft.description.trim() || undefined,
-      itemType: draft.itemType,
-      status: draft.status,
-      tags: draft.tags,
-      storyPoints: draft.storyPoints,
-    });
+  async function save() {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await onSave({
+        description: draft.description.trim() || undefined,
+        itemType: draft.itemType,
+        status: draft.status,
+        tags: draft.tags,
+        storyPoints: draft.storyPoints,
+      });
+      commit();
+    } catch {
+      setSaveError('Could not save. Try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   const recentlyPulled =
     item.status === 'PULLED' &&
     !!item.pulledTo &&
     Date.now() - new Date(item.pulledTo.at).getTime() < SEND_BACK_WINDOW_MS;
+
+  // The status-action footer below is worth rendering only when it has
+  // something in it — a PULLED item outside the send-back window has no
+  // action left (Save now lives in the deferred bar above), so skip the
+  // otherwise-empty bar rather than show a bare border (#2668).
+  const showActionFooter = item.status !== 'PULLED' || recentlyPulled;
 
   return (
     <div className="flex h-full flex-col bg-neutral-surface">
@@ -146,7 +176,7 @@ export function DetailView({
         </div>
         <button
           type="button"
-          onClick={onClose}
+          onClick={requestClose}
           aria-label="Close details"
           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken ${FOCUS_RING}`}
         >
@@ -154,19 +184,21 @@ export function DetailView({
         </button>
       </div>
 
-      {/* Unsaved-changes banner (inline, not a modal) */}
+      {/* Deferred Save/Cancel bar (web-rule 217) — the drawer's ONE commit
+          affordance. It sits above the scrollable body, not inside it, so the
+          tag combobox's popover — which opens downward from the Tags field
+          near the bottom of the body — can never land on top of it (#2668:
+          previously the second, disabled "Save changes" button lived in the
+          footer below the body, squarely under that popover). */}
       {dirty && (
-        <div className="flex items-center justify-between gap-3 border-b border-brand-accent-dark/40 bg-brand-accent-light px-5 py-2">
-          <span className="text-xs font-medium text-neutral-text-primary">Unsaved changes</span>
-          <div className="flex items-center gap-2">
-            <button type="button" className={BTN_GHOST} onClick={() => setDraft(toDraft(item))}>
-              Discard
-            </button>
-            <button type="button" className={BTN_PRIMARY} onClick={save}>
-              Save changes
-            </button>
-          </div>
-        </div>
+        <DialogFooter
+          onSave={() => void save()}
+          onCancel={reset}
+          saving={saving}
+          error={saveError}
+          saveLabel="Save changes"
+          cancelLabel="Discard"
+        />
       )}
 
       {/* Body */}
@@ -177,7 +209,7 @@ export function DetailView({
         {canEdit ? (
           <textarea
             value={draft.description}
-            onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
+            onChange={(e) => setField('description', e.target.value)}
             placeholder="No description yet. Click to add one."
             rows={4}
             className={`mt-1 resize-y py-1.5 ${INPUT_BASE}`}
@@ -202,11 +234,8 @@ export function DetailView({
                 // Switching to a container type (epic/feature) drops the now-hidden
                 // points so a leaf estimate never persists silently on a container.
                 const next = e.target.value as BacklogItemType;
-                setDraft((d) => ({
-                  ...d,
-                  itemType: next,
-                  storyPoints: itemTypeShowsPoints(next) ? d.storyPoints : null,
-                }));
+                setField('itemType', next);
+                if (!itemTypeShowsPoints(next)) setField('storyPoints', null);
               }}
               className={`h-8 ${INPUT_BASE}`}
             >
@@ -229,9 +258,7 @@ export function DetailView({
             <select
               id={`${item.id}-status`}
               value={draft.status}
-              onChange={(e) =>
-                setDraft((d) => ({ ...d, status: e.target.value as BacklogItem['status'] }))
-              }
+              onChange={(e) => setField('status', e.target.value as BacklogItem['status'])}
               className={`h-8 ${INPUT_BASE}`}
             >
               {SETTABLE_STATUSES.map((s) => (
@@ -246,7 +273,14 @@ export function DetailView({
 
           <span className="text-neutral-text-secondary">Priority</span>
           <span className="tppm-mono tabular-nums text-neutral-text-primary">
-            #{item.priorityRank}
+            {/* Null is a real, common state — nothing assigns a rank until
+                #2668 wired `nextPriorityRank` into create — so it renders as an
+                explicit dash, never a bare, meaning-nothing "#". */}
+            {item.priorityRank === null ? (
+              <span className="text-neutral-text-disabled">—</span>
+            ) : (
+              `#${item.priorityRank}`
+            )}
           </span>
 
           {/* Points are relevant only for leaf work items — Epics/Features hide
@@ -262,7 +296,7 @@ export function DetailView({
                   id={`${item.id}-points`}
                   scale={estimationScale}
                   value={draft.storyPoints}
-                  onChange={(next) => setDraft((d) => ({ ...d, storyPoints: next }))}
+                  onChange={(next) => setField('storyPoints', next)}
                   ariaLabel="Story points"
                   size="md"
                   className="w-24"
@@ -283,7 +317,7 @@ export function DetailView({
           {canEdit ? (
             <TagInput
               tags={draft.tags}
-              onChange={(tags) => setDraft((d) => ({ ...d, tags }))}
+              onChange={(tags) => setField('tags', tags)}
               suggestions={tagSuggestions}
               id={`${item.id}-tags`}
             />
@@ -336,8 +370,10 @@ export function DetailView({
         )}
       </div>
 
-      {/* Footer — actions vary by status */}
-      {canEdit && (
+      {/* Footer — status-specific actions only. Save/Cancel lives in the
+          deferred bar above (#2668 removed the duplicate, disabled
+          "Save changes" button that used to live here). */}
+      {canEdit && showActionFooter && (
         <div className="flex items-center gap-2 border-t border-neutral-border bg-neutral-surface-raised px-5 py-3">
           {item.status === 'PROPOSED' && (
             <>
@@ -345,26 +381,15 @@ export function DetailView({
                 Archive
               </button>
               <span className="flex-1" />
-              <button type="button" className={BTN_SECONDARY} onClick={save} disabled={!dirty}>
-                Save changes
-              </button>
               <button type="button" className={BTN_PRIMARY} onClick={onPull}>
                 Pull to project…
               </button>
             </>
           )}
-          {item.status === 'PULLED' && (
-            <>
-              {recentlyPulled && (
-                <button type="button" className={BTN_GHOST} onClick={onSendBack}>
-                  Send back to proposed
-                </button>
-              )}
-              <span className="flex-1" />
-              <button type="button" className={BTN_SECONDARY} onClick={save} disabled={!dirty}>
-                Save changes
-              </button>
-            </>
+          {item.status === 'PULLED' && recentlyPulled && (
+            <button type="button" className={BTN_GHOST} onClick={onSendBack}>
+              Send back to proposed
+            </button>
           )}
           {item.status === 'ARCHIVED' && (
             <>
@@ -381,6 +406,8 @@ export function DetailView({
           )}
         </div>
       )}
+
+      {guardOpen && <UnsavedChangesDialog onKeepEditing={keepEditing} onDiscard={discard} />}
     </div>
   );
 }

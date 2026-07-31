@@ -17,6 +17,15 @@ export interface CreateBacklogItemInput {
   description?: string;
   tags: string[];
   storyPoints?: number | null;
+  /**
+   * Rank for a freshly created item. Optional here because a caller that
+   * doesn't care about ordering (e.g. a direct test) can omit it — but
+   * `useBacklogController.createItem` always supplies `nextPriorityRank(allItems)`
+   * (#2668: previously nothing ever assigned a rank on create, so every item
+   * created through the UI kept `priority_rank = null` forever, and the
+   * toolbar's "Sorted by priority" label was vacuous).
+   */
+  priorityRank?: number | null;
 }
 
 export interface BacklogMutations {
@@ -50,6 +59,7 @@ export function useBacklogMutations(programId: string | undefined): BacklogMutat
         description: input.description?.trim() ?? '',
         tags: input.tags,
         story_points: input.storyPoints ?? null,
+        priority_rank: input.priorityRank ?? null,
       });
       const item = fromApiItem(res.data);
       upsertInCache(item);

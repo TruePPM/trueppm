@@ -66,13 +66,19 @@ export function DetailPane({ controller }: DetailPaneProps) {
   if (selectedItem) {
     return (
       <DetailView
+        // Remounts the drawer with a fresh draft on every row switch (#2668 —
+        // previously unkeyed, so selecting a different row left the prior
+        // item's in-progress draft mounted against the new item's props
+        // instead of discarding it, and could silently compute `dirty` off a
+        // stale comparison).
+        key={selectedItem.id}
         item={selectedItem}
         tagSuggestions={tagUniverse}
         estimationScale={estimationScale}
         canEdit={canEdit}
         canDelete={canDelete}
         onClose={url.closeDetail}
-        onSave={(patch) => void controller.updateItem(selectedItem.id, patch)}
+        onSave={(patch) => controller.updateItem(selectedItem.id, patch)}
         onArchive={() => void controller.archiveItem(selectedItem.id)}
         onRestore={() => void controller.restoreItem(selectedItem.id)}
         onDelete={() => {

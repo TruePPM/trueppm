@@ -56,10 +56,27 @@ export function filterItems(items: BacklogItem[], filters: BacklogFilters): Back
   });
 }
 
-/** Sort by priorityRank ascending, then createdAt descending within a rank. */
+/**
+ * Sort by priorityRank ascending, then createdAt descending within a rank.
+ *
+ * `priorityRank` is nullable (#2668 — the server field is nullable and
+ * nothing assigned a rank on create for a long time, so an all-null pool is a
+ * real state, not just a transient one). A null coerces to `0` under bare
+ * arithmetic, which silently sorted every unranked item *ahead* of every
+ * ranked one — the toolbar's "Sorted by priority" label was vacuous on any
+ * pool created through the UI. Null is treated as "lowest priority" instead:
+ * it always sorts after a numeric rank, and two nulls fall back to the
+ * createdAt tiebreak like any tied rank.
+ */
 export function sortItems(items: BacklogItem[]): BacklogItem[] {
   return [...items].sort((a, b) => {
-    if (a.priorityRank !== b.priorityRank) return a.priorityRank - b.priorityRank;
+    const ar = a.priorityRank;
+    const br = b.priorityRank;
+    if (ar !== br) {
+      if (ar === null) return 1;
+      if (br === null) return -1;
+      return ar - br;
+    }
     return b.createdAt.localeCompare(a.createdAt);
   });
 }
@@ -108,7 +125,17 @@ export function distinctTags(items: BacklogItem[]): string[] {
   return [...seen].sort((a, b) => a.localeCompare(b));
 }
 
-/** Next priorityRank for a freshly created item (bottom of the list). */
+/**
+ * Next priorityRank for a freshly created item (bottom of the list). Null
+ * ranks (an item created before this was wired up, or never ranked) are
+ * excluded from the max rather than coerced to 0, so one stray unranked item
+ * can't drag every future create back down to rank 1.
+ */
 export function nextPriorityRank(items: BacklogItem[]): number {
-  return items.reduce((max, item) => Math.max(max, item.priorityRank), 0) + 1;
+  return (
+    items.reduce(
+      (max, item) => (item.priorityRank === null ? max : Math.max(max, item.priorityRank)),
+      0,
+    ) + 1
+  );
 }

@@ -150,6 +150,20 @@ describe('TagInput empty states', () => {
     expect(onChange).not.toHaveBeenCalled();
     expect(screen.getByRole('status')).toHaveTextContent('No tags yet');
   });
+
+  // #2668: `filtered` (program suggestions minus tags already on this item) is
+  // empty for two very different reasons, and only one of them means the
+  // program has no tags. When every existing suggestion is already a chip on
+  // this item, saying "No tags yet" is false — tags are visibly attached.
+  it('distinguishes "every tag already added" from a genuinely tag-less program', async () => {
+    const { onChange, user } = setup({ tags: ['bug', 'ui'], suggestions: ['bug', 'ui'] });
+    await user.click(screen.getByRole('combobox', { name: 'Add a tag' }));
+    expect(screen.queryAllByRole('option')).toHaveLength(0);
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'All existing tags are already added — type to create a new one.',
+    );
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });
 
 describe('TagInput ARIA wiring', () => {
