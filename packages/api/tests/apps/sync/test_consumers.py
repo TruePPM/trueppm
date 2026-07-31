@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from contextlib import ExitStack
 from datetime import date
 from typing import Any
@@ -1115,3 +1117,99 @@ async def test_rejected_connect_does_not_discount_gauge(project: Project) -> Non
 
         await consumer.disconnect(4001)
         closed.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Presence — the keepalive that stops the roster emptying (#2607)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_presence_keepalive_rearms_the_ttl_while_the_socket_is_idle() -> None:
+    """The roster must reflect who is connected, not who is generating traffic.
+
+    The TTL used to be refreshed only from ``receive_json`` — a heartbeat no
+    client sends (the web project socket is receive-only), so the roster emptied
+    about a minute into every session while everyone was still connected. This
+    asserts the refresh happens with **zero** inbound frames, which is the exact
+    condition that was broken.
+
+    The interval is patched to something tiny so the test does not sleep for 30
+    real seconds; the production value is asserted separately below, since a test
+    that only ever sees a patched interval cannot notice the real one drifting
+    above the TTL.
+    """
+    from trueppm_api.apps.sync import consumers as consumers_mod
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    consumer = ProjectConsumer()
+    consumer.project_pk = "11111111-1111-1111-1111-111111111111"
+
+    mock_redis = AsyncMock()
+    mock_redis.expire = AsyncMock()
+
+    with (
+        patch.object(consumers_mod, "_PRESENCE_REFRESH_INTERVAL", 0.01),
+        patch(
+            "trueppm_api.apps.sync.consumers.ProjectConsumer._get_redis",
+            new=AsyncMock(return_value=mock_redis),
+        ),
+    ):
+        task = asyncio.create_task(consumer._presence_keepalive())
+        await asyncio.sleep(0.05)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    assert mock_redis.expire.await_count >= 2, "keepalive did not re-arm the TTL"
+    key, ttl = mock_redis.expire.await_args.args
+    assert key == f"project:{consumer.project_pk}:presence"
+    assert ttl == consumers_mod._PRESENCE_TTL
+
+
+def test_presence_refresh_interval_is_below_the_ttl() -> None:
+    """A refresh interval at or above the TTL reintroduces the bug silently.
+
+    Nothing else would fail: the keepalive would still run, just always a beat
+    late, and the roster would empty exactly as it did before — which is why this
+    relationship is asserted rather than left to the constant's comment.
+    """
+    from trueppm_api.apps.sync import consumers as consumers_mod
+
+    assert 0 < consumers_mod._PRESENCE_REFRESH_INTERVAL < consumers_mod._PRESENCE_TTL
+
+
+@pytest.mark.asyncio
+async def test_presence_keepalive_survives_a_redis_failure() -> None:
+    """A Redis blip must cost one refresh, not the whole socket.
+
+    The keepalive runs as a bare task; an escaping exception would surface as an
+    unhandled task error and, worse, silently stop refreshing for a connection
+    that is otherwise perfectly healthy — trading a supporting affordance for a
+    live collaboration session.
+    """
+    from trueppm_api.apps.sync import consumers as consumers_mod
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    consumer = ProjectConsumer()
+    consumer.project_pk = "22222222-2222-2222-2222-222222222222"
+
+    mock_redis = AsyncMock()
+    mock_redis.expire = AsyncMock(side_effect=[ConnectionError("valkey down"), None, None])
+
+    with (
+        patch.object(consumers_mod, "_PRESENCE_REFRESH_INTERVAL", 0.01),
+        patch(
+            "trueppm_api.apps.sync.consumers.ProjectConsumer._get_redis",
+            new=AsyncMock(return_value=mock_redis),
+        ),
+    ):
+        task = asyncio.create_task(consumer._presence_keepalive())
+        await asyncio.sleep(0.05)
+        still_running = not task.done()
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    assert still_running, "keepalive died on a transient Redis error"
+    assert mock_redis.expire.await_count >= 2, "keepalive stopped refreshing after the failure"
