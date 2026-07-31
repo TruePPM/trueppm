@@ -13,6 +13,22 @@ TruePPM's open-source Community Edition is licensed under the [Apache License 2.
 
 The authoritative text is the [`LICENSE`](https://gitlab.com/trueppm/trueppm/-/blob/main/LICENSE) file at the repository root. If anything on this page ever disagrees with that file, the file wins.
 
+### Where the license text travels
+
+Apache 2.0 §4(a) requires anyone who receives a distribution to receive a copy of the License with it. The root `LICENSE` covers the repository, but it does not follow an artifact that leaves the repository on its own — so each separately-distributed package carries its own identical copy:
+
+| Package | How it is distributed | Carries `LICENSE` |
+|---|---|---|
+| `trueppm-scheduler` | PyPI wheel / sdist | yes |
+| `trueppm-mcp` | PyPI wheel / sdist | yes |
+| `wasm-scheduler` | publishable crate; compiled `.wasm` in the web bundle | yes |
+| `mobile` | app binary installed on a device | yes |
+| `helm` | packaged chart tarball | yes |
+
+`api`, `web` and `website` are not separately distributed — they ship inside the API Docker image or the docs site, both of which carry the root `LICENSE` and `NOTICES`.
+
+A CI gate (`lint:package-licenses`) enforces this. It also fails if a new directory appears under `packages/` without being classified as distributed or bundled, so the list cannot quietly go stale.
+
 ## What "Community Edition" includes
 
 Everything a project manager and their team need to run a program is in the Apache 2.0 Community Edition: the scheduling engine (CPM, Monte Carlo), the schedule view, Kanban boards and sprints, real-time collaboration, offline sync, 5-role RBAC, baseline comparison, MS Project import/export, the REST and WebSocket API, and the Helm chart. Three more Community-Edition capabilities are on the way but not yet shipped, all landing in 0.4: basic single sign-on (OIDC/OAuth login against your own identity provider), time tracking with a weekly timesheet, and in-app baseline capture. Every one of them is in the open core, not behind the enterprise boundary.
