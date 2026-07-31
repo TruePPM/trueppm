@@ -67,6 +67,8 @@ interface CeremonyRowProps {
   ceremony: CeremonyTemplate;
   isLast: boolean;
   canEdit: boolean;
+  /** Admin viewing a closed program — picks the read-only provenance text. */
+  closedToAdmin: boolean;
   isToggling: boolean;
   onToggle: () => void;
   onEdit: () => void;
@@ -77,6 +79,7 @@ function CeremonyRow({
   ceremony,
   isLast,
   canEdit,
+  closedToAdmin,
   isToggling,
   onToggle,
   onEdit,
@@ -142,7 +145,11 @@ function CeremonyRow({
           <ReadOnlyIndicator
             label={ceremony.name}
             value={ceremony.enabled ? 'On' : 'Off'}
-            provenance="managed by the program admin"
+            provenance={
+              closedToAdmin
+                ? 'program is closed — reopen it to change this'
+                : 'managed by the program admin'
+            }
             filled={ceremony.enabled}
             compact
           />
@@ -280,7 +287,13 @@ export function ProgramCadencePage() {
 
   if (!programId) return null;
 
-  const canEdit = (program?.my_role ?? -1) >= ROLE_ADMIN;
+  // `!is_closed` is folded in per #2549: CeremonyTemplateViewSet and
+  // PhaseGateConfigView writes are both gated by IsProgramNotClosed, so an Admin
+  // on a closed program would otherwise see live Add/Edit/Delete/Configure
+  // controls that every one of them 403s.
+  const isAdmin = (program?.my_role ?? -1) >= ROLE_ADMIN;
+  const canEdit = isAdmin && !program?.is_closed;
+  const closedToAdmin = isAdmin && program?.is_closed === true;
 
   async function handleToggle(ceremony: CeremonyTemplate): Promise<void> {
     setTogglingId(ceremony.id);
@@ -319,6 +332,13 @@ export function ProgramCadencePage() {
             >
               + Add ceremony
             </button>
+          ) : closedToAdmin ? (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-medium bg-neutral-surface-sunken text-neutral-text-secondary"
+              title="This program is closed and cannot be modified. Reopen it first."
+            >
+              Read-only — program closed
+            </span>
           ) : undefined
         }
       />
@@ -366,7 +386,9 @@ export function ProgramCadencePage() {
                 </button>
               ) : (
                 <p className="mt-4 text-[12px] text-neutral-text-secondary italic">
-                  Program admins can configure ceremonies for this program.
+                  {closedToAdmin
+                    ? 'This program is closed — reopen it to configure ceremonies.'
+                    : 'Program admins can configure ceremonies for this program.'}
                 </p>
               )}
             </div>
@@ -380,6 +402,7 @@ export function ProgramCadencePage() {
                 ceremony={c}
                 isLast={i === ceremonies.length - 1}
                 canEdit={canEdit}
+                closedToAdmin={closedToAdmin}
                 isToggling={togglingId === c.id}
                 onToggle={() => void handleToggle(c)}
                 onEdit={() => setEditing(c)}

@@ -117,6 +117,26 @@ describe('ProgramCalendarPage', () => {
     ).toBeInTheDocument();
   });
 
+  // #2549: ProgramViewSet.update/partial_update is gated by IsProgramNotClosed,
+  // so an Admin on a closed program must not see a live, saveable picker.
+  it('renders the picker read-only for an Admin on a closed program, and says why', () => {
+    vi.mocked(useProgram).mockReturnValue({
+      data: makeProgram({ is_closed: true }),
+      isLoading: false,
+    } as unknown as ReturnType<typeof useProgram>);
+
+    renderPage();
+    expect(screen.queryByRole('combobox', { name: /Working calendar override/i })).toBeNull();
+    expect(
+      screen.getByLabelText(
+        'Working calendar: Inherited from workspace, program is closed — reopen it to change this. View only.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTitle('This program is closed and cannot be modified. Reopen it first.'),
+    ).toHaveTextContent(/Read-only — program closed/i);
+  });
+
   it('renders the picker read-only for a non-admin member', () => {
     vi.mocked(useProgram).mockReturnValue({
       data: makeProgram({ my_role: ROLE_MEMBER }),

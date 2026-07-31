@@ -72,7 +72,12 @@ function stakeholderFixture(overrides: Record<string, unknown> = {}) {
 
 async function setup(
   page: Page,
-  opts: { myRole?: number; stakeholders?: unknown[]; viewerMemberCount?: number } = {},
+  opts: {
+    myRole?: number;
+    stakeholders?: unknown[];
+    viewerMemberCount?: number;
+    isClosed?: boolean;
+  } = {},
 ) {
   await page.addInitScript(() => {
     localStorage.setItem(
@@ -85,7 +90,11 @@ async function setup(
   });
 
   const pj = (data: unknown) => JSON.stringify(data);
-  const program = { ...FIXTURE_PROGRAM, my_role: opts.myRole ?? 400 };
+  const program = {
+    ...FIXTURE_PROGRAM,
+    my_role: opts.myRole ?? 400,
+    is_closed: opts.isClosed ?? false,
+  };
 
   // Catch-all FIRST so an unmocked endpoint returns a typed 404 instead of
   // falling through and 401ing, which trips the token-refresh session
@@ -145,11 +154,27 @@ async function setup(
     }),
   );
 
+  // #2549: the real server 403s create/update/destroy on a closed program
+  // (IsProgramNotClosed) — mirror that here so a regression that renders the
+  // affordance anyway would still be caught by a failed click, not a silent
+  // success that only the UI-level assertions would notice.
+  const CLOSED_DETAIL = {
+    detail: 'This program is closed and cannot be modified. Reopen it first.',
+  };
+
   // Stateful stakeholder registry — list + create + delete. Registered LAST so it
   // wins the exact URL over the catch-all.
   const stakeholders = [...(opts.stakeholders ?? [])] as Record<string, unknown>[];
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/external-stakeholders/`, async (route) => {
     if (route.request().method() === 'POST') {
+      if (opts.isClosed) {
+        await route.fulfill({
+          status: 403,
+          contentType: 'application/json',
+          body: pj(CLOSED_DETAIL),
+        });
+        return;
+      }
       const body = route.request().postDataJSON() as {
         name: string;
         email: string;
@@ -178,6 +203,10 @@ async function setup(
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/external-stakeholders/*/`, async (route) => {
     const id = route.request().url().split('/').filter(Boolean).pop();
     const idx = stakeholders.findIndex((s) => s.id === id);
+    if (opts.isClosed && ['DELETE', 'PATCH'].includes(route.request().method())) {
+      await route.fulfill({ status: 403, contentType: 'application/json', body: pj(CLOSED_DETAIL) });
+      return;
+    }
     if (route.request().method() === 'DELETE') {
       if (idx >= 0) stakeholders.splice(idx, 1);
       await route.fulfill({ status: 204, body: '' });
@@ -351,6 +380,47 @@ test.describe('Program Settings → External stakeholders', () => {
 
     await expect(page.getByText('1 external contact — listed only.')).toBeVisible();
     await expect(page.getByText(/Viewer-role member/)).toHaveCount(0);
+  });
+
+  // #2549 — a CLOSED program 403s every write on this viewset, even for an Admin.
+  // The Add/Edit/Remove affordances must fold that in rather than gating on role
+  // alone, so the user never gets to click a control that only then 403s.
+  test('an Admin on a CLOSED program sees no Add/Edit/Remove affordances, and why', async ({
+    page,
+  }) => {
+    await setup(page, { stakeholders: [stakeholderFixture()], isClosed: true });
+    await page.goto(`/programs/${PROGRAM_ID}/settings/stakeholders`);
+
+    await expect(page.getByRole('heading', { name: 'External stakeholders' })).toBeVisible();
+    await expect(page.getByText('Jane Client')).toBeVisible();
+
+    await expect(page.getByRole('form', { name: 'Add external stakeholder' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Edit Jane Client' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Remove Jane Client' })).toHaveCount(0);
+    // Scoped to this section: the settings shell renders every section in one
+    // scroll, so an unscoped query would also match the "Read-only — program
+    // closed" pill this same fix adds to the sibling General/Access/Cadence/
+    // Calendar/Risk-policy sections on this same closed program.
+    await expect(
+      page
+        .getByRole('region', { name: /External stakeholders/i })
+        .getByText('Read-only — program closed'),
+    ).toBeVisible();
+  });
+
+  // Regression coverage for the normal path: an Admin on an OPEN program still
+  // gets the full Add/Edit/Remove affordance set (this is the golden-path test
+  // above re-asserted from the closed-program angle, so a future change to the
+  // closed gate can't silently widen and hide controls on open programs too).
+  test('an Admin on an OPEN program still gets Add/Edit/Remove', async ({ page }) => {
+    await setup(page, { stakeholders: [stakeholderFixture()], isClosed: false });
+    await page.goto(`/programs/${PROGRAM_ID}/settings/stakeholders`);
+
+    await expect(page.getByRole('heading', { name: 'External stakeholders' })).toBeVisible();
+    await expect(page.getByRole('form', { name: 'Add external stakeholder' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Edit Jane Client' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Remove Jane Client' })).toBeVisible();
+    await expect(page.getByText('Read-only — program closed')).toHaveCount(0);
   });
 
   // Rule 248 covers chunk- and query-loading alike (#2431): the loading state is a

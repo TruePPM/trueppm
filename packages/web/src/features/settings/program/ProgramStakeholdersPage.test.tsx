@@ -37,8 +37,12 @@ vi.mock('../hooks/useProgramExternalStakeholders', () => ({
   }),
 }));
 
-const ADMIN = { id: 'p-1', name: 'Phase 2', my_role: 300 };
-const VIEWER = { id: 'p-1', name: 'Phase 2', my_role: ROLE_VIEWER };
+const ADMIN = { id: 'p-1', name: 'Phase 2', my_role: 300, is_closed: false };
+const VIEWER = { id: 'p-1', name: 'Phase 2', my_role: ROLE_VIEWER, is_closed: false };
+// #2549: an Admin on a CLOSED program — create/update/destroy on this viewset
+// all 403 server-side (IsProgramNotClosed), so the affordances must fold in
+// `is_closed` rather than gating on role alone.
+const CLOSED_ADMIN = { id: 'p-1', name: 'Phase 2', my_role: 300, is_closed: true };
 
 const STAKEHOLDER = {
   id: 's-1',
@@ -173,6 +177,69 @@ describe('ProgramStakeholdersPage (settings)', () => {
     expect(screen.queryByRole('button', { name: /Remove Dana Client/i })).not.toBeInTheDocument();
     // #2530: edit is Admin+ only — a viewer gets no edit affordance at all.
     expect(screen.queryByRole('button', { name: /Edit Dana Client/i })).not.toBeInTheDocument();
+  });
+
+  // #2549 — a closed program 403s every write on this viewset even for an Admin.
+  describe('closed program (#2549)', () => {
+    it('hides the add form and every row Edit/Remove control for an Admin, and says why', () => {
+      useProgram.mockReturnValue({ data: CLOSED_ADMIN });
+      useProgramExternalStakeholders.mockReturnValue({
+        data: [STAKEHOLDER],
+        isLoading: false,
+        isError: false,
+      });
+      renderPage();
+
+      expect(screen.getByText('Dana Client')).toBeInTheDocument();
+      expect(
+        screen.queryByRole('form', { name: /Add external stakeholder/i }),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Edit Dana Client/i })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: /Remove Dana Client/i }),
+      ).not.toBeInTheDocument();
+
+      const notice = screen.getByTitle(
+        'This program is closed and cannot be modified. Reopen it first.',
+      );
+      expect(notice).toHaveTextContent(/Read-only — program closed/i);
+    });
+
+    it('does not show the closed notice for a non-admin (silent, unchanged)', () => {
+      useProgram.mockReturnValue({ data: VIEWER });
+      useProgramExternalStakeholders.mockReturnValue({
+        data: [STAKEHOLDER],
+        isLoading: false,
+        isError: false,
+      });
+      renderPage();
+
+      expect(screen.queryByText(/Read-only — program closed/i)).not.toBeInTheDocument();
+    });
+
+    it('still fetches and shows the mention-reach read for an Admin on a closed program', () => {
+      useProgram.mockReturnValue({ data: CLOSED_ADMIN });
+      useProgramExternalStakeholders.mockReturnValue({
+        data: [STAKEHOLDER],
+        isLoading: false,
+        isError: false,
+      });
+      renderPage();
+
+      // The reach read has no IsProgramNotClosed gate (kept for forensics), so an
+      // Admin must keep getting it even though the write affordances are gone.
+      expect(useProgramMentionReach).toHaveBeenCalledWith('p-1', true);
+      expect(document.body.textContent).toContain('6 Viewer-role members get an in-app notification');
+    });
+
+    it('empty state omits the "Add one below" hint on a closed program', () => {
+      useProgram.mockReturnValue({ data: CLOSED_ADMIN });
+      useProgramExternalStakeholders.mockReturnValue({ data: [], isLoading: false, isError: false });
+      renderPage();
+
+      expect(screen.getByRole('status')).toHaveTextContent(/No external stakeholders yet/i);
+      expect(screen.queryByText(/Add one below/i)).not.toBeInTheDocument();
+    });
   });
 
   it('submits the add form with the trimmed name + email', async () => {
