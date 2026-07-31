@@ -79,8 +79,14 @@ class TestRootAutoWbs:
         assert r.status_code == 201
         assert r.data["wbs_path"] == "2"
 
-    def test_explicit_wbs_path_respected(self, client: APIClient, project: Project) -> None:
-        """If the client supplies wbs_path, it must not be overridden."""
+    def test_explicit_wbs_path_ignored(self, client: APIClient, project: Project) -> None:
+        """A client-supplied wbs_path is ignored; the server assigns placement.
+
+        ``wbs_path`` became read-only in #2585 (ADR-0743): a writable path let a
+        caller relocate a task anywhere in the tree, bypassing every create-time
+        placement guard. The field is now server-managed on create as on update, so
+        the supplied "5" is dropped and root auto-numbering assigns "1".
+        """
         payload = {
             "project": str(project.pk),
             "name": "T1",
@@ -89,7 +95,7 @@ class TestRootAutoWbs:
         }
         r = client.post(URL, payload, format="json")
         assert r.status_code == 201
-        assert r.data["wbs_path"] == "5"
+        assert r.data["wbs_path"] == "1"
 
 
 @pytest.mark.django_db

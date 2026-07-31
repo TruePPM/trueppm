@@ -160,6 +160,18 @@ export interface Task {
    */
   canEdit?: boolean;
   canDelete?: boolean;
+  /**
+   * Server-derived estimate-write capability (ADR-0743, #2596). Wire key
+   * `can_edit_estimates`, mapped in `mapTask`.
+   *
+   * Distinct from `canEdit`: under `estimation_mode = 'pm_only'` a Team Member may
+   * edit the task but not its three-point estimates, which `canEdit` alone cannot
+   * express. Gate estimate inputs off this rather than re-deriving
+   * `mode === 'pm_only' && !userIsScheduler` — that derivation was the *only*
+   * enforcement before #2596, and a disabled input is not an authorization control.
+   * `undefined` on rows that predate the field; callers fall back to the mode check.
+   */
+  canEditEstimates?: boolean;
   /** ISO date string — when work actually started */
   actualStart?: string;
   /** ISO date string — when work actually finished */

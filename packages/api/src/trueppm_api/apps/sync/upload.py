@@ -53,9 +53,18 @@ WRITABLE_COLLECTIONS = frozenset({"tasks"})
 # Fields the apply layer controls itself — stripped from every incoming row so a
 # client cannot reparent a task to another project or forge identity/version.
 # (CPM-output and sync-bookkeeping fields are already read-only on TaskSerializer
-# and dropped on input automatically.) ``wbs_path`` is writable on TaskSerializer
-# but the WBS tree is server-managed — stripping it here keeps the upload from
-# corrupting the hierarchy without going through the reparent logic.
+# and dropped on input automatically.)
+#
+# ``wbs_path`` is now **also** read-only on TaskSerializer (ADR-0743, #2585), so
+# apply — which reuses that serializer — would drop it regardless. It is retained
+# here as defense-in-depth, the additive pattern ADR-0184 established: the
+# declaration is authoritative, this strip is a second expression of it.
+#
+# Do NOT extend this set with ``is_subtask`` or ``parent_governance_inherited``.
+# They are read-only on TaskSerializer too, which covers the REST path and this one
+# from a single declaration. Re-stating the rule here is exactly how enforcement
+# drifted apart before: the strip set had ``wbs_path`` while the serializer did not,
+# so sync was guarded and PATCH was not.
 _STRIPPED_ROW_KEYS = frozenset({"id", "project", "wbs_path"})
 
 # Default cap on total rows (created + updated + deleted) in one upload batch.

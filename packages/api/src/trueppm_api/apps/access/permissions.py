@@ -170,6 +170,50 @@ def can_user_edit_task(request: Request, task: Any, *, method: str = "PATCH") ->
     return False
 
 
+def can_user_write_estimates(request: Request, project: Any) -> bool:
+    """Authoritative "may this user write three-point estimates" predicate (ADR-0743).
+
+    Backs BOTH enforcement (``TaskSerializer._validate_estimate_write_permitted``)
+    and the declarative ``TaskSerializer.can_edit_estimates`` field, so the contract
+    the client gates off cannot drift from the one the server enforces — the
+    ADR-0133 "one rule, called twice" pattern.
+
+    Only ``EstimationMode.PM_ONLY`` restricts *who* may write. It requires
+    ``Role.ADMIN`` (Project Manager) or above:
+
+    - ``Role.SCHEDULER`` is deliberately **not** admitted. It is labelled "Resource
+      Manager" and :func:`can_user_edit_task` already refuses it task content
+      outright, so admitting it would be unreachable. The ``PM_ONLY`` docstring
+      formerly said "Scheduler-role", which is what made the wrong threshold look
+      plausible (#2596).
+    - The Product Owner facet (ADR-0078) is **not** admitted either. A PO below
+      Admin may groom EPIC/STORY items, but writing a PERT duration is a scheduling
+      act, not grooming, and ``PM_ONLY`` exists to reserve estimates to the PM.
+    - ``>=`` (not ``==``) is required by ADR-0072's band contract: Enterprise custom
+      roles registered at 301-399 are meant to inherit the Admin band's
+      capabilities, exactly as :func:`can_user_edit_task` already grants them full
+      task write.
+
+    ``OPEN`` and ``SUGGEST_APPROVE`` place no role restriction here — under
+    ``SUGGEST_APPROVE`` a Contributor write is *permitted* and lands ``pending``,
+    withheld from Monte Carlo until approved (``scheduling/services.py``).
+
+    Fails closed: unresolved auth, membership, or project yields ``False``.
+    """
+    if not (request.user and request.user.is_authenticated):
+        return False
+    if project is None:
+        return False
+
+    from trueppm_api.apps.projects.models import EstimationMode
+
+    if getattr(project, "estimation_mode", None) != EstimationMode.PM_ONLY:
+        return True
+
+    role = _membership_role(request, str(project.pk))
+    return role is not None and role >= Role.ADMIN
+
+
 def can_user_log_time(request: Request, task: Any) -> bool:
     """Authoritative "may this user log time against this task" predicate (ADR-0185 §3).
 
@@ -279,11 +323,11 @@ class IsProjectMemberWrite(BasePermission):
 class IsProjectMemberWriteOrOwn(BasePermission):
     """Assignee-scoped write permission for TaskViewSet update/destroy actions.
 
-    Role matrix (issue #11):
-      Viewer (0)           — read only
-      Team Member (1)      — edit tasks where task.assignee == request.user
-      Resource Manager (2) — read only (cannot edit task content, only assign)
-      Project Manager (3+) — edit any task
+    Role matrix (issue #11; ordinals per ADR-0072, VIEWER moved to 1 in #2489):
+      Viewer (1)             — read only
+      Team Member (100)      — edit tasks where task.assignee == request.user
+      Resource Manager (200) — read only (cannot edit task content, only assign)
+      Project Manager (300+) — edit any task
 
     Safe methods (GET/HEAD/OPTIONS) allow any project member (Viewer+).
 

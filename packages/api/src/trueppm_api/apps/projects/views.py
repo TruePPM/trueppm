@@ -1256,7 +1256,9 @@ class ProjectViewSet(
                 # blocked_by (actor) and blocking_task (soft link); select_related
                 # so each blocked story serializes them without a per-row query
                 # (mirrors annotate_tasks_queryset). Both are forward FKs.
-                .select_related("blocked_by", "blocking_task")
+                # ``project`` joins for the same reason: can_edit_estimates reads
+                # ``obj.project.estimation_mode`` per row (ADR-0743, #2596).
+                .select_related("project", "blocked_by", "blocking_task")
                 .prefetch_related(
                     "assignments__resource",
                     # select_related("met_by") collapses each criterion's
@@ -4549,10 +4551,15 @@ class TaskViewSet(
         if project is not None:
             self.check_object_permissions(self.request, project)
 
-        # Auto-assign wbs_path when the client doesn't supply one.  Optional
-        # parent_id in the request body places the task as the last child of that
-        # parent (e.g. "1.3" if parent "1" already has two children).  Without a
-        # parent_id the task is appended at root level.
+        # The server always derives wbs_path (ADR-0743, #2585). Optional parent_id in
+        # the request body places the task as the last child of that parent (e.g.
+        # "1.3" if parent "1" already has two children); without one the task is
+        # appended at root level.
+        #
+        # There is deliberately no client-supplied-path branch. wbs_path is read-only
+        # on TaskSerializer, so a caller cannot hand us a path that skips
+        # _resolve_create_parent's three placement guards (milestone-has-no-children,
+        # depth-1, phase-vs-subtask) — the same guards a PATCH used to bypass.
         #
         # The count + save share one atomic block so the SELECT FOR UPDATE lock
         # covers the INSERT and prevents concurrent creates racing to the same path.
@@ -4560,7 +4567,7 @@ class TaskViewSet(
         parent: Task | None = None
 
         with transaction.atomic():
-            if not serializer.validated_data.get("wbs_path") and project is not None:
+            if project is not None:
                 parent_id = self.request.data.get("parent_id")
                 if parent_id:
                     parent, wbs_path = _resolve_create_parent(

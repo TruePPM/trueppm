@@ -47616,11 +47616,6 @@
                         "type": "integer",
                         "nullable": true
                     },
-                    "wbs_path": {
-                        "type": "string",
-                        "nullable": true,
-                        "description": "WBS hierarchy path in ltree format, e.g. '1.2.3'"
-                    },
                     "status": {
                         "$ref": "#/components/schemas/TaskStatusEnum"
                     },
@@ -47726,10 +47721,6 @@
                         "minimum": 0,
                         "nullable": true
                     },
-                    "is_subtask": {
-                        "type": "boolean",
-                        "description": "True for tasks created via the drawer subtask action (ADR-0060)."
-                    },
                     "type": {
                         "$ref": "#/components/schemas/TaskTypeEnum"
                     },
@@ -47752,9 +47743,6 @@
                     },
                     "delivery_mode": {
                         "$ref": "#/components/schemas/DeliveryModeEnum"
-                    },
-                    "parent_governance_inherited": {
-                        "type": "boolean"
                     },
                     "business_value": {
                         "type": "integer",
@@ -54556,6 +54544,7 @@
                     },
                     "wbs_path": {
                         "type": "string",
+                        "readOnly": true,
                         "nullable": true,
                         "description": "WBS hierarchy path in ltree format, e.g. '1.2.3'"
                     },
@@ -54891,6 +54880,7 @@
                     },
                     "is_subtask": {
                         "type": "boolean",
+                        "readOnly": true,
                         "description": "True for tasks created via the drawer subtask action (ADR-0060)."
                     },
                     "sprint_scope_changes": {
@@ -54933,7 +54923,8 @@
                         "$ref": "#/components/schemas/DeliveryModeEnum"
                     },
                     "parent_governance_inherited": {
-                        "type": "boolean"
+                        "type": "boolean",
+                        "readOnly": true
                     },
                     "business_value": {
                         "type": "integer",
@@ -55029,6 +55020,11 @@
                         "description": "Authoritative per-task delete verdict (ADR-0133).\n\nDiffers from ``can_edit`` only for a Product Owner: the PO facet grooms\n(edits) EPIC/STORY items but may not DELETE them.",
                         "readOnly": true
                     },
+                    "can_edit_estimates": {
+                        "type": "boolean",
+                        "description": "Authoritative per-task estimate-write verdict (ADR-0743, #2596).\n\nDelegates to the SAME predicate ``_validate_estimate_write_permitted``\nenforces, so the client control in ``EstimatesTab`` gates off exactly the\nrule the server applies. Under ``PM_ONLY`` this is False for a Member who\nmay otherwise edit the task, which is precisely the case a plain\n``can_edit`` cannot express.",
+                        "readOnly": true
+                    },
                     "can_log_time": {
                         "type": "boolean",
                         "description": "Authoritative per-task time-log verdict for the requesting user (ADR-0185 §3).\n\nDelegates to the SAME predicate the CanLogTime permission class enforces, so the\nclient's \"+ time\" gate can never drift from the server's rule. Fails closed to\n``False`` when serialized without a request (nested serialization, tests).",
@@ -55053,6 +55049,7 @@
                     "blocking_task_detail",
                     "can_delete",
                     "can_edit",
+                    "can_edit_estimates",
                     "can_log_time",
                     "criteria_met_count",
                     "criteria_total",
@@ -55072,6 +55069,7 @@
                     "is_impediment",
                     "is_phase",
                     "is_stalled",
+                    "is_subtask",
                     "is_summary",
                     "labels",
                     "late_finish",
@@ -55081,6 +55079,7 @@
                     "linked_risks_max_severity",
                     "milestone_rollup",
                     "name",
+                    "parent_governance_inherited",
                     "parent_id",
                     "predecessor_count",
                     "prioritization_score",
@@ -55096,7 +55095,8 @@
                     "sprint_pending",
                     "sprint_scope_changes",
                     "status_changed_at",
-                    "total_float"
+                    "total_float",
+                    "wbs_path"
                 ]
             },
             "TaskAssignment": {
@@ -56173,11 +56173,6 @@
                         "type": "integer",
                         "nullable": true
                     },
-                    "wbs_path": {
-                        "type": "string",
-                        "nullable": true,
-                        "description": "WBS hierarchy path in ltree format, e.g. '1.2.3'"
-                    },
                     "status": {
                         "$ref": "#/components/schemas/TaskStatusEnum"
                     },
@@ -56283,10 +56278,6 @@
                         "minimum": 0,
                         "nullable": true
                     },
-                    "is_subtask": {
-                        "type": "boolean",
-                        "description": "True for tasks created via the drawer subtask action (ADR-0060)."
-                    },
                     "type": {
                         "$ref": "#/components/schemas/TaskTypeEnum"
                     },
@@ -56309,9 +56300,6 @@
                     },
                     "delivery_mode": {
                         "$ref": "#/components/schemas/DeliveryModeEnum"
-                    },
-                    "parent_governance_inherited": {
-                        "type": "boolean"
                     },
                     "business_value": {
                         "type": "integer",
