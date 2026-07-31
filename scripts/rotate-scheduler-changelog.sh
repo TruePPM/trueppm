@@ -60,9 +60,54 @@ lines = text.split("\n")
 # Idempotency guard: if this version was already rotated in, do nothing. The
 # rotated heading is "## [<new>] - <date>", so match on the bracketed prefix
 # (the trailing "]" prevents 0.3.0a1 from matching 0.3.0a10).
+#
+# BUT a no-op here is only safe when the version was genuinely released. A dated
+# section for a version with no tag means someone hand-wrote the heading ahead of
+# the release — and then every entry written afterwards accumulates under
+# [Unreleased], where this guard silently leaves it. The wheel ships with the new
+# work filed under "Unreleased" and the version's own section describing an older
+# state. That is how 0.4.0b1 came to hold a dated section from 2026-07-18 while
+# the BREAKING Calendar.exceptions change sat above it in [Unreleased] (#2605),
+# and PyPI releases are not retractable.
+#
+# So: no-op quietly only if the tag exists (a genuine retry). Otherwise refuse.
 if any(l.startswith(f"## [{new}]") for l in lines):
-    print(f"  {path}: [{new}] already present — skipping rotation.")
-    sys.exit(0)
+    import subprocess
+
+    tag = f"scheduler-v{new}"
+    tag_exists = (
+        subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}"],
+            capture_output=True,
+        ).returncode
+        == 0
+    )
+    if tag_exists:
+        print(f"  {path}: [{new}] already present and {tag} exists — retry, skipping rotation.")
+        sys.exit(0)
+
+    unreleased_body = text.split("## [Unreleased]", 1)[-1].split("\n## [", 1)[0]
+    has_content = any(
+        ln.strip().startswith(("-", "*"))
+        for ln in unreleased_body.split("\n")
+        if "_Nothing yet._" not in ln
+    )
+    print(
+        f"error: {path} has a dated '## [{new}]' section but no {tag} tag.\n"
+        f"       The heading was written before the release, so this rotation would\n"
+        f"       be a no-op"
+        + (
+            " and the entries still under [Unreleased] would ship\n"
+            "       filed as unreleased in the published wheel.\n"
+            if has_content
+            else ".\n"
+        )
+        + f"       Fix: merge the '## [{new}]' section's entries back up into\n"
+        f"       [Unreleased] and delete the premature heading, then re-run. The\n"
+        f"       release is what dates a section — never write the heading by hand.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 # --- Rotate the [Unreleased] heading + body into a dated section ----------
 out, i, n = [], 0, len(lines)

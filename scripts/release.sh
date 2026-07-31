@@ -498,17 +498,26 @@ command -v uv >/dev/null 2>&1 || die \
 ( cd packages/api && uv lock ) || die "Failed to regenerate packages/api/uv.lock"
 echo "  Regenerated uv.lock for scheduler and api"
 
-# Keep the OpenAPI schema's info.version in lockstep with the release. The schema
-# has always tracked the base semver with the pre-release suffix stripped
-# (SPECTACULAR_SETTINGS["VERSION"] was "0.2.0", not "0.2.0-alpha.1"), so a tag
-# could ship a schema that still claimed the previous minor (#1018). Bump the
-# setting, then regenerate so the committed schema matches the tag exactly.
-SCHEMA_VERSION="${NEW_VERSION%%-*}"
-bump_manifest packages/api/src/trueppm_api/settings/base.py \
-  "s/\"VERSION\": \"[^\"]*\"/\"VERSION\": \"${SCHEMA_VERSION}\"/" \
-  "\"VERSION\": \"${SCHEMA_VERSION}\""
-bash scripts/export-openapi.sh
-echo "  Bumped OpenAPI schema version to $SCHEMA_VERSION and regenerated docs/api/openapi.json"
+# Regenerate the OpenAPI schema so its info.version matches the tag.
+#
+# SPECTACULAR_SETTINGS["VERSION"] used to be a literal that this script rewrote
+# by sed at tag time — which meant it was correct only at the moment of a
+# release and drifted for the whole cycle after it. It read "0.3.0" against a
+# 0.4.0-beta.1 package, so every generated client and schema consumer was told
+# the wrong version (#2605). It is now derived from TRUEPPM_VERSION, so there is
+# nothing left to bump here.
+#
+# TRUEPPM_VERSION is passed explicitly rather than relying on the default: that
+# default reads *installed* package metadata, and the pyproject bump above has
+# not been re-installed into the venv at this point, so a bare regenerate would
+# emit the previous version. The env var is the same knob an operator uses to
+# override the reported build identity.
+#
+# The suffix is no longer stripped. The schema used to claim "0.2.0" for
+# 0.2.0-alpha.1; a pre-release schema now says so, because a consumer generating
+# a client deserves to know it is building against a beta.
+TRUEPPM_VERSION="$NEW_PEP440" bash scripts/export-openapi.sh
+echo "  Regenerated docs/api/openapi.json at info.version $NEW_PEP440"
 
 # ---------------------------------------------------------------------------
 # CHANGELOG rotation (every release — alpha/beta/rc and stable)

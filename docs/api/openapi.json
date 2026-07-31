@@ -2,7 +2,7 @@
     "openapi": "3.0.3",
     "info": {
         "title": "TruePPM API",
-        "version": "0.3.0",
+        "version": "0.4.0b1",
         "description": "REST API for the TruePPM project scheduling platform."
     },
     "paths": {
