@@ -44,6 +44,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -108,6 +111,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -165,6 +171,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -242,6 +251,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -317,6 +329,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -372,6 +387,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -482,6 +500,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -539,6 +560,9 @@
                     "meta"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -618,6 +642,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -695,6 +722,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -760,6 +790,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -817,6 +850,9 @@
                     }
                 },
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -885,6 +921,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -941,6 +980,9 @@
                     "agent-actions"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -1058,6 +1100,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -1138,6 +1183,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -1184,6 +1232,9 @@
                     "auth"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -1232,6 +1283,9 @@
                     "auth"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -1295,6 +1349,9 @@
                     }
                 },
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -1721,6 +1778,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -1784,6 +1844,9 @@
                     "required": true
                 },
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -1868,6 +1931,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -1942,6 +2008,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -2005,6 +2074,9 @@
                     "calendars"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -2088,6 +2160,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -2169,6 +2244,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -2231,6 +2309,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -2281,6 +2362,9 @@
                     "calendars"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -2358,6 +2442,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -2433,6 +2520,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -2489,6 +2579,9 @@
                     "calendars"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -2594,6 +2687,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -2658,6 +2754,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -2715,6 +2814,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -2792,6 +2894,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -2867,6 +2972,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -2922,6 +3030,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -2993,6 +3104,9 @@
                     "required": true
                 },
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -3071,6 +3185,9 @@
                     "required": true
                 },
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -3197,6 +3314,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -3246,6 +3366,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -3284,6 +3407,9 @@
                     "meta"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -3347,6 +3473,9 @@
                     }
                 },
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -3423,6 +3552,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -3488,6 +3620,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -3533,6 +3668,9 @@
                     "meta"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -3580,6 +3718,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -3625,6 +3766,9 @@
                     "import-export"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -3675,6 +3819,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -3722,6 +3869,9 @@
                     "integrations"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -3772,6 +3922,9 @@
                     "integrations"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -3856,6 +4009,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -3933,6 +4089,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -3976,6 +4135,9 @@
                     "me"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -4033,6 +4195,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -4087,6 +4252,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -4135,6 +4303,9 @@
                     "me"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -4210,6 +4381,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -4274,6 +4448,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -4322,6 +4499,9 @@
                     "me"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -4383,6 +4563,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -4441,6 +4624,9 @@
                     "me"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -4534,6 +4720,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -4600,6 +4789,9 @@
                     "me"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -4678,6 +4870,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -4752,6 +4947,9 @@
                     "me"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -4828,6 +5026,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -4894,6 +5095,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -4939,6 +5143,9 @@
                     "me"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -5002,6 +5209,9 @@
                     }
                 },
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -5117,6 +5327,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -5173,6 +5386,9 @@
                     "me"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -5247,6 +5463,9 @@
                     }
                 },
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -5329,6 +5548,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -5395,6 +5617,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -5440,6 +5665,9 @@
                     "me"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -5511,6 +5739,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -5573,6 +5804,9 @@
                     "me"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -5651,6 +5885,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -5706,6 +5943,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -5744,6 +5984,9 @@
                     "me"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -5812,6 +6055,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -5858,6 +6104,9 @@
                     "me"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -5926,6 +6175,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -5980,6 +6232,9 @@
                     "me"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -6061,6 +6316,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -6116,6 +6374,9 @@
                     "sprints"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -6192,6 +6453,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -6247,6 +6511,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -6301,6 +6568,9 @@
                     "sprints"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -6376,6 +6646,9 @@
                     "required": true
                 },
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -6463,6 +6736,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -6530,6 +6806,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -6589,6 +6868,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -6670,6 +6952,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -6748,6 +7033,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -6805,6 +7093,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -6882,6 +7173,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -6956,6 +7250,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -7017,6 +7314,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -7075,6 +7375,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -7174,6 +7477,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -7244,6 +7550,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -7312,6 +7621,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -7407,6 +7719,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -7468,6 +7783,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -7523,6 +7841,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -7584,6 +7905,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -7656,6 +7980,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -7750,6 +8077,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -7834,6 +8164,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -7906,6 +8239,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -8010,6 +8346,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -8076,6 +8415,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -8156,6 +8498,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -8215,6 +8560,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -8277,6 +8625,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -8357,6 +8708,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -8416,6 +8770,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -8500,6 +8857,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -8575,6 +8935,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -8647,6 +9010,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -8740,6 +9106,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -8823,6 +9192,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -8876,6 +9248,9 @@
                     "programs"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -8941,6 +9316,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -9002,6 +9380,9 @@
                     "programs"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -9101,6 +9482,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -9186,6 +9570,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -9263,6 +9650,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -9328,6 +9718,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -9415,6 +9808,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -9499,6 +9895,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -9562,6 +9961,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -9642,6 +10044,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -9727,6 +10132,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -9801,6 +10209,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -9864,6 +10275,9 @@
                     "sprints"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -9947,6 +10361,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -10028,6 +10445,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -10089,6 +10509,9 @@
                     "sprints"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -10157,6 +10580,9 @@
                     "programs"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -10236,6 +10662,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -10301,6 +10730,9 @@
                     "programs"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -10385,6 +10817,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -10449,6 +10884,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -10497,6 +10935,9 @@
                     "programs"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -10555,6 +10996,9 @@
                     "programs"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -10640,6 +11084,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -10715,6 +11162,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -10780,6 +11230,9 @@
                     "members"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -10864,6 +11317,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -10927,6 +11383,9 @@
                     "members"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -11005,6 +11464,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -11080,6 +11542,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -11145,6 +11610,9 @@
                     "programs"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -11229,6 +11697,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -11293,6 +11764,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -11351,6 +11825,9 @@
                     "programs"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -11418,6 +11895,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -11483,6 +11963,9 @@
                     "programs"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -11550,6 +12033,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -11605,6 +12091,9 @@
                     "programs"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -11678,6 +12167,9 @@
                     }
                 },
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -11762,6 +12254,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -11836,6 +12331,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -11899,6 +12397,9 @@
                     "webhooks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -11982,6 +12483,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -12063,6 +12567,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -12125,6 +12632,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -12182,6 +12692,9 @@
                     "webhooks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -12267,6 +12780,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -12336,6 +12852,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -12395,6 +12914,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -12479,6 +13001,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -12546,6 +13071,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -12617,6 +13145,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -12677,6 +13208,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -12757,6 +13291,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -12821,6 +13358,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -12878,6 +13418,9 @@
                     "resources"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -12955,6 +13498,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -13030,6 +13576,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -13093,6 +13642,9 @@
                     "resources"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -13182,6 +13734,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -13249,6 +13804,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -13308,6 +13866,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -13389,6 +13950,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -13467,6 +14031,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -13532,6 +14099,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -13663,6 +14233,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -13717,6 +14290,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -13816,6 +14392,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -13874,6 +14453,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -13953,6 +14535,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -14008,6 +14593,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -14085,6 +14673,9 @@
                     "required": true
                 },
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -14169,6 +14760,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -14229,6 +14823,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -14321,6 +14918,9 @@
                     "sprints"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -14421,6 +15021,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -14500,6 +15103,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -14577,6 +15183,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -14685,6 +15294,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -14746,6 +15358,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -14804,6 +15419,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -14903,6 +15521,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -14973,6 +15594,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -15041,6 +15665,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -15129,6 +15756,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -15186,6 +15816,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -15289,6 +15922,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -15349,6 +15985,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -15417,6 +16056,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -15498,6 +16140,9 @@
                     }
                 },
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -15607,6 +16252,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -15677,6 +16325,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -15784,6 +16435,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -15873,6 +16527,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -15950,6 +16607,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -15997,6 +16657,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -16048,6 +16711,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -16157,6 +16823,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -16216,6 +16885,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -16290,6 +16962,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -16359,6 +17034,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -16421,6 +17099,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -16505,6 +17186,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -16585,6 +17269,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -16673,6 +17360,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -16783,6 +17473,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -16886,6 +17579,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -16960,6 +17656,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -17023,6 +17722,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -17089,6 +17791,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -17145,6 +17850,9 @@
                     "scheduling"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -17230,6 +17938,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -17285,6 +17996,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -17344,6 +18058,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -17418,6 +18135,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -17503,6 +18223,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -17576,6 +18299,9 @@
                     "required": true
                 },
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -17737,6 +18463,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -17800,6 +18529,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -17885,6 +18617,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -17961,6 +18696,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -18036,6 +18774,9 @@
                     "required": true
                 },
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -18116,6 +18857,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -18205,6 +18949,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -18283,6 +19030,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -18352,6 +19102,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -18414,6 +19167,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -18469,6 +19225,9 @@
                     "workshops"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -18529,6 +19288,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -18588,6 +19350,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -18646,6 +19411,9 @@
                     "workshops"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -18741,6 +19509,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -18824,6 +19595,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -18877,6 +19651,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -18942,6 +19719,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -19003,6 +19783,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -19102,6 +19885,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -19175,6 +19961,9 @@
                     "scheduling"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -19250,6 +20039,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -19314,6 +20106,9 @@
                     "scheduling"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -19381,6 +20176,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -19445,6 +20243,9 @@
                     "scheduling"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -19543,6 +20344,9 @@
                     "sprints"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -19648,6 +20452,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -19703,6 +20510,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -19777,6 +20587,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -19832,6 +20645,9 @@
                     "import-export"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -19907,6 +20723,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -19986,6 +20805,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -20052,6 +20874,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -20138,6 +20963,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -20222,6 +21050,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -20287,6 +21118,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -20335,6 +21169,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -20409,6 +21246,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -20465,6 +21305,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -20520,6 +21363,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -20580,6 +21426,9 @@
                     }
                 },
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -20651,6 +21500,9 @@
                     "import-export"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -20725,6 +21577,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -20797,6 +21652,9 @@
                     }
                 },
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -20871,6 +21729,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -20932,6 +21793,9 @@
                     "import-export"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -21049,6 +21913,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -21127,6 +21994,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -21195,6 +22065,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -21285,6 +22158,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -21372,6 +22248,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -21438,6 +22317,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -21517,6 +22399,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -21592,6 +22477,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -21657,6 +22545,9 @@
                     "members"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -21741,6 +22632,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -21804,6 +22698,9 @@
                     "members"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -21882,6 +22779,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -21957,6 +22857,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -22022,6 +22925,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -22106,6 +23012,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -22170,6 +23079,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -22228,6 +23140,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -22295,6 +23210,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -22361,6 +23279,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -22426,6 +23347,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -22511,6 +23435,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -22586,6 +23513,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -22652,6 +23582,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -22738,6 +23671,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -22822,6 +23758,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -22886,6 +23825,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -22967,6 +23909,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -23045,6 +23990,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -23113,6 +24061,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -23203,6 +24154,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -23290,6 +24244,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -23356,6 +24313,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -23443,6 +24403,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -23526,6 +24489,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -23603,6 +24569,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -23687,6 +24656,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -23751,6 +24723,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -23807,6 +24782,9 @@
                     "share"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -23884,6 +24862,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -23951,6 +24932,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -24009,6 +24993,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -24083,6 +25070,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -24138,6 +25128,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -24226,6 +25219,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -24289,6 +25285,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -24366,6 +25365,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -24431,6 +25433,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -24517,6 +25522,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -24595,6 +25603,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -24651,6 +25662,9 @@
                     "sprints"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -24734,6 +25748,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -24797,6 +25814,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -24862,6 +25882,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -24950,6 +25973,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -25032,6 +26058,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -25107,6 +26136,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -25180,6 +26212,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -25249,6 +26284,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -25312,6 +26350,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -25405,6 +26446,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -25487,6 +26531,9 @@
                     "required": true
                 },
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -25581,6 +26628,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -25664,6 +26714,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -25731,6 +26784,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -25824,6 +26880,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -25896,6 +26955,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -25986,6 +27048,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -26065,6 +27130,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -26165,6 +27233,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -26227,6 +27298,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -26309,6 +27383,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -26395,6 +27472,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -26459,6 +27539,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -26545,6 +27628,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -26617,6 +27703,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -26692,6 +27781,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -26779,6 +27871,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -26853,6 +27948,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -26946,6 +28044,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -27019,6 +28120,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -27086,6 +28190,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -27189,6 +28296,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -27272,6 +28382,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -27346,6 +28459,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -27439,6 +28555,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -27512,6 +28631,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -27580,6 +28702,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -27661,6 +28786,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -27751,6 +28879,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -27834,6 +28965,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -27908,6 +29042,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -27971,6 +29108,9 @@
                     "webhooks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -28054,6 +29194,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -28135,6 +29278,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -28197,6 +29343,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -28254,6 +29403,9 @@
                     "webhooks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -28339,6 +29491,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -28408,6 +29563,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -28466,6 +29624,9 @@
                     }
                 },
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -28538,6 +29699,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -28677,6 +29841,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -28741,6 +29908,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -28798,6 +29968,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -28875,6 +30048,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -28950,6 +30126,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -29005,6 +30184,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -29074,6 +30256,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -29138,6 +30323,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -29195,6 +30383,9 @@
                     "resources"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -29272,6 +30463,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -29347,6 +30541,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -29402,6 +30599,9 @@
                     "resources"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -29497,6 +30697,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -29561,6 +30764,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -29618,6 +30824,9 @@
                     "resources"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -29695,6 +30904,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -29770,6 +30982,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -29825,6 +31040,9 @@
                     "resources"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -29904,6 +31122,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -29982,6 +31203,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -30059,6 +31283,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -30115,6 +31342,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -30166,6 +31396,9 @@
                     "sprints"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -30233,6 +31466,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -30292,6 +31528,9 @@
                     "sprints"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -30471,6 +31710,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -30535,6 +31777,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -30592,6 +31837,9 @@
                     "resources"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -30669,6 +31917,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -30744,6 +31995,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -30800,6 +32054,9 @@
                     "resources"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -30923,6 +32180,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -30980,6 +32240,9 @@
                     "scheduling"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -31039,6 +32302,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -31097,6 +32363,9 @@
                     "sprints"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -31179,6 +32448,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -31259,6 +32531,9 @@
                     }
                 },
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -31341,6 +32616,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -31400,6 +32678,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -31481,6 +32762,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -31559,6 +32843,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -31616,6 +32903,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -31691,6 +32981,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -31776,6 +33069,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -31836,6 +33132,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -31920,6 +33219,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -31982,6 +33284,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -32066,6 +33371,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -32123,6 +33431,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -32209,6 +33520,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -32269,6 +33583,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -32332,6 +33649,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -32391,6 +33711,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -32475,6 +33798,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -32550,6 +33876,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -32635,6 +33964,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -32698,6 +34030,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -32768,6 +34103,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -32854,6 +34192,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -32914,6 +34255,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -33002,6 +34346,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -33087,6 +34434,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -33153,6 +34503,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -33233,6 +34586,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -33324,6 +34680,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -33423,6 +34782,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -33491,6 +34853,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -33554,6 +34919,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -33636,6 +35004,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -33723,6 +35094,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -33808,6 +35182,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -33863,6 +35240,9 @@
                     "sprints"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -33941,6 +35321,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -34017,6 +35400,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -34072,6 +35458,9 @@
                     "task-relations"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -34140,6 +35529,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -34197,6 +35589,9 @@
                     "task-relations"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -34274,6 +35669,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -34349,6 +35747,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -34404,6 +35805,9 @@
                     "task-relations"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -34482,6 +35886,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -34546,6 +35953,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -34603,6 +36013,9 @@
                     "resources"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -34680,6 +36093,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -34755,6 +36171,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -34810,6 +36229,9 @@
                     "resources"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -34879,6 +36301,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -34936,6 +36361,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -35013,6 +36441,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -35087,6 +36518,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -35151,6 +36585,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -35208,6 +36645,9 @@
                     "resources"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -35285,6 +36725,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -35360,6 +36803,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -35415,6 +36861,9 @@
                     "resources"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -35605,6 +37054,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -35672,6 +37124,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -35731,6 +37186,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -35812,6 +37270,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -35890,6 +37351,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -35947,6 +37411,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -36022,6 +37489,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -36124,6 +37594,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -36207,6 +37680,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -36272,6 +37748,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -36330,6 +37809,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -36412,6 +37894,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -36501,6 +37986,9 @@
                 "security": [
                     {
                         "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
                     },
                     {
                         "jwtAuth": []
@@ -36593,6 +38081,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -36683,6 +38174,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -36739,6 +38233,9 @@
                     "tasks"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -36815,6 +38312,9 @@
                     "required": true
                 },
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -36905,6 +38405,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -36972,6 +38475,9 @@
                         "projectApiTokenAuth": []
                     },
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -37030,6 +38536,9 @@
                     "teams"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -37114,6 +38623,9 @@
                     "teams"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -37200,6 +38712,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -37245,6 +38760,9 @@
                     "workspace"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -37341,6 +38859,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -37398,6 +38919,9 @@
                     "sprints"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -37457,6 +38981,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -37515,6 +39042,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -37560,6 +39090,9 @@
                     "workspace"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -37624,6 +39157,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -37667,6 +39203,9 @@
                     "workspace"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -37742,6 +39281,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -37787,6 +39329,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -37824,6 +39369,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -37860,6 +39408,9 @@
                     "workspace"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -37900,6 +39451,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -37938,6 +39492,9 @@
                     "workspace"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -37989,6 +39546,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -38032,6 +39592,9 @@
                     "workspace"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -38090,6 +39653,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -38147,6 +39713,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -38196,6 +39765,9 @@
                     "workspace"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -38261,6 +39833,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -38317,6 +39892,9 @@
                     "workspace"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -38392,6 +39970,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -38446,6 +40027,9 @@
                     "workspace"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -38517,6 +40101,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -38571,6 +40158,9 @@
                     "workspace"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -38650,6 +40240,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -38712,6 +40305,9 @@
                     "workspace"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -38783,6 +40379,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -38837,6 +40436,9 @@
                     "workspace"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -38917,6 +40519,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -38981,6 +40586,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -39030,6 +40638,9 @@
                     "workspace"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -39095,6 +40706,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -39152,6 +40766,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -39201,6 +40818,9 @@
                     "workspace"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -39298,6 +40918,9 @@
                     "workspace"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -39462,6 +41085,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -39537,6 +41163,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -39591,6 +41220,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -39630,6 +41262,9 @@
                     "workspace"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -39697,6 +41332,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -39752,6 +41390,9 @@
                     "workspace"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -39826,6 +41467,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -39880,6 +41524,9 @@
                 ],
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -39928,6 +41575,9 @@
                     "workspace"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -39994,6 +41644,9 @@
                 },
                 "security": [
                     {
+                        "personalApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -40033,6 +41686,9 @@
                     "sync"
                 ],
                 "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -58477,6 +60133,12 @@
                 "type": "http",
                 "scheme": "bearer",
                 "bearerFormat": "JWT"
+            },
+            "personalApiTokenAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "tppm_<64-hex>",
+                "description": "Personal Access Token. Send as `Authorization: Bearer tppm_<64-hex>`. Authenticates as the token's owner against the general API surface — identical RBAC to that user's own session, requires the `legacy:full` scope. Project- and program-scoped integration tokens are never accepted here (see `projectApiTokenAuth` for their narrow inbound-sync surface); an owner-scoped `mcp:read`-only token is also rejected here and stays confined to the read-only MCP surface."
             },
             "projectApiTokenAuth": {
                 "type": "http",
