@@ -8,7 +8,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import type { LocationSegmentOption } from './useLocationModel';
 
 interface Props {
@@ -35,6 +35,15 @@ interface Props {
   /** Accessible name for the trigger + listbox in placeholder mode (e.g. "Jump to
    *  a project") — the `Switch ${noun}` fallback implies a current one exists. */
   placeholderAriaLabel?: string;
+  /** Split the current entry's name off as a direct `Link` to its own destination,
+   *  separate from the switcher chevron (#2669). Opt-in and off by default: it only
+   *  earns its keep when the current entry's own page can genuinely differ from the
+   *  route you're already on — true for the **program** segment while browsing one
+   *  of its projects (there was previously no way back to the program's own
+   *  Overview at all), but not for the **project** segment, whose "current" entry
+   *  *is* the page you're on — linking it to itself would add a redundant control
+   *  with no new destination. */
+  linkToCurrent?: boolean;
 }
 
 function CheckIcon() {
@@ -80,7 +89,21 @@ function CheckIcon() {
  *     segment entirely at zero options.
  *
  * Selecting an option navigates to its `to` (which the caller composes to preserve
- * the active view segment). Choosing the current option is a no-op close.
+ * the active view segment). Choosing the current option **inside the picker** is a
+ * no-op close (you asked to switch and picked where you already are).
+ *
+ * **Label vs. chevron split (#2669, opt-in via `linkToCurrent`).** When enabled and
+ * a current entry's own `to` is resolvable — both the static-row and the ≥2-option
+ * cases — the name itself is a direct `Link` to that destination, separate from
+ * the switcher. This is the fix for the breadcrumb-as-switcher-only bug: before,
+ * the *only* way to reach the current entry's own page was picking it inside the
+ * picker, which was an explicit no-op — there was no way back to the thing you
+ * were already in. With the flag on, the label is the "go to this ancestor's own
+ * page" affordance and the chevron alone is "switch to a different one," matching
+ * standard breadcrumb semantics; the static-row branch gains the same link so a
+ * single-option workspace (no switcher at all) still has a way back. See
+ * `LocationSwitcher` for why the program segment opts in and the project segment
+ * does not.
  */
 export function LocationSegment({
   noun,
@@ -91,6 +114,7 @@ export function LocationSegment({
   currentSubtitle,
   placeholder,
   placeholderAriaLabel,
+  linkToCurrent = false,
 }: Props) {
   const navigate = useNavigate();
 
@@ -199,12 +223,39 @@ export function LocationSegment({
   const pickerAriaLabel =
     isPlaceholder && placeholderAriaLabel ? placeholderAriaLabel : `Switch ${noun}`;
 
-  // Static identity row — nothing to switch to (rule 124: no chevron, not a button).
-  // Still shows the name so wayfinding is never lost. Applies only when a current
-  // exists: in placeholder mode even a single option renders the picker (#2102) —
-  // the segment's whole job there is jumping, and a static placeholder that opens
+  // #2669: the current entry's own destination, when the caller opted in
+  // (`linkToCurrent`) and one is resolvable. `options` always carries the `to` the
+  // caller already composed to preserve the active view (e.g. Backlog → Backlog),
+  // so this is the same URL the picker would have used had selecting the current
+  // option not been a no-op. Undefined while the caller's data is still loading
+  // (`options` briefly empty/stale), in placeholder mode (no "current" to link to),
+  // or when the caller didn't opt in — all three fall back to the pre-#2669
+  // link-less rendering below.
+  const currentTo =
+    linkToCurrent && currentId ? options.find((o) => o.id === currentId)?.to : undefined;
+  const canLinkToCurrent = Boolean(currentTo) && !isPlaceholder;
+
+  // Static identity row — nothing to *switch* to (rule 124: no chevron, not a
+  // picker button), but #2669 gives it a direct link to its own page whenever one
+  // is resolvable — the single-program/single-project workspace otherwise had no
+  // way back to the thing the segment names. Still shows the name so wayfinding is
+  // never lost even when no link is available. Applies only when a current exists:
+  // in placeholder mode even a single option renders the picker (#2102) — the
+  // segment's whole job there is jumping, and a static placeholder that opens
   // nothing would be the dead affordance rule 124 forbids.
   if (options.length < 2 && !isPlaceholder) {
+    if (canLinkToCurrent) {
+      return (
+        <Link
+          to={currentTo!}
+          aria-label={`Current ${noun}: ${currentName}. Open ${noun}.`}
+          className="inline-flex min-w-0 items-center gap-1.5 h-8 -mx-2 px-2 rounded-control text-sm font-medium text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
+        >
+          {leading}
+          {currentName && <span className="hidden truncate lg:inline">{currentName}</span>}
+        </Link>
+      );
+    }
     return (
       <span className="inline-flex min-w-0 items-center gap-1.5 text-sm font-medium text-chrome-text-secondary">
         {leading}
@@ -214,26 +265,46 @@ export function LocationSegment({
   }
 
   return (
-    <div className="relative shrink-0" ref={popoverRef}>
+    <div className="relative shrink-0 flex items-center" ref={popoverRef}>
+      {canLinkToCurrent && (
+        // #2669: the name is a direct link to the current entry's own page — the
+        // chevron trigger below is the *only* remaining switcher affordance. This
+        // restores standard breadcrumb semantics (the ancestor navigates; the
+        // switcher is a separate control) instead of forcing "switch, then pick the
+        // one you're already on" to reach a page you were already an ancestor of.
+        <Link
+          to={currentTo!}
+          aria-label={`Current ${noun}: ${currentName}. Open ${noun}.`}
+          className="inline-flex max-w-[11rem] items-center gap-1.5 h-8 pl-2 pr-1 rounded-control text-sm font-medium text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
+        >
+          {leading}
+          <span className="hidden truncate lg:inline">{currentName}</span>
+        </Link>
+      )}
       <button
         ref={triggerRef}
         type="button"
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={
-          currentName ? `Current ${noun}: ${currentName}. Switch ${noun}.` : pickerAriaLabel
+          canLinkToCurrent
+            ? `Switch ${noun}`
+            : currentName
+              ? `Current ${noun}: ${currentName}. Switch ${noun}.`
+              : pickerAriaLabel
         }
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex max-w-[11rem] items-center gap-1.5 h-8 px-2 rounded-control text-sm font-medium text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
+        className={`inline-flex items-center gap-1.5 h-8 rounded-control text-sm font-medium text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface ${canLinkToCurrent ? 'shrink-0 pl-0.5 pr-2' : 'max-w-[11rem] px-2'}`}
       >
-        {leading}
-        {currentName ? (
-          <span className="hidden truncate lg:inline">{currentName}</span>
-        ) : (
-          // The placeholder is the segment's only label, so unlike a current name
-          // it never hides below lg — a bare chevron would be unguessable.
-          isPlaceholder && placeholder && <span className="truncate">{placeholder}</span>
-        )}
+        {!canLinkToCurrent && leading}
+        {!canLinkToCurrent &&
+          (currentName ? (
+            <span className="hidden truncate lg:inline">{currentName}</span>
+          ) : (
+            // The placeholder is the segment's only label, so unlike a current name
+            // it never hides below lg — a bare chevron would be unguessable.
+            isPlaceholder && placeholder && <span className="truncate">{placeholder}</span>
+          ))}
         <svg
           width="10"
           height="10"
