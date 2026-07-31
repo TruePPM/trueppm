@@ -1,0 +1,18 @@
+{
+  "id": "p-progress-actual-start-floor",
+  "name": "In-progress task's actual_start floors early_start past a predecessor that finished earlier (#2621, ADR-0132 §2)",
+  "start_date": "2026-03-02",
+  "tasks": [
+    {"id": "A", "name": "Predecessor", "duration": 172800.0, "percent_complete": 100.0, "actual_start": "2026-03-02", "actual_finish": "2026-03-03"},
+    {"id": "B", "name": "In-progress successor", "duration": 345600.0, "percent_complete": 50.0, "actual_start": "2026-03-10"}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "B", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

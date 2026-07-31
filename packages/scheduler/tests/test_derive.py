@@ -456,6 +456,38 @@ class TestProgress:
         assert d.binding.kind == "actual_finish"
         assert d.value == date(2026, 3, 4).isoformat()
 
+    def test_in_progress_task_bound_by_actual_start_floor(self) -> None:
+        """ADR-0132 §2 / #2621: an in-progress task's early_start derivation
+        must name ``actual_start`` as the binding term when it is the tightest
+        floor — faithful to the engine's new ES constraint, not just the
+        pre-existing project-start/data-date/predecessor candidates."""
+        p = make_project(
+            [
+                task(
+                    "A",
+                    "Pred",
+                    2,
+                    actual_start=date(2026, 3, 2),
+                    actual_finish=date(2026, 3, 3),
+                    percent_complete=100.0,
+                ),
+                # B's predecessor constraint (A finishes 3-Mar) would release it
+                # 4-Mar, but B actually started 10-Mar.
+                task("B", "B", 4, actual_start=date(2026, 3, 10), percent_complete=50.0),
+            ],
+            dependencies=[Dependency("A", "B")],
+        )
+        d = derive_value(p, "B", Quantity.EARLY_START)
+        assert d.binding is not None
+        assert d.binding.kind == "actual_start"
+        assert d.binding.imposed_date == date(2026, 3, 10)
+        assert d.value == date(2026, 3, 10).isoformat()
+        # The predecessor-driven candidate is still reported, just not binding.
+        pred_terms = [c for c in d.contributions if c.kind == "predecessor_fs"]
+        assert len(pred_terms) == 1
+        assert pred_terms[0].imposed_date == date(2026, 3, 4)
+        assert pred_terms[0].is_binding is False
+
 
 # ---------------------------------------------------------------------------
 # Errors and serialization
