@@ -79,8 +79,20 @@ def test_get_exposes_all_three_fields(client: APIClient, project: Project) -> No
 
 
 @pytest.mark.django_db
-def test_patch_writes_all_three_fields(client: APIClient, project: Project) -> None:
+def test_patch_writes_the_two_client_owned_fields(client: APIClient, project: Project) -> None:
+    """governance_class and delivery_mode are client toggles; the third is not.
+
+    Inverted from the original ``test_patch_writes_all_three_fields`` by ADR-0743
+    (#2585). ``parent_governance_inherited`` is derived state — it records whether
+    the task inherited governance from its parent, so a client value can contradict
+    ``governance_class`` — and its write left no audit row, because the field sits in
+    ``_HISTORY_DIFF_DISPLAY_EXCLUDED``. It is now read-only, so a supplied value is
+    dropped silently by DRF rather than rejected: the PATCH still succeeds and the
+    other two fields still write.
+    """
     t = _task(project)
+    assert t.parent_governance_inherited is True
+
     resp = client.patch(
         f"/api/v1/tasks/{t.pk}/",
         {
@@ -94,7 +106,8 @@ def test_patch_writes_all_three_fields(client: APIClient, project: Project) -> N
     t.refresh_from_db()
     assert t.governance_class == GovernanceClass.GATED
     assert t.delivery_mode == DeliveryMode.SCRUM
-    assert t.parent_governance_inherited is False
+    # The read-only declaration is the enforcement — the forged value never lands.
+    assert t.parent_governance_inherited is True
 
 
 @pytest.mark.django_db

@@ -50,6 +50,10 @@ export interface ApiTask {
   // pre-field WebSocket deltas and on nested serializations without a request.
   can_edit?: boolean;
   can_delete?: boolean;
+  /** Server-derived estimate-write capability (ADR-0743, #2596). Distinct from
+   *  `can_edit`: under `pm_only` a Member may edit the task but not its PERT
+   *  fields. Optional for the same reason as the two above. */
+  can_edit_estimates?: boolean;
   actual_start: string | null;
   actual_finish: string | null;
   schedule_variance_days: number | null;
@@ -292,6 +296,7 @@ export function mapTask(t: ApiTask): Task {
     // `canEdit ?? canEditTask(role)` fallback engages instead of forcing read-only.
     canEdit: t.can_edit,
     canDelete: t.can_delete,
+    canEditEstimates: t.can_edit_estimates,
     actualStart: t.actual_start ?? undefined,
     actualFinish: t.actual_finish ?? undefined,
     scheduleVarianceDays: t.schedule_variance_days,

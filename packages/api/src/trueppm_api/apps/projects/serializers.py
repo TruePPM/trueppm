@@ -2935,6 +2935,10 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # serialized without a request (nested serialization, tests).
     can_edit = serializers.SerializerMethodField()
     can_delete = serializers.SerializerMethodField()
+    # Distinct from ``can_edit``: under EstimationMode.PM_ONLY a Member who may edit
+    # the task still may not write its three-point estimates (ADR-0743, #2596).
+    # Calls the SAME predicate the serializer guard enforces.
+    can_edit_estimates = serializers.SerializerMethodField()
     # Server-derived "may the requesting user log time here" verdict (ADR-0185 §3).
     # Distinct from ``can_edit``: a Member may log against any task on a project they
     # belong to (a meeting, a colleague's task), not only their own assigned tasks.
@@ -3048,6 +3052,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             # Server-derived edit capabilities (ADR-0133, #1144)
             "can_edit",
             "can_delete",
+            # Server-derived estimate-write capability (ADR-0743, #2596)
+            "can_edit_estimates",
             # Server-derived time-log capability (ADR-0185, #1258)
             "can_log_time",
             # Per-task custom-field values (#2143) — flat {field_id: value} map.
@@ -3082,6 +3088,27 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "readiness",
             "predecessor_count",
             "is_blocked",
+            # ADR-0743 / #2585: the WBS tree is server-managed. A writable
+            # ``wbs_path`` let any Member who may PATCH their own assigned task
+            # relocate it anywhere in the tree, bypassing all three create-time
+            # placement guards in ``_resolve_create_parent`` (milestone-has-no-
+            # children, depth-1, phase-vs-subtask) — none of which is reachable
+            # from PATCH. Because the descendant probes are ltree PREFIX queries, a
+            # forged path also lets a later delete tombstone a subtree the caller
+            # never owned, and can flip is_summary/is_phase and corrupt rollups.
+            # ``is_subtask`` carries the same depth-1 and phase invariants; the
+            # create path reads it from ``request.data`` and passes it as a
+            # ``save()`` kwarg, so it needs no writable declaration here.
+            # Declaring both read-only closes the REST path *and* the sync upload,
+            # which reuses this serializer (sync/upload.py) — one rule, one site.
+            "wbs_path",
+            "is_subtask",
+            # Derived state, not a client toggle: it records whether this task
+            # inherited its governance from its parent, so a client value can
+            # contradict ``governance_class``. The write also left no audit row —
+            # the field is in ``_HISTORY_DIFF_DISPLAY_EXCLUDED``, whose every other
+            # member is non-writable or privacy-gated. Nothing in the API reads it.
+            "parent_governance_inherited",
             # ADR-0124: blocked_since / blocked_by / age / impediment verdict are
             # server-stamped or derived — read-only. blocker_type / blocking_task
             # stay writable (the contributor sets them).
@@ -3209,9 +3236,74 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         self._enforce_phase_rollup_locks(attrs)
         self._enforce_project_span(attrs)
         self._validate_three_point_order(attrs)
+        self._validate_estimate_write_permitted(attrs)
         self._validate_product_backlog(attrs)
 
         return attrs
+
+    #: The three PERT inputs ``EstimationMode`` governs. Kept beside the guard that
+    #: reads it so the two cannot drift.
+    _PERT_FIELDS = frozenset(
+        {"optimistic_duration", "most_likely_duration", "pessimistic_duration"}
+    )
+
+    def _validate_estimate_write_permitted(self, attrs: dict[str, Any]) -> None:
+        """#2596: enforce ``EstimationMode.PM_ONLY`` server-side (ADR-0743).
+
+        ``PM_ONLY`` was documented as a role restriction and enforced **only** in the
+        browser (``EstimatesTab.tsx`` disables the inputs). A disabled input is not an
+        authorization control, so a Member assignee could PATCH the PERT fields the
+        mode exists to forbid.
+
+        The damage is worse than a plain unauthorized write. Under
+        ``SUGGEST_APPROVE`` such a write at least lands ``pending`` and Monte Carlo
+        withholds it. Under ``PM_ONLY`` that gate is inert (``suggest_approve`` is
+        False) and :meth:`_apply_estimate_governance` stamps ``estimate_status =
+        None``, which reads as *not tracked / not applicable* — i.e. fully trusted.
+        The unauthorized estimate therefore fed P50/P80/P95 looking **more**
+        trustworthy than one submitted through the sanctioned flow.
+
+        Enforced in ``validate`` rather than a ``perform_update`` hook for the reason
+        :meth:`_apply_estimate_governance` documents about ``estimate_status``: a
+        co-write hook fires only when a PERT field arrives *alongside* something
+        else, so a payload carrying one alone sails past it (#2570). ``validate``
+        sees every payload, on **create and update alike** — guarding only update
+        would leave the create path open, which is the same one-path-covered defect
+        class this change exists to close.
+
+        Raises:
+            PermissionDenied: caller is below ``Role.ADMIN`` on a ``PM_ONLY``
+                project and the payload carries a PERT field.
+        """
+        from rest_framework.exceptions import PermissionDenied
+
+        if not self._PERT_FIELDS & set(attrs):
+            return
+
+        # On create there is no instance, so the project comes from the payload.
+        project = attrs.get("project") or (
+            self.instance.project if self.instance is not None else None
+        )
+        if project is None or project.estimation_mode != EstimationMode.PM_ONLY:
+            return
+
+        # Prefer the shared predicate so client and server read one rule (ADR-0133),
+        # but fall back to the context-cached role when there is no request (bulk
+        # importers, management commands) so this stays query-free on that path.
+        request = self.context.get("request")
+        if request is not None:
+            from trueppm_api.apps.access.permissions import can_user_write_estimates
+
+            permitted = can_user_write_estimates(request, project)
+        else:
+            role = self._get_caller_role(project)
+            permitted = role is not None and role >= Role.ADMIN
+
+        if not permitted:
+            raise PermissionDenied(
+                "This project restricts estimates to the Project Manager. "
+                "You can view estimates but not change them."
+            )
 
     def _validate_project_immutable(self, attrs: dict[str, Any]) -> None:
         """#1711 BOLA guard: the writable ``project`` FK must not relocate a task.
@@ -3983,6 +4075,22 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
 
         return can_user_edit_task(request, obj, method="DELETE")
 
+    def get_can_edit_estimates(self, obj: Task) -> bool:
+        """Authoritative per-task estimate-write verdict (ADR-0743, #2596).
+
+        Delegates to the SAME predicate ``_validate_estimate_write_permitted``
+        enforces, so the client control in ``EstimatesTab`` gates off exactly the
+        rule the server applies. Under ``PM_ONLY`` this is False for a Member who
+        may otherwise edit the task, which is precisely the case a plain
+        ``can_edit`` cannot express.
+        """
+        request = self.context.get("request")
+        if request is None:
+            return False
+        from trueppm_api.apps.access.permissions import can_user_write_estimates
+
+        return can_user_write_estimates(request, obj.project)
+
     def get_can_log_time(self, obj: Task) -> bool:
         """Authoritative per-task time-log verdict for the requesting user (ADR-0185 §3).
 
@@ -4547,8 +4655,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         project/program on which the caller immediately becomes Owner. Neither can
         reach an existing task.
         """
-        _pert_fields = {"optimistic_duration", "most_likely_duration", "pessimistic_duration"}
-        if _pert_fields & set(validated_data):
+        if self._PERT_FIELDS & set(validated_data):
             project = instance.project
             if project.estimation_mode == EstimationMode.SUGGEST_APPROVE:
                 validated_data["estimate_status"] = EstimateStatus.PENDING

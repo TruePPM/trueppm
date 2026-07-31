@@ -558,6 +558,26 @@ of the distribution:
   project requires Project Manager; the import-as-new-project and seed-import
   endpoints need only a signed-in user, but they can only ever create a new project
   or program that the importer owns, never modify an existing task.
+- **Who may write an estimate at all** — this is set by the project's estimation
+  mode, and it is enforced on the server, not just in the browser. In **Open**
+  (the default) any Team Member or above may write three-point estimates directly.
+  In **Suggest & Approve** they may write, but the value lands `pending` and is
+  withheld from the forecast until approved, as described above. In **PM Only**
+  only the **Project Manager** role and above may write them — a Team Member who
+  can otherwise edit the task receives `403` on any request carrying
+  `optimistic_duration`, `most_likely_duration` or `pessimistic_duration`, on
+  create and update alike. The task API reports the caller's own authority as
+  `can_edit_estimates`, which is what the estimate inputs gate on.
+
+  :::caution[Estimates written before this rule was enforced]
+  Server-side enforcement of **PM Only** ships in 0.4. Before it, the restriction
+  existed only as a disabled input in the web UI, so a contributor could write an
+  estimate through the API in a PM Only project. Those existing values are **not**
+  retroactively invalidated or flagged — they remain in the schedule and continue
+  to feed the forecast. If your project has run in PM Only mode, review its
+  three-point estimates once after upgrading. Task history records every estimate
+  change and who made it.
+  :::
 - **No estimate ranges** — tasks carry only a single duration (or a degenerate
   range where optimistic = pessimistic). Add genuine optimistic/most-likely/
   pessimistic estimates to the tasks you are unsure about.

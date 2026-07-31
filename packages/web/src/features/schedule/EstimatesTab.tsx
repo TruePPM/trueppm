@@ -486,7 +486,14 @@ export function EstimatesTab({
   const estimatesDirty = changedO || changedM || changedP;
   const velocityLocked = estimatesDirty;
 
-  const isReadonly = estimationMode === 'pm_only' && !userIsScheduler;
+  // Prefer the server's own verdict (ADR-0743, #2596) so this control and the
+  // serializer guard read one rule. The mode/role derivation stays as the fallback
+  // for rows that predate the field (WebSocket deltas, optimistic local creates).
+  // It is no longer the enforcement — that is now server-side; this is the affordance.
+  const isReadonly =
+    task.canEditEstimates !== undefined
+      ? !task.canEditEstimates
+      : estimationMode === 'pm_only' && !userIsScheduler;
 
   // PERT reads the EFFECTIVE values so the preview reflects unsaved edits live
   // when bound (#1985). The Save bar owns the hard save-gating (would 400, #1982).

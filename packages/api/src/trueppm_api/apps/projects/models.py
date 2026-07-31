@@ -1110,8 +1110,14 @@ class EstimationMode(models.TextChoices):
     OPEN (default): any Contributor or above may edit estimate fields directly.
     SUGGEST_APPROVE: Contributors submit suggestions (estimate_status=pending);
         a Scheduler-role user must approve before estimates feed Monte Carlo.
-    PM_ONLY: only Scheduler-role users may write estimate fields; Contributors
-        see read-only values.
+    PM_ONLY: only Project Manager (``Role.ADMIN``) and above may write estimate
+        fields; Contributors see read-only values. Enforced server-side by
+        ``TaskSerializer._validate_estimate_write_permitted`` via the shared
+        ``can_user_write_estimates`` predicate (ADR-0743) — the client control in
+        ``EstimatesTab`` is the second line, not the only one (#2596). Note the
+        threshold is ADMIN, *not* ``Role.SCHEDULER``: that role is labelled
+        "Resource Manager" and is refused task content outright by
+        ``can_user_edit_task``, so a Scheduler-keyed check would be unreachable.
 
     Program/portfolio-level policy defaults for this setting are an Enterprise
     concern; the project-level field is the authoritative OSS control.
