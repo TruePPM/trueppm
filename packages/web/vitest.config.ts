@@ -92,7 +92,10 @@ export default defineConfig({
       exclude: [
         ...coverageConfigDefaults.exclude,
         'src/test/**',
-        'src/api/types.ts', // openapi-typescript generated — not hand-authored code
+        // Hand-maintained, despite the generate:types script (#2609). Excluded
+        // because it is a pure type-declaration file with no runtime code, not
+        // because a generator owns it.
+        'src/api/types.ts',
         // GanttEngineStub is a hand-written test double, not production code — it
         // stands in for the canvas-bound engine in component tests, so measuring its
         // own coverage is meaningless. The formerly-excluded engine/renderer files

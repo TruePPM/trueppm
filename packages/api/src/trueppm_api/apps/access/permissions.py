@@ -978,9 +978,13 @@ class IsOrgAdmin(BasePermission):
     Django superusers bypass the membership check.
 
     Enterprise installs satisfy this check implicitly — their admins always
-    have at least one project with ADMIN role. Enterprise-specific overrides
-    (LDAP group claims, SAML attributes) are injected via signals/middleware
-    before this check runs, so the OSS check remains correct as a baseline.
+    have at least one project with ADMIN role.
+
+    Note: this used to claim that enterprise overrides (LDAP group claims, SAML
+    attributes) are "injected via signals/middleware before this check runs".
+    No such seam exists (#2609). The membership-derived check above is the whole
+    rule today. A documented-but-absent override point is worse than none, because
+    an integrator builds against it and finds out at runtime.
     """
 
     message = (

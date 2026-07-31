@@ -20,6 +20,14 @@
  * contract this freeze exists to protect; their OSS host wiring is tracked in
  * issue 1175 and issue 1162. Do not register production enterprise overlays
  * against a RESERVED slot expecting output before its host lands.
+ *
+ * NOT YET REACHABLE AT ALL (#2609). ADR-0029 also specifies an overlay loader in
+ * `main.tsx` that dynamically imports the enterprise module so it can call
+ * `register()` at startup. That loader does not exist, and the `*Edition.ts`
+ * build-time seams have no vite alias — so nothing can register against ANY
+ * slot today, LIVE or RESERVED. The LIVE/RESERVED split below is still the right
+ * contract and is worth keeping accurate; it is just not the only thing standing
+ * between an enterprise module and the shell.
  */
 
 import type { ComponentType } from 'react';
