@@ -84,6 +84,14 @@ COPY --from=builder /build/api/manage.py /app/manage.py
 COPY NOTICES /app/NOTICES
 COPY licenses /app/licenses
 
+# TruePPM's own Apache-2.0 text, which NOTICES deliberately does not carry — it
+# covers only *third-party* components and points readers at "the LICENSE file at
+# the repository root". That file was never copied into the image, so the primary
+# redistribution vehicle for TruePPM's own code (including the compiled
+# wasm-scheduler in the web bundle) shipped without the license Apache 2.0 §4(a)
+# requires recipients to receive (#2632).
+COPY LICENSE /app/LICENSE
+
 # Create a non-root user (uid=1000) to run the application and pre-create
 # the staticfiles directory so collectstatic can write there at startup.
 RUN useradd --uid 1000 --no-create-home --shell /sbin/nologin trueppm && \
