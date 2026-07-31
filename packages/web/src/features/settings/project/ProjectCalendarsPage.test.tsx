@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 import { ProjectCalendarsPage } from './ProjectCalendarsPage';
 import type {
   Calendar,
@@ -9,6 +9,7 @@ import type {
   CalendarPreview,
 } from '@/hooks/useProjectCalendars';
 import { ROLE_ADMIN, ROLE_VIEWER } from '@/lib/roles';
+import { localTodayIso } from '@/lib/localDate';
 import {
   buildMonthGrids,
   formatFullDate,
@@ -335,7 +336,14 @@ describe('ProjectCalendarsPage', () => {
 // reached: the mobile layout, the pager, library load/error states, the empty
 // nudge, the in-flight (saving) state, and each day-cell classification.
 
-const TODAY_ISO_NOW = new Date().toISOString().slice(0, 10);
+// Local calendar day, not `toISOString().slice(0, 10)` (UTC) — the component
+// under test now rings the viewer's local day (#2479), so the fixture and the
+// assertion below must agree on the same day the component actually computes.
+// Using the UTC day here would make this constant, and the assertion built on
+// it, pass in CI (which runs in UTC) while still describing the pre-fix
+// behavior — see the dedicated TZ-pinned boundary test further down for the
+// case where local and UTC actually disagree.
+const TODAY_ISO_NOW = localTodayIso();
 
 /** A month six months out — guaranteed not to be the current month, so the
  *  "today" ring assertions below can't collide with the rich-day fixtures. */
@@ -717,6 +725,71 @@ describe('ProjectCalendarsPage — preview strip', () => {
     expect(screen.getByTitle(formatFullDate(other)).className).not.toContain(
       'outline-brand-primary',
     );
+  });
+
+  // ── UTC/local day-boundary regression (#2479) ─────────────────────────────
+  // CI runs in UTC, so the test above (and the pre-fix `toISOString()`-derived
+  // component code) can't distinguish "local day" from "UTC day" — they always
+  // agree there. Pin a non-UTC system timezone AND a fixed instant where the
+  // UTC calendar day and the local calendar day genuinely differ, then assert
+  // the ring lands on the *local* day. Deriving the expected day from
+  // `localTodayIso()`/local `Date` components (not `Date.UTC`/`toISOString()`)
+  // is what makes this actually exercise the fix rather than re-encode the bug.
+  describe('today ring — local vs UTC day boundary', () => {
+    // eslint-disable-next-line no-undef -- `process` is available in the vitest (node) runtime; test files only load browser globals in eslint.
+    const ORIGINAL_TZ = process.env.TZ;
+
+    beforeAll(() => {
+      // eslint-disable-next-line no-undef -- `process` is available in the vitest (node) runtime; test files only load browser globals in eslint.
+      process.env.TZ = 'America/New_York';
+    });
+
+    afterAll(() => {
+      // eslint-disable-next-line no-undef -- `process` is available in the vitest (node) runtime; test files only load browser globals in eslint.
+      process.env.TZ = ORIGINAL_TZ;
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('rings the local calendar day, not the UTC day, when they disagree near midnight', () => {
+      // 2026-01-15T04:30:00Z is 2026-01-14 23:30 in America/New_York (EST,
+      // UTC-5 — plain winter standard time, no DST transition nearby).
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-01-15T04:30:00Z'));
+
+      const localDay = localTodayIso();
+      const utcDay = new Date().toISOString().slice(0, 10);
+      // Sanity-check the fixture premise: if these ever agree, the test proves
+      // nothing about UTC vs. local — fail loudly instead of passing vacuously.
+      expect(localDay).not.toBe(utcDay);
+      expect(localDay).toBe('2026-01-14');
+      expect(utcDay).toBe('2026-01-15');
+
+      loadedHooks(ROLE_ADMIN);
+      useCalendarPreview.mockReturnValue({
+        data: {
+          start: localDay,
+          end: utcDay,
+          days: [
+            { date: localDay, working: true, sources: [] },
+            { date: utcDay, working: true, sources: [] },
+          ],
+        },
+        isFetching: false,
+        error: null,
+        refetch: vi.fn(),
+      });
+      renderPage();
+
+      expect(screen.getByTitle(formatFullDate(localDay)).className).toContain(
+        'outline-brand-primary',
+      );
+      expect(screen.getByTitle(formatFullDate(utcDay)).className).not.toContain(
+        'outline-brand-primary',
+      );
+    });
   });
 });
 
