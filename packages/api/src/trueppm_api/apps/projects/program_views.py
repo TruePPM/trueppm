@@ -353,7 +353,7 @@ class SeedValidateThrottle(UserRateThrottle):
     scope = "seed_validate"
 
 
-def _seed_replace_conflict() -> Any:
+def _seed_replace_conflict(*, allow_null: bool = False) -> Any:
     """A fresh schema for "the program a confirmed re-import would tear down".
 
     A factory rather than a module constant because the same shape is nested
@@ -363,6 +363,11 @@ def _seed_replace_conflict() -> Any:
 
     The counts are the substance of it: a program *name* is not enough
     information to consent to destroying 812 tasks (ADR-0726 §1).
+
+    ``allow_null`` differs per envelope and must not be hoisted into the shared
+    shape: a ``409`` refusal always names the conflict that caused it, while the
+    dry run reports ``null`` whenever nothing collides — which is its ordinary
+    answer, not an edge case (#2649).
     """
     return inline_serializer(
         "SeedReplaceConflict",
@@ -373,6 +378,7 @@ def _seed_replace_conflict() -> Any:
             "project_count": serializers.IntegerField(),
             "task_count": serializers.IntegerField(),
         },
+        allow_null=allow_null,
     )
 
 
@@ -428,7 +434,12 @@ SEED_VALIDATE_RESPONSE = inline_serializer(
         # Computed at the view layer, never inside ``inspect_seed`` — that
         # function is pure and lives in a module that never imports the ORM, and
         # the dry run's "persists nothing" guarantee is structural because of it.
-        "replaces": _seed_replace_conflict(),
+        #
+        # Nullable, and that is the common case (#2649): ``preview_replacement``
+        # answers ``None`` for a free slug, a slug owned by someone else, and any
+        # document too malformed to state one — so a client must treat the key as
+        # present-but-null, never as proof of a collision.
+        "replaces": _seed_replace_conflict(allow_null=True),
     },
 )
 

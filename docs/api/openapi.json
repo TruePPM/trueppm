@@ -52947,7 +52947,12 @@
                         "type": "integer"
                     },
                     "replaces": {
-                        "$ref": "#/components/schemas/SeedReplaceConflict"
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SeedReplaceConflict"
+                            }
+                        ],
+                        "nullable": true
                     }
                 },
                 "required": [

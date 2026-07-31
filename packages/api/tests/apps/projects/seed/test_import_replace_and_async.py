@@ -18,8 +18,14 @@ from unittest.mock import patch
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from jsonschema import Draft202012Validator
 from rest_framework.test import APIClient
 
+from tests.test_openapi_response_conformance import (
+    as_json_schema,
+    assert_response_matches_schema,
+    load_committed_schema,
+)
 from trueppm_api.apps.access.models import ProgramMembership, Role
 from trueppm_api.apps.projects.models import (
     Dependency,
@@ -545,6 +551,112 @@ def test_dry_run_still_persists_nothing_with_a_collision_present(seed_owner: Any
     assert Program.objects.count() == before
     existing.refresh_from_db()
     assert existing.is_deleted is False
+
+
+# --- the dry run's declared 200 must accept the body it actually sends (#2649) ---
+#
+# ``api:schema-drift`` cannot catch this class: it only proves the committed
+# document matches what the code declares, and both agreed on a ``replaces`` that
+# was never nullable. ``api:fuzz`` found it, on ``main``, hours after merge —
+# these three tests move the same check to MR time.
+
+
+@pytest.fixture(scope="module")
+def committed_schema() -> dict[str, Any]:
+    return load_committed_schema()
+
+
+def test_dry_run_null_replaces_matches_its_declared_schema(
+    committed_schema: dict[str, Any], seed_owner: Any
+) -> None:
+    """The ordinary answer — free slug, nothing to tear down — must validate.
+
+    This is the majority case, not an edge: every first import of a document
+    reports ``replaces: null``. The pre-fix schema typed the key as a plain
+    ``$ref``, so a generated SDK typed it non-null and every ordinary dry run
+    violated the published contract.
+    """
+    resp = _client(seed_owner).post(VALIDATE_URL, data=_seed(), format="json")
+
+    assert resp.json()["replaces"] is None
+    assert_response_matches_schema(
+        committed_schema, resp, "/api/v1/programs/import/validate/", method="post"
+    )
+
+
+def test_dry_run_populated_replaces_matches_its_declared_schema(
+    committed_schema: dict[str, Any], seed_owner: Any
+) -> None:
+    """Making the key nullable must not stop the object branch from being described."""
+    import_seed(_seed(), owner=seed_owner, create_users=False)
+
+    resp = _client(seed_owner).post(VALIDATE_URL, data=_seed(), format="json")
+
+    assert resp.json()["replaces"]["project_count"] == 2
+    assert_response_matches_schema(
+        committed_schema, resp, "/api/v1/programs/import/validate/", method="post"
+    )
+
+
+def test_dry_run_on_a_document_that_is_not_a_seed_matches_its_declared_schema(
+    committed_schema: dict[str, Any], seed_owner: Any
+) -> None:
+    """The exact ``api:fuzz`` case: a program-create payload posted to the dry run.
+
+    A document with no ``program`` key at all is answered ``200 {"valid": false}``
+    — the request succeeded, the document is what failed — and ``replaces`` is
+    ``null`` because there is no slug to collide with. Kept verbatim from the
+    fuzzer's reproduction so the case that reached ``main`` is the case pinned.
+    """
+    resp = _client(seed_owner).post(
+        VALIDATE_URL,
+        data={"name": "0", "description": "", "code": "", "methodology": "WATERFALL"},
+        format="json",
+    )
+
+    body = resp.json()
+    assert body["valid"] is False
+    assert body["replaces"] is None
+    assert_response_matches_schema(
+        committed_schema, resp, "/api/v1/programs/import/validate/", method="post"
+    )
+
+
+def test_the_pre_fix_declaration_rejects_a_null_replaces(
+    committed_schema: dict[str, Any], seed_owner: Any
+) -> None:
+    """The guard must bite — validate the real body against the schema we replaced.
+
+    Without this, the three tests above would still pass if ``replaces`` were
+    quietly dropped from ``required`` or the validator stopped resolving the
+    ``$ref``, and the regression they exist to catch would walk straight back in.
+    """
+    body = _client(seed_owner).post(VALIDATE_URL, data=_seed(), format="json").json()
+
+    pre_fix_declaration = as_json_schema(
+        {
+            "$ref": "#/components/schemas/SeedValidateResponse",
+            "components": {
+                **committed_schema["components"],
+                "schemas": {
+                    **committed_schema["components"]["schemas"],
+                    "SeedValidateResponse": {
+                        **committed_schema["components"]["schemas"]["SeedValidateResponse"],
+                        "properties": {
+                            **committed_schema["components"]["schemas"]["SeedValidateResponse"][
+                                "properties"
+                            ],
+                            "replaces": {"$ref": "#/components/schemas/SeedReplaceConflict"},
+                        },
+                    },
+                },
+            },
+        }
+    )
+    errors = list(Draft202012Validator(pre_fix_declaration).iter_errors(body))
+
+    assert errors, "a null `replaces` must NOT validate against the old non-nullable $ref"
+    assert "is not of type 'object'" in errors[0].message
 
 
 # --- upload ceiling on BOTH branches ----------------------------------------

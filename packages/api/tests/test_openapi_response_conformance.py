@@ -73,13 +73,17 @@ _HTTP_METHODS = frozenset({"get", "post", "put", "patch", "delete"})
 # ---------------------------------------------------------------------------
 
 
-def _load_committed_schema() -> dict[str, Any]:
+def load_committed_schema() -> dict[str, Any]:
     """Parse ``docs/api/openapi.json`` — the artifact integrators generate SDKs from.
 
     Deliberately the committed file rather than a fresh generation: it is what a
     client actually holds, and ``api:schema-drift`` separately proves it matches
     the code. Validating against the file means this test is asserting on the
     published contract, not on an in-process reconstruction of it.
+
+    Public so a feature's own test module can adopt this check next to the
+    behavior it covers, rather than every endpoint's conformance test having to
+    live here (#2649).
     """
     here = Path(__file__).resolve()
     for parent in here.parents:
@@ -91,7 +95,7 @@ def _load_committed_schema() -> dict[str, Any]:
 
 @pytest.fixture(scope="module")
 def committed_schema() -> dict[str, Any]:
-    return _load_committed_schema()
+    return load_committed_schema()
 
 
 def as_json_schema(node: Any) -> Any:
