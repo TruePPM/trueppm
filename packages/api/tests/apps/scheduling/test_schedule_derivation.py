@@ -107,6 +107,41 @@ class TestScheduleDerivationCpm:
         # Every candidate the engine weighed is present, binding flagged.
         assert any(c["is_binding"] for c in data["contributions"])
 
+    def test_early_start_names_actual_start_floor(
+        self, member_client: APIClient, project: Project, chain: dict[str, Task]
+    ) -> None:
+        """ADR-0132 §2 / #2621: when an in-progress task's actual_start is later
+        than its predecessor-driven release, the derivation must name
+        actual_start as binding — not silently keep citing the predecessor link
+        the engine no longer used to compute early_start."""
+        b = chain["B"]
+        # An explicit status_date at project start keeps the data-date floor from
+        # being the (wall-clock-dependent) "today" default this endpoint applies
+        # to a null status_date — the case under test is the actual_start floor,
+        # not the data-date one.
+        project.status_date = project.start_date
+        project.save()
+        # A (Design, 3d from Mon 2-Mar) finishes Wed 4-Mar; the FS link would
+        # release B Thu 5-Mar. B actually started the following Monday.
+        b.status = "IN_PROGRESS"
+        b.percent_complete = 50.0
+        b.actual_start = date(2026, 3, 9)
+        b.save()
+
+        res = member_client.get(
+            url(project.pk),
+            {"task_id": str(b.id), "quantity": "early_start"},
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["value"] == date(2026, 3, 9).isoformat()
+        assert data["binding"] is not None
+        assert data["binding"]["kind"] == "actual_start"
+        # The predecessor link is still reported as a candidate, just not binding.
+        pred_terms = [c for c in data["contributions"] if c["kind"] == "predecessor_fs"]
+        assert len(pred_terms) == 1
+        assert pred_terms[0]["is_binding"] is False
+
     def test_root_task_bound_by_anchor(
         self, member_client: APIClient, project: Project, chain: dict[str, Task]
     ) -> None:

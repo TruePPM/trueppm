@@ -755,6 +755,145 @@ mod tests {
     }
 
     #[test]
+    fn test_actual_start_floors_early_start_past_predecessor() {
+        // ADR-0132 §2 / #2621: an in-progress task's early_start floors at
+        // max(actual_start, predecessor constraints) — work already underway
+        // stays where it actually started, even when the predecessor finished
+        // (and would otherwise release the successor) earlier than that.
+        //
+        // A(2d, complete, actual_start=Mar2, actual_finish=Mar3) --FS--> B(4d,
+        // 50% done, actual_start=Mar10). B's predecessor constraint (A finishes
+        // Mar3) would release it Mar4, but B actually started a week later.
+        let mut task_a = make_task("A", 2);
+        task_a.percent_complete = 100.0;
+        task_a.actual_start = Some(NaiveDate::from_ymd_opt(2026, 3, 2).unwrap());
+        task_a.actual_finish = Some(NaiveDate::from_ymd_opt(2026, 3, 3).unwrap());
+
+        let mut task_b = make_task("B", 4);
+        task_b.percent_complete = 50.0;
+        task_b.actual_start = Some(NaiveDate::from_ymd_opt(2026, 3, 10).unwrap());
+
+        let project = Project {
+            id: "p1".to_string(),
+            name: "Test".to_string(),
+            start_date: NaiveDate::from_ymd_opt(2026, 3, 2).unwrap(),
+            tasks: vec![task_a, task_b],
+            dependencies: vec![dep("A", "B")],
+            calendar: Calendar::default(),
+            status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
+        };
+
+        let result = schedule_impl(&project).unwrap();
+        let b = result.tasks.iter().find(|t| t.id == "B").unwrap();
+        assert_eq!(b.early_start, NaiveDate::from_ymd_opt(2026, 3, 10).unwrap());
+        // 50% of a 4d task leaves 2 remaining working days: Tue10, Wed11.
+        assert_eq!(
+            b.early_finish,
+            NaiveDate::from_ymd_opt(2026, 3, 11).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_actual_start_floors_early_start_past_status_date() {
+        // The actual_start floor is additional to, not a replacement for, the
+        // status-date floor — the later of the two wins.
+        let mut task_a = make_task("A", 6);
+        task_a.percent_complete = 40.0;
+        task_a.actual_start = Some(NaiveDate::from_ymd_opt(2026, 3, 12).unwrap());
+
+        let project = Project {
+            id: "p1".to_string(),
+            name: "Test".to_string(),
+            start_date: NaiveDate::from_ymd_opt(2026, 3, 2).unwrap(),
+            tasks: vec![task_a],
+            dependencies: vec![],
+            calendar: Calendar::default(),
+            status_date: Some(NaiveDate::from_ymd_opt(2026, 3, 9).unwrap()), // earlier than actual_start
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
+        };
+
+        let result = schedule_impl(&project).unwrap();
+        let a = result.tasks.iter().find(|t| t.id == "A").unwrap();
+        assert_eq!(a.early_start, NaiveDate::from_ymd_opt(2026, 3, 12).unwrap());
+    }
+
+    #[test]
+    fn test_actual_start_does_not_drift_across_progress_updates() {
+        // Regression (#2621): a progress-only update (percent_complete alone
+        // changes) must never pull an in-progress task's early_start earlier
+        // than its actual_start, and must never move it at all — the floor is
+        // on the *start*, so only the remaining-duration window shrinks.
+        //
+        // Before the fix, actual_start played no part in the in-progress ES
+        // constraints, so early_start tracked the calendar/predecessor floor
+        // alone and drifted independently of where work actually began.
+        // Reaching 100% then flipped to the pinned-actuals placement and could
+        // jump early_start backward in one step — the discontinuity #2621
+        // reports as the activity feed logging a false bulk task move.
+        let mut task_a = make_task("A", 2);
+        task_a.percent_complete = 100.0;
+        task_a.actual_start = Some(NaiveDate::from_ymd_opt(2026, 3, 2).unwrap());
+        task_a.actual_finish = Some(NaiveDate::from_ymd_opt(2026, 3, 3).unwrap());
+
+        let mut starts = Vec::new();
+        for pct in [0.0, 25.0, 50.0, 83.0] {
+            let mut task_b = make_task("B", 4);
+            task_b.percent_complete = pct;
+            task_b.actual_start = Some(NaiveDate::from_ymd_opt(2026, 3, 10).unwrap());
+
+            let project = Project {
+                id: "p1".to_string(),
+                name: "Test".to_string(),
+                start_date: NaiveDate::from_ymd_opt(2026, 3, 2).unwrap(),
+                tasks: vec![task_a.clone(), task_b],
+                dependencies: vec![dep("A", "B")],
+                calendar: Calendar::default(),
+                status_date: None,
+                calendars: None,
+                velocity_samples: None,
+                sprint_length_days: None,
+            };
+
+            let result = schedule_impl(&project).unwrap();
+            let b = result.tasks.iter().find(|t| t.id == "B").unwrap();
+            starts.push(b.early_start);
+        }
+
+        // early_start is pinned at actual_start for every in-progress
+        // percentage — no drift, so there is nothing for completion to jump
+        // backward from.
+        let expected = NaiveDate::from_ymd_opt(2026, 3, 10).unwrap();
+        assert!(starts.iter().all(|s| *s == expected), "{starts:?}");
+
+        // Completing the task (100%, actuals-pinned placement) must not move
+        // early_start backward from where every in-progress reading already had it.
+        let mut task_b_complete = make_task("B", 4);
+        task_b_complete.percent_complete = 100.0;
+        task_b_complete.actual_start = Some(expected);
+        let project = Project {
+            id: "p1".to_string(),
+            name: "Test".to_string(),
+            start_date: NaiveDate::from_ymd_opt(2026, 3, 2).unwrap(),
+            tasks: vec![task_a, task_b_complete],
+            dependencies: vec![dep("A", "B")],
+            calendar: Calendar::default(),
+            status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
+        };
+        let result = schedule_impl(&project).unwrap();
+        let b_complete = result.tasks.iter().find(|t| t.id == "B").unwrap();
+        assert_eq!(b_complete.early_start, expected);
+        assert!(b_complete.early_start >= *starts.last().unwrap());
+    }
+
+    #[test]
     fn test_json_round_trip() {
         let project = Project {
             id: "p1".to_string(),

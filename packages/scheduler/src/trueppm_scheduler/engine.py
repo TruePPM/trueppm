@@ -819,8 +819,11 @@ def _forward_pass(
     to its recorded dates and removed from network logic; an in-progress task
     contributes only its remaining duration; and when ``status_date`` (the data
     date) is given, remaining/not-started work is floored at it — future work is
-    never scheduled in the past. With no actuals and no status date the result is
-    byte-identical to a pure planning pass.
+    never scheduled in the past. An in-progress task's ``actual_start``, when
+    recorded, is an additional early-start floor (ADR-0132 §2, #2621): work
+    already underway stays where it actually started, even past the data date
+    or a predecessor's constraint. With no actuals and no status date the
+    result is byte-identical to a pure planning pass.
 
     Per-task calendars (ADR-0120 D3): when ``task_calendars`` is supplied, the task
     being computed (the successor of every incoming edge) uses its own calendar for
@@ -855,6 +858,14 @@ def _forward_pass(
             # data date; not-started work uses its full estimate.
             duration_days = _effective_duration_days(task)
             es_constraints = [start]
+            if task.actual_start is not None:
+                # ADR-0132 §2 / #2621: work already underway is floored at where
+                # it actually started, not just at the data date or predecessor
+                # constraints — actuals are truth and are never smoothed back
+                # to an earlier network slot. Unsnapped, unlike planned_start:
+                # a recorded actual can legitimately land on a non-working day
+                # (e.g. logged over a weekend) and is not renegotiated.
+                es_constraints.append(task.actual_start)
 
         # planned_start (SNET) is an additional ES lower-bound: the task may
         # not start before this date regardless of network logic.

@@ -183,6 +183,59 @@ def test_completed_task_without_actuals_keeps_full_span(project: Project) -> Non
     assert done.early_finish == date(2026, 1, 9)
 
 
+@pytest.mark.django_db
+def test_in_progress_task_early_start_floors_at_actual_start(project: Project) -> None:
+    """End-to-end (builder -> engine -> bulk_update): #2621 / ADR-0132 §2.
+
+    An in-progress successor's ``actual_start`` must reach the engine through
+    ``build_sched_tasks`` and floor ``early_start`` even when its FS
+    predecessor would otherwise release it earlier — proving the fix holds
+    through the real persisted recalculation path, not only inside the
+    scheduler library's own unit tests.
+    """
+    from trueppm_api.apps.projects.models import Dependency, TaskStatus
+    from trueppm_api.apps.scheduling.tasks import recalculate_schedule
+
+    # Project starts Mon 2026-01-05. Predecessor is complete and finishes
+    # Tue 2026-01-06, which would release the successor Wed 2026-01-07.
+    pred = Task.objects.create(
+        project=project,
+        name="Pred",
+        duration=2,
+        status=TaskStatus.COMPLETE,
+        percent_complete=100.0,
+        actual_start=date(2026, 1, 5),
+        actual_finish=date(2026, 1, 6),
+    )
+    # Successor actually started a full week after that — well past the
+    # predecessor-driven floor.
+    succ = Task.objects.create(
+        project=project,
+        name="Succ",
+        duration=4,
+        status=TaskStatus.IN_PROGRESS,
+        percent_complete=50.0,
+        actual_start=date(2026, 1, 13),
+    )
+    Dependency.objects.create(predecessor=pred, successor=succ, dep_type="FS")
+
+    mock_redis = MagicMock()
+    mock_redis.set.return_value = "OK"  # lock acquired → task body runs
+    with (
+        patch("trueppm_api.core.idempotent.valkey") as mock_redis_module,
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+    ):
+        mock_redis_module.client.return_value = mock_redis
+        recalculate_schedule.run(str(project.pk))
+
+    succ.refresh_from_db()
+    # Floored at actual_start (Tue Jan 13), not the predecessor's Jan 7 release.
+    assert succ.early_start == date(2026, 1, 13)
+    # 50% of a 4d task leaves 2 remaining working days: Tue13, Wed14.
+    assert succ.early_finish == date(2026, 1, 14)
+
+
 # ---------------------------------------------------------------------------
 # Reason plumbing (#355) — outbox row must record what triggered the recalc
 # so "why did this fire?" debugging doesn't require correlating timestamps.
