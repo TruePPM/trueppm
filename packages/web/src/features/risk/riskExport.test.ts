@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll, type MockInstance } from 'vitest';
 import { generateRisksCSV, exportRisksToCSV } from './riskExport';
 import type { Risk } from '@/api/types';
+import { localTodayIso } from '@/lib/localDate';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -228,7 +229,13 @@ describe('exportRisksToCSV — download trigger', () => {
   });
 
   it('filename uses project slug and today ISO date', () => {
-    const today = new Date().toISOString().slice(0, 10);
+    // Local calendar day, not `toISOString().slice(0, 10)` (UTC) — the export
+    // now stamps the viewer's local day (#2479). Deriving the expectation from
+    // `localTodayIso()` (rather than re-deriving it via a UTC method) means
+    // this assertion actually tracks the fixed behavior instead of just
+    // re-encoding the bug it fixed; see the TZ-pinned test below for the case
+    // where local and UTC genuinely disagree.
+    const today = localTodayIso();
     exportRisksToCSV([makeRisk()], 'my-project');
     expect(capturedFilename).toBe(`risks-my-project-${today}.csv`);
   });
@@ -241,5 +248,47 @@ describe('exportRisksToCSV — download trigger', () => {
   it('triggers anchor click', () => {
     exportRisksToCSV([makeRisk()], 'proj');
     expect(clickSpy).toHaveBeenCalledOnce();
+  });
+
+  // ── UTC/local day-boundary regression (#2479) ─────────────────────────────
+  // CI runs in UTC, so the test above can't distinguish "local day" from "UTC
+  // day" — they always agree there. Pin a non-UTC system timezone and a fixed
+  // instant where the local calendar day and the UTC calendar day genuinely
+  // differ, then assert the filename carries the *local* day.
+  describe('filename — local vs UTC day boundary', () => {
+    // eslint-disable-next-line no-undef -- `process` is available in the vitest (node) runtime; test files only load browser globals in eslint.
+    const ORIGINAL_TZ = process.env.TZ;
+
+    beforeAll(() => {
+      // eslint-disable-next-line no-undef -- `process` is available in the vitest (node) runtime; test files only load browser globals in eslint.
+      process.env.TZ = 'America/New_York';
+    });
+
+    afterAll(() => {
+      // eslint-disable-next-line no-undef -- `process` is available in the vitest (node) runtime; test files only load browser globals in eslint.
+      process.env.TZ = ORIGINAL_TZ;
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('stamps the local calendar day, not the UTC day, near midnight', () => {
+      // 2026-01-15T04:30:00Z is 2026-01-14 23:30 in America/New_York (EST,
+      // UTC-5 — plain winter standard time, no DST transition nearby).
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-01-15T04:30:00Z'));
+
+      const localDay = localTodayIso();
+      const utcDay = new Date().toISOString().slice(0, 10);
+      // Sanity-check the fixture premise: if these ever agree, the test proves
+      // nothing about UTC vs. local — fail loudly instead of passing vacuously.
+      expect(localDay).not.toBe(utcDay);
+      expect(localDay).toBe('2026-01-14');
+      expect(utcDay).toBe('2026-01-15');
+
+      exportRisksToCSV([makeRisk()], 'my-project');
+      expect(capturedFilename).toBe(`risks-my-project-${localDay}.csv`);
+    });
   });
 });

@@ -1,4 +1,5 @@
 import type { Risk } from '@/api/types';
+import { localTodayIso } from '@/lib/localDate';
 
 // RFC 4180 quoting: wrap in double-quotes if the value contains commas, double-quotes, or newlines.
 // Embedded double-quotes are doubled.
@@ -85,7 +86,10 @@ export function generateRisksCSV(risks: Risk[]): string {
  * Filename format: risks-{projectSlug}-{YYYY-MM-DD}.csv
  */
 export function exportRisksToCSV(risks: Risk[], projectSlug: string): void {
-  const today = new Date().toISOString().slice(0, 10);
+  // Local calendar day, not UTC (#2479) — a contributor exporting near midnight
+  // should get a filename stamped with the day on their wall clock, not the day
+  // in UTC, since the file is often filed as same-day evidence.
+  const today = localTodayIso();
   const filename = `risks-${projectSlug}-${today}.csv`;
   const csv = generateRisksCSV(risks);
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });

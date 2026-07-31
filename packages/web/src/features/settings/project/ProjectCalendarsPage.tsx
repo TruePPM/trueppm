@@ -4,6 +4,7 @@ import { useProject } from '@/hooks/useProject';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { ROLE_SCHEDULER } from '@/lib/roles';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { localTodayIso } from '@/lib/localDate';
 import {
   useProjectCalendars,
   useCalendarLibrary,
@@ -62,8 +63,12 @@ const ROLE_CHIP: Record<CalendarRole, { label: string; className: string }> = {
   },
 };
 
+// Seeds the preview-window anchor only (which month/year the quarter/month
+// pager starts on) — a one-time default at module load, not a "today" marker,
+// so it stays on UTC getters. The visual "today" ring is a different concern
+// (see `DayCell` below) and must track the viewer's local calendar day, freshly
+// evaluated on every render — see `localTodayIso()` in lib/localDate.ts.
 const TODAY = new Date();
-const TODAY_ISO = TODAY.toISOString().slice(0, 10);
 
 /**
  * Working calendars — project settings sub-page (ADR-0251, #906).
@@ -664,7 +669,11 @@ function MonthView({ grid, hideName }: { grid: MonthGrid; hideName?: boolean }) 
 function DayCell({ cell }: { cell: ReturnType<typeof classifyDay> | null }) {
   if (!cell) return <div className="aspect-square" aria-hidden="true" />;
   const num = cellDayNumber(cell);
-  const isToday = cell.date === TODAY_ISO;
+  // Evaluated per render (not a module-load constant) so the ring tracks the
+  // viewer's *local* calendar day — a tab left open across a local midnight
+  // re-renders on the next preview refetch/interaction and re-rings correctly,
+  // and a UTC-vs-local mismatch near either midnight resolves to the local day.
+  const isToday = cell.date === localTodayIso();
   const working = cell.type === 'working';
   const tag = cell.type === 'holiday' || cell.type === 'shutdown' ? DAY_TYPE_TAG[cell.type] : null;
 
