@@ -126,11 +126,15 @@ class ProjectSyncView(IdempotencyMixin, APIView):
     checkpoint above every other row's counter and drop those rows from the delta
     permanently.
 
-    The response `timestamp` is snapshotted *before* the delta queries run
-    (inside REPEATABLE READ isolation) to eliminate the TOCTOU gap where a
-    write could land between the watermark read and the row queries. It is
-    snapshotted once per *paging session*, not per request: continuation pages
-    echo the value pinned in the cursor (#2568).
+    The response ``timestamp`` is read *before* the delta queries, so a write that
+    lands during the pull always draws a cursor above it. Such a row is delivered by
+    this response or the next one — never dropped — at the cost of an occasional
+    re-delivery, which WatermelonDB's upsert absorbs. Clients therefore need no
+    retry or reconciliation logic for a mid-pull write; adopt ``timestamp`` as the
+    next ``since`` and the delta is complete. It is read once per *paging session*,
+    not per request: continuation pages echo the value pinned in the cursor (#2568).
+    See the comment at the watermark read for why the ordering, and not a transaction
+    isolation level, is what guarantees this.
 
     Usage:
         GET /api/v1/projects/{pk}/sync/?since=0
@@ -214,11 +218,44 @@ class ProjectSyncView(IdempotencyMixin, APIView):
 
             raise PermissionDenied("You must be a member of this project.")
 
-        # Snapshot the high-water mark before running delta queries.
-        # Using REPEATABLE READ ensures we don't miss rows written concurrently.
+        # Read the high-water mark BEFORE the delta queries. This ORDERING is the
+        # whole guarantee — not an isolation level. ATOMIC_REQUESTS does wrap this
+        # request in a transaction, but at PostgreSQL's default READ COMMITTED, and
+        # nothing here or in settings raises that: every statement below still takes
+        # its own fresh snapshot, so being in a transaction pins nothing. REPEATABLE
+        # READ would add nothing either, and an earlier version of this comment
+        # claimed a wrapper that never existed at all (#2613).
         #
-        # One watermark per *session*, not per request (#2568). On a continuation
-        # page the checkpoint is read back off the cursor: recomputing it would
+        # Two facts close the TOCTOU window:
+        #
+        #  1. A write landing after this read draws sync_seq > timestamp, so it is
+        #     either carried by this response anyway (harmless — upsert) or caught
+        #     by the next pull, whose `since` is this timestamp. Reading the
+        #     watermark first errs toward re-delivery; reading it last is lossy.
+        #  2. A write that already committed is fully visible. Allocation UPDATEs
+        #     the project row and holds its write lock to commit (sync/sequence.py),
+        #     so allocations are totally ordered by commit: observing
+        #     last_sync_version == W means every allocation <= W has committed —
+        #     each one together with the row it stamped.
+        #
+        # Fact 2 rests on a WRITER-side precondition: the allocator bump and the row
+        # write must land in one transaction. ATOMIC_REQUESTS supplies it for every
+        # HTTP write and the batch writers open an explicit atomic(); a synced write
+        # in autocommit would violate it, and no reader isolation level can
+        # compensate — a snapshot cannot reveal an uncommitted row whose already-
+        # committed allocator bump the reader can see. Tracked in #2617.
+        #
+        # The value is taken off the Project row fetched above rather than re-read,
+        # so the snapshot instant is the RBAC fetch — earlier still, which only
+        # widens the margin. Do NOT add a refresh_from_db() here: re-reading the
+        # allocator after the delta queries is exactly the lossy order, and would
+        # publish a checkpoint over rows this response could not carry.
+        #
+        # One watermark per *session*, not per request (#2568) — which preserves the
+        # ordering above rather than weakening it: a continuation page's checkpoint was
+        # read before page 1's delta queries, so it precedes every query in the drain.
+        # On a continuation page the checkpoint is read back off the cursor: recomputing
+        # it would
         # publish a value above rows written mid-drain into a collection the pager
         # had already passed, and the client adopting the last page's `timestamp`
         # would filter those rows out of every future pull. Pinning page 1's value
@@ -792,8 +829,10 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
         # monotonic, so a write landing after this snapshot moves the row forward in
         # (server_version, id) order — delivered this pull (re-applied under upsert)
         # or the next (its version > timestamp = next since); never lost. This is
-        # the same concurrency argument pagination.py makes, so no REPEATABLE READ
-        # wrapper is needed (ProjectSyncView's is belt-and-suspenders).
+        # the same concurrency argument pagination.py makes, and the same
+        # watermark-before-rows ordering ProjectSyncView relies on. Neither view
+        # opens a REPEATABLE READ block; both run at READ COMMITTED, and the
+        # ordering — not the isolation level — is what closes the window.
         #
         # This slice still keys on the per-row server_version and so still carries
         # the ordering defect ADR-0686 fixed for projects: a hot program raises the
