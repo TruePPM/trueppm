@@ -20,8 +20,11 @@ interface Props {
    */
   programId?: string;
   /**
-   * Optional parent program name, used only to label the "Use program defaults"
-   * affordance (#1909). Falls back to a generic label when absent.
+   * Optional parent program name. Shown as a first-class identity field on step 1
+   * (#2666) so the dialog always names the destination the project is silently
+   * attached to, and labels the "Use program defaults" affordance on step 3 (#1909).
+   * Falls back to a generic label/value when absent (e.g. the program hasn't
+   * resolved yet) rather than showing nothing.
    */
   programName?: string;
 }
@@ -52,7 +55,9 @@ function getFocusable(container: HTMLElement): HTMLElement[] {
 
 /**
  * Multi-step modal for creating a new project.
- * Step 1: Name + description. Step 2: Schedule dates. Step 3: Template.
+ * Step 1: Name + description (plus the target program, when creating under one —
+ * #2666, so the attachment is never a silent fact). Step 2: Schedule dates.
+ * Step 3: Template.
  * Focus is trapped within the dialog and restored to the trigger element on close.
  */
 export function NewProjectModal({ onClose, onCreated, programId, programName }: Props) {
@@ -228,6 +233,25 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
             {step === 1 && (
               <>
                 <h2 className="text-base font-semibold text-neutral-text-primary">Project details</h2>
+                {/* Names the destination as a first-class identity field (#2666) — the
+                    program a project attaches to determines its rollup, cadence
+                    inheritance, and the step-3 defaults, so it belongs here rather than
+                    only surfacing (optionally) on step 3 via the "Use program defaults"
+                    checkbox. Read-only for now: changing or clearing the program is a
+                    picker-sized follow-up (#2673), out of scope for this wiring fix. */}
+                {programId && (
+                  // Full-opacity bg-neutral-surface-raised (not the /40 used on the step-3
+                  // checkbox and TimesheetGrid's hover row) — this field is a static
+                  // identity display, not an interactive affordance, and the codebase's
+                  // only precedent for the /40 variant is interactive rows. Using the
+                  // same treatment here would visually imply this is clickable too.
+                  <div className="flex items-center justify-between gap-2 rounded-control border border-neutral-border bg-neutral-surface-raised px-3 py-2">
+                    <span className="text-xs font-medium text-neutral-text-secondary">Program</span>
+                    <span className="text-sm font-medium text-neutral-text-primary">
+                      {programName ?? 'Unnamed program'}
+                    </span>
+                  </div>
+                )}
                 <label className="flex flex-col gap-1">
                   <span className="text-xs font-medium text-neutral-text-secondary">
                     Name <span aria-hidden="true">*</span>

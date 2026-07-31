@@ -14,7 +14,11 @@ import { create } from 'zustand';
  */
 export type CreateIntent =
   | { kind: 'task'; projectId: string; isMilestone?: boolean }
-  | { kind: 'project'; programId?: string }
+  // `programName` travels alongside `programId` (#2666) so `CreateDispatcher` never has
+  // to re-derive it — the resolved program is already in hand wherever an intent with a
+  // programId is published (see `CreateMenu`'s RBAC gate, which requires the program to
+  // have loaded before the "New project" target can even render).
+  | { kind: 'project'; programId?: string; programName?: string }
   | { kind: 'story'; projectId: string };
 
 interface CreateIntentState {
