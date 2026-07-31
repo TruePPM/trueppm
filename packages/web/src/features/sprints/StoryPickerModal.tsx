@@ -261,7 +261,7 @@ export function StoryPickerModal({
           aria-modal="true"
           aria-label={`Pull stories into ${sprint.short_id_display}`}
           className="w-full max-w-2xl max-h-[85vh] rounded-card border border-neutral-border
-            bg-neutral-surface shadow-lg pointer-events-auto flex flex-col"
+            bg-neutral-surface shadow-pop pointer-events-auto flex flex-col"
         >
           <header className="flex items-start justify-between gap-3 px-5 pt-5 pb-3 border-b border-neutral-border">
             <div className="flex flex-col gap-0.5 min-w-0">
