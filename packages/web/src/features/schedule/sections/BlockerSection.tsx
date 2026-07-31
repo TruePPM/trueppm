@@ -309,6 +309,8 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
               blockerType={task.blockerType}
               age={age}
               blockedBy={task.blockedBy}
+              freshQueuedFlag={freshQueuedFlag}
+              pendingOp={pendingOp}
             />
 
             {canReadReason ? (
