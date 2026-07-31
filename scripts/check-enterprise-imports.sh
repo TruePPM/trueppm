@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Fail if OSS source imports from the proprietary trueppm-enterprise package.
+#
+# The Apache 2.0 boundary's single non-negotiable rule — "the community edition
+# NEVER imports from trueppm-enterprise; the dependency is one-way" — is stated
+# in CLAUDE.md, CONTRIBUTING.md, five agent skills and ~30 ADRs, and until #2603
+# was enforced by nothing. `boundary:check` guards the *issue tracker* half of
+# the rule (no OSS issue describing enterprise scope) and never reads the source
+# tree. This script is the source-tree half.
+#
+# Why it greps for imports and not for the string: the boundary permits — and
+# the codebase relies on — prose that NAMES the enterprise package. Extension
+# points document which enterprise module registers against them, and ADR
+# references cite enterprise paths. Those are the contract being described, not
+# a dependency being taken. So the patterns below match only the syntactic forms
+# that create a real link:
+#
+#   Python   `import trueppm_enterprise…` / `from trueppm_enterprise… import …`
+#            at line start (leading whitespace allowed)
+#   Python   a quoted module path — importlib.import_module("trueppm_enterprise…"),
+#            __import__("…"), or an INSTALLED_APPS / MIDDLEWARE string entry.
+#            A settings entry is as binding as an import statement.
+#   TS/TSX   `from '…trueppm-enterprise…'`, `import('…')`, `require('…')`
+#
+# Comment lines are stripped before matching, so `# trueppm_enterprise/audit/apps.py`
+# in a docstring or an ADR pointer stays legal. Repo prose convention is to write
+# the package name in ``double backticks`` rather than "quotes", which keeps the
+# quoted-path pattern free of false positives.
+#
+# Exit codes:
+#   0  no enterprise imports in OSS source
+#   1  at least one import found (CI fails; see output)
+#   2  invocation error
+
+set -euo pipefail
+
+ROOT="${1:-packages}"
+
+if [ ! -d "$ROOT" ]; then
+  echo "ERROR: '$ROOT' is not a directory. Run from the repository root." >&2
+  exit 2
+fi
+
+# Python: an import statement at the head of a line, or any quoted module path.
+PY_PATTERN='(^[[:space:]]*(from|import)[[:space:]]+trueppm_enterprise)|(["'"'"']trueppm_enterprise([."'"'"']|$))'
+# TS/TSX/JS: a module specifier in an import / dynamic import / require.
+TS_PATTERN='(from|import|require)[[:space:]]*\(?[[:space:]]*["'"'"'][^"'"'"']*trueppm[-_]enterprise'
+
+# `|| true` on each grep: no match is exit 1, which `set -e` would treat as fatal.
+py_hits=$(grep -rnE "$PY_PATTERN" "$ROOT" --include='*.py' 2>/dev/null || true)
+ts_hits=$(grep -rnE "$TS_PATTERN" "$ROOT" \
+  --include='*.ts' --include='*.tsx' --include='*.js' --include='*.jsx' 2>/dev/null || true)
+
+# Drop comment lines. grep -n output is `path:line:content`, so the comment
+# marker is tested after the second colon — a path containing a `#` cannot
+# masquerade as a comment.
+strip_comments() {
+  # shellcheck disable=SC2016  # the awk program is deliberately single-quoted
+  awk -F: '{
+    content = $0
+    sub(/^[^:]*:[0-9]+:/, "", content)
+    sub(/^[[:space:]]+/, "", content)
+    if (content ~ /^(#|\/\/|\*|\/\*)/) next
+    print $0
+  }'
+}
+
+hits=$(printf '%s\n%s\n' "$py_hits" "$ts_hits" | grep -v '^$' | strip_comments || true)
+
+if [ -n "$hits" ]; then
+  echo ""
+  echo "BOUNDARY VIOLATION: OSS source imports from trueppm-enterprise:"
+  echo ""
+  echo "$hits" | sed 's/^/  /'
+  cat <<'MSG'
+
+The community edition must remain fully functional without the enterprise repo.
+The dependency is one-way: enterprise → core, never core → enterprise. An import
+in this direction is a licensing problem, not a style problem — Apache 2.0 code
+cannot depend on the proprietary package.
+
+Remediation:
+  - If OSS genuinely needs the behavior, it belongs in OSS. Move it.
+  - If enterprise needs to extend OSS, invert it: OSS publishes an extension
+    point (settings include, URL pattern, signal hook, slot registration per
+    ADR-0029) and enterprise registers against it at startup.
+  - If you are only naming the package in documentation, write it in
+    ``double backticks`` rather than "quotes" and this gate will pass.
+
+See CLAUDE.md § Two-Repo Rule.
+MSG
+  exit 1
+fi
+
+echo "OK: no trueppm-enterprise imports in $ROOT."

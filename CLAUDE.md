@@ -45,7 +45,7 @@ trueppm-suite/
 ### Key Design Principles
 1. **API-First**: Every feature is a REST or WebSocket endpoint first. Web and mobile are API consumers with no privileged access. If it's not in the API, it doesn't exist. **Boundary (ADR-0599):** this governs *authoritative* state — the real value of any persisted fact, including every scheduled date and forecast, is computed server-side and reached over the API. Three narrow paths run outside the API on purpose: the interactive Gantt drag/keyboard **preview** (recomputes locally for 60fps, never persisted, server reconciles on commit), **offline on-device recompute** (no network → no API; the Rust/WASM engine is kept in CI conformance with the Python engine, future work #1777), and the **engine-as-library** (`trueppm-scheduler`). The invariant that keeps them safe: the server always has the last word — client compute is preview or offline stand-in, never source of truth. Do not read the slogan as forbidding these.
 2. **Mobile-First**: Design from mobile constraints upward. Offline works. Touch is primary. Bandwidth is limited.
-3. **Apache 2.0 boundary is sacred**: The community edition NEVER imports from `trueppm-enterprise`. The dependency is one-way: enterprise → core. Run `grep -r "trueppm_enterprise" packages/` to verify — it must return zero results in OSS code.
+3. **Apache 2.0 boundary is sacred**: The community edition NEVER imports from `trueppm-enterprise`. The dependency is one-way: enterprise → core. Verify with `make enterprise-boundary-check` (also `boundary:imports` in CI, and part of `make pre-push`). A plain `grep -r "trueppm_enterprise" packages/` is **not** the check — the tree legitimately carries prose that names the package in extension-point docstrings and ADR pointers; the gate matches import syntax and quoted module paths and ignores comments (#2603).
 
 ## Code Conventions
 
@@ -71,7 +71,7 @@ trueppm-suite/
 - State: Zustand for client state, TanStack Query for server state
 - Styling: Tailwind CSS with Design System v1.0 tokens
 - No `any` types. Use `unknown` and narrow.
-- Shared types: generate from OpenAPI schema (packages/api → packages/web/src/api/types.ts)
+- Shared types: `packages/web/src/api/types.ts` is **hand-maintained**, not generated (#2609). The `generate:types` script exists but emits a different (paths/components) shape that breaks the build — do not run it blindly. When the API schema changes, update the affected interfaces by hand and check them against `docs/api/openapi.json`. There is no drift gate (#2633); see the file's own header
 
 ### Git
 - Branch naming: `feat/`, `fix/`, `docs/`, `chore/` prefix + short description (e.g. `feat/cpm-engine`, `fix/sync-conflict`)
@@ -178,13 +178,13 @@ The classification test: "Would a PM or program manager need this to run their p
 - The OSS core must remain fully functional without the enterprise repo — no hard dependencies on enterprise hooks, signals, or settings
 - Extension points (settings includes, URL patterns, signal hooks) must remain stable — enterprise code registers against them; changing their shape is a breaking change for enterprise customers
 - **Dispatch every extension signal with `dispatch_extension_signal()`** (`trueppm_api.core.extension_signals`), never a bare `Signal.send()`. `send()` propagates a receiver's exception to the sender, so a bug in enterprise code breaks the OSS write path that fired it — the exact inverse of the one-way dependency. Enforced by `make extension-signals-check` and the `api:extension-signals` CI job (#2606). The single exception is a **fail-closed veto**, where a receiver raising is the mechanism rather than a fault (`agent_action_prune_requested`, the legal-hold check on agent-action pruning): keep `send()` and write a `FAIL-CLOSED` comment above the call saying why, which the gate honors
-- Verify with: `grep -r "trueppm_enterprise" packages/` — must return zero results in OSS code
+- Verify with: `make enterprise-boundary-check` — zero imports of `trueppm_enterprise` in OSS code. Enforced in CI by `boundary:imports` on every MR and on main. Naming the package in prose is fine; importing it is not
 
 ### Issues are part of the boundary
 - An issue describing enterprise functionality (cross-program/portfolio coordination, org identity governance — SAML/SCIM/LDAP directory sync, enforced org-wide SSO — audit trail, approval workflows, multi-tenancy, AI scheduling) must be filed in `trueppm-enterprise` from the start — not in the OSS tracker. **Basic OIDC/OAuth login is OSS** (see the Auth carve-out above) — do not bounce it to enterprise
 - Cross-project coordination **within a single program** belongs in OSS — only cross-program and portfolio-level governance belongs in `trueppm-enterprise`
 - The OSS `enterprise` and `portfolio` labels are reserved for **OSS-side extension-point work** that enterprise registers against (slot registration per ADR-0029, edition-based routing per ADR-0030) — not for enterprise features themselves
-- Before opening an OSS issue with cross-program, portfolio, SAML/SCIM/LDAP identity-governance, audit-trail, or approval-workflow scope, run the `enterprise-check` agent (basic OIDC/OAuth login does not need this gate — it is OSS)
+- Before opening an OSS issue with cross-program, portfolio, SAML/SCIM/LDAP identity-governance, audit-trail, or approval-workflow scope, run the `enterprise-check` skill (basic OIDC/OAuth login does not need this gate — it is OSS)
 - Enforced by CI: `boundary:check` runs on main pushes and on schedule; it fails the pipeline if any open OSS issue carries the `enterprise` or `portfolio` label. See `scripts/check-issue-boundary.sh`
 
 ## Migration discipline
@@ -337,33 +337,40 @@ When writing or editing any file under `packages/website/src/content/docs/` (and
 
 This rule applies to every doc edit — there is no "fast path" carve-out. A wrong tense on a version banner is a user-facing accuracy bug, not a stylistic preference.
 
-### Mandatory agents for docs work
+### Mandatory skills for docs work
 - **`docs-writer`** for any change touching `docs/features/`, `docs/getting-started/`, `docs/architecture/`, or `docs/administration/`
 - **`api-docs`** for any endpoint, serializer field, or permission rule change
 
+### Mandatory design-stage gates
+
+These run **after `/architect` and before implementation** — not in the pre-MR gate
+batch. By pre-MR time the code exists, and both gates produce design changes that would
+arrive too late to act on. Each is scoped; outside its scope record `n/a` and do not run
+it, or the gate becomes the habitual ceremony the fast-path table exists to strip out.
+
+- **`ai-review`** — for any change that adds or alters a **server-computed value or a
+  mutation**. Run paired with `enterprise-check`, whose AI boundary it extends. Not for
+  styling, copy, dependency bumps, CI config, or docs-only changes.
+- **`threat-model`** — for any feature that **crosses a trust boundary**: a new
+  authentication path, a changed authorization boundary, external data ingress, a
+  sync-protocol change, or a new OSS↔Enterprise extension point.
+
+Record both in the MR's `## Gates` section under their exact skill names — the ledger
+parser matches on them (`.claude/skills/mr/SKILL.md`). `accessibility` is deliberately
+**not** a ledger gate: it is a reference rule set, and WCAG findings against a UI diff
+are recorded under `ux-review`, which checks WCAG 2.1 AA by definition.
+
 ## Available Skills
-Run `/skills` to see all available skills. Key ones:
-- `/dotplanning` — Plan a dot release (0.x) before development starts: feature→asset map, missing screens/flows/decisions, open questions, sequenced gated workstreams, HTML report to `~/Downloads`. Begin-gate bookend to `/pre-release`; run once at kickoff
-- `/architect` — System design decisions with ADR output
-- `/ai-review` — AI-readiness design gate: verifies new/changed features keep values server-side (API-first/MCP-reachable), explainable, write-safe, and on the correct OSS team-AI vs Enterprise AI-governance side. Runs after `/architect`, paired with `/enterprise-check`
-- `/security-review` — Security audit of code or design
-- `/brand` — Design system reference: colors, typography, spacing, WCAG compliance
-- `/ux-design` — UI/UX design for new features
-- `/ux-review` — Review existing UI for usability issues
-- `/voice-of-customer` — Persona-based feedback on features
-- `/api-design` — Design REST/WS API endpoints
-- `/code-review` — Code review with TruePPM conventions
-- `/test-strategy` — Test plan for a feature
-- `/data-model` — Django model design with migration plan
-- `/devops` — Kubernetes, Helm, CI/CD, infrastructure
-- `/performance` — Performance audit and optimization
-- `/accessibility` — WCAG compliance review
-- `/docs-writer` — Documentation generation
-- `/git-workflow` — Branch, commit, PR management
-- `/mr` — Open a GitLab MR for the current branch (pre-flight checks, structured description, creates via glab). **User-invoked only** (`disable-model-invocation`) — an agent can't call it; it reproduces the skill's `glab mr create` format directly instead. The skill file is the canonical format for both paths.
-- `/fix-mr` — Watch and fix a failing MR pipeline until green. **User-invoked only** (`disable-model-invocation`) — an agent runs the equivalent `glab pipeline`/log-reading loop directly.
-- `/scheduler-engine` — CPM/Monte Carlo algorithm work
-- `/test-scaffold` — Scaffold the three-layer test pattern (pytest / vitest / Playwright) for a new feature
-- `/threat-model` — STRIDE threat model at architecture stage; pairs with `/architect` on auth, sync, or boundary-crossing features
-- `/mobile-design` — UI/UX design for the React Native mobile app (offline-first, touch-primary)
-- `/mobile-review` — Review React Native code against mobile-specific requirements (touch targets, offline, platform conventions)
+
+Run `/skills`, or read the skill roster the harness injects into context — every skill in
+`.claude/skills/` is listed there with its own `description:` frontmatter, which is the
+single source of truth for when to reach for it. A hand-maintained copy of that roster in
+this file can only drift out of date, so there isn't one.
+
+Two skills are **not** in the injected roster, because they are `disable-model-invocation`
+and can only be started by the user typing them. Their contract has to live here:
+
+- `/mr` — Open a GitLab MR for the current branch (pre-flight checks, structured description, creates via glab). **User-invoked only** — an agent can't call it through the Skill tool; it reproduces the skill's `glab mr create` format directly instead. `.claude/skills/mr/SKILL.md` is the canonical format for both paths.
+- `/fix-mr` — Watch and fix a failing MR pipeline until green. **User-invoked only** — an agent runs the equivalent `glab pipeline` / log-reading loop directly.
+
+The same applies to `/release` and `/mass_merge`.

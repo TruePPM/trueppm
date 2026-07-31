@@ -21,7 +21,7 @@ reviewing a program that has run for months, not a blank slate.
 ## Coming in 0.4 (preview)
 
 :::note[Forward-looking — lands with the 0.4 tag]
-0.4 is TruePPM's first beta and is still **Underway** (target Jul 27 – Aug 3,
+0.4 is TruePPM's first beta and is still **Underway** (target Aug 17 – 31,
 2026) — see the [roadmap](/overview/roadmap/). The three capabilities below are
 **not shipped yet**; they land with the 0.4 tag. Everything in the checklist
 further down is verifiable **today** on 0.3 — this section is a preview of what

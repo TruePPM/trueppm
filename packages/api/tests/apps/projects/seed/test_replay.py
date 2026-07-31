@@ -360,7 +360,7 @@ def test_replay_is_deterministic(owner: Any) -> None:
     n1 = _task(p1, "1").history.count()
     # Re-import wipes and rebuilds; the seeded synthesizer must reproduce the
     # same number of history rows.
-    p2 = import_seed(_v2_seed(), owner=owner, create_users=True)
+    p2 = import_seed(_v2_seed(), owner=owner, create_users=True, replace=True)
     n2 = _task(p2, "1").history.count()
     assert n1 == n2 >= 4
 

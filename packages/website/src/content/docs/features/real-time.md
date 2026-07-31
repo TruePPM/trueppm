@@ -40,7 +40,7 @@ A schedule recompute broadcasts two events when the CPM run commits:
 | Event | Payload |
 |-------|---------|
 | `cpm_complete` | `{"project_finish": "...", "critical_path": [...]}` |
-| `task_dates_updated` | `{"count": N, "tasks": [{"id", "early_start", "early_finish", "late_start", "late_finish", "total_float", "free_float", "is_critical", "planned_start", "duration"}, ...]}` — per-task CPM date deltas so Gantt bars slide without a full re-fetch. When too many tasks moved to ship economically, the payload is `{"count": N, "truncated": true}` and clients should re-fetch. |
+| `task_dates_updated` | `{"count": N, "tasks": [{"id", "early_start", "early_finish", "late_start", "late_finish", "total_float", "free_float", "is_critical", "planned_start", "duration"}, ...]}` — per-task CPM date deltas so Gantt bars slide without a full re-fetch. `count` and `tasks` cover only the tasks whose CPM fields actually changed in that recalculation, not every task in the project — a single-field edit typically ships a handful of rows regardless of project size. When the changed set is genuinely too large to ship economically (a first-ever pass, a calendar change, a project-start shift), the payload is `{"count": N, "truncated": true}` and clients should re-fetch. |
 
 ### Tasks
 
@@ -84,6 +84,13 @@ Sprint lifecycle events (`sprint_created`, `sprint_updated`, `sprint_deleted`, `
 |-------|---------|
 | `presence_join` | `{"user_id": "...", "display_name": "..."}` |
 | `presence_leave` | `{"user_id": "...", "display_name": "..."}` |
+
+Presence is held in Valkey under a 60-second TTL that each open socket re-arms on a
+server-side timer. **The roster tracks who is connected, not who is active** — sitting on
+a quiet project without touching anything keeps you listed. The TTL exists to reap a
+socket that died without a clean disconnect (a killed worker, a network partition), so a
+name disappears within a minute of the connection genuinely going away. Clients send no
+heartbeat and need none.
 
 Beyond these, the catalog also covers comments, attachments, assignments and roster changes, board configuration and saved views, programs, project lifecycle, and workshops — see the [WebSocket API reference](/api/websockets/) for the full taxonomy and the WebSocket ↔ webhook event mapping.
 

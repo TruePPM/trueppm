@@ -86,3 +86,13 @@ schema:PaginatedTaskRelationList
 # phantom envelope component is dropped, as in #2127. The /api/v1/programs/samples/
 # path is unchanged.
 schema:PaginatedSampleCatalogEntryList
+
+# #2583 — GET /{projects,programs}/{id}/webhooks/{id}/deliveries/ paginates with a
+# CURSOR while its viewset separately sets a page-number pagination_class, so
+# drf-spectacular auto-wrapped the response in the page-number envelope — which
+# lists `count` as REQUIRED. A cursor paginator never computes a total, so no
+# response could satisfy it. Replaced by WebhookDeliveryCursorPage
+# ({next, previous, results}); the envelope is now what the endpoint really sends.
+# The response body is unchanged and both paths are unchanged — only the
+# unsatisfiable, now-unreferenced component is dropped, as in #2127 and #2515.
+schema:PaginatedWebhookDeliveryList

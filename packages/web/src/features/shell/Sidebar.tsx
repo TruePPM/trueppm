@@ -26,7 +26,6 @@ import { useProjectId } from '@/hooks/useProjectId';
 import { useProgramId } from '@/hooks/useProgramId';
 import { usePinned } from '@/hooks/usePins';
 import type { PinnedItem } from '@/api/types';
-import { useEdition } from '@/hooks/useEdition';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
 import { toast } from '@/components/Toast';
 import { PinToggle } from '@/components/PinToggle';
@@ -261,7 +260,6 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   const { data: myWorkData } = useMyWork();
   const dueTodayCount = myWorkData?.pages[0]?.due_today_count ?? 0;
   const { user } = useCurrentUser();
-  const { edition } = useEdition();
   const projectId = useProjectId();
   // Project-scoped role for the "You" card's identity line (#1919). Same
   // `role_label` source the settings team/member rows render — off a project
@@ -411,7 +409,6 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   // would strict-mode-collide with the ProgramTabs / ViewTabs nav-name e2e locators.
   const browseContent = (
     <BrowseContent
-      edition={edition}
       programs={programs}
       projects={projects}
       expanded={expanded}
@@ -1054,7 +1051,6 @@ function SidebarModals({
  *  landmark already, and a nested nav named with "program" / "view" would
  *  strict-mode-collide with the ProgramTabs / ViewTabs nav-name e2e locators. */
 function BrowseContent({
-  edition,
   programs,
   projects,
   expanded,
@@ -1069,7 +1065,6 @@ function BrowseContent({
   setShowNewProject,
   setShowImport,
 }: {
-  edition: string;
   programs: ProgramListItem[] | undefined;
   projects: ProjectListItem[] | undefined;
   expanded: string[];
@@ -1090,8 +1085,9 @@ function BrowseContent({
           always present; the cross-program Portfolio rollup is Enterprise: the
           rail is the OSS daily path, so per rule 231 (ADR-0266) the community
           edition renders nothing for it — the cross-program seam is discovered at
-          /programs, not via a padlocked rail row. Enterprise keeps a built-in
-          NavLink until its module migrates onto the nav.portfolio_section slot. */}
+          /programs, not via a padlocked rail row. The rollup reaches the rail
+          through the nav.portfolio_section slot below; there is no built-in
+          NavLink for it (#2609). */}
       <h2 className={GROUP_LABEL}>Organization</h2>
       <NavLink
         to="/resources"
@@ -1111,25 +1107,6 @@ function BrowseContent({
         </svg>
         <span className="min-w-0 truncate">Resources</span>
       </NavLink>
-      {edition === 'enterprise' && (
-        <NavLink
-          to="/portfolio"
-          onClick={dismissSwitcher}
-          className={({ isActive }) => rowClass(isActive)}
-        >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 14 14"
-            fill="currentColor"
-            aria-hidden="true"
-            className="shrink-0"
-          >
-            <path d="M2 2h4v4H2V2zm6 0h4v4H8V2zM2 8h4v4H2V8zm6 0h4v4H8V8z" />
-          </svg>
-          <span className="min-w-0 truncate">Portfolio rollup</span>
-        </NavLink>
-      )}
       {/* The cross-program Portfolio rollup is a daily-path nav destination, so
           per rule 231 (ADR-0266) it renders through the `nav.portfolio_section`
           extension-point slot: empty in the community edition (no disabled teaser,

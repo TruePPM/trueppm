@@ -277,6 +277,13 @@ def load_sample(
             create_users=create_users,
             is_sample=True,
             persona_password=persona_password,
+            # "Load demo data" is a reload-in-place button, so the consent that
+            # ADR-0726 requires of a caller-authored import is given here once,
+            # structurally. It is safe to hard-code because the sample path
+            # cannot reach real work: `_replace_existing` refuses any program
+            # holding a non-sample project (#2476), so replace=True can only
+            # ever tear down demo data the same click created.
+            replace=True,
         )
     return program
 

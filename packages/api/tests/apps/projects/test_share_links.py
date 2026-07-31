@@ -211,6 +211,55 @@ def test_public_revoked_returns_410(project):
 
 
 @pytest.mark.django_db
+def test_public_link_stops_serving_a_trashed_project(project):
+    """Trash means gone publicly too (#2607).
+
+    Moving a project to Trash used to leave its public links serving, so an owner
+    who believed they had removed a project was still publishing it to anyone
+    holding a link. 410, not 404: this is the same "intentionally gone" family as
+    revocation, and it reveals nothing the link holder did not already have.
+    """
+    _link, raw = share_services.mint_share_link(project, None)
+    assert APIClient().get(_public_url(raw)).status_code == 200
+
+    project.soft_delete()
+
+    resp = APIClient().get(_public_url(raw))
+    assert resp.status_code == 410
+
+
+@pytest.mark.django_db
+def test_restoring_from_trash_restores_the_link(project):
+    """The check is at read time, so restore needs no bookkeeping to undo."""
+    _link, raw = share_services.mint_share_link(project, None)
+    project.soft_delete()
+    assert APIClient().get(_public_url(raw)).status_code == 410
+
+    project.restore()
+
+    assert APIClient().get(_public_url(raw)).status_code == 200
+
+
+@pytest.mark.django_db
+def test_restore_does_not_resurrect_a_link_revoked_while_trashed(project):
+    """Restore returns the project's links to *their own* state, not to "all on".
+
+    This is why the project's Trash state is read at serve time rather than
+    revoking its links on delete: a revoke-on-delete would have to remember which
+    links it revoked in order to undo itself, and would get this case wrong.
+    """
+    link, raw = share_services.mint_share_link(project, None)
+    project.soft_delete()
+    share_services.revoke_share_link(link, None)
+    project.restore()
+
+    resp = APIClient().get(_public_url(raw))
+    assert resp.status_code == 410
+    link.refresh_from_db()
+    assert link.revoked_at is not None
+
+
+@pytest.mark.django_db
 def test_public_unknown_token_returns_404(project):
     resp = APIClient().get(_public_url("not-a-real-token"))
     assert resp.status_code == 404

@@ -72,7 +72,16 @@ sprints use kebab-case slugs that are a **file-local symbol table**: the
 importer resolves them to freshly-minted UUIDs at import time. The one slug that
 persists is the **program slug**, which is written into `Program.code` as the
 program's natural key. That is what makes re-import idempotent — a program with
-a matching `code` is replaced (wipe-then-recreate), not duplicated.
+a matching `code` is replaced, not duplicated. The seed format carries no stable
+entity ids until 0.5 ([#1959](https://gitlab.com/trueppm/trueppm/-/issues/1959)),
+so there is nothing for a field-level merge to key on: replace-then-rebuild is
+the correct idempotency model for this format. Because it is destructive, the
+REST import refuses a collision until the caller confirms it, and the
+replacement is a **soft** delete — the replaced program's projects move to
+project Trash, where each can be restored individually as a standalone project.
+The program shell itself is **not** recoverable, and a restored project does not
+return to it. Only the disposable demo path (`is_sample`) still hard-deletes.
+See [ADR-0726](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0726-seed-import-confirmed-replacement-and-async-rebuild.md).
 
 **Three-point estimates as an all-or-none sub-object.** A task's PERT estimate
 is an `estimate: { optimistic, most_likely, pessimistic }` sub-object. Modelling

@@ -887,14 +887,19 @@ describe('Sidebar rail — Tier 3 create / import / overflow actions', () => {
     );
   });
 
-  it('renders the Portfolio rollup link only under the enterprise edition', () => {
+  it('renders no built-in Portfolio rollup link, in either edition (#2609)', () => {
+    // The rail used to hardcode a NavLink to /portfolio behind an
+    // `edition === 'enterprise'` check. Nothing in OSS serves that route, and
+    // ADR-0029's overlay loader — the thing that would let the enterprise module
+    // register the route AND the nav row — does not exist, so on an enterprise
+    // deployment the link pointed at a route nothing provides.
+    //
+    // The nav.portfolio_section slot beside it is the designed replacement: one
+    // mechanism that brings the row and its destination together, or neither.
     mockUseEdition.mockReturnValue({ edition: 'enterprise' });
     renderRail();
     openSwitcher();
-    expect(screen.getByRole('link', { name: 'Portfolio rollup' })).toHaveAttribute(
-      'href',
-      '/portfolio',
-    );
+    expect(screen.queryByRole('link', { name: 'Portfolio rollup' })).not.toBeInTheDocument();
   });
 });
 

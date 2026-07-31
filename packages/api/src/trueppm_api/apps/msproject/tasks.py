@@ -123,7 +123,10 @@ def import_msproject(
 
         from django.db import transaction
 
-        from trueppm_api.apps.msproject.importer import import_project
+        from trueppm_api.apps.msproject.importer import (
+            broadcast_import_project_record_change,
+            import_project,
+        )
 
         # Make the additive import-into-existing path idempotent under
         # re-dispatch (#1673). The outbox row is the idempotency token: claim it
@@ -191,12 +194,7 @@ def import_msproject(
         # calendar_applied rides the same broadcast (#1769): Project.calendar is
         # project-record state (settings UI, sync clients), which cpm_complete
         # does not invalidate.
-        if summary.get("project_start_shifted") or summary.get("calendar_applied"):
-            from trueppm_api.apps.sync.broadcast import broadcast_board_event
-
-            transaction.on_commit(
-                lambda: broadcast_board_event(project_id, "project_updated", {"id": project_id})
-            )
+        broadcast_import_project_record_change(project_id, summary)
 
     return summary
 

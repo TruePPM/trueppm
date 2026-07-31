@@ -649,6 +649,21 @@ CELERY_BEAT_SCHEDULE = {
         # 04:30 UTC — after the project export purge.
         "schedule": crontab(hour=4, minute=30),
     },
+    # Re-dispatch program seed IMPORT jobs orphaned by a broker outage at on_commit
+    # (ADR-0726 §Durable Execution item 2). Deliberately a separate drain from the
+    # export one: same shape, different table and different terminal semantics.
+    "drain-program-imports": {
+        "task": "projects.drain_program_imports",
+        "schedule": 30.0,
+    },
+    # Nightly: delete terminal program seed import jobs past retention and their
+    # stored payloads (ADR-0726 §Durable Execution item 6; shares
+    # TRUEPPM_IMPORT_RETENTION_DAYS with the MS Project import outbox).
+    "purge-expired-program-imports": {
+        "task": "projects.purge_expired_program_imports",
+        # 04:35 UTC — after the program export purge.
+        "schedule": crontab(hour=4, minute=35),
+    },
     # Lazily materialize upcoming recurring-task occurrences within the
     # TRUEPPM_RECURRENCE_HORIZON_DAYS look-ahead. Hourly: occurrences are date-grained,
     # and a missed tick self-heals on the next one (idempotent). See ADR-0090 / #736.
@@ -1778,7 +1793,13 @@ IDEMPOTENCY_MAX_BODY_BYTES: int = env.int(
 SPECTACULAR_SETTINGS = {
     "TITLE": "TruePPM API",
     "DESCRIPTION": "REST API for the TruePPM project scheduling platform.",
-    "VERSION": "0.3.0",
+    # Derived, never restated (#2605). This read "0.3.0" while the package was
+    # 0.4.0-beta.1, so every generated client and every published schema consumer
+    # was told the wrong version — and the literal sat ~900 lines below
+    # _package_version(), the anti-drift helper written to prevent exactly this.
+    # A version that has to be updated by hand at tag time is a version that will
+    # be wrong between tags.
+    "VERSION": TRUEPPM_VERSION,
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
     # Meaningful top-level tag block (#1333). drf-spectacular defaults every

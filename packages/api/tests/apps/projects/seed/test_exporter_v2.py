@@ -121,7 +121,9 @@ def test_v2_export_round_trip_is_byte_identical(owner: Any) -> None:
     program1 = import_seed(_v2_seed(), owner=owner, create_users=True)
     export1 = export_program(program1, with_events=True)
 
-    program2 = import_seed(export1, owner=owner, create_users=True)
+    # replace=True: a round trip re-imports onto the same slug, which now needs
+    # explicit consent (ADR-0726). Behavior here is unchanged.
+    program2 = import_seed(export1, owner=owner, create_users=True, replace=True)
     export2 = export_program(program2, with_events=True)
 
     assert dump_seed(export1) == dump_seed(export2)
@@ -131,7 +133,7 @@ def test_v2_export_round_trip_with_retro_is_byte_identical(owner: Any) -> None:
     program1 = import_seed(_retro_seed(), owner=owner, create_users=True)
     export1 = export_program(program1, with_events=True)
 
-    program2 = import_seed(export1, owner=owner, create_users=True)
+    program2 = import_seed(export1, owner=owner, create_users=True, replace=True)
     export2 = export_program(program2, with_events=True)
 
     assert dump_seed(export1) == dump_seed(export2)
@@ -143,7 +145,7 @@ def test_v2_round_trip_preserves_task_end_states(owner: Any) -> None:
 
     program1 = import_seed(_v2_seed(), owner=owner, create_users=True)
     export1 = export_program(program1, with_events=True)
-    program2 = import_seed(export1, owner=owner, create_users=True)
+    program2 = import_seed(export1, owner=owner, create_users=True, replace=True)
 
     def status(program: Any, wbs: str) -> str:
         return Task.objects.get(project__program=program, wbs_path=wbs).status

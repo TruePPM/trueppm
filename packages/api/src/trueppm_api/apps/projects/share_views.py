@@ -190,7 +190,8 @@ def _serve_public_share(
 
     Board and schedule expose different projections but share an identical security
     envelope: instance kill switch → uniform ``404``; unknown/wrong-kind token →
-    ``404``; revoked → ``410``; ADR-0135 policy off → ``404``; otherwise a weak
+    ``404``; revoked / expired / project in Trash → ``410``; ADR-0135 policy off
+    → ``404``; otherwise a weak
     ``ETag`` + ``private, max-age=30`` so embeds re-poll cheaply. The wrong-kind
     firewall is the ``content_kind`` filter inside ``resolve_share_link``: a board
     token resolved here as ``SCHEDULE`` (or vice-versa) returns ``None`` → ``404``.
@@ -219,6 +220,25 @@ def _serve_public_share(
         # the recipient knows the link was real and asks the owner for a new one.
         return Response(
             {"detail": "This share link has expired."},
+            status=status.HTTP_410_GONE,
+        )
+    if link.project.is_deleted:
+        # Trash means gone, publicly too (#2607). Moving a project to Trash used
+        # to leave its public links serving, so an owner who "removed" a project
+        # was still publishing it to anyone holding a link.
+        #
+        # 410 rather than 404: this is the same "intentionally gone" family as
+        # revocation and expiry, and it reveals nothing — the recipient already
+        # held a valid link to this project.
+        #
+        # Checked at read time rather than by revoking the links on delete, so
+        # restoring from Trash restores exactly the link state the project had
+        # (a revoked link stays revoked, an active one resumes). A revoke-on-
+        # delete would have to remember which links it revoked in order to undo
+        # itself, and would get that wrong the first time someone revoked a link
+        # by hand while the project sat in Trash.
+        return Response(
+            {"detail": "This project has been moved to Trash."},
             status=status.HTTP_410_GONE,
         )
     if not _public_sharing_allowed(link.project):
@@ -256,7 +276,8 @@ def _serve_public_share(
 class PublicBoardShareView(APIView):
     """GET ``/api/v1/share/board/{token}/`` — public, unauthenticated, read-only.
 
-    Returns a minimized board snapshot. ``410`` for a revoked link, ``404`` for an
+    Returns a minimized board snapshot. ``410`` for a revoked or expired link or a
+    Trashed project, ``404`` for an
     unknown/invalid token or when the instance kill switch is off (uniform 404 hides
     whether the feature or a given link exists). A weak ``ETag`` + short
     ``Cache-Control`` lets embeds re-poll cheaply.
@@ -274,7 +295,10 @@ class PublicBoardShareView(APIView):
                 description="Minimized board snapshot (columns + whitelisted cards)."
             ),
             404: OpenApiResponse(description="Unknown/invalid token, or sharing disabled."),
-            410: OpenApiResponse(description="This share link has been revoked."),
+            410: OpenApiResponse(
+                description="This share link has been revoked or has expired, "
+                "or the project was moved to Trash."
+            ),
         },
     )
     def get(self, request: Request, token: str) -> Response:
@@ -304,7 +328,10 @@ class PublicScheduleShareView(APIView):
                 description="Minimized schedule snapshot (tasks + dependency edges)."
             ),
             404: OpenApiResponse(description="Unknown/invalid token, or sharing disabled."),
-            410: OpenApiResponse(description="This share link has been revoked."),
+            410: OpenApiResponse(
+                description="This share link has been revoked or has expired, "
+                "or the project was moved to Trash."
+            ),
         },
     )
     def get(self, request: Request, token: str) -> Response:

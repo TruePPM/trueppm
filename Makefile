@@ -269,7 +269,14 @@ extension-signals-check: ## Fail if an OSS→Enterprise extension signal uses pl
 	@# code breaks the OSS write path that fired the signal. Grep + sed, ~1s.
 	@bash scripts/check-extension-signals.sh
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check extension-signals-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+enterprise-boundary-check: ## Fail if OSS source imports from trueppm-enterprise (#2603)
+	@# The Apache 2.0 boundary's one hard rule, which until #2603 was enforced by
+	@# no gate at all. A grep over packages/ — milliseconds, no network — so it
+	@# costs nothing to run on every push and catches the one class of mistake
+	@# that is a licensing defect rather than a bug.
+	@bash scripts/check-enterprise-imports.sh
+
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/

@@ -7,11 +7,16 @@ import {
 import {
   SEED_MAX_UPLOAD_MB,
   seedImportErrors,
+  seedReplaceConflict,
   useImportProgramSeed,
+  useProgramImportStatus,
+  type ImportProgramSeedInput,
+  type SeedReplaceConflict,
 } from '@/hooks/useProgramSeedIo';
 import { XMarkIcon } from '@/components/Icons';
 import { ImportDropzone } from './ImportDropzone';
 import { FormatPicker, type ImportFormat } from './FormatPicker';
+import { SeedReplaceConfirmDialog } from './SeedReplaceConfirmDialog';
 
 interface Props {
   onClose: () => void;
@@ -34,6 +39,9 @@ interface Props {
 const XML_ONLY = ['.xml'] as const;
 /** Native TruePPM seeds are canonical JSON documents (ADR-0109, #1611). */
 const JSON_ONLY = ['.json'] as const;
+
+/** Shown when neither the request nor the job gives a usable reason. */
+const SEED_GENERIC_FAILURE = 'Import failed — please check the file and try again.';
 
 function getFocusable(container: HTMLElement): HTMLElement[] {
   return Array.from(
@@ -65,7 +73,11 @@ function msProjectErrorMessage(error: unknown): string {
  * - **TruePPM** `.json` (native canonical seed) → {@link useImportProgramSeed}.
  *   A native export re-materializes as a whole *program* (ADR-0222), so on
  *   success the modal hands the new program id to `onProgramImported`. This tile
- *   is only live in the standalone entry (no `programId`).
+ *   is only live in the standalone entry (no `programId`). Since ADR-0726 the
+ *   seed import is a queued job: a `409` naming a program the seed's slug
+ *   collides with becomes a replace confirmation, and the `202` is polled to a
+ *   terminal state so a background failure is surfaced here rather than landing
+ *   the user on a half-built program.
  *
  * Focus is trapped within the dialog and restored to the trigger on close,
  * matching the app's modal convention (ImportModal / NewProjectModal).
@@ -86,6 +98,9 @@ export function ImportProjectModal({
   const [file, setFile] = useState<File | null>(null);
   const [rejectMsg, setRejectMsg] = useState<string | null>(null);
   const [guidanceOpen, setGuidanceOpen] = useState(false);
+  const [conflict, setConflict] = useState<SeedReplaceConflict | null>(null);
+  const [job, setJob] = useState<{ programId: string; jobId: string } | null>(null);
+  const [jobError, setJobError] = useState<string | null>(null);
 
   const dialogRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<Element | null>(null);
@@ -96,6 +111,10 @@ export function ImportProjectModal({
   const isTruePpm = format === 'trueppm';
   const activeMut = isTruePpm ? seedMut : createMut;
 
+  const jobQuery = useProgramImportStatus(job?.programId, job?.jobId);
+  const jobStatus = jobQuery.data?.status;
+  const jobErrorDetail = jobQuery.data?.error_detail;
+
   useEffect(() => {
     triggerRef.current = document.activeElement;
     dialogRef.current?.focus();
@@ -105,6 +124,20 @@ export function ImportProjectModal({
   }, []);
 
   useEffect(() => {
+    if (!job) return;
+    if (jobStatus === 'success') {
+      onProgramImported?.(job.programId);
+    } else if (jobStatus === 'failed') {
+      setJob(null);
+      setJobError(jobErrorDetail || SEED_GENERIC_FAILURE);
+    }
+  }, [job, jobStatus, jobErrorDetail, onProgramImported]);
+
+  useEffect(() => {
+    // The replace confirmation is a nested `alertdialog` that traps focus itself
+    // (web-rule 245b); this shell's trap must yield while it is open or Escape
+    // closes both and Tab is handled twice.
+    if (conflict) return undefined;
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onClose();
@@ -127,11 +160,14 @@ export function ImportProjectModal({
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [onClose]);
+  }, [onClose, conflict]);
 
   function resetMutations() {
     createMut.reset();
     seedMut.reset();
+    setConflict(null);
+    setJob(null);
+    setJobError(null);
   }
 
   function handleFormatChange(next: ImportFormat) {
@@ -158,27 +194,64 @@ export function ImportProjectModal({
     if (!isTruePpm) setGuidanceOpen(true);
   }
 
+  function submitSeed(input: ImportProgramSeedInput) {
+    setJobError(null);
+    seedMut.mutate(input, {
+      onSuccess: (queued) => {
+        setJob({ programId: queued.program_id, jobId: queued.import_request_id });
+      },
+      onError: (error) => {
+        // A 409 is a question, not a fault in the file — route it to the
+        // confirmation instead of the error report (ADR-0726 §1).
+        const replaces = seedReplaceConflict(error);
+        if (replaces) setConflict(replaces);
+      },
+    });
+  }
+
   function handleImport() {
     if (!file || activeMut.isPending) return;
     if (isTruePpm) {
-      seedMut.mutate(file, {
-        onSuccess: (program) => onProgramImported?.(program.id),
-      });
+      submitSeed({ file });
       return;
     }
     createMut.mutate({ file, programId }, { onSuccess: (data) => onCreated(data.project_id) });
   }
 
+  function cancelReplace() {
+    setConflict(null);
+    // Back to idle with the file still picked, rather than leaving the 409 to
+    // repaint as an error report the moment the dialog closes.
+    seedMut.reset();
+  }
+
+  function confirmReplace() {
+    if (!file || !conflict) return;
+    const expectedProgramId = conflict.program_id;
+    setConflict(null);
+    // Prefer the compare-and-swap token over a bare `replace`: the collision set
+    // can move between the refusal and this click, and the server must refuse
+    // again rather than destroy a program the user never saw named.
+    submitSeed({ file, replace: true, expectedProgramId });
+  }
+
   // The native seed importer returns a line-level validation report (a list);
-  // MS Project returns a single message. Normalize both to a string[].
+  // MS Project returns a single message. Normalize both to a string[]. A failed
+  // background job carries its own reason and stands in for the request error,
+  // which by then has already resolved 202.
   const errorLines: string[] = isTruePpm
-    ? (() => {
-        const lines = seedImportErrors(seedMut.error);
-        return lines.length > 0
-          ? lines
-          : ['Import failed — please check the file and try again.'];
-      })()
+    ? jobError
+      ? [jobError]
+      : (() => {
+          const lines = seedImportErrors(seedMut.error);
+          return lines.length > 0 ? lines : [SEED_GENERIC_FAILURE];
+        })()
     : [msProjectErrorMessage(createMut.error)];
+
+  // A 409 is displayed as the confirmation dialog, so the mutation's error state
+  // must not also paint the error branch behind it.
+  const showError = jobError !== null || (activeMut.isError && conflict === null);
+  const building = isTruePpm && job !== null;
 
   const subtitle = isTruePpm
     ? 'Upload a TruePPM export (.json) to recreate its program and projects.'
@@ -207,7 +280,7 @@ export function ImportProjectModal({
           </h2>
           <p className="mb-5 text-xs text-neutral-text-secondary">{subtitle}</p>
 
-          {activeMut.isError ? (
+          {showError ? (
             <div role="alert" className="flex flex-col gap-3">
               {errorLines.length === 1 ? (
                 <p className="text-sm text-neutral-text-primary">
@@ -261,6 +334,19 @@ export function ImportProjectModal({
                 aria-label="Uploading file"
               >
                 <div className="h-full w-1/3 motion-safe:animate-pulse rounded-full bg-brand-primary" />
+              </div>
+            </div>
+          ) : building ? (
+            // The program shell already exists; only its projects and tasks are
+            // still being built (ADR-0726 §6).
+            <div role="status" className="flex flex-col gap-3">
+              <p className="text-sm text-neutral-text-primary">Building the imported program…</p>
+              <div
+                className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-surface-raised"
+                role="progressbar"
+                aria-label="Building the imported program"
+              >
+                <div className="h-full w-1/2 motion-safe:animate-pulse rounded-full bg-brand-primary" />
               </div>
             </div>
           ) : (
@@ -324,6 +410,13 @@ export function ImportProjectModal({
           )}
         </div>
       </div>
+      {conflict && (
+        <SeedReplaceConfirmDialog
+          conflict={conflict}
+          onCancel={cancelReplace}
+          onConfirm={confirmReplace}
+        />
+      )}
     </>
   );
 }

@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import {
   useMutation,
   useQuery,
@@ -100,6 +101,10 @@ export function useSampleCatalog(): SampleCatalog {
  * line-level report `detail` is an array of messages; the single-message failures
  * (file too large, not JSON) use a plain string. Normalize both to a string list
  * so the caller can render them verbatim and the user can fix the file.
+ *
+ * A `409` replace refusal (ADR-0726) also carries a `detail` string, but it is a
+ * *question*, not a fault in the file — check {@link seedReplaceConflict} first
+ * and only fall through to here when it returns `null`.
  */
 export function seedImportErrors(error: unknown): string[] {
   const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
@@ -109,21 +114,147 @@ export function seedImportErrors(error: unknown): string[] {
 }
 
 /**
- * POST /api/v1/programs/import/ — import a program from a JSON seed file (#615).
+ * What a confirmed re-import would tear down (ADR-0726 §1).
  *
- * Sends the file as multipart. On success the new program is owned by the
- * caller; invalidate both ``['programs']`` (program list / program tabs) and
- * ``['projects']`` (the sidebar project list, which is NOT a child key of
- * ``['programs']`` so prefix invalidation does not reach it) so the import's
- * new projects appear without a manual page refresh.
+ * Carried by the `409` refusal and by the dry run's `replaces` key, so the same
+ * description is shown whether the operator asked first or was stopped. The
+ * counts are the point — "a program called Atlas" is not enough information to
+ * consent to destroying 812 tasks.
  */
-export function useImportProgramSeed(): UseMutationResult<Program, Error, File> {
+export interface SeedReplaceConflict {
+  program_id: string;
+  name: string;
+  /** The seed's `program.slug`, which collides with this program's `code`. */
+  code: string;
+  project_count: number;
+  task_count: number;
+}
+
+/**
+ * Extract the replace-confirmation conflict from a failed seed import.
+ *
+ * Returns the conflict for the two `409` codes the server can raise —
+ * `seed_replace_required` (no confirmation was sent) and `seed_replace_mismatch`
+ * (the compare-and-swap token named a program that is no longer the one that
+ * would be replaced) — and `null` for every other error, so a caller can branch
+ * "confirm this" vs. "report this" on one call.
+ *
+ * Defensive in the same way as {@link seedImportErrors}: the shape is validated
+ * rather than asserted, because a proxy or an older server can put anything in
+ * the body and a malformed conflict must degrade to the plain error path rather
+ * than render a confirmation dialog with blank counts.
+ */
+export function seedReplaceConflict(error: unknown): SeedReplaceConflict | null {
+  const data = (error as { response?: { data?: unknown } })?.response?.data;
+  if (typeof data !== 'object' || data === null) return null;
+  const { code, conflict } = data as { code?: unknown; conflict?: unknown };
+  if (code !== 'seed_replace_required' && code !== 'seed_replace_mismatch') return null;
+  if (typeof conflict !== 'object' || conflict === null) return null;
+  const c = conflict as Record<string, unknown>;
+  if (typeof c.program_id !== 'string' || typeof c.name !== 'string') return null;
+  return {
+    program_id: c.program_id,
+    name: c.name,
+    code: typeof c.code === 'string' ? c.code : '',
+    project_count: typeof c.project_count === 'number' ? c.project_count : 0,
+    task_count: typeof c.task_count === 'number' ? c.task_count : 0,
+  };
+}
+
+/** Lifecycle of one async seed import (ADR-0726 §5). */
+export type ProgramImportJobStatus = 'pending' | 'running' | 'success' | 'failed';
+
+/** Entity counts the job reports once it lands. Empty (`{}`) until then. */
+export interface ProgramImportResultSummary {
+  projects?: number;
+  tasks?: number;
+  sprints?: number;
+  dependencies?: number;
+}
+
+/** GET /programs/{id}/import/jobs/{job_id}/ — one async seed import job. */
+export interface ProgramImportJob {
+  id: string;
+  program: string;
+  status: ProgramImportJobStatus;
+  filename: string;
+  replace: boolean;
+  /** The program this import tombstoned, if any — the only durable record of it. */
+  replaced_program_id: string | null;
+  result_summary: ProgramImportResultSummary;
+  /** Reason the job ended `failed`; empty string otherwise. */
+  error_detail: string;
+  expires_at: string | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+/**
+ * `202` envelope from POST /programs/import/ (ADR-0726 §6).
+ *
+ * `program_id` names a program shell that **already exists** — only its projects
+ * and tasks are built in the background — so the client may land the user on it
+ * immediately rather than holding them on a spinner.
+ */
+export interface SeedImportQueued {
+  queued: boolean;
+  program_id: string;
+  import_request_id: string;
+  replaced_program_id: string | null;
+}
+
+export interface ImportProgramSeedInput {
+  file: File;
+  /** Confirm replacement of the colliding live program named by the 409. */
+  replace?: boolean;
+  /**
+   * Compare-and-swap token: the server refuses again (`seed_replace_mismatch`)
+   * if this is not the program that would actually be replaced. Always prefer
+   * sending it over a bare `replace` — a collision set can move between the 409
+   * and the confirmation, and a bare `replace=true` would follow it.
+   */
+  expectedProgramId?: string;
+}
+
+/** `pending`/`running` still poll; `success`/`failed` are final. */
+export function isTerminalImportStatus(status: ProgramImportJobStatus | undefined): boolean {
+  return status === 'success' || status === 'failed';
+}
+
+/**
+ * POST /api/v1/programs/import/ — queue a program import from a JSON seed (#615, #2574).
+ *
+ * Sends the file as multipart alongside the two consent fields (ADR-0726 §1) and
+ * resolves with the `202` envelope, **not** a `Program`: only the shell is built
+ * inside the request. `replace` is omitted rather than sent as `"false"` so the
+ * default request is the one the server refuses — withholding consent has to be
+ * the shape of *not asking*, not a value that could be mis-serialized to truthy.
+ *
+ * `timeout: 0` is retained even though the build is now async: the upload itself
+ * is still a user-initiated transfer of up to `SEED_MAX_UPLOAD_MB`, and the
+ * request also carries the synchronous validate-and-replace half.
+ *
+ * Invalidates both ``['programs']`` (program list / program tabs) and
+ * ``['projects']`` (the sidebar project list, which is NOT a child key of
+ * ``['programs']`` so prefix invalidation does not reach it). The program shell
+ * exists at this point, so the program lists are already stale; the *projects*
+ * only exist when the job lands, which is why
+ * {@link useProgramImportStatus} invalidates the same pair again on `success`.
+ */
+export function useImportProgramSeed(): UseMutationResult<
+  SeedImportQueued,
+  Error,
+  ImportProgramSeedInput
+> {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async ({ file, replace, expectedProgramId }: ImportProgramSeedInput) => {
       const form = new FormData();
       form.append('file', file, file.name);
-      const res = await apiClient.post<Program>('/programs/import/', form, {
+      if (replace) form.append('replace', 'true');
+      if (expectedProgramId) form.append('expected_program_id', expectedProgramId);
+      const res = await apiClient.post<SeedImportQueued>('/programs/import/', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 0,
       });
@@ -134,6 +265,45 @@ export function useImportProgramSeed(): UseMutationResult<Program, Error, File> 
       void queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
   });
+}
+
+/**
+ * GET /api/v1/programs/{programId}/import/jobs/{jobId}/ — poll one seed import.
+ *
+ * Polls every 1.5 s while the job is `pending`/`running` and stops on
+ * `success`/`failed`, mirroring `useCsvImportStatus`. Disabled until both
+ * ids exist, so a surface that has not started an import issues no requests.
+ *
+ * Re-invalidates ``['programs']`` and ``['projects']`` on `success` because that
+ * is the moment the imported *projects* exist — the mutation's own invalidation
+ * fires against a program shell that is still empty, so without this one the
+ * sidebar keeps its pre-import project list until a manual refresh.
+ */
+export function useProgramImportStatus(
+  programId: string | null | undefined,
+  jobId: string | null | undefined,
+): UseQueryResult<ProgramImportJob, Error> {
+  const queryClient = useQueryClient();
+  const query = useQuery<ProgramImportJob, Error>({
+    queryKey: ['program-import-status', programId, jobId],
+    enabled: Boolean(programId) && Boolean(jobId),
+    refetchInterval: (q) => (isTerminalImportStatus(q.state.data?.status) ? false : 1500),
+    queryFn: async () => {
+      const res = await apiClient.get<ProgramImportJob>(
+        `/programs/${programId}/import/jobs/${jobId}/`,
+      );
+      return res.data;
+    },
+  });
+
+  const status = query.data?.status;
+  useEffect(() => {
+    if (status !== 'success') return;
+    void queryClient.invalidateQueries({ queryKey: ['programs'] });
+    void queryClient.invalidateQueries({ queryKey: ['projects'] });
+  }, [status, queryClient]);
+
+  return query;
 }
 
 /**

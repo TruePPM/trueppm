@@ -262,7 +262,14 @@ def test_run_schedule_truncates_delta_above_cap(
     django_capture_on_commit_callbacks: object,
 ) -> None:
     """Above CPM_DELTA_BROADCAST_CAP the event carries a truncated flag and no
-    task array, so the WS frame stays bounded and the client re-fetches."""
+    task array, so the WS frame stays bounded and the client re-fetches.
+
+    Depends on ``chain`` being a *cold* fixture: the cap counts the moved set
+    (#2573), and this is a first-ever CPM pass, so all 4 tasks move. If the fixture
+    ever gains pre-computed CPM dates this stops exercising the cap and silently
+    passes. ``test_wide_recalculation_still_trips_the_cap`` below covers the same
+    branch without that dependency.
+    """
     with (
         patch("trueppm_api.apps.scheduling.tasks.CPM_DELTA_BROADCAST_CAP", 2),
         patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
@@ -310,3 +317,192 @@ def test_run_schedule_defers_broadcasts_to_commit(
         event_types = {c.kwargs.get("event_type") for c in mock_broadcast.call_args_list}
         assert "cpm_complete" in event_types
         assert "task_dates_updated" in event_types
+
+
+# ---------------------------------------------------------------------------
+# Delta payload is the MOVED subset, not the whole write-back set (#2573).
+#
+# A CPM pass re-assigns every engine-returned row, so building the ADR-0091
+# delta from the write-back set put every project above CPM_DELTA_BROADCAST_CAP
+# permanently into the `truncated` branch. Each connected client then re-fetched
+# the entire paginated task list on every single-field edit — ceil(T/200)
+# requests per client, per recalculation — and ADR-0091's splice path never ran
+# at the documented envelope. These tests lock the moved-subset contract in.
+# ---------------------------------------------------------------------------
+
+_WIDE_CHAINS = 200
+"""Independent 5-task chains in the scale fixture — 1,000 tasks total."""
+
+_WIDE_CHAIN_LEN = 5
+
+# Page size the web client uses for the task list, so a payload can be scored in
+# the unit that actually hurts: full-page re-fetches per connected client.
+_TASK_PAGE_SIZE = 200
+
+
+@pytest.fixture
+def wide_project(calendar: Calendar) -> tuple[Project, list[list[Task]]]:
+    """A 1,000-task project: 200 independent FS chains of 5 tasks each.
+
+    Chain 0 is the dominant (critical) chain at 10 days per task; every other
+    chain is 1 day per task. Editing a task on a short chain therefore cannot
+    move the project finish, which is what makes the moved set genuinely a
+    bounded subgraph rather than "everything" — a finish shift re-anchors the
+    backward pass and legitimately moves every task's late dates.
+    """
+    p = Project.objects.create(
+        name="WideScale",
+        start_date=date(2026, 1, 5),  # Monday
+        calendar=calendar,
+    )
+    rows: list[Task] = []
+    for chain_idx in range(_WIDE_CHAINS):
+        duration = 10 if chain_idx == 0 else 1
+        for pos in range(_WIDE_CHAIN_LEN):
+            n = chain_idx * _WIDE_CHAIN_LEN + pos
+            rows.append(
+                Task(project=p, name=f"C{chain_idx}-{pos}", duration=duration, short_id=f"{n:08X}")
+            )
+    Task.objects.bulk_create(rows, batch_size=500)
+
+    chains = [rows[i * _WIDE_CHAIN_LEN : (i + 1) * _WIDE_CHAIN_LEN] for i in range(_WIDE_CHAINS)]
+    edges = [
+        Dependency(predecessor=chain[pos], successor=chain[pos + 1], dep_type="FS")
+        for chain in chains
+        for pos in range(_WIDE_CHAIN_LEN - 1)
+    ]
+    Dependency.objects.bulk_create(edges, batch_size=500)
+    return p, chains
+
+
+def _run_and_capture(project_pk: object, capture: object) -> dict[str, object]:
+    """Run one CPM pass with broadcasts mocked and return the delta payload."""
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+        capture(execute=True),  # type: ignore[operator]
+    ):
+        _run_schedule(str(project_pk))
+    return _delta_call(mock_broadcast)
+
+
+def _delta_ids(payload: dict[str, object]) -> set[str]:
+    """Task ids carried in a non-truncated delta payload."""
+    tasks = payload["tasks"]
+    assert isinstance(tasks, list)
+    return {str(t["id"]) for t in tasks}
+
+
+def _delta_count(payload: dict[str, object]) -> int:
+    count = payload["count"]
+    assert isinstance(count, int)
+    return count
+
+
+def _pages_refetched(payload: dict[str, object]) -> int:
+    """Full task-list pages each connected client re-fetches for this payload.
+
+    The client only invalidates on ``truncated`` (useProjectWebSocket, ADR-0091);
+    a spliced payload costs zero requests no matter how many rows it carries.
+    """
+    if not payload.get("truncated"):
+        return 0
+    return -(-_delta_count(payload) // _TASK_PAGE_SIZE)
+
+
+@pytest.mark.django_db
+def test_single_field_edit_ships_only_the_moved_subgraph(
+    wide_project: tuple[Project, list[list[Task]]],
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    """A one-field edit on a 1,000-task project must ship only the tasks whose CPM
+    fields moved — and must NOT set truncated (#2573).
+
+    Pre-fix this payload carried all 1,000 rows, tripped the 500 cap, and made every
+    connected client re-fetch the whole paginated task list.
+    """
+    project, chains = wide_project
+    assert Task.objects.filter(project=project).count() == 1000
+
+    # Warm pass: every task goes from "no CPM dates" to computed, so everything is
+    # legitimately moved here. This is the state a live project is already in.
+    _run_and_capture(project.pk, django_capture_on_commit_callbacks)
+
+    # Single-field edit on a short (non-critical) chain: lengthen one task by a day.
+    edited_chain = chains[1]
+    target = Task.objects.get(pk=edited_chain[1].pk)
+    target.duration = 2
+    target.save()
+
+    payload = _run_and_capture(project.pk, django_capture_on_commit_callbacks)
+
+    assert "truncated" not in payload, "a one-field edit must not degrade to a full re-fetch"
+    moved_ids = _delta_ids(payload)
+    assert _delta_count(payload) == len(moved_ids)
+    assert moved_ids, "expected a non-empty moved set"
+
+    # Bounded by the edited chain, not by the project. The predecessor's late dates
+    # move too, so the whole 5-task chain is fair game — nothing outside it is.
+    chain_ids = {str(t.pk) for t in edited_chain}
+    assert moved_ids <= chain_ids, "delta leaked tasks outside the affected subgraph"
+    assert len(moved_ids) <= _WIDE_CHAIN_LEN
+
+    # The property that actually matters: zero client page re-fetches.
+    assert _pages_refetched(payload) == 0
+
+
+@pytest.mark.django_db
+def test_wide_recalculation_still_trips_the_cap(
+    wide_project: tuple[Project, list[list[Task]]],
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    """The cap and its truncated fallback are the genuine backstop and must survive.
+
+    A project-start shift re-anchors every task, so the moved set really is the
+    whole project — above CPM_DELTA_BROADCAST_CAP that must still ship
+    ``{count, truncated: true}`` with no task array.
+    """
+    project, _chains = wide_project
+    _run_and_capture(project.pk, django_capture_on_commit_callbacks)
+
+    # Genuinely wide: move the project start, which shifts every chain.
+    project.start_date = date(2026, 3, 2)  # Monday
+    project.save(update_fields=["start_date"])
+
+    payload = _run_and_capture(project.pk, django_capture_on_commit_callbacks)
+
+    assert payload["truncated"] is True
+    assert payload["count"] == 1000
+    assert "tasks" not in payload
+
+
+@pytest.mark.django_db
+def test_delta_is_one_broadcast_and_costs_zero_client_refetches(
+    wide_project: tuple[Project, list[list[Task]]],
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    """Regression guard on the cost model in #2573, stated in client-visible units.
+
+    One ``task_dates_updated`` frame per recalculation (not one per task), and a
+    single-field edit must drive **zero** full-page task re-fetches per connected
+    client. Pre-fix this was ceil(1000/200) = 5 pages per client, per edit.
+    """
+    project, chains = wide_project
+    _run_and_capture(project.pk, django_capture_on_commit_callbacks)
+
+    target = Task.objects.get(pk=chains[7][2].pk)
+    target.duration = 3
+    target.save()
+
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        _run_schedule(str(project.pk))
+
+    # _delta_call asserts exactly one task_dates_updated frame for the whole pass.
+    payload = _delta_call(mock_broadcast)
+
+    assert _pages_refetched(payload) == 0, "a single-field edit must not cost a client any re-fetch"
+    assert _delta_count(payload) < 1000 // 10, "delta must be O(subgraph), not O(project)"

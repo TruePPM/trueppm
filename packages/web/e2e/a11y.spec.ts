@@ -36,7 +36,15 @@ import {
  * runs and gates all other WCAG 2.1 A/AA rules today. As each fix lands, delete
  * the matching `disableRules` entry:
  *   - `aria-required-children` / `aria-required-attr` / `nested-interactive`
- *     (Schedule grid, Board resize handles + card overlay + backlog rail) → #2204
+ *     (Schedule grid, Board resize handles + card overlay + backlog rail) → #2618
+ *
+ * These cited #2204 until #2603. #2204 closed without fixing them: re-running
+ * the four affected scans with every exclusion deleted still fails all four, so
+ * the debt is live and was simply pointing at a dead issue — the gate stayed
+ * green by hiding failures nothing tracked. They now cite #2618, and each site
+ * carries a `SUPPRESSED-UNTIL(#2618)` marker that scripts/check-suppression-issues.sh
+ * fails on the moment #2618 closes with the exclusions still here. If you are
+ * closing #2618, delete these entries in the same MR — the gate will tell you.
  * The `color-contrast` (HealthCluster/health chip, ⌘K kbd chips + group labels,
  * Schedule/Board toolbar labels, Add-milestone button, Settings chips, drawer body
  * text) and `aria-prohibited-attr` (mobile logo `.select-none`) debt tracked by
@@ -414,10 +422,10 @@ test.describe('accessibility @a11y — routes', () => {
     await expectNoA11yViolations(page, testInfo, { gateModerate: true });
   });
 
-  // The Schedule task-list `role="grid"` is missing required child roles on its
-  // virtualized rows (`aria-required-children`, tracked #2204). Excluded so the
-  // scan runs live for every OTHER rule (contrast now enforced — #2265 landed);
-  // remove this last exclusion when #2204 lands.
+  // The Schedule chart `role="grid"` holds a `role="status"` sr-only live region
+  // as a direct child, which a grid may not have (`aria-required-children`).
+  // Excluded so the scan runs live for every OTHER rule (contrast now enforced —
+  // #2265 landed). SUPPRESSED-UNTIL(#2618) — verified still failing, not stale.
   const SCHEDULE_EXCLUDED_RULES = ['aria-required-children'];
 
   test('project Schedule has no critical/serious WCAG violations', async ({ page }, testInfo) => {
@@ -436,7 +444,7 @@ test.describe('accessibility @a11y — routes', () => {
     // CreateMenu is a plain button on single-target routes and renders nothing
     // off a project — it is only a role="menu" popover where >1 target exists,
     // which is the Schedule view (New Task / New Milestone). It therefore shares
-    // the Schedule route's excluded rules (#2204 / #2265).
+    // the Schedule route's excluded rules. SUPPRESSED-UNTIL(#2618)
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
     await page.getByRole('button', { name: 'Create new' }).click();
@@ -455,11 +463,13 @@ test.describe('accessibility @a11y — routes', () => {
       timeout: 10_000,
     });
 
-    // Board carries the most in-flight audit debt: resize handles miss required
-    // ARIA (`aria-required-attr`), the backlog rail misses required children
-    // (`aria-required-children`), and a card overlay nests interactive controls
-    // (`nested-interactive`) — all tracked #2204. Excluded so the scan still gates
-    // name/role/region/valid-attr and (now #2265 landed) contrast.
+    // Board carries the most in-flight audit debt: both resize handles are
+    // focusable `role="separator"` splitters missing the required `aria-valuenow`
+    // (`aria-required-attr`, BoardResizeHandle.tsx:84-98,168-183), a grid holds
+    // `[role=status]` + `button[aria-busy]` children (`aria-required-children`),
+    // and a card overlay nests interactive controls (`nested-interactive`).
+    // Excluded so the scan still gates name/role/region/valid-attr and (now #2265
+    // landed) contrast. SUPPRESSED-UNTIL(#2618)
     await expectNoA11yViolations(page, testInfo, {
       gateModerate: true,
       disableRules: ['aria-required-attr', 'aria-required-children', 'nested-interactive'],
@@ -495,8 +505,8 @@ test.describe('accessibility @a11y — routes', () => {
     await expect(drawer).toBeVisible();
 
     // The scan still sees the Schedule grid behind the open drawer, so it inherits
-    // the grid's `aria-required-children` (#2204). Every other rule — contrast
-    // included (#2265 landed) — is enforced.
+    // the grid's `aria-required-children`. Every other rule — contrast included
+    // (#2265 landed) — is enforced. SUPPRESSED-UNTIL(#2618)
     await expectNoA11yViolations(page, testInfo, {
       gateModerate: true,
       disableRules: ['aria-required-children'],

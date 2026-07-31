@@ -54,8 +54,13 @@ conformance suite. CI gates for the package:
 
 - `wasm:lint` — `cargo clippy --all-targets -- -D warnings` (mirrored locally by
   `make pre-push-wasm`; there is intentionally no `cargo fmt --check` gate)
-- `wasm:conformance` — Rust engine vs Python engine on shared fixtures
-- `wasm:test` — Rust unit tests
+- `wasm:conformance` — the **Python** half of cross-engine conformance: the Python
+  engine against the shared `packages/wasm-scheduler/fixtures/` corpus and its
+  committed `expected/` snapshots. Despite the name it exercises one engine
+- `wasm:test` — `cargo test --all-targets`: the Rust unit tests **and** the Rust
+  half of conformance (`tests/conformance.rs`, `tests/invalid_conformance.rs`).
+  Engine agreement is the conjunction of this job and `wasm:conformance` against
+  the one shared oracle, the `expected/` snapshots
 - `wasm:license-check` — `cargo deny check licenses` against the `deny.toml` allow-list
 
 The Rust toolchain is pinned (`rust:1.85-slim` in CI). `make pre-push-wasm` is
@@ -76,3 +81,11 @@ change-gated to `packages/wasm-scheduler` and skips cleanly when cargo is absent
 - Statistical convergence tests for Monte Carlo
 - Performance benchmarks tracked across commits
 - Coverage ≥ 95%
+
+### Cross-engine invariants (assert the relationship, not just the values)
+Any code path that computes a schedule **twice** — deterministically and probabilistically, or in Python and in Rust — must be tested on the *relationship between the two results*, not only on each result independently. Two engines can each pass their own known-answer tests while disagreeing with each other.
+
+- **`monte_carlo()` must never finish earlier than `schedule()`.** On a zero-variance project every percentile equals the deterministic finish; on any project, no percentile precedes it. Assert the invariant, not a hard-coded date — a fixed expected date passes for the wrong reason when the anchor changes.
+- **Fast paths that "pin" a value must pin what the slow path computes.** A constant-offset shortcut for completed/fixed tasks is only correct if it projects the deterministic result. A shortcut that re-derives its own anchor will drift from the full pass the moment a constraint (SNET/deadline/predecessor) applies to that task, and drift silently — both engines return plausible dates. Prefer projecting the authoritative result over recomputing an independent one.
+- **Enumerate the branches of every status/threshold predicate and test each.** A completed task reaches its dates through several distinct branches (actual_finish set; actual_start only; percent-complete with no actuals at all). Cover every branch — and confirm the **fuzz generator** reaches them too. A randomized harness that caps `percent_complete` at 99 never generates the ">= 100 with no actuals" branch no matter how many seeds it runs, so a defect there survives an arbitrarily large fuzz budget. When a bug slips past a fuzzer, check the generator's ranges before adding new test files: the fix is usually one widened bound.
+- **Verify a split gate's trigger conditions, not just its assertions — then work out what actually binds the halves.** When the two halves of a comparison run in different jobs under different `changes:` rules, the tempting conclusion is that a one-sided run compares nothing. Check before believing it. The rule that decides it: **a split comparison gate is sound iff its oracle is committed, and any change to that oracle re-triggers every half.** Halves that compare against each *other* live, with no committed artifact between them, genuinely do need both halves on every run. Our conformance gate is the sound case, not the broken one — both engines assert against the committed `fixtures/expected/` snapshots, so a scheduler-only run still pins Python to an oracle that Rust was pinned to earlier and is unchanged against; and regenerating snapshots touches `packages/wasm-scheduler/**`, which pulls `wasm:test` back in. Verified empirically in #2602: perturbing one snapshot fails the Rust and Python halves independently, and no `wasm:*` job is `allow_failure`. The residual risk is fixture *coverage* (#2637), which running both halves would not address.

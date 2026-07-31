@@ -37,6 +37,7 @@ may not be present.
 | `web.replicaCount` | `1` | Web-tier replicas; falls back to `replicaCount` when unset. |
 | `web.containerPort` | `8080` | Port the unprivileged nginx image listens on (satisfies `runAsNonRoot`). |
 | `web.service.type` / `web.service.port` | `ClusterIP` / `80` | Web Service. |
+| `web.maxBodySize` | `50M` | nginx `client_max_body_size` for the web tier. Inert in the default topology — the Ingress sends `/api` and `/ws` straight to the API Service, so uploads never traverse this nginx. It binds when you route everything through the web tier instead. See [Upload size limits](#upload-size-limits). |
 
 ## Django admin exposure
 
@@ -74,9 +75,43 @@ cluster-specific, so a default-on ingress would render a broken object.
 |---|---|---|
 | `ingress.enabled` | `false` | Render a chart-managed Ingress + edge TLS. |
 | `ingress.className` | `""` | IngressClass to bind (`nginx`, `traefik`, …). Empty uses the cluster default. |
-| `ingress.annotations` | `{}` | Controller / cert-manager annotations. |
+| `ingress.annotations` | `nginx.ingress.kubernetes.io/proxy-body-size: "50m"` | Controller / cert-manager annotations. The shipped default raises the upload ceiling — see [Upload size limits](#upload-size-limits). Helm deep-merges this map, so your own keys are added alongside it. |
 | `ingress.hosts` | one example host | Virtual hosts; each path routes to `web` or `api`. List `/api` and `/ws` **before** `/` so they win longest-prefix matching. |
 | `ingress.tls` | `[]` | TLS Secrets per host. Empty renders **HTTP-only** — dev/demo only, never production. |
+
+### Upload size limits
+
+Two ceilings sit in front of every import, and they are enforced in different
+places. Get the order wrong and a valid file is rejected by the proxy before the
+application ever sees it.
+
+| Layer | Where | Default |
+|---|---|---|
+| Ingress controller | `ingress.annotations` → `nginx.ingress.kubernetes.io/proxy-body-size` | `50m` |
+| Web-tier nginx | `web.maxBodySize` | `50M` |
+| Application | `MSPROJECT_MAX_UPLOAD_MB` (50), `JIRA_IMPORT_MAX_UPLOAD_MB` (25), `CSV_IMPORT_MAX_UPLOAD_MB` (10), `SEED_MAX_UPLOAD_MB` (5) | see [Configuration](/administration/configuration/) |
+
+**The rule: keep every transport limit at or above the largest application cap.**
+The application cap is the one that should reject an oversized file, because it
+returns a validation error naming the limit and the format. A transport limit
+returns a bare `413` with no explanation and nothing in the logs pointing at the
+import.
+
+The shipped defaults already satisfy this. If you raise `MSPROJECT_MAX_UPLOAD_MB`
+above 50, raise both transport limits to match — otherwise the higher app cap is
+unreachable.
+
+:::caution[Before 0.4 the defaults did not satisfy it]
+`ingress.annotations` shipped empty, so ingress-nginx applied its own **1 MB**
+default and *every import above 1 MB failed on a default install*. If you are
+carrying a values file that pins `ingress.annotations` to your own map, confirm
+it includes `proxy-body-size` — an explicit map that omits it inherits the 1 MB
+default again.
+:::
+
+**On other ingress controllers** the annotation is a no-op. Traefik uses a
+`buffering` middleware with `maxRequestBodyBytes`; HAProxy uses
+`haproxy.org/client-body-buffer-size`. Set the equivalent for your controller.
 
 ## Bundled datastores
 

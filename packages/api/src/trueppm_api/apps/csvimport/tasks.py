@@ -143,7 +143,10 @@ def import_csv(
 
         from django.db import transaction
 
-        from trueppm_api.apps.msproject.importer import import_project
+        from trueppm_api.apps.msproject.importer import (
+            broadcast_import_project_record_change,
+            import_project,
+        )
 
         # Make the additive CSV import idempotent under re-dispatch. import_project
         # defaults to wipe_existing=False, so a second delivery would bulk-create
@@ -192,6 +195,13 @@ def import_csv(
             transaction.on_commit(
                 lambda: broadcast_board_event(project_id, "tasks_restructured", {})
             )
+
+        # An import can pull the project start back under an imported task
+        # (#867/#873). tasks_restructured does not invalidate the project record,
+        # so without this the boundary moves silently for everyone else on the
+        # project. Outside the tasks_created guard on purpose: the shift is a
+        # separate condition, and the helper is a no-op when nothing moved.
+        broadcast_import_project_record_change(project_id, summary)
 
     return summary
 

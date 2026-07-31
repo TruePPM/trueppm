@@ -169,7 +169,7 @@ because a reader should not have to discover them.
 
 ### The customer panel is simulated
 
-Feature work is reviewed by a "voice of customer" panel of ten personas — a project
+Feature work is reviewed by a "voice of customer" panel of eleven personas — a delivery
 manager, a PMO director, a self-hosting operator, and so on. **None of them is a real
 person, and none was derived from an interview, a survey, or a usability session.** They
 are composite hypotheses written from domain knowledge of the P3M market, and they are
