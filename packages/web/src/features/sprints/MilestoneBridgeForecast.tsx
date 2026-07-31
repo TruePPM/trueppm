@@ -41,17 +41,34 @@ export function MilestoneBridgeForecast({
 }: Props) {
   const itl = useIterationLabel(projectId);
   // Self-resolve the ADR-0104 velocity gate (rather than threading a prop through
-  // both AdvancingToMilestoneCard call sites): wait for the velocity read, then
-  // enable the forecast pull only when the band is NOT suppressed for this reader.
+  // both AdvancingToMilestoneCard call sites). We wait for the velocity read so we
+  // know WHICH half to suppress — but suppression no longer gates the whole card.
+  //
+  // #2640: it used to. The forecast pull was disabled and the component
+  // null-rendered whenever the reader was out of the velocity audience — which is
+  // the DEFAULT configuration (velocity is team-private by default), so a PM or
+  // PMO reader opening a milestone-bound sprint saw an empty region where the
+  // schedule read should be, with nothing to say why. The CPM finish, its
+  // critical-path flag and its float are deterministic schedule facts with no
+  // team-performance content, and /forecast/ deliberately serves them to a
+  // suppressed reader: views.py nulls velocity_low/high, remaining and
+  // sprints_to_complete_* but keeps cpm_finish intact. The server drew the line
+  // correctly; only the client discarded it.
   const velocity = useProjectVelocity(projectId);
-  const enabled = velocity.data != null && !velocity.data.velocity_suppressed;
-  const { data: forecast } = useProjectForecast(projectId, { enabled });
+  const velocityLoaded = velocity.data != null;
+  const velocitySuppressed = velocity.data?.velocity_suppressed === true;
+  const { data: forecast } = useProjectForecast(projectId, { enabled: velocityLoaded });
 
   // Guard the milestones array explicitly: a page that renders this card without
   // a real /forecast/ mock (e.g. an e2e leaning on a catch-all list route) would
   // otherwise hand us a `{count,results}` shape and crash `.find` into the root
   // error boundary (the #1190 catch-all-object hazard). Null-render instead.
-  if (!enabled || targetMilestoneId == null || !forecast || !Array.isArray(forecast.milestones)) {
+  if (
+    !velocityLoaded ||
+    targetMilestoneId == null ||
+    !forecast ||
+    !Array.isArray(forecast.milestones)
+  ) {
     return null;
   }
 
@@ -61,7 +78,11 @@ export function MilestoneBridgeForecast({
 
   const { sprints_to_complete_low: stcLow, sprints_to_complete_high: stcHigh } = forecast;
   const remaining = forecast.remaining_committed_points;
-  const showProjection = stcLow != null && stcHigh != null && remaining > 0;
+  // The projection is velocity-derived, so it stays hidden for a suppressed
+  // reader. The server already nulls all three inputs; the explicit check keeps
+  // the intent readable here rather than resting on a remote implementation detail.
+  const showProjection =
+    !velocitySuppressed && stcLow != null && stcHigh != null && remaining > 0;
 
   const prev = milestone.previous;
   const showDelta =
@@ -89,7 +110,11 @@ export function MilestoneBridgeForecast({
           onCriticalPath={onCriticalPath}
           totalFloatDays={totalFloatDays}
         />
-        <VelocityColumn p50={milestone.p50} p80={milestone.p80} basis={milestone.basis} />
+        {velocitySuppressed ? (
+          <VelocitySuppressedColumn />
+        ) : (
+          <VelocityColumn p50={milestone.p50} p80={milestone.p80} basis={milestone.basis} />
+        )}
       </div>
 
       {showDelta && (
@@ -162,6 +187,32 @@ function ScheduleColumn({
 }
 
 /**
+ * Right column when the reader is outside the velocity audience (#2640, ADR-0104).
+ *
+ * Absence must read as *policy*, not as a broken page. The card previously
+ * collapsed suppressed, unbound, no-forecast and malformed-payload into the same
+ * silent `return null`, so a reader could not tell a privacy decision from a bug —
+ * and, seeing a blank where a date belonged, would ask the team to open velocity
+ * up. Coupling the team's privacy control to the PMO's schedule read is a
+ * mechanism for a privacy default to erode org-wide; saying so plainly removes it.
+ */
+function VelocitySuppressedColumn() {
+  return (
+    <div className="flex-1 flex flex-col gap-1">
+      <span className="text-xs font-medium uppercase tracking-wide text-neutral-text-secondary">
+        Velocity estimate
+      </span>
+      <span
+        data-testid="milestone-bridge-velocity-suppressed"
+        className="text-xs text-neutral-text-secondary"
+      >
+        Hidden by this team&rsquo;s signal settings
+      </span>
+    </div>
+  );
+}
+
+/**
  * Right column — the velocity read (web-rule 166/223). A velocity-band snapshot
  * renders an "est. {p50}–{p80}" range with an on-screen "(velocity estimate)"
  * qualifier; only a real Monte Carlo snapshot may wear percentile labels.
@@ -217,6 +268,14 @@ function VelocityColumn({
           </span>
           {/* Visible on-screen (not a title tooltip — web-rules 22a/121/166): the
               honesty qualifier keeps a velocity band from reading as false precision. */}
+          {/* Visible on-screen (not a title tooltip — web-rules 22a/121/166): the
+              honesty qualifier keeps a velocity band from reading as false precision.
+              Deliberately NOT accompanied by #2495's ForecastHorizonHelp — see the
+              "#2495 scope boundary" test in this component's spec. That affordance
+              states a *floor* bias, which comes from the clamped sampler behind
+              /sprint-forecast/. This card reads /forecast/, whose snapshots are the
+              deterministic, unclamped `_velocity_band_percentiles` derivation, so a
+              floor caveat here would claim a bias this number does not have (#2643). */}
           <span className="text-xs italic text-neutral-text-secondary">(velocity estimate)</span>
         </>
       )}

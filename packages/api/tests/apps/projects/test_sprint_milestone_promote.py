@@ -105,6 +105,12 @@ def test_promote_empty_body_creates_and_binds_milestone(
     assert sprint.milestone_bound_at is not None
     assert sprint.binding_committed_snapshot is not None
     assert resp.data["milestone_bound_by"] == scheduler_user.pk
+    # #2641: the id alone cannot be rendered on a card, so the display name is
+    # serialized alongside it (matching the met_by_name / acknowledged_by_name
+    # convention). Without this the "Bound by {user}" attribution is unbuildable.
+    assert resp.data["milestone_bound_by_name"] == (
+        scheduler_user.get_full_name() or scheduler_user.get_username()
+    )
 
 
 @pytest.mark.django_db
@@ -233,6 +239,9 @@ def test_unbind_clears_fk_and_provenance(client: APIClient, project: Project) ->
     assert sprint.milestone_bound_by_id is None
     assert sprint.milestone_bound_at is None
     assert sprint.binding_committed_snapshot is None
+    # An unbound sprint has no actor to attribute, so the name resolves to None
+    # and the card renders no attribution line rather than a half-empty one (#2641).
+    assert resp.data["milestone_bound_by_name"] is None
 
 
 @pytest.mark.django_db
