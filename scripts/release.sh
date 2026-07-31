@@ -460,6 +460,29 @@ bump_manifest packages/web/package.json \
   "s/\"version\": \"${CURRENT_ESCAPED}\"/\"version\": \"${NEW_VERSION}\"/" \
   "\"version\": \"${NEW_VERSION}\""
 
+# The Rust/WASM engine carries the SAME semver string as api/web (#2602). It is
+# one semantic artifact held in CI conformance with the Python engine, so the
+# version has to name which semantics you get — a reader must be able to tell
+# that trueppm-wasm-scheduler and trueppm-scheduler implement the same CPM rules.
+# It sat at 0.1.0 through three releases because it was never in this list; that
+# is the drift this entry closes. Cargo takes the semver form directly (it is the
+# same grammar), so no PEP 440 translation is needed.
+bump_manifest packages/wasm-scheduler/Cargo.toml \
+  "s/^version = \"${CURRENT_ESCAPED}\"/version = \"${NEW_VERSION}\"/" \
+  "version = \"${NEW_VERSION}\""
+
+# Cargo.lock records the local crate's own version under its self-entry, exactly
+# as uv.lock does (#1389) — bumping the manifest without it leaves the lock
+# claiming the previous version. Done with a range-scoped sed rather than by
+# shelling out to cargo, deliberately: a release must not require a Rust
+# toolchain on the release machine, and the self-entry's version carries no
+# dependency-resolution semantics, so rewriting that one line cannot change what
+# resolves. The range anchors on the package's `name =` line so a dependency that
+# happens to share the current version string can never be rewritten instead.
+bump_manifest packages/wasm-scheduler/Cargo.lock \
+  "/^name = \"trueppm-wasm-scheduler\"$/,/^version = / s/^version = \"${CURRENT_ESCAPED}\"/version = \"${NEW_VERSION}\"/" \
+  "version = \"${NEW_VERSION}\""
+
 echo "  Bumped manifests to $NEW_VERSION (scheduler PyPI: $NEW_PEP440)"
 
 # Re-lock after bumping the Python manifests. Each uv.lock records the project's
@@ -619,6 +642,8 @@ git add \
   packages/api/pyproject.toml \
   packages/api/uv.lock \
   packages/web/package.json \
+  packages/wasm-scheduler/Cargo.toml \
+  packages/wasm-scheduler/Cargo.lock \
   packages/api/src/trueppm_api/settings/base.py \
   docs/api/openapi.json \
   CHANGELOG.md \

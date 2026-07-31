@@ -1,6 +1,6 @@
 [package]
 name = "trueppm-wasm-scheduler"
-version = "0.1.0"
+version = "0.4.0-beta.1"
 edition = "2021"
 license = "Apache-2.0"
 description = "CPM scheduling engine compiled to WebAssembly for TruePPM"
