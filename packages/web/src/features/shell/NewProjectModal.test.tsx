@@ -125,6 +125,43 @@ describe('NewProjectModal', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Scroll container (#2665) — the panel caps its height and only the step
+  // body scrolls, so the step indicator and the Back/Cancel/Create footer
+  // stay pinned and reachable even when step 3's content exceeds the viewport.
+  // ---------------------------------------------------------------------------
+
+  it('caps the panel height and isolates it from step-content overflow', () => {
+    renderModal();
+    const dialog = screen.getByRole('dialog', { name: /new project/i });
+    expect(dialog.className).toMatch(/max-h-\[90vh\]/);
+    expect(dialog.className).toMatch(/overflow-hidden/);
+    expect(dialog.className).toMatch(/flex-col/);
+  });
+
+  it('scrolls only the step body — the form sits inside a flex-1 overflow-y-auto region', () => {
+    renderModal();
+    const nameInput = screen.getByRole('textbox', { name: /name/i });
+    const scroller = nameInput.closest('form')?.parentElement;
+    expect(scroller?.className).toMatch(/flex-1/);
+    expect(scroller?.className).toMatch(/overflow-y-auto/);
+  });
+
+  it('keeps the footer outside the scroller while the Create button still submits the form', async () => {
+    renderModal();
+    await goToStep3();
+    const createBtn = screen.getByRole('button', { name: /create project/i });
+    const form = document.getElementById('new-project-form');
+    const scroller = form?.parentElement;
+    // Footer button is outside the scrollable form region...
+    expect(scroller?.contains(createBtn)).toBe(false);
+    // ...but is still wired to it via the `form` attribute (HTML form association),
+    // so clicking it still submits/creates (regression guard for the #2665 refactor).
+    expect(createBtn).toHaveAttribute('form', 'new-project-form');
+    await userEvent.click(createBtn);
+    expect(mutateMock).toHaveBeenCalledOnce();
+  });
+
+  // ---------------------------------------------------------------------------
   // Step 2 — Schedule
   // ---------------------------------------------------------------------------
 

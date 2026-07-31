@@ -192,10 +192,10 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
           role="dialog"
           aria-modal="true"
           aria-label={`New project — step ${step} of ${TOTAL_STEPS}`}
-          className="w-full max-w-lg rounded-card border border-neutral-border bg-neutral-surface p-6 pointer-events-auto"
+          className="w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col rounded-card border border-neutral-border bg-neutral-surface pointer-events-auto"
         >
-          {/* Step indicator */}
-          <div className="flex items-center gap-2 mb-5" aria-hidden="true">
+          {/* Step indicator — pinned above the scroller (#2665) */}
+          <div className="flex items-center gap-2 px-6 pt-6 mb-5" aria-hidden="true">
             {([1, 2, 3] as Step[]).map((n, i) => (
               <div key={n} className="flex items-center gap-2">
                 <div
@@ -215,7 +215,15 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
             ))}
           </div>
 
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          {/* Step body — the only scrollable region (#2665). Step 3 (Planning
+              model) stacks enough content to exceed a laptop-height viewport, so
+              this must scroll independently of the pinned step indicator above
+              and the action footer below, or the Create button becomes
+              pointer-unreachable. The submit button lives in the footer outside
+              this <form>; it targets the form via `form="new-project-form"`
+              (same pattern as TaskFormModal's renderHeader/renderBody/renderFooter split). */}
+          <div className="flex-1 overflow-y-auto min-h-0">
+          <form id="new-project-form" onSubmit={handleSubmit} className="flex flex-col gap-4 px-6 pb-4">
             {/* Step 1: Name + Description */}
             {step === 1 && (
               <>
@@ -408,51 +416,56 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
                 )}
               </>
             )}
+          </form>
+          </div>
 
-            {/* Actions */}
-            <div className="flex items-center justify-between pt-2">
-              <div>
-                {step > 1 && (
-                  <button
-                    type="button"
-                    onClick={back}
-                    disabled={createProject.isPending}
-                    className="h-9 px-4 rounded-control text-sm font-medium border border-neutral-border
-                      text-neutral-text-secondary hover:text-neutral-text-primary
-                      focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
-                  >
-                    Back
-                  </button>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
+          {/* Actions — pinned below the scroller (#2665). The submit button is
+              outside the <form> DOM subtree but still participates in it via the
+              `form` attribute (HTML form association), so Enter-to-advance and
+              the final create submit both keep working. */}
+          <div className="flex items-center justify-between px-6 pb-6 pt-2">
+            <div>
+              {step > 1 && (
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={back}
                   disabled={createProject.isPending}
                   className="h-9 px-4 rounded-control text-sm font-medium border border-neutral-border
                     text-neutral-text-secondary hover:text-neutral-text-primary
                     focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
                 >
-                  Cancel
+                  Back
                 </button>
-                <button
-                  type="submit"
-                  disabled={
-                    (step === 1 && !canAdvanceStep1) ||
-                    (step === 2 && !canAdvanceStep2) ||
-                    (step === TOTAL_STEPS && createProject.isPending)
-                  }
-                  className="h-9 px-4 rounded-control text-sm font-medium bg-brand-primary text-neutral-text-inverse
-                    disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
-                    focus:outline-none focus:ring-2 focus:ring-white
-                    focus:ring-offset-2 focus:ring-offset-brand-primary"
-                >
-                  {step < TOTAL_STEPS ? 'Next' : createProject.isPending ? 'Creating…' : 'Create project'}
-                </button>
-              </div>
+              )}
             </div>
-          </form>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={createProject.isPending}
+                className="h-9 px-4 rounded-control text-sm font-medium border border-neutral-border
+                  text-neutral-text-secondary hover:text-neutral-text-primary
+                  focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                form="new-project-form"
+                disabled={
+                  (step === 1 && !canAdvanceStep1) ||
+                  (step === 2 && !canAdvanceStep2) ||
+                  (step === TOTAL_STEPS && createProject.isPending)
+                }
+                className="h-9 px-4 rounded-control text-sm font-medium bg-brand-primary text-neutral-text-inverse
+                  disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
+                  focus:outline-none focus:ring-2 focus:ring-white
+                  focus:ring-offset-2 focus:ring-offset-brand-primary"
+              >
+                {step < TOTAL_STEPS ? 'Next' : createProject.isPending ? 'Creating…' : 'Create project'}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </>
