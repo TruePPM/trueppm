@@ -178,6 +178,34 @@ def test_summary_payload_shape(calendar: Calendar, alice: object) -> None:
 
 
 @pytest.mark.django_db
+def test_sprint_short_id_display_decodes_the_hex_sequence(
+    calendar: Calendar, alice: object
+) -> None:
+    """This card hand-built its own ``f"SP-{sprint.short_id}"`` (#2671) — a second,
+    independent call site of the exact bug #2430 fixed for Task. Ten sprints are
+    created so the tenth's raw short_id is the zero-padded hex ``0000000A``; the
+    naive format would render ``SP-0000000A`` instead of ``SP-10``.
+    """
+    p1 = _project(calendar, "Alpha")
+    _membership(p1, alice)
+    for i in range(9):
+        Sprint.objects.create(
+            project=p1,
+            name=f"Filler {i}",
+            start_date=date(2026, 1, 1),
+            finish_date=date(2026, 1, 14),
+            state=SprintState.COMPLETED,
+        )
+    s10 = _active_sprint(p1, "Alpha S10")
+    assert s10.short_id == "0000000A"
+    Task.objects.create(project=p1, name="T1", duration=1, sprint=s10, assignee=alice)
+
+    resp = _client(alice).get("/api/v1/me/active-sprints/")
+    assert resp.status_code == 200
+    assert resp.data[0]["sprint"]["short_id_display"] == "SP-10"
+
+
+@pytest.mark.django_db
 def test_results_sorted_by_trend_most_behind_first(calendar: Calendar, alice: object) -> None:
     """Sprint with negative trend (behind ideal) sorts before sprints ahead.
 

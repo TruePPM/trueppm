@@ -61,9 +61,24 @@ function makeTask(
   } as MyWorkTask;
 }
 
+// Real 8-hex-digit short_id, never a pretty fake like the old 'RIV-1' — that
+// shape hid the #2671 bug where the raw hex leaked both into the label AND
+// into the search predicate (typing a task's actual number never matched it).
 const TASKS = [
-  makeTask({ id: 'task-a', short_id: 'RIV-1', name: 'Foundation pour', project_name: 'Riverside' }),
-  makeTask({ id: 'task-b', short_id: 'RIV-2', name: 'Framing', project_name: 'Riverside' }),
+  makeTask({
+    id: 'task-a',
+    short_id: '00000001',
+    short_id_display: 'T-1',
+    name: 'Foundation pour',
+    project_name: 'Riverside',
+  }),
+  makeTask({
+    id: 'task-b',
+    short_id: '00000002',
+    short_id_display: 'T-2',
+    name: 'Framing',
+    project_name: 'Riverside',
+  }),
 ];
 
 function setTasks(tasks: MyWorkTask[]) {
@@ -104,7 +119,7 @@ describe('QuickLogTime', () => {
 
   it('defaults the selection to the first assigned task and defaults to 1h', () => {
     openPopover();
-    const first = screen.getByRole('radio', { name: /RIV-1 Foundation pour/ });
+    const first = screen.getByRole('radio', { name: /T-1 Foundation pour/ });
     expect(first).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByRole('button', { name: 'Log 1h 00m' })).toBeInTheDocument();
   });
@@ -116,6 +131,25 @@ describe('QuickLogTime', () => {
     });
     expect(screen.queryByRole('radio', { name: /Foundation pour/ })).toBeNull();
     expect(screen.getByRole('radio', { name: /Framing/ })).toBeInTheDocument();
+  });
+
+  it('filters by the task\'s actual (decoded) number, not its raw hex short_id (#2671)', () => {
+    // task-a's real short_id is the hex "00000001" — typing its actual task
+    // number ("1") must find it via the decoded shortIdDisplay ("T-1"), which
+    // is exactly the search predicate the raw-hex bug broke (typing a task's
+    // real number never matched the hex encoding of that number).
+    setTasks([
+      makeTask({ id: 'task-a', short_id: '00000001', short_id_display: 'T-1', name: 'Alpha' }),
+      makeTask({ id: 'task-b', short_id: '0000002A', short_id_display: 'T-42', name: 'Bravo' }),
+    ]);
+    openPopover();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search your tasks or projects' }), {
+      target: { value: '42' },
+    });
+    // "42" is not a substring of the raw hex "0000002A" — only the decoded
+    // display form ("T-42") makes this match.
+    expect(screen.queryByRole('radio', { name: /Alpha/ })).toBeNull();
+    expect(screen.getByRole('radio', { name: /Bravo/ })).toBeInTheDocument();
   });
 
   it('a preset chip updates the minutes and Log label', () => {
@@ -150,26 +184,26 @@ describe('QuickLogTime', () => {
   it('moves the task selection with Arrow keys (radio keyboard pattern)', () => {
     openPopover();
     const group = screen.getByRole('radiogroup', { name: 'Select a task' });
-    expect(screen.getByRole('radio', { name: /RIV-1 Foundation pour/ })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /T-1 Foundation pour/ })).toBeChecked();
 
     fireEvent.keyDown(group, { key: 'ArrowDown' });
-    expect(screen.getByRole('radio', { name: /RIV-2 Framing/ })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /T-2 Framing/ })).toBeChecked();
 
     // Wraps around back to the first item.
     fireEvent.keyDown(group, { key: 'ArrowDown' });
-    expect(screen.getByRole('radio', { name: /RIV-1 Foundation pour/ })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /T-1 Foundation pour/ })).toBeChecked();
   });
 
   it('logs the selected task + duration and closes', () => {
     openPopover();
     // Pick the second task and a 2h preset.
-    fireEvent.click(screen.getByRole('radio', { name: /RIV-2 Framing/ }));
+    fireEvent.click(screen.getByRole('radio', { name: /T-2 Framing/ }));
     fireEvent.click(screen.getByRole('button', { name: '2h' }));
     fireEvent.click(screen.getByRole('button', { name: 'Log 2h 00m' }));
 
     expect(mutateMock).toHaveBeenCalledWith({
       taskId: 'task-b',
-      taskLabel: 'RIV-2 · Framing',
+      taskLabel: 'T-2 · Framing',
       minutes: 120,
       entryDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) as unknown as string,
       note: undefined,
@@ -221,7 +255,7 @@ describe('QuickLogTime', () => {
       target: { value: 'found' },
     });
     // The assigned task shows once (its own label), not twice from the search dup.
-    expect(screen.getByRole('radio', { name: /RIV-1 Foundation pour/ })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /T-1 Foundation pour/ })).toBeInTheDocument();
     expect(screen.queryByRole('radio', { name: /Foundation pour \(dup\)/ })).toBeNull();
     // The genuinely unassigned hit is appended.
     expect(screen.getByRole('radio', { name: /Ad-hoc cleanup/ })).toBeInTheDocument();
@@ -230,7 +264,7 @@ describe('QuickLogTime', () => {
   it('shows a keep-typing hint when a short query matches no assigned task (#2174)', () => {
     // A 1-char query is below the search floor, so the hint must invite more typing
     // rather than silently showing nothing.
-    setTasks([makeTask({ id: 'task-z', short_id: 'RIV-9', name: 'Zebra' })]);
+    setTasks([makeTask({ id: 'task-z', short_id: '00000009', short_id_display: 'T-9', name: 'Zebra' })]);
     openPopover();
     fireEvent.change(screen.getByRole('textbox', { name: 'Search your tasks or projects' }), {
       target: { value: 'q' },
@@ -240,14 +274,20 @@ describe('QuickLogTime', () => {
 
   it('excludes a phase from the picker entirely (issue #1754) — never selectable, roving-focusable, or default-selected', () => {
     setTasks([
-      makeTask({ id: 'phase-a', short_id: 'RIV-0', name: 'Design Phase', is_phase: true }),
+      makeTask({
+        id: 'phase-a',
+        short_id: '0000000A',
+        short_id_display: 'T-10',
+        name: 'Design Phase',
+        is_phase: true,
+      }),
       ...TASKS,
     ]);
     openPopover();
     // Not rendered as a radio option at all — not merely unselected.
     expect(screen.queryByRole('radio', { name: /Design Phase/ })).toBeNull();
     // Default selection still lands on the first non-phase task.
-    expect(screen.getByRole('radio', { name: /RIV-1 Foundation pour/ })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /T-1 Foundation pour/ })).toBeChecked();
   });
 
   it('tolerates a non-paginated /me/work/ page without tearing down the app', () => {
@@ -297,7 +337,7 @@ describe('QuickLogTime (mobile bottom sheet)', () => {
   it('logs the selected task + duration from the sheet', () => {
     render(<QuickLogTime />);
     fireEvent.click(screen.getByRole('button', { name: 'Log time' }));
-    fireEvent.click(screen.getByRole('radio', { name: /RIV-2 Framing/ }));
+    fireEvent.click(screen.getByRole('radio', { name: /T-2 Framing/ }));
     fireEvent.click(screen.getByRole('button', { name: '2h' }));
     fireEvent.click(screen.getByRole('button', { name: 'Log 2h 00m' }));
     expect(mutateMock).toHaveBeenCalledWith(
@@ -310,7 +350,7 @@ describe('QuickLogTime (mobile bottom sheet)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Log time' }));
     const group = screen.getByRole('radiogroup', { name: 'Select a task' });
     fireEvent.keyDown(group, { key: 'ArrowDown' });
-    expect(screen.getByRole('radio', { name: /RIV-2 Framing/ })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /T-2 Framing/ })).toBeChecked();
   });
 
   it('restores focus to the trigger when the sheet closes (WCAG 2.4.3)', () => {

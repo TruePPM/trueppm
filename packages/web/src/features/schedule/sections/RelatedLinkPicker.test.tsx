@@ -71,14 +71,49 @@ function wrap(ui: ReactNode) {
 }
 
 const LOCAL_TASKS: Task[] = [
-  makeTask({ id: 't-local-1', name: 'Design review', wbs: '1.1', shortId: 'ABC123' }),
+  makeTask({
+    id: 't-local-1',
+    name: 'Design review',
+    wbs: '1.1',
+    shortId: '00000007',
+    shortIdDisplay: 'T-7',
+    qualifiedId: 'T-7',
+  }),
   makeTask({ id: 't-local-2', name: 'Build feature', wbs: '1.2', shortId: undefined }),
 ];
 
+// short_id is real 8-hex-digit (never a pretty fake like the old 'SEC-3') —
+// that shape is exactly what hid the #2671 raw-hex leak on this endpoint's
+// results. qualified_id/short_id_display are what a real (fixed) API response
+// carries and what the picker must render instead of short_id.
 const CROSS_ROWS: ProgramTaskResult[] = [
-  { id: 'x1', name: 'Security sign-off', short_id: 'SEC-3', project_id: 'p-sec', project_name: 'Security' },
-  { id: 'x2', name: 'Security review', short_id: 'SEC-8', project_id: 'p-sec', project_name: 'Security' },
-  { id: 'x3', name: 'Legal go-ahead', short_id: 'LEG-1', project_id: 'p-leg', project_name: 'Legal' },
+  {
+    id: 'x1',
+    name: 'Security sign-off',
+    short_id: '00000003',
+    short_id_display: 'T-3',
+    qualified_id: 'SEC-3',
+    project_id: 'p-sec',
+    project_name: 'Security',
+  },
+  {
+    id: 'x2',
+    name: 'Security review',
+    short_id: '00000008',
+    short_id_display: 'T-8',
+    qualified_id: 'SEC-8',
+    project_id: 'p-sec',
+    project_name: 'Security',
+  },
+  {
+    id: 'x3',
+    name: 'Legal go-ahead',
+    short_id: '00000001',
+    short_id_display: 'T-1',
+    qualified_id: 'LEG-1',
+    project_id: 'p-leg',
+    project_name: 'Legal',
+  },
 ];
 
 beforeEach(() => {
@@ -147,9 +182,18 @@ describe('RelatedLinkPicker — single-project scope', () => {
     expect(screen.queryByRole('option', { name: /Design review/ })).not.toBeInTheDocument();
   });
 
-  it('renders the shortId hex, falling back to wbs then an em-dash', () => {
+  it('renders the server-decoded reference, falling back to wbs then an em-dash (#2671)', () => {
+    // Real 8-hex-digit `shortId` alongside the server-decoded display fields —
+    // the picker must render qualifiedId/shortIdDisplay, never the raw hex.
     const tasks: Task[] = [
-      makeTask({ id: 'a', name: 'Has short id', shortId: 'HEX0001', wbs: '2' }),
+      makeTask({
+        id: 'a',
+        name: 'Has short id',
+        shortId: '0000002A',
+        shortIdDisplay: 'T-42',
+        qualifiedId: 'T-42',
+        wbs: '2',
+      }),
       makeTask({ id: 'b', name: 'Wbs fallback', shortId: undefined, wbs: '3.4' }),
     ];
     wrap(
@@ -162,7 +206,8 @@ describe('RelatedLinkPicker — single-project scope', () => {
         onClose={vi.fn()}
       />,
     );
-    expect(screen.getByRole('option', { name: /Has short id/ })).toHaveTextContent('HEX0001');
+    expect(screen.getByRole('option', { name: /Has short id/ })).toHaveTextContent('T-42');
+    expect(screen.getByRole('option', { name: /Has short id/ })).not.toHaveTextContent('0000002A');
     expect(screen.getByRole('option', { name: /Wbs fallback/ })).toHaveTextContent('3.4');
   });
 

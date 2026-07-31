@@ -11,7 +11,20 @@ import { apiClient } from '@/api/client';
 export interface ProgramTaskResult {
   id: string;
   name: string;
+  /**
+   * Raw 8-hex-digit project-scoped sequence (ADR-0016 / issue #50). **Do not
+   * render it** — it reads as an internal identifier (`00000008`) rather than
+   * "the eighth task" (#2430, #2671). Use `qualified_id` (preferred, and the
+   * form that actually disambiguates two sibling projects' task 3) or
+   * `short_id_display`.
+   */
   short_id: string;
+  /** Server-formatted compact task reference, e.g. `"T-8"` (#2671). */
+  short_id_display?: string;
+  /** Server-formatted project-qualified task reference, e.g. `"ENG-2026-8"` —
+   *  the preferred form here, since every row in this cross-project search is
+   *  from a *different* project than the caller's own (#2671). */
+  qualified_id?: string;
   project_id: string;
   project_name: string;
 }

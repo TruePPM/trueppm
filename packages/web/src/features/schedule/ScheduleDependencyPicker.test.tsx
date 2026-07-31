@@ -98,10 +98,38 @@ const LOCAL_TASKS: Task[] = [
   makeTask({ id: 't-local-2', name: 'Build feature', wbs: '1.2' }),
 ];
 
+// short_id is real 8-hex-digit (never a pretty fake like the old 'SEC-3') —
+// that shape is exactly what hid the #2671 raw-hex leak on this endpoint's
+// results. qualified_id/short_id_display are what a real (fixed) API response
+// carries and what the picker must render instead of short_id.
 const CROSS_ROWS: ProgramTaskResult[] = [
-  { id: 'x1', name: 'Security sign-off', short_id: 'SEC-3', project_id: 'p-sec', project_name: 'Security' },
-  { id: 'x2', name: 'Security review', short_id: 'SEC-8', project_id: 'p-sec', project_name: 'Security' },
-  { id: 'x3', name: 'Legal go-ahead', short_id: 'LEG-1', project_id: 'p-leg', project_name: 'Legal' },
+  {
+    id: 'x1',
+    name: 'Security sign-off',
+    short_id: '00000003',
+    short_id_display: 'T-3',
+    qualified_id: 'SEC-3',
+    project_id: 'p-sec',
+    project_name: 'Security',
+  },
+  {
+    id: 'x2',
+    name: 'Security review',
+    short_id: '00000008',
+    short_id_display: 'T-8',
+    qualified_id: 'SEC-8',
+    project_id: 'p-sec',
+    project_name: 'Security',
+  },
+  {
+    id: 'x3',
+    name: 'Legal go-ahead',
+    short_id: '00000001',
+    short_id_display: 'T-1',
+    qualified_id: 'LEG-1',
+    project_id: 'p-leg',
+    project_name: 'Legal',
+  },
 ];
 
 beforeEach(() => {
@@ -670,6 +698,19 @@ describe('ScheduleDependencyPicker — program-scope states', () => {
     expect(screen.getByText(/Couldn’t load program tasks\./)).toBeInTheDocument();
     fireEvent.click(retry);
     expect(refetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders a cross-project row\'s server-decoded reference, never its raw hex short_id (#2671)', async () => {
+    searchState.data = CROSS_ROWS;
+    renderPicker({ programId: 'prog-1', initialScope: 'program' });
+    fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: 'sec' } });
+
+    const row = await screen.findByRole('button', { name: /Security sign-off/ });
+    // qualified_id ("SEC-3") is what cross-project rows must render — it is
+    // the one #2671 site where the project-code prefix disambiguates two
+    // sibling projects' task 3 from each other.
+    expect(row).toHaveTextContent('SEC-3');
+    expect(row).not.toHaveTextContent('00000003');
   });
 
   it('drops the source task and already-linked tasks from the program results', async () => {

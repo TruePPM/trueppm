@@ -11,7 +11,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Project, Risk, Task
+from trueppm_api.apps.projects.models import Calendar, Project, Risk, Sprint, SprintState, Task
 
 User = get_user_model()
 
@@ -374,3 +374,104 @@ def test_task_display_ref_survives_a_non_hex_short_id(project: Project) -> None:
     Task.objects.filter(pk=t.pk).update(short_id="ZZZ")
     t.refresh_from_db()
     assert TaskSerializer(t).data["short_id_display"] == "T-ZZZ"
+
+
+# ---------------------------------------------------------------------------
+# API — server-owned sprint display references (#2671)
+# ---------------------------------------------------------------------------
+#
+# Sprint shares the hex object_sequence counter with Task, but never got the
+# #2430 decode treatment — SprintSerializer hand-rolled f"SP-{obj.short_id}",
+# which never decoded the hex and rendered e.g. "SP-0000000A" for the tenth
+# sprint on every Sprint surface. These mirror the Task coverage above with a
+# real 8-hex-digit short_id (never a pretty fixture value like "SP-A1"), which
+# is exactly the shape of fixture that hid this bug (#2671).
+
+
+def _make_sprint(project: Project, name: str = "Sprint") -> Sprint:
+    return Sprint.objects.create(
+        project=project,
+        name=name,
+        start_date=date(2026, 4, 1),
+        finish_date=date(2026, 4, 14),
+        state=SprintState.PLANNED,
+    )
+
+
+@pytest.mark.django_db
+def test_sprint_gets_short_id_on_create(project: Project) -> None:
+    _make_sprint(project)
+    s2 = _make_sprint(project, name="Sprint 2")
+    # Sprint and Task share the project's hex object_sequence counter.
+    assert s2.short_id == "00000002"
+
+
+@pytest.mark.django_db
+def test_sprint_display_ref_decodes_the_hex_sequence(
+    client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    """``short_id_display`` reads as a sprint number, not a padded hex string.
+
+    Ten sprints are created so the tenth one's raw ``short_id`` is
+    ``0000000A`` — the naive ``f"SP-{obj.short_id}"`` would render
+    ``SP-0000000A``; the fix must render ``SP-10``.
+    """
+    for i in range(10):
+        _make_sprint(project, name=f"Sprint {i}")
+    tenth = Sprint.objects.get(project=project, short_id="0000000A")
+
+    r = client.get(f"/api/v1/projects/{project.pk}/sprints/")
+    assert r.status_code == 200
+    results = r.data.get("results", r.data)
+    row = next(item for item in results if item["id"] == str(tenth.pk))
+    # Raw identity is preserved (no migration); the display form is derived.
+    assert row["short_id"] == "0000000A"
+    assert row["short_id_display"] == "SP-10"
+
+
+@pytest.mark.django_db
+def test_sprint_qualified_id_keeps_the_sp_marker(
+    client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    """Unlike Task, a sprint's qualified form keeps its ``SP-`` marker.
+
+    Sprint and Task share the same hex counter, so a bare ``ENG-2026-3``
+    (Task's own qualifying convention, which drops the ``T-`` marker) would be
+    ambiguous between "task 3" and "sprint 3" once both entity kinds are
+    qualified with the same project code.
+    """
+    project.code = "ENG-2026"
+    project.save(update_fields=["code"])
+    sprint = _make_sprint(project)
+
+    r = client.get(f"/api/v1/projects/{project.pk}/sprints/")
+    row = next(item for item in r.data.get("results", r.data) if item["id"] == str(sprint.pk))
+    assert row["short_id_display"] == "SP-1"
+    assert row["qualified_id"] == "ENG-2026-SP-1"
+
+
+@pytest.mark.django_db
+def test_sprint_qualified_id_falls_back_without_a_code(
+    client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    assert project.code == ""
+    sprint = _make_sprint(project)
+
+    r = client.get(f"/api/v1/projects/{project.pk}/sprints/")
+    row = next(item for item in r.data.get("results", r.data) if item["id"] == str(sprint.pk))
+    assert row["qualified_id"] == "SP-1"
+
+
+@pytest.mark.django_db
+def test_sprint_display_refs_are_read_only(
+    client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    sprint = _make_sprint(project)
+    r = client.patch(
+        f"/api/v1/sprints/{sprint.pk}/",
+        {"short_id_display": "SP-999", "qualified_id": "NOPE-999"},
+        format="json",
+    )
+    assert r.status_code == 200
+    assert r.data["short_id_display"] == "SP-1"
+    assert r.data["qualified_id"] == "SP-1"

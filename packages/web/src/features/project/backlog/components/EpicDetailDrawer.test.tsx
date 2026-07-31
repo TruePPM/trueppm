@@ -26,7 +26,12 @@ function makeEpic(overrides: Partial<Task> = {}): Task {
     id: 'EP1',
     name: 'Platform Core',
     notes: 'Foundational platform work.',
-    shortId: 'PROJ-EP1',
+    // A real 8-hex-digit value, never a pretty fake like 'PROJ-EP1' — that
+    // shape is exactly what hid the #2671 raw-hex leak (it already looks like
+    // a nice identifier, so a render bug dumping the raw field passed silently).
+    shortId: '00000005',
+    shortIdDisplay: 'T-5',
+    qualifiedId: 'PROJ-5',
     taskType: 'epic',
     canEdit: true,
     ...overrides,
@@ -57,6 +62,12 @@ describe('EpicDetailDrawer (#1346)', () => {
     expect(screen.getByLabelText('Epic name')).toHaveValue('Platform Core');
     expect(screen.getByLabelText('Epic description')).toHaveValue('Foundational platform work.');
     expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
+  });
+
+  it('renders the server-decoded reference in the header, never the raw hex short_id (#2671)', () => {
+    renderDrawer(makeEpic());
+    expect(screen.getByText('PROJ-5')).toBeInTheDocument();
+    expect(screen.queryByText('00000005')).not.toBeInTheDocument();
   });
 
   it('shows the deferred Save bar and PATCHes only the changed description', async () => {

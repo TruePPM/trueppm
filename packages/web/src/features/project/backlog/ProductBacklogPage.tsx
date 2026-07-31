@@ -277,7 +277,9 @@ function StoryRow({
           ⠿
         </span>
       )}
-      <span className="font-mono text-xs text-neutral-text-secondary">{story.shortId}</span>
+      <span className="font-mono text-xs text-neutral-text-secondary">
+        {story.qualifiedId ?? story.shortIdDisplay}
+      </span>
       <span className="flex min-w-0 flex-col justify-center gap-0.5">
         <span className="flex min-w-0 items-center gap-2">
           <TypeBadge type={story.taskType} />
@@ -372,7 +374,9 @@ function StoryDragGhost({ story }: { story: Task }) {
       <span className="text-neutral-text-secondary" aria-hidden>
         ⠿
       </span>
-      <span className="font-mono text-xs text-neutral-text-secondary">{story.shortId}</span>
+      <span className="font-mono text-xs text-neutral-text-secondary">
+        {story.qualifiedId ?? story.shortIdDisplay}
+      </span>
       <span className="font-medium text-neutral-text-primary">{story.name}</span>
     </div>
   );

@@ -33,7 +33,7 @@ vi.mock('@/features/sprints/CapacityPreflight', () => ({
 function makeSprint(over: Partial<ApiSprint>): ApiSprint {
   return {
     id: 'sp-1',
-    short_id_display: 'SP-A1',
+    short_id_display: 'SP-3',
     name: 'Sprint 1',
     state: 'PLANNED',
     start_date: '2026-06-29',
@@ -58,7 +58,7 @@ describe('SprintPlanningRail', () => {
     expect(
       screen.getByRole('complementary', { name: /sprint planning summary/i }),
     ).toBeInTheDocument();
-    expect(screen.getByText('SP-A1')).toBeInTheDocument();
+    expect(screen.getByText('SP-3')).toBeInTheDocument();
     expect(screen.getByTestId('capacity-preflight')).toHaveTextContent('cap:18/24');
   });
 

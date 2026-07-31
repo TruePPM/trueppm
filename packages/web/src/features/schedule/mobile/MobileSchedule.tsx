@@ -372,9 +372,9 @@ function MobileScheduleRow({ task, window, onOpen, onComplete, completeDisabled 
               task.isCritical ? 'bg-semantic-critical' : 'bg-transparent'
             }`}
           />
-          {task.shortId && (
+          {(task.qualifiedId ?? task.shortIdDisplay) && (
             <span className="tppm-mono shrink-0 rounded-chip bg-neutral-surface-sunken px-1.5 py-0.5 text-xs text-neutral-text-secondary">
-              {task.shortId}
+              {task.qualifiedId ?? task.shortIdDisplay}
             </span>
           )}
           <span
@@ -510,9 +510,9 @@ function UnscheduledTray({ tasks, onOpen }: TrayProps) {
                 className="flex min-h-11 w-full items-center gap-2 px-4 py-2 text-left active:bg-neutral-surface-sunken
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary"
               >
-                {task.shortId && (
+                {(task.qualifiedId ?? task.shortIdDisplay) && (
                   <span className="tppm-mono shrink-0 rounded-chip bg-neutral-surface-sunken px-1.5 py-0.5 text-xs text-neutral-text-secondary">
-                    {task.shortId}
+                    {task.qualifiedId ?? task.shortIdDisplay}
                   </span>
                 )}
                 <span className="min-w-0 flex-1 truncate text-sm text-neutral-text-primary">

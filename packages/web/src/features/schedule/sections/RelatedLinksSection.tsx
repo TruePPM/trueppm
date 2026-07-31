@@ -23,7 +23,12 @@ interface DisplayRow {
   relationId: string;
   heading: string;
   counterpartId: string;
-  hexId: string;
+  /**
+   * Server-formatted display reference — never the raw hex `short_id` (#2671).
+   * Named `displayId`, not `hexId`: the old name described the raw value this
+   * field must never hold.
+   */
+  displayId: string;
   name: string;
   /** Non-null ⇒ the counterpart is cross-project; carries its project name. */
   crossProjectName: string | null;
@@ -70,7 +75,11 @@ export function RelatedLinksSection({ taskId, projectId, userRole, canEdit }: Dr
           relationId: rel.id,
           heading,
           counterpartId: card.id,
-          hexId: card.hexId,
+          // `card.hexId` is the ADR-0120 D5 redacted cross-project card's own
+          // field name (RelationCard, a separate pre-existing wire shape) —
+          // out of scope here; this assigns it into the display-oriented
+          // `displayId` this component renders.
+          displayId: card.hexId,
           name: card.title,
           crossProjectName: card.projectName,
           crossProjectId: card.projectId,
@@ -82,7 +91,7 @@ export function RelatedLinksSection({ taskId, projectId, userRole, canEdit }: Dr
         relationId: rel.id,
         heading,
         counterpartId,
-        hexId: local?.shortId ?? local?.wbs ?? '',
+        displayId: local?.qualifiedId ?? local?.shortIdDisplay ?? local?.wbs ?? '',
         name: local?.name ?? 'Unknown task',
         crossProjectName: null,
         crossProjectId: null,
@@ -199,11 +208,12 @@ interface RelationRowProps {
 }
 
 function RelationRow({ row, canEdit, onNavigate, onRemove }: RelationRowProps) {
-  // Accessible name carries the relation kind + hex id + name so a screen-reader
-  // user hears "Blocked by 000A3F, Foundation" rather than a bare task title.
+  // Accessible name carries the relation kind + display id + name so a
+  // screen-reader user hears "Blocked by T-8, Foundation" rather than a bare
+  // task title — never the raw hex short_id (#2671).
   const accessibleName = [
     row.heading,
-    row.hexId,
+    row.displayId,
     row.name,
     row.crossProjectName ? `in ${row.crossProjectName}` : null,
   ]
@@ -220,7 +230,7 @@ function RelationRow({ row, canEdit, onNavigate, onRemove }: RelationRowProps) {
           focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         <span className="tppm-mono text-xs text-neutral-text-disabled shrink-0">
-          {row.hexId || '—'}
+          {row.displayId || '—'}
         </span>
         <span className="flex-1 min-w-0 truncate text-sm text-neutral-text-primary" title={row.name}>
           {row.name}

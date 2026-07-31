@@ -27,7 +27,12 @@ vi.mock('@/components/Toast', () => ({
 
 const TASK = {
   id: 'task-a',
-  short_id: 'RIV-1',
+  // A real 8-hex-digit value, never a pretty fake like the old 'RIV-1' — that
+  // shape is exactly what hid the #2671 raw-hex leak (it already looks like a
+  // nice identifier, so a render bug dumping the raw field passed silently).
+  short_id: '00000001',
+  short_id_display: 'T-1',
+  qualified_id: 'RIV-1',
   name: 'Foundation',
   project_id: 'proj-1',
   project_name: 'Riverside',
@@ -41,6 +46,12 @@ beforeEach(() => {
 });
 
 describe('LogTimePopover', () => {
+  it('renders the server-decoded reference in the header, never the raw hex short_id (#2671)', () => {
+    render(<LogTimePopover task={TASK} onClose={vi.fn()} />);
+    expect(screen.getByText('Log time · RIV-1')).toBeInTheDocument();
+    expect(screen.queryByText(/00000001/)).not.toBeInTheDocument();
+  });
+
   it('maps a preset chip to minutes and reflects it on the Log button', () => {
     render(<LogTimePopover task={TASK} onClose={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: '1h', pressed: false }));

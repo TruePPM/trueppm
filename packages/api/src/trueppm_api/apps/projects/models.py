@@ -453,6 +453,34 @@ def _next_risk_short_id(project_id: uuid.UUID | str) -> str:
     return str(seq)
 
 
+def format_short_id_display(raw: str, prefix: str) -> str:
+    """Decode a hex ``object_sequence`` short id into its display form (#2430, #2671).
+
+    Tasks and Sprints share the hex ``object_sequence`` counter (``_next_short_id``
+    above) — an 8-character zero-padded hex string, so the tenth object's raw
+    ``short_id`` is ``0000000A``. This is the single decode routine every
+    surface that renders such a short id must call: it decodes the sequence
+    back to the integer it always was and renders it unpadded with the
+    entity's marker, so the reference reads ``T-10`` / ``SP-10`` rather than
+    the internal-looking hex. Server-owned so every client (web, mobile, MCP)
+    renders the same string — #2430 fixed this once for Task's own serializer
+    field, but #2671 found the identical naive ``f"SP-{sprint.short_id}"``
+    shape hand-rolled at three more call sites (the Sprint serializer, the
+    ``/me/active-sprints/`` card, and the sprint carryover preview), which is
+    exactly the failure mode #929 already paid for on risks. Route every
+    caller through this one function instead of re-deriving it.
+
+    Falls back to the raw value for a non-hex short_id (hand-seeded or
+    imported row) rather than blanking the reference.
+    """
+    if not raw:
+        return ""
+    try:
+        return f"{prefix}-{int(raw, 16)}"
+    except ValueError:
+        return f"{prefix}-{raw}"
+
+
 # ---------------------------------------------------------------------------
 # Calendar
 # ---------------------------------------------------------------------------
