@@ -53421,6 +53421,12 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "milestone_bound_by_name": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Display name of whoever bound this sprint to its milestone (#2641).\n\nNull whenever the sprint is unbound, or was bound via the legacy FK PATCH\nthat predates ADR-0106 §1's provenance fields — the card renders the\nattribution line only when a name resolves, so a legacy binding degrades\nto no line rather than to \"Bound by nobody\".",
+                        "readOnly": true
+                    },
                     "milestone_bound_at": {
                         "type": "string",
                         "format": "date-time",
@@ -53547,6 +53553,7 @@
                     "id",
                     "milestone_bound_at",
                     "milestone_bound_by",
+                    "milestone_bound_by_name",
                     "name",
                     "pending_count",
                     "project",

@@ -6498,6 +6498,11 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
     completion_ratio_points = serializers.SerializerMethodField()
     completion_ratio_tasks = serializers.SerializerMethodField()
     target_milestone_detail = serializers.SerializerMethodField()
+    # ADR-0106 §1 records WHO bound this sprint to its milestone, but only as a user
+    # id — which no card can render. Expose the display name alongside it, matching
+    # the met_by_name / acknowledged_by_name convention already used for the same
+    # "who did this" question elsewhere in this module (#2641).
+    milestone_bound_by_name = serializers.SerializerMethodField()
     pending_count = serializers.SerializerMethodField()
     wip_count = serializers.SerializerMethodField()
 
@@ -6553,6 +6558,19 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
         if not committed:
             return None
         return round((obj.completed_task_count or 0) / committed, 4)
+
+    def get_milestone_bound_by_name(self, obj: Sprint) -> str | None:
+        """Display name of whoever bound this sprint to its milestone (#2641).
+
+        Null whenever the sprint is unbound, or was bound via the legacy FK PATCH
+        that predates ADR-0106 §1's provenance fields — the card renders the
+        attribution line only when a name resolves, so a legacy binding degrades
+        to no line rather than to "Bound by nobody".
+        """
+        user = obj.milestone_bound_by
+        if user is None:
+            return None
+        return user.get_full_name() or user.get_username()
 
     def get_target_milestone_detail(self, obj: Sprint) -> dict[str, Any] | None:
         """Inline the milestone task so the Sprints UI can render the
@@ -6759,6 +6777,7 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             "target_milestone",
             "target_milestone_detail",
             "milestone_bound_by",
+            "milestone_bound_by_name",
             "milestone_bound_at",
             "binding_committed_snapshot",
             "capacity_points",
@@ -6790,6 +6809,7 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             "state",
             "target_milestone_detail",
             "milestone_bound_by",
+            "milestone_bound_by_name",
             "milestone_bound_at",
             "binding_committed_snapshot",
             "committed_points",

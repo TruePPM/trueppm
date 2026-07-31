@@ -72,8 +72,58 @@ function setup(
 }
 
 describe('MilestoneBridgeForecast (#730)', () => {
-  it('renders nothing when velocity is suppressed (ADR-0104 gate)', () => {
-    const { container } = setup([snapshot()], { suppressed: true });
+  // #2640 — this block previously asserted `toBeEmptyDOMElement()`. That was the
+  // defect: velocity is team-private BY DEFAULT, so on a default-configured project
+  // a PM or PMO reader lost the deterministic schedule read too, and saw a blank
+  // region with nothing to say why. The CPM finish carries no team-performance
+  // content, and /forecast/ deliberately serves it to a suppressed reader.
+  describe('velocity suppressed (ADR-0104) — the schedule read survives', () => {
+    it('still renders the Schedule (CPM) column and its date', () => {
+      setup([snapshot()], { suppressed: true });
+      const region = screen.getByTestId('milestone-bridge-forecast');
+      expect(region).toHaveTextContent(/Schedule \(CPM\)/);
+      expect(region).toHaveTextContent(/Apr 21/);
+    });
+
+    it('keeps the float annotation on the schedule column', () => {
+      setup([snapshot()], { suppressed: true });
+      expect(screen.getByLabelText(/5 days of float remaining/)).toBeInTheDocument();
+    });
+
+    it('replaces the velocity band with an explicit policy notice, not a blank', () => {
+      setup([snapshot()], { suppressed: true });
+      expect(screen.getByTestId('milestone-bridge-velocity-suppressed')).toHaveTextContent(
+        /Hidden by this team.s signal settings/,
+      );
+    });
+
+    it('still withholds the band itself and the projection line', () => {
+      setup([snapshot()], { suppressed: true });
+      const region = screen.getByTestId('milestone-bridge-forecast');
+      expect(region).not.toHaveTextContent(/est\./);
+      expect(region).not.toHaveTextContent(/If velocity holds/);
+      expect(region).not.toHaveTextContent(/pts\./);
+    });
+  });
+
+  it('renders nothing when the sprint is unbound, even for an in-audience reader', () => {
+    // The genuinely-absent cases must stay silent — only the suppressed case changed.
+    velocityMock.mockReturnValue({
+      data: { velocity_suppressed: false },
+    } as unknown as ReturnType<typeof useProjectVelocity>);
+    forecastMock.mockReturnValue({
+      data: forecast([snapshot()]),
+    } as unknown as ReturnType<typeof useProjectForecast>);
+    const { container } = render(
+      <MemoryRouter>
+        <MilestoneBridgeForecast
+          projectId="p1"
+          targetMilestoneId={null}
+          onCriticalPath={null}
+          totalFloatDays={5}
+        />
+      </MemoryRouter>,
+    );
     expect(container).toBeEmptyDOMElement();
   });
 

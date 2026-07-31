@@ -314,3 +314,77 @@ describe('AdvancingToMilestoneCard', () => {
     expect(screen.getByText(/across 3 sprints/i)).toBeInTheDocument();
   });
 });
+
+describe('binding provenance and drift caveat (#2641, ADR-0106 §1)', () => {
+  it('renders the drift caveat when binding_drifted is true', () => {
+    // ADR-0106 §1 designed this so a scope change after binding "lights a caveat
+    // rather than silently moving the bound forecast underneath the PM". The value
+    // was computed, broadcast and typed — and rendered in zero places, so the
+    // safeguard existed everywhere except on screen.
+    renderWithRouter(
+      <AdvancingToMilestoneCard
+        sprint={makeSprint({ target_milestone_detail: makeMilestone() })}
+        projectId="proj-1"
+      />,
+    );
+    expect(screen.queryByTestId('milestone-binding-drifted')).toBeNull();
+
+    renderWithRouter(
+      <AdvancingToMilestoneCard
+        sprint={makeSprint({
+          target_milestone_detail: makeMilestone({
+            rollup: makeRollup({ binding_drifted: true }),
+          }),
+        })}
+        projectId="proj-1"
+      />,
+    );
+    expect(screen.getByTestId('milestone-binding-drifted')).toHaveTextContent(
+      /Scope changed since this milestone was bound/,
+    );
+  });
+
+  it('does not render the caveat when binding_drifted is false', () => {
+    renderWithRouter(
+      <AdvancingToMilestoneCard
+        sprint={makeSprint({
+          target_milestone_detail: makeMilestone({
+            rollup: makeRollup({ binding_drifted: false }),
+          }),
+        })}
+        projectId="proj-1"
+      />,
+    );
+    expect(screen.queryByTestId('milestone-binding-drifted')).toBeNull();
+  });
+
+  it('renders binding attribution when both provenance fields resolve', () => {
+    renderWithRouter(
+      <AdvancingToMilestoneCard
+        sprint={makeSprint({
+          target_milestone_detail: makeMilestone(),
+          milestone_bound_by_name: 'Dana Okafor',
+          milestone_bound_at: '2026-04-02T09:15:00Z',
+        })}
+        projectId="proj-1"
+      />,
+    );
+    expect(screen.getByText(/Bound by Dana Okafor on/)).toBeInTheDocument();
+  });
+
+  it('renders no attribution line for a legacy binding with no recorded actor', () => {
+    // Bound via the legacy FK PATCH that predates ADR-0106 §1: degrade to no line,
+    // never to "Bound by nobody".
+    renderWithRouter(
+      <AdvancingToMilestoneCard
+        sprint={makeSprint({
+          target_milestone_detail: makeMilestone(),
+          milestone_bound_by_name: null,
+          milestone_bound_at: null,
+        })}
+        projectId="proj-1"
+      />,
+    );
+    expect(screen.queryByText(/Bound by/)).toBeNull();
+  });
+});

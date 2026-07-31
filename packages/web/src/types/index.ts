@@ -661,6 +661,10 @@ export interface ApiSprint {
    * whenever the sprint is unbound (or was bound via the legacy FK PATCH).
    */
   milestone_bound_by?: number | null;
+  /** Display name of `milestone_bound_by`, resolved server-side (#2641). The id
+   *  alone cannot be rendered, so the card reads this. Null on an unbound sprint
+   *  or a legacy FK-PATCH binding. */
+  milestone_bound_by_name?: string | null;
   milestone_bound_at?: string | null;
   binding_committed_snapshot?: number | null;
   /**

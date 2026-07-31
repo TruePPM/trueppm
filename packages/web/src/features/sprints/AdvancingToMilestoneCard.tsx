@@ -91,6 +91,7 @@ export function AdvancingToMilestoneCard({ sprint, projectId, predecessorsInSpri
               {detail.finish && <span className="tppm-mono">{formatShortDate(detail.finish)}</span>}
               {detail.finish && <DaysOutChip targetIso={detail.finish} />}
             </div>
+            <BindingProvenance sprint={sprint} drifted={rollup?.binding_drifted === true} />
           </div>
 
           {rollup && rollup.rollup_basis !== 'none' && rollup.percent_complete != null && (
@@ -161,6 +162,53 @@ export function AdvancingToMilestoneCard({ sprint, projectId, predecessorsInSpri
         />
       )}
     </section>
+  );
+}
+
+/**
+ * Binding provenance and the scope-drift caveat (#2641, ADR-0106 §1).
+ *
+ * ADR-0106 designed `binding_drifted` so that a scope change after a sprint is
+ * bound "lights a caveat rather than silently moving the bound forecast underneath
+ * the PM". The value was computed, broadcast, and typed in this client — and
+ * rendered in zero places, so the safeguard existed everywhere except on screen.
+ * `services.py` even names a "bridge banner caveat" that did not exist.
+ *
+ * The attribution answers the other half: who bound this milestone, and when. Both
+ * fields were serialized and reachable by every API client, and by no human reading
+ * the card.
+ *
+ * Renders nothing when the sprint is unbound or bound by the legacy FK PATCH that
+ * predates the provenance fields — absent attribution degrades to no line, never to
+ * a half-empty one.
+ */
+function BindingProvenance({ sprint, drifted }: { sprint: ApiSprint; drifted: boolean }) {
+  const boundBy = sprint.milestone_bound_by_name;
+  const boundAt = sprint.milestone_bound_at;
+  const showAttribution = boundBy != null && boundAt != null;
+
+  if (!drifted && !showAttribution) return null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {drifted && (
+        <span
+          data-testid="milestone-binding-drifted"
+          className={`inline-flex items-center px-2 py-0.5 rounded border bg-transparent text-xs ${varianceToneChipClass('at-risk')}`}
+          // Reuses the existing at-risk tone rather than inventing a treatment: this
+          // is the same "the plan and reality have diverged" signal the variance
+          // chips already carry.
+          title={undefined}
+        >
+          Scope changed since this milestone was bound
+        </span>
+      )}
+      {showAttribution && (
+        <span className="text-xs text-neutral-text-secondary">
+          Bound by {boundBy} on <span className="tppm-mono">{formatShortDate(boundAt)}</span>
+        </span>
+      )}
+    </div>
   );
 }
 
