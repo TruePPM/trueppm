@@ -249,3 +249,104 @@ def test_a_fresh_client_still_receives_everything(client: APIClient, user: Any) 
 
     assert {str(a.id), str(b.id)} <= _ids(changes, "programs")
     assert timestamp > 0, "watermark collapsed to 0 — the allocator was never seeded"
+
+
+# ---------------------------------------------------------------------------
+# The 0005 data backfill (seed_program_sync_seq / unseed_program_sync_seq).
+#
+# Called directly with the real app registry rather than through the migration
+# module, which a squash would delete (CLAUDE.md migration rule 3).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_backfill_numbers_rows_individually_above_the_old_scale(user: Any) -> None:
+    """Rows get a total order starting above every pre-existing server_version.
+
+    The offset is the load-bearing part: a client whose stored cursor came from the
+    old ``server_version`` scale must sort strictly below every new ``sync_seq``, or
+    its first post-upgrade pull silently skips rows.
+    """
+    from datetime import UTC, datetime
+
+    from django.apps import apps as django_apps
+
+    from trueppm_api.apps.sync.backfill import seed_program_sync_seq
+    from trueppm_api.apps.sync.models import ProgramSyncSequence
+
+    a = _program(user, "A")
+    b = _program(user, "B")
+    # Pin distinct timestamps so the (created_at, id) ordering is deterministic,
+    # and push one server_version high so the offset has something to clear.
+    Program.objects.filter(pk=a.pk).update(
+        created_at=datetime(2026, 1, 1, tzinfo=UTC), server_version=7, sync_seq=0
+    )
+    Program.objects.filter(pk=b.pk).update(
+        created_at=datetime(2026, 1, 2, tzinfo=UTC), server_version=42, sync_seq=0
+    )
+    ProgramMembership.objects.update(sync_seq=0)
+
+    seed_program_sync_seq(django_apps, None)
+
+    a.refresh_from_db()
+    b.refresh_from_db()
+    # Programs numbered first, in created_at order, starting above max(42).
+    assert a.sync_seq == 43
+    assert b.sync_seq == 44
+
+    membership_seqs = sorted(ProgramMembership.objects.values_list("sync_seq", flat=True))
+    # Memberships continue the same run — one scalar orders both tables.
+    assert membership_seqs == [45, 46]
+
+    # The allocator sits at the high-water mark, so the first watermark read cannot
+    # publish a checkpoint below a live row.
+    assert ProgramSyncSequence.objects.get(pk=ProgramSyncSequence.SINGLETON_PK).value == 46
+
+
+@pytest.mark.django_db
+def test_backfill_numbers_soft_deleted_rows_too(user: Any) -> None:
+    """Tombstones consume a number — the delta must still deliver them."""
+    from django.apps import apps as django_apps
+
+    from trueppm_api.apps.sync.backfill import seed_program_sync_seq
+
+    live = _program(user, "Live")
+    gone = _program(user, "Gone")
+    Program.objects.filter(pk=gone.pk).update(is_deleted=True)
+    Program.objects.update(sync_seq=0, server_version=0)
+
+    seed_program_sync_seq(django_apps, None)
+
+    gone.refresh_from_db()
+    live.refresh_from_db()
+    assert gone.sync_seq > 0, "a tombstone with sync_seq=0 is invisible to since=0 deltas"
+    assert gone.sync_seq != live.sync_seq
+
+
+@pytest.mark.django_db
+def test_unseed_returns_both_tables_to_zero(user: Any) -> None:
+    """The reverse leaves no stamped rows; the counter row goes with the table."""
+    from django.apps import apps as django_apps
+
+    from trueppm_api.apps.sync.backfill import seed_program_sync_seq, unseed_program_sync_seq
+
+    _program(user, "A")
+    seed_program_sync_seq(django_apps, None)
+    assert Program.objects.filter(sync_seq__gt=0).exists()
+
+    unseed_program_sync_seq(django_apps, None)
+
+    assert not Program.objects.filter(sync_seq__gt=0).exists()
+    assert not ProgramMembership.objects.filter(sync_seq__gt=0).exists()
+
+
+@pytest.mark.django_db
+def test_sequence_repr_shows_the_value() -> None:
+    """The admin/shell repr names the counter it holds."""
+    from trueppm_api.apps.sync.models import ProgramSyncSequence
+
+    # The singleton row is created by the 0005 migration, so fetch rather than create.
+    row = ProgramSyncSequence.objects.get(pk=ProgramSyncSequence.SINGLETON_PK)
+    row.value = 9
+
+    assert str(row) == "ProgramSyncSequence(value=9)"
