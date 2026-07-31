@@ -75,6 +75,35 @@ Run the full pre-push gate before every push:
 make pre-push   # lint + typecheck + migrations-check + schema-check
 ```
 
+### Suppressing a check
+
+Sometimes a gate has to be told to stand down — an axe rule on a route with
+known ARIA debt, a `@pytest.mark.skip`, an eslint disable. Two kinds exist and
+they are written differently:
+
+**Permanent and reasoned** — a verified false positive, a library quirk, a
+deliberate trade-off. Explain *why* in prose next to the suppression. It is a
+decision, and it needs no expiry.
+
+**Temporary, waiting on tracked work** — mark it, on or near the suppression:
+
+```ts
+// The grid holds a role="status" child, which a grid may not have.
+// SUPPRESSED-UNTIL(#2618)
+disableRules: ['aria-required-children'],
+```
+
+`suppressions:check` fails the pipeline once that issue closes with the
+suppression still in the tree. This exists because it did not: six axe
+exclusions cited a closed #2204, one of them reading "remove this last exclusion
+when #2204 lands" — it had landed, and the a11y gate stayed green by hiding
+failures nothing tracked (#2603). A suppression's justification expires without
+a diff, so only a gate can catch it.
+
+Use the marker only for the second kind. A bare `#NNNN` near a suppression is
+not a marker — most such references are explanatory history, and treating them
+as expiring debt would make the gate noise.
+
 ### Coverage and SonarCloud
 
 SonarCloud does not run tests — it **imports** coverage reports. The report paths
