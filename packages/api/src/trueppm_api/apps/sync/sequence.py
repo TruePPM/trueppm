@@ -99,6 +99,28 @@ def _next_seq(project_id: Any) -> int:
     return seq if seq is not None else 0
 
 
+def allocate_program_seq() -> int:
+    """Draw the next value of the installation-wide program sequence (ADR-0747).
+
+    The program slice of the sync protocol has no owning row to sequence from the
+    way a task has its project: the accessible set is the per-user union of the
+    caller's programs, and those programs are independent. A scalar cursor over
+    per-program sequences would reintroduce the same defect one level up — a hot
+    program's sequence outrunning a cold one's and dropping the cold program's rows
+    from the delta permanently (#2498). One counter for every program-scoped write
+    is what makes the scalar cursor sound again.
+
+    Returns 0 if the singleton row is missing (a database predating the backfill
+    migration). A row left at ``sync_seq = 0`` is simply never delivered, so this
+    fails closed toward "not yet replicated" rather than toward a false checkpoint.
+    """
+    from trueppm_api.apps.sync.models import ProgramSyncSequence
+    from trueppm_api.core.db import increment_returning
+
+    seq = increment_returning(ProgramSyncSequence, "value", ProgramSyncSequence.SINGLETON_PK)
+    return seq if seq is not None else 0
+
+
 def _raise_to(project_ids: Iterable[Any], seq: int) -> None:
     """Raise every project's allocator to at least ``seq`` (monotonic)."""
     from trueppm_api.apps.projects.models import Project
@@ -157,6 +179,15 @@ def allocate(instance: Any) -> None:
     :func:`register_sequence_receivers`, which allocates a calendar the moment a
     project links to it.
     """
+    # Program-scoped rows draw from the installation-wide sequence instead of a
+    # project's (ADR-0747) — they have no owning project, and the per-user
+    # accessible set makes a per-program sequence unusable under a scalar cursor.
+    if type(instance) in PROGRAM_SEQUENCE_MODELS:
+        seq = allocate_program_seq()
+        if seq:
+            instance.sync_seq = seq
+        return
+
     resolver = OWNER_RESOLVERS.get(type(instance))
     if resolver is None:
         return
@@ -280,6 +311,12 @@ def _resolvers() -> dict[type[models.Model], Resolver]:
 #: then, which makes ``allocate`` a no-op — correct during app loading.
 OWNER_RESOLVERS: dict[type[models.Model], Resolver] = {}
 
+#: Models whose ``sync_seq`` is drawn from the installation-wide program sequence
+#: rather than an owning project's (ADR-0747, #2498). Populated at app-ready
+#: alongside ``OWNER_RESOLVERS`` — empty before then, so ``allocate`` is a no-op
+#: during app loading, exactly as for the project path.
+PROGRAM_SEQUENCE_MODELS: set[type[models.Model]] = set()
+
 
 def register_sequence_receivers() -> None:
     """Populate the resolver map and connect the calendar-link receiver.
@@ -288,10 +325,17 @@ def register_sequence_receivers() -> None:
     """
     from django.db.models.signals import post_save
 
-    from trueppm_api.apps.projects.models import Calendar, Project
+    from trueppm_api.apps.access.models import ProgramMembership
+    from trueppm_api.apps.projects.models import Calendar, Program, Project
 
     OWNER_RESOLVERS.clear()
     OWNER_RESOLVERS.update(_resolvers())
+
+    # ADR-0747: the two program-scoped synced models. Deliberately NOT in
+    # OWNER_RESOLVERS — they resolve to no project, and adding them there would
+    # make them silently unallocated rather than program-allocated.
+    PROGRAM_SEQUENCE_MODELS.clear()
+    PROGRAM_SEQUENCE_MODELS.update({Program, ProgramMembership})
 
     def _on_project_saved(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
         """Allocate the calendar when a project starts pointing at it.

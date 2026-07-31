@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import BooleanField, Max, Prefetch
+from django.db.models import BooleanField, Prefetch
 from django.db.models.expressions import RawSQL
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
@@ -834,12 +834,14 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
         # opens a REPEATABLE READ block; both run at READ COMMITTED, and the
         # ordering — not the isolation level — is what closes the window.
         #
-        # This slice still keys on the per-row server_version and so still carries
-        # the ordering defect ADR-0686 fixed for projects: a hot program raises the
-        # watermark above a cold program's row counters and those rows drop out of
-        # the delta. It is NOT fixed by the project sequence — programs have no
-        # single owning row to sequence from, so the accessible-set cursor needs its
-        # own design. Tracked in #2498.
+        # This slice keys on sync_seq, drawn from the installation-wide program
+        # sequence (ADR-0747, #2498). It used to key on the per-row server_version
+        # and carried the ordering defect ADR-0686 fixed for projects: a hot program
+        # raised the watermark above a cold program's row counters and those rows
+        # dropped out of the delta permanently. The project sequence could not fix
+        # it — programs have no single owning row — so program-scoped writes order
+        # against one installation counter instead, which restores a scalar cursor's
+        # validity without changing the wire contract.
         #
         # As in ProjectSyncView, the watermark is session state: a continuation page
         # echoes the cursor's pinned value instead of recomputing one that could sit
@@ -853,14 +855,12 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
         sources: list[SyncSource] = [
             (
                 "programs",
-                Program.objects.filter(id__in=accessible_ids, server_version__gt=since),
+                Program.objects.filter(id__in=accessible_ids, sync_seq__gt=since),
                 SyncProgramSerializer,
             ),
             (
                 "program_memberships",
-                ProgramMembership.objects.filter(
-                    program_id__in=accessible_ids, server_version__gt=since
-                ),
+                ProgramMembership.objects.filter(program_id__in=accessible_ids, sync_seq__gt=since),
                 SyncProgramMembershipSerializer,
             ),
         ]
@@ -871,6 +871,10 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
             page_size=page_size,
             collect=ProjectSyncView._collect,
             watermark=timestamp,
+            # Must match the delta filter above: the pager orders on this column
+            # and the sources floor on it. Ordering on one while filtering the
+            # other pages a stream the floor does not bound (ADR-0747, #2498).
+            version_field="sync_seq",
         )
 
         return Response(
@@ -884,17 +888,31 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
 
     @staticmethod
     def _watermark(accessible_ids: Any) -> int:
-        """Max ``server_version`` across the caller's programs and their memberships.
+        """The installation-wide program sequence's high-water mark (ADR-0747, #2498).
 
-        A safe upper bound the client adopts as the next ``since``. Two aggregates
-        rather than the 13-table union of the project watermark — the program slice
-        spans only these two tables. ``accessible_ids`` is a ``values("program_id")``
-        subquery, so each aggregate is one SQL round-trip.
+        ``ProgramSyncSequence.value`` is the allocator every synced ``Program`` and
+        ``ProgramMembership`` row drew its ``sync_seq`` from, so it is by
+        construction greater than or equal to every row's cursor — the safe upper
+        bound the client adopts as its next ``since``. One row read, no aggregate.
+
+        It used to be ``MAX(server_version)`` across the caller's programs and their
+        memberships. That value was faithful and was not a valid ordering:
+        ``server_version`` counts a single row's saves, so a frequently-edited
+        program raised the checkpoint above every other program's row counter and
+        dropped those rows from the delta permanently (#2498) — the same defect
+        ADR-0686 fixed for projects, one level up.
+
+        ``accessible_ids`` is no longer read: the checkpoint is a property of the
+        installation's write log, not of the caller's accessible set. Scoping it per
+        caller is what made it a maximum-over-many-rows in the first place. The
+        parameter is kept so the call site and ``ProjectSyncView._watermark`` keep
+        one shape.
         """
-        program_max = Program.objects.filter(id__in=accessible_ids).aggregate(
-            m=Max("server_version")
-        )["m"]
-        membership_max = ProgramMembership.objects.filter(program_id__in=accessible_ids).aggregate(
-            m=Max("server_version")
-        )["m"]
-        return max(program_max or 0, membership_max or 0)
+        from trueppm_api.apps.sync.models import ProgramSyncSequence
+
+        value = (
+            ProgramSyncSequence.objects.filter(pk=ProgramSyncSequence.SINGLETON_PK)
+            .values_list("value", flat=True)
+            .first()
+        )
+        return value or 0

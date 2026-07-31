@@ -138,3 +138,71 @@ def unseed_sync_seq(apps: Any, schema_editor: Any) -> None:
             table = get(app_label, model_name)._meta.db_table
             # nosemgrep: formatted-sql-query, sqlalchemy-execute-raw-query
             cursor.execute(f"UPDATE {table} SET sync_seq = 0")  # nosec B608
+
+
+def seed_program_sync_seq(apps: Any, schema_editor: Any) -> None:
+    """Seed the installation-wide program cursor for existing data (ADR-0747, #2498).
+
+    ``Program`` and ``ProgramMembership`` have carried a ``sync_seq`` column since
+    #2491, but always ``0`` — neither model allocated, because the program slice
+    keyed on ``server_version``. This assigns real, ordered values and starts the
+    installation counter above them.
+
+    Unlike :func:`seed_sync_seq`, rows are numbered **individually**, in
+    ``(created_at, id)`` order, rather than all sharing one value. The project
+    backfill can share a value because a project's rows are re-delivered together
+    anyway; here the whole point is that a single scalar cursor must order rows
+    from independent programs against each other, so the backfill has to produce
+    the total order the runtime allocator will continue.
+
+    Each table is ordered by its own creation timestamp — ``Program.created_at``,
+    ``ProgramMembership.joined_at``; the two models do not share a field name — with
+    ``id`` breaking ties, since two rows can share a timestamp. That makes the
+    numbering deterministic and reproducible rather than dependent on physical row
+    order.
+
+    **The offset is deliberate.** Numbering starts at
+    ``max(server_version across both tables) + 1`` rather than at 1, so that every
+    ``since`` an existing client holds — drawn from the *old* ``server_version``
+    scale — sorts strictly below every row's new ``sync_seq``. The two scales are
+    otherwise unrelated, and a client whose stored cursor happened to exceed the
+    new values would silently skip rows on its first post-upgrade pull. Starting
+    above every plausible old value makes that first pull a full re-delivery of the
+    caller's accessible set, which is safe under WatermelonDB upsert and is the
+    only transition that cannot drop a row. It also repairs whatever the old
+    scheme had already dropped.
+    """
+    Program = apps.get_model("projects", "Program")
+    ProgramMembership = apps.get_model("access", "ProgramMembership")
+    ProgramSyncSequence = apps.get_model("sync", "ProgramSyncSequence")
+
+    # (model, creation-timestamp field). The two models do not share a field name.
+    ordered_tables = ((Program, "created_at"), (ProgramMembership, "joined_at"))
+
+    # Start above the old scale so no pre-upgrade client cursor can sit above a row.
+    highest_old = 0
+    for model, _ in ordered_tables:
+        for value in model.objects.values_list("server_version", flat=True):
+            highest_old = max(highest_old, value or 0)
+
+    seq = highest_old
+    # Soft-deleted rows are renumbered too — they are tombstones the delta must
+    # still deliver, selected by the same sync_seq__gt=since filter.
+    for model, created_field in ordered_tables:
+        for pk in model.objects.order_by(created_field, "id").values_list("pk", flat=True):
+            seq += 1
+            model.objects.filter(pk=pk).update(sync_seq=seq)
+
+    # The allocator must sit at or above every row it will be compared against, or
+    # the first watermark read would publish a checkpoint below live rows.
+    ProgramSyncSequence.objects.update_or_create(pk=1, defaults={"value": seq})
+
+
+def unseed_program_sync_seq(apps: Any, schema_editor: Any) -> None:
+    """Reverse :func:`seed_program_sync_seq` — return both tables to ``sync_seq = 0``.
+
+    The counter row is dropped with the table by the schema operation, so only the
+    stamped rows need clearing.
+    """
+    for label, name in (("projects", "Program"), ("access", "ProgramMembership")):
+        apps.get_model(label, name).objects.update(sync_seq=0)

@@ -177,3 +177,49 @@ class BoardEvent(models.Model):
     def seq(self) -> int:
         """The wire sequence — an alias for the monotonic PK (ADR-0236)."""
         return self.pk
+
+
+class ProgramSyncSequence(models.Model):
+    """Installation-wide monotonic allocator for the program sync cursor (ADR-0747).
+
+    Exactly one row, pk=1. Every synced write to ``Program`` or
+    ``ProgramMembership`` draws the next value from it and stamps the row's
+    ``sync_seq``, so those values are totally ordered installation-wide, ``MAX`` is
+    a meaningful checkpoint, and ``sync_seq__gt=since`` is a correct delta filter.
+
+    **Why a table row and not a PostgreSQL SEQUENCE.** ``nextval()`` would avoid
+    this row's write lock, and would be wrong. Sequences are non-transactional, so
+    they grant no relationship between allocation order and commit order: one
+    transaction could allocate 100, a later one allocate 101 and commit first, and a
+    pull between the two commits would report 101 and permanently skip 100 — the
+    exact defect this replaces, reintroduced as a race. Allocating by ``UPDATE``
+    holds this row's write lock until commit, so commit order equals allocation
+    order. The lock is the correctness mechanism, not overhead.
+
+    **Why installation-wide and not per-program.** ``Program`` rows have no single
+    owning entity to sequence from the way a ``Task`` has its project (ADR-0686).
+    The accessible set is per-user — the union of the caller's programs — so a
+    scalar cursor over per-program sequences would reintroduce the same
+    hot-row-outruns-cold-row failure one level up. Ordering every program-scoped
+    write against one counter is what makes a scalar cursor sound.
+
+    The cost is that program writes serialize installation-wide. That is acceptable
+    because program writes are rare and administrative — create, rename, add or
+    remove a member — never a hot path or a bulk import. See ADR-0747 for the
+    escape hatch if that ever changes.
+    """
+
+    #: The single row's primary key. Named so call sites read as intent.
+    SINGLETON_PK = 1
+
+    id = models.BigAutoField(primary_key=True)
+    value = models.BigIntegerField(default=0, editable=False)
+
+    objects: models.Manager[ProgramSyncSequence] = models.Manager()
+
+    class Meta:
+        verbose_name = "program sync sequence"
+        verbose_name_plural = "program sync sequence"
+
+    def __str__(self) -> str:
+        return f"ProgramSyncSequence(value={self.value})"
