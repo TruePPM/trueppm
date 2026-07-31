@@ -47,6 +47,12 @@ const PROJECT_DETAIL = {
   estimation_mode: 'open',
   agile_features: true,
   methodology: 'AGILE',
+  // Server-resolved preset the header chip actually reads (ADR-0107, web-rule
+  // 196). HYBRID matches the #2662 repro exactly: this task has a complete PERT
+  // triple but no story points, so the header shows the amber "Unestimated" chip
+  // right above a filled `ESTIMATES` section.
+  effective_methodology: 'HYBRID',
+  effective_estimation_scale: 'fibonacci',
 };
 
 const ACTIVE_SPRINT = {
@@ -464,5 +470,36 @@ test.describe('#1985 — three-point estimates batch behind the drawer Save bar'
 
     // No Save bar exists on the full page — the edit committed on blur.
     await expect(page.getByRole('button', { name: 'Save' })).toHaveCount(0);
+  });
+
+  // #2662 — this fixture is the exact repro: the task has a fully populated
+  // three-point estimate (O=3/M=6/P=9) but no story points, so the drawer header
+  // shows the amber "Unestimated" chip right above a filled `ESTIMATES` section.
+  // The chip's explanation used to be screen-reader-only; it must now be
+  // reachable via the shared Tooltip on hover and on keyboard focus.
+  test('the header "Unestimated" chip explains itself on hover and focus (#2662)', async ({ page }) => {
+    await setup(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(BASE_URL);
+
+    const drawer = await openDrawer(page);
+    const chip = drawer.getByText('Unestimated', { exact: true });
+    await expect(chip).toBeVisible();
+
+    // Hover reveals the tooltip panel. `describe={false}` renders it
+    // `aria-hidden` (the chip's own `aria-label` already carries the sentence for
+    // AT), so it is queried via the DOM rather than `getByRole('tooltip')`.
+    await chip.hover();
+    await expect(
+      page.locator('div[aria-hidden="true"]', { hasText: /points size the work for velocity/ }),
+    ).toBeVisible();
+    await page.mouse.move(0, 0);
+
+    // Keyboard focus opens it too — the path a bare `title` attribute could never
+    // serve.
+    await chip.focus();
+    await expect(
+      page.locator('div[aria-hidden="true"]', { hasText: /points size the work for velocity/ }),
+    ).toBeVisible();
   });
 });
