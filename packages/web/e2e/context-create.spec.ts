@@ -113,6 +113,11 @@ test.describe('#1179 context-aware "+ New" (desktop)', () => {
     await expect(page.getByRole('heading', { name: 'Delivery Program' })).toBeVisible();
     // exact:true so this matches the shell-bar control, not the Sidebar's "+ New project".
     await page.getByRole('button', { name: 'New project', exact: true }).click();
-    await expect(page.getByRole('dialog', { name: /new project/i })).toBeVisible();
+    const dialog = page.getByRole('dialog', { name: /new project/i });
+    await expect(dialog).toBeVisible();
+    // #2666: this entry point used to silently drop the resolved program's name — the
+    // dialog gave no clue which program the project would attach to. It's now a
+    // first-class field on step 1.
+    await expect(dialog.getByText('Delivery Program')).toBeVisible();
   });
 });

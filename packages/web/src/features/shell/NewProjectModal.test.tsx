@@ -106,6 +106,36 @@ describe('NewProjectModal', () => {
     expect(screen.getByRole('button', { name: /back/i })).toBeInTheDocument();
   });
 
+  // ---------------------------------------------------------------------------
+  // #2666 — target program named on step 1
+  // ---------------------------------------------------------------------------
+
+  it('does not show a Program field on step 1 for a standalone project', () => {
+    renderModal();
+    expect(screen.queryByText(/^program$/i)).not.toBeInTheDocument();
+  });
+
+  it('names the resolved program on step 1 when creating under a program', () => {
+    renderWithProviders(
+      <NewProjectModal
+        onClose={onClose}
+        onCreated={onCreated}
+        programId="program-uuid-123"
+        programName="Apollo"
+      />,
+    );
+    expect(screen.getByText(/^program$/i)).toBeInTheDocument();
+    expect(screen.getByText('Apollo')).toBeInTheDocument();
+  });
+
+  it('falls back to a generic value on step 1 when programName is not resolved yet', () => {
+    renderWithProviders(
+      <NewProjectModal onClose={onClose} onCreated={onCreated} programId="program-uuid-123" />,
+    );
+    expect(screen.getByText(/^program$/i)).toBeInTheDocument();
+    expect(screen.getByText(/unnamed program/i)).toBeInTheDocument();
+  });
+
   it('calls onClose when Cancel is clicked on step 1', async () => {
     renderModal();
     await userEvent.click(screen.getByRole('button', { name: /cancel/i }));

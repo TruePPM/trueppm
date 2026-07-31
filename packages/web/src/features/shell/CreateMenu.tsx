@@ -78,7 +78,10 @@ export function CreateMenu() {
       case 'story':
         return projectId ? { kind: 'story', projectId } : null;
       case 'project':
-        return { kind: 'project', programId: programId ?? undefined };
+        // `program` is already resolved here (canCreate gates the button itself on
+        // `program.my_role`), so the name travels with the intent instead of being
+        // silently dropped for CreateDispatcher to re-derive (#2666).
+        return { kind: 'project', programId: programId ?? undefined, programName: program?.name };
       default:
         return null;
     }
