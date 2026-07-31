@@ -21,8 +21,15 @@ vi.mock('@/api/client', () => ({
     },
   },
 }));
+const RESOLVED_BUILD = {
+  edition: 'community',
+  version: '0.4.0-beta.1',
+  buildSha: 'deadbeefcafe',
+};
+/** Mutable so a test can mount against the in-flight state and then resolve it. */
+let buildInfo = { ...RESOLVED_BUILD };
 vi.mock('@/hooks/useEdition', () => ({
-  useBuildInfo: () => ({ edition: 'community', version: '0.4.0-beta.1', buildSha: 'deadbeefcafe' }),
+  useBuildInfo: () => buildInfo,
 }));
 const workspaceData = { feedbackEnabled: true, feedbackUrl: '' };
 vi.mock('@/features/settings/hooks/useWorkspaceSettings', () => ({
@@ -31,6 +38,7 @@ vi.mock('@/features/settings/hooks/useWorkspaceSettings', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  buildInfo = { ...RESOLVED_BUILD };
   workspaceData.feedbackUrl = '';
   window.history.pushState({}, '', '/projects/3f2504e0-4f89-11d3-9a0c-0305e82c3301/board?q=Acme');
 });
@@ -72,6 +80,34 @@ describe('FeedbackDialog — what the user sees before leaving', () => {
     const body = screen.getByLabelText<HTMLTextAreaElement>('Report contents').value;
     expect(body).not.toContain('3f2504e0');
     expect(body).not.toContain('Acme');
+  });
+
+  it('picks up the build identity when it arrives after mount', () => {
+    // The `['edition']` query is not guaranteed warm when the dialog opens — the
+    // report must not freeze the placeholder it rendered while that was in flight.
+    buildInfo = { edition: 'community', version: 'unknown', buildSha: '' };
+    const { rerender } = render(<FeedbackDialog onClose={vi.fn()} />);
+    expect(screen.getByLabelText<HTMLTextAreaElement>('Report contents').value).toContain('unknown');
+
+    buildInfo = { ...RESOLVED_BUILD };
+    rerender(<FeedbackDialog onClose={vi.fn()} />);
+    const body = screen.getByLabelText<HTMLTextAreaElement>('Report contents').value;
+    expect(body).toContain('0.4.0-beta.1');
+    expect(body).not.toContain('unknown');
+  });
+
+  it('keeps the user edit when the build identity resolves underneath it', () => {
+    buildInfo = { edition: 'community', version: 'unknown', buildSha: '' };
+    const { rerender } = render(<FeedbackDialog onClose={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Report contents'), {
+      target: { value: 'my own words' },
+    });
+
+    buildInfo = { ...RESOLVED_BUILD };
+    rerender(<FeedbackDialog onClose={vi.fn()} />);
+    expect(screen.getByLabelText<HTMLTextAreaElement>('Report contents').value).toBe(
+      'my own words',
+    );
   });
 
   it('lets the user edit the body before it travels', () => {
