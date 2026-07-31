@@ -1,8 +1,9 @@
 //! TruePPM WASM Scheduler — CPM engine compiled to WebAssembly.
 //!
-//! Exposes two stateless functions via wasm-bindgen:
-//! - `compute_schedule(project_json)` — full CPM (forward + backward + floats)
-//! - `wasm_incremental_update(project_json, changed_task_id)` — downstream-only recalc
+//! Exposes two stateless functions via wasm-bindgen (JS names in parentheses):
+//! - `compute_schedule(project_json)` (`computeSchedule`) — full CPM (forward + backward + floats)
+//! - `wasm_incremental_update(project_json, changed_task_id)` (`incrementalUpdate`) —
+//!   downstream-only recalc
 //!
 //! Both re-parse the whole project and rebuild the graph on every call. For a
 //! drag preview — where the same project is recalculated every animation frame —
@@ -10,6 +11,22 @@
 //! the parsed [`Project`] and its graph resident across frames (#1533).
 //!
 //! Input/output JSON format matches the Python `trueppm_scheduler` exactly.
+//!
+//! # JS naming (#2602)
+//!
+//! Rust identifiers stay idiomatic `snake_case`; every item that crosses to JS
+//! carries an explicit `#[wasm_bindgen(js_name = …)]` so the generated `.d.ts` is
+//! uniformly `camelCase`, matching every other TypeScript surface in the repo. The
+//! two names are deliberately decoupled — `wasm_incremental_update` is only spelled
+//! that way to avoid colliding with the crate-root `pub use incremental_update`
+//! re-export above; JS has no such collision, so it is simply `incrementalUpdate`.
+//!
+//! Argument names are the exception: wasm-bindgen emits the Rust parameter names
+//! verbatim into the `.d.ts` signature and offers no `js_name` for them, and
+//! renaming the Rust parameters would trip `non_snake_case` under the crate's
+//! `clippy -D warnings` gate. Parameters are positional, so this costs a consumer
+//! nothing beyond an editor hint. `scripts/check-dts-camelcase.sh` enforces the
+//! rule on the declared surface (and skips parameters for exactly this reason).
 
 mod backward;
 mod calendar;
@@ -43,7 +60,7 @@ use crate::typed::{compute_downstream_typed, compute_full_typed, TypedResult};
 /// Output: JSON string with `ScheduleResult` (project dates, per-task CPM fields, critical path).
 ///
 /// Errors are returned as a JS exception with the error message.
-#[wasm_bindgen]
+#[wasm_bindgen(js_name = computeSchedule)]
 pub fn compute_schedule(project_json: &str) -> Result<String, JsValue> {
     let project: Project =
         serde_json::from_str(project_json).map_err(|e| JsValue::from_str(&e.to_string()))?;
@@ -58,7 +75,11 @@ pub fn compute_schedule(project_json: &str) -> Result<String, JsValue> {
 /// Input: JSON string matching `Project.to_json()` with the changed task's dates
 /// already modified, plus the ID of the changed task.
 /// Output: JSON string with `ScheduleResult` containing only downstream tasks.
-#[wasm_bindgen]
+///
+/// The `wasm_` prefix is a Rust-side disambiguator only — it keeps this entry
+/// point from colliding with the crate-root [`incremental_update`] re-export. JS
+/// sees it as `incrementalUpdate`.
+#[wasm_bindgen(js_name = incrementalUpdate)]
 pub fn wasm_incremental_update(
     project_json: &str,
     changed_task_id: &str,
@@ -300,6 +321,7 @@ impl SchedulerSession {
     /// or a date the stateless path's validation would reject (never panics — a
     /// WASM trap poisons the whole module until reload, #1087). On a rejected
     /// date the mutation is rolled back, so the session stays valid and usable.
+    #[wasm_bindgen(js_name = setTaskStart)]
     pub fn set_task_start(&mut self, task_id: &str, new_start: &str) -> Result<(), JsValue> {
         set_task_start_impl(&mut self.project, &self.graph, task_id, new_start)
             .map_err(|e| JsValue::from_str(&e))
@@ -314,6 +336,7 @@ impl SchedulerSession {
 
     /// Downstream-only CPM over the cached graph → `ScheduleResult` JSON.
     /// Identical to `wasm_incremental_update` on the current project.
+    #[wasm_bindgen(js_name = recalcIncremental)]
     pub fn recalc_incremental(&self, changed_task_id: &str) -> Result<String, JsValue> {
         let result = incremental::compute_downstream(&self.project, &self.graph, changed_task_id)
             .map_err(|e| JsValue::from_str(&e))?;

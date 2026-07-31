@@ -1797,6 +1797,13 @@ wasm:build:
   <<: *rules-wasm
   script:
     - wasm-pack build --target web --release
+    # The generated .d.ts is the package's public JS surface. Every other
+    # TypeScript surface in this repo is camelCase, so a snake_case export here
+    # reads as a bug to the first consumer — and once `packages/web` imports the
+    # package, renaming becomes a permanent breaking change. Gate it while it is
+    # still free (#2602). Only runs where the .d.ts exists, i.e. right here after
+    # wasm-pack; the Rust-side names are unaffected.
+    - ./scripts/check-dts-camelcase.sh
 
 web:build:
   # Builds the production bundle and publishes dist/ as an artifact so the
@@ -2308,8 +2315,24 @@ wasm:test:
     - cargo test --all-targets
 
 wasm:conformance:
-  # Cross-engine conformance: run the Python scheduler against the same shared
-  # fixtures that the Rust tests use. If both pass, the engines agree.
+  # The PYTHON half of cross-engine conformance: run the Python scheduler against
+  # the shared `packages/wasm-scheduler/fixtures/` corpus and its committed
+  # `expected/` snapshots.
+  #
+  # This job alone does NOT prove the two engines agree, despite the name — it
+  # exercises one engine. The Rust half is `tests/conformance.rs` +
+  # `tests/invalid_conformance.rs`, run by `wasm:test` (`cargo test --all-targets`
+  # picks up both integration-test binaries). Agreement is the conjunction of the
+  # two jobs against one shared oracle: the `expected/` snapshots, generated from
+  # Python (the source of record) and asserted byte-for-byte by both sides.
+  #
+  # The split rules are deliberate, not a coverage hole (#2602). A
+  # wasm-scheduler-only MR runs both jobs. A scheduler-only MR runs just this one,
+  # which is sufficient: with the Rust source and the fixtures both untouched, the
+  # Rust half would be a no-op re-run. If the Python change moves output, this job
+  # fails against the committed snapshots — and regenerating them touches
+  # `packages/wasm-scheduler/fixtures/`, which pulls `wasm:test` back into the
+  # pipeline to re-check Rust against the new oracle. `main` runs everything.
   stage: test
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   needs:
