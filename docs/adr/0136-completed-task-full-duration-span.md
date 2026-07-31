@@ -4,6 +4,25 @@
 Accepted — refines ADR-0132 (Data-Date-Aware Forecasting) and amends ADR-0023
 (Actual Start and Finish Dates on Tasks) — implemented on main; status corrected 2026-06-30 after ADR audit (verified: ADR-0136)
 
+> **The conformance-fixture constraint below is superseded by shipped practice** (verified
+> 2026-07-31, #2664). Both the Constraints section ("the shared `wasm:conformance` fixtures
+> carry **no** progress fields and must stay that way — adding actuals/`status_date` to the
+> shared set would diverge the engines and redden the gate") and the matching line under
+> Consequences describe a rule the repository no longer follows.
+>
+> `packages/wasm-scheduler/fixtures/` now carries seven `progress_*.json` fixtures, and they
+> contain exactly the fields the constraint forbids: `percent_complete`, `actual_start`, and
+> `actual_finish` (e.g. `progress_completed_successor_no_backward_constraint.json`), plus a
+> project-level `status_date` (`progress_status_date_floor.json`). The engines did not
+> diverge and the gate is green, because the Rust engine gained the progress path after this
+> ADR was written.
+>
+> Adding further progress fixtures is therefore consistent with current practice, not a
+> violation. Note the separate, still-true caveat that `wasm:conformance` compares the two
+> engines to **each other**, so it cannot detect a divergence they *share* from a written
+> spec — a fixture asserting a spec rule must be written from the ADR text, not from the
+> sibling engine's output.
+
 ## Context
 
 **P3M layer:** Programs and Projects (OSS). This is core scheduling-engine IP and
