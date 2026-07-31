@@ -48,6 +48,7 @@ from trueppm_api.apps.projects.models import (
     SignalCeilingRaiseVote,
     signal_audience_rank,
 )
+from trueppm_api.core.extension_signals import dispatch_extension_signal
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -285,7 +286,8 @@ def _emit_consent_changed(
     from trueppm_api.apps.projects.signals import team_signal_consent_changed
 
     transaction.on_commit(
-        lambda: team_signal_consent_changed.send(
+        lambda: dispatch_extension_signal(
+            team_signal_consent_changed,
             sender=ProjectSignalPrivacyPolicy,
             project_id=str(project_id),
             signal_key=signal_key,
@@ -541,7 +543,8 @@ def _emit_proposal_changed(proposal: SignalCeilingRaiseProposal) -> None:
     proposal_id = str(proposal.id)
     status = proposal.status
     transaction.on_commit(
-        lambda: team_signal_ceiling_proposal_changed.send(
+        lambda: dispatch_extension_signal(
+            team_signal_ceiling_proposal_changed,
             sender=SignalCeilingRaiseProposal,
             project_id=project_id,
             signal_key=signal_key,

@@ -51,6 +51,7 @@ from trueppm_api.apps.workspace.models import (
     WorkspaceRole,
 )
 from trueppm_api.apps.workspace.signals import audit_event_created
+from trueppm_api.core.extension_signals import dispatch_extension_signal
 
 logger = logging.getLogger(__name__)
 
@@ -146,9 +147,10 @@ def record_audit_event(
     calls this rather than ``AuditEvent.objects.create`` directly. The row is
     written synchronously inside the caller's transaction (so it rolls back with a
     failed action — the log never claims an action that did not happen), and the
-    ``audit_event_created`` signal is fired from ``transaction.on_commit`` with
-    ``send_robust`` so a raising enterprise receiver is swallowed-and-logged and
-    can never break the OSS write path. OSS itself connects no receiver.
+    ``audit_event_created`` signal is fired from ``transaction.on_commit`` via
+    ``dispatch_extension_signal`` so a raising enterprise receiver is contained
+    and logged, and can never break the OSS write path. OSS itself connects no
+    receiver.
     """
     event = AuditEvent.objects.create(
         actor=actor if (actor is not None and getattr(actor, "pk", None)) else None,
@@ -160,7 +162,7 @@ def record_audit_event(
         metadata=metadata or {},
     )
     transaction.on_commit(
-        lambda: audit_event_created.send_robust(sender=AuditEvent, audit_event=event)
+        lambda: dispatch_extension_signal(audit_event_created, sender=AuditEvent, audit_event=event)
     )
     return event
 

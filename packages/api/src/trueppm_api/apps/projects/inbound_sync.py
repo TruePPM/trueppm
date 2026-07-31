@@ -276,9 +276,14 @@ def _update_inbound_task(
         # send_robust: a raising third-party/Enterprise receiver must never
         # propagate out of and break this OSS write path (mirrors Task.save()).
         from trueppm_api.apps.projects.signals import task_status_changed
+        from trueppm_api.core.extension_signals import dispatch_extension_signal
 
-        task_status_changed.send_robust(
-            sender=Task, task=task, old_status=old_status, new_status=new_status
+        dispatch_extension_signal(
+            task_status_changed,
+            sender=Task,
+            task=task,
+            old_status=old_status,
+            new_status=new_status,
         )
 
     # Link row updates: refresh URL + last_synced_via_token, clear

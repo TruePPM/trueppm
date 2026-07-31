@@ -59,13 +59,15 @@ class SchedulingConfig(AppConfig):
             celery_task_started,
             celery_task_succeeded,
         )
+        from trueppm_api.core.extension_signals import dispatch_extension_signal
 
         self._register_workflows()
 
         @task_prerun.connect(weak=False, dispatch_uid="scheduling.on_task_prerun")  # type: ignore[untyped-decorator]
         def _on_task_prerun(sender: Any, task_id: str, task: Any, **kwargs: Any) -> None:
             _task_start_times[task_id] = time.monotonic()
-            celery_task_started.send(
+            dispatch_extension_signal(
+                celery_task_started,
                 sender=type(task).__name__,
                 task_id=task_id,
                 task_name=getattr(task, "name", ""),
@@ -91,7 +93,8 @@ class SchedulingConfig(AppConfig):
                 outcome=state.lower() or "unknown",
             )
             if state == "SUCCESS":
-                celery_task_succeeded.send(
+                dispatch_extension_signal(
+                    celery_task_succeeded,
                     sender=type(task).__name__,
                     task_id=task_id,
                     task_name=task_name,
@@ -104,7 +107,8 @@ class SchedulingConfig(AppConfig):
         ) -> None:
             import traceback as tb_module
 
-            celery_task_failed.send(
+            dispatch_extension_signal(
+                celery_task_failed,
                 sender=type(sender).__name__,
                 task_id=task_id,
                 task_name=getattr(sender, "name", ""),
@@ -116,7 +120,8 @@ class SchedulingConfig(AppConfig):
 
         @task_retry.connect(weak=False, dispatch_uid="scheduling.on_task_retry")  # type: ignore[untyped-decorator]
         def _on_task_retry(sender: Any, request: Any, reason: Any, **kwargs: Any) -> None:
-            celery_task_retried.send(
+            dispatch_extension_signal(
+                celery_task_retried,
                 sender=type(sender).__name__,
                 task_id=getattr(request, "id", ""),
                 task_name=getattr(sender, "name", ""),
