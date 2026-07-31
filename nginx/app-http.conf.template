@@ -21,7 +21,11 @@ server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws:; font-src 'self'; frame-ancestors 'none'" always;
 
-    client_max_body_size 20M;
+    # Must stay >= the largest application upload cap — MSPROJECT_MAX_UPLOAD_MB
+    # is 50 (Jira 25, CSV 10, seed 5). At 20M a valid .mpp file was rejected
+    # here with a bare 413 before the app could return the error naming the
+    # limit (#2604). The app cap is the enforcement point; this is headroom.
+    client_max_body_size 50M;
 
     gzip on;
     gzip_types text/plain text/css application/json application/javascript text/xml application/xml image/svg+xml;
