@@ -2978,6 +2978,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
         isLoading={isLoading}
         error={error}
         onAddTask={() => setShowAddForm(true)}
+        effectiveMethodology={effectiveMethodology}
       />
     );
   }
