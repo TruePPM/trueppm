@@ -19,7 +19,13 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, CalendarException, Project, Task
+from trueppm_api.apps.projects.models import (
+    Calendar,
+    CalendarException,
+    Project,
+    Task,
+    TaskStatus,
+)
 from trueppm_api.apps.resources.models import Resource, TaskResource
 
 User = get_user_model()
@@ -284,6 +290,203 @@ class TestUtilizationComputation:
         resp = self._client().get(_url(self.project))
         assert resp.data["resources"][0]["days"]["2026-03-02"]["hours"] == pytest.approx(16.0)
         assert len(resp.data["resources"][0]["days"]["2026-03-02"]["tasks"]) == 2
+
+
+# ---------------------------------------------------------------------------
+# #2623 / ADR-0752 — utilization windows on the task's SPAN, not the
+# remaining-work window, so reporting progress does not delete a person's
+# allocated load from the heat map.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestUtilizationUsesSpanNotRemainingWindow:
+    """Since ADR-0132, ``early_start`` is an in-progress task's *remaining-work*
+    window — it shrinks toward ``early_finish`` as ``percent_complete`` rises.
+    Windowing utilization on it made reporting progress look like shedding
+    allocation. ADR-0752's ``scheduled_start`` (paired with ``early_finish``,
+    which is always ``scheduled_finish``) carries the task's real span and must
+    be what utilization windows on instead. These tests set the CPM fields
+    directly to the values the engine would produce at each state — they do
+    not run the scheduler — so they isolate ``utilization.py``'s windowing
+    logic from engine correctness (covered separately by scheduler-engine
+    tests).
+    """
+
+    def setup_method(self) -> None:
+        self.cal = Calendar.objects.create(name="SpanCal", working_days=31, hours_per_day=8.0)
+        self.project = Project.objects.create(
+            name="SpanProj", start_date=date(2026, 3, 2), calendar=self.cal
+        )
+        self.resource = Resource.objects.create(name="Ivy", max_units="1.0")
+        self.client = _auth_client(Role.SCHEDULER, self.project)
+
+    def _assign(self, task: Task) -> None:
+        TaskResource.objects.create(task=task, resource=self.resource, units="1.0")
+
+    def _total_hours(self, start: str = "2026-03-02", end: str = "2026-03-05") -> float:
+        resp = self.client.get(_url(self.project), {"start": start, "end": end})
+        assert resp.status_code == 200
+        resources = resp.data["resources"]
+        if not resources:
+            return 0.0
+        return sum(day["hours"] for day in resources[0]["days"].values())
+
+    def test_load_stable_across_0_50_100_percent(self) -> None:
+        """Same 4-working-day (Mon–Thu) assignment at 0%, 50%, and 100% complete
+        must contribute the same total load — the core #2623 regression.
+
+        Pre-fix, this task would contribute 32h at 0%, 16h at 50% (early_start
+        shrunk to the last two days), and ~0h at 100% (early_start == early_finish).
+        """
+        full_span = (date(2026, 3, 2), date(2026, 3, 5))  # Mon–Thu
+
+        # 0% — not started: early_start/early_finish/scheduled_start all equal
+        # the full span (ADR-0752 table: not-started windows coincide).
+        task = Task.objects.create(
+            project=self.project,
+            name="NotStarted",
+            duration=4,
+            early_start=full_span[0],
+            early_finish=full_span[1],
+            scheduled_start=full_span[0],
+            percent_complete=0,
+            status=TaskStatus.NOT_STARTED,
+        )
+        self._assign(task)
+        hours_0pct = self._total_hours()
+        assert hours_0pct == pytest.approx(32.0)  # 4 days × 8h × 1.0 units
+        task.delete()
+
+        # 50% — in progress, actual_start recorded: early_start has shrunk to
+        # the remaining-work window (Wed–Thu per ADR-0132), but scheduled_start
+        # still records the real span start (== actual_start, ADR-0752 §2).
+        task = Task.objects.create(
+            project=self.project,
+            name="InProgress50",
+            duration=4,
+            early_start=date(2026, 3, 4),
+            early_finish=full_span[1],
+            scheduled_start=full_span[0],
+            actual_start=full_span[0],
+            percent_complete=50,
+            status=TaskStatus.IN_PROGRESS,
+        )
+        self._assign(task)
+        hours_50pct = self._total_hours()
+        task.delete()
+
+        # 100% — complete: ADR-0136 already pins early_start back to the full
+        # span for completed tasks, so scheduled_start == early_start here too.
+        task = Task.objects.create(
+            project=self.project,
+            name="Complete",
+            duration=4,
+            early_start=full_span[0],
+            early_finish=full_span[1],
+            scheduled_start=full_span[0],
+            actual_start=full_span[0],
+            actual_finish=full_span[1],
+            percent_complete=100,
+            status=TaskStatus.COMPLETE,
+        )
+        self._assign(task)
+        hours_100pct = self._total_hours()
+        task.delete()
+
+        assert hours_50pct == pytest.approx(hours_0pct)
+        assert hours_100pct == pytest.approx(hours_0pct)
+
+    def test_in_progress_task_reproduces_bug_on_early_start_alone(self) -> None:
+        """Direct repro: an in-progress task whose remaining window (early_start)
+        has shrunk to a single day must still report its full elapsed+remaining
+        span (4 days), not the 1 remaining day. This is the exact shape from the
+        issue: a 4-day task at ~83% complete contributing 1 day instead of 4.
+        """
+        task = Task.objects.create(
+            project=self.project,
+            name="AlmostDone",
+            duration=4,
+            early_start=date(2026, 3, 5),  # remaining window: Thu only
+            early_finish=date(2026, 3, 5),
+            scheduled_start=date(2026, 3, 2),  # real span: Mon–Thu
+            actual_start=date(2026, 3, 2),
+            percent_complete=83,
+            status=TaskStatus.IN_PROGRESS,
+        )
+        self._assign(task)
+
+        hours = self._total_hours()
+
+        assert hours == pytest.approx(32.0)  # 4 days, not 1
+        resp = self.client.get(_url(self.project), {"start": "2026-03-02", "end": "2026-03-05"})
+        days = resp.data["resources"][0]["days"]
+        assert set(days) == {"2026-03-02", "2026-03-03", "2026-03-04", "2026-03-05"}
+
+    def test_window_intersection_elapsed_load_still_counts(self) -> None:
+        """A task whose remaining window has moved past the query range entirely
+        must still contribute the elapsed portion of its load that falls inside
+        that range — the span, not the remaining window, decides inclusion.
+        """
+        # Remaining window (early_start..early_finish) is Fri 3/6 only — outside
+        # the Mon 3/2..Tue 3/3 query window below. The real span (scheduled_start)
+        # starts Mon 3/2, so the elapsed Mon/Tue portion must still be counted.
+        task = Task.objects.create(
+            project=self.project,
+            name="MostlyDone",
+            duration=4,
+            early_start=date(2026, 3, 6),
+            early_finish=date(2026, 3, 6),
+            scheduled_start=date(2026, 3, 2),
+            actual_start=date(2026, 3, 2),
+            percent_complete=90,
+            status=TaskStatus.IN_PROGRESS,
+        )
+        self._assign(task)
+
+        hours = self._total_hours(start="2026-03-02", end="2026-03-03")
+
+        # Mon + Tue elapsed portion, clamped to the query window: 2 days × 8h.
+        assert hours == pytest.approx(16.0)
+
+    def test_unassigned_task_count_uses_span_too(self) -> None:
+        """The unassigned-task counter windows on the same span, not the
+        remaining-work window, so an unassigned in-progress task is not dropped
+        from the count once its remaining window narrows past the query end.
+        """
+        Task.objects.create(
+            project=self.project,
+            name="UnassignedInProgress",
+            duration=4,
+            early_start=date(2026, 3, 6),  # remaining window outside the window below
+            early_finish=date(2026, 3, 6),
+            scheduled_start=date(2026, 3, 2),
+            actual_start=date(2026, 3, 2),
+            percent_complete=90,
+            status=TaskStatus.IN_PROGRESS,
+        )
+        resp = self.client.get(_url(self.project), {"start": "2026-03-02", "end": "2026-03-03"})
+        assert resp.status_code == 200
+        assert resp.data["unassigned_task_count"] == 1
+
+    def test_missing_scheduled_start_falls_back_to_early_start(self) -> None:
+        """A task with no ``scheduled_start`` (e.g. not yet recalculated since the
+        ADR-0752 migration) must still be windowed correctly, falling back to
+        ``early_start`` — the pre-#2622 behavior — rather than being dropped."""
+        task = Task.objects.create(
+            project=self.project,
+            name="NotYetRecalculated",
+            duration=4,
+            early_start=date(2026, 3, 2),
+            early_finish=date(2026, 3, 5),
+            scheduled_start=None,
+            percent_complete=0,
+            status=TaskStatus.NOT_STARTED,
+        )
+        self._assign(task)
+
+        hours = self._total_hours()
+        assert hours == pytest.approx(32.0)
 
 
 # ---------------------------------------------------------------------------

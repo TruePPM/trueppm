@@ -1,6 +1,7 @@
 ---
 title: Resources & Skills
 description: Maintain a Workspace resource catalog with skills and proficiency, build per-project rosters, and assign people to tasks with fractional capacity — with skill-fit and overallocation warnings.
+documentedFor: "0.4"
 ---
 
 TruePPM models the people who do the work as **resources**. Resources live in a
@@ -93,7 +94,7 @@ calendar-aware engine as the resource heatmap — hours per day × units × work
 days, with a resource's own calendar winning over the project's — so the Overview
 card and the heatmap cannot disagree about how loaded a team is.
 
-Two details are worth knowing:
+Three details are worth knowing:
 
 - **The window is the current week (Monday–Sunday).** The card answers "how loaded
   is this team *now*", so work scheduled for next month does not raise it. A
@@ -104,6 +105,25 @@ Two details are worth knowing:
   being on the roster still brings their own capacity, so they cannot show up as a
   phantom overallocation. A per-project **capacity override** on the roster wins
   over the resource's default max units.
+- **A task's load is measured over its full span, not its remaining work.**
+
+  :::note[Ships in 0.4]
+  Windowing utilization on the task **span** rather than the remaining-work
+  window ships in **TruePPM 0.4**, the first beta. It is not present in the
+  current release: before 0.4, an in-progress task's contribution to the
+  heatmap and the Team utilization card shrinks as `percent_complete` rises,
+  and can drop out of the window entirely once its remaining-work window no
+  longer intersects the query range.
+  :::
+
+  The heatmap and the Team utilization card both window a task's assignments
+  on its **span** (`scheduled_start` through finish — see [the bar vs. the
+  remaining-work window](/features/schedule/#the-bar-vs-the-remaining-work-window)),
+  not on the narrower *remaining-work* window that `early_start` shrinks
+  toward as a task approaches completion. A person's allocation on a task
+  does not shrink just because they finished part of it — reporting progress
+  moves a task closer to done; it does not delete the load they were
+  assigned in the first place.
 
 **0%** is a real reading — it means nobody is allocated this week. When the ratio
 is genuinely undefined the card is muted and says why, rather than showing a blank:

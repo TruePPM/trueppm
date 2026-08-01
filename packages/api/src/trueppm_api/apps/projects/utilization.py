@@ -14,6 +14,18 @@ Design decisions:
     so the frontend can show a tooltip.
   - Sparse output: only days with load > 0 are emitted. The frontend expands
     to a dense grid.
+  - Windowed by the task's SPAN (ADR-0752's ``scheduled_start``..``early_finish``),
+    not by ``early_start``..``early_finish`` (#2623). Since ADR-0132,
+    ``early_start`` is the *remaining-work* window for an in-progress task —
+    it shrinks toward ``early_finish`` as ``percent_complete`` rises. Windowing
+    load on it made reporting progress look like shedding allocation: a person's
+    real-world commitment to a task does not shrink because they finished part
+    of it. ``scheduled_finish`` is identically ``early_finish`` in every task
+    state (ADR-0752 §2) and is not a separate column, so only the start side
+    needs to change. ``scheduled_start`` falls back to ``early_start`` via
+    ``Coalesce`` for rows a CPM run has not yet populated it on (additive
+    migration, no data backfill) — where the two windows coincide anyway for
+    not-started and complete tasks.
 """
 
 from __future__ import annotations
@@ -21,6 +33,9 @@ from __future__ import annotations
 import datetime
 from collections import defaultdict
 from typing import Any
+
+from django.db.models import DateField
+from django.db.models.functions import Coalesce
 
 # weekday() returns 0=Mon, 1=Tue, …, 6=Sun.
 # Calendar.working_days bitmask: Mon=1, Tue=2, Wed=4, Thu=8, Fri=16, Sat=32, Sun=64.
@@ -153,12 +168,9 @@ def compute_utilization(
             assigned_task_ids.update(day_data["tasks"])
 
     unassigned_count = (
-        project.tasks.filter(
-            is_deleted=False,
-            early_start__isnull=False,
-            early_start__lte=window_end,
-            early_finish__gte=window_start,
-        )
+        project.tasks.filter(is_deleted=False, early_start__isnull=False)
+        .annotate(_span_start=Coalesce("scheduled_start", "early_start", output_field=DateField()))
+        .filter(_span_start__lte=window_end, early_finish__gte=window_start)
         .exclude(pk__in=assigned_task_ids)
         .count()
     )
@@ -378,13 +390,20 @@ def _compute_utilization_internal(
     project_cal = project.calendar
     proj_mask, proj_exceptions, proj_cal_id = _resolve_project_calendar(project_cal)
 
-    tasks = project.tasks.filter(
-        is_deleted=False,
-        early_start__isnull=False,
-        early_start__lte=window_end,
-        early_finish__gte=window_start,
-    ).prefetch_related(
-        "assignments__resource__calendar__exceptions",
+    # Window by the task's SPAN (scheduled_start..early_finish), not its
+    # remaining-work window (early_start..early_finish) — see the module
+    # docstring and ADR-0752 / #2623. scheduled_finish has no column of its
+    # own; it is always early_finish, so only the start side is swapped.
+    # scheduled_start falls back to early_start for rows a CPM run has not
+    # (re)populated it on yet, which is also correct: the two windows are
+    # identical for not-started and complete tasks.
+    tasks = (
+        project.tasks.filter(is_deleted=False, early_start__isnull=False)
+        .annotate(_span_start=Coalesce("scheduled_start", "early_start", output_field=DateField()))
+        .filter(_span_start__lte=window_end, early_finish__gte=window_start)
+        .prefetch_related(
+            "assignments__resource__calendar__exceptions",
+        )
     )
 
     resource_rows: dict[str, dict[str, Any]] = {}
@@ -394,7 +413,7 @@ def _compute_utilization_internal(
         if not assignments:
             continue
 
-        task_start = max(task.early_start, window_start)
+        task_start = max(task._span_start, window_start)
         task_end = min(task.early_finish, window_end)
 
         for assignment in assignments:
