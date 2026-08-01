@@ -192,6 +192,7 @@ def record_monte_carlo_run(
     user: Any = None,
     distribution: dict[str, Any] | None = None,
     diagnostic: dict[str, Any] | None = None,
+    status_date: date | None = None,
 ) -> MonteCarloRun | None:
     """Persist one project-level Monte Carlo run for the forecast history (ADR-0175).
 
@@ -215,6 +216,11 @@ def record_monte_carlo_run(
     anywhere) distinguishable from a measured zero (estimates exist, variance is
     genuinely low) once the run is read back from history rather than the cache —
     see the field docstring on :class:`MonteCarloRun` (#2483).
+
+    ``status_date`` is the data date the simulation was actually computed against —
+    the caller's already-resolved ``project.status_date or timezone.localdate()``
+    (ADR-0132) — so a persisted run states which "today" produced its percentiles
+    instead of leaving that substitution unrecorded (#2638).
     """
     from trueppm_api.apps.scheduling.models import MonteCarloRun
 
@@ -231,6 +237,7 @@ def record_monte_carlo_run(
             triggered_by=triggered_by,
             distribution=distribution,
             diagnostic=diagnostic,
+            status_date=status_date,
         )
     except Exception:
         logger.exception(

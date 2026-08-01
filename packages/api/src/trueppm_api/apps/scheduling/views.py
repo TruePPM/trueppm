@@ -290,6 +290,7 @@ def _persist_mc_run_if_authorized(
     cpm_finish: _date | None,
     task_count: int,
     result_dict: dict[str, Any],
+    status_date: _date | None,
 ) -> None:
     """Persist an author-attributed ``MonteCarloRun`` drift row for Scheduler+ callers.
 
@@ -335,6 +336,10 @@ def _persist_mc_run_if_authorized(
         # "estimates exist, variance is low" — the distinction the added-time
         # metric is built on (#2483).
         diagnostic=result_dict.get("forecast_diagnostic"),
+        # The data date actually fed to the engine for this run (ADR-0132's
+        # never-recorded substitution, #2638) — same value already echoed on
+        # result_dict below, so the persisted row and the response agree.
+        status_date=status_date,
     )
     if run is not None:
         result_dict["run_id"] = str(run.id)
@@ -385,7 +390,9 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
                 "ADR-0140), forecast_diagnostic ({deterministic, reason, tasks_total, "
                 "tasks_with_variance, tasks_pending_approval, agile_tasks_without_velocity} "
                 "— explains a flat forecast; reason is null when a real band exists), "
-                "last_run_at (ISO 8601), and the risk_premium_* family (ADR-0698): "
+                "last_run_at (ISO 8601), status_date (the data date this run was "
+                "actually computed against — project.status_date or today when unset, "
+                "ADR-0132/#2638), and the risk_premium_* family (ADR-0698): "
                 "risk_premium_state (not_run|unmeasurable|stale|zero|premium|negative — "
                 "the discriminant every client renders from, never null), "
                 "risk_premium_days, risk_premium_ratio, risk_premium_band (always null "
@@ -537,6 +544,13 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         project.pk, sched_calendar.working_days
     )
 
+    # Data date for the forecast (ADR-0132): the project's explicit status date, or
+    # today when unset — so Monte Carlo never schedules remaining work in the past
+    # and pins completed work to its actuals. Named so the resolved value can be
+    # persisted on the run and echoed in the response (#2638) — previously this
+    # substitution happened inline and was never recorded anywhere.
+    mc_status_date = project.status_date or timezone.localdate()
+
     sched_project = SchedProject(
         id=str(project.pk),
         name=project.name,
@@ -544,10 +558,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         tasks=sched_tasks,
         dependencies=sched_deps,
         calendar=sched_calendar,
-        # Data date for the forecast (ADR-0132): the project's explicit status
-        # date, or today when unset — so Monte Carlo never schedules remaining
-        # work in the past and pins completed work to its actuals.
-        status_date=project.status_date or timezone.localdate(),
+        status_date=mc_status_date,
         velocity_samples=velocity_samples or None,
         sprint_length_days=sprint_length_days,
     )
@@ -625,6 +636,12 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
             deterministic=(mc_result.p50 == mc_result.p80 == mc_result.p95),
         ),
         "last_run_at": run_at.isoformat(),
+        # The data date this run was actually computed against (ADR-0132, #2638):
+        # the project's explicit status_date, or today when unset. Carried on the
+        # cache entry too (it is part of ``result_dict``) so a cached read states
+        # the same provenance as a fresh run, and on the persisted MonteCarloRun
+        # row below so history stays re-derivable after the fact.
+        "status_date": mc_status_date.isoformat(),
     }
     cache.set(f"mc_latest:{pk}", result_dict, timeout=86400)
 
@@ -638,6 +655,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         cpm_finish=cpm_finish,
         task_count=len(db_tasks),
         result_dict=result_dict,
+        status_date=mc_status_date,
     )
     # Added time (#2531, ADR-0698) rides the response but NOT the cache entry above.
     # Two of its terms depend on when the response is built rather than when the run
@@ -684,8 +702,11 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
                     "(ISO-8601 finish dates), cpm_finish, delta_vs_cpm ({p50, p80, p95} "
                     "calendar-day deltas vs the CPM finish), runs (n_simulations), "
                     "confidence_curve, histogram_buckets, sensitivity, last_run_at, "
-                    "from_history (true when served from a persisted run after the 24h cache "
-                    "TTL expired), and the risk_premium_* family (ADR-0698): "
+                    "status_date (the data date this run was computed against — "
+                    "project.status_date or today when unset, ADR-0132/#2638; null for "
+                    "runs persisted before #2638), from_history (true when served from a "
+                    "persisted run after the 24h cache TTL expired), and the risk_premium_* "
+                    "family (ADR-0698): "
                     "risk_premium_state (not_run|unmeasurable|stale|zero|premium|negative — "
                     "the discriminant every client renders from, never null), "
                     "risk_premium_days, risk_premium_ratio, risk_premium_band (always null "
@@ -766,6 +787,10 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
                 # diagnostic as "no reason known", never as "no estimates".
                 "forecast_diagnostic": latest.diagnostic,
                 "last_run_at": latest.taken_at.isoformat(),
+                # Persisted with the run since #2638; legacy rows predate the field
+                # and read back as null rather than a guessed value (same pattern as
+                # `diagnostic`/`distribution` above).
+                "status_date": latest.status_date.isoformat() if latest.status_date else None,
                 "from_history": True,
                 # The same call `ProjectOverviewView` makes, on the same row — so the
                 # Overview card and every forecast surface read one derivation of what
@@ -901,7 +926,12 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                     "critical_path_changed (bool — did the set of critical tasks change); "
                     "delta_vs_current ({p50, p80, p95, cpm_finish} signed calendar-day shifts, "
                     "positive = later/worse, null when a date is missing); runs (n_simulations); "
-                    "seed (fixed RNG seed shared by both runs so the delta isolates the change)."
+                    "seed (fixed RNG seed shared by both runs so the delta isolates the change); "
+                    "cpm_status_date and mc_status_date (ADR-0132/#2638) — the raw and "
+                    "today-floored data dates fed to the deterministic and Monte Carlo passes "
+                    "respectively, shared by both current and whatif since this view runs both "
+                    "in one call; this view never persists, so these are the only provenance a "
+                    "caller gets for how the forecast was computed."
                 ),
             ),
             400: OpenApiResponse(
@@ -1110,6 +1140,14 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                 },
                 "runs": n_simulations,
                 "seed": WHATIF_MC_SEED,
+                # The data dates fed to each engine for both the current and whatif
+                # passes (ADR-0132) — this view never persists, so these are the only
+                # provenance an AI/MCP or human caller gets for how "current" was
+                # computed. Both baseline and perturbed share one resolved value per
+                # engine within a single call, so one top-level pair covers both
+                # `current` and `whatif` rather than duplicating it under each (#2638).
+                "cpm_status_date": cpm_status_date.isoformat() if cpm_status_date else None,
+                "mc_status_date": mc_status_date.isoformat(),
             }
         )
 
@@ -1185,9 +1223,11 @@ def _mc_attribution_visible(request: Request, project: Project, pk: str) -> bool
                 "{results: [MonteCarloRun], cap: int|null, enabled: bool}. When the "
                 "per-workspace config disables history, enabled is false and results is "
                 "empty. Each run carries P50/P80/P95, cpm_finish, n_simulations, "
-                "task_count, a per-percentile delta vs the previous run (null on the "
-                "oldest row), triggered_by_name (non-null only for the resolved "
-                "attribution audience), and distribution (only when ?expand=distribution)."
+                "task_count, status_date (the data date the run was computed against — "
+                "null for runs persisted before #2638), a per-percentile delta vs the "
+                "previous run (null on the oldest row), triggered_by_name (non-null only "
+                "for the resolved attribution audience), and distribution (only when "
+                "?expand=distribution)."
             ),
         ),
         404: OpenApiResponse(

@@ -80,6 +80,7 @@ metadata, not on the mobile sync surface; consistent with `ForecastSnapshot`):
 | `cpm_finish` | `DateField(null=True, blank=True)` | deterministic CPM spine at run time, for context/delta |
 | `n_simulations` | `PositiveIntegerField` | iterations actually run (≤ `MC_SIMULATION_CAP`) — needed to interpret the run |
 | `task_count` | `PositiveIntegerField(null=True, blank=True)` | committed tasks included (≤ `MC_TASK_CAP`) |
+| `status_date` | `DateField(null=True, blank=True)` | the data date this run was computed against (`project.status_date` or today when unset); added in #2638 — this ADR's own Implementation Notes called it out as "additive on ADR-0175" and it simply never landed until then |
 
 `Meta`: `db_table="scheduling_montecarlorun"`, `ordering=["-taken_at"]`,
 `indexes=[Index(fields=["project", "-taken_at"], name="mcrun_project_recent_idx")]`.
