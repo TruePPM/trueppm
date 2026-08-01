@@ -373,6 +373,46 @@ test.describe('Workspace General page', () => {
     resolve(undefined);
   });
 
+  test('error state — a failed GET surfaces a retry-capable error card, not a stuck skeleton (#2656)', async ({
+    page,
+  }) => {
+    await setup(page);
+    let requestCount = 0;
+    // The query client retries a failed GET once before settling into `isError`
+    // (src/lib/queryClient.ts) — fail the first two requests (initial + the
+    // automatic retry) so the page actually reaches the error state before the
+    // test's own explicit Retry click issues the third, successful request.
+    await page.route('**/api/v1/workspace/', (r) => {
+      requestCount += 1;
+      if (requestCount <= 2) {
+        return r.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: pj({ detail: 'Internal server error' }),
+        });
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) });
+    });
+
+    await page.goto('/settings/general');
+
+    // The consolidated settings page (#2298) renders every section inline, and
+    // /workspace/ backs several of them (SSO, Observability, Retention & purge
+    // …), so more than one "Retry" card is on the page at once — scope to the
+    // General region, matching the `aria-labelledby` scoping SettingsShell wires
+    // per section.
+    const general = page.getByRole('region', { name: 'General', exact: true });
+
+    // The failed GET must read as broken — not the perpetual loading skeleton
+    // (#2656) and not the form.
+    await expect(general.getByText("Couldn't load workspace settings.")).toBeVisible();
+    await expect(page.locator('input[value="TrueScope Aerospace"]')).not.toBeVisible();
+
+    // Retry re-issues the GET; once it succeeds the form renders normally.
+    await general.getByRole('button', { name: 'Retry' }).click();
+    await expect(page.locator('input[value="TrueScope Aerospace"]')).toBeVisible();
+  });
+
   test('public-sharing override policy — renders the "may override" + Enterprise-locked radios (#2014)', async ({
     page,
   }) => {
