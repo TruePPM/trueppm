@@ -125,6 +125,11 @@ export function MilestoneBridgeForecast({
         />
       )}
 
+      {/* #2653 scope boundary: no ForecastHorizonHelp here, deliberately. stcLow/
+          stcHigh is `_sprints_to_complete` (services.py) — a plain avg±1σ division
+          over the rolling velocity window, not the clamped-horizon bootstrap
+          sampler behind the useSprintForecast hook that ForecastHorizonHelp
+          caveats. Same reasoning as VelocityForecastLine's BacklogForecast branch. */}
       {showProjection && (
         <p className="text-xs text-neutral-text-secondary">
           If velocity holds, ~<span className="tppm-mono">{stcLow}</span>

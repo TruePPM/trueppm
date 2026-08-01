@@ -25,6 +25,11 @@ The ``429`` documentation is injected by a custom :class:`AutoSchema` subclass
 because throttling is a *view* attribute (``throttle_classes``) that is not visible
 in the final schema dict — only the schema generator, which holds the view, can see
 it.
+
+The same subclass narrows ``security`` per-method on MCP-readable views (#2659):
+``McpReadableViewMixin`` adds ``projectApiTokenAuth`` at the view level, but a
+token caller there is restricted to safe methods at runtime, so the unsafe
+methods must not advertise the scheme either.
 """
 
 from __future__ import annotations
@@ -32,6 +37,7 @@ from __future__ import annotations
 from typing import Any
 
 from drf_spectacular.openapi import AutoSchema
+from rest_framework.permissions import SAFE_METHODS
 
 # ---------------------------------------------------------------------------
 # Tag definitions
@@ -403,7 +409,8 @@ _THROTTLE_RESPONSE = {
 
 
 class TruePPMAutoSchema(AutoSchema):
-    """AutoSchema that documents a ``429`` response on rate-limited operations.
+    """AutoSchema that documents a ``429`` response on rate-limited operations, and
+    keeps the ``projectApiTokenAuth`` security scheme honest on MCP-readable views.
 
     Throttling is a view attribute (``throttle_classes``) invisible to the final
     schema dict, so 429 documentation has to happen here — where the generated
@@ -413,6 +420,44 @@ class TruePPMAutoSchema(AutoSchema):
     user-search, credential rotation, Monte Carlo what-if, invite accept/resend,
     resource catalog, Git webhook, inbound task-sync and acceptance-result reporting).
     """
+
+    def get_auth(self) -> list[dict[str, Any]]:
+        """Drop ``projectApiTokenAuth`` from unsafe operations on MCP-readable views (#2659).
+
+        ``McpReadableViewMixin.get_authenticators`` prepends
+        ``ProjectApiTokenAuthentication`` at the *view* level (so a token is
+        recognized on every action), but drf-spectacular's default ``get_auth()``
+        reads ``view.get_authenticators()`` with no awareness of *which* method is
+        being documented — so it attached ``projectApiTokenAuth`` to every method on
+        the view, including the unsafe ones the mixin's own
+        ``TokenReadOnlyMethods`` permission refuses to every token caller. That made
+        the schema advertise 82 write operations (POST/PUT/PATCH/DELETE) that always
+        403 for a token caller, while the runtime enforcement was already correct.
+
+        This method and its view are the one place drf-spectacular hands both to the
+        same call, so the filter belongs here rather than in the mixin (which has no
+        reason to know about schema generation) or in a blanket post-processing hook
+        (which would also strip the scheme from ``TaskSyncView`` /
+        ``AcceptanceResultIngestView`` — two views that reference
+        ``ProjectApiTokenAuthentication`` directly to *accept* a token write, and
+        must keep advertising it).
+        """
+        auth = super().get_auth()
+        if self._mcp_token_write_unreachable():
+            auth = [entry for entry in auth if "projectApiTokenAuth" not in entry]
+        return auth
+
+    def _mcp_token_write_unreachable(self) -> bool:
+        """Whether this operation is an unsafe method on an ``McpReadableViewMixin`` view.
+
+        Mirrors ``TokenReadOnlyMethods.has_permission`` (``request.method in
+        SAFE_METHODS``) exactly, so the schema can never drift from the runtime rule
+        it is describing — deriving from the same predicate rather than restating it,
+        per the issue's proposed fix.
+        """
+        from trueppm_api.apps.access.permissions import McpReadableViewMixin
+
+        return isinstance(self.view, McpReadableViewMixin) and self.method not in SAFE_METHODS
 
     def get_operation(
         self,

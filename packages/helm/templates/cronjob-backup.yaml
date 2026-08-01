@@ -45,6 +45,8 @@ only ever print a note about the bucket instead of writing to it (#2611).
   value: {{ .Values.backup.s3.endpoint | quote }}
 - name: S3_PREFIX
   value: {{ .Values.backup.s3.prefix | quote }}
+- name: TRUEPPM_S3_ALLOW_PLAINTEXT
+  value: {{ .Values.backup.s3.allowPlaintext | quote }}
 - name: AWS_DEFAULT_REGION
   value: {{ .Values.backup.s3.region | quote }}
 # The AWS CLI writes nothing under a normal `s3 cp`, but it does resolve $HOME
@@ -139,6 +141,12 @@ with no wildcard DNS, so virtual-hosted-style requests resolve to nothing.
 Credentials are passed as AWS_* environment variables and never assembled into
 a URL: a real 40-char secret key routinely contains "/", "+", and ":", which
 corrupts URL-based credential forms. Same rationale as scripts/lib/s3.sh.
+
+The plaintext-endpoint check below duplicates
+_s3_warn_if_remote_plaintext/_s3_endpoint_looks_incluster from scripts/lib/s3.sh
+rather than reusing it, because this job never sources that file — a Helm
+template can't reach outside the chart, and this container doesn't mount the
+repo. Keep the two heuristics in sync if either changes (#2650).
 */}}
 {{- define "trueppm.backup.uploadCommand" -}}
 - /bin/sh
@@ -150,6 +158,31 @@ corrupts URL-based credential forms. Same rationale as scripts/lib/s3.sh.
   # the correct signing region for a bucket whose location is unset.
   AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-east-1}"
   export AWS_DEFAULT_REGION
+  # Warn — never block — when S3_ENDPOINT is unencrypted (http://) and does
+  # not look in-cluster / private-network. The artifact is a full PostgreSQL
+  # dump; see scripts/lib/s3.sh for the full heuristic rationale and limits.
+  case "${S3_ENDPOINT:-}" in
+    http://*)
+      if [ "${TRUEPPM_S3_ALLOW_PLAINTEXT:-}" != "1" ] && [ "${TRUEPPM_S3_ALLOW_PLAINTEXT:-}" != "true" ]; then
+        _host="${S3_ENDPOINT#http://}"
+        _host="${_host%%/*}"
+        _host="${_host%%:*}"
+        case "$_host" in
+          # Recognized as in-cluster/private: a bare dot-free short name (a
+          # Kubernetes Service DNS short name, matched by the final "no dot"
+          # arm below), *.local (also covers *.svc.cluster.local and
+          # *.cluster.local), *.svc, localhost/::1, and RFC1918/loopback.
+          localhost | ::1 | *.local | *.svc) ;;
+          127.*.*.* | 10.*.*.* | 192.168.*.*) ;;
+          172.1[6-9].*.* | 172.2[0-9].*.* | 172.3[01].*.*) ;;
+          *.*)
+            echo "WARNING: S3_ENDPOINT (${S3_ENDPOINT}) is plaintext (http://) and does not look like an in-cluster or private-network address — the backup artifact (a full database dump) will cross the network unencrypted. Use https:// for any off-cluster endpoint, or set backup.s3.allowPlaintext=true if this path is known-trusted."
+            ;;
+          *) ;; # no dot at all → bare short name → treat as in-cluster
+        esac
+      fi
+      ;;
+  esac
   MARKER="${OUTPUT_DIR}/.last-artifact"
   [ -f "$MARKER" ] || { echo "no .last-artifact marker — the dump step did not complete"; exit 1; }
   ART="$(cat "$MARKER")"

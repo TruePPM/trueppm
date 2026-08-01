@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useState } from 'react';
 import { DangerZoneLink } from '../components/DangerZoneLink';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
 import { useUpdateWorkspaceSettings } from '../hooks/useUpdateWorkspaceSettings';
 import { useDirtyForm } from '../hooks/useDirtyForm';
@@ -80,7 +81,7 @@ const SELECT_STYLE = {
 
 /** Workspace > General settings page. */
 export function WorkspaceGeneralPage() {
-  const { data: ws, isLoading } = useWorkspaceSettings();
+  const { data: ws, isLoading, isError, refetch } = useWorkspaceSettings();
   const updateSettings = useUpdateWorkspaceSettings();
   const timezoneId = useId();
   const defaultViewId = useId();
@@ -294,6 +295,25 @@ export function WorkspaceGeneralPage() {
 
   function toggleDay(i: number) {
     setWorkWeek((prev) => prev.map((on, j) => (j === i ? !on : on)));
+  }
+
+  // A failed GET must read as broken, not as a stuck skeleton — indistinguishable
+  // from a slow load otherwise (issue #2656). #2051's HTTP timeout only makes the
+  // request fail faster; it does nothing unless the failure is actually read here.
+  // Uses the shared TanStack Query failure convention (QueryErrorState, #1764)
+  // rather than a bespoke card. The title stays rendered (matching the sibling
+  // WorkspaceSsoPage error branch) so the section keeps its accessible name —
+  // <SettingsSection>'s `aria-labelledby` targets the heading this renders.
+  if (isError) {
+    return (
+      <div>
+        <SettingsPageTitle title="General" />
+        <QueryErrorState
+          message="Couldn't load workspace settings."
+          onRetry={() => void refetch()}
+        />
+      </div>
+    );
   }
 
   if (isLoading || !ws) {

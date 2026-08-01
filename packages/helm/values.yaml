@@ -752,6 +752,14 @@ backup:
     # virtual-hosted-style requests would resolve to nothing.
     endpoint: ""
     region: ""
+    # The upload artifact is a full PostgreSQL dump. When `endpoint` is
+    # http:// and does not look like an in-cluster or private-network
+    # address (a bare short name, *.svc, *.local, or an RFC1918/loopback
+    # literal), the job logs a WARNING that the dump will cross the network
+    # unencrypted — it does not fail the job. Set this to true only once
+    # you've verified the network path is trusted (e.g. a private peered
+    # link this heuristic can't see) to silence that warning deliberately.
+    allowPlaintext: false
     # Optional key prefix inside the bucket. The object key is
     # <prefix>/trueppm-backup-<UTC timestamp>.tar.gz.
     prefix: ""

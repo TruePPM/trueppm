@@ -6803,9 +6803,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -6949,9 +6946,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -7030,9 +7024,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -7091,9 +7082,6 @@
                     "programs"
                 ],
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -7170,9 +7158,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -7246,9 +7231,6 @@
                     "required": true
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -7373,9 +7355,6 @@
                     "import-export"
                 ],
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -7904,9 +7883,6 @@
                 ],
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -7978,9 +7954,6 @@
                     "programs"
                 ],
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -8161,9 +8134,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -8237,9 +8207,6 @@
                     "required": true
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -8495,9 +8462,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -8705,9 +8669,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -8853,9 +8814,6 @@
                     "required": true
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -9008,9 +8966,6 @@
                     "required": true
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -9647,9 +9602,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -9805,9 +9757,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -9892,9 +9841,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -9959,9 +9905,6 @@
                     "programs"
                 ],
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -10042,9 +9985,6 @@
                     "required": true
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -12849,9 +12789,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -12912,9 +12849,6 @@
                     }
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -12998,9 +12932,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -13069,9 +13000,6 @@
                     "required": true
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -13801,9 +13729,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -13947,9 +13872,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -14028,9 +13950,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -14097,9 +14016,6 @@
                     "projects"
                 ],
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -14229,9 +14145,6 @@
                     "required": true
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -14531,9 +14444,6 @@
                     "required": true
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -15100,9 +15010,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -15417,9 +15324,6 @@
                     "import-export"
                 ],
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -16884,9 +16788,6 @@
                 ],
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -16958,9 +16859,6 @@
                     "projects"
                 ],
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -17183,9 +17081,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -17267,9 +17162,6 @@
                     "required": true
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -17358,9 +17250,6 @@
                     "required": true
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -17720,9 +17609,6 @@
                     "projects"
                 ],
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -18856,9 +18742,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -18945,9 +18828,6 @@
                     "required": true
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -19163,9 +19043,6 @@
                     "projects"
                 ],
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -21991,9 +21868,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -22155,9 +22029,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -22245,9 +22116,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -22315,9 +22183,6 @@
                     "projects"
                 ],
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -23987,9 +23852,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -24151,9 +24013,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -24241,9 +24100,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -24311,9 +24167,6 @@
                     "scheduling"
                 ],
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -24567,9 +24420,6 @@
                     }
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -25599,9 +25449,6 @@
                     "required": true
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -32759,9 +32606,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -32840,9 +32684,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -32901,9 +32742,6 @@
                     "sprints"
                 ],
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -32979,9 +32817,6 @@
                     "required": true
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -33216,9 +33051,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -33368,9 +33200,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -33516,9 +33345,6 @@
                     }
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -33795,9 +33621,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -33960,9 +33783,6 @@
                     "required": true
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -34189,9 +34009,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -34343,9 +34160,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -34430,9 +34244,6 @@
                     }
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -34585,9 +34396,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -34678,9 +34486,6 @@
                     "required": true
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -34778,9 +34583,6 @@
                     "required": true
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -35003,9 +34805,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -35091,9 +34890,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -35178,9 +34974,6 @@
                     "required": true
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -37121,9 +36914,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -37267,9 +37057,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -37348,9 +37135,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -37409,9 +37193,6 @@
                     "tasks"
                 ],
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -37487,9 +37268,6 @@
                     "required": true
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -37677,9 +37455,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -37744,9 +37519,6 @@
                     "tasks"
                 ],
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -37893,9 +37665,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -37984,9 +37753,6 @@
                     "required": true
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -38078,9 +37844,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
@@ -38170,9 +37933,6 @@
                     "required": true
                 },
                 "security": [
-                    {
-                        "projectApiTokenAuth": []
-                    },
                     {
                         "personalApiTokenAuth": []
                     },

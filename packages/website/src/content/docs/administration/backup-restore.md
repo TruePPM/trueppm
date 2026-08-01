@@ -273,6 +273,33 @@ Setting `endpoint` switches the upload to **path-style addressing**
 (`endpoint/bucket/key` rather than `bucket.endpoint/key`), which is what a
 self-hosted store reached by IP or by a single hostname can actually serve.
 
+### Off-cluster plaintext warning
+
+`endpoint` takes whatever URL you give it, scheme included — TruePPM never
+hardcodes `http://` or `https://`. In-cluster plaintext (the example above,
+`http://minio.storage.svc.cluster.local:9000`) is expected and fine: the
+traffic never leaves the pod network. But the artifact is a **full database
+dump** — every project, task, dependency, comment, and user email in the
+deployment — and if `endpoint` is repointed at an off-cluster or cross-VPC
+bucket with the scheme still `http://`, that dump crosses the network
+unencrypted.
+
+:::caution
+The backup job recognizes the in-cluster shape (a bare short name, `*.svc` /
+`*.local` — which also covers `*.svc.cluster.local` — `localhost`, or an
+RFC1918/loopback literal) and stays silent for it. For anything else it logs a
+`WARNING:` line naming the endpoint — **the upload still proceeds**; this is a
+warning, not a failure, because an operator may have a legitimate reason (a
+private peered link the heuristic can't see) and a hard failure would be a
+worse outcome for a backup job than a loud log line.
+
+Use `https://` for a genuinely off-cluster endpoint — every real
+S3-compatible provider serves TLS. If you've verified the path is trusted
+despite failing the heuristic, set `backup.s3.allowPlaintext: true` (or
+`TRUEPPM_S3_ALLOW_PLAINTEXT=1` for the CLI scripts) to silence the warning
+deliberately.
+:::
+
 :::note[Why the job has two containers]
 With `s3.enabled`, the CronJob runs an initContainer that dumps and a main
 container that uploads. They use different images because no stock image carries

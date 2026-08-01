@@ -6,8 +6,15 @@ import { WorkspaceGeneralPage } from './WorkspaceGeneralPage';
 import type { WorkspaceSettings } from '../hooks/useWorkspaceSettings';
 
 // Mutable so a test can vary the loaded settings (e.g. an empty subdomain on a
-// self-hosted install) without re-mocking the module (#2013).
-const mockState = vi.hoisted(() => ({ ws: undefined as unknown }));
+// self-hosted install) without re-mocking the module (#2013). `isError`/`refetch`
+// exercise the failed-GET path (#2656) — a stuck skeleton was indistinguishable
+// from a slow load because the page never read the query's error state.
+const mockState = vi.hoisted(() => ({
+  ws: undefined as unknown,
+  isLoading: false,
+  isError: false,
+  refetch: vi.fn(),
+}));
 
 // The page is fully hook-backed; mock the data/mutation/dirty-form hooks so it
 // renders without a QueryClientProvider. The dirty-form hook is a side effect
@@ -47,7 +54,12 @@ const WS: WorkspaceSettings = {
 };
 
 vi.mock('../hooks/useWorkspaceSettings', () => ({
-  useWorkspaceSettings: () => ({ data: mockState.ws, isLoading: false }),
+  useWorkspaceSettings: () => ({
+    data: mockState.ws,
+    isLoading: mockState.isLoading,
+    isError: mockState.isError,
+    refetch: mockState.refetch,
+  }),
 }));
 vi.mock('../hooks/useUpdateWorkspaceSettings', () => ({
   useUpdateWorkspaceSettings: () => ({ mutateAsync: vi.fn() }),
@@ -76,6 +88,9 @@ vi.mock('@/hooks/useEdition', () => ({
 // afterward to exercise a different loaded state.
 beforeEach(() => {
   mockState.ws = { ...WS };
+  mockState.isLoading = false;
+  mockState.isError = false;
+  mockState.refetch.mockReset();
 });
 
 // A <Link> to the danger page needs a Router context.
@@ -314,5 +329,41 @@ describe('WorkspaceGeneralPage — contextual help', () => {
     expect(
       screen.queryByRole('button', { name: 'About the Workspace name options' }),
     ).not.toBeInTheDocument();
+  });
+});
+
+// ----- Failed GET must not read as a stuck loading state (#2656) -------------
+//
+// Prior to this fix the page destructured only `isLoading` from
+// `useWorkspaceSettings()`, so a failed GET (`isLoading: false`, `data`
+// undefined) fell through to the `!ws` branch and pulsed the loading skeleton
+// forever — indistinguishable from a slow request. #2051's HTTP timeout makes a
+// stalled request fail faster, but does nothing unless the failure is read.
+describe('WorkspaceGeneralPage — failed GET (#2656)', () => {
+  it('shows the loading skeleton while the query is in flight', () => {
+    mockState.ws = undefined;
+    mockState.isLoading = true;
+    renderPage();
+    expect(screen.queryByRole('textbox', { name: 'Workspace name' })).not.toBeInTheDocument();
+    expect(screen.queryByText("Couldn't load workspace settings.")).not.toBeInTheDocument();
+  });
+
+  it('renders a retry-capable error state instead of hanging on the skeleton when the GET fails', async () => {
+    const user = userEvent.setup();
+    mockState.ws = undefined;
+    mockState.isLoading = false;
+    mockState.isError = true;
+    renderPage();
+
+    expect(screen.getByText("Couldn't load workspace settings.")).toBeInTheDocument();
+    // The section keeps its heading (and therefore its accessible region name)
+    // even on error — matching the WorkspaceSsoPage error-branch convention.
+    expect(screen.getByRole('heading', { name: 'General' })).toBeInTheDocument();
+    // Not the skeleton and not the form — the failure must be unambiguous.
+    expect(screen.queryByRole('textbox', { name: 'Workspace name' })).not.toBeInTheDocument();
+
+    const retry = screen.getByRole('button', { name: 'Retry' });
+    await user.click(retry);
+    expect(mockState.refetch).toHaveBeenCalledTimes(1);
   });
 });
