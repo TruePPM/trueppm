@@ -1,6 +1,7 @@
 ---
 title: Programs
 description: Lightweight OSS coordination unit for one PM managing several related projects — shared membership, shared backlog, and combined rollup KPIs.
+documentedFor: "0.4"
 ---
 
 
@@ -105,9 +106,20 @@ the right one before you commit.
 ## Creating a project under a program
 
 From a program's **Projects** tab, **New project** opens the create wizard with
-the project pre-assigned to the program. On the last step, a **Use program
-defaults** option appears (only when you are creating under a program). Enable it
-to seed the new project from the parent program's:
+the project pre-selected to the program you were browsing.
+
+:::note[Ships in 0.4]
+That pre-selection is a starting point, not a fixed fact: step 1 of the wizard has
+a **Program** picker listing "None — standalone project" plus every open program
+you administer, so you can attach the new project to a different program or clear
+it back to standalone before you create it. The wizard also opens this picker from
+anywhere — not only from inside a program — so you can deliberately attach a new
+project to a program you administer even when you didn't navigate from one.
+:::
+
+On the last step, a **Use program defaults** option appears (only when the
+project is attached to a program). Enable it to seed the new project from that
+program's:
 
 - **Planning model** (methodology — Waterfall / Agile / Hybrid), and
 - **Visibility** (Workspace or Private listing scope).
@@ -118,6 +130,13 @@ settings. Enabling it dims the manual planning-model picker and the "Copy settin
 from" project source — the two settings sources are mutually exclusive, so you pick
 one. Anything you set explicitly in the wizard still wins over the copied value.
 
+:::note[Ships in 0.4]
+"Use program defaults" follows whichever program is selected in the step-1
+picker, not necessarily the one you were browsing when you opened the wizard —
+changing the picker always resets the option off first, so it never silently
+applies to a program you haven't reviewed it against.
+:::
+
 Settings that a project already **inherits live** from its program — the iteration
 label, sharing and guest access, Monte Carlo history, attachment policy, and the
 task-duration-change policy — are deliberately **not** copied. A new project leaves
@@ -126,7 +145,9 @@ copy would only pin them and break that live inheritance.
 
 You need at least **Project Manager** role on the program to create a project under
 it (and therefore to use its defaults) — the same gate that governs assigning a
-project to a program.
+project to a program. From 0.4, it's also the gate that decides which programs the
+step-1 picker will offer: it will only ever list open programs where you hold that
+role or higher, so you can't pick one that would be rejected when you submit.
 
 ## The program shell
 

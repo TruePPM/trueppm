@@ -79,6 +79,23 @@ async function setup(page: import('@playwright/test').Page) {
   await page.route(`**/api/v1/programs/${GID}/`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj({ id: GID, name: 'Delivery Program', description: '', my_role: 300, project_count: 1, color: null, code: '', server_version: 1 }) }),
   );
+  // Program list — feeds NewProjectModal's step-1 program picker (#2673). Same ADMIN
+  // role as the detail route above, and open (not closed), so `Delivery Program` is a
+  // legal picker option per the RBAC filter (ADR-0070).
+  await page.route('**/api/v1/programs/', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({
+        count: 1,
+        next: null,
+        previous: null,
+        results: [
+          { id: GID, name: 'Delivery Program', code: '', my_role: 300, is_closed: false },
+        ],
+      }),
+    }),
+  );
   // Program rollup — ProgramOverviewPage reads this and does `Object.entries(rollup.kpis)`.
   // Without an explicit mock the catch-all returns the list shape `{count, results}` (truthy,
   // but no `kpis`), so `Object.entries(undefined)` throws and the root error boundary replaces
@@ -116,8 +133,118 @@ test.describe('#1179 context-aware "+ New" (desktop)', () => {
     const dialog = page.getByRole('dialog', { name: /new project/i });
     await expect(dialog).toBeVisible();
     // #2666: this entry point used to silently drop the resolved program's name — the
-    // dialog gave no clue which program the project would attach to. It's now a
-    // first-class field on step 1.
-    await expect(dialog.getByText('Delivery Program')).toBeVisible();
+    // dialog gave no clue which program the project would attach to. #2673 turned that
+    // static field into a picker (a native <select>) preselected to the route-inferred
+    // program — assert its value/selected option rather than visible text, since an
+    // <option>'s text is present in the DOM but not "visible" while the select is closed.
+    const programPicker = dialog.getByRole('combobox', { name: /^program$/i });
+    await expect(programPicker).toHaveValue(GID);
+    await expect(programPicker.locator('option:checked')).toHaveText('Delivery Program');
+  });
+
+  test('Program context → the picker can be changed to standalone, creating a project with no program (#2673)', async ({ page }) => {
+    let capturedBody: Record<string, unknown> | null = null;
+    const NEW_PROJECT_ID = 'e2e-2673-new-standalone-0001';
+
+    await page.route('**/api/v1/projects/', (r) => {
+      if (r.request().method() === 'POST') {
+        capturedBody = r.request().postDataJSON() as Record<string, unknown>;
+        return r.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: pj({
+            id: NEW_PROJECT_ID,
+            server_version: 1,
+            name: capturedBody.name,
+            description: capturedBody.description ?? '',
+            start_date: capturedBody.start_date,
+            calendar: null,
+            methodology: capturedBody.methodology ?? 'HYBRID',
+            program: capturedBody.program ?? null,
+          }),
+        });
+      }
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ count: 1, next: null, previous: null, results: [PROJECT_DETAIL] }),
+      });
+    });
+    await page.route(`**/api/v1/projects/${NEW_PROJECT_ID}/**`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ ...PROJECT_DETAIL, id: NEW_PROJECT_ID, name: 'Now Standalone', program_detail: null }),
+      }),
+    );
+    await page.route(`**/api/v1/projects/${NEW_PROJECT_ID}/overview/`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ schedule_health: 'unknown', spi: null, tasks_late_count: 0, critical_task_count: 0, total_tasks: 0, complete_tasks: 0, next_milestone: null, team_utilization_pct: null, owner_name: null, start_date: '2026-01-01' }),
+      }),
+    );
+
+    await page.goto(`/programs/${GID}/overview`);
+    await expect(page.getByRole('heading', { name: 'Delivery Program' })).toBeVisible();
+    await page.getByRole('button', { name: 'New project', exact: true }).click();
+
+    const dialog = page.getByRole('dialog', { name: /new project/i });
+    await expect(dialog).toBeVisible();
+    const programPicker = dialog.getByRole('combobox', { name: /^program$/i });
+    await expect(programPicker).toHaveValue(GID);
+
+    // Change the inferred program to standalone.
+    await programPicker.selectOption('');
+    await expect(programPicker).toHaveValue('');
+
+    await dialog.getByRole('textbox', { name: /name/i }).fill('Now Standalone');
+    await dialog.getByRole('button', { name: /next/i }).click();
+    await dialog.getByRole('button', { name: /next/i }).click();
+    // Standalone selection means no program: the "Use program defaults" affordance
+    // must not be offered on step 3.
+    await expect(dialog.getByRole('checkbox', { name: /use .*defaults/i })).toHaveCount(0);
+    await dialog.getByRole('button', { name: /create project/i }).click();
+
+    await expect(page).toHaveURL(`/projects/${NEW_PROJECT_ID}/overview`);
+    expect(capturedBody).not.toBeNull();
+    expect(capturedBody).not.toHaveProperty('program');
+  });
+
+  test('Program context → a failed create surfaces the inline error and keeps the dialog open after switching the picker (error state)', async ({ page }) => {
+    await page.route('**/api/v1/projects/', (r) => {
+      if (r.request().method() === 'POST') {
+        return r.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: pj({ detail: 'Internal server error' }),
+        });
+      }
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ count: 1, next: null, previous: null, results: [PROJECT_DETAIL] }),
+      });
+    });
+
+    await page.goto(`/programs/${GID}/overview`);
+    await expect(page.getByRole('heading', { name: 'Delivery Program' })).toBeVisible();
+    await page.getByRole('button', { name: 'New project', exact: true }).click();
+
+    const dialog = page.getByRole('dialog', { name: /new project/i });
+    await expect(dialog).toBeVisible();
+    // Switch away from the route-inferred program before submitting, so the
+    // failure path is exercised through the new picker, not just the pre-existing
+    // inferred-program create flow.
+    await dialog.getByRole('combobox', { name: /^program$/i }).selectOption('');
+    await dialog.getByRole('textbox', { name: /name/i }).fill('Will Fail');
+    await dialog.getByRole('button', { name: /next/i }).click();
+    await dialog.getByRole('button', { name: /next/i }).click();
+    await dialog.getByRole('button', { name: /create project/i }).click();
+
+    await expect(dialog.getByRole('alert')).toHaveText(/failed to create project/i);
+    // Dialog stays open — no optimistic navigation on a create that never succeeded.
+    await expect(dialog).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/programs/${GID}/overview`));
   });
 });
