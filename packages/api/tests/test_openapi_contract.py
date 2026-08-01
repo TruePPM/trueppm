@@ -359,6 +359,77 @@ def test_program_pin_documents_the_pin_contract(schema: dict) -> None:
         assert "204" in op["responses"], f"{method.upper()} program pin must document 204."
 
 
+# ---------------------------------------------------------------------------
+# #2659 — `projectApiTokenAuth` must never appear on an operation a token
+# caller is refused. `McpReadableViewMixin` advertises the scheme at the view
+# level, but `TokenReadOnlyMethods` confines a token to safe methods at
+# runtime; the schema must match.
+# ---------------------------------------------------------------------------
+
+_UNSAFE_METHODS = ("post", "put", "patch", "delete")
+
+# The two views that reference `ProjectApiTokenAuthentication` *directly*
+# (not via `McpReadableViewMixin`) to accept a token write. They must keep
+# advertising the scheme on their POST — the filter must not strip it here.
+_DIRECT_TOKEN_WRITE_PATHS = frozenset(
+    {
+        "/api/v1/projects/{id}/task-sync/",
+        "/api/v1/projects/{id}/acceptance-results/",
+    }
+)
+
+
+def test_project_api_token_auth_absent_from_unsafe_operations(schema: dict) -> None:
+    """No unsafe (write) operation may advertise `projectApiTokenAuth` (#2659).
+
+    `McpReadableViewMixin.get_authenticators` prepends `ProjectApiTokenAuthentication`
+    at the view level, so drf-spectacular's default per-view security resolution
+    would attach the scheme to every method on the view, including the unsafe ones
+    `TokenReadOnlyMethods` refuses to every token caller at runtime.
+    `TruePPMAutoSchema.get_auth` (trueppm_api.core.openapi) filters those out; this
+    is the regression pin — a token-authenticated write op reappearing here means
+    either that filter broke or a new MCP-readable view regained the same bug.
+    """
+    offenders = [
+        f"{method.upper()} {path}"
+        for path, methods in schema["paths"].items()
+        if path not in _DIRECT_TOKEN_WRITE_PATHS
+        for method, op in methods.items()
+        if method in _UNSAFE_METHODS
+        and isinstance(op, dict)
+        and any("projectApiTokenAuth" in entry for entry in op.get("security", []))
+    ]
+    assert not offenders, (
+        "these unsafe operations advertise `projectApiTokenAuth` though a token "
+        "caller is refused at runtime (#2659): " + ", ".join(offenders[:15])
+    )
+
+
+def test_project_api_token_auth_still_advertised_on_safe_mcp_operation(schema: dict) -> None:
+    """Sanity check the #2659 fix does not overshoot: a safe (GET) MCP-readable
+    operation must keep advertising `projectApiTokenAuth`."""
+    op = schema["paths"]["/api/v1/projects/{id}/"]["get"]
+    schemes = {name for entry in op.get("security", []) for name in entry}
+    assert "projectApiTokenAuth" in schemes, (
+        "GET /api/v1/projects/{id}/ must still advertise `projectApiTokenAuth` (#2659)."
+    )
+
+
+@pytest.mark.parametrize("path", sorted(_DIRECT_TOKEN_WRITE_PATHS))
+def test_project_api_token_auth_still_advertised_on_direct_write_views(
+    schema: dict, path: str
+) -> None:
+    """The two direct-write token surfaces must keep the scheme on their POST (#2659).
+
+    These reference `ProjectApiTokenAuthentication` directly rather than through
+    `McpReadableViewMixin`, and are not subject to `TokenReadOnlyMethods` — the
+    #2659 filter is scoped to the mixin and must not touch them.
+    """
+    op = schema["paths"][path]["post"]
+    schemes = {name for entry in op.get("security", []) for name in entry}
+    assert "projectApiTokenAuth" in schemes, f"{path} must keep `projectApiTokenAuth` (#2659)."
+
+
 def test_pin_endpoints_document_the_limit_rejection(schema: dict) -> None:
     """Both pin paths document the 400 a client must handle (#2455).
 
