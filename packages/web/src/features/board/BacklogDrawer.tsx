@@ -75,6 +75,9 @@ export interface BacklogDrawerProps {
   focusedCardId: string | null;
   onCardFocus: (taskId: string, status: TaskStatus, phaseId: string) => void;
   onCardClick: (task: Task, anchor: HTMLElement) => void;
+  /** Below MEMBER (a Viewer) or on a closed sprint (#2680): disables the
+   *  drag-to-promote gesture on every card, mirroring the rail (BacklogBand). */
+  readOnly?: boolean;
 }
 
 export function BacklogDrawer({
@@ -86,6 +89,7 @@ export function BacklogDrawer({
   focusedCardId,
   onCardFocus,
   onCardClick,
+  readOnly = false,
 }: BacklogDrawerProps) {
   const [open, setOpen] = useDrawerOpen();
   const { setNodeRef } = useDroppable({ id: BACKLOG_BAND_DROPPABLE_ID });
@@ -205,6 +209,7 @@ export function BacklogDrawer({
                   isFocused={focusedCardId === task.id}
                   onFocus={() => onCardFocus(task.id, task.status, task.parentId ?? 'root')}
                   onClick={(anchor) => onCardClick(task, anchor)}
+                  readOnly={readOnly}
                 />
               </div>
             );

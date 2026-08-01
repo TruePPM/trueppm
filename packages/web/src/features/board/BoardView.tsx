@@ -2492,6 +2492,12 @@ export function BoardView() {
   // Drop onto the BACKLOG band above the phase grid (ADR-0057).
   const dropOnBacklogBand = useCallback(
     (task: Task) => {
+      // A closed sprint or a Viewer is read-only board-wide (#2680): drag is
+      // already disabled per backlog card (`BacklogCard`'s `useDraggable`),
+      // but guard the drop handler too so the mutation below can never fire
+      // regardless of which affordance triggered it — the same defense in
+      // depth as `handleMenuMove`'s `readOnly` check.
+      if (readOnly) return;
       // No-op when already in backlog — drag dropped back onto the band.
       if (task.status === 'BACKLOG') return;
       // Lock at IN_PROGRESS+: work has begun (or finished), demoting back to
@@ -2513,7 +2519,7 @@ export function BoardView() {
       updateStatus.mutate({ projectId, taskId: task.id, status: 'BACKLOG' });
       announce(`${task.name} moved to Backlog`);
     },
-    [announce, projectId, updateStatus],
+    [announce, projectId, readOnly, updateStatus],
   );
 
   // Drop into a `${phaseId}:${status}` grid cell — the status move, plus the
@@ -2521,6 +2527,11 @@ export function BoardView() {
   // mode) and the sprint-view assignment that ride with it.
   const dropOnCell = useCallback(
     (task: Task, cellId: string) => {
+      // Same read-only defense in depth as `dropOnBacklogBand` above: a
+      // backlog card dragged onto a phase cell (promote-by-drag, #2680) must
+      // not fire the status PATCH for a Viewer or on a closed sprint, even
+      // though `BacklogCard`'s drag is already disabled at the source.
+      if (readOnly) return;
       const [newPhaseId, newStatus] = cellId.split(':');
       if (!newStatus) return;
       // #2681: re-parenting used to be gated on workshopMode, so a cross-phase
@@ -2593,6 +2604,7 @@ export function BoardView() {
       guardWipThenMove,
       iterationLabel,
       projectId,
+      readOnly,
       selectedSprint,
       updateStatus,
     ],

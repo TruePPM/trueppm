@@ -172,6 +172,10 @@ export interface BacklogCardProps {
    *  ScheduleTaskDialog. The card passes its own `···` button as the trigger so
    *  focus can be returned on close. When omitted, the action is not rendered. */
   onSchedule?: (task: Task, trigger: HTMLElement) => void;
+  /** Below MEMBER (a Viewer) or on a closed sprint (#2680): disables the
+   *  drag-to-promote gesture, mirroring `BoardCard`'s `readOnly` handling. The
+   *  card stays click-to-open — only the drag activator is dropped. */
+  readOnly?: boolean;
 }
 
 function ownerInitialsFromTask(task: Task): string | null {
@@ -231,6 +235,7 @@ export function BacklogCard({
   onFocus,
   onClick,
   onSchedule,
+  readOnly = false,
 }: BacklogCardProps) {
   const initials = ownerInitialsFromTask(task);
   const readiness: TaskReadiness = task.readiness ?? 'idea';
@@ -241,10 +246,23 @@ export function BacklogCard({
   // handleDragEnd reads active.id == task.id). The pointer activation here
   // is what BoardCard uses too; dnd-kit owns pointerDown, so the focus
   // tracker rides on the React onFocus event instead of onPointerDown.
+  //
+  // `disabled: readOnly` closes the drag-to-promote path for a Viewer or a
+  // closed sprint (#2680) — it was the one write path on this board that
+  // didn't check `readOnly`, so a read-only user could still fire the status
+  // PATCH by dragging a card out of the rail.
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
+    disabled: readOnly,
   });
   const dragOpacity = isDragging ? 'opacity-60' : '';
+
+  // Mirrors `BoardCard` (#2146): dnd-kit clears `listeners` when disabled but
+  // its `attributes` still carry `role="button"` + `aria-disabled="true"`,
+  // which would make the card read as not-enabled to keyboard/AT users and to
+  // Playwright even though it stays click-to-open. Drop the drag attributes
+  // entirely when read-only instead of letting them announce a disabled state.
+  const dragProps = readOnly ? {} : { ...attributes, ...listeners };
 
   if (density === 'compact') {
     return (
@@ -257,9 +275,8 @@ export function BacklogCard({
           }`}
           onFocus={onFocus}
           onClick={(e) => onClick(e.currentTarget)}
-          {...attributes}
-          {...listeners}
-          className={`flex w-full items-center gap-2 rounded-control border border-neutral-border bg-neutral-surface px-2.5 py-1.5 text-left cursor-grab focus:outline-none ${onSchedule ? 'pr-7' : ''} ${focusRing} ${dragOpacity}`}
+          {...dragProps}
+          className={`flex w-full items-center gap-2 rounded-control border border-neutral-border bg-neutral-surface px-2.5 py-1.5 text-left focus:outline-none ${readOnly ? 'cursor-default' : 'cursor-grab'} ${onSchedule ? 'pr-7' : ''} ${focusRing} ${dragOpacity}`}
         >
           <PriorityDot rank={task.priorityRank} />
           <span
@@ -287,9 +304,8 @@ export function BacklogCard({
         }`}
         onFocus={onFocus}
         onClick={(e) => onClick(e.currentTarget)}
-        {...attributes}
-        {...listeners}
-        className={`flex w-full flex-col gap-1.5 rounded-card border border-neutral-border bg-neutral-surface px-3 py-2.5 text-left cursor-grab focus:outline-none ${focusRing} ${dragOpacity}`}
+        {...dragProps}
+        className={`flex w-full flex-col gap-1.5 rounded-card border border-neutral-border bg-neutral-surface px-3 py-2.5 text-left focus:outline-none ${readOnly ? 'cursor-default' : 'cursor-grab'} ${focusRing} ${dragOpacity}`}
         style={{ borderLeft: `3px solid ${phaseColor}` }}
       >
         <div className="flex items-center gap-1.5">
@@ -396,8 +412,9 @@ export interface BacklogBandProps {
   isCaptureIdeaPending?: boolean;
   /** Below MEMBER (a Viewer) or on a closed sprint (#2146): the rail is a
    *  read-only pile — the inline quick-capture field and the "Add with details…"
-   *  button are both suppressed. Cards remain openable and draggable read state
-   *  is unaffected. */
+   *  button are both suppressed, and cards are no longer draggable (#2680;
+   *  drag was the one write path that didn't check this flag). Cards remain
+   *  openable — clicking one still opens the read-only detail view. */
   readOnly?: boolean;
   /** ⌘K handoff (issue 1609) — opens the global command palette. Wired in
    *  BoardView to `useCommandPaletteStore`; kept as a prop so the rail stays
@@ -764,6 +781,7 @@ export function BacklogBand({
                   onFocus={() => onCardFocus(task.id, task.status, task.parentId ?? 'root')}
                   onClick={(anchor) => onCardClick(task, anchor)}
                   onSchedule={onSchedule}
+                  readOnly={readOnly}
                 />
               </div>
             );
