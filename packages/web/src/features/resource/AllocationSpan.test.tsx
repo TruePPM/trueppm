@@ -16,6 +16,7 @@ function makeTask(overrides: Partial<AllocationTask> = {}): AllocationTask {
     name: 'Draft SOW',
     early_start: '2026-04-01',
     early_finish: '2026-04-10',
+    scheduled_start: '2026-04-01',
     units: '0.50',
     status: 'IN_PROGRESS',
     ...overrides,
@@ -56,5 +57,22 @@ describe('AllocationSpan — partial-allocation stripe (#1914)', () => {
     renderSpan('normal');
     const btn = screen.getByRole('button');
     expect(btn.style.backgroundImage).toBe('');
+  });
+});
+
+describe('AllocationSpan — SPAN start in tooltip/aria-label (#2677, ADR-0752)', () => {
+  it('shows scheduled_start, not the narrowed early_start, for an in-progress task', () => {
+    // early_start has narrowed to the remaining-work window; scheduled_start
+    // still carries the real span start.
+    renderSpan('normal', { early_start: '2026-04-08', scheduled_start: '2026-04-01' });
+    const btn = screen.getByRole('button');
+    expect(btn.title).toContain('2026-04-01 – 2026-04-10');
+    expect(btn.getAttribute('aria-label')).toContain('2026-04-01 to 2026-04-10');
+  });
+
+  it('falls back to early_start when scheduled_start is null', () => {
+    renderSpan('normal', { early_start: '2026-04-01', scheduled_start: null });
+    const btn = screen.getByRole('button');
+    expect(btn.title).toContain('2026-04-01 – 2026-04-10');
   });
 });

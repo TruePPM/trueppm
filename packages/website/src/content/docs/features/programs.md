@@ -179,6 +179,11 @@ role or higher, so you can't pick one that would be rejected when you submit.
   above their capacity. Read-only and visible to Schedulers and above. It shows
   contention; it does not level resources or cross a program boundary —
   cross-program leveling and the portfolio heat map remain TruePPM Enterprise.
+  Each task's contention window is its **span** (`scheduled_start` through
+  finish), not the narrower remaining-work window an in-progress task's start
+  date shrinks toward as it nears completion — reporting progress does not
+  make a person's allocation, or their contention with a sibling project,
+  disappear.
 - **Members** — manage program-level membership. Roles use the same 5-role
   model as projects: Viewer, Team Member, Resource Manager, Project Manager,
   Project Admin (Owner).

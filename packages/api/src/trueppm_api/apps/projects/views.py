@@ -381,9 +381,17 @@ def _resolve_allocation_window(request: Request, tasks: Any) -> tuple[datetime.d
     """Resolve the ``[start, end]`` allocation window from the ?start/?end params.
 
     Either bound falls back to the CPM span of ``tasks`` when not supplied — the
-    earliest ``early_start`` and the latest ``early_finish``. ``tasks`` is a task
-    queryset the caller has already scoped (to one project, or to every member
-    project of a program) and filtered to non-deleted rows.
+    earliest task SPAN start (``scheduled_start``, ADR-0752, falling back to
+    ``early_start`` via ``Coalesce`` for rows a CPM run has not yet populated it
+    on) and the latest ``early_finish`` (identically ``scheduled_finish`` in
+    every task state, per ADR-0752 §2, so it needs no fallback). ``tasks`` is a
+    task queryset the caller has already scoped (to one project, or to every
+    member project of a program) and filtered to non-deleted rows.
+
+    Windowed on the span rather than ``early_start`` alone (#2677) — since
+    ADR-0132, ``early_start`` is an in-progress task's *remaining-work* window
+    and narrows toward ``early_finish`` as ``percent_complete`` rises, which
+    would otherwise default the window later than the task's real start.
 
     Shared by the per-project allocation endpoint (#85) and its program-scoped
     contention counterpart (#1149) so the two window semantics cannot drift.
@@ -393,6 +401,9 @@ def _resolve_allocation_window(request: Request, tasks: Any) -> tuple[datetime.d
         _ScheduleNotComputedError: no start was supplied and no task has an
             ``early_start`` to default to.
     """
+    from django.db.models import DateField
+    from django.db.models.functions import Coalesce
+
     start_str = request.query_params.get("start")
     end_str = request.query_params.get("end")
 
@@ -401,8 +412,11 @@ def _resolve_allocation_window(request: Request, tasks: Any) -> tuple[datetime.d
     else:
         first = (
             tasks.filter(early_start__isnull=False)
-            .order_by("early_start")
-            .values_list("early_start", flat=True)
+            .annotate(
+                _span_start=Coalesce("scheduled_start", "early_start", output_field=DateField())
+            )
+            .order_by("_span_start")
+            .values_list("_span_start", flat=True)
             .first()
         )
         if first is None:
@@ -2377,8 +2391,9 @@ class ProjectViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description=(
-                    "Window start, ISO 8601 YYYY-MM-DD. Defaults to the earliest "
-                    "early_start across all tasks; returns 409 if no CPM dates exist."
+                    "Window start, ISO 8601 YYYY-MM-DD. Defaults to the earliest task "
+                    "SPAN start (scheduled_start, ADR-0752, falling back to early_start) "
+                    "across all tasks; returns 409 if no CPM dates exist."
                 ),
             ),
             OpenApiParameter(
@@ -2415,7 +2430,13 @@ class ProjectViewSet(
                     "Per-resource task spans within the window: "
                     "{project_id, window_start, window_end, resources: "
                     "[{id, name, email, max_units, tasks: [{assignment_id, id, "
-                    "name, early_start, early_finish, units, status}]}]}."
+                    "name, early_start, early_finish, scheduled_start, units, "
+                    "status}]}]}. scheduled_start (ADR-0752) is the task's SPAN "
+                    "start — early_start narrows toward early_finish as an "
+                    "in-progress task's percent_complete rises, so the client "
+                    "renders the span (scheduled_start..early_finish), falling "
+                    "back to early_start when scheduled_start is null (not yet "
+                    "recalculated)."
                 ),
             ),
             409: OpenApiResponse(
@@ -2429,20 +2450,36 @@ class ProjectViewSet(
         """Per-resource task spans for the allocation timeline view (issue #85).
 
         Returns each resource assigned to the project with their task spans
-        (early_start / early_finish / units / status) within the requested window.
-        Resources with no assignments in the window are excluded.
+        (early_start / early_finish / scheduled_start / units / status) within
+        the requested window. Resources with no assignments in the window are
+        excluded.
+
+        Windowed and rendered on the task's SPAN
+        (``scheduled_start``..``early_finish``, ADR-0752), not on
+        ``early_start``..``early_finish`` (#2677). Since ADR-0132, ``early_start``
+        is the *remaining-work* window for an in-progress task — it shrinks
+        toward ``early_finish`` as ``percent_complete`` rises. Windowing/rendering
+        on it made reporting progress look like the allocation bar shrinking or
+        dropping off the timeline entirely, mirroring the utilization heat map
+        defect fixed in #2623. ``scheduled_start`` falls back to ``early_start``
+        via ``Coalesce`` for rows a CPM run has not yet populated it on — where
+        the two windows coincide anyway for not-started and complete tasks.
 
         Overallocation detection is intentionally client-side: the caller receives
         all spans and computes daily unit sums against max_units. See ADR-0031.
 
         Query parameters:
           start    (YYYY-MM-DD, optional) — window start; defaults to earliest
-                   early_start across all tasks. Returns 409 if no CPM dates exist.
+                   task span start across all tasks. Returns 409 if no CPM dates
+                   exist.
           end      (YYYY-MM-DD, optional) — window end; defaults to latest
                    early_finish across all tasks.
           resource (UUID, optional, repeatable) — filter to specific resource IDs.
           status   (string, optional, repeatable) — filter tasks by status value.
         """
+        from django.db.models import DateField
+        from django.db.models.functions import Coalesce
+
         from trueppm_api.apps.resources.models import TaskResource
 
         project = self.get_object()
@@ -2471,12 +2508,21 @@ class ProjectViewSet(
         # --- Single query: all assignments for this project in the window ---
         # Tasks with null early_start / early_finish are included (unscheduled);
         # the client renders them in the "Unscheduled" section.
+        # _span_start (ADR-0752 / #2677): the task's SPAN start, not the
+        # remaining-work window early_start narrows to as percent_complete
+        # rises. See utilization.py's identical annotation (#2623) for the
+        # full rationale.
         qs = (
             TaskResource.objects.filter(
                 task__project=project,
                 task__is_deleted=False,
             )
             .select_related("resource", "task")
+            .annotate(
+                _span_start=Coalesce(
+                    "task__scheduled_start", "task__early_start", output_field=DateField()
+                )
+            )
             .order_by("resource__name", "task__early_start")
         )
 
@@ -2487,8 +2533,8 @@ class ProjectViewSet(
             qs = qs.filter(task__status__in=status_filters)
 
         # Exclude tasks that are completely outside the window (both dates not null
-        # and finish < window_start or start > window_end). Tasks with null dates
-        # are retained for the unscheduled section.
+        # and finish < window_start or SPAN start > window_end). Tasks with null
+        # dates are retained for the unscheduled section.
         qs = qs.exclude(
             task__early_finish__isnull=False,
             task__early_start__isnull=False,
@@ -2496,7 +2542,7 @@ class ProjectViewSet(
         ).exclude(
             task__early_finish__isnull=False,
             task__early_start__isnull=False,
-            task__early_start__gt=window_end,
+            _span_start__gt=window_end,
         )
 
         # --- Build response grouped by resource ---
@@ -2520,6 +2566,13 @@ class ProjectViewSet(
                     "name": task.name,
                     "early_start": task.early_start.isoformat() if task.early_start else None,
                     "early_finish": task.early_finish.isoformat() if task.early_finish else None,
+                    # ADR-0752: the task's SPAN start, read-only CPM output.
+                    # Null until the next recalculation after upgrade; the
+                    # client falls back to early_start (same fallback the
+                    # Coalesce above applies server-side for windowing).
+                    "scheduled_start": task.scheduled_start.isoformat()
+                    if task.scheduled_start
+                    else None,
                     "units": str(assignment.units),
                     "status": task.status,
                 }

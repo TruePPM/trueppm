@@ -13,6 +13,7 @@ import {
   detectOverallocationWeekRange,
   isoWeekNumber,
   fitToAllocationWindow,
+  taskSpanStart,
   parseUTCDate,
   formatISODate,
   isoWeekMonday,
@@ -24,14 +25,29 @@ import type { AllocationTask, AllocationResponse } from './resourceUtils';
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * `scheduled_start` defaults to `early_start` — the two windows coincide for
+ * not-started/complete tasks (ADR-0752 §2), so every pre-existing call below
+ * is unaffected. Pass it explicitly to test the in-progress-narrowing case.
+ */
 function makeTask(
   id: string,
   early_start: string | null,
   early_finish: string | null,
   units: string,
   status: AllocationTask['status'] = 'NOT_STARTED',
+  scheduled_start: string | null = early_start,
 ): AllocationTask {
-  return { assignment_id: id, id, name: `Task ${id}`, early_start, early_finish, units, status };
+  return {
+    assignment_id: id,
+    id,
+    name: `Task ${id}`,
+    early_start,
+    early_finish,
+    scheduled_start,
+    units,
+    status,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -100,10 +116,7 @@ describe('detectOverallocatedAssignments', () => {
   });
 
   it('tasks with null early_start or early_finish are ignored', () => {
-    const tasks = [
-      makeTask('a1', null, null, '1.50'),
-      makeTask('a2', '2026-03-02', null, '1.50'),
-    ];
+    const tasks = [makeTask('a1', null, null, '1.50'), makeTask('a2', '2026-03-02', null, '1.50')];
     // No scheduled spans → nothing to overallocate
     expect(detectOverallocatedAssignments(tasks, 1.0).size).toBe(0);
   });
@@ -242,5 +255,99 @@ describe('detectOverallocationWeekRange', () => {
       makeTask('a2', '2026-04-27', '2026-05-03', '0.50'),
     ];
     expect(detectOverallocationWeekRange(tasks, 1.0)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #2677 / ADR-0752 — SPAN start (scheduled_start), not the narrowed
+// remaining-work window (early_start), drives windowing and rendering.
+// ---------------------------------------------------------------------------
+
+describe('taskSpanStart', () => {
+  it('prefers scheduled_start over early_start', () => {
+    const task = makeTask('a1', '2026-04-08', '2026-04-10', '1.00', 'IN_PROGRESS', '2026-04-01');
+    expect(taskSpanStart(task)).toBe('2026-04-01');
+  });
+
+  it('falls back to early_start when scheduled_start is null', () => {
+    const task = makeTask('a1', '2026-04-01', '2026-04-10', '1.00', 'NOT_STARTED', null);
+    expect(taskSpanStart(task)).toBe('2026-04-01');
+  });
+
+  it('returns null when both are null (unscheduled)', () => {
+    const task = makeTask('a1', null, null, '1.00', 'NOT_STARTED', null);
+    expect(taskSpanStart(task)).toBeNull();
+  });
+});
+
+describe('detectOverallocatedAssignments — SPAN start, not remaining-work window (#2677)', () => {
+  it('an in-progress task whose remaining window has narrowed to a single day still counts its full span', () => {
+    // Remaining window (early_start) is Apr 6 only; the real span
+    // (scheduled_start) is Apr 1–6. Paired with a second task covering the
+    // same span, the overlap must be detected across the full span, not just
+    // the narrowed single day.
+    const tasks = [
+      makeTask('a1', '2026-04-06', '2026-04-06', '0.75', 'IN_PROGRESS', '2026-04-01'),
+      makeTask('a2', '2026-04-01', '2026-04-06', '0.75'),
+    ];
+    const result = detectOverallocatedAssignments(tasks, 1.0);
+    expect(result.has('a1')).toBe(true);
+    expect(result.has('a2')).toBe(true);
+  });
+
+  it('pre-fix behavior would have missed the overlap entirely — regression guard', () => {
+    // Same inputs as above, but reasoning through what early_start ALONE
+    // would have produced: a1's remaining window is a single day (Apr 6)
+    // that does not overlap a2's Apr 1-5 portion, so the combined load on
+    // Apr 1-5 would never reach a2's own 0.75 (never exceeding 1.0) UNLESS
+    // a1's full span is counted on those days too.
+    const tasks = [
+      makeTask('a2', '2026-04-01', '2026-04-05', '0.75'),
+      makeTask('a1', '2026-04-06', '2026-04-06', '0.75', 'IN_PROGRESS', '2026-04-01'),
+    ];
+    // a1's SPAN (Apr 1-6) overlaps a2 (Apr 1-5) at 0.75 + 0.75 = 1.5 > 1.0
+    const result = detectOverallocatedAssignments(tasks, 1.0);
+    expect(result.has('a1')).toBe(true);
+    expect(result.has('a2')).toBe(true);
+  });
+});
+
+describe('detectOverallocationWeekRange — SPAN start, not remaining-work window (#2677)', () => {
+  it('flags the week the SPAN falls in even when the remaining window has narrowed past it', () => {
+    // Remaining window (early_start) is May 3 only (W18); the real span
+    // (scheduled_start) starts Apr 27 (also W18) — same week here, so this
+    // asserts the span is what's actually walked rather than assuming it.
+    const tasks = [
+      makeTask('a1', '2026-05-03', '2026-05-03', '0.80', 'IN_PROGRESS', '2026-04-27'),
+      makeTask('a2', '2026-04-27', '2026-05-03', '0.50'),
+    ];
+    expect(detectOverallocationWeekRange(tasks, 1.0)).toBe('W18');
+  });
+});
+
+describe('fitToAllocationWindow — SPAN start, not remaining-work window (#2677)', () => {
+  it('expands to the SPAN start (scheduled_start), not the narrowed early_start', () => {
+    // projectStartDate (Mar 15) sits BETWEEN the narrowed early_start (Mar 20)
+    // and the real span start (Mar 10), so the two produce different results:
+    // early_start alone would never pull minStart earlier than Mar 15.
+    const data: AllocationResponse = {
+      project_id: 'proj-1',
+      window_start: '2026-03-15',
+      window_end: '2026-03-31',
+      resources: [
+        {
+          id: 'r1',
+          name: 'Alice',
+          email: 'alice@example.com',
+          max_units: '1.00',
+          tasks: [
+            // Remaining window (early_start) is Mar 20; real span starts Mar 10.
+            makeTask('a1', '2026-03-20', '2026-03-20', '1.00', 'IN_PROGRESS', '2026-03-10'),
+          ],
+        },
+      ],
+    };
+    const win = fitToAllocationWindow('2026-03-15', data);
+    expect(win.start).toBe(formatISODate(isoWeekMonday(parseUTCDate('2026-03-10'))));
   });
 });

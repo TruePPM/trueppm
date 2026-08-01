@@ -416,10 +416,18 @@ successful `PATCH` is audited automatically.
 member project of the program, each span tagged with its source project, so the
 client can surface people over-allocated across sibling projects in overlapping
 windows. Overallocation detection is intentionally client-side. The window
-defaults to the earliest start and latest finish across member projects; it
+defaults to the earliest span start and latest finish across member projects; it
 returns `409` if no member project has a computed schedule yet, and `400` for an
 invalid date or a `start` after `end`. This is within-program visibility only —
 cross-program leveling and the portfolio heat map remain Enterprise.
+
+Each task span in `resource-contention` (and the per-project
+`resource-allocation` it mirrors) windows and renders on `scheduled_start`
+through `early_finish` — the task's **span** — not `early_start` through
+`early_finish`, the narrower *remaining-work* window `early_start` shrinks
+toward as an in-progress task's `percent_complete` rises (ADR-0752). `early_start`
+is still returned for tasks CPM has not populated `scheduled_start` on yet, in
+which case the client falls back to it.
 
 Program `split` is a **planned** endpoint that validates the request payload and
 the caller's Owner role, then returns `501 Not Implemented` with a `detail`

@@ -1265,8 +1265,9 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description=(
-                    "Window start (ISO 8601 `YYYY-MM-DD`). Defaults to the earliest "
-                    "`early_start` across all member projects."
+                    "Window start (ISO 8601 `YYYY-MM-DD`). Defaults to the earliest task "
+                    "SPAN start (`scheduled_start`, ADR-0752, falling back to "
+                    "`early_start`) across all member projects."
                 ),
             ),
             OpenApiParameter(
@@ -1303,10 +1304,14 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                     "{program_id, window_start, window_end, resources}. Each resource is "
                     "{id, name, email, max_units, tasks[]} and each task span is "
                     "{assignment_id, id, name, project_id, project_name, early_start, "
-                    "early_finish, units, status} — aggregated across every member project "
-                    "of the program and tagged with its source project, so a caller can "
-                    "surface people over-allocated across sibling projects in overlapping "
-                    "windows. Overallocation detection stays client-side per ADR-0031."
+                    "early_finish, scheduled_start, units, status} — aggregated across "
+                    "every member project of the program and tagged with its source "
+                    "project, so a caller can surface people over-allocated across "
+                    "sibling projects in overlapping windows. scheduled_start "
+                    "(ADR-0752) is the task's SPAN start; the client renders "
+                    "scheduled_start..early_finish, falling back to early_start when "
+                    "scheduled_start is null. Overallocation detection stays "
+                    "client-side per ADR-0031."
                 ),
             ),
             400: OpenApiResponse(
@@ -1331,14 +1336,26 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         client-side (ADR-0031): the caller receives the merged spans and sums daily units
         against each resource's ``max_units``.
 
+        Windowed and rendered on the task's SPAN (``scheduled_start``..``early_finish``,
+        ADR-0752), not on ``early_start``..``early_finish`` (#2677) — the same defect
+        fixed for ``ProjectViewSet.resource_allocation`` and for the utilization heat map
+        (#2623): since ADR-0132, ``early_start`` is the *remaining-work* window for an
+        in-progress task and narrows toward ``early_finish`` as ``percent_complete``
+        rises, which would otherwise misreport cross-project contention as work is
+        reported. ``scheduled_start`` falls back to ``early_start`` via ``Coalesce`` for
+        rows a CPM run has not yet populated it on.
+
         Query parameters mirror the per-project endpoint:
           start    (YYYY-MM-DD, optional) — window start; defaults to the earliest
-                   early_start across all member projects. Returns 409 if no member
-                   project has CPM dates yet.
+                   task span start across all member projects. Returns 409 if no
+                   member project has CPM dates yet.
           end      (YYYY-MM-DD, optional) — window end; defaults to the latest early_finish.
           resource (UUID, optional, repeatable) — filter to specific resource IDs.
           status   (string, optional, repeatable) — filter tasks by status value.
         """
+        from django.db.models import DateField
+        from django.db.models.functions import Coalesce
+
         from trueppm_api.apps.projects.mcp_settings import mcp_excluded_project_ids
         from trueppm_api.apps.resources.models import TaskResource
 
@@ -1387,12 +1404,20 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         # --- Single query: all assignments across member projects in the window ---
         # Tasks with null CPM dates are retained (unscheduled); the client renders
         # them outside the contention math, mirroring the per-project endpoint.
+        # _span_start (ADR-0752 / #2677): the task's SPAN start, not the
+        # remaining-work window early_start narrows to as percent_complete
+        # rises. Mirrors the per-project resource_allocation annotation.
         qs = (
             TaskResource.objects.filter(
                 task__project_id__in=member_project_ids,
                 task__is_deleted=False,
             )
             .select_related("resource", "task", "task__project")
+            .annotate(
+                _span_start=Coalesce(
+                    "task__scheduled_start", "task__early_start", output_field=DateField()
+                )
+            )
             .order_by("resource__name", "task__project__name", "task__early_start")
         )
 
@@ -1409,7 +1434,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         ).exclude(
             task__early_finish__isnull=False,
             task__early_start__isnull=False,
-            task__early_start__gt=window_end,
+            _span_start__gt=window_end,
         )
 
         # --- Build response grouped by resource, each span tagged with its project ---
@@ -1435,6 +1460,13 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                     "project_name": task.project.name,
                     "early_start": task.early_start.isoformat() if task.early_start else None,
                     "early_finish": task.early_finish.isoformat() if task.early_finish else None,
+                    # ADR-0752: the task's SPAN start, read-only CPM output.
+                    # Null until the next recalculation after upgrade; the
+                    # client falls back to early_start (same fallback the
+                    # Coalesce above applies server-side for windowing).
+                    "scheduled_start": task.scheduled_start.isoformat()
+                    if task.scheduled_start
+                    else None,
                     "units": str(assignment.units),
                     "status": task.status,
                 }

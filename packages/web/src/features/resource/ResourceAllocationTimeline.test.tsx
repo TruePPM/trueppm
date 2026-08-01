@@ -10,11 +10,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
 import { ResourceAllocationTimeline } from './ResourceAllocationTimeline';
-import type {
-  AllocationResource,
-  AllocationResponse,
-  AllocationTask,
-} from './resourceUtils';
+import type { AllocationResource, AllocationResponse, AllocationTask } from './resourceUtils';
 
 // `todayISO()` reads the wall clock. Pin it through a partial module mock rather
 // than fake timers so the async popover assertions below keep a real event loop.
@@ -32,12 +28,19 @@ vi.mock('@/api/client', () => ({ apiClient: { patch: patchMock } }));
 // ---------------------------------------------------------------------------
 
 function task(overrides: Partial<AllocationTask> = {}): AllocationTask {
+  // scheduled_start defaults to whichever early_start this call resolves to
+  // (not-started/complete windows coincide, ADR-0752 §2) so pre-existing
+  // overrides that only touch early_start/early_finish stay geometrically
+  // correct. Pass scheduled_start explicitly to test the in-progress
+  // narrowing case (#2677).
+  const early_start = 'early_start' in overrides ? overrides.early_start! : '2026-04-06';
   return {
     assignment_id: 'assign-1',
     id: 'task-1',
     name: 'Draft the charter',
-    early_start: '2026-04-06',
+    early_start,
     early_finish: '2026-04-10',
+    scheduled_start: early_start,
     units: '1.00',
     status: 'IN_PROGRESS',
     ...overrides,
@@ -230,13 +233,42 @@ describe('ResourceAllocationTimeline — span geometry', () => {
         resource({
           tasks: [
             task(),
-            task({ assignment_id: 'assign-2', id: 't2', name: 'Half-scheduled', early_finish: null }),
+            task({
+              assignment_id: 'assign-2',
+              id: 't2',
+              name: 'Half-scheduled',
+              early_finish: null,
+            }),
           ],
         }),
       ]),
     });
     expect(container.querySelector('[data-assignment-id="assign-1"]')).not.toBeNull();
     expect(container.querySelector('[data-assignment-id="assign-2"]')).toBeNull();
+  });
+
+  it('positions the bar from the SPAN start (scheduled_start), not the narrowed early_start (#2677, ADR-0752)', () => {
+    // early_start has narrowed to the remaining-work window (day 20 only);
+    // scheduled_start still carries the real span start (day 11), matching
+    // the fully-contained-span test above.
+    const { container } = renderTimeline({
+      data: response([
+        resource({
+          tasks: [
+            task({
+              early_start: '2026-04-20',
+              early_finish: '2026-04-20',
+              scheduled_start: '2026-04-11',
+            }),
+          ],
+        }),
+      ]),
+    });
+    const wrapper = spanWrapper(container, 'assign-1');
+    // Same geometry as the "fully-contained span" test: day 11 of 30 → 10/30
+    // offset; span runs day 11–20 → 10/30 wide.
+    expect(wrapper.style.left).toMatch(/^33\.3/);
+    expect(wrapper.style.width).toMatch(/^33\.3/);
   });
 });
 
@@ -250,7 +282,9 @@ describe('ResourceAllocationTimeline — span variants', () => {
       data: response([resource({ max_units: '2.00', tasks: [task({ units: '1.00' })] })]),
     });
     const button = screen.getByRole('button', { name: /Edit allocation for Draft the charter/ });
-    expect(button).toHaveAccessibleName('Edit allocation for Draft the charter, 100%, 2026-04-06 to 2026-04-10');
+    expect(button).toHaveAccessibleName(
+      'Edit allocation for Draft the charter, 100%, 2026-04-06 to 2026-04-10',
+    );
     expect(button.style.backgroundImage).toBe('');
     expect(button.className).toContain('bg-brand-primary');
   });
@@ -269,7 +303,10 @@ describe('ResourceAllocationTimeline — span variants', () => {
       data: response([
         resource({
           max_units: '1.00',
-          tasks: [task({ units: '1.00' }), task({ assignment_id: 'assign-2', id: 't2', units: '1.00' })],
+          tasks: [
+            task({ units: '1.00' }),
+            task({ assignment_id: 'assign-2', id: 't2', units: '1.00' }),
+          ],
         }),
       ]),
     });
@@ -306,9 +343,13 @@ describe('ResourceAllocationTimeline — span variants', () => {
 
 describe('ResourceAllocationTimeline — row header', () => {
   it('shows availability with no overallocation affordances for a healthy resource', () => {
-    renderTimeline({ data: response([resource({ max_units: '0.50', tasks: [task({ units: '0.25' })] })]) });
+    renderTimeline({
+      data: response([resource({ max_units: '0.50', tasks: [task({ units: '0.25' })] })]),
+    });
     expect(screen.getByText('50% available')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Jump to first overallocation/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Jump to first overallocation/ }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText(/overallocated ·/)).not.toBeInTheDocument();
   });
 
@@ -317,7 +358,10 @@ describe('ResourceAllocationTimeline — row header', () => {
       data: response([
         resource({
           max_units: '1.00',
-          tasks: [task({ units: '1.00' }), task({ assignment_id: 'assign-2', id: 't2', units: '1.00' })],
+          tasks: [
+            task({ units: '1.00' }),
+            task({ assignment_id: 'assign-2', id: 't2', units: '1.00' }),
+          ],
         }),
       ]),
     });
@@ -360,7 +404,10 @@ describe('ResourceAllocationTimeline — row header', () => {
       data: response([
         resource({
           max_units: '1.00',
-          tasks: [task({ units: '1.00' }), task({ assignment_id: 'assign-2', id: 't2', units: '1.00' })],
+          tasks: [
+            task({ units: '1.00' }),
+            task({ assignment_id: 'assign-2', id: 't2', units: '1.00' }),
+          ],
         }),
       ]),
     });
@@ -378,7 +425,11 @@ describe('ResourceAllocationTimeline — row header', () => {
     renderTimeline({
       data: response([
         resource({ id: 'res-1', name: 'Ada Lovelace' }),
-        resource({ id: 'res-2', name: 'Grace Hopper', tasks: [task({ assignment_id: 'assign-2' })] }),
+        resource({
+          id: 'res-2',
+          name: 'Grace Hopper',
+          tasks: [task({ assignment_id: 'assign-2' })],
+        }),
       ]),
       currentUserResourceId: 'res-1',
     });
@@ -408,7 +459,12 @@ describe('ResourceAllocationTimeline — unscheduled assignments', () => {
   it('uses the singular noun for exactly one unscheduled assignment', () => {
     renderTimeline({
       data: response([
-        resource({ tasks: [task(), unscheduledTask({ assignment_id: 'assign-2', name: 'Kickoff', units: '0.50' })] }),
+        resource({
+          tasks: [
+            task(),
+            unscheduledTask({ assignment_id: 'assign-2', name: 'Kickoff', units: '0.50' }),
+          ],
+        }),
       ]),
     });
     expect(
@@ -455,7 +511,9 @@ describe('ResourceAllocationTimeline — unscheduled assignments', () => {
   it('offers the Run scheduler action only when a handler is supplied', () => {
     const onRunScheduler = vi.fn();
     const data = response([
-      resource({ tasks: [task(), unscheduledTask({ assignment_id: 'assign-2', name: 'Kickoff' })] }),
+      resource({
+        tasks: [task(), unscheduledTask({ assignment_id: 'assign-2', name: 'Kickoff' })],
+      }),
     ]);
 
     const { unmount } = renderTimeline({ data, onRunScheduler });
@@ -491,7 +549,10 @@ describe('ResourceAllocationTimeline — screen-reader summary', () => {
       data: response([
         resource({
           max_units: '1.00',
-          tasks: [task({ units: '1.00' }), task({ assignment_id: 'assign-2', id: 't2', units: '1.00' })],
+          tasks: [
+            task({ units: '1.00' }),
+            task({ assignment_id: 'assign-2', id: 't2', units: '1.00' }),
+          ],
         }),
         resource({
           id: 'res-2',

@@ -37,6 +37,7 @@ function contended(): ProgramContentionResponse {
             project_name: 'Security',
             early_start: '2026-07-13',
             early_finish: '2026-07-21',
+            scheduled_start: '2026-07-13',
             units: '1.00',
             status: 'IN_PROGRESS',
           },
@@ -48,6 +49,7 @@ function contended(): ProgramContentionResponse {
             project_name: 'SOC2',
             early_start: '2026-07-13',
             early_finish: '2026-07-20',
+            scheduled_start: '2026-07-13',
             units: '0.50',
             status: 'NOT_STARTED',
           },
@@ -92,11 +94,29 @@ describe('ProgramResourcesPage (#1149)', () => {
 
   it('shows an empty state when no one is staffed across projects', () => {
     mockResult = {
-      data: { program_id: 'prog-1', window_start: '2026-07-06', window_end: '2026-08-02', resources: [] },
+      data: {
+        program_id: 'prog-1',
+        window_start: '2026-07-06',
+        window_end: '2026-08-02',
+        resources: [],
+      },
       status: 'success',
       error: null,
     };
     render(<ProgramResourcesPage />);
     expect(screen.getByText(/No one is assigned across/)).toBeInTheDocument();
+  });
+
+  it('renders the SPAN start (scheduled_start), not the narrowed early_start, for an in-progress task (#2677)', () => {
+    // Remaining window (early_start) has narrowed to Jul 20 only; the real
+    // span (scheduled_start) starts Jul 13 — the same span the "Remediate
+    // criticals" task above renders, so the two dates the component would
+    // otherwise render (narrowed vs. real) are visibly different.
+    const data = contended();
+    data.resources[0].tasks[0].early_start = '2026-07-20';
+    data.resources[0].tasks[0].scheduled_start = '2026-07-13';
+    mockResult = { data, status: 'success', error: null };
+    render(<ProgramResourcesPage />);
+    expect(screen.getByText(/Jul 13.*Jul 21/)).toBeInTheDocument();
   });
 });

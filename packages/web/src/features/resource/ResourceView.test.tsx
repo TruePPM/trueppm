@@ -49,12 +49,17 @@ vi.mock('@/hooks/useTriggerScheduler', () => ({
 // ---------------------------------------------------------------------------
 
 function allocTask(overrides: Partial<AllocationTask> = {}): AllocationTask {
+  // scheduled_start defaults to whichever early_start this call resolves to
+  // (ADR-0752 §2), so pre-existing overrides that only touch
+  // early_start/early_finish stay correct.
+  const early_start = 'early_start' in overrides ? overrides.early_start! : '2026-01-06';
   return {
     assignment_id: 'assign-1',
     id: 'task-1',
     name: 'Draft the charter',
-    early_start: '2026-01-06',
+    early_start,
     early_finish: '2026-01-09',
+    scheduled_start: early_start,
     units: '1.00',
     status: 'IN_PROGRESS',
     ...overrides,

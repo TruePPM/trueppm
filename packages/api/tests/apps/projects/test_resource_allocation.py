@@ -24,7 +24,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Project, Task
+from trueppm_api.apps.projects.models import Calendar, Project, Task, TaskStatus
 from trueppm_api.apps.resources.models import Resource, TaskResource
 
 User = get_user_model()
@@ -323,3 +323,128 @@ def test_status_filter(project: Project, resource: Resource) -> None:
     task_names = [t["name"] for t in resp.json()["resources"][0]["tasks"]]
     assert "Started" in task_names
     assert "Done" not in task_names
+
+
+# ---------------------------------------------------------------------------
+# #2677 / ADR-0752 — the allocation timeline windows/serializes on the task's
+# SPAN, not the remaining-work window, so reporting progress does not shrink
+# or drop the allocation bar. Mirrors #2623's utilization fix.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestResourceAllocationUsesSpanNotRemainingWindow:
+    """Since ADR-0132, ``early_start`` is an in-progress task's *remaining-work*
+    window — it shrinks toward ``early_finish`` as ``percent_complete`` rises.
+    Windowing/serializing the allocation timeline on it made reporting progress
+    look like the bar shrinking or dropping off the timeline. These tests set
+    the CPM fields directly to the values the engine would produce at each
+    state — they do not run the scheduler — so they isolate the view's
+    windowing/serialization logic from engine correctness.
+    """
+
+    def setup_method(self) -> None:
+        self.cal = Calendar.objects.create(name="SpanCal", working_days=31, hours_per_day=8.0)
+        self.project = Project.objects.create(
+            name="SpanProj", start_date=date(2026, 3, 2), calendar=self.cal
+        )
+        self.resource = Resource.objects.create(name="Ivy", max_units=Decimal("1.00"))
+        self.client = _auth_client(Role.SCHEDULER, self.project)
+
+    def _assign(self, task: Task) -> None:
+        TaskResource.objects.create(task=task, resource=self.resource, units=Decimal("1.00"))
+
+    def _tasks(self, start: str = "2026-03-02", end: str = "2026-03-05") -> list[dict]:
+        resp = self.client.get(_url(self.project), {"start": start, "end": end})
+        assert resp.status_code == 200
+        resources = resp.json()["resources"]
+        return resources[0]["tasks"] if resources else []
+
+    def test_in_progress_task_stays_in_window_and_reports_scheduled_start(self) -> None:
+        """A 4-day task at 83% complete has a remaining window (early_start) of
+        a single day near early_finish, but its real SPAN (scheduled_start)
+        starts on day one. The task must remain in a window covering the full
+        span, and the response must carry scheduled_start so the client draws
+        the full bar rather than the shrunken remaining window."""
+        task = Task.objects.create(
+            project=self.project,
+            name="AlmostDone",
+            duration=4,
+            early_start=date(2026, 3, 5),  # remaining window: Thu only
+            early_finish=date(2026, 3, 5),
+            scheduled_start=date(2026, 3, 2),  # real span: Mon–Thu
+            actual_start=date(2026, 3, 2),
+            percent_complete=83,
+            status=TaskStatus.IN_PROGRESS,
+        )
+        self._assign(task)
+
+        tasks = self._tasks(start="2026-03-02", end="2026-03-05")
+        assert len(tasks) == 1
+        assert tasks[0]["name"] == "AlmostDone"
+        assert tasks[0]["scheduled_start"] == "2026-03-02"
+        assert tasks[0]["early_finish"] == "2026-03-05"
+
+    def test_task_dropped_by_remaining_window_alone_is_retained(self) -> None:
+        """Direct repro of the issue: an in-progress task whose remaining window
+        (early_start) has moved past the query end must still appear, because
+        its SPAN (scheduled_start) still overlaps the window — pre-fix, this
+        task would have been excluded entirely."""
+        task = Task.objects.create(
+            project=self.project,
+            name="MostlyDone",
+            duration=4,
+            early_start=date(2026, 3, 6),  # remaining window: outside 3/2..3/3
+            early_finish=date(2026, 3, 6),
+            scheduled_start=date(2026, 3, 2),  # real span starts inside the window
+            actual_start=date(2026, 3, 2),
+            percent_complete=90,
+            status=TaskStatus.IN_PROGRESS,
+        )
+        self._assign(task)
+
+        tasks = self._tasks(start="2026-03-02", end="2026-03-03")
+        assert [t["name"] for t in tasks] == ["MostlyDone"]
+
+    def test_missing_scheduled_start_falls_back_to_early_start(self) -> None:
+        """A task with no ``scheduled_start`` (not yet recalculated since the
+        ADR-0752 migration) must still be windowed correctly, falling back to
+        ``early_start`` — the pre-#2622 behavior — rather than being dropped,
+        and the response reports scheduled_start as null for the client's own
+        fallback."""
+        task = Task.objects.create(
+            project=self.project,
+            name="NotYetRecalculated",
+            duration=4,
+            early_start=date(2026, 3, 2),
+            early_finish=date(2026, 3, 5),
+            scheduled_start=None,
+            percent_complete=0,
+            status=TaskStatus.NOT_STARTED,
+        )
+        self._assign(task)
+
+        tasks = self._tasks()
+        assert [t["name"] for t in tasks] == ["NotYetRecalculated"]
+        assert tasks[0]["scheduled_start"] is None
+
+    def test_default_window_start_uses_span_not_remaining_window(self) -> None:
+        """With no ?start param, the default window start must derive from the
+        task's SPAN start, not its narrowed remaining-work start — otherwise an
+        in-progress task's own default window would exclude its own early days."""
+        task = Task.objects.create(
+            project=self.project,
+            name="InProgress",
+            duration=4,
+            early_start=date(2026, 3, 5),  # remaining window narrows to day 4
+            early_finish=date(2026, 3, 5),
+            scheduled_start=date(2026, 3, 2),  # real span starts on day 1
+            actual_start=date(2026, 3, 2),
+            percent_complete=83,
+            status=TaskStatus.IN_PROGRESS,
+        )
+        self._assign(task)
+
+        resp = self.client.get(_url(self.project))  # no start/end — defaults resolved
+        assert resp.status_code == 200
+        assert resp.json()["window_start"] == "2026-03-02"

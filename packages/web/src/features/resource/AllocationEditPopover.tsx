@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { AllocationTask } from './resourceUtils';
+import { taskSpanStart } from './resourceUtils';
 
 interface Props {
   assignmentId: string;
@@ -68,9 +69,15 @@ export function AllocationEditPopover({
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       if (e.shiftKey) {
-        if (document.activeElement === first) { e.preventDefault(); last?.focus(); }
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last?.focus();
+        }
       } else {
-        if (document.activeElement === last) { e.preventDefault(); first?.focus(); }
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first?.focus();
+        }
       }
     }
     document.addEventListener('keydown', trapFocus);
@@ -106,10 +113,11 @@ export function AllocationEditPopover({
     mutation.mutate(newUnits);
   }
 
+  // ADR-0752 / #2677: display the task's SPAN (scheduled_start..early_finish),
+  // not early_start's remaining-work window.
+  const spanStart = taskSpanStart(task);
   const dateRange =
-    task.early_start && task.early_finish
-      ? `${task.early_start} – ${task.early_finish}`
-      : 'Unscheduled';
+    spanStart && task.early_finish ? `${spanStart} – ${task.early_finish}` : 'Unscheduled';
 
   return (
     <div
@@ -144,13 +152,14 @@ export function AllocationEditPopover({
       )}
 
       {mutation.isError && (
-        <div className="text-xs text-semantic-critical mb-2">
-          Save failed — please try again.
-        </div>
+        <div className="text-xs text-semantic-critical mb-2">Save failed — please try again.</div>
       )}
 
       <div className="flex items-center gap-2 mb-3">
-        <label htmlFor={`alloc-input-${assignmentId}`} className="text-xs text-neutral-text-secondary">
+        <label
+          htmlFor={`alloc-input-${assignmentId}`}
+          className="text-xs text-neutral-text-secondary"
+        >
           Allocation
         </label>
         <input

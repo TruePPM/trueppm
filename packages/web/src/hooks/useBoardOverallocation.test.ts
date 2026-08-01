@@ -229,10 +229,20 @@ describe('useBoardOverallocation', () => {
         window_end: '2026-04-30',
         resources: [
           {
-            id: 'r1', name: 'Pat', email: '',
+            id: 'r1',
+            name: 'Pat',
+            email: '',
             max_units: '1.00',
             tasks: [
-              { assignment_id: 'a1', id: 't1', name: 'Work', early_start: '2026-04-01', early_finish: '2026-04-01', units: '1.2', status: 'IN_PROGRESS' as const },
+              {
+                assignment_id: 'a1',
+                id: 't1',
+                name: 'Work',
+                early_start: '2026-04-01',
+                early_finish: '2026-04-01',
+                units: '1.2',
+                status: 'IN_PROGRESS' as const,
+              },
             ],
           },
         ],
@@ -246,6 +256,90 @@ describe('useBoardOverallocation', () => {
     expect(result.current.threshold).toBe(1.0);
   });
 
+  it('flags a pair using the SPAN start (scheduled_start), not the narrowed early_start (#2677, ADR-0752)', () => {
+    // t1's remaining window (early_start) has narrowed to Apr 5 only; its real
+    // SPAN (scheduled_start) starts Apr 1 and still overlaps t2's Apr 3–7
+    // window. Pre-fix, walking early_start alone would miss the overlap on
+    // Apr 3–4 entirely and under-report the peak factor.
+    mocked.mockReturnValue({
+      data: {
+        project_id: 'p1',
+        window_start: '2026-04-01',
+        window_end: '2026-04-30',
+        resources: [
+          {
+            id: 'r1',
+            name: 'Pat',
+            email: '',
+            max_units: '1.00',
+            tasks: [
+              {
+                assignment_id: 'a1',
+                id: 't1',
+                name: 'Foundation',
+                early_start: '2026-04-05',
+                early_finish: '2026-04-05',
+                scheduled_start: '2026-04-01',
+                units: '0.60',
+                status: 'IN_PROGRESS' as const,
+              },
+              {
+                assignment_id: 'a2',
+                id: 't2',
+                name: 'Frame',
+                early_start: '2026-04-03',
+                early_finish: '2026-04-07',
+                scheduled_start: '2026-04-03',
+                units: '0.60',
+                status: 'IN_PROGRESS' as const,
+              },
+            ],
+          },
+        ],
+      },
+      status: 'success',
+      error: null,
+    });
+    const { result } = renderHook(() => useBoardOverallocation('p1'));
+    // Apr 3–5 overlap sums to 1.20 (>1.0) once t1's full span is walked.
+    expect(result.current.overallocByPair.get('r1:t1')).toBeCloseTo(1.2, 5);
+    expect(result.current.overallocByPair.get('r1:t2')).toBeCloseTo(1.2, 5);
+  });
+
+  it('falls back to early_start when scheduled_start is null', () => {
+    mocked.mockReturnValue({
+      data: {
+        project_id: 'p1',
+        window_start: '2026-04-01',
+        window_end: '2026-04-30',
+        resources: [
+          {
+            id: 'r1',
+            name: 'Pat',
+            email: '',
+            max_units: '1.00',
+            tasks: [
+              {
+                assignment_id: 'a1',
+                id: 't1',
+                name: 'Foundation',
+                early_start: '2026-04-01',
+                early_finish: '2026-04-05',
+                scheduled_start: null,
+                units: '1.20',
+                status: 'NOT_STARTED' as const,
+              },
+            ],
+          },
+        ],
+      },
+      status: 'success',
+      error: null,
+    });
+    const { result } = renderHook(() => useBoardOverallocation('p1'));
+    expect(result.current.overallocByPair.get('r1:t1')).toBeCloseTo(1.2, 5);
+  });
+
   it('skips resources with invalid max_units', () => {
     mocked.mockReturnValue({
       data: {
@@ -254,17 +348,37 @@ describe('useBoardOverallocation', () => {
         window_end: '2026-04-30',
         resources: [
           {
-            id: 'r1', name: 'Pat', email: '',
+            id: 'r1',
+            name: 'Pat',
+            email: '',
             max_units: 'invalid',
             tasks: [
-              { assignment_id: 'a1', id: 't1', name: 'Work', early_start: '2026-04-01', early_finish: '2026-04-01', units: '2.0', status: 'IN_PROGRESS' as const },
+              {
+                assignment_id: 'a1',
+                id: 't1',
+                name: 'Work',
+                early_start: '2026-04-01',
+                early_finish: '2026-04-01',
+                units: '2.0',
+                status: 'IN_PROGRESS' as const,
+              },
             ],
           },
           {
-            id: 'r2', name: 'Sam', email: '',
-            max_units: '0',  // zero max_units → skip (≤0 check)
+            id: 'r2',
+            name: 'Sam',
+            email: '',
+            max_units: '0', // zero max_units → skip (≤0 check)
             tasks: [
-              { assignment_id: 'a2', id: 't2', name: 'Work2', early_start: '2026-04-01', early_finish: '2026-04-01', units: '2.0', status: 'IN_PROGRESS' as const },
+              {
+                assignment_id: 'a2',
+                id: 't2',
+                name: 'Work2',
+                early_start: '2026-04-01',
+                early_finish: '2026-04-01',
+                units: '2.0',
+                status: 'IN_PROGRESS' as const,
+              },
             ],
           },
         ],

@@ -13,7 +13,7 @@
 import { CheckIcon, WarningIcon } from '@/components/Icons';
 import { useRef } from 'react';
 import type { AllocationTask } from './resourceUtils';
-import { partialAllocationStripeStyle } from './resourceUtils';
+import { partialAllocationStripeStyle, taskSpanStart } from './resourceUtils';
 
 export type SpanVariant = 'normal' | 'partial' | 'over' | 'complete';
 
@@ -55,13 +55,14 @@ export function AllocationSpan({
   const spanPx = widthFraction * containerWidth;
   const showLabel = spanPx >= 48;
   const unitsDisplay = `${Math.round(Number.parseFloat(task.units) * 100)}%`;
+  // ADR-0752 / #2677: the displayed span is scheduled_start..early_finish,
+  // not early_start's remaining-work window.
+  const spanStart = taskSpanStart(task);
 
   const tooltipLabel = [
     task.name,
     `${unitsDisplay} allocation`,
-    task.early_start && task.early_finish
-      ? `${task.early_start} – ${task.early_finish}`
-      : 'unscheduled',
+    spanStart && task.early_finish ? `${spanStart} – ${task.early_finish}` : 'unscheduled',
     variant === 'over' ? '⚠ overallocated' : '',
     variant === 'complete' ? 'complete' : '',
   ]
@@ -71,9 +72,7 @@ export function AllocationSpan({
   const ariaLabel = [
     `Edit allocation for ${task.name}`,
     `${unitsDisplay}`,
-    task.early_start && task.early_finish
-      ? `${task.early_start} to ${task.early_finish}`
-      : 'unscheduled',
+    spanStart && task.early_finish ? `${spanStart} to ${task.early_finish}` : 'unscheduled',
     variant === 'over' ? 'overallocated' : '',
     // The completion cue is otherwise the check mark plus opacity-60 — both
     // visual-only, and the button's aria-label overrides its content, so without
@@ -112,10 +111,18 @@ export function AllocationSpan({
       {showLabel && (
         <>
           <span className="truncate flex-1 min-w-0">
-            {variant === 'over' && <WarningIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />}
+            {variant === 'over' && (
+              <WarningIcon
+                className="inline-block h-3 w-3 align-[-0.125em] mr-1"
+                aria-hidden="true"
+              />
+            )}
             {task.name}
             {task.status === 'COMPLETE' && (
-              <CheckIcon className="inline-block h-3 w-3 align-[-0.125em] ml-1" aria-hidden="true" />
+              <CheckIcon
+                className="inline-block h-3 w-3 align-[-0.125em] ml-1"
+                aria-hidden="true"
+              />
             )}
           </span>
           <span className="ml-1 opacity-80 flex-shrink-0">{unitsDisplay}</span>
