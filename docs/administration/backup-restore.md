@@ -122,6 +122,54 @@ media claim read-only via `backup.extraVolumes` / `backup.extraVolumeMounts`.
 > database it protects does not survive a cluster loss — replicate the artifact
 > off-cluster.
 
+### Off-cluster plaintext warning
+
+`backup.s3.endpoint` (and the CLI scripts' `--s3-endpoint` / `S3_ENDPOINT`) take
+whatever URL you give them, scheme included — TruePPM never hardcodes `http://`
+or `https://`. That flexibility is deliberate: a self-hosted MinIO sidecar in the
+same cluster is normally reached over plain HTTP with no certificate to manage,
+and forcing TLS onto that hop would be pure friction for no security benefit
+(the traffic never leaves the pod network).
+
+The line that matters is **where the endpoint actually is**, not what scheme you
+typed:
+
+- **In-cluster or private-network plaintext is expected and fine.** The
+  documented default, `http://minio:9000` (a bare Kubernetes Service DNS name),
+  never leaves the cluster network. TruePPM recognizes this shape — a bare
+  short name, `*.svc` / `*.local` (which also covers
+  `*.svc.cluster.local`), `localhost`, or an RFC1918/loopback address — and
+  stays silent.
+- **Plaintext to anything else is a real exposure.** The artifact being
+  uploaded is a full `pg_dump` of the `trueppm` database — every project,
+  task, dependency, comment, and user email in the deployment. If
+  `backup.s3.endpoint` is repointed at an off-cluster or cross-VPC bucket
+  (a managed S3-compatible store, a different cluster, another cloud region)
+  and the scheme is left as `http://`, that dump crosses the network
+  unencrypted. When the endpoint doesn't match the in-cluster shape above,
+  the backup job logs a `WARNING:` line naming the endpoint — **the upload
+  still proceeds**; this is a warning, not a failure, because an operator may
+  have a legitimate reason (e.g. a private peered link the heuristic can't
+  see) and a hard failure would be a worse outcome for a backup job than a
+  loud log line.
+
+**What to do about it:**
+
+- If the endpoint is genuinely off-cluster, use `https://` — every real
+  S3-compatible provider serves TLS.
+- If you've verified the network path is trusted despite failing the
+  heuristic (e.g. an on-prem store reached over a private peered link with no
+  public routing), set `backup.s3.allowPlaintext: true` (or, for the CLI
+  scripts, `TRUEPPM_S3_ALLOW_PLAINTEXT=1`) to silence the warning
+  deliberately, rather than leaving it to be ignored.
+
+This is a heuristic, not a network trace: it recognizes hostname *shapes*, not
+actual routes. A privately-routed FQDN, or a public DNS name that happens to
+resolve to a private IP, is not recognized and **will** warn — that's the
+deliberate bias, since a missed warning on a genuine cross-network endpoint is
+the failure this exists to prevent, and an extra log line on a trusted-but-
+unrecognized endpoint costs nothing but a `allowPlaintext` flag.
+
 ## Restore drills
 
 A backup you have never restored is a hypothesis, not a backup. Prove it:

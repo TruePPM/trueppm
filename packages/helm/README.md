@@ -97,6 +97,7 @@ kubectl get secret <release>-trueppm-connection \
 | `backup.persistence.enabled` | `false` | Mount a chart-managed PVC at `backup.outputDir`. |
 | `backup.s3.enabled` | `false` | Upload each finished artifact to an S3-compatible bucket. Adds a second container to the job (the PostgreSQL image has no S3 client). A failed upload fails the job. |
 | `backup.s3.endpoint` | `""` | Leave empty for real AWS S3. Set it for MinIO — a custom endpoint forces path-style addressing. |
+| `backup.s3.allowPlaintext` | `false` | Silence the warning logged when `endpoint` is `http://` and doesn't look in-cluster/private (see [Backup & Restore](https://trueppm.com/administration/backup-restore/#off-cluster-plaintext-warning)). The upload is never blocked either way — this only controls the log line. |
 | `backup.s3.prefix` | `""` | Optional key prefix; the object key is `<prefix>/trueppm-backup-<UTC>.tar.gz`. |
 | `backup.s3.image.repository` / `.tag` | `amazon/aws-cli` / `2.17.0` | Image for the upload container. Must provide `aws`. |
 
