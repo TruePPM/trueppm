@@ -3,7 +3,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { MemoryRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AxiosError, AxiosHeaders } from 'axios';
-import type { Task } from '@/types';
+import type { BoardCadence, Methodology, Task } from '@/types';
 import { TaskFormModal } from './index';
 import { ROLE_VIEWER } from '@/lib/roles';
 
@@ -12,6 +12,12 @@ import { ROLE_VIEWER } from '@/lib/roles';
 // mocked at module scope; per-test behavior is steered via the let-bound
 // fixtures below.
 let mockProjectAgile = false;
+// #2667: Classification defaults/grouping key off effective_methodology (and
+// board_cadence for the scrum/kanban split), not `agile_features`. Defaults to
+// HYBRID/'sprint' — the ungrouped, no-behavior-change preset — so every
+// pre-existing test that never touches these two is unaffected.
+let mockEffectiveMethodology: Methodology = 'HYBRID';
+let mockBoardCadence: BoardCadence = 'sprint';
 let mockUserRole = 300; // PM by default; tests override to flex permissions
 let mockResourcePool: Array<{ resource: { id: string; name: string }; roleTitle: string }> = [];
 let mockSprints: Array<{ id: string; name: string; state: string }> = [];
@@ -49,7 +55,14 @@ vi.mock('@/hooks/useSprints', () => ({
 }));
 
 vi.mock('@/hooks/useProject', () => ({
-  useProject: () => ({ data: { agile_features: mockProjectAgile }, isLoading: false }),
+  useProject: () => ({
+    data: {
+      agile_features: mockProjectAgile,
+      effective_methodology: mockEffectiveMethodology,
+      board_cadence: mockBoardCadence,
+    },
+    isLoading: false,
+  }),
 }));
 
 vi.mock('@/hooks/useCurrentUserRole', () => ({
@@ -151,6 +164,8 @@ describe('TaskFormModal (issue #305)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockProjectAgile = false;
+    mockEffectiveMethodology = 'HYBRID';
+    mockBoardCadence = 'sprint';
     mockUserRole = 300;
     mockResourcePool = [];
     mockSprints = [];
@@ -218,6 +233,101 @@ describe('TaskFormModal (issue #305)', () => {
     renderModal();
     expect(screen.getByLabelText('Pts')).toBeInTheDocument();
     expect(screen.getByLabelText('Sprint')).toBeInTheDocument();
+  });
+
+  // ----- Classification defaults follow project methodology (#2667) --------
+  //
+  // Before this fix, a new task's Governance class / Delivery mode always
+  // opened on the hardcoded Flow / Waterfall model defaults regardless of the
+  // project's own effective_methodology — self-contradictory on a WATERFALL
+  // project (Flow's own description reads "agile, sprint- or kanban-governed
+  // work") and a correctness bug on AGILE (delivery_mode stuck at waterfall
+  // never engages point-burndown rollup or agile-aware Monte Carlo).
+
+  it('WATERFALL project: create dialog opens on Gated governance / Waterfall delivery', async () => {
+    mockEffectiveMethodology = 'WATERFALL';
+    renderModal();
+    await waitFor(() => {
+      expect(screen.getByLabelText<HTMLSelectElement>('Governance class', { exact: true }).value).toBe(
+        'gated',
+      );
+    });
+    expect(screen.getByLabelText<HTMLSelectElement>('Delivery mode', { exact: true }).value).toBe(
+      'waterfall',
+    );
+  });
+
+  it('AGILE project with sprint cadence: create dialog opens on Flow governance / Scrum delivery', async () => {
+    mockEffectiveMethodology = 'AGILE';
+    mockBoardCadence = 'sprint';
+    renderModal();
+    await waitFor(() => {
+      expect(screen.getByLabelText<HTMLSelectElement>('Governance class', { exact: true }).value).toBe(
+        'flow',
+      );
+    });
+    expect(screen.getByLabelText<HTMLSelectElement>('Delivery mode', { exact: true }).value).toBe(
+      'scrum',
+    );
+  });
+
+  it('AGILE project with a continuous-flow board: create dialog opens on Flow governance / Kanban delivery', async () => {
+    // ADR-0164: a board already running continuous-flow Kanban with no sprint
+    // cadence is the deliberate flow-without-sprints choice — defaults to
+    // kanban rather than the load-bearing scrum default.
+    mockEffectiveMethodology = 'AGILE';
+    mockBoardCadence = 'continuous';
+    renderModal();
+    await waitFor(() => {
+      expect(screen.getByLabelText<HTMLSelectElement>('Delivery mode', { exact: true }).value).toBe(
+        'kanban',
+      );
+    });
+  });
+
+  it('HYBRID project: create dialog keeps the Flow / Waterfall default (no behavior change)', async () => {
+    mockEffectiveMethodology = 'HYBRID';
+    renderModal();
+    await waitFor(() => {
+      expect(screen.getByLabelText<HTMLSelectElement>('Governance class', { exact: true }).value).toBe(
+        'flow',
+      );
+    });
+    expect(screen.getByLabelText<HTMLSelectElement>('Delivery mode', { exact: true }).value).toBe(
+      'waterfall',
+    );
+  });
+
+  it('edit mode: never re-seeds classification from the project — stored values win', () => {
+    // A project can switch methodology after a task was created; the edit
+    // dialog must show what is stored on the task, not today's project default.
+    mockEffectiveMethodology = 'WATERFALL';
+    renderModal({
+      task: baseTask({ taskType: 'story', governanceClass: 'flow', deliveryMode: 'scrum' }),
+    });
+    expect(screen.getByLabelText<HTMLSelectElement>('Governance class', { exact: true }).value).toBe(
+      'flow',
+    );
+    expect(screen.getByLabelText<HTMLSelectElement>('Delivery mode', { exact: true }).value).toBe(
+      'scrum',
+    );
+  });
+
+  it('does not mark a freshly-opened create dialog dirty once the methodology default is seeded', async () => {
+    // The seed effect updates `pristine` in lockstep with `form` (`isDirty` is
+    // `JSON.stringify(form) !== JSON.stringify(pristine)`) — an untouched
+    // dialog must not appear dirty, or Cancel would wrongly route through the
+    // discard-confirm dialog for a user who changed nothing.
+    mockEffectiveMethodology = 'WATERFALL';
+    const { props } = renderModal();
+    await waitFor(() => {
+      expect(screen.getByLabelText<HTMLSelectElement>('Governance class', { exact: true }).value).toBe(
+        'gated',
+      );
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(props.onClose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/discard/i)).not.toBeInTheDocument();
   });
 
   // ----- Submit ------------------------------------------------------------

@@ -49,6 +49,13 @@ import { SyncConflictBanner } from './SyncConflictBanner';
 import { isPhaseTask } from '@/lib/isPhaseTask';
 import { StoryPointField } from '@/features/backlog/StoryPointField';
 import { formatStoryPoints } from '@/lib/storyPoints';
+import {
+  defaultDeliveryModeFor,
+  defaultGovernanceClassFor,
+  deliveryModeGroups,
+  governanceClassGroups,
+  type TaxonomyGroups,
+} from '@/lib/taskClassificationDefaults';
 
 export type TaskFormMode = 'create' | 'edit';
 
@@ -115,8 +122,12 @@ const TYPE_OPTIONS: Array<TaxonomyOption<TaskType>> = [
   { value: 'epic', label: 'Epic', desc: 'Structural parent — groups child work and rolls up. Excluded from scheduling.' },
 ];
 
+// No option below carries a hardcoded "(default)" marker — which value is the
+// default now depends on the project's methodology (#2667). The <select>
+// groups the methodology-consistent value(s) first instead (see
+// `governanceClassGroups` / `deliveryModeGroups`).
 const GOVERNANCE_OPTIONS: Array<TaxonomyOption<GovernanceClass>> = [
-  { value: 'flow', label: 'Flow', desc: 'Agile, sprint- or kanban-governed work (default).' },
+  { value: 'flow', label: 'Flow', desc: 'Agile, sprint- or kanban-governed work.' },
   { value: 'gated', label: 'Gated', desc: 'Phase-gate–governed waterfall work.' },
   { value: 'hybrid', label: 'Hybrid', desc: 'Mixes flow and gated within the subtree.' },
 ];
@@ -130,6 +141,46 @@ const DELIVERY_OPTIONS: Array<TaxonomyOption<DeliveryMode>> = [
 
 function taxonomyDesc<V extends string>(options: Array<TaxonomyOption<V>>, value: V): string {
   return options.find((o) => o.value === value)?.desc ?? '';
+}
+
+/**
+ * Render a taxonomy field's `<option>`s, methodology-consistent values first.
+ *
+ * Narrows the *presentation*, never the reachable set (#2667 AC: "off-preset
+ * values are de-emphasized, not removed" — the taxonomy is a documented hybrid
+ * seam, ADR-0036). `groups === null` (HYBRID, or the project detail hasn't
+ * resolved yet) renders the flat, ungrouped list unchanged from before.
+ */
+function renderTaxonomyOptions<V extends string>(
+  options: Array<TaxonomyOption<V>>,
+  groups: TaxonomyGroups<V> | null,
+  otherLabel: string,
+): ReactNode {
+  if (!groups) {
+    return options.map((o) => (
+      <option key={o.value} value={o.value}>
+        {o.label}
+      </option>
+    ));
+  }
+  const primary = options.filter((o) => groups.primary.includes(o.value));
+  const other = options.filter((o) => groups.other.includes(o.value));
+  return (
+    <>
+      {primary.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+      <optgroup label={otherLabel}>
+        {other.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </optgroup>
+    </>
+  );
 }
 
 // Deep-links into the task-classification docs page for the FieldHelp popovers.
@@ -161,7 +212,13 @@ function initialState(task: Task | null, defaultStatus: TaskStatus): FormState {
     return {
       name: '',
       status: defaultStatus,
-      // Server defaults (purely additive fields): TASK / FLOW / WATERFALL.
+      // Model defaults (purely additive fields): TASK / FLOW / WATERFALL. This
+      // is only the pre-load fallback — `useProject` hasn't resolved yet at
+      // first render, so it can't be methodology-aware here. The effect below
+      // (`appliedMethodologyDefaults`) re-seeds governanceClass/deliveryMode
+      // from the project's effective_methodology the moment it loads (#2667),
+      // and both `form` and `pristine` are updated together so the seed never
+      // itself marks the form dirty.
       type: 'task',
       governanceClass: 'flow',
       deliveryMode: 'waterfall',
@@ -473,6 +530,37 @@ export function TaskFormModal({
   const { data: projectDetail } = useProject(projectId);
   // Effective estimation scale drives the points picker/labels (ADR-0510, #2027).
   const estimationScale = projectDetail?.effective_estimation_scale ?? 'fibonacci';
+  // Resolved (workspace → program → project) methodology drives the
+  // Classification defaults and which options are grouped as "consistent with
+  // this project" below (#2667). Falls back to HYBRID — the ungrouped,
+  // no-behavior-change preset — until the project detail resolves.
+  const effectiveMethodology = projectDetail?.effective_methodology ?? 'HYBRID';
+  const governanceOptionGroups = governanceClassGroups(effectiveMethodology);
+  const deliveryOptionGroups = deliveryModeGroups(effectiveMethodology);
+
+  // Seed governanceClass/deliveryMode from the project's effective_methodology
+  // the moment it resolves (#2667) — mirrors the default the task-create
+  // serializer applies server-side when the field is omitted, so the dialog
+  // opens on the value the server would pick. Create mode only: an edit-mode
+  // task's stored classification must never be coerced by what the project
+  // resolves to today (a project can switch methodology after the task was
+  // created). Fires once — a user who has already opened the picker owns the
+  // field from then on, even if `projectDetail` refetches in the background.
+  // Updates `pristine` in lockstep with `form` so the seed itself never marks
+  // an untouched dialog dirty (see `isDirty` below).
+  const appliedMethodologyDefaults = useRef(false);
+  useEffect(() => {
+    if (mode !== 'create' || !projectDetail || appliedMethodologyDefaults.current) return;
+    appliedMethodologyDefaults.current = true;
+    const governanceClass = defaultGovernanceClassFor(projectDetail.effective_methodology);
+    const deliveryMode = defaultDeliveryModeFor(
+      projectDetail.effective_methodology,
+      projectDetail.board_cadence,
+    );
+    setForm((f) => ({ ...f, governanceClass, deliveryMode }));
+    setPristine((f) => ({ ...f, governanceClass, deliveryMode }));
+  }, [mode, projectDetail]);
+
   const itl = useIterationLabel(projectId);
   const { role } = useCurrentUserRole(projectId);
   const { data: resourcePool } = useProjectResourcePool(projectId);
@@ -975,9 +1063,7 @@ export function TaskFormModal({
                 aria-describedby="task-governance-hint"
                 className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
               >
-                {GOVERNANCE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
+                {renderTaxonomyOptions(GOVERNANCE_OPTIONS, governanceOptionGroups, 'Other governance classes')}
               </select>
               <p id="task-governance-hint" className="mt-1 text-xs text-neutral-text-secondary">
                 {taxonomyDesc(GOVERNANCE_OPTIONS, form.governanceClass)}
@@ -1008,9 +1094,7 @@ export function TaskFormModal({
                 aria-describedby="task-delivery-hint"
                 className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
               >
-                {DELIVERY_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
+                {renderTaxonomyOptions(DELIVERY_OPTIONS, deliveryOptionGroups, 'Other delivery modes')}
               </select>
               <p id="task-delivery-hint" className="mt-1 text-xs text-neutral-text-secondary">
                 {taxonomyDesc(DELIVERY_OPTIONS, form.deliveryMode)}
@@ -1126,7 +1210,11 @@ export function TaskFormModal({
             points and velocity→calendar translation happens at program level,
             not per-task (#469). */}
         {(() => {
-          const isAgileOnly = projectDetail?.methodology === 'AGILE';
+          // Read the RESOLVED methodology (workspace → program → project,
+          // ADR-0107), not the raw per-project override — under an active
+          // workspace INHERIT/ENFORCE lock or a program-level preset the
+          // resolved value can be AGILE while `methodology` itself is not (#2667).
+          const isAgileOnly = projectDetail?.effective_methodology === 'AGILE';
           const showDuration = !isMilestoneCreate && !isAgileOnly;
           return (
             <div className={`grid grid-cols-1 ${showDuration ? 'md:grid-cols-2' : ''} gap-3`}>

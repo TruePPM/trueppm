@@ -1,12 +1,17 @@
 ---
 title: Task classification
 description: Set a task's type, governance class, and delivery mode — the work-item taxonomy that drives board lanes, rollups, and the hybrid overlay.
+documentedFor: "0.4"
 ---
 
 Every task carries three classification fields — `type`, `governance_class`, and `delivery_mode` — that describe *what kind of work it is*, *which overlay governs it*, and *how it executes and rolls up*. They have always been part of the [unified data model](/features/unified-data-model/) and are set by the demo seeds, but until now there was no way to change them from the task editor.
 
 :::note[Added in 0.3]
 The **Classification** controls were added in **0.3** (the agile team). The fields are already stored and read everywhere; 0.3 added the editor. They are purely additive — every existing task keeps its current values (`task` / `flow` / `waterfall`), so nothing changes unless you set them.
+:::
+
+:::note[Ships in 0.4]
+Before **0.4**, a new task's Governance class and Delivery mode always defaulted to **Flow** / **Waterfall**, regardless of the project's own methodology — so a Waterfall project's new task opened on an agile governance overlay, and an Agile project's task never engaged point-burndown rollup. **0.4** makes the default follow the project's [effective methodology](/features/methodology-preset/) instead: see [Defaults follow the project](#defaults-follow-the-project) below. Every value stays selectable on every methodology either way — only which option opens pre-selected, and which values the picker lists first, changes.
 :::
 
 ## Where you will set it
@@ -40,7 +45,7 @@ Epic is special: it changes hierarchy rather than adding schedulable work, so ch
 
 | Governance class | Meaning |
 |------------------|---------|
-| **Flow** | Agile work, governed by the sprint or kanban board. The default. |
+| **Flow** | Agile work, governed by the sprint or kanban board. |
 | **Gated** | Phase-gate–governed waterfall work. |
 | **Hybrid** | Mixes flow and gated within the same subtree. |
 
@@ -50,12 +55,26 @@ Epic is special: it changes hierarchy rather than adding schedulable work, so ch
 
 | Delivery mode | Rolls up from |
 |---------------|---------------|
-| **Waterfall** | Explicit percent-complete. Participates in CPM and the baseline. The default. |
+| **Waterfall** | Explicit percent-complete. Participates in CPM and the baseline. |
 | **Scrum** | Story-point burndown; velocity-tracked. |
 | **Kanban** | Item throughput (done / total) on a WIP-limited board. |
 | **Milestone** | A zero-duration gate marking a date or phase. |
 
 Delivery mode is what the rollup engine reads to interpret a parent's percent-complete — a Scrum subtree rolls up from burndown while a Waterfall subtree rolls up from explicit percent — so setting it correctly keeps a hybrid program's rollups honest.
+
+## Defaults follow the project
+
+Creating a task pre-selects Governance class and Delivery mode from the project's [effective methodology](/features/methodology-preset/) *(ships in 0.4)* — the values a self-managing team would pick anyway, so the dialog never opens on a value that contradicts the project it belongs to:
+
+| Project methodology | Governance class default | Delivery mode default |
+|---|---|---|
+| **Waterfall** | Gated | Waterfall |
+| **Agile** | Flow | Scrum — or **Kanban** if the project's board already runs continuous flow with no sprint cadence |
+| **Hybrid** | Flow | Waterfall (unchanged — Hybrid is the preset that deliberately mixes both models) |
+
+The picker still lists every governance class and every delivery mode on every methodology — the taxonomy stays additive, so a Waterfall program can mark one compliance-sensitive subtree `flow` / `scrum` without losing anything, and a Hybrid program can mix freely as before. The methodology-consistent value(s) are simply listed first; the rest sit under an "Other" group in the same select, one click away.
+
+The default is resolved **server-side**, in the task-create request, so web, mobile, and the MCP server agree — none of them re-implements the rule. It is a *create-time* default only: switching a project's methodology later never rewrites the stored `governance_class` / `delivery_mode` on its existing tasks, and editing an existing task always shows what is actually stored, never a re-derived value.
 
 ## Why this matters
 

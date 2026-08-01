@@ -3282,6 +3282,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         # duration derivation for milestones.
         self._validate_project_immutable(attrs)
         self._reconcile_milestone_signals(attrs)
+        self._resolve_classification_defaults(attrs)
         is_milestone = attrs.get(
             "is_milestone",
             self.instance.is_milestone if self.instance is not None else False,
@@ -3426,6 +3427,45 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         elif dm_sent:
             # delivery_mode drives is_milestone.
             attrs["is_milestone"] = attrs["delivery_mode"] == DeliveryMode.MILESTONE
+
+    def _resolve_classification_defaults(self, attrs: dict[str, Any]) -> None:
+        """Default an omitted governance_class/delivery_mode from the project (#2667).
+
+        Create-only: a task's ``governance_class``/``delivery_mode`` model defaults
+        (``FLOW`` / ``WATERFALL``) apply to every project regardless of its own
+        resolved methodology, opening a Waterfall project's new task on an agile
+        governance overlay while defaulting an Agile project's task to a delivery
+        mode that never engages point-burndown rollup or agile-aware Monte Carlo.
+        This resolves the project-aware default instead — but only for a field the
+        caller left out of the payload entirely; an explicit value (including a
+        client that still sends the literal model default) always wins, on create
+        and update alike, so the documented hybrid seam (one project deliberately
+        holding tasks across delivery modes/governance classes) is untouched and no
+        existing task's stored value is ever coerced by a later methodology change.
+
+        Runs after :meth:`_reconcile_milestone_signals` so a milestone create
+        (which sets ``delivery_mode='milestone'`` from ``is_milestone`` alone,
+        with the classification group omitted client-side) is not overridden here
+        — this only fills in what neither the caller nor the milestone coupling
+        already set. Web/mobile/MCP all get the same default because it lives
+        here rather than in any one client (API-first).
+        """
+        if self.instance is not None:
+            return
+        missing = {"governance_class", "delivery_mode"} - set(attrs)
+        if not missing:
+            return
+        project = attrs.get("project")
+        if project is None:
+            return
+
+        from trueppm_api.apps.projects.task_classification_defaults import (
+            resolve_default_classification,
+        )
+
+        governance_default, delivery_default = resolve_default_classification(project)
+        attrs.setdefault("governance_class", governance_default)
+        attrs.setdefault("delivery_mode", delivery_default)
 
     def _reject_milestone_unflag_with_live_sprint(self, attrs: dict[str, Any]) -> None:
         """Block un-flagging a milestone that a live sprint still targets (#1773).

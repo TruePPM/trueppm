@@ -48,7 +48,19 @@ const TASK = {
   notes: 'Existing notes',
 };
 
-async function setup(page: import('@playwright/test').Page) {
+interface SetupOptions {
+  /** Resolved methodology (#2667) — drives the Classification defaults/grouping. */
+  effectiveMethodology?: 'WATERFALL' | 'AGILE' | 'HYBRID';
+  /** Sprint cadence vs. continuous-flow Kanban (ADR-0164) — only consulted for AGILE. */
+  boardCadence?: 'sprint' | 'continuous';
+  /** Sprint/story-point chrome (unrelated to this spec's default assertions) —
+   *  kept false to match every pre-existing test's fixture unless overridden. */
+  agileFeatures?: boolean;
+}
+
+async function setup(page: import('@playwright/test').Page, options: SetupOptions = {}) {
+  const { effectiveMethodology = 'HYBRID', boardCadence = 'sprint', agileFeatures = false } =
+    options;
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -129,7 +141,9 @@ async function setup(page: import('@playwright/test').Page) {
       body: JSON.stringify({
         id: FIXTURE_PROJECT_ID, name: 'Task Modal Project', description: '',
         start_date: '2026-04-01', calendar: 'default', estimation_mode: 'OPEN',
-        agile_features: false, methodology: 'HYBRID', code: '', health: 'AUTO',
+        agile_features: agileFeatures,
+        methodology: effectiveMethodology, effective_methodology: effectiveMethodology,
+        board_cadence: boardCadence, code: '', health: 'AUTO',
         visibility: 'WORKSPACE', timezone: '', default_view: 'BOARD',
         lead: null, lead_detail: null, iteration_label: 'Sprint',
         is_archived: false, archived_at: null, archived_by: null,
@@ -255,6 +269,44 @@ test.describe('Task create/edit modal (#305)', () => {
     // Switching delivery mode updates the grounded helper caption.
     await dialog.getByLabel('Delivery mode', { exact: true }).selectOption('kanban');
     await expect(dialog.getByText(/item throughput on a WIP-limited board/)).toBeVisible();
+  });
+
+  // #2667: the Classification defaults used to be hardcoded (Flow / Waterfall)
+  // regardless of the project's own methodology, opening a self-contradictory
+  // dialog on a WATERFALL project (Flow's own description reads "agile,
+  // sprint- or kanban-governed work") and a correctness bug on AGILE (a task
+  // stuck at delivery_mode=waterfall never engages point-burndown rollup).
+  test('WATERFALL project: create dialog opens on Gated governance / Waterfall delivery (#2667)', async ({
+    page,
+  }) => {
+    await setup(page, { effectiveMethodology: 'WATERFALL' });
+    await page.goto(`${BASE_URL}/board`);
+    const addButton = page.getByRole('button', { name: /Add task to Alpha Phase/ });
+    await expect(addButton).toBeVisible({ timeout: 10_000 });
+    await addButton.click();
+
+    const dialog = page.getByRole('dialog', { name: /Add to Alpha Phase/ });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByLabel('Governance class', { exact: true })).toHaveValue('gated');
+    await expect(dialog.getByLabel('Delivery mode', { exact: true })).toHaveValue('waterfall');
+    // The selected value's own hint must not describe an agile overlay this
+    // project doesn't run.
+    await expect(dialog.getByText(/Phase-gate.{1,2}governed waterfall work/)).toBeVisible();
+  });
+
+  test('AGILE project: create dialog opens on Flow governance / Scrum delivery (#2667)', async ({
+    page,
+  }) => {
+    await setup(page, { effectiveMethodology: 'AGILE', boardCadence: 'sprint' });
+    await page.goto(`${BASE_URL}/board`);
+    const addButton = page.getByRole('button', { name: /Add task to Alpha Phase/ });
+    await expect(addButton).toBeVisible({ timeout: 10_000 });
+    await addButton.click();
+
+    const dialog = page.getByRole('dialog', { name: /Add to Alpha Phase/ });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByLabel('Governance class', { exact: true })).toHaveValue('flow');
+    await expect(dialog.getByLabel('Delivery mode', { exact: true })).toHaveValue('scrum');
   });
 
   test('Parent phase picker resolves a leaf task label and shows the promotion hint (#378)', async ({ page }) => {
