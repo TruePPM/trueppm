@@ -26,15 +26,18 @@ interface Props {
   /** True if the requesting user can call Pull-to-sprint (SCHEDULER+). */
   canPullCarryover?: boolean;
   /**
-   * When true, render a "Pull from backlog →" link to the Product Backlog
-   * grooming page — the canonical surface where existing stories are committed
-   * to a PLANNED sprint via the per-row commit toggle (issue 1291). The
-   * Sprints view passes this only on the planned surface: that commit toggle
-   * only targets a PLANNED sprint, so the handoff is meaningless on an
-   * active/closed one. Without it, the only "add" affordance here creates a
-   * brand-new task, leaving no path to commit work that already exists (issue 1347).
+   * When set, render a "Pull from backlog →" button that opens the in-place
+   * story picker (issue #2670) — multi-select existing backlog stories into
+   * this PLANNED sprint without leaving the Sprints page. Replaces the plain
+   * `<Link>` to the Product Backlog grooming page that shipped for issue 1347:
+   * that link's round trip (navigate away, click the per-row commit toggle N
+   * times, navigate back) is the detour #2670 removes. The Sprints view passes
+   * this only on the planned surface — the picker's target is a PLANNED
+   * sprint, so it is meaningless on an active/closed one. Without it, the only
+   * "add" affordance here creates a brand-new task, leaving no path to commit
+   * work that already exists.
    */
-  showBacklogLink?: boolean;
+  onOpenPicker?: () => void;
 }
 
 /**
@@ -77,7 +80,7 @@ export function SprintBacklogTable({
   onOpenTask,
   showCarryoverLane = false,
   canPullCarryover = false,
-  showBacklogLink = false,
+  onOpenPicker,
 }: Props) {
   const itl = useIterationLabel(projectId);
   const groups = useMemo(() => {
@@ -126,14 +129,15 @@ export function SprintBacklogTable({
               + Add task
             </button>
           )}
-          {showBacklogLink && (
-            <Link
-              to={`/projects/${projectId}/product-backlog`}
+          {onOpenPicker && (
+            <button
+              type="button"
+              onClick={onOpenPicker}
               className="text-xs font-medium text-brand-primary hover:text-brand-primary-dark
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
             >
               Pull from backlog →
-            </Link>
+            </button>
           )}
           <Link
             to={`/projects/${projectId}/board?sprint=${sprintId}`}
@@ -158,38 +162,39 @@ export function SprintBacklogTable({
           <p className="text-sm font-medium text-neutral-text-primary">
             No tasks committed to this {itl.lower} yet
           </p>
-          {showBacklogLink && (
+          {onOpenPicker && (
             <p className="text-xs text-neutral-text-secondary max-w-xs">
-              Pull existing stories from the{' '}
-              <Link
-                to={`/projects/${projectId}/product-backlog`}
-                className="font-medium text-brand-primary hover:text-brand-primary-dark
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
-              >
-                Product Backlog
-              </Link>
-              , or add a new task.
+              Pull existing stories from the backlog, or add a new task.
             </p>
           )}
-          {onAddTask ? (
-            <button
-              type="button"
-              onClick={onAddTask}
-              className="border border-neutral-border rounded h-7 px-3 text-xs font-medium text-neutral-text-primary
-                hover:bg-neutral-surface-raised
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-            >
-              + Add task
-            </button>
-          ) : (
-            // The backlog CTA above already tells the user how to add work, so
-            // suppress the generic fallback when it is shown (avoids two
-            // competing "how to add" prompts).
-            !showBacklogLink && (
-              <p className="text-xs text-neutral-text-secondary">
-                Plan the next {itl.lower} or add tasks from the board.
-              </p>
-            )
+          <div className="flex items-center gap-2">
+            {onOpenPicker && (
+              <button
+                type="button"
+                onClick={onOpenPicker}
+                className="border border-neutral-border rounded h-7 px-3 text-xs font-medium text-neutral-text-primary
+                  hover:bg-neutral-surface-raised
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              >
+                Pull from backlog
+              </button>
+            )}
+            {onAddTask && (
+              <button
+                type="button"
+                onClick={onAddTask}
+                className="border border-neutral-border rounded h-7 px-3 text-xs font-medium text-neutral-text-primary
+                  hover:bg-neutral-surface-raised
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              >
+                + Add task
+              </button>
+            )}
+          </div>
+          {!onAddTask && !onOpenPicker && (
+            <p className="text-xs text-neutral-text-secondary">
+              Plan the next {itl.lower} or add tasks from the board.
+            </p>
           )}
         </div>
       ) : (

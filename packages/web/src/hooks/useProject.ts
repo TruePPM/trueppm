@@ -105,6 +105,20 @@ export interface ApiProjectDetail {
    *  workspace). Drives the settings "Inherit (X)" affordance. */
   inherited_estimation_scale: EstimationScale;
   /**
+   * Sprint story-picker "Ready only" default OVERRIDE (ADR-0758, #2670). null =
+   * inherit the program/workspace default. Scheduler+-writable. Governs which
+   * stories the sprint story picker shows/defaults to by default — advisory only,
+   * never a commit-time block. Read `effective_sprint_picker_ready_only_default`
+   * to seed the picker, not this.
+   */
+  sprint_picker_ready_only_default: boolean | null;
+  /** Server-resolved default (project ?? program ?? workspace). The value the
+   *  sprint story picker reads to seed its "Ready only" toggle. */
+  effective_sprint_picker_ready_only_default: boolean;
+  /** Default this project would show if its own override were cleared (program ??
+   *  workspace). Drives the settings "Inherit (X)" affordance. */
+  inherited_sprint_picker_ready_only_default: boolean;
+  /**
    * Board cadence (ADR-0164, issue 410). `sprint` (default) shows the sprint chrome;
    * `continuous` hides it for continuous-flow Kanban. Scheduler+-writable. Not an
    * inheritable override — a project-local board setting.

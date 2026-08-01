@@ -303,6 +303,16 @@ class Workspace(models.Model):
         default=EstimationScale.FIBONACCI,
     )
 
+    # Per-workspace default for the sprint story picker's "Ready only" filter
+    # (ADR-0758, #2670) — the non-null root of the Workspace → Program → Project
+    # inheritance chain. Default True: a story marked below Ready (unestimated,
+    # missing/unmet acceptance criteria) is hidden from the picker's default view
+    # rather than offered for commit. Resolved computed-on-read in
+    # ``apps.projects.sprint_picker_settings``. Mirrors ``estimation_scale``: there
+    # is NO override_policy — this is advisory UI guidance, never a commit-time
+    # block (OSS by construction; a hard ENFORCE gate is out of scope, Enterprise).
+    sprint_picker_ready_only_default = models.BooleanField(default=True)
+
     # Per-workspace attachment policy (ADR-0153, #976) — the non-null root of the
     # Workspace → Program → Project inheritance chain. ``attachments_enabled``
     # gates whether task FILE uploads are permitted (external links are a separate

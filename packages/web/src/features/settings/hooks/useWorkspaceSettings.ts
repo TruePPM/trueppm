@@ -37,6 +37,7 @@ interface WorkspaceSettingsRaw {
   task_duration_change_percent_policy: DurationChangePercentPolicy;
   task_duration_change_percent_override_policy: 'inherit' | 'suggest' | 'enforce';
   estimation_scale: EstimationScale;
+  sprint_picker_ready_only_default: boolean;
   methodology: ProgramMethodology;
   methodology_override_policy: MethodologyOverridePolicy;
   attachments_enabled: boolean;
@@ -72,6 +73,7 @@ function mapSettings(raw: WorkspaceSettingsRaw): WorkspaceSettings {
     taskDurationChangePercentPolicy: raw.task_duration_change_percent_policy,
     taskDurationChangePercentOverridePolicy: raw.task_duration_change_percent_override_policy,
     estimationScale: raw.estimation_scale,
+    sprintPickerReadyOnlyDefault: raw.sprint_picker_ready_only_default,
     methodology: raw.methodology,
     methodologyOverridePolicy: raw.methodology_override_policy,
     attachmentsEnabled: raw.attachments_enabled,

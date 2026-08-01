@@ -1844,8 +1844,9 @@ describe('SprintsView — guards, gates, and overlay dismissal', () => {
     // Only the assigned 3-pointer counts; the unassigned 5-pointer is draft load
     // that nobody has picked up yet (#864, ADR-0094 §3).
     expect(screen.getByLabelText(/3 of 20 points planned/i)).toBeInTheDocument();
-    // The planned surface offers the backlog pull link and a collapsed velocity panel.
-    expect(screen.getByRole('link', { name: /Pull from backlog/i })).toBeInTheDocument();
+    // The planned surface offers the backlog story picker button (#2670) and a
+    // collapsed velocity panel.
+    expect(screen.getByRole('button', { name: 'Pull from backlog →' })).toBeInTheDocument();
     // The velocity disclosure renders its panel heading once expanded-in-DOM.
     expect(screen.getByRole('heading', { name: /^Velocity$/i })).toBeInTheDocument();
 

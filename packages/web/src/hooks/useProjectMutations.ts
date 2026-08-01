@@ -129,6 +129,13 @@ export interface UpdateProjectPayload {
    */
   estimation_scale?: EstimationScale | null;
   /**
+   * Sprint story-picker "Ready only" default override (ADR-0758, #2670). `null`
+   * clears the override so the project inherits the program/workspace default.
+   * Scheduler+-writable server-side (in `_SCHEDULER_WRITABLE_FIELDS` alongside
+   * estimation_scale). Advisory only — never a commit-time block.
+   */
+  sprint_picker_ready_only_default?: boolean | null;
+  /**
    * Iteration-container label override (ADR-0111/0116). Singular noun, ≤32 chars;
    * `null` clears the override so the project inherits the program/workspace default.
    * Admin+-only server-side (allowlist default in the serializer).
