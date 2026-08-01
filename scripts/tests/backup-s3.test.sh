@@ -169,6 +169,80 @@ reset_log
 check "an empty prefix does not become a literal leading slash" \
   "$(grep -q -- '--prefix /' "$LOG" && echo 1 || echo 0)"
 
+# --- 4b. remote plaintext endpoint warning (#2650) --------------------------
+# The artifact is a full pg_dump; http:// to anything that doesn't look
+# in-cluster must warn (stderr, non-blocking) — but never for the documented
+# in-cluster shape, and never when the operator opts out.
+reset_log
+OUT="$(
+  export PATH="$STUB:$PATH"
+  export S3_BUCKET=bk S3_ENDPOINT="http://backup.example.com:9000"
+  export AWS_ACCESS_KEY_ID=key AWS_SECRET_ACCESS_KEY=sec
+  # shellcheck source=../lib/s3.sh
+  . "$LIB"
+  echo data > "$TMP/art2.tar.gz"
+  s3_put "$TMP/art2.tar.gz" "art2.tar.gz" 2>&1 >/dev/null
+)"
+check "a remote plaintext endpoint warns on stderr" \
+  "$(echo "$OUT" | grep -q 'WARNING.*S3_ENDPOINT' && echo 0 || echo 1)"
+check "the warning names the offending endpoint" \
+  "$(echo "$OUT" | grep -q 'http://backup.example.com:9000' && echo 0 || echo 1)"
+check "the upload still proceeds (warning does not block)" \
+  "$(grep -q 'ARGV: --endpoint-url http://backup.example.com:9000 s3 cp' "$LOG" && echo 0 || echo 1)"
+
+reset_log
+OUT="$(
+  export PATH="$STUB:$PATH"
+  export S3_BUCKET=bk S3_ENDPOINT="http://minio:9000"
+  export AWS_ACCESS_KEY_ID=key AWS_SECRET_ACCESS_KEY=sec
+  # shellcheck source=../lib/s3.sh
+  . "$LIB"
+  echo data > "$TMP/art3.tar.gz"
+  s3_put "$TMP/art3.tar.gz" "art3.tar.gz" 2>&1 >/dev/null
+)"
+check "a bare in-cluster short name (minio) does not warn" \
+  "$([ -z "$OUT" ] && echo 0 || echo 1)"
+
+reset_log
+OUT="$(
+  export PATH="$STUB:$PATH"
+  export S3_BUCKET=bk S3_ENDPOINT="http://minio.default.svc.cluster.local:9000"
+  export AWS_ACCESS_KEY_ID=key AWS_SECRET_ACCESS_KEY=sec
+  # shellcheck source=../lib/s3.sh
+  . "$LIB"
+  echo data > "$TMP/art4.tar.gz"
+  s3_put "$TMP/art4.tar.gz" "art4.tar.gz" 2>&1 >/dev/null
+)"
+check "a fully-qualified in-cluster Service DNS name does not warn" \
+  "$([ -z "$OUT" ] && echo 0 || echo 1)"
+
+reset_log
+OUT="$(
+  export PATH="$STUB:$PATH"
+  export S3_BUCKET=bk S3_ENDPOINT="http://backup.example.com:9000"
+  export AWS_ACCESS_KEY_ID=key AWS_SECRET_ACCESS_KEY=sec
+  export TRUEPPM_S3_ALLOW_PLAINTEXT=1
+  # shellcheck source=../lib/s3.sh
+  . "$LIB"
+  echo data > "$TMP/art5.tar.gz"
+  s3_put "$TMP/art5.tar.gz" "art5.tar.gz" 2>&1 >/dev/null
+)"
+check "TRUEPPM_S3_ALLOW_PLAINTEXT=1 silences the warning" \
+  "$([ -z "$OUT" ] && echo 0 || echo 1)"
+
+reset_log
+OUT="$(
+  export PATH="$STUB:$PATH"
+  export S3_BUCKET=bk S3_ENDPOINT="https://backup.example.com:9000"
+  export AWS_ACCESS_KEY_ID=key AWS_SECRET_ACCESS_KEY=sec
+  # shellcheck source=../lib/s3.sh
+  . "$LIB"
+  echo data > "$TMP/art6.tar.gz"
+  s3_put "$TMP/art6.tar.gz" "art6.tar.gz" 2>&1 >/dev/null
+)"
+check "a remote https endpoint does not warn" \
+  "$([ -z "$OUT" ] && echo 0 || echo 1)"
+
 # --- 5. a configured bucket with no client fails fast, before pg_dump --------
 # The whole point of the fix: never complete a run that was asked to go
 # off-cluster but silently could not.

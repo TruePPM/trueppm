@@ -21,6 +21,15 @@
 #   AWS_ACCESS_KEY_ID     credentials. Never placed in a URL — see below.
 #   AWS_SECRET_ACCESS_KEY
 #   TRUEPPM_S3_CLIENT     force "aws" or "mc" instead of autodetecting.
+#   TRUEPPM_S3_ALLOW_PLAINTEXT
+#                         set to "1" or "true" to silence the plaintext-endpoint
+#                         warning below for an operator who has verified the
+#                         network path is trusted ("true" so the same value
+#                         works whether it's exported by hand or injected as a
+#                         Helm-quoted boolean, backup.s3.allowPlaintext). Does
+#                         not change any behavior other than the warning —
+#                         S3_ENDPOINT's scheme is still passed through
+#                         verbatim either way.
 #
 # ---------------------------------------------------------------------------
 # Why path-style addressing
@@ -87,6 +96,66 @@ _s3_mc_alias() {
     >/dev/null
 }
 
+# _s3_endpoint_looks_incluster HOST — best-effort heuristic: succeeds when HOST
+# looks like it resolves inside the cluster or on a private network, i.e.
+# plaintext to it is the documented, expected shape (docs/administration/
+# backup-restore.md and configuration.md both show http://minio:9000 as the
+# in-cluster default). Fails otherwise, including for anything this heuristic
+# cannot classify — a false "in-cluster" verdict silences the warning that
+# _s3_warn_if_remote_plaintext exists to give (the bug it fixes), while a false
+# "remote" verdict only costs an operator one extra log line. Bias accordingly.
+#
+# Recognized as in-cluster/local:
+#   - a bare, dot-free short name (Kubernetes Service DNS, e.g. "minio")
+#   - a name ending in .svc (Kubernetes Service DNS, partially qualified)
+#   - a name ending in .local — this also covers .svc.cluster.local and
+#     .cluster.local (fully-qualified Kubernetes Service DNS), and mDNS / a
+#     private lab domain
+#   - "localhost", a loopback literal (127.0.0.0/8, ::1), or an RFC1918 IPv4
+#     literal (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+#
+# NOT attempted: DNS resolution, /etc/hosts, or knowledge of your VPC/peering
+# topology. A privately-routed FQDN, or a public-DNS name that happens to
+# resolve to a private IP, is not recognized here and WILL warn — deliberately
+# (see TRUEPPM_S3_ALLOW_PLAINTEXT above for that operator's opt-out).
+_s3_endpoint_looks_incluster() {
+  case "$1" in
+    # *.local also matches *.svc.cluster.local and *.cluster.local (both end in
+    # ".local"), so only the bare ".svc" suffix needs its own arm.
+    localhost | ::1 | *.local | *.svc) return 0 ;;
+    127.*.*.* | 10.*.*.* | 192.168.*.*) return 0 ;;
+    172.1[6-9].*.* | 172.2[0-9].*.* | 172.3[01].*.*) return 0 ;;
+    *.*) return 1 ;; # dotted name/IP not matched above → treat as remote
+    *) return 0 ;;   # no dot at all → bare short name → treat as in-cluster
+  esac
+}
+
+# Warn — never block — when S3_ENDPOINT is unencrypted (http://) and does not
+# look in-cluster. The upload artifact is a full PostgreSQL dump (every
+# project, task, and user email in the deployment); plaintext to a remote
+# endpoint puts that dump on the wire in the clear, and nothing else in this
+# path objects. In-cluster plaintext (the documented http://minio:9000
+# default) is fine and must stay silent — see _s3_endpoint_looks_incluster.
+_s3_warn_if_remote_plaintext() {
+  case "${S3_ENDPOINT:-}" in
+    http://*) ;;
+    *) return 0 ;; # empty, or already https:// (or another scheme) — nothing to warn about
+  esac
+  case "${TRUEPPM_S3_ALLOW_PLAINTEXT:-}" in
+    1 | true) return 0 ;;
+  esac
+  _host="${S3_ENDPOINT#http://}"
+  _host="${_host%%/*}"
+  _host="${_host%%:*}"
+  if ! _s3_endpoint_looks_incluster "$_host"; then
+    echo "WARNING: S3_ENDPOINT ($S3_ENDPOINT) is plaintext (http://) and does not" \
+      "look like an in-cluster or private-network address — the backup" \
+      "artifact (a full database dump) will cross the network unencrypted." \
+      "Use https:// for any off-cluster endpoint, or set" \
+      "TRUEPPM_S3_ALLOW_PLAINTEXT=1 if this path is known-trusted." >&2
+  fi
+}
+
 # Shared preamble for every call: default the region and force path-style
 # addressing when a custom endpoint is configured.
 #
@@ -116,6 +185,7 @@ s3_put() {
   _src="$1"
   _key="$2"
   : "${S3_BUCKET:?S3_BUCKET is required to upload}"
+  _s3_warn_if_remote_plaintext
   _s3_prepare
 
   case "$(s3_client)" in
