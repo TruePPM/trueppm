@@ -31,6 +31,21 @@ interface Props {
  *    your first forecast" plus deep-links to the two inputs the forecast feeds on
  *    (story points on the backlog, the sprint's capacity). A new team's first
  *    impression must be a next step, not a dead-end string (#1052).
+ *
+ * #2653 scope boundary: neither branch mounts `ForecastHorizonHelp` (#2495), and
+ * that is deliberate, not a gap. Both read `useProjectForecast` (`/forecast/`),
+ * never `useSprintForecast` (`/sprint-forecast/`) — the hook backed by the
+ * clamped-horizon bootstrap samplers ForecastHorizonHelp exists to caveat.
+ * `MilestoneForecast`'s snapshot data is the #860 bridge's `ForecastSnapshot`,
+ * covered by the same #2643 scope-boundary reasoning as `MilestoneBridgeForecast`.
+ * `BacklogForecast`'s `sprints_to_complete_low/high` comes from
+ * `_sprints_to_complete` (services.py): a plain avg±1σ division over the rolling
+ * velocity window, with no resampling and no horizon clamp — a different,
+ * unbiased-in-that-specific-sense computation from `_sample_backlog_sprint_counts`.
+ * Mounting the caveat here would misdescribe the mechanism (its copy says "each
+ * run re-samples past sprints" and "stops at a fixed sprint horizon", neither of
+ * which is true of this number). See the mount gate in
+ * `ForecastHorizonHelp.test.tsx` and the scope-boundary test below.
  */
 export function VelocityForecastLine({ projectId, targetMilestoneId, enabled }: Props) {
   const { data: forecast, isLoading } = useProjectForecast(projectId, { enabled });

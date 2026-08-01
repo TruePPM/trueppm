@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { ForecastHorizonHelp } from './ForecastHorizonHelp';
+import { findMissingForecastHorizonMounts } from './forecastHorizonMountGate';
 
 /**
  * #2495 — the affordance that keeps a clamped Monte Carlo percentile from reading as
@@ -57,5 +58,94 @@ describe('ForecastHorizonHelp', () => {
     // Opens out of the app; rel must accompany target (no reverse-tabnabbing).
     expect(link.getAttribute('target')).toBe('_blank');
     expect(link.getAttribute('rel')).toContain('noopener');
+  });
+});
+
+/**
+ * Mount gate (#2495 mount list, #2643, #2653). Both prior misses were sites that
+ * read a clamped-sampler forecast (`useSprintForecast`) and rendered its
+ * percentiles without importing this component — nothing caught either until a
+ * VoC panel went looking by hand. `findMissingForecastHorizonMounts` is the
+ * predicate; see its doc comment for exactly which hook is the signal and why
+ * `useProjectForecast`'s `sprints_to_complete_*` is deliberately out of scope.
+ */
+describe('ForecastHorizonHelp mount gate (#2653)', () => {
+  it('flags a synthetic file that reads useSprintForecast() without mounting the caveat', () => {
+    const offenders = findMissingForecastHorizonMounts({
+      'features/example/BadForecastCard.tsx': `
+        export function BadForecastCard({ projectId }) {
+          const { data } = useSprintForecast(projectId);
+          return <p>P50 {data.p50_date}</p>;
+        }
+      `,
+    });
+    expect(offenders).toEqual(['features/example/BadForecastCard.tsx']);
+  });
+
+  it('does not flag a synthetic file that mounts the caveat alongside useSprintForecast()', () => {
+    const offenders = findMissingForecastHorizonMounts({
+      'features/example/GoodForecastCard.tsx': `
+        export function GoodForecastCard({ projectId }) {
+          const { data } = useSprintForecast(projectId);
+          return (
+            <>
+              <p>P50 {data.p50_date}</p>
+              <ForecastHorizonHelp basis="velocity" />
+            </>
+          );
+        }
+      `,
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  it('does not flag a synthetic file that never calls useSprintForecast()', () => {
+    const offenders = findMissingForecastHorizonMounts({
+      'features/example/UnrelatedCard.tsx': `
+        export function UnrelatedCard({ projectId }) {
+          const { data } = useProjectForecast(projectId);
+          return <p>{data.sprints_to_complete_low}</p>;
+        }
+      `,
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  it('every real source file calling useSprintForecast() also mounts ForecastHorizonHelp', () => {
+    const modules = import.meta.glob('../../**/*.tsx', {
+      query: '?raw',
+      import: 'default',
+      eager: true,
+    });
+    const sourceFiles: Record<string, string> = {};
+    for (const [path, source] of Object.entries(modules)) {
+      if (typeof source === 'string') sourceFiles[path] = source;
+    }
+    expect(findMissingForecastHorizonMounts(sourceFiles)).toEqual([]);
+  });
+
+  it('mounts exactly the known set of forecast-caveat sites — a new one must be a deliberate edit here', () => {
+    const modules = import.meta.glob('../../**/*.tsx', {
+      query: '?raw',
+      import: 'default',
+      eager: true,
+    });
+    // import.meta.glob keys are relative to this file's own directory
+    // (features/sprints/), e.g. './SprintForecastChips.tsx' for a sibling and
+    // '../board/FlowAnalyticsPanel.tsx' for a cousin feature directory.
+    const mounted = Object.entries(modules)
+      .filter(
+        (entry): entry is [string, string] =>
+          typeof entry[1] === 'string' && /<ForecastHorizonHelp\b/.test(entry[1]),
+      )
+      .map(([path]) => path)
+      .sort();
+    expect(mounted).toEqual(
+      [
+        '../board/FlowAnalyticsPanel.tsx',
+        '../project/SprintForecastWidget.tsx',
+        './SprintForecastChips.tsx',
+      ].sort(),
+    );
   });
 });
