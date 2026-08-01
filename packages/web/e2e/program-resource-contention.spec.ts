@@ -54,6 +54,11 @@ const CONTENTION = {
           project_name: 'Security',
           early_start: '2026-07-13',
           early_finish: '2026-07-21',
+          // scheduled_start (ADR-0752, #2677) diverges from early_start to
+          // simulate an in-progress task whose remaining-work window has
+          // narrowed past its real span start — the client must render the
+          // span (scheduled_start), not the narrowed early_start.
+          scheduled_start: '2026-07-06',
           units: '1.00',
           status: 'IN_PROGRESS',
         },
@@ -106,7 +111,11 @@ async function setup(page: Page, contention: { status: number; body: unknown }) 
     }),
   );
   await page.route('**/api/v1/me/work/**', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj({ results: [], due_today_count: 0 }) }),
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({ results: [], due_today_count: 0 }),
+    }),
   );
   await page.route('**/api/v1/programs/', (r) =>
     r.fulfill({
@@ -120,12 +129,18 @@ async function setup(page: Page, contention: { status: number; body: unknown }) 
   );
   // The contention endpoint under test.
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/resource-contention/**`, (r) =>
-    r.fulfill({ status: contention.status, contentType: 'application/json', body: pj(contention.body) }),
+    r.fulfill({
+      status: contention.status,
+      contentType: 'application/json',
+      body: pj(contention.body),
+    }),
   );
 }
 
 test.describe('Program resource contention (#1149)', () => {
-  test('Resources tab shows cross-project allocation and an over-allocation flag', async ({ page }) => {
+  test('Resources tab shows cross-project allocation and an over-allocation flag', async ({
+    page,
+  }) => {
     await setup(page, { status: 200, body: CONTENTION });
     await page.goto(`/programs/${PROGRAM_ID}/resources`);
 
@@ -138,6 +153,20 @@ test.describe('Program resource contention (#1149)', () => {
     await expect(page.getByText('SOC2')).toBeVisible();
     // 1.0 + 0.5 in the same window → over-allocated badge (color + text + aria-label).
     await expect(page.getByLabel(/Over-allocated in W/)).toBeVisible();
+  });
+
+  test('renders the SPAN start (scheduled_start), not the narrowed early_start (#2677, ADR-0752)', async ({
+    page,
+  }) => {
+    // "Remediate criticals" carries scheduled_start (2026-07-06) a week before
+    // early_start (2026-07-13) — the row must render the span, not the
+    // narrowed remaining-work window.
+    await setup(page, { status: 200, body: CONTENTION });
+    await page.goto(`/programs/${PROGRAM_ID}/resources`);
+    await expect(page.getByRole('heading', { name: 'Resource contention' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByText(/Jul 6.*Jul 21/)).toBeVisible();
   });
 
   test('shows the schedule-not-run empty state on 409', async ({ page }) => {

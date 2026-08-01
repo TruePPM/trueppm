@@ -31,7 +31,7 @@ const FIXTURE_PROJECT = {
 const FIXTURE_ALLOCATION = {
   project_id: PROJECT_ID,
   window_start: '2026-04-13', // Mon W16
-  window_end: '2026-05-10',   // Sun W19
+  window_end: '2026-05-10', // Sun W19
   resources: [
     {
       id: 'res-alice',
@@ -66,12 +66,17 @@ const FIXTURE_ALLOCATION = {
       max_units: '1.00',
       tasks: [
         {
-          // No overlap with anything — safe to click for edit tests
+          // No overlap with anything — safe to click for edit tests.
+          // scheduled_start (ADR-0752, #2677) diverges from early_start to
+          // simulate an in-progress task whose remaining-work window has
+          // narrowed a week past its real span start — the client must
+          // render the span (scheduled_start), not the narrowed early_start.
           assignment_id: 'asgn-3',
           id: 'task-3',
           name: 'Backend API',
           early_start: '2026-04-13',
           early_finish: '2026-04-26', // entirely in W16–W17, no overlap
+          scheduled_start: '2026-04-06',
           units: '0.50',
           status: 'IN_PROGRESS',
         },
@@ -135,31 +140,53 @@ async function setup(page: Page, memberRows = MEMBER_SCHEDULER) {
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/overview/`, (r) =>
     r.fulfill({
-      status: 200, contentType: 'application/json',
+      status: 200,
+      contentType: 'application/json',
       body: JSON.stringify({
-        schedule_health: 'on_track', spi: null, tasks_late_count: 0,
-        critical_task_count: 0, total_tasks: 4, complete_tasks: 0,
-        next_milestone: null, team_utilization_pct: 80, owner_name: null,
+        schedule_health: 'on_track',
+        spi: null,
+        tasks_late_count: 0,
+        critical_task_count: 0,
+        total_tasks: 4,
+        complete_tasks: 0,
+        next_milestone: null,
+        team_utilization_pct: 80,
+        owner_name: null,
         start_date: '2026-04-01',
       }),
     }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/attention/`, (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }),
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [] }),
+    }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/my-tasks/`, (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: [] }) }),
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ tasks: [] }),
+    }),
   );
   await page.route('**/api/v1/projects/*/presence/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   );
   await page.route('**/api/v1/projects/*/status-summary/', (r) =>
     r.fulfill({
-      status: 200, contentType: 'application/json',
+      status: 200,
+      contentType: 'application/json',
       body: JSON.stringify({
-        task_count: 4, critical_path_count: 0, monte_carlo_p80: null,
-        at_risk_count: 0, critical_count: 0, at_risk_tasks: [], critical_tasks: [],
-        last_saved: null, recalculated_at: null,
+        task_count: 4,
+        critical_path_count: 0,
+        monte_carlo_p80: null,
+        at_risk_count: 0,
+        critical_count: 0,
+        at_risk_tasks: [],
+        critical_tasks: [],
+        last_saved: null,
+        recalculated_at: null,
       }),
     }),
   );
@@ -173,26 +200,38 @@ async function setup(page: Page, memberRows = MEMBER_SCHEDULER) {
     r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
   );
   await page.route('**/api/v1/projects/*/board-config/', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ columns: [] }) }),
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ columns: [] }),
+    }),
   );
   await page.route('**/api/v1/monte-carlo/**', (r) =>
     r.fulfill({
-      status: 200, contentType: 'application/json',
+      status: 200,
+      contentType: 'application/json',
       body: JSON.stringify({ runs: 0, p50: null, p80: null, p95: null, buckets: [] }),
     }),
   );
   await page.route('**/api/v1/projects/*/resources/heatmap/**', (r) =>
     r.fulfill({
-      status: 200, contentType: 'application/json',
+      status: 200,
+      contentType: 'application/json',
       body: JSON.stringify({ weeks: [], resources: [] }),
     }),
   );
   await page.route('**/api/v1/projects/*/resources/summary/**', (r) =>
     r.fulfill({
-      status: 200, contentType: 'application/json',
+      status: 200,
+      contentType: 'application/json',
       body: JSON.stringify({
-        avg_utilization_pct: 0, over_allocated_count: 0, over_allocated_weeks: null,
-        under_utilized_count: 0, under_utilized_names: [], headcount: 0, contractor_count: 0,
+        avg_utilization_pct: 0,
+        over_allocated_count: 0,
+        over_allocated_weeks: null,
+        under_utilized_count: 0,
+        under_utilized_names: [],
+        headcount: 0,
+        contractor_count: 0,
       }),
     }),
   );
@@ -205,7 +244,8 @@ async function setup(page: Page, memberRows = MEMBER_SCHEDULER) {
   // --- Resource allocation timeline ---
   await page.route(`**/api/v1/projects/${PROJECT_ID}/resource-allocation/**`, (r) =>
     r.fulfill({
-      status: 200, contentType: 'application/json',
+      status: 200,
+      contentType: 'application/json',
       body: JSON.stringify(FIXTURE_ALLOCATION),
     }),
   );
@@ -213,7 +253,8 @@ async function setup(page: Page, memberRows = MEMBER_SCHEDULER) {
   // Utilization endpoint (unused in timeline mode but may be fetched on mount)
   await page.route(`**/api/v1/projects/${PROJECT_ID}/utilization/**`, (r) =>
     r.fulfill({
-      status: 200, contentType: 'application/json',
+      status: 200,
+      contentType: 'application/json',
       body: JSON.stringify({
         project_id: PROJECT_ID,
         window: { start: '2026-04-13', end: '2026-05-10' },
@@ -233,9 +274,9 @@ test.describe('Permission gate', () => {
     await setup(page, MEMBER_MEMBER);
     await page.goto(`/projects/${PROJECT_ID}/resources/allocation`);
     // PermissionDeniedNotice renders this exact text (resource/PermissionDeniedNotice.tsx)
-    await expect(
-      page.getByText(/Resource utilization is only visible to Schedulers/i),
-    ).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/Resource utilization is only visible to Schedulers/i)).toBeVisible(
+      { timeout: 10_000 },
+    );
     await expect(page.getByText('Alice Kim')).not.toBeVisible();
   });
 });
@@ -260,9 +301,7 @@ test.describe('Timeline golden path', () => {
 
   test('overallocation badge appears in toolbar for Alice', async ({ page }) => {
     // The toolbar badge has aria-label="N over-allocated resource(s)"
-    await expect(
-      page.getByLabel('1 over-allocated resource'),
-    ).toBeVisible();
+    await expect(page.getByLabel('1 over-allocated resource')).toBeVisible();
   });
 
   test('overallocation week range shown in Alice row header', async ({ page }) => {
@@ -302,8 +341,20 @@ test.describe('Inline allocation editing', () => {
   test('clicking a task bar opens the allocation popover', async ({ page }) => {
     // Backend API (Bob, asgn-3) has no overlapping bars — safe to click
     await page.getByRole('button', { name: /Edit allocation for Backend API/i }).click();
-    await expect(page.getByRole('dialog', { name: /Edit allocation for Backend API/i })).toBeVisible();
+    await expect(
+      page.getByRole('dialog', { name: /Edit allocation for Backend API/i }),
+    ).toBeVisible();
     await expect(page.getByRole('spinbutton', { name: /Allocation/i })).toBeVisible();
+  });
+
+  test('popover shows the SPAN start (scheduled_start), not the narrowed early_start (#2677, ADR-0752)', async ({
+    page,
+  }) => {
+    // Backend API's fixture carries scheduled_start (2026-04-06) a week before
+    // early_start (2026-04-13) — the popover must render the span, not the
+    // narrowed remaining-work window.
+    await page.getByRole('button', { name: /Edit allocation for Backend API/i }).click();
+    await expect(page.getByText('Bob Nguyen · 2026-04-06 – 2026-04-26')).toBeVisible();
   });
 
   test('Cancel button closes the popover without saving', async ({ page }) => {
@@ -316,7 +367,11 @@ test.describe('Inline allocation editing', () => {
     let patchCalled = false;
     await page.route(`**/api/v1/task-resources/asgn-3/`, (r) => {
       patchCalled = true;
-      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ units: '0.75' }) });
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ units: '0.75' }),
+      });
     });
 
     await page.getByRole('button', { name: /Edit allocation for Backend API/i }).click();
@@ -367,7 +422,8 @@ test.describe('Status filters', () => {
     await page.route(`**/api/v1/projects/${PROJECT_ID}/resource-allocation/**`, (r) => {
       seenUrls.push(r.request().url());
       return r.fulfill({
-        status: 200, contentType: 'application/json',
+        status: 200,
+        contentType: 'application/json',
         body: JSON.stringify(FIXTURE_ALLOCATION),
       });
     });
@@ -428,11 +484,17 @@ test.describe('Schedule-not-run empty state', () => {
   test('shows empty state CTA when API returns 409', async ({ page }) => {
     await setup(page);
     await page.route(`**/api/v1/projects/${PROJECT_ID}/resource-allocation/**`, (r) =>
-      r.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ detail: 'No CPM dates.' }) }),
+      r.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'No CPM dates.' }),
+      }),
     );
 
     await page.goto(`/projects/${PROJECT_ID}/resources/allocation`);
-    await expect(page.getByRole('button', { name: /Run Scheduler/i })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('button', { name: /Run Scheduler/i })).toBeVisible({
+      timeout: 10_000,
+    });
     await expect(page.getByText('Alice Kim')).not.toBeVisible();
   });
 });

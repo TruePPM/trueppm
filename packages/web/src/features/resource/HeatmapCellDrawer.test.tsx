@@ -10,6 +10,7 @@ interface DrawerTask {
   status: string;
   early_start: string | null;
   early_finish: string | null;
+  scheduled_start: string | null;
   units: string;
   hours: number;
 }
@@ -19,8 +20,7 @@ interface AllocationPayload {
 }
 
 const { getMock } = vi.hoisted(() => ({
-  getMock:
-    vi.fn<(url: string, config?: unknown) => Promise<{ data: AllocationPayload }>>(),
+  getMock: vi.fn<(url: string, config?: unknown) => Promise<{ data: AllocationPayload }>>(),
 }));
 
 vi.mock('@/api/client', () => ({
@@ -28,12 +28,18 @@ vi.mock('@/api/client', () => ({
 }));
 
 function task(overrides: Partial<DrawerTask> = {}): DrawerTask {
+  // scheduled_start defaults to whichever early_start this call resolves to
+  // (not-started/complete windows coincide, ADR-0752 §2), so pre-existing
+  // overrides that only touch early_start/early_finish stay correct. Pass
+  // scheduled_start explicitly to test the in-progress narrowing case (#2677).
+  const early_start = 'early_start' in overrides ? overrides.early_start! : '2026-04-06';
   return {
     id: 't1',
     name: 'Wire the avionics loom',
     status: 'in_progress',
-    early_start: '2026-04-06',
+    early_start,
     early_finish: '2026-04-10',
+    scheduled_start: early_start,
     units: '1.0',
     hours: 8,
     ...overrides,
@@ -72,9 +78,7 @@ describe('HeatmapCellDrawer', () => {
       renderDrawer();
       const dialog = screen.getByRole('dialog');
       expect(dialog).toHaveAttribute('aria-modal', 'true');
-      expect(
-        await screen.findByRole('heading', { name: 'Anna Khoury' }),
-      ).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: 'Anna Khoury' })).toBeInTheDocument();
       expect(screen.getByText('W18 · Apr 27 → May 3')).toBeInTheDocument();
     });
 
@@ -97,9 +101,7 @@ describe('HeatmapCellDrawer', () => {
     it('shows placeholders and no content while the fetch is in flight', () => {
       getMock.mockReturnValue(new Promise<{ data: AllocationPayload }>(() => {}));
       const { container } = renderDrawer();
-      expect(
-        container.getElementsByClassName('motion-safe:animate-pulse'),
-      ).toHaveLength(3);
+      expect(container.getElementsByClassName('motion-safe:animate-pulse')).toHaveLength(3);
       expect(screen.queryByRole('list')).not.toBeInTheDocument();
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
     });
@@ -168,6 +170,20 @@ describe('HeatmapCellDrawer', () => {
       expect(await screen.findByText('until Apr 10')).toBeInTheDocument();
     });
 
+    it('renders the SPAN start (scheduled_start), not the narrowed early_start, for an in-progress task (#2677, ADR-0752)', async () => {
+      // early_start has narrowed to the remaining-work window; scheduled_start
+      // still carries the real span start.
+      resolveWith([task({ early_start: '2026-04-09', scheduled_start: '2026-04-06' })]);
+      renderDrawer();
+      expect(await screen.findByText('Apr 6 → Apr 10')).toBeInTheDocument();
+    });
+
+    it('falls back to early_start when scheduled_start is null (not yet recalculated)', async () => {
+      resolveWith([task({ early_start: '2026-04-06', scheduled_start: null })]);
+      renderDrawer();
+      expect(await screen.findByText('Apr 6 → Apr 10')).toBeInTheDocument();
+    });
+
     it('humanizes multi-word statuses', async () => {
       resolveWith([task({ status: 'NOT_STARTED' })]);
       renderDrawer();
@@ -178,9 +194,7 @@ describe('HeatmapCellDrawer', () => {
   describe('over-allocation footer', () => {
     it('states the delta above capacity when over-allocated with tasks', async () => {
       renderDrawer({ utilPct: 125 });
-      expect(
-        await screen.findByText('25% above capacity this week'),
-      ).toBeInTheDocument();
+      expect(await screen.findByText('25% above capacity this week')).toBeInTheDocument();
     });
 
     it('is omitted when the week is within capacity', async () => {
