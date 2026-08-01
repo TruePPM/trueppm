@@ -1,6 +1,7 @@
 ---
 title: "Schedule view"
 description: "Canvas-rendered Schedule (Gantt-style) with critical path, baselines, milestones, and the unscheduled gutter."
+documentedFor: "0.4"
 ---
 
 The **Schedule view** is TruePPM's project-timeline surface — what the rest of the industry calls a *Gantt chart*. The product's canonical name is **Schedule** (per [ADR-0030](/architecture/decisions/) and the wave/1 rename in #204) because the view does more than the historical Gantt: critical path, baselines, milestones, the unscheduled gutter, and live CPM re-forecast off sprint velocity all live in the same canvas.
@@ -64,11 +65,20 @@ from the same place. Two dates are in play, and only one of them is yours:
 | | Field | Who sets it | What it means |
 |---|---|---|---|
 | **Committed start** | `planned_start` | You (the PM) | "This work is not to begin before this date" |
-| **Computed start** | `early_start` | The CPM pass | "Given the network, the earliest this *can* begin" |
+| **Computed start** | `scheduled_start` | The CPM pass | "Given the network (and, once work has begun, reality), when this task's work spans from" |
 
 The Start column shows the **computed** date, because that is the one the
 schedule actually runs on. A committed start does not replace it — it
 constrains it.
+
+:::note[Ships in 0.4]
+`scheduled_start` and the Start-column behavior described above ship in 0.4.
+Before 0.4, the Start column (and the bar) instead reads a related-but-different
+engine field, `early_start`, which behaves identically for a not-yet-started
+task but diverges once work is in progress — see
+[The bar vs. the remaining-work window](#the-bar-vs-the-remaining-work-window)
+below.
+:::
 
 ### What committing a start actually does
 
@@ -144,6 +154,54 @@ predecessor, anything not yet started.
 Commit a start when there is a reason outside the network — a vendor arrives
 that week, a gate is fixed, the work has begun. Those are the dates worth
 defending; the rest should be free to move.
+
+### The bar vs. the remaining-work window
+
+:::note[Ships in 0.4]
+The span-based bar and the Duration cell's "Nd left" qualifier described in
+this section ship in 0.4. Before 0.4, the bar draws from the remaining-work
+window described below as the pre-fix behavior, and the Duration cell shows
+no qualifier chip.
+:::
+
+Once a task is in progress, the schedule engine tracks two related but
+different quantities, and the Schedule view is careful to keep them visually
+separate:
+
+- **The bar (and the Start/Finish columns)** show the task's **span** —
+  where its work began (`scheduled_start`) through where it finishes
+  (`early_finish`/`scheduled_finish` — the two are always the same date). The
+  bar keeps its full planned length as work progresses; a **fill** grows
+  inside it left-to-right as `% complete` rises, the same convention MS
+  Project and most Gantt tools use.
+- **`early_start`** (an engine-internal field, not shown on this view) is
+  different: it names the *remaining-work window* — where the task's
+  **unfinished** work would need to start, laid forward from today, to hit
+  the same finish. For a task that hasn't started, or one that's finished,
+  the two windows are identical. For a task in progress they diverge, and the
+  divergence is informative: a 4-day task that's 83% done has roughly a day
+  of remaining-work window left, even though its span — when the work
+  actually began — may have started days or weeks ago.
+
+Before this distinction existed, the bar was drawn from the remaining-work
+window instead of the span. The visible effect was a bar that **shrank** as
+progress was logged, rather than filling — a 4-day task at 83% rendered as a
+single day, indistinguishable from someone having cut the estimate. The span
+is what fixes that: the bar's length now reflects the real commitment, and
+the fill is the only thing that moves as work advances.
+
+The task detail drawer's **Duration** cell carries the same idea in numeric
+form: the full estimate (`4d`) stays put, and a **"1d left"** qualifier chip
+appears beside it once work is underway and the remaining window has shrunk
+below the estimate — a property *of* the duration, not a second, disagreeing
+date. A task that hasn't started, or one that's complete, shows no chip: there
+is nothing left to qualify.
+
+One consequence worth knowing: when a task's actual start is on record and
+work has run long, its span can end up **longer** than its estimated
+duration — an eleven-day span against a four-day estimate, say. That is not a
+bug. It is the visible form of work taking longer than planned, and it is
+exactly the situation the span exists to surface rather than hide.
 
 ## Layout
 
@@ -337,7 +395,7 @@ rather than a commitment.
 
 ## Export to PDF
 
-:::note[Coming in 0.4]
+:::note[Ships in 0.4]
 Schedule PDF export ships in 0.4.
 :::
 
@@ -369,6 +427,7 @@ The [Advancing-to-Milestone card](/features/sprints/) on the Sprints view links 
 - [ADR-0030](/architecture/decisions/) — Schedule rename (Gantt → Schedule), tab order
 - [ADR-0040](/architecture/decisions/) — Wave/3 Schedule: bar render, task drawer, unscheduled gutter, canvas rationale
 - [ADR-0027](/architecture/decisions/) — Incremental CPM recompute (subgraph delta strategy)
+- [ADR-0752](/architecture/decisions/) — Task span (`scheduled_start`) vs. the remaining-work window (`early_start`); the bar/Duration-chip treatment above
 
 ## If you are…
 
