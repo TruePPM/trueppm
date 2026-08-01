@@ -43,6 +43,9 @@ import {
   useSensor,
   useSensors,
   useDroppable,
+  pointerWithin,
+  rectIntersection,
+  type CollisionDetection,
   type DragStartEvent,
   type DragEndEvent,
   type DragOverEvent,
@@ -485,6 +488,33 @@ const EMPTY_TASKS_BY_STATUS: Record<TaskStatus, Task[]> = {
 };
 
 /**
+ * Collision detection for the board's `DndContext` (issue 2679).
+ *
+ * The default `rectIntersection` picks whichever droppable has the largest
+ * overlap AREA against the *dragged item's* rect. That is fine for the normal
+ * `--board-col-w` (272px) status columns, but a board-wide collapsed column
+ * (`LaneColumnStubTrack`) is deliberately only `BOARD_STUB_W` (34px) wide so
+ * it doesn't fight the shared grid template the header and every lane's
+ * milestone rail also use. A dragged card is far wider than 34px, so once the
+ * pointer sits over the stub, most of the card's own rect still spills into
+ * whichever full-width column sits next to it — and `rectIntersection` hands
+ * the drop to that neighbor instead of the stub the user is actually pointing
+ * at (confirmed by a real-pointer E2E drag onto a collapsed column landing on
+ * the adjacent column instead).
+ *
+ * `pointerWithin` resolves this: it picks the droppable whose rect contains
+ * the pointer itself, independent of the dragged item's size, so a precise
+ * point over the narrow stub always wins. It falls back to `rectIntersection`
+ * when the pointer isn't within any droppable at all (e.g., a fast drag
+ * passing between two targets), preserving the previous tolerant behavior for
+ * every normal-width target.
+ */
+const boardCollisionDetection: CollisionDetection = (args) => {
+  const pointerCollisions = pointerWithin(args);
+  return pointerCollisions.length > 0 ? pointerCollisions : rectIntersection(args);
+};
+
+/**
  * Per-cell card cap (issue 1967, ADR-0420) and its ephemeral expansion state.
  *
  * A WIP-breached cell is NEVER capped — the overload pile stays visible (the
@@ -692,6 +722,7 @@ function BoardCellImpl({
       <div
         ref={setNodeRef}
         data-empty-cell="true"
+        data-testid={`board-cell-${phaseId}-${status}`}
         // `self-start` is load-bearing (#2427). A grid cell stretches to its row
         // by default, so in a lane made tall by one full column the empty
         // siblings became full-height blank tracks with a lonely tick floating
@@ -712,6 +743,7 @@ function BoardCellImpl({
   return (
     <div
       ref={setNodeRef}
+      data-testid={`board-cell-${phaseId}-${status}`}
       className={[
         'rounded-card p-2 min-h-[120px] flex flex-col gap-[var(--board-card-gap,0.375rem)] transition-colors duration-100',
         over
@@ -947,28 +979,45 @@ function LaneFocusToggle({
  * A column collapsed board-wide (issue 1459) renders as a narrow empty stub
  * track in every lane so the lane stays aligned with the stubbed header;
  * clicking it expands the column back.
+ *
+ * Also registers the `${phaseId}:${status}` droppable id (issue 2679) so a
+ * card can be dropped straight onto the stub without first expanding the
+ * column. Unlike the collapsed-lane fix, this stub never swaps to the full
+ * `BoardCell` during a drag: the column's 34px stub track is shared by the
+ * board-wide header and every lane's milestone rail (`boardGridTemplate` /
+ * `BOARD_STUB_W`), so widening it only here would break the cross-surface
+ * column alignment those tracks depend on. Staying narrow but droppable is
+ * the correct analog of the collapsed-lane treatment for this surface.
  */
 function LaneColumnStubTrack({
   phaseId,
   col,
   count,
+  isOver,
   onExpandColumn,
 }: {
   phaseId: string;
   col: { status: TaskStatus; label: string };
   count: number;
+  isOver: boolean;
   onExpandColumn: (status: TaskStatus) => void;
 }) {
+  const droppableId = `${phaseId}:${col.status}`;
+  const { setNodeRef } = useDroppable({ id: droppableId });
   return (
     <button
+      ref={setNodeRef}
       type="button"
       onClick={() => onExpandColumn(col.status)}
       title={`Expand ${col.label}`}
       aria-label={`Expand ${col.label} column`}
       data-testid={`lane-stub-${phaseId}-${col.status}`}
-      className="bg-neutral-surface-sunken/60 border-l border-neutral-border
-                  hover:bg-neutral-surface-sunken focus:outline-none focus:ring-2
-                  focus:ring-brand-primary focus:ring-inset"
+      className={[
+        'border-l focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset transition-colors duration-100',
+        isOver
+          ? 'bg-brand-primary/5 border-l-2 border-brand-primary'
+          : 'bg-neutral-surface-sunken/60 border-neutral-border hover:bg-neutral-surface-sunken',
+      ].join(' ')}
     >
       {count > 0 && (
         <span className="sr-only">
@@ -984,10 +1033,42 @@ function LaneColumnStubTrack({
  * dashed hollow "0" so a collapsed lane reads as "no cards", not "n/a" (#1943)
  * — matching the ColumnStub empty treatment (#1697) instead of a bare em-dash
  * (rule 201).
+ *
+ * Registers the same `${phaseId}:${status}` droppable id as `BoardCell`
+ * (issue 2679): a collapsed lane previously rendered no droppable at all, so
+ * on a board where every lane starts collapsed there were zero drop targets
+ * anywhere. This keeps the compact collapsed presentation (no layout jump for
+ * every collapsed lane on every drag) while making the surface participate —
+ * the same "stay compact, but light up on drag-over" treatment the backlog
+ * rail's own collapsed strip already gets via its unconditional `useDroppable`
+ * (`BacklogBand.tsx`), rather than the rail's separate `forcedExpand` behavior
+ * which serves a different direction (opening the list to drop *into* a
+ * specific position).
  */
-function CollapsedLaneCell({ count }: { count: number }) {
+function CollapsedLaneCell({
+  phaseId,
+  status,
+  count,
+  isOver,
+}: {
+  phaseId: string;
+  status: TaskStatus;
+  count: number;
+  isOver: boolean;
+}) {
+  const droppableId = `${phaseId}:${status}`;
+  const { setNodeRef } = useDroppable({ id: droppableId });
   return (
-    <div className="bg-neutral-surface-sunken border-l border-neutral-border p-2 min-h-[56px] flex items-center justify-center">
+    <div
+      ref={setNodeRef}
+      data-testid={`board-cell-${phaseId}-${status}`}
+      className={[
+        'p-2 min-h-[56px] flex items-center justify-center transition-colors duration-100',
+        isOver
+          ? 'bg-brand-primary/5 border-l-2 border-brand-primary'
+          : 'bg-neutral-surface-sunken border-l border-neutral-border',
+      ].join(' ')}
+    >
       {count > 0 ? (
         <span className="text-xs text-neutral-text-secondary">
           {count} task{count !== 1 ? 's' : ''}
@@ -1168,6 +1249,7 @@ function PhaseLaneImpl({
             with the stubbed header; clicking the header stub expands it. */}
         {columns.map((col) => {
           const cellCount = tasksByStatus[col.status]?.length ?? 0;
+          const colIsOver = isDragActive && overStatus === col.status;
           if (collapsedColumns.has(col.status)) {
             return (
               <LaneColumnStubTrack
@@ -1175,12 +1257,21 @@ function PhaseLaneImpl({
                 phaseId={phase.id}
                 col={col}
                 count={cellCount}
+                isOver={colIsOver}
                 onExpandColumn={onExpandColumn}
               />
             );
           }
           if (collapsed) {
-            return <CollapsedLaneCell key={col.status} count={cellCount} />;
+            return (
+              <CollapsedLaneCell
+                key={col.status}
+                phaseId={phase.id}
+                status={col.status}
+                count={cellCount}
+                isOver={colIsOver}
+              />
+            );
           }
           return (
             <BoardCell
@@ -2896,6 +2987,7 @@ export function BoardView() {
 
       <DndContext
         sensors={sensors}
+        collisionDetection={boardCollisionDetection}
         accessibility={{ announcements: dndAnnouncements }}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
