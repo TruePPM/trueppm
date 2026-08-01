@@ -256,7 +256,7 @@ test.describe('context-bar status cluster overflow (#2533)', () => {
     // rail (AppShell), so the rail's own width is not a confound: the only thing
     // that changed is the cluster's content width.
     await page.getByRole('button', { name: 'Hide navigation' }).click();
-    await expect(bar.getByRole('img', { name: /workspace$/i })).toBeVisible();
+    await expect(bar.getByRole('img', { name: /methodology$/i })).toBeVisible();
 
     const after = await location.boundingBox();
     expect(after).not.toBeNull();

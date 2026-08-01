@@ -55,7 +55,7 @@ import { ImportProjectModal } from '@/components/import/ImportProjectModal';
 import { ProgramIdentitySquare } from '@/features/programs/ProgramIdentitySquare';
 import { useGroupedProjectViews } from '@/features/shell/useGroupedProjectViews';
 import { VIEW_TAB_META } from '@/features/shell/viewMeta';
-import { methodologyLabel } from '@/lib/methodologyLabel';
+import { methodologyStatusLabel } from '@/lib/methodologyLabel';
 import { ViewsMenu } from './ViewsMenu';
 import type { ProjectHealth } from '@/api/types';
 
@@ -797,7 +797,7 @@ function PinnedTier({
                   name={prog.name}
                   pinned
                   size="sm"
-                tone="chrome"
+                  tone="chrome"
                 />
               </div>
             );
@@ -1349,7 +1349,9 @@ function ProjectViewsTier({
                 ·
               </span>
             )}
-            <span className="shrink-0">{methodologyLabel(effectiveMethodology)} workspace</span>
+            <span className="shrink-0">
+              {methodologyStatusLabel(effectiveMethodology, project.data?.inherited_methodology)}
+            </span>
           </p>
         </div>
         <span role="img" aria-label={HEALTH_LABEL[health]} className="shrink-0">
@@ -1535,8 +1537,7 @@ function ProjectRow({
           {openTaskCount}
         </span>
       )}
-      <PinToggle kind="project" id={id} name={name} pinned={pinned} size="sm"
-                tone="chrome" />
+      <PinToggle kind="project" id={id} name={name} pinned={pinned} size="sm" tone="chrome" />
     </div>
   );
 }

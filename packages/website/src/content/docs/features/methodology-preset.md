@@ -1,6 +1,7 @@
 ---
 title: Project methodology preset
 description: Tab visibility per planning model (Waterfall / Agile / Hybrid).
+documentedFor: "0.4"
 ---
 
 A project-level preset that tells TruePPM which planning model the team uses, and hides the irrelevant tabs by default. The API surface is unchanged — methodology hides tabs but does not gate routes.
@@ -31,6 +32,14 @@ The default for new projects is **Hybrid** — every tab visible. Existing proje
 ## Why hide tabs but not gate routes
 
 The preset communicates *"this is not how we work here"*, not *"this is not allowed."* Power users who know what they want can always reach a hidden view by direct URL. Mobile or API consumers are unaffected. Hiding lowers cognitive load at onboarding without restricting the system.
+
+:::note[Ships in 0.4]
+The explanatory empty state and the flip-warning below ship in **TruePPM 0.4**, the first beta. In `v0.3.0-alpha.3`, the latest release, landing on a hidden view by direct URL shows the same cold-start empty state a project actually using that workflow would see — including its "start using this" call to action — with no indication the project is configured otherwise.
+:::
+
+Landing on a hidden view by direct URL never blocks the route, but it also never pretends the view is the project's normal workflow. `/sprints` and `/backlog` on a Waterfall project (and `/schedule` and `/calendar` on an Agile one) show a distinct empty state that names the mismatch, points the primary action at the view the project's methodology actually uses, and demotes "use this anyway" to a secondary action that opens **Settings → Methodology** — so enabling the hidden surface is a deliberate configuration change, never an incidental click.
+
+Flipping a project's methodology never touches existing data. If a project already has sprints and its methodology changes to Waterfall, the Sprints view keeps rendering them — with a banner explaining that they sit outside the project's current workflow — rather than showing the empty state as if they never existed. The Settings → Methodology picker also warns before a save that would hide existing sprints, naming how many, so the choice is made with the consequence in view.
 
 ## Customize views — your personal layer
 

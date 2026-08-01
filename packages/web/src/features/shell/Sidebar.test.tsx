@@ -47,8 +47,7 @@ vi.mock('@/hooks/useProgramId', () => ({ useProgramId: vi.fn(() => undefined) })
  * `/auth/me/pinned/` would return; `mockTogglePin` records what a click sends.
  */
 const mockTogglePin = vi.fn();
-let mockPinned: { kind: string; id: string; name: string; code: string | null }[] | undefined =
-  [];
+let mockPinned: { kind: string; id: string; name: string; code: string | null }[] | undefined = [];
 let mockPinsState = { isLoading: false, isError: false };
 vi.mock('@/hooks/usePins', () => ({
   usePinned: () => ({ data: mockPinned, ...mockPinsState }),
@@ -512,7 +511,7 @@ describe('Sidebar rail — Tier 2 "This project" (grouped views)', () => {
     expect(screen.getByText('This project')).toBeInTheDocument();
     // Header card: program · methodology subtitle + a health circle carrying the word.
     expect(screen.getByText('Artemis')).toBeInTheDocument();
-    expect(screen.getByText('Hybrid workspace')).toBeInTheDocument();
+    expect(screen.getByText('Hybrid methodology')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'at risk' })).toBeInTheDocument();
     // The Customize-views control now lives here in the rail band (#1680).
     expect(screen.getByRole('button', { name: 'Customize views' })).toBeInTheDocument();
@@ -650,8 +649,38 @@ describe('Sidebar rail — Tier 2 "This project" (grouped views)', () => {
       error: null,
     });
     renderRail();
-    expect(screen.getByText('Waterfall workspace')).toBeInTheDocument();
-    expect(screen.queryByText('Agile workspace')).not.toBeInTheDocument();
+    expect(screen.getByText('Waterfall methodology')).toBeInTheDocument();
+    expect(screen.queryByText('Agile methodology')).not.toBeInTheDocument();
+  });
+
+  // #2619: the subtitle no longer says "workspace" — that wording described the
+  // workspace's methodology when the value shown is this project's own resolved
+  // preset. It now names the fact the client can verify: whether the project
+  // currently matches the workspace default.
+  it('appends "(workspace default)" only when inherited_methodology matches effective_methodology (#2619)', () => {
+    mockUseProject.mockReturnValue({
+      data: { ...HYBRID_PROJECT, inherited_methodology: 'HYBRID' },
+      isLoading: false,
+      error: null,
+    });
+    renderRail();
+    expect(screen.getByText('Hybrid methodology (workspace default)')).toBeInTheDocument();
+  });
+
+  it('omits the qualifier when the project overrides the workspace default (#2619)', () => {
+    mockUseProject.mockReturnValue({
+      data: {
+        ...HYBRID_PROJECT,
+        methodology: 'WATERFALL',
+        effective_methodology: 'WATERFALL',
+        inherited_methodology: 'HYBRID',
+      },
+      isLoading: false,
+      error: null,
+    });
+    renderRail();
+    expect(screen.getByText('Waterfall methodology')).toBeInTheDocument();
+    expect(screen.queryByText(/workspace default/)).not.toBeInTheDocument();
   });
 });
 
@@ -1254,7 +1283,7 @@ describe('Sidebar before any data source has loaded', () => {
 
     expect(screen.getByText('Project')).toBeInTheDocument();
     // No resolved methodology yet → the HYBRID default, and an unknown health dot.
-    expect(screen.getByText('Hybrid workspace')).toBeInTheDocument();
+    expect(screen.getByText('Hybrid methodology')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'health unknown' })).toBeInTheDocument();
   });
 

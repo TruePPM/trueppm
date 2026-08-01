@@ -7,7 +7,7 @@ import { useProgram } from '@/hooks/useProgram';
 import { usePrograms } from '@/hooks/usePrograms';
 import { useProjects } from '@/hooks/useProjects';
 import { useGroupedProjectViews } from '@/features/shell/useGroupedProjectViews';
-import { methodologyLabel } from '@/lib/methodologyLabel';
+import { methodologyStatusLabel } from '@/lib/methodologyLabel';
 import type { Program } from '@/api/types';
 
 /**
@@ -206,7 +206,7 @@ export function useLocationModel(): LocationModel {
       currentId: projectId,
       currentName: options.find((o) => o.id === projectId)?.name ?? project?.name,
       currentMethodologyLabel: project?.effective_methodology
-        ? methodologyLabel(project.effective_methodology)
+        ? methodologyStatusLabel(project.effective_methodology, project.inherited_methodology)
         : undefined,
     };
   }, [
@@ -216,6 +216,7 @@ export function useLocationModel(): LocationModel {
     projectView,
     project?.name,
     project?.effective_methodology,
+    project?.inherited_methodology,
   ]);
 
   const leaf = useMemo(() => {

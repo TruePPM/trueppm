@@ -7,8 +7,18 @@ import { useToggleComplete } from '@/hooks/useTaskMutations';
 import { toast } from '@/components/Toast';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { EmptyState } from '@/components/EmptyState';
+import { MethodologyEmptyState } from '@/features/shell/MethodologyEmptyState';
 import { Button } from '@/components/Button';
-import { CalendarIcon, CheckIcon, ChevronRightIcon, GanttIcon, PlusIcon, WarningIcon } from '@/components/Icons';
+import {
+  CalendarIcon,
+  CheckIcon,
+  ChevronRightIcon,
+  GanttIcon,
+  PlusIcon,
+  WarningIcon,
+} from '@/components/Icons';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
+import type { Methodology } from '@/types';
 import {
   barGeometry,
   compareWbs,
@@ -41,6 +51,10 @@ export interface MobileScheduleProps {
   error: Error | null;
   /** Opens the desktop-shared "add task" form (mounted by ScheduleView). */
   onAddTask: () => void;
+  /** Server-resolved preset (web-rule 196, issue #2619) — AGILE hides this
+   *  view's nav entry (methodologyTabs.ts), but the route stays reachable by
+   *  direct URL on purpose. Drives the explanatory empty state below. */
+  effectiveMethodology: Methodology;
 }
 
 /**
@@ -61,10 +75,12 @@ export function MobileSchedule({
   isLoading,
   error,
   onAddTask,
+  effectiveMethodology,
 }: MobileScheduleProps) {
   const queryClient = useQueryClient();
   const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
   const toggleComplete = useToggleComplete();
+  const itl = useIterationLabel(projectId ?? undefined);
 
   const unscheduled = useUnscheduledTasks(tasks);
 
@@ -129,6 +145,20 @@ export function MobileSchedule({
             Try again
           </Button>
         }
+      />
+    );
+  } else if (tasks.length === 0 && effectiveMethodology === 'AGILE') {
+    // AGILE hides this view's nav entry (methodologyTabs.ts), but the route
+    // stays reachable by direct URL on purpose (issue #2619).
+    body = (
+      <MethodologyEmptyState
+        className="h-full bg-neutral-surface"
+        projectId={projectId}
+        icon={CalendarIcon}
+        title="Schedule isn't part of this project's workflow"
+        description={`This project runs on ${itl.lowerPlural}, not a phase-gated schedule. If a full CPM schedule fits better here, switch the methodology in Settings.`}
+        primaryLabel={`Go to ${itl.plural}`}
+        primaryTo={projectId ? `/projects/${projectId}/sprints` : '#'}
       />
     );
   } else if (tasks.length === 0) {

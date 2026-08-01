@@ -42,9 +42,9 @@ describe('MethodologyIndicator (issue #1907, restoring #1469 after #1680)', () =
   // whose accessible name is the full methodology (WCAG 1.4.1 — never letter- or
   // color-only).
   const cases = [
-    { methodology: 'HYBRID', code: 'HY', name: 'Hybrid workspace' },
-    { methodology: 'WATERFALL', code: 'WF', name: 'Waterfall workspace' },
-    { methodology: 'AGILE', code: 'AG', name: 'Agile workspace' },
+    { methodology: 'HYBRID', code: 'HY', name: 'Hybrid methodology' },
+    { methodology: 'WATERFALL', code: 'WF', name: 'Waterfall methodology' },
+    { methodology: 'AGILE', code: 'AG', name: 'Agile methodology' },
   ] as const;
 
   it.each(cases)(
@@ -71,13 +71,49 @@ describe('MethodologyIndicator (issue #1907, restoring #1469 after #1680)', () =
       error: null,
     });
     renderWithRouter(<MethodologyIndicator />, { initialEntries: ['/projects/proj-1/board'] });
-    expect(screen.getByRole('img', { name: 'Waterfall workspace' })).toHaveTextContent('WF');
+    expect(screen.getByRole('img', { name: 'Waterfall methodology' })).toHaveTextContent('WF');
   });
 
   it('falls back to HYBRID before the project loads', () => {
     mockUseProject.mockReturnValue({ data: undefined, isLoading: true, error: null });
     renderWithRouter(<MethodologyIndicator />, { initialEntries: ['/projects/proj-1/board'] });
-    expect(screen.getByRole('img', { name: 'Hybrid workspace' })).toHaveTextContent('HY');
+    expect(screen.getByRole('img', { name: 'Hybrid methodology' })).toHaveTextContent('HY');
+  });
+
+  // #2619: the phrase never asserts "inherited" unless `inherited_methodology`
+  // backs it up, and only ever claims the shared fact both mechanisms produce —
+  // the project currently matches the workspace default — never "inherited"
+  // outright (methodology has no per-scope null sentinel to prove the mechanism).
+  it('appends "(workspace default)" only when inherited_methodology matches effective_methodology (#2619)', () => {
+    mockUseProject.mockReturnValue({
+      data: {
+        id: 'proj-1',
+        methodology: 'HYBRID',
+        effective_methodology: 'HYBRID',
+        inherited_methodology: 'HYBRID',
+      },
+      isLoading: false,
+      error: null,
+    });
+    renderWithRouter(<MethodologyIndicator />, { initialEntries: ['/projects/proj-1/board'] });
+    expect(
+      screen.getByRole('img', { name: 'Hybrid methodology (workspace default)' }),
+    ).toHaveTextContent('HY');
+  });
+
+  it('omits the qualifier when the project overrides the workspace default (#2619)', () => {
+    mockUseProject.mockReturnValue({
+      data: {
+        id: 'proj-1',
+        methodology: 'WATERFALL',
+        effective_methodology: 'WATERFALL',
+        inherited_methodology: 'HYBRID',
+      },
+      isLoading: false,
+      error: null,
+    });
+    renderWithRouter(<MethodologyIndicator />, { initialEntries: ['/projects/proj-1/board'] });
+    expect(screen.getByRole('img', { name: 'Waterfall methodology' })).toHaveTextContent('WF');
   });
 
   it('renders null off a project route', () => {
