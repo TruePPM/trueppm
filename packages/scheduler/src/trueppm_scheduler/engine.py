@@ -842,6 +842,7 @@ def _forward_pass(
         pinned = _pinned_placement(task, cal)
         if pinned is not None:
             task.early_start, task.early_finish = pinned
+            task.scheduled_start = _compute_scheduled_start(task, cal)
             continue
 
         if _is_complete(task):
@@ -883,6 +884,8 @@ def _forward_pass(
                     min_ef,
                 )
 
+        task.scheduled_start = _compute_scheduled_start(task, cal)
+
 
 def _calendar_floors(
     cal: Calendar,
@@ -921,6 +924,42 @@ def _calendar_floors(
         start = max(start_base, _next_working_day(status_date, cal))
     cache[key] = (start_base, start)
     return start_base, start
+
+
+def _compute_scheduled_start(task: Task, cal: Calendar) -> date:
+    """The task's span start (ADR-0752), as distinct from ``early_start``.
+
+    ``early_start``/``early_finish`` mean the *remaining-work window* for an
+    in-progress task (ADR-0132) — correct for network scheduling, but not the
+    task's span. ``scheduled_start`` is the span start, per this table:
+
+    - Not started (``percent_complete <= 0``): ``early_start`` — the windows
+      coincide, nothing has been consumed yet.
+    - Complete (:func:`_is_complete`): ``early_start`` — ADR-0136 already pins
+      a completed task at its full duration, so the remaining window *is* the
+      span.
+    - In progress, ``actual_start`` recorded: ``actual_start`` — the span
+      began when work actually began, however long ago that was. The span may
+      then exceed ``duration`` (a task running long); that divergence is the
+      whole point of the field (ADR-0752 §2).
+    - In progress, no ``actual_start``: the full duration backed off from
+      ``early_finish`` (which is unaffected by this — remaining work still
+      ends when the task ends), calendar-aware via :func:`_start_from_finish`.
+
+    Must be called after ``task.early_start``/``task.early_finish`` are set
+    for this task (i.e. from within :func:`_forward_pass`, after the early
+    window is resolved for both the pinned and network-scheduled branches).
+    """
+    assert task.early_start is not None and task.early_finish is not None
+    if _is_complete(task):
+        return task.early_start
+    pct = task.percent_complete or 0.0
+    if pct <= 0:
+        return task.early_start
+    if task.actual_start is not None:
+        return task.actual_start
+    full_days = task.duration.days
+    return _start_from_finish(task.early_finish, full_days, cal)
 
 
 def _pinned_placement(task: Task, cal: Calendar) -> tuple[date, date] | None:

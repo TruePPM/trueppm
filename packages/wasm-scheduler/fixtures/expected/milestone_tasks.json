@@ -11,7 +11,8 @@
       "late_finish": "2026-04-07",
       "total_float": 0.0,
       "free_float": 0.0,
-      "is_critical": true
+      "is_critical": true,
+      "scheduled_start": "2026-04-01"
     },
     {
       "id": "M",
@@ -21,7 +22,8 @@
       "late_finish": "2026-04-08",
       "total_float": 0.0,
       "free_float": 0.0,
-      "is_critical": true
+      "is_critical": true,
+      "scheduled_start": "2026-04-08"
     },
     {
       "id": "B",
@@ -31,7 +33,8 @@
       "late_finish": "2026-04-13",
       "total_float": 0.0,
       "free_float": 0.0,
-      "is_critical": true
+      "is_critical": true,
+      "scheduled_start": "2026-04-09"
     }
   ],
   "critical_path": [

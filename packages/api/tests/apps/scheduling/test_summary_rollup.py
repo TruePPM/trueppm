@@ -88,6 +88,28 @@ class TestSummaryRollup:
         # Single-task project: the sole leaf is always on the critical path.
         assert phase.is_critical is True
 
+    def test_summary_scheduled_start_is_min_of_leaf_scheduled_starts(
+        self, project: Project
+    ) -> None:
+        """Summary scheduled_start (ADR-0752) rolls up the min of leaf
+        scheduled_starts — which can be EARLIER than the summary's own
+        early_start when a leaf's actual work began before its remaining-work
+        window (out-of-sequence reality, same class as ADR-0136)."""
+        phase = Task.objects.create(project=project, name="Phase 1", duration=1, wbs_path="1")
+        Task.objects.create(
+            project=project,
+            name="T1",
+            duration=4,
+            wbs_path="1.1",
+            actual_start=date(2026, 1, 1),  # before the project's own start_date
+            percent_complete=50.0,
+        )
+        _run_schedule(str(project.pk))
+        phase.refresh_from_db()
+        assert phase.scheduled_start == date(2026, 1, 1)
+        assert phase.early_start is not None
+        assert phase.scheduled_start < phase.early_start
+
     def test_leaf_duration_unchanged(self, project: Project) -> None:
         """Leaf task duration must NOT be overwritten during CPM write-back."""
         Task.objects.create(project=project, name="Phase 1", duration=1, wbs_path="1")

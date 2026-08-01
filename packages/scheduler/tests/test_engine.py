@@ -1519,6 +1519,133 @@ class TestProgressAware:
 
 
 # ---------------------------------------------------------------------------
+# scheduled_start (ADR-0752): task span vs. early_start's remaining window
+# ---------------------------------------------------------------------------
+
+
+class TestScheduledStart:
+    """``scheduled_start`` names the task's span, distinct from ``early_start``
+    (the remaining-work window since ADR-0132). Table is ADR-0752 §2."""
+
+    def test_not_started_matches_early_start(self) -> None:
+        """Not started: the windows coincide, nothing has been consumed yet."""
+        p = make_project([task("A", "A", 5, percent_complete=0.0)], start=date(2026, 3, 2))
+        t = schedule(p).tasks[0]
+        assert t.scheduled_start == t.early_start == date(2026, 3, 2)
+
+    def test_complete_matches_early_start(self) -> None:
+        """Complete (ADR-0136 pins full duration): the remaining window IS the span."""
+        p = make_project(
+            tasks=[
+                task(
+                    "A",
+                    "A",
+                    5,
+                    actual_start=date(2026, 3, 2),
+                    actual_finish=date(2026, 3, 6),
+                    percent_complete=100.0,
+                ),
+            ],
+            start=date(2026, 3, 2),
+        )
+        t = schedule(p).tasks[0]
+        assert t.scheduled_start == t.early_start == date(2026, 3, 2)
+
+    def test_complete_by_percent_with_no_actuals_matches_early_start(self) -> None:
+        """100%-complete with no recorded actuals: full-duration planning position."""
+        p = make_project([task("A", "A", 5, percent_complete=100.0)], start=date(2026, 3, 2))
+        t = schedule(p).tasks[0]
+        assert t.scheduled_start == t.early_start == date(2026, 3, 2)
+
+    def test_in_progress_with_actual_start_uses_actual_start_even_past_duration(self) -> None:
+        """In progress with a recorded actual_start: the span starts there, even
+        when that makes the span longer than the estimated duration — a task
+        running long is exactly what the field exists to surface (ADR-0752 §2)."""
+        p = make_project(
+            tasks=[
+                task(
+                    "A",
+                    "A",
+                    4,
+                    actual_start=date(2026, 3, 2),  # Monday
+                    percent_complete=50.0,
+                ),
+            ],
+            start=date(2026, 3, 2),
+        )
+        p.status_date = date(2026, 3, 20)  # Friday, well past the 4d estimate
+        t = schedule(p).tasks[0]
+        assert t.scheduled_start == date(2026, 3, 2)
+        assert t.scheduled_start == t.actual_start
+        # The span (scheduled_start..early_finish) now exceeds the 4-day estimate.
+        assert (t.early_finish - t.scheduled_start).days > 4
+
+    def test_in_progress_no_actual_start_backs_off_full_duration_from_early_finish(self) -> None:
+        """In progress, no actual_start: calendar-aware back-off of the FULL
+        duration from early_finish (unaffected — remaining work still ends when
+        the task ends), skipping weekends."""
+        p = make_project(
+            tasks=[task("A", "A", 10, percent_complete=60.0)],
+            start=date(2026, 3, 2),
+        )
+        p.status_date = date(2026, 3, 16)  # Monday, two weeks in
+        t = schedule(p).tasks[0]
+        # early_finish unaffected by this change: 4 remaining days from 16-Mar.
+        assert t.early_finish == date(2026, 3, 19)
+        # scheduled_start backs off the FULL 10 working days from early_finish,
+        # skipping the two weekends in between — not the 4-day remaining window.
+        assert t.scheduled_start != t.early_start
+        span_working_days = _count_working_days(t.scheduled_start, t.early_finish)
+        assert span_working_days == 10
+
+    def test_milestone_all_dates_coincide(self) -> None:
+        """A milestone (duration=0): scheduled_start == early_finish == early_start."""
+        p = make_project(
+            [task("A", "A", 0, percent_complete=50.0)],
+            start=date(2026, 3, 2),
+        )
+        t = schedule(p).tasks[0]
+        assert t.scheduled_start == t.early_start == t.early_finish
+
+    def test_no_progress_anywhere_scheduled_start_is_inert(self) -> None:
+        """Regression fixture: with no progress anywhere in the project, every
+        scheduled_start equals its early_start byte for byte — the change is
+        inert for planning-only projects."""
+        p = make_project(
+            tasks=[
+                task("A", "A", 5),
+                task("B", "B", 3),
+                task("C", "C", 2),
+            ],
+            dependencies=[Dependency("A", "B"), Dependency("B", "C")],
+            start=date(2026, 3, 2),
+        )
+        r = schedule(p)
+        for t in r.tasks:
+            assert t.scheduled_start == t.early_start
+
+    def test_scheduled_start_round_trips_through_serialization(self) -> None:
+        p = make_project(
+            [task("A", "A", 5, actual_start=date(2026, 3, 2), percent_complete=50.0)],
+            start=date(2026, 3, 2),
+        )
+        t = schedule(p).tasks[0]
+        restored = Task.from_dict(t.to_dict())
+        assert restored.scheduled_start == t.scheduled_start
+
+
+def _count_working_days(start: date, end: date) -> int:
+    """Inclusive working-day count between two dates (Mon-Fri), test helper only."""
+    days = 0
+    current = start
+    while current <= end:
+        if current.weekday() < 5:
+            days += 1
+        current += timedelta(days=1)
+    return days
+
+
+# ---------------------------------------------------------------------------
 # Backward pass with progress: completed successors and weekend project finish
 # ---------------------------------------------------------------------------
 

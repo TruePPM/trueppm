@@ -17,6 +17,15 @@ export interface PublicScheduleTask {
   planned_start: string | null;
   early_start: string | null;
   early_finish: string | null;
+  /**
+   * The task's SPAN start (ADR-0752 §8) — a deliberate widening of this
+   * projection: for an in-progress task, scheduled_start IS actual_start
+   * (`_public_schedule_task`, `share_services.py`), which the projection
+   * otherwise withholds. Included so the public Gantt draws the same bar the
+   * authenticated product does, rather than a remaining-work-window bar that
+   * shrinks as progress is logged.
+   */
+  scheduled_start: string | null;
   is_milestone: boolean;
   is_critical: boolean;
   percent_complete: number;

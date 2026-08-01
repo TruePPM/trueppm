@@ -71,6 +71,22 @@ function Cell({ label, children, critical, last, explain }: CellProps) {
   );
 }
 
+/**
+ * Whether the Duration cell's "Nd left" qualifier (ADR-0752 §9) has something
+ * to say: an in-progress, not-yet-complete task whose remaining work has
+ * shrunk below its full estimate. False for a milestone (no duration to
+ * qualify), a not-started task (remaining === duration, nothing consumed
+ * yet), and a complete task (remaining is inert once work is done).
+ */
+function shouldShowRemainingChip(task: Task): boolean {
+  return (
+    !task.isMilestone &&
+    !task.isComplete &&
+    typeof task.remainingDuration === 'number' &&
+    task.remainingDuration !== task.duration
+  );
+}
+
 /** Pull the server's `{duration: [...]}` validation message off a failed PATCH. */
 function extractDurationError(err: unknown): string | null {
   const data = (err as { response?: { data?: { duration?: unknown } } })?.response?.data;
@@ -83,6 +99,12 @@ function extractDurationError(err: unknown): string | null {
 interface DurationCellProps {
   /** Current committed duration in working days. */
   days: number;
+  /**
+   * Working days of remaining work (ADR-0752), or `null` to render no "Nd
+   * left" qualifier — the caller ({@link shouldShowRemainingChip}) decides
+   * whether the divergence is worth showing.
+   */
+  remainingDays: number | null;
   /** Always-visible pencil affordance on touch (no hover to reveal it). */
   showPencilAlways: boolean;
   /** Commit a parsed, changed duration. */
@@ -105,6 +127,7 @@ interface DurationCellProps {
  */
 function DurationCell({
   days,
+  remainingDays,
   showPencilAlways,
   onCommit,
   onParseError,
@@ -232,11 +255,25 @@ function DurationCell({
     );
   }
 
+  // ADR-0752 §9: remaining work is a qualifier on Duration, not a fifth cell.
+  // The button already carries the accessible name via `aria-label` (which
+  // suppresses its subtree from name computation), so the remaining-days fact
+  // is folded directly into that string rather than an sr-only child span,
+  // which this button would silently ignore. The visible "Nd left" chip below
+  // is therefore purely decorative (`aria-hidden`, with a native `title` for a
+  // sighted mouse-hover explanation) rather than the shared `Tooltip` component
+  // the read-only strip's equivalent chip uses — nesting Tooltip's own focusable
+  // trigger inside this button would be a second tab stop inside one control,
+  // which the read-only variant (a plain, non-interactive `Cell`) doesn't have
+  // to avoid.
+  const remainingSuffix =
+    remainingDays !== null ? `, ${remainingDays} ${remainingDays === 1 ? 'day' : 'days'} left` : '';
+
   return (
     <button
       ref={buttonRef}
       type="button"
-      aria-label={`Duration, ${days} ${days === 1 ? 'day' : 'days'}. Edit.`}
+      aria-label={`Duration, ${days} ${days === 1 ? 'day' : 'days'}${remainingSuffix}. Edit.`}
       className={[
         'group relative flex flex-col items-start text-left w-full cursor-text',
         'transition-colors hover:bg-neutral-surface-sunken',
@@ -256,11 +293,22 @@ function DurationCell({
       <span className="text-xs tracking-wider uppercase text-neutral-text-secondary mb-0.5">
         Duration
       </span>
-      <span
-        className="tppm-mono text-sm font-semibold text-neutral-text-primary
-          border-b border-dashed border-neutral-border group-hover:border-brand-primary"
-      >
-        {days}d
+      <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+        <span
+          className="tppm-mono text-sm font-semibold text-neutral-text-primary
+            border-b border-dashed border-neutral-border group-hover:border-brand-primary"
+        >
+          {days}d
+        </span>
+        {remainingDays !== null && (
+          <span
+            aria-hidden="true"
+            title={`${remainingDays} working ${remainingDays === 1 ? 'day' : 'days'} of work remaining, of the estimate shown`}
+            className="rounded-chip px-1 py-px text-xs leading-tight tracking-wider uppercase bg-semantic-at-risk-bg text-semantic-at-risk"
+          >
+            {remainingDays}d left
+          </span>
+        )}
       </span>
       <PencilIcon
         aria-hidden="true"
@@ -312,6 +360,40 @@ function ComputedStartValue({ iso }: { iso: string }) {
       </span>
       <span className="sr-only"> (computed, not committed)</span>
     </span>
+  );
+}
+
+/**
+ * The "Nd left" qualifier on the Duration cell (ADR-0752 §9). Remaining work
+ * is a *property of* the duration, not a fifth vitals cell: web-rule 284 (a
+ * value renders once per surface, and this strip is the read surface for the
+ * Start/Finish SPAN) plus the remaining window being subordinate to the
+ * duration it is carved out of is what makes qualifying the Duration cell —
+ * rather than adding a cell — the right call.
+ *
+ * Reuses the rule-276 qualifier-chip treatment ({@link ComputedStartValue}
+ * above) rather than inventing a new one: `aria-hidden` with an sr-only long
+ * form. Also carries a shared `Tooltip` (rule 287) — "1d left" is shorthand,
+ * and shorthand does not ship with a bare `title`.
+ *
+ * Rendered only when it says something the duration alone doesn't: an
+ * in-progress, not-yet-complete task whose remaining work has actually
+ * shrunk below its full estimate.
+ */
+function RemainingDurationChip({ remaining }: { remaining: number }) {
+  const unit = remaining === 1 ? 'day' : 'days';
+  return (
+    <>
+      <Tooltip content={`${remaining} working ${unit} of work remaining, of the estimate shown`}>
+        <span
+          aria-hidden="true"
+          className="rounded-chip px-1 py-px text-xs leading-tight tracking-wider uppercase bg-semantic-at-risk-bg text-semantic-at-risk"
+        >
+          {remaining}d left
+        </span>
+      </Tooltip>
+      <span className="sr-only"> ({remaining} {unit} of work remaining)</span>
+    </>
   );
 }
 
@@ -569,6 +651,7 @@ function EditableStrip({ task, projectId }: { task: Task; projectId: string }) {
         durationCell={
           <DurationCell
             days={task.duration}
+            remainingDays={shouldShowRemainingChip(task) ? (task.remainingDuration as number) : null}
             showPencilAlways={isCoarse}
             onCommit={commitDuration}
             onParseError={() => setError('Enter a whole number of days (e.g. 10).')}
@@ -620,7 +703,18 @@ export function TaskScheduleStrip({
         // (#2314); a milestone's "Date" is a single committed point, not a
         // CPM-computed span endpoint. The editable path is already non-milestone.
         startComputed={isMissingCommittedStart(task) && !task.isMilestone}
-        durationCell={task.isMilestone ? null : <Cell label="Duration">{task.duration}d</Cell>}
+        durationCell={
+          task.isMilestone ? null : (
+            <Cell label="Duration">
+              <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                <span>{task.duration}d</span>
+                {shouldShowRemainingChip(task) && (
+                  <RemainingDurationChip remaining={task.remainingDuration as number} />
+                )}
+              </span>
+            </Cell>
+          )
+        }
       />
     </div>
   );

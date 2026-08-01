@@ -182,6 +182,7 @@ def test_public_schedule_is_minimized_and_whitelisted(project):
         "planned_start",
         "early_start",
         "early_finish",
+        "scheduled_start",
         "is_milestone",
         "is_critical",
         "percent_complete",
@@ -190,8 +191,43 @@ def test_public_schedule_is_minimized_and_whitelisted(project):
     }
     assert "total_float" not in task
     assert "late_start" not in task
+    # actual_start/actual_finish stay withheld even though scheduled_start is
+    # now disclosed (ADR-0752 §8) — the projection widens by an explicit new
+    # field, never by exposing the actuals themselves under their own names.
+    assert "actual_start" not in task
+    assert "actual_finish" not in task
     assert task["is_critical"] is True
     assert task["assignee"] is None  # show_assignees defaults off
+
+
+@pytest.mark.django_db
+def test_public_schedule_scheduled_start_discloses_actual_start_deliberately(project):
+    """ADR-0752 §8: for an in-progress task, scheduled_start IS actual_start —
+    a deliberate widening of the public share-link allow-list, recorded in
+    _public_schedule_task's docstring rather than left for a reader to
+    discover by diffing field names. This pins the widening's actual value,
+    not just its presence in the field set (the test above)."""
+    t1 = Task.objects.create(
+        project=project,
+        name="Frame walls",
+        duration=4,
+        percent_complete=50.0,
+        actual_start=date(2026, 1, 20),
+        early_start=date(2026, 2, 1),
+        early_finish=date(2026, 2, 3),
+        scheduled_start=date(2026, 1, 20),
+    )
+    t1.status = TaskStatus.IN_PROGRESS
+    t1.save()
+    _link, raw = share_services.mint_share_link(
+        project, None, content_kind=ShareContentKind.SCHEDULE
+    )
+    resp = APIClient().get(_schedule_url(raw))
+    assert resp.status_code == 200
+    task = next(t for t in resp.data["tasks"] if t["name"] == "Frame walls")
+    assert task["scheduled_start"] == "2026-01-20"
+    assert task["scheduled_start"] == t1.actual_start.isoformat()
+    assert "actual_start" not in task
 
 
 @pytest.mark.django_db

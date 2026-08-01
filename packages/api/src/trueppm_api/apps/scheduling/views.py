@@ -1856,6 +1856,10 @@ class VelocitySuggestionViewSet(
 
 # The CPM quantities the derivation endpoint can explain. Mirrors
 # trueppm_scheduler.Quantity so the API contract and the engine cannot drift.
+# scheduled_start (ADR-0752) is included so a consumer — human or MCP client —
+# can ask "why does this task's SPAN start here", not only its remaining-work
+# window; scheduled_finish is deliberately NOT a member (it is always
+# identical to early_finish, so asking for it twice would invite two answers).
 _CPM_DERIVATION_QUANTITIES = frozenset(
     {
         "early_start",
@@ -1864,6 +1868,7 @@ _CPM_DERIVATION_QUANTITIES = frozenset(
         "late_finish",
         "total_float",
         "free_float",
+        "scheduled_start",
     }
 )
 # The Monte Carlo percentile quantities, whose derivation is the risk premium over
@@ -1974,8 +1979,8 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
                 description=(
                     "Which computed value to explain: a CPM quantity "
                     "(early_start, early_finish, late_start, late_finish, "
-                    "total_float, free_float) or a Monte Carlo percentile "
-                    "(p50, p80, p95). CPM quantities return {task_id, task_name, "
+                    "total_float, free_float, scheduled_start) or a Monte Carlo "
+                    "percentile (p50, p80, p95). CPM quantities return {task_id, task_name, "
                     "quantity, value, pass, is_critical, binding, contributions[]}, "
                     "each contribution carrying its source task, dep_type, lag_days, "
                     "imposed_date, calendar_days_added, slack_days, and is_binding. "

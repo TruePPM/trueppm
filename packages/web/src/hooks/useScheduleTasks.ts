@@ -34,6 +34,15 @@ export interface ApiTask {
   name: string;
   early_start: string | null;
   early_finish: string | null;
+  /** The task's SPAN start (ADR-0752), distinct from early_start's
+   *  remaining-work window. Optional: absent on payloads/WS deltas that
+   *  predate the field, in which case bar geometry falls back to early_start
+   *  (see {@link deriveBarGeometry}). */
+  scheduled_start?: string | null;
+  /** Working days of REMAINING work (ADR-0752) — duration minus what
+   *  percent_complete has consumed. Drives the drawer's "Nd left" duration
+   *  qualifier chip. Optional for the same reason as scheduled_start. */
+  remaining_duration?: number | null;
   planned_start: string | null;
   duration: number;
   percent_complete: number;
@@ -221,19 +230,50 @@ export function deriveBarGeometry(opts: {
   plannedStart: string | null;
   earlyStart: string | null;
   earlyFinish: string | null;
+  /** The task's SPAN start (ADR-0752). Falls back to `earlyStart` when absent
+   *  (payloads/deltas that predate the field) so a partially-rolled-out
+   *  backend still renders — with the pre-ADR-0752 remaining-window bar. */
+  scheduledStart?: string | null;
   duration: number;
   isSummary: boolean;
 }): { start: string; finish: string; displayDuration: number } {
-  const { plannedStart: p, earlyStart: e, earlyFinish: ef, duration, isSummary } = opts;
+  const {
+    plannedStart: p,
+    earlyStart: e,
+    earlyFinish: ef,
+    scheduledStart,
+    duration,
+    isSummary,
+  } = opts;
+  // ADR-0752: the bar's geometry — and the grid Start column that draws from
+  // the same value — must be the task's SPAN, not early_start's remaining-work
+  // window. Feeding the renderer's `barLeft`/`barWidth` from the span and
+  // leaving `drawProgressOverlay` untouched is the whole fix for the "4-day
+  // task at 83% renders as 1 day" defect: the overlay already implements the
+  // MS-Project fill convention correctly — it was only ever being fed the
+  // already-shrunken remaining window. `earlyFinish` is UNCHANGED by this —
+  // scheduled_finish is always identical to it (remaining work still ends when
+  // the task ends), so only the start side of the geometry moves.
+  const ss = scheduledStart ?? e;
 
-  // Use the later of planned_start (SNET constraint) and early_start (CPM result).
+  // Use the later of planned_start (SNET constraint) and scheduled_start (the
+  // span start).
   //
-  // CPM guarantees early_start = max(forward-pass result, planned_start), so after
-  // CPM runs, early_start ≥ planned_start. Taking max() here means:
+  // For a not-started or complete task scheduled_start === early_start (ADR-0752
+  // §2's table), so this is byte-identical to the pre-ADR-0752 max(p, early_start)
+  // — the common case (most drag interactions target not-yet-started work) is
+  // unchanged. For an in-progress task, scheduled_start CAN legitimately sit
+  // before planned_start (a back-off from early_finish, or a recorded
+  // actual_start, that predates the SNET floor — real out-of-sequence facts);
+  // taking max() here means the bar never draws earlier than its own "start no
+  // earlier than" constraint even then. The full span is still visible
+  // everywhere that reads scheduled_start directly (API, drawer) — this is a
+  // client-side rendering floor, not a change to the underlying date. Taking
+  // max() here means:
   //   • Right after a drag (planned_start updated, CPM pending): planned_start wins ✓
-  //   • After CPM with a new dependency pushing the task later: early_start wins ✓
-  //   • No SNET constraint (planned_start = null): early_start is used directly ✓
-  const start = p && e ? (p >= e ? p : e) : (p ?? e ?? '');
+  //   • After CPM with a new dependency pushing the task later: scheduled_start wins ✓
+  //   • No SNET constraint (planned_start = null): scheduled_start is used directly ✓
+  const start = p && ss ? (p >= ss ? p : ss) : (p ?? ss ?? '');
 
   // Summary tasks: start/finish always come from the CPM rollup (early_start /
   // early_finish). Without CPM there's no meaningful finish — the stored
@@ -272,6 +312,7 @@ export function mapTask(t: ApiTask): Task {
     plannedStart: t.planned_start,
     earlyStart: t.early_start,
     earlyFinish: t.early_finish,
+    scheduledStart: t.scheduled_start,
     duration: t.duration,
     isSummary: t.is_summary,
   });
@@ -283,6 +324,7 @@ export function mapTask(t: ApiTask): Task {
     start,
     finish,
     duration: displayDuration,
+    remainingDuration: t.remaining_duration ?? null,
     progress: t.percent_complete,
     parentId: t.parent_id,
     isCritical: t.is_critical,
@@ -436,6 +478,8 @@ export interface TaskDatesDelta {
   id: string;
   early_start: string | null;
   early_finish: string | null;
+  /** The task's SPAN start (ADR-0752). See {@link ApiTask.scheduled_start}. */
+  scheduled_start?: string | null;
   late_start: string | null;
   late_finish: string | null;
   total_float: number | null;
@@ -461,6 +505,7 @@ export function applyTaskDatesDelta(existing: Task, delta: TaskDatesDelta): Task
     plannedStart: delta.planned_start,
     earlyStart: delta.early_start,
     earlyFinish: delta.early_finish,
+    scheduledStart: delta.scheduled_start,
     duration: delta.duration,
     isSummary: existing.isSummary,
   });

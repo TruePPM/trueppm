@@ -100,6 +100,12 @@ def task_result_to_dict(task: object) -> dict:
         "total_float": task.total_float.total_seconds(),
         "free_float": task.free_float.total_seconds(),
         "is_critical": task.is_critical,
+        # ADR-0752: the task's span start, distinct from early_start's
+        # remaining-work window. A shared Python/Rust divergence here can only
+        # be caught by this fixture comparison — wasm:conformance compares the
+        # two engines to EACH OTHER, so a bug both engines share alike would
+        # otherwise ship undetected (see #2621's note on the same class of gap).
+        "scheduled_start": task.scheduled_start.isoformat(),
     }
 
 
@@ -172,6 +178,7 @@ def test_fixture_conformance(fixture_name: str) -> None:
         assert at["total_float"] == et["total_float"], f"{at['id']}: total_float"
         assert at["free_float"] == et["free_float"], f"{at['id']}: free_float"
         assert at["is_critical"] == et["is_critical"], f"{at['id']}: is_critical"
+        assert at["scheduled_start"] == et["scheduled_start"], f"{at['id']}: scheduled_start"
 
 
 @pytest.mark.parametrize("invalid_name", _INVALID_FIXTURES, ids=_INVALID_FIXTURES)

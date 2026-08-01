@@ -65,13 +65,25 @@ interface Placed {
   isSummary: boolean;
 }
 
-/** Resolve each task's [start, end] window, WBS depth, and summary flag. */
+/**
+ * Resolve each task's [start, end] window, WBS depth, and summary flag.
+ *
+ * ADR-0752 / #2622: the bar's [start, end] must be the task's SPAN
+ * (`scheduled_start`..`early_finish`), not `early_start`'s remaining-work
+ * window — otherwise the progress fill below draws `pct%` inside an
+ * already-shrunken bar (the same double-application bug the canonical canvas
+ * renderer, `GanttRenderer`/`deriveBarGeometry`, was fixed for) and a 4-day
+ * task at 83% renders as 83% of the one remaining day. Falls back to
+ * `early_start` when `scheduled_start` is `null` — before the first CPM run,
+ * or a project with no progress anywhere, where the two are identical anyway.
+ */
 function placeTasks(tasks: PublicScheduleTask[]): Placed[] {
   // A task is a summary iff another task's wbs_path is nested beneath it (child.
   // wbs starts with `parent.wbs + '.'`). Summaries render as spanning brackets.
   const paths = tasks.map((t) => t.wbs_path).filter(Boolean);
   return tasks.map((task) => {
-    const startMs = parseDay(task.early_start) ?? parseDay(task.planned_start);
+    const startMs =
+      parseDay(task.scheduled_start) ?? parseDay(task.early_start) ?? parseDay(task.planned_start);
     let endMs = parseDay(task.early_finish);
     if (startMs !== null && endMs === null) {
       endMs = startMs + Math.max(0, task.duration) * DAY_MS;
@@ -203,7 +215,7 @@ function Lane({ placed, scale }: { placed: Placed; scale: Scale }) {
         task.is_critical ? 'bg-semantic-critical' : 'bg-brand-primary'
       }`}
       style={{ left: `${left}%`, width: `${width}%` }}
-      title={`${task.early_start ?? ''} → ${task.early_finish ?? ''} · ${pct}%`}
+      title={`${task.scheduled_start ?? task.early_start ?? ''} → ${task.early_finish ?? ''} · ${pct}%`}
       aria-label={`${task.name}, ${pct}% complete`}
     >
       {pct > 0 && pct < 100 ? (

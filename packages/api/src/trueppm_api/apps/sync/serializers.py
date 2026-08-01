@@ -156,6 +156,7 @@ class SyncTaskSerializer(serializers.ModelSerializer[Task]):
             "planned_start",
             "early_start",
             "early_finish",
+            "scheduled_start",
             "late_start",
             "late_finish",
             "total_float",

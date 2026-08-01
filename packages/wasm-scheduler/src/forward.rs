@@ -126,6 +126,7 @@ pub fn forward_pass(
             let t = &mut tasks[i];
             t.early_start = Some(es);
             t.early_finish = Some(ef);
+            t.scheduled_start = Some(compute_scheduled_start(t, node_cal)?);
             continue;
         }
 
@@ -163,8 +164,46 @@ pub fn forward_pass(
         let task = &mut tasks[i];
         task.early_start = Some(final_es);
         task.early_finish = Some(ef);
+        task.scheduled_start = Some(compute_scheduled_start(task, node_cal)?);
     }
     Ok(())
+}
+
+/// The task's span start (ADR-0752), as distinct from `early_start`.
+///
+/// Mirrors the Python `_compute_scheduled_start`: `early_start`/`early_finish`
+/// mean the *remaining-work window* for an in-progress task (ADR-0132) — correct
+/// for network scheduling, but not the task's span. `scheduled_start` is the
+/// span start:
+///
+/// - Not started (`percent_complete <= 0`) or complete (`is_complete()`):
+///   `early_start` — the windows coincide.
+/// - In progress, `actual_start` recorded: `actual_start` — the span may then
+///   exceed `duration` (a task running long); that divergence is the point.
+/// - In progress, no `actual_start`: the full duration backed off from
+///   `early_finish` (unaffected by this call — remaining work still ends when
+///   the task ends), calendar-aware via `start_from_finish`.
+///
+/// Must be called after `task.early_start`/`task.early_finish` are set for this
+/// task (i.e. from within `forward_pass`, after the early window is resolved).
+fn compute_scheduled_start(task: &Task, calendar: &Calendar) -> Result<NaiveDate, String> {
+    let early_start = task
+        .early_start
+        .expect("early_start set before scheduled_start");
+    let early_finish = task
+        .early_finish
+        .expect("early_finish set before scheduled_start");
+    if task.is_complete() {
+        return Ok(early_start);
+    }
+    if task.percent_complete <= 0.0 {
+        return Ok(early_start);
+    }
+    if let Some(a) = task.actual_start {
+        return Ok(a);
+    }
+    let full_days = task.duration_days();
+    start_from_finish(early_finish, full_days, calendar)
 }
 
 /// Placement for a task whose recorded actuals pin it out of network logic.
