@@ -3,7 +3,7 @@ import { screen, fireEvent } from '@testing-library/react';
 import { renderWithProviders } from '@/test/utils';
 import { OverviewSection } from './OverviewSection';
 import type { Task } from '@/types';
-import { ROLE_VIEWER } from '@/lib/roles';
+import { ROLE_VIEWER, ROLE_MEMBER, ROLE_ADMIN } from '@/lib/roles';
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -165,11 +165,15 @@ describe('OverviewSection — progress field', () => {
     );
   });
 
-  it('clamps values above 100', () => {
+  it('clamps values above 100 and routes through the #2639 auto-status confirmation', () => {
+    // Clamping to exactly 100 on an IN_PROGRESS task triggers the auto-status
+    // confirm gate (#2639) — the PATCH only fires after the user confirms.
     renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     const input = screen.getByRole('slider', { name: /Task progress/i });
     fireEvent.change(input, { target: { value: '150' } });
     fireEvent.blur(input);
+    expect(updateMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /Send to Review/i }));
     expect(updateMock).toHaveBeenCalledWith(
       expect.objectContaining({ percent_complete: 100 }),
       expect.any(Object),
@@ -322,11 +326,13 @@ describe('OverviewSection — progress field', () => {
     expect(screen.getByRole('slider', { name: /Task progress/i })).toHaveValue('83');
   });
 
-  it('clamps out-of-range numeric input to 0–100 on commit', () => {
+  it('clamps out-of-range numeric input to 0–100, gated by the #2639 auto-status confirmation', () => {
     renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
     const numeric = screen.getByRole('spinbutton', { name: /Task progress/i });
     fireEvent.change(numeric, { target: { value: '150' } });
     fireEvent.blur(numeric);
+    expect(updateMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /Send to Review/i }));
     expect(updateMock).toHaveBeenCalledWith(
       expect.objectContaining({ percent_complete: 100 }),
       expect.any(Object),
@@ -344,6 +350,128 @@ describe('OverviewSection — progress field', () => {
       <OverviewSection taskId="t1" projectId="p1" userRole={ROLE_VIEWER} canEdit={false} />,
     );
     expect(screen.queryByRole('spinbutton', { name: /Task progress/i })).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Progress-to-100 auto-status confirmation (#2639)
+//
+// The server auto-promotes a task's status as a side effect of writing
+// percent_complete=100 with no explicit status (REVIEW for contributors,
+// COMPLETE for Admin+ — Option E, #381 follow-up). These tests cover the
+// role matrix for the confirmation gate that now names the outcome before
+// the write commits.
+// ---------------------------------------------------------------------------
+
+describe('OverviewSection — progress-to-100 auto-status confirm (#2639)', () => {
+  it('names Review (not Complete) for a contributor (Role.MEMBER) driving progress to 100', () => {
+    renderWithProviders(
+      <OverviewSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} canEdit />,
+    );
+    const input = screen.getByRole('slider', { name: /Task progress/i });
+    fireEvent.change(input, { target: { value: '100' } });
+    fireEvent.blur(input);
+    expect(updateMock).not.toHaveBeenCalled();
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toHaveTextContent(/Send task to Review\?/i);
+    expect(screen.queryByRole('button', { name: /Mark Complete/i })).not.toBeInTheDocument();
+  });
+
+  it('names Complete for an Admin (Role.ADMIN) driving progress to 100', () => {
+    renderWithProviders(
+      <OverviewSection taskId="t1" projectId="p1" userRole={ROLE_ADMIN} canEdit />,
+    );
+    const input = screen.getByRole('slider', { name: /Task progress/i });
+    fireEvent.change(input, { target: { value: '100' } });
+    fireEvent.blur(input);
+    expect(updateMock).not.toHaveBeenCalled();
+    expect(screen.getByRole('alertdialog')).toHaveTextContent(/Mark task Complete\?/i);
+  });
+
+  it('commits percent_complete=100 only after the contributor confirms Review', () => {
+    renderWithProviders(
+      <OverviewSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} canEdit />,
+    );
+    const input = screen.getByRole('slider', { name: /Task progress/i });
+    fireEvent.change(input, { target: { value: '100' } });
+    fireEvent.blur(input);
+    fireEvent.click(screen.getByRole('button', { name: /Send to Review/i }));
+    expect(updateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 't1', percent_complete: 100 }),
+      expect.any(Object),
+    );
+  });
+
+  it('commits percent_complete=100 only after the Admin confirms Complete', () => {
+    renderWithProviders(
+      <OverviewSection taskId="t1" projectId="p1" userRole={ROLE_ADMIN} canEdit />,
+    );
+    const input = screen.getByRole('slider', { name: /Task progress/i });
+    fireEvent.change(input, { target: { value: '100' } });
+    fireEvent.blur(input);
+    fireEvent.click(screen.getByRole('button', { name: /Mark Complete/i }));
+    expect(updateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 't1', percent_complete: 100 }),
+      expect.any(Object),
+    );
+  });
+
+  it('cancelling the confirmation sends no PATCH and reverts the slider to the last saved value', () => {
+    renderWithProviders(
+      <OverviewSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} canEdit />,
+    );
+    const input = screen.getByRole('slider', { name: /Task progress/i });
+    fireEvent.change(input, { target: { value: '100' } });
+    fireEvent.blur(input);
+    fireEvent.click(screen.getByRole('button', { name: /Cancel/i }));
+    expect(updateMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    // baseTask.progress is 40 — reverts to the last committed value, not 100.
+    expect(screen.getByRole('slider', { name: /Task progress/i })).toHaveValue('40');
+  });
+
+  it('skips the confirmation entirely for a value under 100', () => {
+    renderWithProviders(
+      <OverviewSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} canEdit />,
+    );
+    const input = screen.getByRole('slider', { name: /Task progress/i });
+    fireEvent.change(input, { target: { value: '99' } });
+    fireEvent.blur(input);
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(updateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ percent_complete: 99 }),
+      expect.any(Object),
+    );
+  });
+
+  it('skips the confirmation for a task already in Review — no double-promotion', () => {
+    mockTasks.splice(0, mockTasks.length, { ...baseTask, status: 'REVIEW', progress: 90 });
+    renderWithProviders(
+      <OverviewSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} canEdit />,
+    );
+    const input = screen.getByRole('slider', { name: /Task progress/i });
+    fireEvent.change(input, { target: { value: '100' } });
+    fireEvent.blur(input);
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(updateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ percent_complete: 100 }),
+      expect.any(Object),
+    );
+  });
+
+  it('skips the confirmation for a BACKLOG card — jumping straight to done needs a manual status change', () => {
+    mockTasks.splice(0, mockTasks.length, { ...baseTask, status: 'BACKLOG', progress: 0 });
+    renderWithProviders(
+      <OverviewSection taskId="t1" projectId="p1" userRole={ROLE_ADMIN} canEdit />,
+    );
+    const input = screen.getByRole('slider', { name: /Task progress/i });
+    fireEvent.change(input, { target: { value: '100' } });
+    fireEvent.blur(input);
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(updateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ percent_complete: 100 }),
+      expect.any(Object),
+    );
   });
 });
 

@@ -32,6 +32,13 @@ function Chevron() {
  * wayfinding (`Project › Leaf`, switching via the rail drawer), the desktop branch
  * is the interactive pickers — never both, so the name text is never duplicated in
  * the a11y tree.
+ *
+ * The **program** segment passes `linkToCurrent` (#2669) — its name is a direct
+ * link to the program's own Overview, separate from the switcher chevron, because
+ * from a project route the program's own page was previously unreachable (picking
+ * the checked row in the picker was an explicit no-op). The **project** segment
+ * does not: its current entry already *is* the page you're on, so there is no
+ * second destination to link to.
  */
 export function LocationSwitcher() {
   const model = useLocationModel();
@@ -76,6 +83,10 @@ export function LocationSwitcher() {
             currentId={model.program.current?.id}
             currentName={model.program.current?.name}
             leading={programLeading}
+            // #2669: while browsing a project, the program segment's "current" row
+            // is a genuinely different page (the program's own Overview) — link the
+            // name there directly so there is a way back that isn't a picker no-op.
+            linkToCurrent
           />
           <Chevron />
         </>

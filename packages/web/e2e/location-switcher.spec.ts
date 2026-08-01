@@ -240,3 +240,131 @@ test.describe('Top-bar location switcher (#1643)', () => {
     ).toBeVisible();
   });
 });
+
+/**
+ * Program breadcrumb — direct link back to the current program (#2669).
+ *
+ * Before this fix, the program segment was a switcher only: from a project route,
+ * clicking the program name opened a "Find a program…" picker, and picking the
+ * checked (current) row was an explicit no-op — there was no way back to the
+ * program's own Overview from the chrome. The fix (`LocationSegment`'s
+ * `linkToCurrent` prop, opted into only by the program segment) splits the name
+ * into a direct `Link` to the program's own page, leaving the chevron as a
+ * separate switcher-only control. This covers both the multi-program case (the
+ * picker still switches) and the single-program case (previously a dead,
+ * non-focusable `<span>` with no way back at all).
+ */
+test.describe('Program breadcrumb — direct link to the current program (#2669)', () => {
+  const PROGRAM_ID = 'e2e-loc-prog-00000000-0000-0000-0000-00000002669';
+  const OTHER_PROGRAM_ID = 'e2e-loc-prog-00000000-0000-0000-0000-00000002670';
+  const PROJECT_ID = 'e2e-loc-proj-00000000-0000-0000-0000-00000002669';
+
+  const FIXTURE_PROGRAM = {
+    id: PROGRAM_ID,
+    server_version: 1,
+    name: 'Phase 2 Modernization',
+    description: '',
+    methodology: 'HYBRID',
+    effective_methodology: 'HYBRID',
+    created_by: 'e2e-user',
+    created_at: '2026-05-18T00:00:00Z',
+    updated_at: '2026-05-18T00:00:00Z',
+    my_role: 400,
+    my_role_label: 'Program Admin',
+    project_count: 1,
+    member_count: 1,
+  };
+
+  const OTHER_PROGRAM = {
+    ...FIXTURE_PROGRAM,
+    id: OTHER_PROGRAM_ID,
+    name: 'Other Program',
+    project_count: 0,
+  };
+
+  const FIXTURE_ROLLUP = {
+    aggregation_policy: 'worst',
+    policy_available: true,
+    project_count: 1,
+    program_health: 'unknown',
+    kpis: {},
+  };
+
+  function projectInProgram(id: string, name: string): ProjectFixture {
+    return {
+      ...projectFixture(id, name),
+      program: PROGRAM_ID,
+      program_detail: { id: PROGRAM_ID, name: FIXTURE_PROGRAM.name },
+    };
+  }
+
+  /** Every endpoint `/programs/${PROGRAM_ID}/overview` reads, mocked to a benign
+   *  empty 200 (#1190 lesson) so landing there never trips the root error boundary. */
+  async function setupProgramRoutes(page: Page, programList: (typeof FIXTURE_PROGRAM)[]) {
+    await page.route(
+      '**/api/v1/programs/',
+      (route) =>
+        route.fulfill(json({ results: programList, count: programList.length, next: null, previous: null })),
+    );
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/`, (route) => route.fulfill(json(FIXTURE_PROGRAM)));
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/rollup/`, (route) =>
+      route.fulfill(json(FIXTURE_ROLLUP)),
+    );
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, (route) => route.fulfill(json([])));
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/backlog-items/**`, (route) =>
+      route.fulfill(json([])),
+    );
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/members/**`, (route) => route.fulfill(json([])));
+    await page.route('**/api/v1/ws/ticket/', (route) => route.fulfill(json({ ticket: 'e2e' })));
+  }
+
+  test('from a project route, the program name links directly to the program’s own Overview', async ({
+    page,
+  }) => {
+    const project = projectInProgram(PROJECT_ID, 'Apollo Rebuild');
+    await setupBothProjects(page, [project]);
+    await setupProgramRoutes(page, [FIXTURE_PROGRAM, OTHER_PROGRAM]);
+    await page.goto(`/projects/${PROJECT_ID}/overview`);
+
+    await expect(page.getByRole('navigation', { name: 'View' })).toBeVisible({ timeout: 10_000 });
+    const location = page.getByRole('navigation', { name: 'Location' });
+    const programLink = location.getByRole('link', {
+      name: `Current program: ${FIXTURE_PROGRAM.name}. Open program.`,
+    });
+    await expect(programLink).toBeVisible();
+    await expect(programLink).toHaveAttribute('href', `/programs/${PROGRAM_ID}/overview`);
+
+    // The chevron is a separate, switcher-only control — picking a different
+    // program from it still works exactly as before.
+    await expect(location.getByRole('button', { name: 'Switch program' })).toBeVisible();
+
+    // Clicking the name — not the chevron — lands on the program's own Overview.
+    await programLink.click();
+    await expect(page).toHaveURL(new RegExp(`/programs/${PROGRAM_ID}/overview$`));
+    await expect(page.getByRole('navigation', { name: 'Program' })).toBeVisible();
+  });
+
+  test('single-program workspace: the static program row is a live link, not dead text', async ({
+    page,
+  }) => {
+    const project = projectInProgram(PROJECT_ID, 'Apollo Rebuild');
+    await setupBothProjects(page, [project]);
+    await setupProgramRoutes(page, [FIXTURE_PROGRAM]);
+    await page.goto(`/projects/${PROJECT_ID}/overview`);
+
+    await expect(page.getByRole('navigation', { name: 'View' })).toBeVisible({ timeout: 10_000 });
+    const location = page.getByRole('navigation', { name: 'Location' });
+    // Nothing to switch to (a single program) — no chevron/switcher button — but
+    // the name is a live link now, where before it was a non-focusable `<span>`.
+    await expect(location.getByRole('button', { name: /Switch program/ })).toHaveCount(0);
+    const programLink = location.getByRole('link', {
+      name: `Current program: ${FIXTURE_PROGRAM.name}. Open program.`,
+    });
+    await expect(programLink).toBeVisible();
+    await expect(programLink).toHaveAttribute('href', `/programs/${PROGRAM_ID}/overview`);
+
+    await programLink.click();
+    await expect(page).toHaveURL(new RegExp(`/programs/${PROGRAM_ID}/overview$`));
+    await expect(page.getByRole('navigation', { name: 'Program' })).toBeVisible();
+  });
+});

@@ -1249,7 +1249,12 @@ def incoming_carryover(sprint: Any) -> dict[str, Any]:
     ``tasks`` list (and ``prior_sprint": None``) when there is no prior closed
     sprint, which the Planning sidebar uses to suppress itself.
     """
-    from trueppm_api.apps.projects.models import Sprint, SprintState, TaskStatus
+    from trueppm_api.apps.projects.models import (
+        Sprint,
+        SprintState,
+        TaskStatus,
+        format_short_id_display,
+    )
 
     prior = (
         Sprint.objects.filter(
@@ -1276,6 +1281,10 @@ def incoming_carryover(sprint: Any) -> dict[str, Any]:
             {
                 "id": str(o.task_id) if o.task_id else None,
                 "short_id": o.task_short_id,
+                # #2671: the carryover row rendered this raw hex short_id
+                # directly (`t.short_id` in IncomingCarryoverCard) — the same
+                # leak #2430 fixed on board cards, never applied here.
+                "short_id_display": format_short_id_display(o.task_short_id, "T"),
                 "name": o.task_title,
                 "story_points": o.story_points,
                 "pulled_in_to_current": bool(live is not None and live.sprint_id == sprint.pk),
@@ -1284,7 +1293,9 @@ def incoming_carryover(sprint: Any) -> dict[str, Any]:
     return {
         "prior_sprint": {
             "id": str(prior.pk),
-            "short_id_display": f"SP-{prior.short_id}" if prior.short_id else "",
+            # #2671: was a naive f"SP-{prior.short_id}" that never decoded the
+            # hex object_sequence — the same bug the Sprint serializer had.
+            "short_id_display": format_short_id_display(prior.short_id, "SP"),
             "name": prior.name,
             "start_date": prior.start_date.isoformat(),
             "finish_date": prior.finish_date.isoformat(),

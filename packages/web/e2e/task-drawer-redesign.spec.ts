@@ -884,3 +884,105 @@ test.describe('TaskDetailDrawer — editor sees controls (ADR-0133 contrast)', (
     await expect(drawer.getByRole('combobox', { name: /Task status/i })).toBeVisible();
   });
 });
+
+// ---------------------------------------------------------------------------
+// #2639 — setting progress to 100% auto-promotes the task's status as a side
+// effect (REVIEW for contributors, COMPLETE for Admin+ — Option E, #381
+// follow-up), and used to do so silently with no UI signal that it had
+// happened, or that two roles get two different outcomes from the same
+// gesture. These specs drive the drawer's progress slider to 100 as a
+// contributor and as an Admin and assert the confirmation names the actual
+// target status before any write reaches the server.
+// ---------------------------------------------------------------------------
+test.describe('TaskDetailDrawer — progress-to-100 auto-status confirm (#2639)', () => {
+  test('a contributor (Team Member) driving progress to 100 is told the task is going to Review, not Complete', async ({
+    page,
+  }) => {
+    await gotoSchedule(page, { role: 100, canEdit: true }); // 100 = Team Member
+    const drawer = await openDrawer(page, 'Discovery & Design'); // IN_PROGRESS, 50%
+
+    let progressPatches = 0;
+    page.on('request', (req) => {
+      if (req.method() !== 'PATCH' || !/\/tasks\/[^/]+\//.test(req.url())) return;
+      const body = req.postDataJSON() as Record<string, unknown> | null;
+      if (body && 'percent_complete' in body) progressPatches++;
+    });
+
+    const numeric = drawer.getByRole('spinbutton', { name: /Task progress/i });
+    await numeric.fill('100');
+    await numeric.blur();
+
+    // The write must not have gone out yet — the confirmation comes first.
+    const dialog = page.getByRole('alertdialog');
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText('Send task to Review?');
+    expect(progressPatches).toBe(0);
+
+    await dialog.getByRole('button', { name: 'Send to Review' }).click();
+    await expect(dialog).not.toBeVisible();
+    expect(progressPatches).toBe(1);
+
+    // The PATCH itself carries only percent_complete — the server (covered by
+    // the pytest role matrix, test_contributor_progress_100_routes_to_review)
+    // is what actually promotes the status; this spec's job is the confirm gate.
+    await expect(numeric).toHaveValue('100');
+  });
+
+  test('an Admin (Project Manager) driving progress to 100 is told the task is going straight to Complete', async ({
+    page,
+  }) => {
+    await gotoSchedule(page, { role: 300, canEdit: true }); // 300 = Project Manager
+    const drawer = await openDrawer(page, 'Discovery & Design'); // IN_PROGRESS, 50%
+
+    let progressPatches = 0;
+    page.on('request', (req) => {
+      if (req.method() !== 'PATCH' || !/\/tasks\/[^/]+\//.test(req.url())) return;
+      const body = req.postDataJSON() as Record<string, unknown> | null;
+      if (body && 'percent_complete' in body) progressPatches++;
+    });
+
+    const numeric = drawer.getByRole('spinbutton', { name: /Task progress/i });
+    await numeric.fill('100');
+    await numeric.blur();
+
+    const dialog = page.getByRole('alertdialog');
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText('Mark task Complete?');
+    expect(progressPatches).toBe(0);
+
+    await dialog.getByRole('button', { name: 'Mark Complete' }).click();
+    await expect(dialog).not.toBeVisible();
+    expect(progressPatches).toBe(1);
+
+    // The PATCH itself carries only percent_complete — the server (covered by
+    // the pytest role matrix, test_pm_progress_100_auto_completes_task) is
+    // what actually promotes the status; this spec's job is the confirm gate.
+    await expect(numeric).toHaveValue('100');
+  });
+
+  test('cancelling the confirmation sends no write and leaves progress unchanged', async ({
+    page,
+  }) => {
+    await gotoSchedule(page, { role: 100, canEdit: true });
+    const drawer = await openDrawer(page, 'Discovery & Design'); // 50%
+
+    let progressPatches = 0;
+    page.on('request', (req) => {
+      if (req.method() !== 'PATCH' || !/\/tasks\/[^/]+\//.test(req.url())) return;
+      const body = req.postDataJSON() as Record<string, unknown> | null;
+      if (body && 'percent_complete' in body) progressPatches++;
+    });
+
+    const numeric = drawer.getByRole('spinbutton', { name: /Task progress/i });
+    await numeric.fill('100');
+    await numeric.blur();
+
+    const dialog = page.getByRole('alertdialog');
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).not.toBeVisible();
+
+    expect(progressPatches).toBe(0);
+    await expect(numeric).toHaveValue('50');
+  });
+});

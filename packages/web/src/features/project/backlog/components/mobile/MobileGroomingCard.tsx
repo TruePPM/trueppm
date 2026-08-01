@@ -127,7 +127,9 @@ export function MobileGroomingCard({ story, onOpen, onToggleDor }: MobileGroomin
       >
         {/* Row 1: id · type … avatar · points */}
         <div className="flex items-center gap-2">
-          <span className="font-mono text-xs text-neutral-text-secondary">{story.shortId}</span>
+          <span className="font-mono text-xs text-neutral-text-secondary">
+            {story.qualifiedId ?? story.shortIdDisplay}
+          </span>
           <TypeBadge type={story.taskType} />
           <span className="flex-1" />
           <AssigneeAvatar assignees={story.assignees} />

@@ -164,4 +164,109 @@ describe('LocationSegment (#1643)', () => {
     });
     expect(screen.getByRole('status')).toHaveTextContent('No projects match');
   });
+
+  // #2669: the program segment opts into `linkToCurrent` because its "current" row
+  // can be a genuinely different page than the one you're on (you're browsing a
+  // project, not the program's own Overview) — see LocationSwitcher for why the
+  // project segment does not opt in. `noun="program"` here matches the real caller.
+  describe('current-entry link (#2669, linkToCurrent)', () => {
+    const PROGRAM_OPTIONS: LocationSegmentOption[] = [
+      { id: 'prog-1', name: 'Apollo', to: '/programs/prog-1/overview' },
+      { id: 'prog-2', name: 'Gemini', to: '/programs/prog-2/overview' },
+    ];
+
+    it('renders the current name as a direct link to its own page, separate from the switcher chevron', () => {
+      renderWithRouter(
+        <LocationSegment
+          noun="program"
+          options={PROGRAM_OPTIONS}
+          currentId="prog-1"
+          currentName="Apollo"
+          linkToCurrent
+        />,
+      );
+      const link = screen.getByRole('link', { name: 'Current program: Apollo. Open program.' });
+      expect(link).toHaveAttribute('href', '/programs/prog-1/overview');
+
+      // The chevron trigger is a separate control, labelled as a pure switcher now
+      // that the name carries the "go to current" affordance.
+      const trigger = screen.getByRole('button', { name: 'Switch program' });
+      expect(trigger).toHaveAttribute('aria-haspopup', 'listbox');
+
+      // Clicking the link does not also open the switcher listbox.
+      fireEvent.click(link);
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    });
+
+    it('the chevron still opens the switcher, and the checked row inside it stays a no-op', () => {
+      renderWithRouter(
+        <LocationSegment
+          noun="program"
+          options={PROGRAM_OPTIONS}
+          currentId="prog-1"
+          currentName="Apollo"
+          linkToCurrent
+        />,
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Switch program' }));
+      const listbox = screen.getByRole('listbox', { name: 'Switch program' });
+      expect(within(listbox).getByRole('option', { name: 'Apollo' })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+      fireEvent.click(within(listbox).getByRole('option', { name: 'Apollo' }));
+      expect(mockNavigate).not.toHaveBeenCalled();
+
+      // A different row still switches.
+      fireEvent.click(screen.getByRole('button', { name: 'Switch program' }));
+      fireEvent.click(screen.getByRole('option', { name: 'Gemini' }));
+      expect(mockNavigate).toHaveBeenCalledWith('/programs/prog-2/overview');
+    });
+
+    it('single-option workspace: the static identity row becomes a direct link instead of dead text (no more "no way back")', () => {
+      renderWithRouter(
+        <LocationSegment
+          noun="program"
+          options={[PROGRAM_OPTIONS[0]]}
+          currentId="prog-1"
+          currentName="Apollo"
+          linkToCurrent
+        />,
+      );
+      // No switcher — nothing to switch to — but the name is a live link now.
+      expect(screen.queryByRole('button', { name: /Switch program/ })).not.toBeInTheDocument();
+      const link = screen.getByRole('link', { name: 'Current program: Apollo. Open program.' });
+      expect(link).toHaveAttribute('href', '/programs/prog-1/overview');
+    });
+
+    it('falls back to plain static text when the current entry has no resolvable destination', () => {
+      // currentId not present in options — e.g. a transient loading state where the
+      // caller's list hasn't caught up with the resolved current entry yet.
+      renderWithRouter(
+        <LocationSegment
+          noun="program"
+          options={[]}
+          currentId="prog-1"
+          currentName="Apollo"
+          linkToCurrent
+        />,
+      );
+      expect(screen.queryByRole('link')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button')).not.toBeInTheDocument();
+      expect(screen.getByText('Apollo')).toBeInTheDocument();
+    });
+
+    it('does not link the current entry when the caller has not opted in (project segment default)', () => {
+      // Same shape as the program case above, but without `linkToCurrent` — this is
+      // the project segment's default behavior, which is intentionally unchanged by
+      // #2669 (its "current" entry already is the page you're on).
+      renderSegment();
+      expect(
+        screen.queryByRole('link', { name: /Current project: Apollo\. Open project\./ }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'Current project: Apollo. Switch project.' }),
+      ).toBeInTheDocument();
+    });
+  });
 });

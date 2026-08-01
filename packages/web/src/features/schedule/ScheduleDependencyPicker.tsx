@@ -73,7 +73,12 @@ interface PickItem {
   wbs?: string | null;
   status?: Task['status'];
   isMilestone?: boolean;
-  /** Cross-project display fields. */
+  /**
+   * Cross-project display field — the server-formatted reference
+   * (`qualified_id` ?? `short_id_display`), never the raw hex `short_id`
+   * (#2671). Cross-project is exactly where the qualified form earns its
+   * keep: it is what disambiguates two sibling projects' task 3.
+   */
   shortId?: string;
   projectName?: string;
 }
@@ -174,7 +179,7 @@ export function ScheduleDependencyPicker({
         name: row.name,
         projectId: row.project_id,
         isCross: true,
-        shortId: row.short_id,
+        shortId: row.qualified_id ?? row.short_id_display ?? row.short_id,
         projectName: row.project_name,
       });
     }

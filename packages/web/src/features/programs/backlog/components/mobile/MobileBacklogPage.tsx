@@ -241,13 +241,16 @@ export function MobileBacklogPage({ controller }: MobileBacklogPageProps) {
       >
         {selectedItem && (
           <DetailView
+            // Remounts with a fresh draft on every row switch (#2668) — see the
+            // matching desktop `DetailPane` key for why this was missing.
+            key={selectedItem.id}
             item={selectedItem}
             tagSuggestions={tagUniverse}
             estimationScale={estimationScale}
             canEdit={canEdit}
             canDelete={canDelete}
             onClose={url.closeDetail}
-            onSave={(patch) => void controller.updateItem(selectedItem.id, patch)}
+            onSave={(patch) => controller.updateItem(selectedItem.id, patch)}
             onArchive={() => void controller.archiveItem(selectedItem.id)}
             onRestore={() => void controller.restoreItem(selectedItem.id)}
             onDelete={() => {

@@ -22,8 +22,15 @@ export function ProgramProjectsPage() {
   const [showImport, setShowImport] = useState(false);
   const navigate = useNavigate();
 
-  // Admin/Owner can manage program membership (ADR-0072 role ordinals).
+  // Admin/Owner can manage program membership (ADR-0072 role ordinals). Gates
+  // "+ Add project" / "Import" — assigning a project to a program is a project-
+  // level write (`PATCH /projects/:id/`) with no server-side check on the
+  // *target* program's closed state, so this affordance is unaffected by #2549.
   const isAdmin = (program?.my_role ?? -1) >= ROLE_ADMIN;
+  // The bulk-fields matrix below writes through `bulk_project_fields`, which
+  // IS gated by IsProgramNotClosed (program_views.py) — fold that in separately
+  // per #2549 rather than widening `isAdmin`, which also gates Add/Import above.
+  const canEditBulkFields = isAdmin && !program?.is_closed;
 
   // The two inherited fields the bulk-project-fields endpoint accepts. Methodology is
   // NOT a null-sentinel field (web-rule 196): it has no "reset to inherit" and is
@@ -124,13 +131,18 @@ export function ProgramProjectsPage() {
 
         {!isLoading && !error && projects && projects.length > 0 && (
           <div className="mt-4">
+            {isAdmin && program?.is_closed && (
+              <p className="mb-2 text-xs text-neutral-text-secondary italic">
+                This program is closed — bulk field edits are read-only until it&apos;s reopened.
+              </p>
+            )}
             <BulkFieldsMatrix
               rows={projects}
               rowKey={(p) => p.id}
               rowLabel={(p) => p.name}
               rowNoun="Project"
               fields={fields}
-              canEdit={isAdmin}
+              canEdit={canEditBulkFields}
               apply={(ids, field, value) => bulkFields.mutateAsync({ ids, field, value })}
               isApplying={bulkFields.isPending}
               entityNoun="projects"

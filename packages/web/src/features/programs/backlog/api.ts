@@ -16,7 +16,8 @@ export interface ApiBacklogItem {
   item_type: BacklogItemType;
   status: 'proposed' | 'pulled' | 'archived';
   tags: string[];
-  priority_rank: number;
+  /** Nullable server-side — `PositiveIntegerField(null=True)`; an unranked pool is valid. */
+  priority_rank: number | null;
   story_points: number | null;
   pulled_task: string | null;
   // Where a PULLED item landed (#1994) — carried by the serializer so the

@@ -157,14 +157,25 @@ describe('RelatedLinksSection — load states', () => {
 });
 
 describe('RelatedLinksSection — row resolution', () => {
-  it('resolves a same-project counterpart from the schedule cache using its short id', () => {
+  it('resolves a same-project counterpart from the schedule cache using its display reference (#2671)', () => {
+    // A real 8-hex-digit `shortId` alongside the server-decoded display field —
+    // the row must render qualifiedId/shortIdDisplay, never the raw hex.
     tasksState.tasks = [
       makeTask(),
-      makeTask({ id: 't-other', name: 'Foundation', shortId: 'ABC123', wbs: '2.1' }),
+      makeTask({
+        id: 't-other',
+        name: 'Foundation',
+        shortId: '0000002A',
+        shortIdDisplay: 'T-42',
+        wbs: '2.1',
+      }),
     ];
     relState.outgoing = [makeRel({ relationType: 'blocks' })];
     renderSection();
-    expect(screen.getByRole('button', { name: 'Blocks, ABC123, Foundation' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Blocks, T-42, Foundation' })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /0000002A/ }),
+    ).not.toBeInTheDocument();
   });
 
   it('falls back to the WBS code when the cached task has no short id', () => {
@@ -190,14 +201,20 @@ describe('RelatedLinksSection — row resolution', () => {
   it('labels an incoming relation with its inverse heading', () => {
     tasksState.tasks = [
       makeTask(),
-      makeTask({ id: 't-blocker', name: 'Permits', shortId: 'PER001', wbs: '1.4' }),
+      makeTask({
+        id: 't-blocker',
+        name: 'Permits',
+        shortId: '00000001',
+        shortIdDisplay: 'T-1',
+        wbs: '1.4',
+      }),
     ];
     relState.incoming = [
       makeRel({ id: 'r2', relationType: 'blocks', source: 't-blocker', target: 't-self' }),
     ];
     renderSection();
     expect(
-      screen.getByRole('button', { name: 'Blocked by, PER001, Permits' }),
+      screen.getByRole('button', { name: 'Blocked by, T-1, Permits' }),
     ).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Blocked by' })).toBeInTheDocument();
   });

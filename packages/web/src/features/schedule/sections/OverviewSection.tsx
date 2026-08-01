@@ -10,6 +10,7 @@ import { ResourceAssignmentSection } from '../ResourceAssignmentSection';
 import { LabelAssignControl } from './LabelAssignControl';
 import { isPhaseTask } from '@/lib/isPhaseTask';
 import { BacklogDemoteConfirmDialog } from '../BacklogDemoteConfirmDialog';
+import { useProgressAutoStatusConfirm } from '../useProgressAutoStatusConfirm';
 import { ScopeChangedChip } from '@/features/sprints/ScopeChangedChip';
 import {
   milestoneVarianceAnnotation,
@@ -61,6 +62,11 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
   // Pending BACKLOG demotion — set when user selects Backlog from a guarded status.
   const [pendingBacklog, setPendingBacklog] = useState(false);
 
+  // #2639: confirmation gate for the progress=100 auto-status side effect
+  // (REVIEW for contributors, COMPLETE for Admin+ — Option E, #381 follow-up).
+  const { dialog: progressAutoStatusDialog, requestCommit: requestProgressCommit } =
+    useProgressAutoStatusConfirm(userRole);
+
   // A pending debounced keyboard commit for the progress slider (#2172). Declared
   // before the early return so hook order is stable. Arrow/Home/End on the range
   // input each fire onChange (live local value + aria-valuenow) but must NOT PATCH
@@ -110,6 +116,14 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
 
   // Commit one clamped progress value as a single PATCH, clearing any pending
   // debounced commit so blur-after-keyboard never double-fires.
+  //
+  // #2639: a clamped value of 100 is gated through requestProgressCommit —
+  // when it would trigger the server's silent REVIEW/COMPLETE auto-promotion,
+  // a confirmation names the target status before the PATCH fires. The
+  // slider stays at its dragged position (localProgress not yet cleared)
+  // while the dialog is open, and reverts to the last committed value on
+  // cancel; writes that would not trigger the promotion skip the dialog and
+  // commit immediately, same as before this fix.
   function commitProgress(raw: string) {
     clearCommitTimer();
     const parsed = Number.parseInt(raw, 10);
@@ -118,19 +132,26 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
       return;
     }
     const clamped = Math.max(0, Math.min(100, parsed));
-    setLocalProgress(null);
     setProgressError(null);
-    updateTask(
-      { id: taskId, projectId, percent_complete: clamped },
-      {
-        onError: (err) => {
-          if (parseProgressAnchorError(err)) {
-            setProgressError(
-              `Set a Planned Start date (or assign a ${itl.lower}) before recording progress.`,
-            );
-          }
-        },
+    requestProgressCommit(
+      task!.status,
+      clamped,
+      () => {
+        setLocalProgress(null);
+        updateTask(
+          { id: taskId, projectId, percent_complete: clamped },
+          {
+            onError: (err) => {
+              if (parseProgressAnchorError(err)) {
+                setProgressError(
+                  `Set a Planned Start date (or assign a ${itl.lower}) before recording progress.`,
+                );
+              }
+            },
+          },
+        );
       },
+      () => setLocalProgress(null),
     );
   }
 
@@ -160,6 +181,7 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
       {pendingBacklog && (
         <BacklogDemoteConfirmDialog onConfirm={handleDemoteConfirm} onCancel={handleDemoteCancel} />
       )}
+      {progressAutoStatusDialog}
 
       {/* Description moved to the drawer-level Details tab as a deferred-save
           field (#962) — it is the one free-text field that stages edits behind

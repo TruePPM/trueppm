@@ -20,8 +20,11 @@ interface Props {
    */
   programId?: string;
   /**
-   * Optional parent program name, used only to label the "Use program defaults"
-   * affordance (#1909). Falls back to a generic label when absent.
+   * Optional parent program name. Shown as a first-class identity field on step 1
+   * (#2666) so the dialog always names the destination the project is silently
+   * attached to, and labels the "Use program defaults" affordance on step 3 (#1909).
+   * Falls back to a generic label/value when absent (e.g. the program hasn't
+   * resolved yet) rather than showing nothing.
    */
   programName?: string;
 }
@@ -52,7 +55,9 @@ function getFocusable(container: HTMLElement): HTMLElement[] {
 
 /**
  * Multi-step modal for creating a new project.
- * Step 1: Name + description. Step 2: Schedule dates. Step 3: Template.
+ * Step 1: Name + description (plus the target program, when creating under one —
+ * #2666, so the attachment is never a silent fact). Step 2: Schedule dates.
+ * Step 3: Template.
  * Focus is trapped within the dialog and restored to the trigger element on close.
  */
 export function NewProjectModal({ onClose, onCreated, programId, programName }: Props) {
@@ -192,10 +197,10 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
           role="dialog"
           aria-modal="true"
           aria-label={`New project — step ${step} of ${TOTAL_STEPS}`}
-          className="w-full max-w-lg rounded-card border border-neutral-border bg-neutral-surface p-6 pointer-events-auto"
+          className="w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col rounded-card border border-neutral-border bg-neutral-surface pointer-events-auto"
         >
-          {/* Step indicator */}
-          <div className="flex items-center gap-2 mb-5" aria-hidden="true">
+          {/* Step indicator — pinned above the scroller (#2665) */}
+          <div className="flex items-center gap-2 px-6 pt-6 mb-5" aria-hidden="true">
             {([1, 2, 3] as Step[]).map((n, i) => (
               <div key={n} className="flex items-center gap-2">
                 <div
@@ -215,11 +220,38 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
             ))}
           </div>
 
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          {/* Step body — the only scrollable region (#2665). Step 3 (Planning
+              model) stacks enough content to exceed a laptop-height viewport, so
+              this must scroll independently of the pinned step indicator above
+              and the action footer below, or the Create button becomes
+              pointer-unreachable. The submit button lives in the footer outside
+              this <form>; it targets the form via `form="new-project-form"`
+              (same pattern as TaskFormModal's renderHeader/renderBody/renderFooter split). */}
+          <div className="flex-1 overflow-y-auto min-h-0">
+          <form id="new-project-form" onSubmit={handleSubmit} className="flex flex-col gap-4 px-6 pb-4">
             {/* Step 1: Name + Description */}
             {step === 1 && (
               <>
                 <h2 className="text-base font-semibold text-neutral-text-primary">Project details</h2>
+                {/* Names the destination as a first-class identity field (#2666) — the
+                    program a project attaches to determines its rollup, cadence
+                    inheritance, and the step-3 defaults, so it belongs here rather than
+                    only surfacing (optionally) on step 3 via the "Use program defaults"
+                    checkbox. Read-only for now: changing or clearing the program is a
+                    picker-sized follow-up (#2673), out of scope for this wiring fix. */}
+                {programId && (
+                  // Full-opacity bg-neutral-surface-raised (not the /40 used on the step-3
+                  // checkbox and TimesheetGrid's hover row) — this field is a static
+                  // identity display, not an interactive affordance, and the codebase's
+                  // only precedent for the /40 variant is interactive rows. Using the
+                  // same treatment here would visually imply this is clickable too.
+                  <div className="flex items-center justify-between gap-2 rounded-control border border-neutral-border bg-neutral-surface-raised px-3 py-2">
+                    <span className="text-xs font-medium text-neutral-text-secondary">Program</span>
+                    <span className="text-sm font-medium text-neutral-text-primary">
+                      {programName ?? 'Unnamed program'}
+                    </span>
+                  </div>
+                )}
                 <label className="flex flex-col gap-1">
                   <span className="text-xs font-medium text-neutral-text-secondary">
                     Name <span aria-hidden="true">*</span>
@@ -408,51 +440,56 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
                 )}
               </>
             )}
+          </form>
+          </div>
 
-            {/* Actions */}
-            <div className="flex items-center justify-between pt-2">
-              <div>
-                {step > 1 && (
-                  <button
-                    type="button"
-                    onClick={back}
-                    disabled={createProject.isPending}
-                    className="h-9 px-4 rounded-control text-sm font-medium border border-neutral-border
-                      text-neutral-text-secondary hover:text-neutral-text-primary
-                      focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
-                  >
-                    Back
-                  </button>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
+          {/* Actions — pinned below the scroller (#2665). The submit button is
+              outside the <form> DOM subtree but still participates in it via the
+              `form` attribute (HTML form association), so Enter-to-advance and
+              the final create submit both keep working. */}
+          <div className="flex items-center justify-between px-6 pb-6 pt-2">
+            <div>
+              {step > 1 && (
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={back}
                   disabled={createProject.isPending}
                   className="h-9 px-4 rounded-control text-sm font-medium border border-neutral-border
                     text-neutral-text-secondary hover:text-neutral-text-primary
                     focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
                 >
-                  Cancel
+                  Back
                 </button>
-                <button
-                  type="submit"
-                  disabled={
-                    (step === 1 && !canAdvanceStep1) ||
-                    (step === 2 && !canAdvanceStep2) ||
-                    (step === TOTAL_STEPS && createProject.isPending)
-                  }
-                  className="h-9 px-4 rounded-control text-sm font-medium bg-brand-primary text-neutral-text-inverse
-                    disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
-                    focus:outline-none focus:ring-2 focus:ring-white
-                    focus:ring-offset-2 focus:ring-offset-brand-primary"
-                >
-                  {step < TOTAL_STEPS ? 'Next' : createProject.isPending ? 'Creating…' : 'Create project'}
-                </button>
-              </div>
+              )}
             </div>
-          </form>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={createProject.isPending}
+                className="h-9 px-4 rounded-control text-sm font-medium border border-neutral-border
+                  text-neutral-text-secondary hover:text-neutral-text-primary
+                  focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                form="new-project-form"
+                disabled={
+                  (step === 1 && !canAdvanceStep1) ||
+                  (step === 2 && !canAdvanceStep2) ||
+                  (step === TOTAL_STEPS && createProject.isPending)
+                }
+                className="h-9 px-4 rounded-control text-sm font-medium bg-brand-primary text-neutral-text-inverse
+                  disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
+                  focus:outline-none focus:ring-2 focus:ring-white
+                  focus:ring-offset-2 focus:ring-offset-brand-primary"
+              >
+                {step < TOTAL_STEPS ? 'Next' : createProject.isPending ? 'Creating…' : 'Create project'}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </>

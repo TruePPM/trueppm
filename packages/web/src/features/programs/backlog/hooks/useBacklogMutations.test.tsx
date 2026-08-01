@@ -82,7 +82,9 @@ afterEach(() => vi.clearAllMocks());
 
 describe('useBacklogMutations', () => {
   it('createItem trims, posts the API shape, and appends to the cache', async () => {
-    postMock.mockResolvedValue({ data: apiItem({ id: 'BI-2', title: 'New', description: 'body' }) });
+    postMock.mockResolvedValue({
+      data: apiItem({ id: 'BI-2', title: 'New', description: 'body' }),
+    });
     const { result, read } = setup([existing()]);
 
     await act(async () => {
@@ -101,6 +103,7 @@ describe('useBacklogMutations', () => {
       description: 'body',
       tags: ['x'],
       story_points: 3,
+      priority_rank: null,
     });
     expect(read().map((i) => i.id)).toEqual(['BI-1', 'BI-2']);
   });
@@ -117,10 +120,27 @@ describe('useBacklogMutations', () => {
       });
     });
 
-    expect(postMock).toHaveBeenCalledWith(
-      BASE,
-      expect.objectContaining({ story_points: null }),
-    );
+    expect(postMock).toHaveBeenCalledWith(BASE, expect.objectContaining({ story_points: null }));
+  });
+
+  // #2668: nothing assigned priority_rank on create, so every item created
+  // through the UI stayed unranked forever. useBacklogController wires
+  // nextPriorityRank(allItems) in as `priorityRank`; this hook's job is only
+  // to forward it onto the wire field untouched.
+  it('createItem forwards a supplied priorityRank as priority_rank', async () => {
+    postMock.mockResolvedValue({ data: apiItem({ id: 'BI-4', priority_rank: 7 }) });
+    const { result } = setup([existing()]);
+
+    await act(async () => {
+      await result.current.createItem({
+        title: 'Ranked',
+        itemType: 'story',
+        tags: [],
+        priorityRank: 7,
+      });
+    });
+
+    expect(postMock).toHaveBeenCalledWith(BASE, expect.objectContaining({ priority_rank: 7 }));
   });
 
   it('updateItem PATCHes the changed fields and replaces the cached row in place', async () => {

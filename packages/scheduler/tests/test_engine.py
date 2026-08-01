@@ -1426,6 +1426,94 @@ class TestProgressAware:
         assert t.early_finish == date(2026, 3, 19)
         assert r.project_finish == date(2026, 3, 19)
 
+    def test_actual_start_floors_early_start_past_predecessor(self) -> None:
+        """ADR-0132 §2 / #2621: an in-progress task's early_start floors at
+        max(actual_start, predecessor constraints) — work already underway
+        stays where it actually started, even when the predecessor finished
+        (and would otherwise release the successor) earlier than that."""
+        p = make_project(
+            tasks=[
+                task(
+                    "A",
+                    "A",
+                    2,
+                    actual_start=date(2026, 3, 2),
+                    actual_finish=date(2026, 3, 3),
+                    percent_complete=100.0,
+                ),
+                # B's predecessor constraint (A finishes 3-Mar) would release it
+                # 4-Mar, but B actually started 10-Mar — a week after that.
+                task("B", "B", 4, actual_start=date(2026, 3, 10), percent_complete=50.0),
+            ],
+            dependencies=[Dependency("A", "B")],
+            start=date(2026, 3, 2),
+        )
+        r = schedule(p)
+        by_id = {t.id: t for t in r.tasks}
+        assert by_id["B"].early_start == date(2026, 3, 10)
+        # 50% of a 4d task leaves 2 remaining working days: Tue10, Wed11.
+        assert by_id["B"].early_finish == date(2026, 3, 11)
+
+    def test_actual_start_floors_early_start_past_status_date(self) -> None:
+        """The actual_start floor is additional to, not a replacement for, the
+        status-date floor — the later of the two wins."""
+        p = make_project(
+            tasks=[
+                task("A", "A", 6, actual_start=date(2026, 3, 12), percent_complete=40.0),
+            ],
+            start=date(2026, 3, 2),
+        )
+        p.status_date = date(2026, 3, 9)  # earlier than actual_start
+        r = schedule(p)
+        t = r.tasks[0]
+        assert t.early_start == date(2026, 3, 12)
+
+    def test_actual_start_does_not_drift_across_progress_updates(self) -> None:
+        """Regression (#2621): a progress-only update (percent_complete alone
+        changes) must never pull an in-progress task's early_start earlier than
+        its actual_start, and must never move it at all — the floor is on the
+        *start*, so only the remaining-duration window shrinks.
+
+        Before the fix, ``actual_start`` played no part in the in-progress ES
+        constraints, so ``early_start`` tracked the calendar/predecessor floor
+        alone and drifted independently of where work actually began. Reaching
+        100% then flipped to the pinned-actuals placement and could jump
+        ``early_start`` backward in one step — the discontinuity #2621 reports
+        as the activity feed logging a false bulk task move.
+        """
+        p = make_project(
+            tasks=[
+                task(
+                    "A",
+                    "A",
+                    2,
+                    actual_start=date(2026, 3, 2),
+                    actual_finish=date(2026, 3, 3),
+                    percent_complete=100.0,
+                ),
+                task("B", "B", 4, actual_start=date(2026, 3, 10)),
+            ],
+            dependencies=[Dependency("A", "B")],
+            start=date(2026, 3, 2),
+        )
+        starts = {}
+        for pct in (0.0, 25.0, 50.0, 83.0):
+            p.tasks[1].percent_complete = pct
+            r = schedule(p)
+            starts[pct] = next(t for t in r.tasks if t.id == "B").early_start
+
+        # early_start is pinned at actual_start for every in-progress percentage
+        # — no drift, so there is nothing for completion to jump backward from.
+        assert all(s == date(2026, 3, 10) for s in starts.values()), starts
+
+        # Completing the task (100%, actuals-pinned placement) must not move
+        # early_start backward from where every in-progress reading already had it.
+        p.tasks[1].percent_complete = 100.0
+        r = schedule(p)
+        b_complete = next(t for t in r.tasks if t.id == "B")
+        assert b_complete.early_start == date(2026, 3, 10)
+        assert b_complete.early_start >= starts[83.0]
+
     def test_status_date_floors_not_started_work(self) -> None:
         """Not-started work cannot be scheduled before the data date."""
         p = make_project([task("A", "A", 5)], start=date(2026, 3, 2))

@@ -37,6 +37,7 @@ export function CreateDispatcher() {
     return (
       <NewProjectModal
         programId={intent.programId}
+        programName={intent.programName}
         onClose={close}
         onCreated={(projectId) => {
           close();

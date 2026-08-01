@@ -82,7 +82,10 @@ fn apply_ef_constraints(
 /// recorded span at full duration and taken out of network logic; an in-progress
 /// task contributes only its remaining duration; and when `status_date` (the data
 /// date) is given, remaining/not-started work is floored at it so future work is
-/// never scheduled in the past. With no actuals and no status date the result is
+/// never scheduled in the past. An in-progress task's `actual_start`, when
+/// recorded, is an additional early-start floor (ADR-0132 §2, #2621): work
+/// already underway stays where it actually started, even past the data date or
+/// a predecessor's constraint. With no actuals and no status date the result is
 /// byte-identical to a pure planning pass.
 ///
 /// Per-task calendars (ADR-0120 D3): the task being computed (the successor of
@@ -140,6 +143,18 @@ pub fn forward_pass(
         };
 
         let mut es_constraints: Vec<NaiveDate> = vec![base_es];
+        if !tasks[i].is_complete() {
+            if let Some(actual_start) = tasks[i].actual_start {
+                // ADR-0132 §2 / #2621: work already underway is floored at
+                // where it actually started, not just at the data date or
+                // predecessor constraints — actuals are truth and are never
+                // smoothed back to an earlier network slot. Unsnapped, unlike
+                // planned_start: a recorded actual can legitimately land on a
+                // non-working day (e.g. logged over a weekend) and is not
+                // renegotiated.
+                es_constraints.push(actual_start);
+            }
+        }
         if let Some(ps) = tasks[i].planned_start {
             es_constraints.push(next_working_day(ps, node_cal)?);
         }

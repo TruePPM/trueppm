@@ -5,6 +5,10 @@ import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { useEffectiveDurationPolicy } from '@/hooks/useProject';
 import { RecalcPercentChip } from './RecalcPercentChip';
 import { buildRecalcPrompt, type RecalcPromptState } from './recalcPercentPrompt';
+import {
+  useProgressAutoStatusConfirm,
+  type ProgressAutoStatusConfirm,
+} from './useProgressAutoStatusConfirm';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { Task } from '@/types';
 import { ROW_HEIGHT, WBS_INDENT } from './scheduleConstants';
@@ -646,6 +650,12 @@ interface TaskDataCellsProps {
   milestoneParents?: { name: string; finish?: string }[];
   setScheduleError: (message: string | null) => void;
   itl: IterationLabel;
+  /** #2639: gates a percent-complete write behind a confirmation naming the
+   *  target status when it would trigger the server's silent REVIEW/COMPLETE
+   *  auto-promotion; commits immediately otherwise. Owned by TaskListRowInner
+   *  (shared with the dialog it renders) so a single confirm gate covers this
+   *  row's cell regardless of how deep TaskDataCells nests it. */
+  requestProgressCommit: ProgressAutoStatusConfirm['requestCommit'];
 }
 
 /**
@@ -671,6 +681,7 @@ function TaskDataCells({
   milestoneParents,
   setScheduleError,
   itl,
+  requestProgressCommit,
 }: TaskDataCellsProps) {
   return (
     <>
@@ -723,6 +734,7 @@ function TaskDataCells({
           updateTask={updateTask}
           setScheduleError={setScheduleError}
           itl={itl}
+          requestProgressCommit={requestProgressCommit}
         />
       )}
 
@@ -1266,6 +1278,12 @@ function TaskListRowInner({
   // fallback (`task.canEdit ?? canEditTask(role)`). Gates the remediation
   // actions in the "no committed start" chip popover (web-rules 156/272).
   const canEdit = task.canEdit ?? canEditTask(currentRole);
+
+  // #2639: confirmation gate for the progress=100 auto-status side effect
+  // (REVIEW for contributors, COMPLETE for Admin+ — Option E, #381 follow-up),
+  // shared with the drawer's OverviewSection via the same hook.
+  const { dialog: progressAutoStatusDialog, requestCommit: requestProgressCommit } =
+    useProgressAutoStatusConfirm(currentRole);
   const toggleComplete = useToggleComplete();
   const duplicateTask = useDuplicateTask();
   const isCoarsePointer = useIsCoarsePointer();
@@ -1563,7 +1581,9 @@ function TaskListRowInner({
         milestoneParents={milestoneParents}
         setScheduleError={setScheduleError}
         itl={itl}
+        requestProgressCommit={requestProgressCommit}
       />
+      {progressAutoStatusDialog}
       {/* Sprint assignment prompt after name commit in agile mode (#346).
           When the commit trips a Tier-1 warn or an Owner-escalated Tier-2 block
           (ADR-0101), the prompt is replaced by the corresponding outcome panel
@@ -2305,6 +2325,10 @@ interface TaskProgressCellProps {
   updateTask: UpdateTaskMutation;
   setScheduleError: (message: string | null) => void;
   itl: IterationLabel;
+  /** #2639: gates a percent-complete write behind a confirmation naming the
+   *  target status when it would trigger the server's silent REVIEW/COMPLETE
+   *  auto-promotion; commits immediately otherwise. */
+  requestProgressCommit: ProgressAutoStatusConfirm['requestCommit'];
 }
 
 function TaskProgressCell({
@@ -2316,6 +2340,7 @@ function TaskProgressCell({
   updateTask,
   setScheduleError,
   itl,
+  requestProgressCommit,
 }: TaskProgressCellProps) {
   return buildMode && !task.isMilestone ? (
     <EditableCell
@@ -2333,24 +2358,26 @@ function TaskProgressCell({
       }}
       onCommit={(parsed) => {
         if (typeof parsed === 'number' && projectId) {
-          updateTask.mutate(
-            { id: task.id, projectId, percent_complete: parsed },
-            {
-              onError: (err) => {
-                if (parseProgressAnchorError(err)) {
-                  setScheduleError(
-                    `Set a Planned Start date (or assign a ${itl.lower}) before recording progress.`,
-                  );
-                  setTimeout(() => setScheduleError(null), 5000);
-                } else if (parseMilestoneRollupLockedError(err)) {
-                  setScheduleError(
-                    `Progress rolls up from sprint(s) — close or unlink to edit.`,
-                  );
-                  setTimeout(() => setScheduleError(null), 5000);
-                }
+          requestProgressCommit(task.status, parsed, () => {
+            updateTask.mutate(
+              { id: task.id, projectId, percent_complete: parsed },
+              {
+                onError: (err) => {
+                  if (parseProgressAnchorError(err)) {
+                    setScheduleError(
+                      `Set a Planned Start date (or assign a ${itl.lower}) before recording progress.`,
+                    );
+                    setTimeout(() => setScheduleError(null), 5000);
+                  } else if (parseMilestoneRollupLockedError(err)) {
+                    setScheduleError(
+                      `Progress rolls up from sprint(s) — close or unlink to edit.`,
+                    );
+                    setTimeout(() => setScheduleError(null), 5000);
+                  }
+                },
               },
-            },
-          );
+            );
+          });
         }
         buildMode.focus.commitToRow();
       }}

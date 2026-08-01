@@ -7,7 +7,12 @@ import { MobileGroomingCard } from './MobileGroomingCard';
 function story(overrides: Partial<Task> = {}): Task {
   return {
     id: 'T-001',
-    shortId: 'S-1',
+    // A real 8-hex-digit value, never a pretty fake like 'S-1' — that shape is
+    // exactly what hid the #2671 raw-hex leak (it already looks like a nice
+    // identifier, so a render bug dumping the raw field passed silently).
+    shortId: '00000001',
+    shortIdDisplay: 'T-1',
+    qualifiedId: 'T-1',
     name: 'Failover handling',
     taskType: 'story',
     dor: 'refine',
@@ -41,8 +46,17 @@ function renderCard(props: Partial<Parameters<typeof MobileGroomingCard>[0]> = {
 
 describe('MobileGroomingCard (issue 1044)', () => {
   it('renders the story identity, points and readiness chip', () => {
-    renderCard({ story: story({ shortId: 'S-42', name: 'Signal smoothing', storyPoints: 5 }) });
-    expect(screen.getByText('S-42')).toBeInTheDocument();
+    renderCard({
+      story: story({
+        shortId: '0000002A',
+        shortIdDisplay: 'T-42',
+        qualifiedId: 'T-42',
+        name: 'Signal smoothing',
+        storyPoints: 5,
+      }),
+    });
+    expect(screen.getByText('T-42')).toBeInTheDocument();
+    expect(screen.queryByText('0000002A')).not.toBeInTheDocument();
     expect(screen.getByText('Signal smoothing')).toBeInTheDocument();
     expect(screen.getByText('5 pts')).toBeInTheDocument();
   });

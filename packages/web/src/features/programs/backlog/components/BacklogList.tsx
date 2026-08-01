@@ -48,9 +48,14 @@ export function BacklogList({ controller }: BacklogListProps) {
   function moveBy(item: BacklogItem, delta: -1 | 1) {
     const index = mainItems.findIndex((i) => i.id === item.id);
     const neighbor = mainItems[index + delta];
-    if (!neighbor) return;
+    // A null rank (an item created before #2668 wired priority_rank into
+    // create, or never re-ranked) has no numeric position to hand over —
+    // skip rather than reorder onto a meaningless value.
+    if (!neighbor || neighbor.priorityRank === null) return;
     void controller.reorderItem(item.id, neighbor.priorityRank);
-    setReorderMsg(`${item.title} moved ${delta === -1 ? 'up' : 'down'} to position ${index + delta + 1}.`);
+    setReorderMsg(
+      `${item.title} moved ${delta === -1 ? 'up' : 'down'} to position ${index + delta + 1}.`,
+    );
   }
 
   // Facets emptied the list, or search matched nothing → recovery state.
@@ -60,7 +65,7 @@ export function BacklogList({ controller }: BacklogListProps) {
   const hasActiveFacets = url.types.length > 0 || url.tags.length > 0;
 
   function commitDrop(target: BacklogItem) {
-    if (draggingId && draggingId !== target.id) {
+    if (draggingId && draggingId !== target.id && target.priorityRank !== null) {
       void controller.reorderItem(draggingId, target.priorityRank);
     }
     setDraggingId(null);

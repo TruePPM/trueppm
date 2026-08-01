@@ -215,6 +215,29 @@ describe('ProgramCadencePage — ceremony actions menu keyboard access', () => {
     expect(screen.getByRole('button', { name: /View gate template/i })).toBeInTheDocument();
   });
 
+  // #2549: CeremonyTemplateViewSet and PhaseGateConfigView writes are gated by
+  // IsProgramNotClosed, so an Admin on a closed program must not see a live
+  // toggle, kebab menu, or "+ Add ceremony" — all of them would 403.
+  it('renders a read-only indicator and closed-specific pill for an Admin on a closed program', () => {
+    vi.mocked(useProgram).mockReturnValue({
+      data: { id: 'p1', name: 'Apollo', my_role: ROLE_ADMIN, is_closed: true },
+    } as unknown as ReturnType<typeof useProgram>);
+    render(<ProgramCadencePage />);
+
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/Standup: On, program is closed — reopen it to change this\. View only\./i),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+ Add ceremony' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'More options for Standup' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /View gate template/i })).toBeInTheDocument();
+    expect(
+      screen.getByTitle('This program is closed and cannot be modified. Reopen it first.'),
+    ).toHaveTextContent(/Read-only — program closed/i);
+  });
+
   it('toggling an enabled ceremony PATCHes it to disabled', async () => {
     const user = userEvent.setup();
     render(<ProgramCadencePage />);

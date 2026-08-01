@@ -1,6 +1,7 @@
 ---
 title: Personal Access Tokens
 description: Create a user-scoped API token to authenticate scripts and tools against TruePPM as yourself — with optional expiry, a 10-token cap, and automatic revocation on password change.
+documentedFor: "0.4"
 ---
 
 A **Personal Access Token (PAT)** is a credential that lets a script, notebook,
@@ -9,6 +10,14 @@ permissions — everything you can see and do in the app, and nothing more. A PA
 is how a PMO analyst runs a weekly portfolio export, a Product Owner scripts a
 roadmap dump, or a developer wires up CI tooling, without embedding a password or
 holding a browser session open.
+
+:::note[Ships in 0.4]
+A full-access (`legacy:full`) token reaching the **general** API — everything
+described on this page beyond the read-only MCP surface — ships in
+**TruePPM 0.4** (#2547). In `v0.3.0-alpha.3` (the latest release), a personal
+token authenticates only the read-only MCP-wrapped endpoints; there is no
+general read/write path for it yet.
+:::
 
 :::note[Edition]
 Personal access tokens are part of the **Community (OSS)** edition. Session-free

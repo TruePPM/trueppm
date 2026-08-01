@@ -76,6 +76,7 @@ from trueppm_api.apps.projects.models import (
     Project,
     Task,
     TaskStatus,
+    format_short_id_display,
 )
 from trueppm_api.apps.projects.serializers import (
     ProgramExportJobSerializer,
@@ -2270,8 +2271,9 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         responses={
             200: OpenApiResponse(
                 description=(
-                    "Slim rows `[{id, name, short_id, project_id, project_name}]` "
-                    "for tasks in member projects the caller can read."
+                    "Slim rows `[{id, name, short_id, short_id_display, qualified_id, "
+                    "project_id, project_name}]` for tasks in member projects the "
+                    "caller can read."
                 )
             )
         },
@@ -2290,10 +2292,20 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         the caller cannot read is simply not searched (its tasks are not offered),
         so no unauthorized task titles leak through the picker.
 
-        Slim shape (``[{id, name, short_id, project_id, project_name}]``) carries no
-        cost/budget/status/assignee fields, so role-based field visibility is moot —
-        project readability is the only gate (same rationale as the per-project
-        ``TaskViewSet.search`` action).
+        Slim shape (``[{id, name, short_id, short_id_display, qualified_id,
+        project_id, project_name}]``) carries no cost/budget/status/assignee
+        fields, so role-based field visibility is moot — project readability is
+        the only gate (same rationale as the per-project ``TaskViewSet.search``
+        action). ``short_id`` is still returned for callers that need the raw
+        value, but ``short_id_display``/``qualified_id`` are what a UI must
+        render (#2671) — this hand-built row bypassed ``TaskSerializer``
+        entirely and returned the raw hex, which is exactly the leak both the
+        cross-project dependency picker (``ScheduleDependencyPicker``) and the
+        cross-project relation picker (``RelatedLinkPicker``) inherited from it.
+        ``qualified_id`` is where this endpoint matters most: it is the only one
+        of the six/seven #2671 sites where results are genuinely cross-project,
+        so the project-code prefix is what disambiguates two sibling projects'
+        task 3 from each other.
         """
         from django.db.models import Case, IntegerField, Value, When
 
@@ -2337,14 +2349,17 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         if _excluded is not None:
             membership_qs = membership_qs.exclude(project_id__in=_excluded)
         readable_ids = set(membership_qs.values_list("project_id", flat=True))
-        readable: dict[str, str] = {}
+        # (name, code) per readable project — the code is what lets a result row
+        # carry a qualified_id (#2671); before this it was name-only and every
+        # row fell back to the ambiguous compact form.
+        readable: dict[str, tuple[str, str]] = {}
         for row in Project.objects.filter(
             program=program, is_deleted=False, id__in=readable_ids
-        ).values("id", "name"):
+        ).values("id", "name", "code"):
             pid = str(row["id"])
             if exclude_project is not None and pid == str(exclude_project):
                 continue
-            readable[pid] = row["name"]
+            readable[pid] = (row["name"], row["code"] or "")
 
         if not readable:
             return Response([], status=status.HTTP_200_OK)
@@ -2371,16 +2386,26 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             "list[dict[str, Any]]",
             list(qs.values("id", "name", "short_id", "project_id")[:200]),
         )
-        results = [
-            {
-                "id": str(row["id"]),
-                "name": row["name"],
-                "short_id": row["short_id"],
-                "project_id": str(row["project_id"]),
-                "project_name": readable[str(row["project_id"])],
-            }
-            for row in rows
-        ]
+        results: list[dict[str, Any]] = []
+        for task_row in rows:
+            project_name, project_code = readable[str(task_row["project_id"])]
+            # Same decode + qualify rule as TaskSerializer (#2430) — this row is
+            # hand-built rather than serialized through TaskSerializer (the
+            # queryset above is a search projection, not a Task instance list),
+            # so it must apply the rule itself rather than inherit it.
+            display = format_short_id_display(task_row["short_id"], "T")
+            qualified = f"{project_code}-{display[2:]}" if project_code and display else display
+            results.append(
+                {
+                    "id": str(task_row["id"]),
+                    "name": task_row["name"],
+                    "short_id": task_row["short_id"],
+                    "short_id_display": display,
+                    "qualified_id": qualified,
+                    "project_id": str(task_row["project_id"]),
+                    "project_name": project_name,
+                }
+            )
         return Response(results, status=status.HTTP_200_OK)
 
     @extend_schema(

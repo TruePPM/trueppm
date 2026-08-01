@@ -1,0 +1,1 @@
+Program Settings → External stakeholders: the header and read rows now collapse to a single column below `md`, matching the inline edit row's responsive layout. Previously both were a hard 5-column grid at every viewport width, so on a narrow screen the fixed "Added by" and actions tracks left almost no room for Name, Email, and Note, truncating all three.

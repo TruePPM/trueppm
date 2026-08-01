@@ -26,7 +26,20 @@ export type MyWorkGroup = 'today' | 'this_sprint' | 'upcoming';
 
 export interface MyWorkTask {
   id: string;
+  /**
+   * Raw 8-hex-digit project-scoped sequence (ADR-0016 / issue #50) — the stored
+   * identity. **Do not render it**: it reads as an internal identifier
+   * (`00000008`, `0000000A`) rather than "the eighth task" (#2430, #2671). Use
+   * `qualified_id` (preferred) or `short_id_display`, both server-formatted.
+   */
   short_id: string;
+  /** Server-formatted compact task reference, e.g. `"T-8"` (#2671). Optional so
+   *  a fixture built before #2671 still type-checks; a real API response always
+   *  carries it. */
+  short_id_display?: string;
+  /** Server-formatted project-qualified task reference, e.g. `"ENG-2026-8"` —
+   *  falls back to the compact form when the project has no code (#2671). */
+  qualified_id?: string;
   name: string;
   project_id: string;
   project_name: string;

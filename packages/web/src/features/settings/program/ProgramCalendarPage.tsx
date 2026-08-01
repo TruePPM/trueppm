@@ -257,8 +257,13 @@ export function ProgramCalendarPage() {
   // SUGGEST here and the picker stays editable.
   const lockedByPolicy = ws?.calendarOverridePolicy === 'inherit';
   // Admin+ on the program may edit; `my_role` is null until the program loads,
-  // so gate pessimistically (read-only until proven Admin).
-  const canEdit = !lockedByPolicy && program?.my_role != null && program.my_role >= ROLE_ADMIN;
+  // so gate pessimistically (read-only until proven Admin). `!is_closed` is
+  // folded in per #2549: ProgramViewSet.update/partial_update (which this page
+  // writes through) is gated by IsProgramNotClosed, so an Admin on a closed
+  // program would otherwise see a live picker that 403s on save.
+  const isAdmin = program?.my_role != null && program.my_role >= ROLE_ADMIN;
+  const canEdit = !lockedByPolicy && isAdmin && !program?.is_closed;
+  const closedToAdmin = !lockedByPolicy && isAdmin && program?.is_closed === true;
 
   const handleSave = useCallback(async () => {
     if (!programId) return;
@@ -300,6 +305,16 @@ export function ProgramCalendarPage() {
       <SettingsPageTitle
         title="Working calendar"
         subtitle="The working calendar CPM uses to schedule this program's projects. Inherits the workspace default unless you override it here."
+        action={
+          closedToAdmin ? (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-medium bg-neutral-surface-sunken text-neutral-text-secondary"
+              title="This program is closed and cannot be modified. Reopen it first."
+            >
+              Read-only — program closed
+            </span>
+          ) : undefined
+        }
       />
 
       <div className="px-6 pb-8 max-w-[720px] space-y-6">
@@ -319,7 +334,11 @@ export function ProgramCalendarPage() {
               label="Working calendar"
               value={readOnlyCalendarValue}
               provenance={
-                lockedByPolicy ? 'locked by workspace policy' : 'managed by the program admin'
+                lockedByPolicy
+                  ? 'locked by workspace policy'
+                  : closedToAdmin
+                    ? 'program is closed — reopen it to change this'
+                    : 'managed by the program admin'
               }
               filled={displayCalendarId !== null}
             />

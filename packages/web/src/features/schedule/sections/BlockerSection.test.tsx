@@ -359,6 +359,20 @@ describe('BlockerSection — read-only view', () => {
     renderWith({ canEdit: false });
     expect(screen.queryByText('Related task')).toBeNull();
   });
+
+  it('shows "queued" + the pending badge for a fresh offline flag (issue 2584)', () => {
+    // A viewer has no write control on the task, so the queued signal is the only
+    // affordance that reveals a blocker hasn't reached the server yet — it must
+    // render identically to the editor's copy, not fall back to a bare "Blocked"
+    // with no age. This is the state that had no coverage before #2584.
+    seedPending({ kind: 'flag', wasFlagged: false });
+    setTask({ blockedAgeSeconds: 0, blockedReason: undefined, blockerType: 'vendor' });
+    renderWith({ canEdit: false });
+    expect(screen.getByText('queued')).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/Blocker flag queued — it will save when you reconnect/i),
+    ).toBeInTheDocument();
+  });
 });
 
 describe('BlockerSection — saving changes to an existing flag', () => {

@@ -24,7 +24,7 @@ vi.mock('@/hooks/useCurrentUserRole', () => ({
 }));
 vi.mock('@/hooks/useMyFacets', () => ({ useCanManageBacklog: () => canBacklog.current }));
 vi.mock('@/hooks/useProgram', () => ({
-  useProgram: () => ({ data: { id: GID, my_role: myRole.current }, isLoading: false }),
+  useProgram: () => ({ data: { id: GID, name: 'Delivery Program', my_role: myRole.current }, isLoading: false }),
 }));
 
 function render(pathname: string) {
@@ -94,13 +94,21 @@ describe('CreateMenu (ADR-0131, #1179)', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('program route → "New project" for a program admin', async () => {
+  // #2666: the shell's "+ New project" entry point silently dropped the resolved
+  // program's name, so the modal's step-3 "Use program defaults" affordance (the
+  // only place that named it) fell back to a generic label. `programName` now
+  // travels with the intent so `CreateDispatcher` never has to re-derive it.
+  it('program route → "New project" for a program admin publishes an intent carrying the resolved programName (#2666)', async () => {
     const user = userEvent.setup();
     projectId.current = undefined;
     programId.current = GID;
     render(`/programs/${GID}/overview`);
     await user.click(screen.getByRole('button', { name: 'New project' }));
-    expect(useCreateIntentStore.getState().intent).toEqual({ kind: 'project', programId: GID });
+    expect(useCreateIntentStore.getState().intent).toEqual({
+      kind: 'project',
+      programId: GID,
+      programName: 'Delivery Program',
+    });
   });
 
   it('program route hidden when the caller is not a program admin', () => {

@@ -22,10 +22,11 @@ from rest_framework.test import APIRequestFactory
 
 from trueppm_api.apps.projects.authentication import (
     TOKEN_PREFIX,
+    OwnerScopedApiTokenAuthentication,
     ProjectApiTokenAuthentication,
     sha256_hex,
 )
-from trueppm_api.apps.projects.models import ApiToken, Calendar, Program, Project
+from trueppm_api.apps.projects.models import SCOPE_MCP_READ, ApiToken, Calendar, Program, Project
 
 User = get_user_model()
 
@@ -199,3 +200,67 @@ class TestPersonalAccessTokenAuthentication:
         assert result is not None
         user, _ = result
         assert user == creator
+
+
+@pytest.mark.django_db
+class TestOwnerScopedApiTokenAuthentication:
+    """Unit tests for the general-endpoint auth class (#2547).
+
+    Wired into ``DEFAULT_AUTHENTICATION_CLASSES`` (settings/base.py, settings/dev.py)
+    so a Personal Access Token authenticates the same general surface a JWT/session
+    request would. Deliberately narrower than the base class it wraps: only an
+    owner-scoped token carrying ``legacy:full`` is accepted here — everything else
+    (project/program-scoped, or owner-scoped without ``legacy:full``) is rejected,
+    so this class cannot become a second, wider path for the tokens the base class's
+    narrow write surfaces (``TaskSyncView``, the acceptance-result view) and the MCP
+    read surface were deliberately scoped to keep confined.
+    """
+
+    def test_defers_to_next_authenticator_when_no_header(self) -> None:
+        # Same deferral contract as the base class: None, not a 401, so JWT/Session
+        # authenticators still get a turn.
+        assert OwnerScopedApiTokenAuthentication().authenticate(_request()) is None
+
+    def test_defers_when_bearer_is_not_a_tppm_token(self) -> None:
+        # A non-tppm_ Bearer (e.g. a JWT) must defer, not raise.
+        assert (
+            OwnerScopedApiTokenAuthentication().authenticate(_request("Bearer some.jwt.value"))
+            is None
+        )
+
+    def test_personal_legacy_full_token_authenticates(self, creator: object) -> None:
+        owner = User.objects.create_user(username="pat_owner2", password="pw")
+        token = _mint(owner=owner, project=None, created_by=creator)
+        result = OwnerScopedApiTokenAuthentication().authenticate(_request(f"Bearer {_RAW_TOKEN}"))
+        assert result is not None
+        user, auth = result
+        assert user == owner
+        assert auth == token
+
+    def test_project_scoped_token_rejected(self, project: Project, creator: object) -> None:
+        # Would otherwise resolve request.user to `creator` (the minter) with the
+        # minter's full account-wide authority — exactly the confused-deputy
+        # widening this class exists to prevent.
+        _mint(project=project, created_by=creator)
+        with pytest.raises(exceptions.AuthenticationFailed):
+            OwnerScopedApiTokenAuthentication().authenticate(_request(f"Bearer {_RAW_TOKEN}"))
+
+    def test_program_scoped_token_rejected(self, creator: object) -> None:
+        program = Program.objects.create(name="Prog")
+        _mint(program=program, project=None, created_by=creator)
+        with pytest.raises(exceptions.AuthenticationFailed):
+            OwnerScopedApiTokenAuthentication().authenticate(_request(f"Bearer {_RAW_TOKEN}"))
+
+    def test_owner_scoped_mcp_read_only_token_rejected(self, creator: object) -> None:
+        # An mcp:read-only PAT stays confined to the curated MCP-readable viewset
+        # list; it must not gain a second, broader path via this class.
+        owner = User.objects.create_user(username="pat_owner3", password="pw")
+        _mint(owner=owner, project=None, created_by=creator, scopes=[SCOPE_MCP_READ])
+        with pytest.raises(exceptions.AuthenticationFailed):
+            OwnerScopedApiTokenAuthentication().authenticate(_request(f"Bearer {_RAW_TOKEN}"))
+
+    def test_revoked_personal_token_rejected(self, creator: object) -> None:
+        owner = User.objects.create_user(username="pat_owner4", password="pw")
+        _mint(owner=owner, project=None, created_by=creator, revoked_at=timezone.now())
+        with pytest.raises(exceptions.AuthenticationFailed):
+            OwnerScopedApiTokenAuthentication().authenticate(_request(f"Bearer {_RAW_TOKEN}"))

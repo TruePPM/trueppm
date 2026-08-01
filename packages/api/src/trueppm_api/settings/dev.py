@@ -81,10 +81,13 @@ INTEGRATION_ENCRYPTION_KEY = "cNHot7PnbAHGIuY4zUht8FwB5wYGv06O7ppzGyhzR84="
 REST_FRAMEWORK = {  # nosemgrep: missing-throttle-config
     **REST_FRAMEWORK,  # nosemgrep: missing-throttle-config
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"],
-    # Re-add SessionAuthentication on top of base's JWT-only posture (#2248) so the
-    # test suite's `client.force_login()` populates request.user without minting a
-    # JWT. Never loaded in staging/prod (fenced by _assert_dev_environment_safe).
+    # Re-add SessionAuthentication on top of base's posture (#2248) so the test
+    # suite's `client.force_login()` populates request.user without minting a JWT.
+    # Never loaded in staging/prod (fenced by _assert_dev_environment_safe). Keeps
+    # base's OwnerScopedApiTokenAuthentication entry (#2547) so PAT-authenticated
+    # requests in the test suite exercise the real production auth wiring.
     "DEFAULT_AUTHENTICATION_CLASSES": [
+        "trueppm_api.apps.projects.authentication.OwnerScopedApiTokenAuthentication",
         "rest_framework_simplejwt.authentication.JWTAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ],

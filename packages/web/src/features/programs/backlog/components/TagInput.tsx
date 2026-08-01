@@ -198,7 +198,17 @@ export function TagInput({ tags, onChange, suggestions = [], id }: TagInputProps
     // and editing the text. A navigation key that lands is never also an
     // editing key, so the first handler to claim it wins.
     if (handleListNavKey(e, { rows, open, activeIndex, setOpen, setActiveIndex, commit })) return;
-    handleTextEditKey(e, { q, query, open, tags, add, setQuery, setOpen, setActiveIndex, onChange });
+    handleTextEditKey(e, {
+      q,
+      query,
+      open,
+      tags,
+      add,
+      setQuery,
+      setOpen,
+      setActiveIndex,
+      onChange,
+    });
   }
 
   const activeDescId = open && rows.length ? `${baseId}-opt-${activeIndex}` : undefined;
@@ -267,7 +277,15 @@ export function TagInput({ tags, onChange, suggestions = [], id }: TagInputProps
                     ? `"${q}" is already added`
                     : q
                       ? `No tags match "${q}"`
-                      : 'No tags yet — type to create one.'}
+                      : // Empty query: `filtered` is empty for one of two very
+                        // different reasons (#2668). If the program has tags at
+                        // all, every one of them is already a chip on this item —
+                        // saying "No tags yet" there is false (four tags can be
+                        // visibly attached while this renders). Only a genuinely
+                        // tag-less program gets the create-invitation copy.
+                        suggestions.length > 0
+                        ? 'All existing tags are already added — type to create a new one.'
+                        : 'No tags yet — type to create one.'}
                 </div>
               ) : (
                 rows.map((row, index) => {

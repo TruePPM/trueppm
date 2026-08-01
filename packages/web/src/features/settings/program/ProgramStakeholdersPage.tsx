@@ -13,10 +13,31 @@ import { useProgramMentionReach } from '../hooks/useProgramMentionReach';
 import { StakeholderEmptyState, StakeholderReachSummary } from './StakeholderReachSummary';
 import {
   StakeholderEditRow,
-  STAKEHOLDER_GRID as GRID,
   type StakeholderDraft,
   type StakeholderFieldErrors,
 } from './StakeholderEditRow';
+
+/**
+ * Column ruler for the header and read rows, as a static Tailwind class rather
+ * than the inline `gridTemplateColumns` this replaces (#2548): an unconditional
+ * inline style is a hard grid at every breakpoint, so on a narrow viewport the
+ * two fixed tracks (118px "Added by" + 116px actions) left ~80px for Name +
+ * Email + Note combined and all three truncated to nothing. `grid-cols-1` below
+ * `md` stacks each row; `StakeholderRow` labels each stacked cell since the
+ * header (the normal source of column labels) hides at that width.
+ * **Change one, change {@link StakeholderEditRow}'s `md:grid-cols-[1.4fr_1.6fr_1.6fr_234px]`
+ * too** — `234 = 118 + 116` collapses the two fixed tracks into the edit row's
+ * one action column.
+ */
+const STAKEHOLDER_ROW_GRID = 'grid-cols-1 md:grid-cols-[1.4fr_1.6fr_1.6fr_118px_116px]';
+
+/**
+ * Per-cell label shown only in the stacked (below-`md`) layout — the header
+ * row that normally names each column is hidden at that width, so each cell
+ * has to carry its own label rather than leave a stack of bare values.
+ */
+const STACKED_LABEL_CLASS =
+  'block md:hidden text-[11px] font-semibold uppercase tracking-widest text-neutral-text-secondary';
 
 interface RowProps {
   stakeholder: ExternalStakeholder;
@@ -52,18 +73,33 @@ function StakeholderRow({
 
   return (
     <div
-      className="grid items-center px-4 py-2.5 text-[13px] border-b border-neutral-border/55 last:border-b-0"
-      style={{ gridTemplateColumns: GRID }}
+      className={`grid ${STAKEHOLDER_ROW_GRID} gap-1 md:gap-0 md:items-center px-4 py-2.5 text-[13px] border-b border-neutral-border/55 last:border-b-0`}
     >
-      <span className="font-medium text-neutral-text-primary truncate">{stakeholder.name}</span>
-      <span className="text-xs text-neutral-text-secondary truncate">{stakeholder.email}</span>
-      <span className="text-xs text-neutral-text-secondary truncate">
-        {stakeholder.note || <span className="text-neutral-text-disabled">—</span>}
-      </span>
-      <span className="text-xs text-neutral-text-secondary truncate">
-        {stakeholder.created_by ?? '—'}
-      </span>
-      <div className="flex justify-end gap-1">
+      <div className="md:contents">
+        <span className={STACKED_LABEL_CLASS}>Name</span>
+        <span className="block font-medium text-neutral-text-primary truncate">
+          {stakeholder.name}
+        </span>
+      </div>
+      <div className="md:contents">
+        <span className={STACKED_LABEL_CLASS}>Email</span>
+        <span className="block text-xs text-neutral-text-secondary truncate">
+          {stakeholder.email}
+        </span>
+      </div>
+      <div className="md:contents">
+        <span className={STACKED_LABEL_CLASS}>Note</span>
+        <span className="block text-xs text-neutral-text-secondary truncate">
+          {stakeholder.note || <span className="text-neutral-text-disabled">—</span>}
+        </span>
+      </div>
+      <div className="md:contents">
+        <span className={STACKED_LABEL_CLASS}>Added by</span>
+        <span className="block text-xs text-neutral-text-secondary truncate">
+          {stakeholder.created_by ?? '—'}
+        </span>
+      </div>
+      <div className="flex gap-1 md:justify-end">
         {canManage && !confirmRemove && (
           <button
             type="button"
@@ -138,12 +174,24 @@ export function ProgramStakeholdersPage() {
   const { data: program } = useProgram(programId);
   const { data: stakeholders = [], isLoading, isError } = useProgramExternalStakeholders(programId);
   const { create, update, remove } = useProgramExternalStakeholderMutations(programId ?? '');
-  const canManage = program?.my_role != null && program.my_role >= ROLE_ADMIN;
+  // Admin+ manages the list, but a closed program is read-only shell-wide (#530,
+  // IsProgramNotClosed): the server 403s create/update/destroy on this viewset
+  // even for an Admin (#2549), so the affordance itself must fold in `is_closed`
+  // rather than gating on role alone — otherwise Add/Edit/Remove render as live
+  // controls that every click turns into a confusing 403.
+  const isAdmin = program?.my_role != null && program.my_role >= ROLE_ADMIN;
+  const canManage = isAdmin && !program?.is_closed;
+  // Distinguishes "you don't have permission" (silent, unchanged) from "you would,
+  // but the program is closed" — the latter must say why per #2549's review note.
+  const closedToAdmin = isAdmin && program?.is_closed === true;
   // Server-computed (ADR-0697): the Viewer arm cannot be derived in the browser —
   // /programs/{id}/members/ returns ProgramMembership, which per ADR-0070 does not
   // propagate to project access, while the alias resolves the ProjectMembership
   // union at an exact Viewer role. Admin+ only, so a non-Admin never fires it.
-  const { data: reach, isPending: isReachPending } = useProgramMentionReach(programId, canManage);
+  // Gated on `isAdmin`, not `canManage`: `mention_reach` is a read with no
+  // `IsProgramNotClosed` gate (the alias stays inspectable on a closed program
+  // for forensics), so an Admin keeps seeing this even when the program is closed.
+  const { data: reach, isPending: isReachPending } = useProgramMentionReach(programId, isAdmin);
 
   // Only one row edits at a time — a single mutation object carries one error
   // envelope, so two concurrent edit rows could not tell whose 400 it was.
@@ -204,6 +252,16 @@ export function ProgramStakeholdersPage() {
         title="External stakeholders"
         count={stakeholders.length > 0 ? `${stakeholders.length}` : undefined}
         subtitle="People without a TruePPM account — client sponsors, vendors, reviewers — kept as a separate recipient list for @program-stakeholders mentions."
+        action={
+          closedToAdmin ? (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-medium bg-neutral-surface-sunken text-neutral-text-secondary"
+              title="This program is closed and cannot be modified. Reopen it first."
+            >
+              Read-only — program closed
+            </span>
+          ) : undefined
+        }
       />
 
       <div className="px-6 pb-8 max-w-[920px]">
@@ -211,17 +269,18 @@ export function ProgramStakeholdersPage() {
             settings shell renders every section in one scroll, so a two-step
             injection would shove every section below this one down twice.
             `isPending` stays true forever when the query is disabled, hence the
-            `!canManage` short-circuit. */}
-        {!isLoading && !isError && (!canManage || !isReachPending) && (
+            `!isAdmin` short-circuit (the read's own gate — see the hook above). */}
+        {!isLoading && !isError && (!isAdmin || !isReachPending) && (
           <StakeholderReachSummary
             externalCount={stakeholders.length}
             viewerMemberCount={reach?.viewer_member_count}
-            viewerCountRestricted={!canManage}
+            viewerCountRestricted={!isAdmin}
           />
         )}
+        {/* Hidden below `md`: each read row's cells carry their own label there
+            (STACKED_LABEL_CLASS), so a hidden header is not a lost affordance. */}
         <div
-          className="grid items-center px-4 py-2 bg-neutral-surface-sunken border border-neutral-border rounded-t-card text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mt-4"
-          style={{ gridTemplateColumns: GRID }}
+          className={`hidden md:grid ${STAKEHOLDER_ROW_GRID} items-center px-4 py-2 bg-neutral-surface-sunken border border-neutral-border rounded-t-card text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mt-4`}
         >
           <span>Name</span>
           <span>Email</span>
@@ -230,7 +289,7 @@ export function ProgramStakeholdersPage() {
           <span />
         </div>
 
-        <div className="bg-neutral-surface-raised border-x border-b border-neutral-border rounded-b-card overflow-hidden">
+        <div className="bg-neutral-surface-raised border border-neutral-border rounded-card overflow-hidden mt-4 md:mt-0 md:border-x md:border-b md:border-t-0 md:rounded-t-none md:rounded-b-card">
           {isLoading && (
             <LoadingSkeleton label="Loading external stakeholders" rows={3} className="px-4 py-6" />
           )}

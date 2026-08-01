@@ -423,7 +423,15 @@ def _resolve_forward_binding(
 def _forward_floor_contribs(
     task: Task, cal: Calendar, project_start: date, status_date: date | None
 ) -> list[DerivationContribution]:
-    """The three non-network early-start candidates: project start, data date, SNET."""
+    """The non-network early-start candidates: project start, data date, SNET, and
+    — for in-progress work — the recorded ``actual_start`` floor.
+
+    ``actual_start`` (ADR-0132 §2, #2621) is only reachable here for a task that
+    is not complete (``_derive_forward`` routes completed tasks through
+    :func:`_completed_forward_contribs` instead); it is emitted unsnapped, unlike
+    the calendar-anchored terms, mirroring ``engine._forward_pass``: actuals are
+    truth and are never renegotiated onto a working day.
+    """
     start_base = _next_working_day(project_start, cal)
     contribs = [
         DerivationContribution(
@@ -439,6 +447,13 @@ def _forward_floor_contribs(
                 kind="data_date",
                 imposed_date=snapped,
                 calendar_days_added=_days_between(status_date, snapped),
+            )
+        )
+    if task.actual_start is not None:
+        contribs.append(
+            DerivationContribution(
+                kind="actual_start",
+                imposed_date=task.actual_start,
             )
         )
     if task.planned_start is not None:

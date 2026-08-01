@@ -268,6 +268,19 @@ describe('ProgramGeneralPage (settings)', () => {
     ).toBeInTheDocument();
   });
 
+  // #2549: ProgramViewSet.update/partial_update is gated by IsProgramNotClosed,
+  // so an Admin on a closed program must not see a live, saveable form.
+  it('renders the whole form read-only for an Admin on a closed program, and says why', () => {
+    useProgram.mockReturnValue({ data: makeProgram({ is_closed: true }) });
+    renderPage();
+
+    expect(screen.getByLabelText('Program name')).toBeDisabled();
+    const notice = screen.getByTitle(
+      'This program is closed and cannot be modified. Reopen it first.',
+    );
+    expect(notice).toHaveTextContent(/Read-only — program closed/i);
+  });
+
   it('renders the visibility control disabled with a "not yet enforced" note (#2011)', () => {
     useProgram.mockReturnValue({ data: makeProgram() });
     renderPage();

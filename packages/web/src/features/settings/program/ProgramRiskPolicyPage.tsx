@@ -88,7 +88,12 @@ export function ProgramRiskPolicyPage() {
   const { data: policy, isLoading, isError, refetch } = useProgramRiskPolicy(programId);
   const savePolicy = useSaveProgramRiskPolicy(programId ?? '');
 
-  const canEdit = (program?.my_role ?? 0) >= ROLE_ADMIN;
+  // `!is_closed` is folded in per #2549: the `risk-policy` PATCH is gated by
+  // IsProgramNotClosed (program_views.py), so an Admin on a closed program would
+  // otherwise see the editable form and 403 on save.
+  const isAdmin = (program?.my_role ?? 0) >= ROLE_ADMIN;
+  const canEdit = isAdmin && !program?.is_closed;
+  const closedToAdmin = isAdmin && program?.is_closed === true;
 
   const [slip, setSlip] = useState<SlipPropagation>('warn');
   const [days, setDays] = useState<number>(3);
@@ -160,9 +165,13 @@ export function ProgramRiskPolicyPage() {
           !canEdit ? (
             <span
               className="inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-medium bg-neutral-surface-sunken text-neutral-text-secondary"
-              title="Only program admins can edit risk policy"
+              title={
+                closedToAdmin
+                  ? 'This program is closed and cannot be modified. Reopen it first.'
+                  : 'Only program admins can edit risk policy'
+              }
             >
-              Read-only
+              {closedToAdmin ? 'Read-only — program closed' : 'Read-only'}
             </span>
           ) : undefined
         }
@@ -252,7 +261,7 @@ export function ProgramRiskPolicyPage() {
               <ReadOnlyIndicator
                 label="Slip policy"
                 value={SLIP_OPTIONS.find((o) => o.id === slip)?.label ?? slip}
-                provenance="managed by the program admin"
+                provenance={closedToAdmin ? 'program is closed — reopen it to change this' : 'managed by the program admin'}
               />
             </div>
           )}
@@ -330,7 +339,7 @@ export function ProgramRiskPolicyPage() {
               <ReadOnlyIndicator
                 label="Auto-escalate after"
                 value={`${days} days`}
-                provenance="managed by the program admin"
+                provenance={closedToAdmin ? 'program is closed — reopen it to change this' : 'managed by the program admin'}
               />
             )}
           </FieldRow>

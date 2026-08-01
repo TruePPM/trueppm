@@ -76,8 +76,13 @@ export function ProgramAttachmentsPage() {
   });
 
   // Admin+ on the program may edit. `my_role` is null until the program loads,
-  // so gate pessimistically (read-only until proven Admin).
-  const canEdit = program?.my_role != null && program.my_role >= ROLE_ADMIN;
+  // so gate pessimistically (read-only until proven Admin). `!is_closed` is
+  // folded in per #2549: this page writes through ProgramViewSet.update, which
+  // is gated by IsProgramNotClosed, so an Admin on a closed program would
+  // otherwise see live toggles that 403 on save.
+  const isAdmin = program?.my_role != null && program.my_role >= ROLE_ADMIN;
+  const canEdit = isAdmin && !program?.is_closed;
+  const closedToAdmin = isAdmin && program?.is_closed === true;
 
   const effectiveEnabled = program?.effective_attachments_enabled ?? true;
   const effectiveTypes = program?.effective_allowed_attachment_types ?? [];
@@ -88,6 +93,16 @@ export function ProgramAttachmentsPage() {
       <SettingsPageTitle
         title="Attachments"
         subtitle="Whether task file uploads are allowed and which file types, for this program's projects. Inherits the workspace policy unless you override it here. External links are always allowed."
+        action={
+          closedToAdmin ? (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-medium bg-neutral-surface-sunken text-neutral-text-secondary"
+              title="This program is closed and cannot be modified. Reopen it first."
+            >
+              Read-only — program closed
+            </span>
+          ) : undefined
+        }
       />
 
       <div className="px-6 pb-8 max-w-[720px]">

@@ -184,6 +184,28 @@ describe('ProgramRollupPage (settings)', () => {
     ).toBeInTheDocument();
   });
 
+  // #2549: `rollup-config` PATCH is gated by IsProgramNotClosed, so an Admin on a
+  // closed program must not see live toggles/radios that 403 on save.
+  it('renders read-only KPI values + policy and a closed-specific pill for an Admin on a closed program', () => {
+    useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_ADMIN, is_closed: true } });
+    useProgramRollupConfig.mockReturnValue({
+      data: defaultConfig(),
+      isLoading: false,
+      isError: false,
+      refetch,
+    });
+    renderPage();
+
+    const pill = screen.getByTitle('This program is closed and cannot be modified. Reopen it first.');
+    expect(pill).toHaveTextContent(/Read-only — program closed/i);
+    expect(screen.queryByRole('switch', { name: 'Schedule health' })).toBeNull();
+    expect(
+      screen.getByLabelText(
+        'Schedule health: On, program is closed — reopen it to change this. View only.',
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('renders a FieldHelp ⓘ on the Enabled KPIs + Aggregation policy section headers whose popover deep-links to the docs (#2266)', async () => {
     const user = userEvent.setup();
     useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_ADMIN } });

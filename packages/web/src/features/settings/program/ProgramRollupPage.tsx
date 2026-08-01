@@ -333,7 +333,12 @@ export function ProgramRollupPage() {
   const savePolicy = useSaveProgramRollupPolicy(programId ?? '');
   const queryClient = useQueryClient();
 
-  const canEdit = (program?.my_role ?? 0) >= ROLE_ADMIN;
+  // `!is_closed` is folded in per #2549: the `rollup-config` PATCH is gated by
+  // IsProgramNotClosed (program_views.py), so an Admin on a closed program would
+  // otherwise see live KPI toggles and a Save button that both 403.
+  const isAdmin = (program?.my_role ?? 0) >= ROLE_ADMIN;
+  const canEdit = isAdmin && !program?.is_closed;
+  const closedToAdmin = isAdmin && program?.is_closed === true;
 
   // Keep the live preview in sync with saved config: KPI toggles auto-save and
   // policy saves both refresh the config query, so invalidate the rollup query
@@ -425,9 +430,13 @@ export function ProgramRollupPage() {
           !canEdit ? (
             <span
               className="inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-medium bg-neutral-surface-sunken text-neutral-text-secondary"
-              title="Only program admins can edit rollup KPIs"
+              title={
+                closedToAdmin
+                  ? 'This program is closed and cannot be modified. Reopen it first.'
+                  : 'Only program admins can edit rollup KPIs'
+              }
             >
-              Read-only
+              {closedToAdmin ? 'Read-only — program closed' : 'Read-only'}
             </span>
           ) : undefined
         }
@@ -536,7 +545,7 @@ export function ProgramRollupPage() {
                         <ReadOnlyIndicator
                           label={kpi.label}
                           value={isOn ? 'On' : 'Off'}
-                          provenance="managed by the program admin"
+                          provenance={closedToAdmin ? 'program is closed — reopen it to change this' : 'managed by the program admin'}
                           filled={isOn}
                         />
                       )}
@@ -593,7 +602,7 @@ export function ProgramRollupPage() {
               <ReadOnlyIndicator
                 label="Aggregation policy"
                 value={POLICIES.find((o) => o.id === policyShown)?.label ?? policyShown}
-                provenance="managed by the program admin"
+                provenance={closedToAdmin ? 'program is closed — reopen it to change this' : 'managed by the program admin'}
               />
             </div>
           )}

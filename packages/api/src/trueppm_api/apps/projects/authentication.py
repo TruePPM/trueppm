@@ -217,6 +217,59 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
         return self.keyword
 
 
+class OwnerScopedApiTokenAuthentication(ProjectApiTokenAuthentication):
+    """Owner-scoped-only variant, wired into the *general* endpoint surface (#2547).
+
+    Before this class existed, ``ProjectApiTokenAuthentication`` was never a part of
+    any default/general authentication path — the only two views that referenced it
+    explicitly (``TaskSyncView``, the acceptance-result ingest view) both additionally
+    require ``IsTokenForProject``, which a personal token (``project=None``,
+    ``program=None``) can never satisfy. A minted Personal Access Token therefore had
+    no endpoint to authenticate against at all, contradicting ADR-0214's description
+    of a PAT as a credential that "acts as that user" the way a JWT/session would.
+
+    This class is what ``DEFAULT_AUTHENTICATION_CLASSES`` references (prepended
+    before JWT, mirroring ``McpReadableViewMixin.get_authenticators``'s ordering — the
+    base class returns ``None`` for a non-``tppm_`` bearer, so JWT still gets a turn).
+    It accepts a token here only when **both**:
+
+      * it is owner-scoped (``token.is_personal``) — a project/program token resolves
+        ``request.user`` to its ``created_by`` *minter*, not itself. Accepting one on
+        the general surface would silently grant that narrow integration credential
+        every permission the minting human holds account-wide (every project/program
+        they belong to), not just the single project/program it was scoped to — the
+        confused-deputy widening ``IsTokenForProject`` exists to prevent on the narrow
+        surface, reproduced here for the wide one. Project/program tokens keep
+        authenticating exactly as before, only via the base class that
+        ``TaskSyncView``/the acceptance-result view and ``McpReadableViewMixin``
+        reference directly (which runs *before* this subclass gets a turn on an
+        MCP-wrapped view, since the mixin prepends its own bare-class instance).
+      * it carries the ``legacy:full`` scope — an ``mcp:read``-only token stays
+        confined to the curated, explicitly opted-in MCP-readable surface (which
+        checks scope itself via ``TokenHasScope``/``TokenReadOnlyMethods``). Nothing
+        on a general (non-MCP-wrapped) view checks token scope, so without this guard
+        an ``mcp:read`` token would gain full read/write here — the exact opposite of
+        "rejected at every write path" the token's own scope description promises.
+
+    Anything else (project/program-scoped, or owner-scoped without ``legacy:full``)
+    is rejected with the same generic 401 as every other failure on the base class —
+    a caller cannot distinguish "wrong token type for this surface" from "invalid
+    token," preserving the anti-enumeration posture.
+    """
+
+    def authenticate(self, request: Request) -> tuple[object, ProjectApiToken] | None:
+        result = super().authenticate(request)
+        if result is None:
+            return None
+        _, token = result
+
+        from trueppm_api.apps.projects.models import SCOPE_LEGACY_FULL
+
+        if not token.is_personal or SCOPE_LEGACY_FULL not in (token.scopes or []):
+            raise exceptions.AuthenticationFailed(_INVALID_TOKEN_DETAIL)
+        return result
+
+
 # drf-spectacular's OpenApiAuthenticationExtension registers subclasses via an
 # untyped __init_subclass__, which mypy --strict flags as an untyped call on the
 # class definition. The registration is the documented extension mechanism.
@@ -248,5 +301,36 @@ class ProjectApiTokenScheme(OpenApiAuthenticationExtension):  # type: ignore[no-
                 "unrestricted superset) or `mcp:read` (the read-only MCP surface — "
                 "owner-scoped tokens only). MCP-token access can be disabled instance-wide "
                 "by the operator (TRUEPPM_MCP_ENABLED)."
+            ),
+        }
+
+
+class OwnerScopedApiTokenScheme(OpenApiAuthenticationExtension):  # type: ignore[no-untyped-call]
+    """drf-spectacular security scheme for the general-endpoint PAT surface (#2547).
+
+    Registered separately from ``ProjectApiTokenScheme`` because
+    ``OwnerScopedApiTokenAuthentication`` is a distinct importable class (the
+    ``DEFAULT_AUTHENTICATION_CLASSES`` entry) — without its own scheme, every
+    endpoint that reaches it only via the default stack (i.e. everything that
+    doesn't override ``authentication_classes``) would advertise only ``jwtAuth`` in
+    the schema, the same drift ``ProjectApiTokenScheme`` was written to prevent.
+    """
+
+    target_class = "trueppm_api.apps.projects.authentication.OwnerScopedApiTokenAuthentication"
+    name = "personalApiTokenAuth"
+
+    def get_security_definition(self, auto_schema: Any) -> dict[str, Any]:
+        return {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "tppm_<64-hex>",
+            "description": (
+                "Personal Access Token. Send as `Authorization: Bearer tppm_<64-hex>`. "
+                "Authenticates as the token's owner against the general API surface — "
+                "identical RBAC to that user's own session, requires the `legacy:full` "
+                "scope. Project- and program-scoped integration tokens are never "
+                "accepted here (see `projectApiTokenAuth` for their narrow inbound-sync "
+                "surface); an owner-scoped `mcp:read`-only token is also rejected here "
+                "and stays confined to the read-only MCP surface."
             ),
         }

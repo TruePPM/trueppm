@@ -37,8 +37,12 @@ vi.mock('../hooks/useProgramExternalStakeholders', () => ({
   }),
 }));
 
-const ADMIN = { id: 'p-1', name: 'Phase 2', my_role: 300 };
-const VIEWER = { id: 'p-1', name: 'Phase 2', my_role: ROLE_VIEWER };
+const ADMIN = { id: 'p-1', name: 'Phase 2', my_role: 300, is_closed: false };
+const VIEWER = { id: 'p-1', name: 'Phase 2', my_role: ROLE_VIEWER, is_closed: false };
+// #2549: an Admin on a CLOSED program — create/update/destroy on this viewset
+// all 403 server-side (IsProgramNotClosed), so the affordances must fold in
+// `is_closed` rather than gating on role alone.
+const CLOSED_ADMIN = { id: 'p-1', name: 'Phase 2', my_role: 300, is_closed: true };
 
 const STAKEHOLDER = {
   id: 's-1',
@@ -121,6 +125,43 @@ describe('ProgramStakeholdersPage (settings)', () => {
     expect(screen.getByRole('form', { name: /Add external stakeholder/i })).toBeInTheDocument();
   });
 
+  // #2548: the header and read rows used to force a hard 5-column grid via an
+  // inline `gridTemplateColumns` at every breakpoint, leaving Name + Email + Note
+  // ~80px combined on a 375px viewport. Both now share one responsive Tailwind
+  // ruler instead, and each stacked cell keeps its own label since the header
+  // (the normal label source) hides below `md`.
+  it('replaces the inline column style with a responsive grid and labels each stacked cell', () => {
+    useProgram.mockReturnValue({ data: ADMIN });
+    useProgramExternalStakeholders.mockReturnValue({
+      data: [STAKEHOLDER],
+      isLoading: false,
+      isError: false,
+    });
+    const { container } = renderPage();
+
+    const header = container.querySelector('[class*="rounded-t-card"]');
+    expect(header).not.toBeNull();
+    expect(header).not.toHaveAttribute('style');
+    expect(header?.className).toContain('hidden');
+    expect(header?.className).toContain('md:grid');
+    expect(header?.className).toContain('grid-cols-1');
+    expect(header?.className).toContain('md:grid-cols-[1.4fr_1.6fr_1.6fr_118px_116px]');
+
+    // Unique to the read row in this render — the edit-row wrapper carries the
+    // same border classes but only mounts while a row is being edited.
+    const row = container.querySelector('[class*="last:border-b-0"]');
+    expect(row).not.toBeNull();
+    expect(row).not.toHaveAttribute('style');
+    expect(row?.className).toContain('grid-cols-1');
+    expect(row?.className).toContain('md:grid-cols-[1.4fr_1.6fr_1.6fr_118px_116px]');
+
+    const rowScope = within(row as HTMLElement);
+    expect(rowScope.getByText('Name')).toBeInTheDocument();
+    expect(rowScope.getByText('Email')).toBeInTheDocument();
+    expect(rowScope.getByText('Note')).toBeInTheDocument();
+    expect(rowScope.getByText('Added by')).toBeInTheDocument();
+  });
+
   it('hides the add form and remove controls for a viewer', () => {
     useProgram.mockReturnValue({ data: VIEWER });
     useProgramExternalStakeholders.mockReturnValue({
@@ -136,6 +177,69 @@ describe('ProgramStakeholdersPage (settings)', () => {
     expect(screen.queryByRole('button', { name: /Remove Dana Client/i })).not.toBeInTheDocument();
     // #2530: edit is Admin+ only — a viewer gets no edit affordance at all.
     expect(screen.queryByRole('button', { name: /Edit Dana Client/i })).not.toBeInTheDocument();
+  });
+
+  // #2549 — a closed program 403s every write on this viewset even for an Admin.
+  describe('closed program (#2549)', () => {
+    it('hides the add form and every row Edit/Remove control for an Admin, and says why', () => {
+      useProgram.mockReturnValue({ data: CLOSED_ADMIN });
+      useProgramExternalStakeholders.mockReturnValue({
+        data: [STAKEHOLDER],
+        isLoading: false,
+        isError: false,
+      });
+      renderPage();
+
+      expect(screen.getByText('Dana Client')).toBeInTheDocument();
+      expect(
+        screen.queryByRole('form', { name: /Add external stakeholder/i }),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Edit Dana Client/i })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: /Remove Dana Client/i }),
+      ).not.toBeInTheDocument();
+
+      const notice = screen.getByTitle(
+        'This program is closed and cannot be modified. Reopen it first.',
+      );
+      expect(notice).toHaveTextContent(/Read-only — program closed/i);
+    });
+
+    it('does not show the closed notice for a non-admin (silent, unchanged)', () => {
+      useProgram.mockReturnValue({ data: VIEWER });
+      useProgramExternalStakeholders.mockReturnValue({
+        data: [STAKEHOLDER],
+        isLoading: false,
+        isError: false,
+      });
+      renderPage();
+
+      expect(screen.queryByText(/Read-only — program closed/i)).not.toBeInTheDocument();
+    });
+
+    it('still fetches and shows the mention-reach read for an Admin on a closed program', () => {
+      useProgram.mockReturnValue({ data: CLOSED_ADMIN });
+      useProgramExternalStakeholders.mockReturnValue({
+        data: [STAKEHOLDER],
+        isLoading: false,
+        isError: false,
+      });
+      renderPage();
+
+      // The reach read has no IsProgramNotClosed gate (kept for forensics), so an
+      // Admin must keep getting it even though the write affordances are gone.
+      expect(useProgramMentionReach).toHaveBeenCalledWith('p-1', true);
+      expect(document.body.textContent).toContain('6 Viewer-role members get an in-app notification');
+    });
+
+    it('empty state omits the "Add one below" hint on a closed program', () => {
+      useProgram.mockReturnValue({ data: CLOSED_ADMIN });
+      useProgramExternalStakeholders.mockReturnValue({ data: [], isLoading: false, isError: false });
+      renderPage();
+
+      expect(screen.getByRole('status')).toHaveTextContent(/No external stakeholders yet/i);
+      expect(screen.queryByText(/Add one below/i)).not.toBeInTheDocument();
+    });
   });
 
   it('submits the add form with the trimmed name + email', async () => {

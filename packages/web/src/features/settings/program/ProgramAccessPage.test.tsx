@@ -179,6 +179,47 @@ describe('ProgramAccessPage (settings)', () => {
     expect(removeMember).toHaveBeenCalledWith('m-2');
   });
 
+  // #2549: create (Add member) and role changes both hit ProgramMembershipViewSet
+  // actions gated by IsProgramNotClosed, so an Owner on a closed program must not
+  // see a live Add-member button or role picker. Remove is deliberately exempt —
+  // `destroy` sits in the permission class's bypass set and the view body does
+  // not re-assert the closed check, so removal actually succeeds server-side even
+  // when the program is closed (unlike ExternalStakeholderViewSet/mention groups).
+  it('hides Add member + role picker but keeps Remove for an Owner on a closed program', async () => {
+    const user = userEvent.setup();
+    useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_OWNER, is_closed: true } });
+    useProgramMembers.mockReturnValue({
+      data: [
+        makeMembership({ id: 'm-1', user: 'u-1' }),
+        makeMembership({
+          id: 'm-2',
+          user: 'u-2',
+          user_detail: { id: 'u-2', username: 'sofia.p', email: 'sofia@example.com' },
+          role: ROLE_MEMBER,
+          role_label: 'Team Member',
+        }),
+      ],
+      isLoading: false,
+      isError: false,
+    });
+    renderPage();
+
+    expect(screen.queryByRole('button', { name: /Add member/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.getByText(/Read-only — program closed/i)).toBeInTheDocument();
+    // The per-row role dash explains the same reason (Owner-row dash keeps its
+    // own "Owner role cannot be changed" tooltip, unaffected by closed).
+    expect(
+      screen.getAllByTitle('This program is closed and cannot be modified. Reopen it first.')
+        .length,
+    ).toBeGreaterThan(0);
+
+    // Remove still works — the server does not 403 it on a closed program.
+    await user.click(screen.getByRole('button', { name: /Remove sofia.p/i }));
+    await user.click(screen.getByRole('button', { name: /^Confirm$/ }));
+    expect(removeMember).toHaveBeenCalledWith('m-2');
+  });
+
   it('shows the sole-owner guard when the only Owner is self', () => {
     useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_OWNER } });
     useProgramMembers.mockReturnValue({

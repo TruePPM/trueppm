@@ -20,7 +20,8 @@ import { useBacklogController } from './useBacklogController';
 import type { UsePullItemOptions } from './usePullItem';
 
 const getMock = vi.hoisted(() => vi.fn());
-vi.mock('@/api/client', () => ({ apiClient: { get: getMock } }));
+const postMock = vi.hoisted(() => vi.fn());
+vi.mock('@/api/client', () => ({ apiClient: { get: getMock, post: postMock } }));
 
 const useProgramMock = vi.hoisted(() => vi.fn());
 vi.mock('@/hooks/useProgram', () => ({ useProgram: useProgramMock }));
@@ -73,7 +74,9 @@ function setup({ role = ROLE_ADMIN, pullOptions, getImpl }: SetupOptions = {}) {
   useProgramMock.mockReturnValue({
     data: { id: PROGRAM, name: 'Polaris', code: 'PLR', color: '#123', my_role: role },
   });
-  useProgramProjectsMock.mockReturnValue({ data: [{ id: 'pr-1', name: 'Avionics', colorDot: '#abc' }] });
+  useProgramProjectsMock.mockReturnValue({
+    data: [{ id: 'pr-1', name: 'Avionics', colorDot: '#abc' }],
+  });
 
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -138,6 +141,49 @@ describe('useBacklogController derivation', () => {
   });
 });
 
+describe('useBacklogController createItem', () => {
+  // #2668: nothing ever assigned priority_rank on create, so every item
+  // created through the UI kept priority_rank = null forever and "Sorted by
+  // priority" was vacuous on any pool created this way. The controller now
+  // computes nextPriorityRank off the live, unfiltered item set and passes it
+  // through — ITEMS tops out at rank 3, so a fresh create should post rank 4.
+  it('wires nextPriorityRank(allItems) in as the created item’s priority_rank', async () => {
+    postMock.mockResolvedValue({
+      data: {
+        id: 'BI-4',
+        server_version: 1,
+        program: PROGRAM,
+        title: 'New',
+        description: '',
+        item_type: 'story',
+        status: 'proposed',
+        tags: [],
+        priority_rank: 4,
+        story_points: null,
+        pulled_task: null,
+        pulled_task_project_id: null,
+        pulled_task_project_name: null,
+        pulled_at: null,
+        pulled_by: null,
+        created_by: null,
+        created_at: '2026-01-02T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z',
+      },
+    });
+    const { result } = setup();
+    await waitFor(() => expect(result.current.allItems).toHaveLength(3));
+
+    await act(async () => {
+      await result.current.createItem({ title: 'New', itemType: 'story', tags: [] });
+    });
+
+    expect(postMock).toHaveBeenCalledWith(
+      `/programs/${PROGRAM}/backlog-items/`,
+      expect.objectContaining({ priority_rank: 4 }),
+    );
+  });
+});
+
 describe('useBacklogController error classification', () => {
   it.each([
     [403, 'forbidden'],
@@ -176,7 +222,9 @@ describe('useBacklogController pull choreography', () => {
   });
 
   it('surfaces a retryable error toast when the pull rejects', async () => {
-    const pullFn = vi.fn().mockRejectedValue({ response: { data: { detail: 'Project archived' } } });
+    const pullFn = vi
+      .fn()
+      .mockRejectedValue({ response: { data: { detail: 'Project archived' } } });
     const { result } = setup({ pullOptions: { pullFn } });
     await waitFor(() => expect(result.current.allItems).toHaveLength(3));
     const item = result.current.allItems[0];

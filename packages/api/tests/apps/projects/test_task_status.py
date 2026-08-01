@@ -442,6 +442,131 @@ def test_contributor_progress_100_routes_to_review(
     assert task.actual_finish is None
 
 
+# ---------------------------------------------------------------------------
+# Full 5-role matrix for the percent_complete=100 auto-status transition
+# (#2639). ADMIN and MEMBER are covered above; these fill in OWNER (also
+# Admin+, so COMPLETE), and confirm SCHEDULER and VIEWER never reach the
+# auto-status branch at all — they're turned away by RBAC before the
+# serializer's percent_complete handling ever runs, which is itself the
+# correct behavior for those two roles in this transition's matrix.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def owner_user(db: object) -> object:
+    return User.objects.create_user(username="owner", password="pw")
+
+
+@pytest.fixture
+def owner_membership(project: Project, owner_user: object) -> ProjectMembership:
+    return ProjectMembership.objects.create(project=project, user=owner_user, role=Role.OWNER)
+
+
+@pytest.fixture
+def owner_client(owner_user: object, owner_membership: ProjectMembership) -> APIClient:
+    c = APIClient()
+    c.force_authenticate(user=owner_user)
+    return c
+
+
+@pytest.fixture
+def scheduler_user(db: object) -> object:
+    return User.objects.create_user(username="scheduler", password="pw")
+
+
+@pytest.fixture
+def scheduler_membership(project: Project, scheduler_user: object) -> ProjectMembership:
+    return ProjectMembership.objects.create(
+        project=project, user=scheduler_user, role=Role.SCHEDULER
+    )
+
+
+@pytest.fixture
+def scheduler_client(scheduler_user: object, scheduler_membership: ProjectMembership) -> APIClient:
+    c = APIClient()
+    c.force_authenticate(user=scheduler_user)
+    return c
+
+
+@pytest.fixture
+def viewer_user(db: object) -> object:
+    return User.objects.create_user(username="viewer", password="pw")
+
+
+@pytest.fixture
+def viewer_membership(project: Project, viewer_user: object) -> ProjectMembership:
+    return ProjectMembership.objects.create(project=project, user=viewer_user, role=Role.VIEWER)
+
+
+@pytest.fixture
+def viewer_client(viewer_user: object, viewer_membership: ProjectMembership) -> APIClient:
+    c = APIClient()
+    c.force_authenticate(user=viewer_user)
+    return c
+
+
+@pytest.mark.django_db
+def test_owner_progress_100_auto_completes_task(
+    owner_client: APIClient, project: Project, task: Task, owner_membership: ProjectMembership
+) -> None:
+    """An Owner (Role.OWNER, Project Admin) is Admin+ same as a PM — progress=100
+    auto-completes, same as test_pm_progress_100_auto_completes_task.
+    """
+    task.status = TaskStatus.IN_PROGRESS
+    task.save()
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
+    ):
+        r = owner_client.patch(
+            f"/api/v1/tasks/{task.pk}/", {"percent_complete": 100}, format="json"
+        )
+    assert r.status_code == 200, r.content
+    task.refresh_from_db()
+    assert task.status == TaskStatus.COMPLETE
+    assert task.percent_complete == 100.0
+
+
+@pytest.mark.django_db
+def test_scheduler_cannot_patch_progress_at_all(
+    scheduler_client: APIClient,
+    project: Project,
+    task: Task,
+    scheduler_membership: ProjectMembership,
+) -> None:
+    """Role.SCHEDULER (Resource Manager) is read-only for task content per
+    IsProjectMemberWriteOrOwn — it never reaches percent_complete auto-status
+    because the permission check turns the write away first. Completing the
+    #2639 role matrix means confirming this role is blocked, not that it
+    routes anywhere.
+    """
+    task.status = TaskStatus.IN_PROGRESS
+    task.save()
+    r = scheduler_client.patch(
+        f"/api/v1/tasks/{task.pk}/", {"percent_complete": 100}, format="json"
+    )
+    assert r.status_code == 403
+    task.refresh_from_db()
+    assert task.status == TaskStatus.IN_PROGRESS
+    assert task.percent_complete != 100.0
+
+
+@pytest.mark.django_db
+def test_viewer_cannot_patch_progress_at_all(
+    viewer_client: APIClient, project: Project, task: Task, viewer_membership: ProjectMembership
+) -> None:
+    """Role.VIEWER is read-only — a Viewer PATCHing percent_complete never
+    reaches the auto-status branch, same reasoning as the Scheduler case above.
+    """
+    task.status = TaskStatus.IN_PROGRESS
+    task.save()
+    r = viewer_client.patch(f"/api/v1/tasks/{task.pk}/", {"percent_complete": 100}, format="json")
+    assert r.status_code == 403
+    task.refresh_from_db()
+    assert task.status == TaskStatus.IN_PROGRESS
+    assert task.percent_complete != 100.0
+
+
 @pytest.mark.django_db
 def test_review_status_clamps_progress_to_100(project: Project) -> None:
     """Setting status=REVIEW directly clamps percent_complete to 100, mirroring COMPLETE."""

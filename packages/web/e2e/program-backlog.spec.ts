@@ -117,7 +117,9 @@ async function setup(page: Page, items: unknown[] = BACKLOG_ITEMS) {
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(PROJECTS) }),
   );
   // Method-aware: GET lists `items`; POST (create) echoes the posted item back
-  // so the create flow can resolve and select the new item.
+  // so the create flow can resolve and select the new item; PATCH merges the
+  // posted fields onto the matching seed row and echoes the merged item back,
+  // so an edit-and-save round-trip re-baselines the drawer's dirty state.
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/backlog-items/**`, (r) => {
     if (r.request().method() === 'POST') {
       const posted = (r.request().postDataJSON() ?? {}) as {
@@ -148,6 +150,20 @@ async function setup(page: Page, items: unknown[] = BACKLOG_ITEMS) {
           created_at: '2026-05-24T00:00:00Z',
           updated_at: '2026-05-24T00:00:00Z',
         }),
+      });
+    }
+    if (r.request().method() === 'PATCH') {
+      const url = new URL(r.request().url());
+      const segments = url.pathname.split('/').filter(Boolean);
+      const itemId = segments[segments.length - 1];
+      const current = items.find((i) => (i as { id: string }).id === itemId) as
+        | Record<string, unknown>
+        | undefined;
+      const patch = (r.request().postDataJSON() ?? {}) as Record<string, unknown>;
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ ...current, ...patch }),
       });
     }
     return r.fulfill({ status: 200, contentType: 'application/json', body: pj(items) });
@@ -196,6 +212,57 @@ test.describe('Program backlog', () => {
     const goToTask = page.getByRole('link', { name: 'Go to task' });
     await expect(goToTask).toBeVisible();
     await expect(goToTask).toHaveAttribute('href', '/projects/proj-avionics/tasks/task-new');
+  });
+
+  // #2668: the drawer used to render two independent "Save changes" buttons
+  // for the same edit, and dismiss a dirty draft (via the ✕) with no warning.
+  test('edit drawer: exactly one Save button, saves the edit, and guards a dirty close', async ({
+    page,
+  }) => {
+    await setup(page);
+
+    const row = page.getByRole('button', { name: 'Telemetry channel B', exact: true });
+    await row.click();
+    await expect(page.getByRole('heading', { name: 'Telemetry channel B' })).toBeVisible();
+
+    const description = page.getByPlaceholder('No description yet. Click to add one.');
+    await description.fill('Investigate channel B dropout.');
+
+    // Finding 1 — one commit affordance, not two.
+    await expect(page.getByRole('button', { name: 'Save changes' })).toHaveCount(1);
+    await page.getByRole('button', { name: 'Save changes' }).click();
+    await expect(page.getByRole('button', { name: 'Save changes' })).toHaveCount(0);
+
+    // Finding 5 — a second, unsaved edit is guarded on close instead of
+    // discarded silently.
+    await description.fill('Second, unsaved edit.');
+    await page.getByRole('button', { name: 'Close details' }).click();
+    await expect(page.getByRole('alertdialog', { name: 'Discard unsaved changes?' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Keep editing' }).click();
+    await expect(page.getByRole('alertdialog')).not.toBeVisible();
+    await expect(description).toHaveValue('Second, unsaved edit.');
+
+    await page.getByRole('button', { name: 'Close details' }).click();
+    await page.getByRole('button', { name: 'Discard changes' }).click();
+    await expect(page.getByRole('alertdialog')).not.toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Telemetry channel B' })).not.toBeVisible();
+  });
+
+  // #2668 finding 4 — an item with no assigned rank renders a dash, not a
+  // meaning-nothing bare "#".
+  test('an unranked item shows a dash for priority, not a bare "#"', async ({ page }) => {
+    const unranked = { ...apiItem(10, 'Unranked spike', 'spike'), priority_rank: null };
+    await setup(page, [...BACKLOG_ITEMS, unranked]);
+
+    await page.getByRole('button', { name: 'Unranked spike', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Unranked spike' })).toBeVisible();
+    // The "Priority" label's value cell — scoped so this doesn't also match the
+    // (also-dashed) empty Story points option elsewhere on the pane.
+    const priorityValue = page
+      .getByText('Priority', { exact: true })
+      .locator('xpath=following-sibling::span[1]');
+    await expect(priorityValue).toHaveText('—');
   });
 
   test('no-results state offers recovery', async ({ page }) => {
