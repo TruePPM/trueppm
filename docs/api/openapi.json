@@ -38016,9 +38016,6 @@
                 },
                 "security": [
                     {
-                        "projectApiTokenAuth": []
-                    },
-                    {
                         "personalApiTokenAuth": []
                     },
                     {
