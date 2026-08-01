@@ -106,3 +106,11 @@ curl -H "Authorization: Bearer $JWT" \
 The response is discriminated by `has_baseline` / `in_baseline`: it reports no baseline,
 a task added after the baseline was taken, or a full comparison row with
 `start_delta_days` / `finish_delta_days` (positive = slipping later than planned).
+
+`current_start` and `start_delta_days` compare against the task's **span**
+(`scheduled_start` — see [the bar vs. the remaining-work
+window](/features/schedule/#the-bar-vs-the-remaining-work-window)), not the
+narrower *remaining-work* window that `early_start` shrinks toward as an
+in-progress task approaches completion. Comparing against the remaining-work
+window would make `start_delta_days` grow purely from progress being
+reported, not from any actual schedule slip.

@@ -628,3 +628,196 @@ class TestTaskListBaselineOverlay:
             )
         assert activate_r.status_code == 200
         assert readiness_for(task.pk) == "baselined"
+
+
+# ---------------------------------------------------------------------------
+# #2678 / ADR-0752 — baseline capture and the task drift comparison read the
+# task's SPAN (scheduled_start), not early_start. Since ADR-0132, early_start
+# on an in-progress task is the *remaining-work* window and narrows toward
+# early_finish as percent_complete rises. Reading it here would make
+# start_delta_days grow purely from progress being reported — the same class
+# of bug #2623 fixed for resource utilization.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestBaselineCaptureUsesSpanNotRemainingWindow:
+    def test_capture_snapshots_span_not_remaining_window(
+        self,
+        client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """A task captured while in progress must snapshot scheduled_start (the
+        real span start), not early_start's already-narrowed remaining window.
+        """
+        task = Task.objects.create(
+            project=project,
+            name="InProgress",
+            duration=5,
+            early_start=date(2026, 4, 4),  # remaining window: narrowed by progress
+            early_finish=date(2026, 4, 6),
+            scheduled_start=date(2026, 4, 1),  # real span start == actual_start
+            actual_start=date(2026, 4, 1),
+            percent_complete=60,
+            status=TaskStatus.IN_PROGRESS,
+        )
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
+            r = client.post(f"/api/v1/projects/{project.pk}/baselines/")
+        assert r.status_code == 201
+        bt = BaselineTask.objects.get(baseline_id=r.data["id"], task_id=task.pk)
+        assert bt.start == date(2026, 4, 1)
+        assert bt.start != task.early_start
+
+    def test_capture_falls_back_to_early_start_when_scheduled_start_missing(
+        self,
+        client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """A task with no scheduled_start (e.g. not yet recalculated since the
+        ADR-0752 migration) still snapshots correctly, falling back to
+        early_start rather than capturing a null start."""
+        task = Task.objects.create(
+            project=project,
+            name="NotYetRecalculated",
+            duration=5,
+            early_start=date(2026, 4, 1),
+            early_finish=date(2026, 4, 6),
+            scheduled_start=None,
+            percent_complete=0,
+            status=TaskStatus.NOT_STARTED,
+        )
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
+            r = client.post(f"/api/v1/projects/{project.pk}/baselines/")
+        assert r.status_code == 201
+        bt = BaselineTask.objects.get(baseline_id=r.data["id"], task_id=task.pk)
+        assert bt.start == date(2026, 4, 1)
+
+
+@pytest.mark.django_db
+class TestTaskBaselineDriftUsesSpanNotRemainingWindow:
+    def _capture_baseline(self, client: APIClient, project: Project, task: Task) -> str:
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
+            r = client.post(f"/api/v1/projects/{project.pk}/baselines/")
+        assert r.status_code == 201
+        baseline_id = r.data["id"]
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
+            client.post(f"/api/v1/projects/{project.pk}/baselines/{baseline_id}/activate/")
+        return baseline_id
+
+    def test_progress_alone_does_not_manufacture_drift(
+        self,
+        client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """Baseline captured at 0% (scheduled_start == early_start == planned
+        start). Progressing the task narrows early_start toward early_finish,
+        but scheduled_start (the span) is unchanged, so start_delta_days must
+        stay 0 — reporting progress alone must not manufacture apparent slip.
+        """
+        task = Task.objects.create(
+            project=project,
+            name="Steady",
+            duration=5,
+            early_start=date(2026, 4, 1),
+            early_finish=date(2026, 4, 6),
+            scheduled_start=date(2026, 4, 1),
+            percent_complete=0,
+            status=TaskStatus.NOT_STARTED,
+        )
+        self._capture_baseline(client, project, task)
+
+        # Progress the task: early_start narrows (remaining-work window), but
+        # the real span start (scheduled_start/actual_start) does not move.
+        task.status = TaskStatus.IN_PROGRESS
+        task.percent_complete = 60
+        task.actual_start = date(2026, 4, 1)
+        task.early_start = date(2026, 4, 4)  # narrowed remaining window
+        task.save(
+            update_fields=[
+                "status",
+                "percent_complete",
+                "actual_start",
+                "early_start",
+            ]
+        )
+
+        r = client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/baseline/")
+        assert r.status_code == 200
+        assert r.data["current_start"] == "2026-04-01"
+        assert r.data["start_delta_days"] == 0
+
+    def test_real_slip_still_detected_regardless_of_progress(
+        self,
+        client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """A task that actually started late (scheduled_start after the
+        baseline's planned start) must still report the real slip, whatever
+        percent_complete happens to be."""
+        task = Task.objects.create(
+            project=project,
+            name="Late",
+            duration=5,
+            early_start=date(2026, 4, 1),
+            early_finish=date(2026, 4, 6),
+            scheduled_start=date(2026, 4, 1),
+            percent_complete=0,
+            status=TaskStatus.NOT_STARTED,
+        )
+        self._capture_baseline(client, project, task)
+
+        # Started 3 days late, now 60% complete; early_start narrows toward
+        # early_finish as part of the remaining-work window, but the real
+        # slip is scheduled_start (4/4) vs the baseline's planned start (4/1).
+        task.status = TaskStatus.IN_PROGRESS
+        task.percent_complete = 60
+        task.scheduled_start = date(2026, 4, 4)
+        task.actual_start = date(2026, 4, 4)
+        task.early_start = date(2026, 4, 6)  # narrowed remaining window
+        task.save(
+            update_fields=[
+                "status",
+                "percent_complete",
+                "scheduled_start",
+                "actual_start",
+                "early_start",
+            ]
+        )
+
+        r = client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/baseline/")
+        assert r.status_code == 200
+        assert r.data["current_start"] == "2026-04-04"
+        assert r.data["start_delta_days"] == 3
+
+    def test_drift_falls_back_to_early_start_when_scheduled_start_missing(
+        self,
+        client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """A task with no scheduled_start (not yet recalculated since the
+        ADR-0752 migration) still compares correctly, falling back to
+        early_start."""
+        task = Task.objects.create(
+            project=project,
+            name="NotYetRecalculated",
+            duration=5,
+            early_start=date(2026, 4, 1),
+            early_finish=date(2026, 4, 6),
+            scheduled_start=date(2026, 4, 1),
+            percent_complete=0,
+            status=TaskStatus.NOT_STARTED,
+        )
+        self._capture_baseline(client, project, task)
+
+        task.scheduled_start = None
+        task.save(update_fields=["scheduled_start"])
+
+        r = client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/baseline/")
+        assert r.status_code == 200
+        assert r.data["current_start"] == "2026-04-01"
+        assert r.data["start_delta_days"] == 0
