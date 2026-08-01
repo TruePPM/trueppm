@@ -117,9 +117,9 @@ export function EpicDetailDrawer({ projectId, epic, onClose }: EpicDetailDrawerP
         {/* Header */}
         <header className="flex h-14 shrink-0 items-center gap-2 border-b border-neutral-border px-4">
           <TypeBadge type="epic" />
-          {epic.shortId && (
+          {(epic.qualifiedId ?? epic.shortIdDisplay) && (
             <span className="tppm-mono text-xs text-neutral-text-secondary">
-              {epic.shortId}
+              {epic.qualifiedId ?? epic.shortIdDisplay}
             </span>
           )}
           <div className="flex-1" />

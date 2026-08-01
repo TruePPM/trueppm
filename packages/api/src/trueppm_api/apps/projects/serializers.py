@@ -88,6 +88,7 @@ from trueppm_api.apps.projects.models import (
     TaskRecurrenceRule,
     TaskRelation,
     TaskStatus,
+    format_short_id_display,
     three_point_estimates_ordered,
     validate_project_span,
 )
@@ -2726,9 +2727,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         ``short_id`` is stored as 8-character uppercase hex (``_next_short_id``
         formats ``object_sequence`` as ``{seq:08X}``), which leaked onto board cards
         as ``00000008`` / ``0000000A`` — a zero-padded hex string that reads as an
-        internal identifier, not as "the eighth task". Decode the sequence back to
-        the integer it always was and render it unpadded, so task 10 reads ``T-10``
-        rather than ``0000000A``.
+        internal identifier, not as "the eighth task". ``format_short_id_display``
+        decodes the sequence back to the integer it always was and renders it
+        unpadded, so task 10 reads ``T-10`` rather than ``0000000A``.
 
         Server-owned so web, mobile, and MCP all render the same reference. #929
         learned this the hard way on risks: three web formatters independently
@@ -2736,15 +2737,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         value is unchanged — this is a display projection, so there is no migration
         and existing ids keep their identity.
         """
-        raw = obj.short_id
-        if not raw:
-            return ""
-        try:
-            return f"T-{int(raw, 16)}"
-        except ValueError:
-            # Not parseable as hex (hand-seeded or imported row) — surface it as-is
-            # rather than blanking the reference.
-            return f"T-{raw}"
+        return format_short_id_display(obj.short_id, "T")
 
     def _project_code(self, obj: Task) -> str:
         """Owning project's code, without a query per row.
@@ -6495,6 +6488,7 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
     """
 
     short_id_display = serializers.SerializerMethodField()
+    qualified_id = serializers.SerializerMethodField()
     completion_ratio_points = serializers.SerializerMethodField()
     completion_ratio_tasks = serializers.SerializerMethodField()
     target_milestone_detail = serializers.SerializerMethodField()
@@ -6507,8 +6501,33 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
     wip_count = serializers.SerializerMethodField()
 
     def get_short_id_display(self, obj: Sprint) -> str:
-        """Return the human-facing form ``SP-XXXXXXXX`` of the short id."""
-        return f"SP-{obj.short_id}" if obj.short_id else ""
+        """Compact sprint reference — ``SP-3`` (#2671).
+
+        Sprints share the hex ``object_sequence`` counter with Tasks
+        (``_next_short_id``, models.py), so the raw ``short_id`` is the same
+        zero-padded hex — the tenth sprint's is ``0000000A``. This serializer
+        used to hand-roll ``f"SP-{obj.short_id}"``, which never decoded that hex
+        and rendered ``SP-0000000A`` on every Sprint surface (Planning rail,
+        board sprint header, My Work active-sprint card, retro, …) — the exact
+        bug #2430 already fixed for Task, just never applied here. Route through
+        the shared decoder instead of re-deriving it a third time.
+        """
+        return format_short_id_display(obj.short_id, "SP")
+
+    def get_qualified_id(self, obj: Sprint) -> str:
+        """Project-qualified sprint reference — ``ENG-2026-SP-3`` (#2671).
+
+        Sprint had no qualified reference at all before this, unlike Task
+        (#2430) and Risk (#929). Unlike Task's ``get_qualified_id`` — which
+        drops the ``T-`` marker because a task's qualified form is unambiguous
+        on its own surfaces — this keeps the ``SP-`` marker: Sprint and Task
+        share the same hex counter, so a bare ``ENG-2026-3`` could otherwise be
+        misread as either a task or a sprint reference. Falls back to the
+        compact form when the project has no code (#520).
+        """
+        display = self.get_short_id_display(obj)
+        code = obj.project.code if obj.project_id else ""
+        return f"{code}-{display}" if code and display else display
 
     def get_pending_count(self, obj: Sprint) -> int:
         """Number of tasks pending acceptance in this sprint (ADR-0102 §5).
@@ -6767,6 +6786,7 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             "server_version",
             "short_id",
             "short_id_display",
+            "qualified_id",
             "project",
             "name",
             "goal",
@@ -6805,6 +6825,7 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             "server_version",
             "short_id",
             "short_id_display",
+            "qualified_id",
             "project",
             "state",
             "target_milestone_detail",
@@ -7542,6 +7563,13 @@ class MeWorkTaskSerializer(serializers.Serializer[Any]):
 
     id = serializers.UUIDField(read_only=True)
     short_id = serializers.CharField(read_only=True)
+    # Server-formatted display references (#2430, #2671) — see TaskSerializer's
+    # fields of the same name. My Work is a cross-project list rendered in the
+    # global "Log time" picker (QuickLogTime, #2671), so the raw hex short_id
+    # was leaking there both as a label AND as the search predicate (typing a
+    # task number never matched, since the filter matched against the hex).
+    short_id_display = serializers.SerializerMethodField()
+    qualified_id = serializers.SerializerMethodField()
     name = serializers.CharField(read_only=True)
     project_id = serializers.UUIDField(read_only=True)
     project_name = serializers.SerializerMethodField()
@@ -7604,6 +7632,19 @@ class MeWorkTaskSerializer(serializers.Serializer[Any]):
         # ``_group_rank`` is annotated by the view; default to "upcoming" for any
         # caller that bypasses the viewset (e.g. nested serialization in tests).
         return self._GROUP_BY_RANK.get(getattr(obj, "_group_rank", 2), "upcoming")
+
+    def get_short_id_display(self, obj: Any) -> str:
+        return format_short_id_display(obj.short_id, "T")
+
+    def get_qualified_id(self, obj: Any) -> str:
+        """Project-qualified reference, same fallback rule as TaskSerializer.
+
+        ``project`` is ``select_related`` on ``MeWorkView.get_queryset``, so
+        reading ``.code`` here is not an N+1.
+        """
+        display = self.get_short_id_display(obj)
+        code = obj.project.code if obj.project_id else ""
+        return f"{code}-{display[2:]}" if code and display else display
 
     def get_project_name(self, obj: Any) -> str:
         return str(obj.project.name)

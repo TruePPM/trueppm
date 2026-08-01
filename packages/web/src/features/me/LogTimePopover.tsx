@@ -27,9 +27,19 @@ import {
 export interface LogTimePopoverTask {
   id: string;
   short_id: string;
+  /** Server-formatted references, preferred over `short_id` (#2671) — see
+   *  `MyWorkTask` in `useMyWork.ts` for the full rationale. */
+  short_id_display?: string;
+  qualified_id?: string;
   name: string;
   project_id: string;
   project_name: string;
+}
+
+/** Prefer the server-formatted reference over the raw hex `short_id` (#2671) —
+ *  never render `short_id` directly, it is a zero-padded internal identifier. */
+function displayId(task: LogTimePopoverTask): string {
+  return task.qualified_id ?? task.short_id_display ?? task.short_id;
 }
 
 interface Props {
@@ -107,7 +117,7 @@ export function LogTimePopover({ task, onClose }: Props) {
       {
         onSuccess: (created) => {
           toast.action(
-            `Logged ${label} to ${task.short_id}`,
+            `Logged ${label} to ${displayId(task)}`,
             {
               label: 'Undo',
               ariaLabel: `Undo logging ${label} to ${task.name}`,
@@ -137,7 +147,7 @@ export function LogTimePopover({ task, onClose }: Props) {
           className="flex items-baseline justify-between gap-2 text-xs font-semibold
             tracking-widest uppercase text-neutral-text-secondary"
         >
-          <span className="truncate">Log time · {task.short_id}</span>
+          <span className="truncate">Log time · {displayId(task)}</span>
           <span aria-live="polite" className="tppm-mono text-base font-bold normal-case tracking-normal
             text-neutral-text-primary" aria-label={`${hm} selected`}>
             {hm}

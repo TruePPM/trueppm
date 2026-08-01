@@ -176,9 +176,9 @@ export function StoryDetailDrawer({
         {/* Header */}
         <header className="flex h-14 shrink-0 items-center gap-2 border-b border-neutral-border px-4">
           <TypeBadge type={story.taskType} />
-          {story.shortId && (
+          {(story.qualifiedId ?? story.shortIdDisplay) && (
             <span className="tppm-mono text-xs text-neutral-text-secondary">
-              {story.shortId}
+              {story.qualifiedId ?? story.shortIdDisplay}
             </span>
           )}
           <div className="flex-1" />
@@ -262,7 +262,9 @@ export function StoryDetailDrawer({
                 {epics.map((e) => (
                   <option key={e.id} value={e.id}>
                     {e.name}
-                    {e.shortId ? ` (${e.shortId})` : ''}
+                    {e.qualifiedId ?? e.shortIdDisplay
+                      ? ` (${e.qualifiedId ?? e.shortIdDisplay})`
+                      : ''}
                   </option>
                 ))}
               </select>

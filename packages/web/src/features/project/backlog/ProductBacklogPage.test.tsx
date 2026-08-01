@@ -226,11 +226,22 @@ vi.mock('./SprintPlanningRail', () => ({
 }));
 
 // ── Fixtures ───────────────────────────────────────────────────────────────
+// A pretty fake shortId (e.g. `id.toUpperCase()`) is exactly the shape of
+// fixture that hid the #2671 raw-hex leak: it happens to already look like a
+// nice identifier, so a render bug that dumps the raw field never fails a
+// test. Real `Task.short_id` is 8-character zero-padded hex, so every fixture
+// task here carries a real hex `shortId` plus the server-decoded
+// `shortIdDisplay`/`qualifiedId` a real API response would also carry.
+let _shortIdSeq = 0;
 function makeStory(id: string, over: Partial<Task> = {}): Task {
+  _shortIdSeq += 1;
+  const hex = _shortIdSeq.toString(16).toUpperCase().padStart(8, '0');
   return {
     id,
     name: id,
-    shortId: id.toUpperCase(),
+    shortId: hex,
+    shortIdDisplay: `T-${_shortIdSeq}`,
+    qualifiedId: `T-${_shortIdSeq}`,
     taskType: 'story',
     dor: 'refine',
     storyPoints: 2,
@@ -651,6 +662,17 @@ describe('Detail drawers', () => {
     renderPage();
     await user.click(screen.getByRole('button', { name: 'epic-open-Auth epic' }));
     expect(screen.getByTestId('epic-drawer')).toHaveTextContent('epic-drawer-Auth epic');
+  });
+});
+
+describe('Story row reference (#2671)', () => {
+  it('renders the server-decoded reference, never the raw hex short_id', () => {
+    setData(makeBacklog());
+    renderPage();
+    // s1's fixture hex short_id is "00000001" — the row must render its
+    // decoded qualifiedId/shortIdDisplay ("T-1"), not that raw value.
+    expect(screen.getByText('T-1')).toBeInTheDocument();
+    expect(screen.queryByText('00000001')).not.toBeInTheDocument();
   });
 });
 

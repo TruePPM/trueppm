@@ -25,7 +25,10 @@ function makeStory(over: Partial<Task>): Task {
   } as unknown as Task;
 }
 
-const PLANNED = { id: 'sp-1', short_id_display: 'SP-A1' };
+// short_id_display is server-decoded (#2671) — always `SP-<int>`, never a
+// value with a letter like the old 'SP-A1' fixture (a shape the real,
+// now-fixed serializer can never produce).
+const PLANNED = { id: 'sp-1', short_id_display: 'SP-3' };
 
 function renderBtn(props: Partial<ComponentProps<typeof SprintCommitButton>> = {}) {
   const client = new QueryClient();
@@ -50,7 +53,7 @@ beforeEach(() => {
 describe('SprintCommitButton', () => {
   it('shows "+ Add" for an uncommitted story and commits it into the planned sprint on click', () => {
     renderBtn({ story: makeStory({ sprintId: null }) });
-    fireEvent.click(screen.getByRole('button', { name: /Add Pay with card to SP-A1/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Add Pay with card to SP-3/i }));
     expect(mutateMock).toHaveBeenCalledWith(
       { id: 'story-1', projectId: 'p1', sprint: 'sp-1' },
       expect.anything(),
@@ -59,7 +62,7 @@ describe('SprintCommitButton', () => {
 
   it('shows the committed state for a story in the planned sprint and removes it on click', () => {
     renderBtn({ story: makeStory({ sprintId: 'sp-1' }) });
-    fireEvent.click(screen.getByRole('button', { name: /Remove Pay with card from SP-A1/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Remove Pay with card from SP-3/i }));
     expect(mutateMock).toHaveBeenCalledWith(
       { id: 'story-1', projectId: 'p1', sprint: null },
       expect.anything(),
@@ -83,7 +86,7 @@ describe('SprintCommitButton', () => {
 
   it('toasts a generic error when a non-conflict write fails (#2150)', () => {
     renderBtn({ story: makeStory({ sprintId: null }) });
-    fireEvent.click(screen.getByRole('button', { name: /Add Pay with card to SP-A1/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Add Pay with card to SP-3/i }));
     // useUpdateTask already handles the 409 toast; the call-site fallback covers
     // the 403/500/network case that otherwise rolled back silently.
     const opts = mutateMock.mock.calls[0][1] as { onError: (e: unknown) => void };
@@ -93,7 +96,7 @@ describe('SprintCommitButton', () => {
 
   it('does NOT double-toast when the write fails with a sync conflict (409)', () => {
     renderBtn({ story: makeStory({ sprintId: null }) });
-    fireEvent.click(screen.getByRole('button', { name: /Add Pay with card to SP-A1/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Add Pay with card to SP-3/i }));
     const opts = mutateMock.mock.calls[0][1] as { onError: (e: unknown) => void };
     // Shape of a sync-conflict axios error (useUpdateTask owns that toast).
     opts.onError({

@@ -26,7 +26,12 @@ function makeStory(overrides: Partial<Task> = {}): Task {
     id: 'task-1',
     name: 'Add SSO login',
     notes: 'desc',
-    shortId: 'PROJ-1A2B',
+    // A real 8-hex-digit value, never a pretty fake like 'PROJ-1A2B' — that
+    // shape is exactly what hid the #2671 raw-hex leak (it already looks like
+    // a nice identifier, so a render bug dumping the raw field passed silently).
+    shortId: '0000002A',
+    shortIdDisplay: 'T-42',
+    qualifiedId: 'PROJ-42',
     taskType: 'story',
     parentEpic: null,
     dor: 'idea',
@@ -85,6 +90,12 @@ describe('StoryDetailDrawer (#1043)', () => {
     renderDrawer(makeStory());
     expect(screen.getByLabelText('Story title')).toHaveValue('Add SSO login');
     expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
+  });
+
+  it('renders the server-decoded reference in the header, never the raw hex short_id (#2671)', () => {
+    renderDrawer(makeStory());
+    expect(screen.getByText('PROJ-42')).toBeInTheDocument();
+    expect(screen.queryByText('0000002A')).not.toBeInTheDocument();
   });
 
   it('shows the deferred Save bar once a scalar field changes, and batches the PATCH', async () => {

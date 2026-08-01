@@ -79,6 +79,12 @@ const SEARCH_MIN_Q = 2;
  * assigned work (`MyWorkTask`) and the membership-scoped project search
  * (`OmniSearchResult`). `shortId` is null for a search hit (the omni-search row
  * carries only the title), so the row renders the mono id only when present.
+ *
+ * `shortId` here is the server-formatted display reference (`qualified_id` ??
+ * `short_id_display`), never the raw hex `short_id` (#2671) — the raw value
+ * used to leak both into this label AND into the search predicate below, so
+ * typing a task's actual number (e.g. "42") never matched, because the filter
+ * was matching against the hex encoding of that number instead.
  */
 interface LogCandidate {
   id: string;
@@ -88,7 +94,12 @@ interface LogCandidate {
 }
 
 function candidateFromMyWork(task: MyWorkTask): LogCandidate {
-  return { id: task.id, shortId: task.short_id, name: task.name, projectName: task.project_name };
+  return {
+    id: task.id,
+    shortId: task.qualified_id ?? task.short_id_display ?? task.short_id,
+    name: task.name,
+    projectName: task.project_name,
+  };
 }
 
 /** Display label for the success/Undo toast — the short id when we have it. */

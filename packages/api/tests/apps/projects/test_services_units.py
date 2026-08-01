@@ -1558,10 +1558,15 @@ class TestIncomingCarryover:
             project=project, name="Carried", duration=1, sprint=planned, story_points=3
         )
         left = Task.objects.create(project=project, name="Dropped", duration=1)
+        # #2671: a snapshotted outcome's `task_short_id` is the same 8-hex-digit
+        # value Task.short_id itself stores — a pretty fixture like "T-01" is
+        # not a shape that can occur in production and hid the naive
+        # f"SP-{...}"-style bug this row's own display form once had. Use real
+        # hex here so a regression to that bug fails this test.
         SprintTaskOutcome.objects.create(
             sprint=prior,
             task=pulled,
-            task_short_id="T-01",
+            task_short_id="00000001",
             task_title="Carried",
             story_points=3,
             final_status=TaskStatus.IN_PROGRESS,
@@ -1570,7 +1575,7 @@ class TestIncomingCarryover:
         SprintTaskOutcome.objects.create(
             sprint=prior,
             task=left,
-            task_short_id="T-02",
+            task_short_id="0000000A",
             task_title="Dropped",
             final_status=TaskStatus.NOT_STARTED,
             disposition=SprintTaskDisposition.DROPPED,
@@ -1580,7 +1585,7 @@ class TestIncomingCarryover:
         SprintTaskOutcome.objects.create(
             sprint=prior,
             task=done,
-            task_short_id="T-03",
+            task_short_id="00000003",
             task_title="Shipped",
             final_status=TaskStatus.COMPLETE,
             disposition=SprintTaskDisposition.COMPLETED,
@@ -1588,10 +1593,18 @@ class TestIncomingCarryover:
         result = incoming_carryover(planned)
         assert result["prior_sprint"] is not None
         assert result["prior_sprint"]["name"] == "S1"
+        # `prior` is the project's first sprint, so its raw short_id is
+        # "00000001" — the display form must decode it, not echo the hex.
+        assert result["prior_sprint"]["short_id_display"] == "SP-1"
         by_title = {row["name"]: row for row in result["tasks"]}
         assert set(by_title) == {"Carried", "Dropped"}
         assert by_title["Carried"]["pulled_in_to_current"] is True
         assert by_title["Dropped"]["pulled_in_to_current"] is False
+        # #2671: the carryover row's task reference must also decode — this is
+        # the raw `SprintTaskOutcome.task_short_id` snapshot, not Task's own
+        # server-owned `short_id_display` field, so it needs its own assertion.
+        assert by_title["Carried"]["short_id_display"] == "T-1"
+        assert by_title["Dropped"]["short_id_display"] == "T-10"
 
 
 @pytest.mark.django_db

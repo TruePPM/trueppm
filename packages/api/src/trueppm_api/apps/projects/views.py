@@ -135,6 +135,7 @@ from trueppm_api.apps.projects.models import (
     TaskRelation,
     TaskStatus,
     TaskType,
+    format_short_id_display,
 )
 from trueppm_api.apps.projects.schema_migrations import (
     SURFACE_BOARD_SAVED_VIEW,
@@ -13585,7 +13586,12 @@ class MeActiveSprintsView(APIView):
                     "sprint": {
                         "id": str(sprint.pk),
                         "name": sprint.name,
-                        "short_id_display": f"SP-{sprint.short_id}" if sprint.short_id else "",
+                        # #2671: was a naive f"SP-{sprint.short_id}" that never
+                        # decoded the hex object_sequence, so this card read
+                        # "SP-00000003" — the same bug #2430 fixed for Task,
+                        # just never applied here. Route through the shared
+                        # decoder instead of re-deriving it.
+                        "short_id_display": format_short_id_display(sprint.short_id, "SP"),
                         "start_date": sprint.start_date.isoformat(),
                         "finish_date": sprint.finish_date.isoformat(),
                         "day": day,

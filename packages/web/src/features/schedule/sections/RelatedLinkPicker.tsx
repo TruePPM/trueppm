@@ -41,7 +41,13 @@ interface PickItem {
   id: string;
   name: string;
   isCross: boolean;
-  hexId?: string | null;
+  /**
+   * Server-formatted display reference — never the raw hex `short_id` (#2671).
+   * Named `displayId`, not `hexId`: the old name described the raw value this
+   * field must never hold, and a prior fix worked around that name instead of
+   * fixing the source (`hexId: t.shortId ?? t.wbs`, this file's own history).
+   */
+  displayId?: string | null;
   projectName?: string;
 }
 
@@ -106,7 +112,7 @@ export function RelatedLinkPicker({
         id: t.id,
         name: t.name,
         isCross: false,
-        hexId: t.shortId ?? t.wbs ?? null,
+        displayId: t.qualifiedId ?? t.shortIdDisplay ?? t.wbs ?? null,
       }));
   }, [scope, allTasks, task.id, excludedIds, search]);
 
@@ -125,7 +131,7 @@ export function RelatedLinkPicker({
         id: row.id,
         name: row.name,
         isCross: true,
-        hexId: row.short_id,
+        displayId: row.qualified_id ?? row.short_id_display ?? row.short_id,
         projectName: row.project_name,
       });
     }
@@ -521,7 +527,7 @@ function ResultRow({
         ].join(' ')}
       >
         <span className="tppm-mono text-xs text-neutral-text-disabled w-12 shrink-0 truncate">
-          {item.hexId || '—'}
+          {item.displayId || '—'}
         </span>
         <span className="flex-1 min-w-0 truncate text-neutral-text-primary">{item.name}</span>
         {item.isCross && item.projectName && (

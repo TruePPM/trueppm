@@ -239,7 +239,9 @@ export function MyWorkTaskRow({ task }: Props) {
             <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
           </span>
         )}
-        <span className="tppm-mono text-xs text-neutral-text-secondary">{task.short_id}</span>
+        <span className="tppm-mono text-xs text-neutral-text-secondary">
+          {task.qualified_id ?? task.short_id_display ?? task.short_id}
+        </span>
       </div>
 
       {/* Name + project · sprint context. On md+ this is the flex-grow column. */}

@@ -94,9 +94,52 @@ def test_search_returns_tasks_across_readable_projects(
         "id",
         "name",
         "short_id",
+        "short_id_display",
+        "qualified_id",
         "project_id",
         "project_name",
     }
+
+
+@pytest.mark.django_db
+def test_search_decodes_the_hex_sequence_and_qualifies_by_project_code(
+    program_two_projects: tuple[Program, Project, Project],
+) -> None:
+    """``short_id_display``/``qualified_id`` must be server-decoded, not raw hex (#2671).
+
+    This endpoint hand-builds its rows rather than going through
+    ``TaskSerializer``, so it is a separate call site of the same #2430 decode
+    rule. Cross-project is exactly where the qualified form earns its keep: two
+    sibling projects both have a "task 1", and only the project-code prefix
+    disambiguates them once the picker groups results across projects.
+    """
+    program, proj_a, proj_b = program_two_projects
+    proj_a.code = "SEC"
+    proj_a.save(update_fields=["code"])
+    # proj_b is left with no code (#520) — its row must fall back to the compact form.
+    for i in range(10):
+        Task.objects.create(project=proj_a, name=f"Launch {i}", duration=1)
+    tenth = Task.objects.get(project=proj_a, short_id="0000000A")
+    b1 = Task.objects.create(project=proj_b, name="Launch email", duration=1)
+
+    user = User.objects.create_user(username="pm", password="pw")
+    ProgramMembership.objects.create(program=program, user=user, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=proj_a, user=user, role=Role.SCHEDULER)
+    ProjectMembership.objects.create(project=proj_b, user=user, role=Role.SCHEDULER)
+
+    resp = _client(user).get(_url(program, "launch"))
+    assert resp.status_code == 200, resp.data
+    by_id = {row["id"]: row for row in resp.data}
+
+    row_a = by_id[str(tenth.pk)]
+    # Raw identity is preserved (no migration) — only the display forms decode.
+    assert row_a["short_id"] == "0000000A"
+    assert row_a["short_id_display"] == "T-10"
+    assert row_a["qualified_id"] == "SEC-10"
+
+    row_b = by_id[str(b1.pk)]
+    assert row_b["short_id_display"] == "T-1"
+    assert row_b["qualified_id"] == "T-1"
 
 
 @pytest.mark.django_db
