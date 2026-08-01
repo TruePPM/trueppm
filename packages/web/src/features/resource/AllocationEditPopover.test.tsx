@@ -26,6 +26,9 @@ function makeTask(overrides: Partial<AllocationTask> = {}): AllocationTask {
     name: 'Draft SOW',
     early_start: '2026-04-01',
     early_finish: '2026-04-10',
+    // Not-started/complete windows coincide (ADR-0752 §2); most tests below
+    // don't care about the in-progress-narrowing distinction.
+    scheduled_start: '2026-04-01',
     units: '0.50',
     status: 'IN_PROGRESS',
     ...overrides,
@@ -86,8 +89,26 @@ describe('AllocationEditPopover — initial render', () => {
   });
 
   it('falls back to "Unscheduled" when the task has no CPM start date', () => {
-    renderPopover({ task: { early_start: null } });
+    renderPopover({ task: { early_start: null, scheduled_start: null } });
     expect(screen.getByText('Anna Khoury · Unscheduled')).toBeInTheDocument();
+  });
+
+  it('renders the SPAN start (scheduled_start), not the narrowed early_start, for an in-progress task (#2677)', () => {
+    // early_start has narrowed to the remaining-work window; scheduled_start
+    // (ADR-0752) still carries the real span start.
+    renderPopover({
+      task: {
+        early_start: '2026-04-08',
+        scheduled_start: '2026-04-01',
+        early_finish: '2026-04-10',
+      },
+    });
+    expect(screen.getByText('Anna Khoury · 2026-04-01 – 2026-04-10')).toBeInTheDocument();
+  });
+
+  it('falls back to early_start when scheduled_start is null (not yet recalculated)', () => {
+    renderPopover({ task: { early_start: '2026-04-01', scheduled_start: null } });
+    expect(screen.getByText('Anna Khoury · 2026-04-01 – 2026-04-10')).toBeInTheDocument();
   });
 
   it('focuses the allocation input on mount', () => {

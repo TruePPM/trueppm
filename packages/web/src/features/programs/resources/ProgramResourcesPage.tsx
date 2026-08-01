@@ -10,6 +10,7 @@ import {
   defaultWindow,
   detectOverallocatedAssignments,
   detectOverallocationWeekRange,
+  taskSpanStart,
 } from '@/features/resource/resourceUtils';
 import { PermissionDeniedNotice } from '@/features/resource/PermissionDeniedNotice';
 
@@ -219,12 +220,16 @@ function formatUnits(units: string): string {
 }
 
 function formatSpan(t: ProgramAllocationTask): string {
-  if (!t.early_start || !t.early_finish) return 'unscheduled';
+  // ADR-0752 / #2677: render the task's SPAN (scheduled_start..early_finish),
+  // not early_start's remaining-work window — otherwise reporting progress on
+  // an in-progress task would misreport its cross-project contention window.
+  const spanStart = taskSpanStart(t);
+  if (!spanStart || !t.early_finish) return 'unscheduled';
   const fmt = (iso: string) =>
     new Date(`${iso}T00:00:00Z`).toLocaleDateString(undefined, {
       month: 'short',
       day: 'numeric',
       timeZone: 'UTC',
     });
-  return `${fmt(t.early_start)}–${fmt(t.early_finish)}`;
+  return `${fmt(spanStart)}–${fmt(t.early_finish)}`;
 }

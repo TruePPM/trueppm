@@ -9,6 +9,15 @@ interface Task {
   status: string;
   early_start: string | null;
   early_finish: string | null;
+  /**
+   * The task's SPAN start (ADR-0752, #2677) — falls back to `early_start`
+   * when null (unscheduled, or not yet recalculated since the field was
+   * added). Prefer this over `early_start` for anything that renders the
+   * task's date range: since ADR-0132, `early_start` alone is the
+   * *remaining-work* window and narrows toward `early_finish` as
+   * `percent_complete` rises.
+   */
+  scheduled_start: string | null;
   units: string;
   hours: number;
 }
@@ -21,13 +30,16 @@ interface Props {
   resourceColor: string;
   weekLabel: string; // e.g. "2026-W18"
   weekStart: string; // YYYY-MM-DD Monday
-  weekEnd: string;   // YYYY-MM-DD Sunday
+  weekEnd: string; // YYYY-MM-DD Sunday
   utilPct: number;
   onClose: () => void;
 }
 
 function statusLabel(s: string): string {
-  return s.replaceAll('_', ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+  return s
+    .replaceAll('_', ' ')
+    .toLowerCase()
+    .replace(/^\w/, (c) => c.toUpperCase());
 }
 
 function formatDateRange(start: string | null, end: string | null): string {
@@ -90,11 +102,7 @@ export function HeatmapCellDrawer({
   return (
     <>
       {/* Backdrop */}
-      <div
-        className="fixed inset-0 z-40 bg-neutral-overlay"
-        aria-hidden="true"
-        onClick={onClose}
-      />
+      <div className="fixed inset-0 z-40 bg-neutral-overlay" aria-hidden="true" onClick={onClose} />
 
       {/* Drawer panel */}
       <div
@@ -126,10 +134,7 @@ export function HeatmapCellDrawer({
             {resourceInitials}
           </div>
           <div className="flex-1 min-w-0">
-            <h2
-              id={headerId}
-              className="text-sm font-semibold text-neutral-text-primary truncate"
-            >
+            <h2 id={headerId} className="text-sm font-semibold text-neutral-text-primary truncate">
               {resourceName}
             </h2>
             <p className="text-xs text-neutral-text-secondary tppm-mono">
@@ -157,7 +162,10 @@ export function HeatmapCellDrawer({
           {isLoading ? (
             <div className="p-5 space-y-3">
               {[1, 2, 3].map((i) => (
-                <div key={i} className="h-16 rounded border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised" />
+                <div
+                  key={i}
+                  className="h-16 rounded border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised"
+                />
               ))}
             </div>
           ) : !data || data.length === 0 ? (
@@ -177,7 +185,7 @@ export function HeatmapCellDrawer({
                     <span className="capitalize">{statusLabel(task.status)}</span>
                   </p>
                   <p className="mt-0.5 text-xs text-neutral-text-disabled tppm-mono">
-                    {formatDateRange(task.early_start, task.early_finish)}
+                    {formatDateRange(task.scheduled_start ?? task.early_start, task.early_finish)}
                   </p>
                 </li>
               ))}

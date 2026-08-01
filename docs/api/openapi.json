@@ -8250,7 +8250,7 @@
         "/api/v1/programs/{id}/resource-contention/": {
             "get": {
                 "operationId": "v1_programs_resource_contention_retrieve",
-                "description": "Cross-project resource allocation for the within-program contention view (#1149).\n\nThe program-scoped counterpart to ``ProjectViewSet.resource_allocation`` (#85):\nreturns each resource with their task spans across **every member project of this\nprogram**, each span tagged with its source project, so the client can show who is\nover-allocated across sibling projects in overlapping windows (the contention the\nGA-launch sample program deliberately creates).\n\nThis is OSS, within-program **visibility** only — it surfaces contention data but\ndoes not level resources or cross a program boundary. Cross-program leveling and the\nportfolio heat map remain Enterprise. Overallocation detection is intentionally\nclient-side (ADR-0031): the caller receives the merged spans and sums daily units\nagainst each resource's ``max_units``.\n\nQuery parameters mirror the per-project endpoint:\n  start    (YYYY-MM-DD, optional) — window start; defaults to the earliest\n           early_start across all member projects. Returns 409 if no member\n           project has CPM dates yet.\n  end      (YYYY-MM-DD, optional) — window end; defaults to the latest early_finish.\n  resource (UUID, optional, repeatable) — filter to specific resource IDs.\n  status   (string, optional, repeatable) — filter tasks by status value.",
+                "description": "Cross-project resource allocation for the within-program contention view (#1149).\n\nThe program-scoped counterpart to ``ProjectViewSet.resource_allocation`` (#85):\nreturns each resource with their task spans across **every member project of this\nprogram**, each span tagged with its source project, so the client can show who is\nover-allocated across sibling projects in overlapping windows (the contention the\nGA-launch sample program deliberately creates).\n\nThis is OSS, within-program **visibility** only — it surfaces contention data but\ndoes not level resources or cross a program boundary. Cross-program leveling and the\nportfolio heat map remain Enterprise. Overallocation detection is intentionally\nclient-side (ADR-0031): the caller receives the merged spans and sums daily units\nagainst each resource's ``max_units``.\n\nWindowed and rendered on the task's SPAN (``scheduled_start``..``early_finish``,\nADR-0752), not on ``early_start``..``early_finish`` (#2677) — the same defect\nfixed for ``ProjectViewSet.resource_allocation`` and for the utilization heat map\n(#2623): since ADR-0132, ``early_start`` is the *remaining-work* window for an\nin-progress task and narrows toward ``early_finish`` as ``percent_complete``\nrises, which would otherwise misreport cross-project contention as work is\nreported. ``scheduled_start`` falls back to ``early_start`` via ``Coalesce`` for\nrows a CPM run has not yet populated it on.\n\nQuery parameters mirror the per-project endpoint:\n  start    (YYYY-MM-DD, optional) — window start; defaults to the earliest\n           task span start across all member projects. Returns 409 if no\n           member project has CPM dates yet.\n  end      (YYYY-MM-DD, optional) — window end; defaults to the latest early_finish.\n  resource (UUID, optional, repeatable) — filter to specific resource IDs.\n  status   (string, optional, repeatable) — filter tasks by status value.",
                 "summary": "Within-program resource contention (cross-project allocation)",
                 "parameters": [
                     {
@@ -8291,7 +8291,7 @@
                             "type": "string",
                             "format": "date"
                         },
-                        "description": "Window start (ISO 8601 `YYYY-MM-DD`). Defaults to the earliest `early_start` across all member projects."
+                        "description": "Window start (ISO 8601 `YYYY-MM-DD`). Defaults to the earliest task SPAN start (`scheduled_start`, ADR-0752, falling back to `early_start`) across all member projects."
                     },
                     {
                         "in": "query",
@@ -8332,7 +8332,7 @@
                                 }
                             }
                         },
-                        "description": "{program_id, window_start, window_end, resources}. Each resource is {id, name, email, max_units, tasks[]} and each task span is {assignment_id, id, name, project_id, project_name, early_start, early_finish, units, status} — aggregated across every member project of the program and tagged with its source project, so a caller can surface people over-allocated across sibling projects in overlapping windows. Overallocation detection stays client-side per ADR-0031."
+                        "description": "{program_id, window_start, window_end, resources}. Each resource is {id, name, email, max_units, tasks[]} and each task span is {assignment_id, id, name, project_id, project_name, early_start, early_finish, scheduled_start, units, status} — aggregated across every member project of the program and tagged with its source project, so a caller can surface people over-allocated across sibling projects in overlapping windows. scheduled_start (ADR-0752) is the task's SPAN start; the client renders scheduled_start..early_finish, falling back to early_start when scheduled_start is null. Overallocation detection stays client-side per ADR-0031."
                     },
                     "400": {
                         "description": "Malformed `start`/`end` date, or `start` is after `end`."
@@ -17300,7 +17300,7 @@
         "/api/v1/projects/{id}/resource-allocation/": {
             "get": {
                 "operationId": "v1_projects_resource_allocation_retrieve",
-                "description": "Per-resource task spans for the allocation timeline view (issue #85).\n\nReturns each resource assigned to the project with their task spans\n(early_start / early_finish / units / status) within the requested window.\nResources with no assignments in the window are excluded.\n\nOverallocation detection is intentionally client-side: the caller receives\nall spans and computes daily unit sums against max_units. See ADR-0031.\n\nQuery parameters:\n  start    (YYYY-MM-DD, optional) — window start; defaults to earliest\n           early_start across all tasks. Returns 409 if no CPM dates exist.\n  end      (YYYY-MM-DD, optional) — window end; defaults to latest\n           early_finish across all tasks.\n  resource (UUID, optional, repeatable) — filter to specific resource IDs.\n  status   (string, optional, repeatable) — filter tasks by status value.",
+                "description": "Per-resource task spans for the allocation timeline view (issue #85).\n\nReturns each resource assigned to the project with their task spans\n(early_start / early_finish / scheduled_start / units / status) within\nthe requested window. Resources with no assignments in the window are\nexcluded.\n\nWindowed and rendered on the task's SPAN\n(``scheduled_start``..``early_finish``, ADR-0752), not on\n``early_start``..``early_finish`` (#2677). Since ADR-0132, ``early_start``\nis the *remaining-work* window for an in-progress task — it shrinks\ntoward ``early_finish`` as ``percent_complete`` rises. Windowing/rendering\non it made reporting progress look like the allocation bar shrinking or\ndropping off the timeline entirely, mirroring the utilization heat map\ndefect fixed in #2623. ``scheduled_start`` falls back to ``early_start``\nvia ``Coalesce`` for rows a CPM run has not yet populated it on — where\nthe two windows coincide anyway for not-started and complete tasks.\n\nOverallocation detection is intentionally client-side: the caller receives\nall spans and computes daily unit sums against max_units. See ADR-0031.\n\nQuery parameters:\n  start    (YYYY-MM-DD, optional) — window start; defaults to earliest\n           task span start across all tasks. Returns 409 if no CPM dates\n           exist.\n  end      (YYYY-MM-DD, optional) — window end; defaults to latest\n           early_finish across all tasks.\n  resource (UUID, optional, repeatable) — filter to specific resource IDs.\n  status   (string, optional, repeatable) — filter tasks by status value.",
                 "parameters": [
                     {
                         "in": "query",
@@ -17340,7 +17340,7 @@
                             "type": "string",
                             "format": "date"
                         },
-                        "description": "Window start, ISO 8601 YYYY-MM-DD. Defaults to the earliest early_start across all tasks; returns 409 if no CPM dates exist."
+                        "description": "Window start, ISO 8601 YYYY-MM-DD. Defaults to the earliest task SPAN start (scheduled_start, ADR-0752, falling back to early_start) across all tasks; returns 409 if no CPM dates exist."
                     },
                     {
                         "in": "query",
@@ -17381,7 +17381,7 @@
                                 }
                             }
                         },
-                        "description": "Per-resource task spans within the window: {project_id, window_start, window_end, resources: [{id, name, email, max_units, tasks: [{assignment_id, id, name, early_start, early_finish, units, status}]}]}."
+                        "description": "Per-resource task spans within the window: {project_id, window_start, window_end, resources: [{id, name, email, max_units, tasks: [{assignment_id, id, name, early_start, early_finish, scheduled_start, units, status}]}]}. scheduled_start (ADR-0752) is the task's SPAN start — early_start narrows toward early_finish as an in-progress task's percent_complete rises, so the client renders the span (scheduled_start..early_finish), falling back to early_start when scheduled_start is null (not yet recalculated)."
                     },
                     "409": {
                         "content": {

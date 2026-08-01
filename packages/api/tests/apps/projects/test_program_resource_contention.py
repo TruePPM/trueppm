@@ -22,7 +22,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProgramMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Program, Project, Task
+from trueppm_api.apps.projects.models import Calendar, Program, Project, Task, TaskStatus
 from trueppm_api.apps.resources.models import Resource, TaskResource
 
 User = get_user_model()
@@ -214,3 +214,125 @@ def test_resource_and_status_filters(program: Program, project_a: Project, janus
     assert resp.status_code == 200
     rows = resp.json()["resources"]
     assert len(rows) == 1 and rows[0]["name"] == "Janus"
+
+
+# ---------------------------------------------------------------------------
+# #2677 / ADR-0752 — cross-project contention windows/serializes on the task's
+# SPAN, not the remaining-work window, mirroring the per-project allocation
+# fix and #2623's utilization fix.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestResourceContentionUsesSpanNotRemainingWindow:
+    """Since ADR-0132, ``early_start`` is an in-progress task's *remaining-work*
+    window — it shrinks toward ``early_finish`` as ``percent_complete`` rises.
+    Windowing/serializing cross-project contention on it made reporting
+    progress on one member project misreport who is over-allocated across
+    sibling projects. These tests set the CPM fields directly to the values
+    the engine would produce at each state — they do not run the scheduler.
+    """
+
+    def setup_method(self) -> None:
+        self.cal = Calendar.objects.create(name="SpanCal", working_days=31, hours_per_day=8.0)
+        self.program = Program.objects.create(name="Span Program", code="SPAN")
+        self.project = Project.objects.create(
+            name="SpanProj", start_date=date(2026, 3, 2), calendar=self.cal, program=self.program
+        )
+        self.resource = Resource.objects.create(name="Ivy", max_units=Decimal("1.00"))
+        self.client = _auth_client(Role.SCHEDULER, self.program)
+
+    def _assign(self, task: Task) -> None:
+        TaskResource.objects.create(task=task, resource=self.resource, units=Decimal("1.00"))
+
+    def _tasks(self, start: str = "2026-03-02", end: str = "2026-03-05") -> list[dict]:
+        resp = self.client.get(_url(self.program), {"start": start, "end": end})
+        assert resp.status_code == 200
+        resources = resp.json()["resources"]
+        return resources[0]["tasks"] if resources else []
+
+    def test_in_progress_task_stays_in_window_and_reports_scheduled_start(self) -> None:
+        """A 4-day task at 83% complete has a remaining window (early_start) of
+        a single day near early_finish, but its real SPAN (scheduled_start)
+        starts on day one. The task must remain in a window covering the full
+        span, and the response must carry scheduled_start."""
+        task = Task.objects.create(
+            project=self.project,
+            name="AlmostDone",
+            duration=4,
+            early_start=date(2026, 3, 5),
+            early_finish=date(2026, 3, 5),
+            scheduled_start=date(2026, 3, 2),
+            actual_start=date(2026, 3, 2),
+            percent_complete=83,
+            status=TaskStatus.IN_PROGRESS,
+        )
+        self._assign(task)
+
+        tasks = self._tasks(start="2026-03-02", end="2026-03-05")
+        assert len(tasks) == 1
+        assert tasks[0]["name"] == "AlmostDone"
+        assert tasks[0]["scheduled_start"] == "2026-03-02"
+        assert tasks[0]["early_finish"] == "2026-03-05"
+
+    def test_task_dropped_by_remaining_window_alone_is_retained(self) -> None:
+        """An in-progress task whose remaining window (early_start) has moved
+        past the query end must still appear, because its SPAN (scheduled_start)
+        still overlaps the window — pre-fix, this task would have been dropped
+        from the cross-project contention read entirely."""
+        task = Task.objects.create(
+            project=self.project,
+            name="MostlyDone",
+            duration=4,
+            early_start=date(2026, 3, 6),
+            early_finish=date(2026, 3, 6),
+            scheduled_start=date(2026, 3, 2),
+            actual_start=date(2026, 3, 2),
+            percent_complete=90,
+            status=TaskStatus.IN_PROGRESS,
+        )
+        self._assign(task)
+
+        tasks = self._tasks(start="2026-03-02", end="2026-03-03")
+        assert [t["name"] for t in tasks] == ["MostlyDone"]
+
+    def test_missing_scheduled_start_falls_back_to_early_start(self) -> None:
+        """A task with no ``scheduled_start`` (not yet recalculated since the
+        ADR-0752 migration) must still be windowed correctly, falling back to
+        ``early_start``, and reports scheduled_start as null."""
+        task = Task.objects.create(
+            project=self.project,
+            name="NotYetRecalculated",
+            duration=4,
+            early_start=date(2026, 3, 2),
+            early_finish=date(2026, 3, 5),
+            scheduled_start=None,
+            percent_complete=0,
+            status=TaskStatus.NOT_STARTED,
+        )
+        self._assign(task)
+
+        tasks = self._tasks()
+        assert [t["name"] for t in tasks] == ["NotYetRecalculated"]
+        assert tasks[0]["scheduled_start"] is None
+
+    def test_default_window_start_uses_span_not_remaining_window(self) -> None:
+        """With no ?start param, the default window start must derive from the
+        task's SPAN start across member projects, not the narrowed
+        remaining-work start."""
+        task = Task.objects.create(
+            project=self.project,
+            name="InProgress",
+            duration=4,
+            early_start=date(2026, 3, 5),
+            early_finish=date(2026, 3, 5),
+            scheduled_start=date(2026, 3, 2),
+            actual_start=date(2026, 3, 2),
+            percent_complete=83,
+            status=TaskStatus.IN_PROGRESS,
+        )
+        self._assign(task)
+
+        resp = self.client.get(_url(self.program))
+        assert resp.status_code == 200
+        assert resp.json()["window_start"] == "2026-03-02"

@@ -19,6 +19,7 @@ import {
   isoWeekNumber,
   groupByWeek,
   dateRange,
+  taskSpanStart,
   MONTH_ABBR,
 } from './resourceUtils';
 import { AllocationSpan, type SpanVariant } from './AllocationSpan';
@@ -131,6 +132,9 @@ export function ResourceAllocationTimeline({
   const unscheduled = data.resources.flatMap((r) =>
     r.tasks.filter((t) => !t.early_start).map((t) => ({ resource: r, task: t })),
   );
+  // `early_start` alone still gates "does this task have CPM dates at all" —
+  // it and scheduled_start are populated together by the same CPM run, so
+  // this presence check is unaffected by ADR-0752's remaining-work narrowing.
 
   function openEdit(assignmentId: string, anchorEl: HTMLElement) {
     // Find the task + resource for this assignmentId
@@ -263,8 +267,12 @@ export function ResourceAllocationTimeline({
                       ? 'partial'
                       : 'normal';
 
+              // ADR-0752 / #2677: bar geometry is the task's SPAN
+              // (scheduled_start..early_finish), not early_start's
+              // remaining-work window — otherwise reporting progress on an
+              // in-progress task shrinks or drops the bar.
               const { left, width } = spanFractions(
-                task.early_start!,
+                taskSpanStart(task)!,
                 task.early_finish!,
                 windowStart,
                 windowEnd,

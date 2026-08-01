@@ -17,12 +17,38 @@ export interface AllocationTask {
   assignment_id: string;
   id: string;
   name: string;
-  /** ISO date or null when task has no CPM dates yet (unscheduled). */
+  /**
+   * ISO date or null when task has no CPM dates yet (unscheduled). Since
+   * ADR-0132, this is an in-progress task's *remaining-work* window — it
+   * narrows toward `early_finish` as `percent_complete` rises. Prefer
+   * {@link taskSpanStart} (which reads `scheduled_start`, ADR-0752) for
+   * anything that renders or measures the task's span; this field stays
+   * useful for "does this task have CPM dates at all" checks.
+   */
   early_start: string | null;
   early_finish: string | null;
+  /**
+   * ISO date or null — the task's SPAN start (ADR-0752, #2677). Null until
+   * the next recalculation after upgrade, or when the task has no CPM dates
+   * yet; callers fall back to `early_start` via {@link taskSpanStart} rather
+   * than reading this field directly.
+   */
+  scheduled_start: string | null;
   /** Decimal string, e.g. "0.50" */
   units: string;
   status: 'NOT_STARTED' | 'IN_PROGRESS' | 'ON_HOLD' | 'COMPLETE';
+}
+
+/**
+ * The task's SPAN start (ADR-0752): `scheduled_start`, falling back to
+ * `early_start` when the task has not been recalculated since the field was
+ * added (or has no CPM dates at all). Every consumer that renders or measures
+ * a task's allocation bar reads this instead of `early_start` directly, so
+ * reporting progress on an in-progress task never shrinks or drops the bar
+ * (#2677 — the same defect fixed for the utilization heat map in #2623).
+ */
+export function taskSpanStart(task: AllocationTask): string | null {
+  return task.scheduled_start ?? task.early_start;
 }
 
 export interface AllocationResource {
@@ -236,8 +262,18 @@ export const LOAD_TEXT_CLASS: Record<LoadColor, string> = {
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 export const MONTH_ABBR = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
 ];
 
 /** Format a week-start Monday as "Mon 2 Mar" (rule 97). */
@@ -260,15 +296,14 @@ export function isWeekend(iso: string): boolean {
 /** Return today's ISO date string ("YYYY-MM-DD"). */
 export function todayISO(): string {
   const today = new Date();
-  return formatISODate(
-    new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())),
-  );
+  return formatISODate(new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())));
 }
 
 /**
  * "Fit to project" window derived from an AllocationResponse.
- * Expands to cover the earliest early_start and latest early_finish across
- * all scheduled task spans, aligned to ISO week boundaries.
+ * Expands to cover the earliest task SPAN start (scheduled_start, ADR-0752,
+ * falling back to early_start) and latest early_finish across all scheduled
+ * task spans, aligned to ISO week boundaries.
  */
 export function fitToAllocationWindow(
   projectStartDate: string,
@@ -278,7 +313,8 @@ export function fitToAllocationWindow(
   let maxEnd = projectStartDate;
   for (const resource of data.resources) {
     for (const task of resource.tasks) {
-      if (task.early_start && task.early_start < minStart) minStart = task.early_start;
+      const spanStart = taskSpanStart(task);
+      if (spanStart && spanStart < minStart) minStart = spanStart;
       if (task.early_finish && task.early_finish > maxEnd) maxEnd = task.early_finish;
     }
   }
@@ -316,9 +352,10 @@ export function detectOverallocationWeekRange(
 ): string | null {
   const dayUnits: Map<string, number> = new Map();
   for (const task of tasks) {
-    if (!task.early_start || !task.early_finish) continue;
+    const spanStart = taskSpanStart(task);
+    if (!spanStart || !task.early_finish) continue;
     const units = Number.parseFloat(task.units);
-    let cur = parseUTCDate(task.early_start);
+    let cur = parseUTCDate(spanStart);
     const end = parseUTCDate(task.early_finish);
     while (cur <= end) {
       const iso = formatISODate(cur);
@@ -346,9 +383,10 @@ export function detectOverallocatedAssignments(
   // Build day → total units map across all scheduled tasks
   const dayUnits: Map<string, number> = new Map();
   for (const task of tasks) {
-    if (!task.early_start || !task.early_finish) continue;
+    const spanStart = taskSpanStart(task);
+    if (!spanStart || !task.early_finish) continue;
     const units = Number.parseFloat(task.units);
-    let cur = parseUTCDate(task.early_start);
+    let cur = parseUTCDate(spanStart);
     const end = parseUTCDate(task.early_finish);
     while (cur <= end) {
       const iso = formatISODate(cur);
@@ -360,8 +398,9 @@ export function detectOverallocatedAssignments(
   // Flag tasks that touch any overloaded day
   const overloaded = new Set<string>();
   for (const task of tasks) {
-    if (!task.early_start || !task.early_finish) continue;
-    let cur = parseUTCDate(task.early_start);
+    const spanStart = taskSpanStart(task);
+    if (!spanStart || !task.early_finish) continue;
+    let cur = parseUTCDate(spanStart);
     const end = parseUTCDate(task.early_finish);
     while (cur <= end) {
       const iso = formatISODate(cur);

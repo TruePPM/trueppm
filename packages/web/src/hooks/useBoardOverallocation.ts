@@ -4,6 +4,7 @@ import {
   parseUTCDate,
   formatISODate,
   addDays,
+  taskSpanStart,
   type AllocationResource,
   type AllocationTask,
 } from '@/features/resource/resourceUtils';
@@ -58,13 +59,19 @@ function eachDayInWindow(startIso: string, endIso: string, visit: (iso: string) 
 /**
  * Build day → total assigned units across every dated task of one resource.
  * Undated tasks (no early_start/finish) contribute nothing.
+ *
+ * Walks the task's SPAN (scheduled_start..early_finish, ADR-0752, #2677), not
+ * early_start's remaining-work window — otherwise reporting progress on an
+ * in-progress task would shrink its contribution to the day-unit map and the
+ * board badge would under-report contention.
  */
 function buildDayUnits(resource: AllocationResource): Map<string, number> {
   const dayUnits = new Map<string, number>();
   for (const t of resource.tasks) {
-    if (!t.early_start || !t.early_finish) continue;
+    const spanStart = taskSpanStart(t);
+    if (!spanStart || !t.early_finish) continue;
     const units = Number.parseFloat(t.units);
-    eachDayInWindow(t.early_start, t.early_finish, (iso) => {
+    eachDayInWindow(spanStart, t.early_finish, (iso) => {
       dayUnits.set(iso, (dayUnits.get(iso) ?? 0) + units);
     });
   }
@@ -74,7 +81,7 @@ function buildDayUnits(resource: AllocationResource): Map<string, number> {
 /** Peak load factor (max daily units / max_units) within a task's own window. */
 function peakFactor(task: AllocationTask, dayUnits: Map<string, number>, max: number): number {
   let peak = 0;
-  eachDayInWindow(task.early_start as string, task.early_finish as string, (iso) => {
+  eachDayInWindow(taskSpanStart(task) as string, task.early_finish as string, (iso) => {
     const factor = (dayUnits.get(iso) ?? 0) / max;
     if (factor > peak) peak = factor;
   });
@@ -97,7 +104,8 @@ function computeOverallocByPair(
 
     const dayUnits = buildDayUnits(resource);
     for (const t of resource.tasks) {
-      if (!t.early_start || !t.early_finish) continue;
+      const spanStart = taskSpanStart(t);
+      if (!spanStart || !t.early_finish) continue;
       const peak = peakFactor(t, dayUnits, max);
       if (peak > threshold) {
         out.set(pairKey(resource.id, t.id), peak);
@@ -116,7 +124,9 @@ function computeOverallocByPair(
  * exceptions (CalendarException) are NOT applied.  A "1.4× during a vacation
  * week" false positive is acknowledged in the tooltip copy.
  */
-export function useBoardOverallocation(projectId: string | null | undefined): BoardOverallocationResult {
+export function useBoardOverallocation(
+  projectId: string | null | undefined,
+): BoardOverallocationResult {
   const allocation = useResourceAllocation(projectId ?? undefined);
   const threshold = readThreshold();
 
