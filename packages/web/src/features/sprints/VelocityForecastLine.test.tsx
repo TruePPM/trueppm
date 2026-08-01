@@ -79,6 +79,24 @@ describe('VelocityForecastLine (#607)', () => {
     expect(line).toHaveTextContent(/~2–3 more sprints to clear 60 pts/i);
   });
 
+  /**
+   * #2653 scope boundary, asserted so it can't be widened by accident (a VoC panel
+   * already mistook this branch for a missed #2495 mount once). `sprints_to_complete_low/high`
+   * comes from `_sprints_to_complete` (services.py) — a plain avg±1σ division over
+   * the rolling velocity window, not the clamped-horizon bootstrap sampler behind
+   * `useSprintForecast` that `ForecastHorizonHelp` exists to caveat. Its "each run
+   * re-samples..." / "stops at a fixed sprint horizon" copy would misdescribe this
+   * number's mechanism.
+   */
+  it('#2653: the backlog re-pace is not clamped, so it carries no floor caveat', () => {
+    mockForecast(forecast());
+    renderLine();
+    const line = screen.getByTestId('velocity-forecast-line');
+    expect(line).toHaveTextContent(/~2–3 more sprints to clear 60 pts/i);
+    expect(line).not.toHaveTextContent(/a floor, not a percentile/i);
+    expect(screen.queryByRole('button', { name: /forecast horizon/i })).toBeNull();
+  });
+
   it('renders the milestone P50/P80 forecast when the active sprint is bound', () => {
     mockForecast(
       forecast({
@@ -140,6 +158,10 @@ describe('VelocityForecastLine (#607)', () => {
     expect(line).not.toHaveTextContent(/80%/);
     expect(line).toHaveTextContent(/est\./);
     expect(line).toHaveTextContent(/velocity estimate/i);
+    // #2653 scope boundary: this snapshot is the #860 bridge's ForecastSnapshot
+    // (velocity_band), not a useSprintForecast() read — same reasoning as
+    // MilestoneBridgeForecast's #2495 scope-boundary test.
+    expect(screen.queryByRole('button', { name: /forecast horizon/i })).toBeNull();
   });
 
   it('falls back to the backlog forecast when the bound milestone has no snapshot', () => {

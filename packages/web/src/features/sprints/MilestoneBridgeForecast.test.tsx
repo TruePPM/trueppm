@@ -258,6 +258,21 @@ describe('MilestoneBridgeForecast (#730)', () => {
     );
   });
 
+  /**
+   * #2653 scope boundary, paired with the #2495 scope-boundary test above. This
+   * projection reads the same `sprints_to_complete_low/high` field as
+   * VelocityForecastLine's BacklogForecast branch — a plain avg±1σ division
+   * (`_sprints_to_complete`), not the clamped-horizon bootstrap sampler behind
+   * useSprintForecast() that ForecastHorizonHelp exists to caveat.
+   */
+  it('#2653: the "if velocity holds" projection is not clamped, so it carries no floor caveat', () => {
+    setup([snapshot()]);
+    expect(screen.getByTestId('milestone-bridge-forecast')).toHaveTextContent(
+      /If velocity holds/,
+    );
+    expect(screen.queryByRole('button', { name: /forecast horizon/i })).toBeNull();
+  });
+
   it('shows a warm-up reason instead of a bare chip below the velocity floor (rule 119)', () => {
     setup([snapshot({ p50: null, p80: null })]);
     expect(screen.getByTestId('milestone-bridge-forecast')).toHaveTextContent(
