@@ -5936,8 +5936,24 @@ class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
                     {"name": f"A baseline named '{name}' already exists for this project."}
                 )
 
+            from django.db.models import DateField
+            from django.db.models.functions import Coalesce
+
+            # Snapshot the task's SPAN (ADR-0752's scheduled_start), not
+            # early_start. Since ADR-0132, early_start on an in-progress task
+            # is the remaining-work window and narrows toward early_finish as
+            # percent_complete rises — a baseline captured mid-progress would
+            # otherwise snapshot an already-narrowed start, matching #2623's
+            # class of bug. scheduled_start falls back to early_start via
+            # Coalesce for rows a CPM run has not (re)populated it on yet
+            # (additive migration, no data backfill) — the two coincide for
+            # not-started and complete tasks anyway.
             live_tasks = list(
-                Task.objects.filter(project_id=project_pk, is_deleted=False).values(
+                Task.objects.filter(project_id=project_pk, is_deleted=False)
+                .annotate(
+                    _span_start=Coalesce("scheduled_start", "early_start", output_field=DateField())
+                )
+                .values(
                     "id",
                     "name",
                     "early_start",
@@ -5946,6 +5962,7 @@ class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
                     "actual_start",
                     "actual_finish",
                     "story_points",
+                    "_span_start",
                 )
             )
             has_cpm_dates = bool(live_tasks) and all(
@@ -5964,7 +5981,7 @@ class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
                         baseline=baseline,
                         task_id=t["id"],
                         task_name=t["name"],
-                        start=t["early_start"],
+                        start=t["_span_start"],
                         finish=t["early_finish"],
                         duration=t["duration"],
                         actual_start=t["actual_start"],
@@ -10949,6 +10966,19 @@ class TaskBaselineDetailView(APIView):
                 return None
             return (current - planned).days
 
+        # Compare against the task's SPAN (ADR-0752's scheduled_start), not
+        # early_start. Since ADR-0132, early_start on an in-progress task is
+        # the remaining-work window and narrows toward early_finish as
+        # percent_complete rises — comparing that against a baseline would
+        # make start_delta_days grow purely from progress being reported, not
+        # from actual schedule slip (#2623's class of bug, applied here per
+        # #2678). scheduled_start falls back to early_start for rows a CPM
+        # run has not (re)populated it on yet — the two coincide for
+        # not-started and complete tasks anyway.
+        current_start = (
+            task.scheduled_start if task.scheduled_start is not None else task.early_start
+        )
+
         return Response(
             {
                 "has_baseline": True,
@@ -10961,7 +10991,7 @@ class TaskBaselineDetailView(APIView):
                 "planned_duration": bt.duration,
                 "planned_actual_start": bt.actual_start.isoformat() if bt.actual_start else None,
                 "planned_actual_finish": bt.actual_finish.isoformat() if bt.actual_finish else None,
-                "current_start": task.early_start.isoformat() if task.early_start else None,
+                "current_start": current_start.isoformat() if current_start else None,
                 "current_finish": task.early_finish.isoformat() if task.early_finish else None,
                 "current_duration": task.duration,
                 "current_actual_start": (
@@ -10970,7 +11000,7 @@ class TaskBaselineDetailView(APIView):
                 "current_actual_finish": (
                     task.actual_finish.isoformat() if task.actual_finish else None
                 ),
-                "start_delta_days": _day_delta(task.early_start, bt.start),
+                "start_delta_days": _day_delta(current_start, bt.start),
                 "finish_delta_days": _day_delta(task.early_finish, bt.finish),
                 "duration_delta": task.duration - bt.duration,
             }
