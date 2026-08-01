@@ -74,7 +74,7 @@ typecheck-scheduler: ## Type-check packages/scheduler (mypy)
 	cd packages/scheduler && mypy
 
 typecheck-api: ## Type-check packages/api (mypy)
-	cd packages/api && mypy src/trueppm_api
+	cd packages/api && PYTHONPATH="$(CURDIR)/packages/api/src:$(CURDIR)/packages/scheduler/src" mypy src/trueppm_api
 
 typecheck-web: ## Type-check packages/web (tsc)
 	cd packages/web && npm run typecheck
@@ -130,7 +130,7 @@ api-lint: ## Run the api:lint CI job locally (ruff check + format --check)
 	cd packages/api && ruff check src/ tests/ && ruff format --check src/ tests/
 
 api-typecheck: ## Run the api:type-check CI job locally (mypy)
-	cd packages/api && mypy src/trueppm_api
+	cd packages/api && PYTHONPATH="$(CURDIR)/packages/api/src:$(CURDIR)/packages/scheduler/src" mypy src/trueppm_api
 
 scheduler-lint: ## Run the scheduler:lint CI job locally (ruff check + format --check)
 	cd packages/scheduler && ruff check src/ tests/ && ruff format --check src/ tests/
