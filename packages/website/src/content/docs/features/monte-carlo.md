@@ -1,6 +1,7 @@
 ---
 title: Monte Carlo
 description: Convert three-point task estimates into a probability distribution over the project finish date — P50, P80, and P95 with the full distribution curve.
+documentedFor: "0.4"
 ---
 
 TruePPM's Monte Carlo simulation converts three-point task estimates into a
@@ -558,6 +559,23 @@ of the distribution:
   project requires Project Manager; the import-as-new-project and seed-import
   endpoints need only a signed-in user, but they can only ever create a new project
   or program that the importer owns, never modify an existing task.
+
+  :::note[Ships in 0.4]
+  Two behaviors below are **not** in `v0.3.0-alpha.3`, the latest release:
+
+  - **No-op re-writes no longer revoke an approval.** Re-sending an estimate's
+    identical value (for example, tabbing through the field without changing it)
+    is not treated as an edit and does not revoke an existing approval — only a
+    genuine value change downgrades `accepted` back to `pending`. In 0.3, any
+    PATCH carrying a three-point field flips an approved estimate back to
+    `pending` even when the value sent is identical to what is already stored.
+  - **Withdrawing an approval deliberately.** A Resource Manager or above can
+    withdraw an approval on purpose: `POST /api/v1/tasks/{id}/withdraw-approval/`
+    moves an `accepted` estimate back to `pending`, the symmetric counterpart to
+    `approve-estimates`. It requires the same role and is a no-op if the estimate
+    is not currently accepted. In 0.3 there is no such action — the only way back
+    to `pending` is the no-op-rewrite behavior above, before it was fixed.
+  :::
 - **Who may write an estimate at all** — this is set by the project's estimation
   mode, and it is enforced on the server, not just in the browser. In **Open**
   (the default) any Team Member or above may write three-point estimates directly.

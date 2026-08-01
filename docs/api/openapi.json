@@ -37974,6 +37974,90 @@
                 "summary": "Revoke suggestion"
             }
         },
+        "/api/v1/tasks/{id}/withdraw-approval/": {
+            "post": {
+                "operationId": "v1_tasks_withdraw_approval_create",
+                "description": "Revoke an accepted three-point estimate back to pending (ADR-0766, #2597).\n\nSymmetric counterpart to approve_estimates: lets a Scheduler undo an approval\ngiven in error without having to trigger a PERT-field no-op write to force\nthe downgrade — that no-op path was the accidental-revocation bug this same\nissue closes. Only meaningful when estimation_mode is SUGGEST_APPROVE.\nIdempotent — calling on a task that is not currently accepted (already\npending, or ungoverned/null) is a no-op (200, no DB write, no broadcast).\n\nPermission: IsProjectScheduler+ (Resource Manager and above) — same gate as\napprove_estimates; whoever can grant the approval can withdraw it.",
+                "summary": "Withdraw an approved three-point estimate back to pending",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Task"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "description": "Project estimation_mode is not suggest_approve."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/tasks/{task_pk}/time-entries/": {
             "get": {
                 "operationId": "v1_tasks_time_entries_retrieve",
