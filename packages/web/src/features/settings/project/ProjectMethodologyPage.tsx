@@ -6,10 +6,13 @@ import { InheritableSelectField } from '../components/InheritableSelectField';
 import { ESTIMATION_SCALE_HINT, ESTIMATION_SCALE_OPTIONS } from '../estimationScale';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
+import { MethodologyFlipWarningDialog } from './MethodologyFlipWarningDialog';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import { useUpdateProject } from '@/hooks/useProjectMutations';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { useSprints } from '@/hooks/useSprints';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { ROLE_SCHEDULER } from '@/lib/roles';
 import type { Methodology } from '@/types';
 import type { EstimationMode, EstimationScale } from '@/api/types';
@@ -101,6 +104,11 @@ export function ProjectMethodologyPage() {
   const updateProject = useUpdateProject(projectId);
   const { role } = useCurrentUserRole(projectId);
   const { data: ws } = useWorkspaceSettings();
+  const itl = useIterationLabel(projectId);
+  // Existing sprints (any state) this project already carries — the flip-warning
+  // check below (issue #2619) needs the count regardless of methodology, so this
+  // is unconditional rather than gated on the pending selection.
+  const { sprints } = useSprints(projectId);
 
   const [methodology, setMethodology] = useState<Methodology>('HYBRID');
   const [estimationMode, setEstimationMode] = useState<EstimationMode>('open');
@@ -109,7 +117,15 @@ export function ProjectMethodologyPage() {
   const seededProjectIdRef = useRef<string | null>(null);
   const [initial, setInitial] = useState<Methodology>('HYBRID');
   const [initialEstimationMode, setInitialEstimationMode] = useState<EstimationMode>('open');
-  const [initialEstimationScale, setInitialEstimationScale] = useState<EstimationScale | null>(null);
+  const [initialEstimationScale, setInitialEstimationScale] = useState<EstimationScale | null>(
+    null,
+  );
+  // Consent gate on a WATERFALL flip that would hide existing sprints (#2619) —
+  // resolved by MethodologyFlipWarningDialog; `handleSave` awaits it before the
+  // PATCH ever fires. `null` when no dialog is open.
+  const [flipConfirmResolver, setFlipConfirmResolver] = useState<((ok: boolean) => void) | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!project || seededProjectIdRef.current === project.id) return;
@@ -122,7 +138,19 @@ export function ProjectMethodologyPage() {
     setInitialEstimationScale(project.estimation_scale);
   }, [project]);
 
+  // WATERFALL is the only preset that hides the DELIVER nav group (methodologyTabs.ts),
+  // so a flip only ever orphans sprints when landing on WATERFALL from something
+  // else — never between AGILE and HYBRID, which both show it.
+  const willOrphanSprints =
+    methodology === 'WATERFALL' && initial !== 'WATERFALL' && sprints.length > 0;
+
   const handleSave = useCallback(async () => {
+    if (willOrphanSprints) {
+      const confirmed = await new Promise<boolean>((resolve) =>
+        setFlipConfirmResolver(() => resolve),
+      );
+      if (!confirmed) return; // Leaves the form dirty — the save bar stays armed.
+    }
     // Send only what actually changed. `methodology` is 403'd under a workspace
     // override lock, so bundling an unchanged methodology with an estimation_mode
     // change would sink the whole PATCH — estimation is independent of that lock.
@@ -135,6 +163,7 @@ export function ProjectMethodologyPage() {
     setInitialEstimationMode(estimationMode);
     setInitialEstimationScale(estimationScale);
   }, [
+    willOrphanSprints,
     updateProject,
     methodology,
     initial,
@@ -188,7 +217,10 @@ export function ProjectMethodologyPage() {
         <div className="h-16 rounded-card bg-neutral-surface-raised motion-safe:animate-pulse" />
         <div className="grid grid-cols-3 gap-3.5">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="h-40 rounded-card bg-neutral-surface-raised motion-safe:animate-pulse" />
+            <div
+              key={i}
+              className="h-40 rounded-card bg-neutral-surface-raised motion-safe:animate-pulse"
+            />
           ))}
         </div>
       </div>
@@ -252,87 +284,93 @@ export function ProjectMethodologyPage() {
               }
             />
           ) : (
-          <div
-            className="grid grid-cols-3 gap-3.5"
-            role="radiogroup"
-            aria-labelledby="method-heading"
-          >
-            {METHODS.map((m) => {
-              const isSelected = (lockedByPolicy ? effective : methodology) === m.id;
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => {
-                    if (canEdit) setMethodology(m.id);
-                  }}
-                  disabled={!canEdit}
-                  role="radio"
-                  aria-checked={isSelected}
-                  className={[
-                    'text-left rounded-card border p-4 transition-colors',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                    !canEdit ? 'cursor-not-allowed' : '',
-                    isSelected
-                      ? 'border-2'
-                      : 'border border-neutral-border bg-neutral-surface-raised hover:bg-neutral-surface-sunken',
-                    !canEdit && !isSelected ? 'opacity-60' : '',
-                  ].join(' ')}
-                  style={
-                    isSelected
-                      ? { borderColor: m.accent, background: m.accentBg, color: m.accent }
-                      : {}
-                  }
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span
-                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-chip text-[11px] font-semibold"
-                      style={{ background: m.accentBg, color: m.accent }}
-                    >
+            <div
+              className="grid grid-cols-3 gap-3.5"
+              role="radiogroup"
+              aria-labelledby="method-heading"
+            >
+              {METHODS.map((m) => {
+                const isSelected = (lockedByPolicy ? effective : methodology) === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => {
+                      if (canEdit) setMethodology(m.id);
+                    }}
+                    disabled={!canEdit}
+                    role="radio"
+                    aria-checked={isSelected}
+                    className={[
+                      'text-left rounded-card border p-4 transition-colors',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                      !canEdit ? 'cursor-not-allowed' : '',
+                      isSelected
+                        ? 'border-2'
+                        : 'border border-neutral-border bg-neutral-surface-raised hover:bg-neutral-surface-sunken',
+                      !canEdit && !isSelected ? 'opacity-60' : '',
+                    ].join(' ')}
+                    style={
+                      isSelected
+                        ? { borderColor: m.accent, background: m.accentBg, color: m.accent }
+                        : {}
+                    }
+                  >
+                    <div className="flex items-center justify-between mb-2">
                       <span
-                        className="w-1.5 h-1.5 rounded-full bg-current opacity-60"
-                        aria-hidden="true"
-                      />
-                      {m.label}
-                    </span>
-                    {isSelected && (
-                      <span
-                        className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
-                        style={{ background: m.accent, color: '#fff' }}
-                      >
-                        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                          <path
-                            d="M3 8l4 4 6-7"
-                            stroke="currentColor"
-                            strokeWidth="2.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[12px] text-neutral-text-secondary mb-3 leading-snug">
-                    {m.tagline}
-                  </p>
-                  <ul className="space-y-1">
-                    {m.features.map((f) => (
-                      <li
-                        key={f}
-                        className="text-[11px] text-neutral-text-secondary flex items-start gap-1.5"
+                        className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-chip text-[11px] font-semibold"
+                        style={{ background: m.accentBg, color: m.accent }}
                       >
                         <span
-                          className="w-1 h-1 rounded-full bg-neutral-text-disabled mt-[5px] shrink-0"
+                          className="w-1.5 h-1.5 rounded-full bg-current opacity-60"
                           aria-hidden="true"
                         />
-                        {f}
-                      </li>
-                    ))}
-                  </ul>
-                </button>
-              );
-            })}
-          </div>
+                        {m.label}
+                      </span>
+                      {isSelected && (
+                        <span
+                          className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+                          style={{ background: m.accent, color: '#fff' }}
+                        >
+                          <svg
+                            width="10"
+                            height="10"
+                            viewBox="0 0 16 16"
+                            fill="none"
+                            aria-hidden="true"
+                          >
+                            <path
+                              d="M3 8l4 4 6-7"
+                              stroke="currentColor"
+                              strokeWidth="2.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[12px] text-neutral-text-secondary mb-3 leading-snug">
+                      {m.tagline}
+                    </p>
+                    <ul className="space-y-1">
+                      {m.features.map((f) => (
+                        <li
+                          key={f}
+                          className="text-[11px] text-neutral-text-secondary flex items-start gap-1.5"
+                        >
+                          <span
+                            className="w-1 h-1 rounded-full bg-neutral-text-disabled mt-[5px] shrink-0"
+                            aria-hidden="true"
+                          />
+                          {f}
+                        </li>
+                      ))}
+                    </ul>
+                  </button>
+                );
+              })}
+            </div>
           )}
         </section>
 
@@ -379,8 +417,8 @@ export function ProjectMethodologyPage() {
             </svg>
           </div>
           <p className="mt-1.5 text-[12px] text-neutral-text-secondary max-w-[440px]">
-            {ESTIMATION_MODE_OPTIONS.find((o) => o.id === estimationMode)?.hint}{' '}
-            Consumed by the estimate-approval flow on tasks.
+            {ESTIMATION_MODE_OPTIONS.find((o) => o.id === estimationMode)?.hint} Consumed by the
+            estimate-approval flow on tasks.
           </p>
         </section>
 
@@ -416,6 +454,22 @@ export function ProjectMethodologyPage() {
           </p>
         </section>
       </div>
+
+      {flipConfirmResolver && (
+        <MethodologyFlipWarningDialog
+          count={sprints.length}
+          itl={itl}
+          pending={false}
+          onCancel={() => {
+            flipConfirmResolver(false);
+            setFlipConfirmResolver(null);
+          }}
+          onConfirm={() => {
+            flipConfirmResolver(true);
+            setFlipConfirmResolver(null);
+          }}
+        />
+      )}
     </div>
   );
 }

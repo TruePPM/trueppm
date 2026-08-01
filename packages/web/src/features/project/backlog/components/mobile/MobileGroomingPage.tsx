@@ -12,18 +12,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { Button } from '@/components/Button';
-import { PlusIcon } from '@/components/Icons';
+import { ListIcon, PlusIcon } from '@/components/Icons';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useProject } from '@/hooks/useProject';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useCanManageBacklog } from '@/hooks/useMyFacets';
+import { MethodologyEmptyState } from '@/features/shell/MethodologyEmptyState';
 import type { Task } from '@/types';
 import { filterBacklog } from '../../filter';
 import { useGroomingFilters } from '../../hooks/useGroomingFilters';
-import {
-  useProductBacklog,
-  useQuickAddStory,
-  useSetDor,
-} from '../../hooks/useProductBacklog';
+import { useProductBacklog, useQuickAddStory, useSetDor } from '../../hooks/useProductBacklog';
 import { DOR_FILTER_ORDER, DorFilterChip, ToggleChip } from '../GroomingFilterChips';
 import { GroomingSearchInput } from '../GroomingSearchInput';
 import { StoryDetailDrawer } from '../StoryDetailDrawer';
@@ -35,7 +33,9 @@ const FOCUS_RING =
 function HealthStat({ value, label, tone }: { value: string; label: string; tone?: string }) {
   return (
     <div className="flex shrink-0 flex-col">
-      <span className={`font-mono text-sm font-bold tabular-nums ${tone ?? 'text-neutral-text-primary'}`}>
+      <span
+        className={`font-mono text-sm font-bold tabular-nums ${tone ?? 'text-neutral-text-primary'}`}
+      >
         {value}
       </span>
       <span className="whitespace-nowrap text-xs text-neutral-text-secondary">{label}</span>
@@ -46,6 +46,11 @@ function HealthStat({ value, label, tone }: { value: string; label: string; tone
 export function MobileGroomingPage() {
   const projectId = useProjectId();
   const itl = useIterationLabel(projectId);
+  // Server-resolved preset (web-rule 196) — WATERFALL hides this view's nav
+  // entry (methodologyTabs.ts), but the route stays reachable by direct URL
+  // on purpose (issue #2619). Drives the explanatory empty state below.
+  const { data: projectDetail } = useProject(projectId);
+  const effectiveMethodology = projectDetail?.effective_methodology ?? 'HYBRID';
   const { data, isLoading, isError } = useProductBacklog(projectId);
   const setDor = useSetDor(projectId);
   const quickAdd = useQuickAddStory(projectId);
@@ -69,8 +74,14 @@ export function MobileGroomingPage() {
     return (
       <div className="flex h-full flex-col bg-app-canvas">
         <div className="border-b border-neutral-border bg-neutral-surface-raised px-4 py-3">
-          <div aria-hidden className="h-3 w-28 motion-safe:animate-pulse rounded-chip bg-neutral-surface-sunken" />
-          <div aria-hidden className="mt-2 h-5 w-24 motion-safe:animate-pulse rounded-chip bg-neutral-surface-sunken" />
+          <div
+            aria-hidden
+            className="h-3 w-28 motion-safe:animate-pulse rounded-chip bg-neutral-surface-sunken"
+          />
+          <div
+            aria-hidden
+            className="mt-2 h-5 w-24 motion-safe:animate-pulse rounded-chip bg-neutral-surface-sunken"
+          />
         </div>
         <div className="flex flex-1 items-center justify-center">
           <span className="text-sm text-neutral-text-secondary">Loading backlog…</span>
@@ -91,7 +102,8 @@ export function MobileGroomingPage() {
   const { health } = backlog;
   const allStories: Task[] = [...backlog.epics.flatMap((g) => g.stories), ...backlog.ungrouped];
   const allEmpty = allStories.length === 0;
-  const selectedStory = selectedId == null ? null : (allStories.find((s) => s.id === selectedId) ?? null);
+  const selectedStory =
+    selectedId == null ? null : (allStories.find((s) => s.id === selectedId) ?? null);
 
   const filtered = filterBacklog(backlog, filterCtl.filters);
   const filterActive = filterCtl.active;
@@ -140,7 +152,18 @@ export function MobileGroomingPage() {
         )}
       </header>
 
-      {allEmpty ? (
+      {allEmpty && effectiveMethodology === 'WATERFALL' ? (
+        // WATERFALL hides this view's nav entry (methodologyTabs.ts), but the
+        // route stays reachable by direct URL on purpose (issue #2619).
+        <MethodologyEmptyState
+          projectId={projectId}
+          icon={ListIcon}
+          title="Backlog isn't part of this project's workflow"
+          description="This project runs on phases and gates, not a product backlog. If backlog grooming fits better here, switch the methodology in Settings."
+          primaryLabel="Go to Schedule"
+          primaryTo={projectId ? `/projects/${projectId}/schedule` : '#'}
+        />
+      ) : allEmpty ? (
         <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
           <h2 className="text-base font-semibold text-neutral-text-primary">
             The product backlog is empty
@@ -197,7 +220,9 @@ export function MobileGroomingPage() {
           <div className="flex-1 space-y-4 overflow-y-auto px-3 py-3">
             {filterActive && matchCount === 0 ? (
               <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
-                <p className="text-sm text-neutral-text-secondary">No stories match your filters.</p>
+                <p className="text-sm text-neutral-text-secondary">
+                  No stories match your filters.
+                </p>
                 <Button variant="secondary" size="sm" onClick={filterCtl.reset}>
                   Clear filters
                 </Button>

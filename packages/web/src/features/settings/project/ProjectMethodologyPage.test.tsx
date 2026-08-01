@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
@@ -11,6 +11,7 @@ const useProject = vi.fn();
 const useUpdateProject = vi.fn();
 const useCurrentUserRole = vi.fn();
 const useWorkspaceSettings = vi.fn();
+const useSprints = vi.fn();
 const mutateAsync = vi.fn();
 
 vi.mock('@/hooks/useProjectId', () => ({
@@ -28,6 +29,17 @@ vi.mock('@/hooks/useCurrentUserRole', () => ({
 }));
 vi.mock('../hooks/useWorkspaceSettings', () => ({
   useWorkspaceSettings: () => useWorkspaceSettings() as { data: unknown },
+}));
+// Existing sprints feed the flip-warning dialog (#2619). Default: none, so the
+// existing save-flow tests below (predating #2619) keep saving immediately.
+vi.mock('@/hooks/useSprints', () => ({
+  useSprints: () =>
+    useSprints() as {
+      sprints: unknown[];
+      isLoading: boolean;
+      error: unknown;
+      refetch: () => void;
+    },
 }));
 
 function makeProject(overrides: Record<string, unknown> = {}) {
@@ -62,6 +74,7 @@ describe('ProjectMethodologyPage', () => {
     useCurrentUserRole.mockReturnValue({ role: 400, isLoading: false });
     useWorkspaceSettings.mockReturnValue({ data: { methodologyOverridePolicy: 'suggest' } });
     useProject.mockReturnValue({ data: makeProject() });
+    useSprints.mockReturnValue({ sprints: [], isLoading: false, error: null, refetch: vi.fn() });
     useSettingsSaveStore.getState().reset();
   });
 
@@ -92,7 +105,9 @@ describe('ProjectMethodologyPage', () => {
     });
     renderPage();
 
-    expect(screen.getByText(/requires every project to use its default methodology/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/requires every project to use its default methodology/i),
+    ).toBeInTheDocument();
     // Locked: no interactive methodology-option radios — the workspace-resolved value
     // (Waterfall) shows read-only. (The independent estimation-scale control below has
     // its own Inherit/Override radios; scope the assertion to the methodology cards.)
@@ -177,5 +192,87 @@ describe('ProjectMethodologyPage', () => {
     useCurrentUserRole.mockReturnValue({ role: 100, isLoading: false });
     renderPage();
     expect(screen.getByRole('combobox', { name: 'Estimate governance' })).toBeDisabled();
+  });
+
+  // ── Flip-warning dialog (#2619) ──────────────────────────────────────────
+  describe('flip to WATERFALL with existing sprints', () => {
+    beforeEach(() => {
+      useSprints.mockReturnValue({
+        sprints: [{ id: 's1' }, { id: 's2' }],
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      });
+    });
+
+    it('blocks the save behind a confirm dialog naming the sprint count', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await user.click(screen.getByRole('radio', { name: /Waterfall/i }));
+
+      // Fire the save without awaiting it to completion — handleSave blocks on
+      // the confirm dialog, which only resolves once the user answers it below.
+      // `act` (sync form) flushes the dialog-opening state update that happens
+      // synchronously before handleSave's first await; it does not wait for the
+      // save itself to finish.
+      let settled = false;
+      let savePromise!: Promise<void>;
+      act(() => {
+        savePromise = useSettingsSaveStore
+          .getState()
+          .triggerSave()
+          .then(() => {
+            settled = true;
+          });
+      });
+
+      const dialog = await screen.findByRole('alertdialog', { name: 'Switch to Waterfall?' });
+      expect(within(dialog).getByText(/2 sprints already committed/)).toBeInTheDocument();
+      expect(mutateAsync).not.toHaveBeenCalled();
+      expect(settled).toBe(false);
+
+      await user.click(within(dialog).getByRole('button', { name: 'Switch to Waterfall' }));
+      await act(async () => {
+        await savePromise;
+      });
+
+      expect(mutateAsync).toHaveBeenCalledWith({ methodology: 'WATERFALL' });
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    });
+
+    it('cancelling the dialog leaves the save undone and the form dirty', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await user.click(screen.getByRole('radio', { name: /Waterfall/i }));
+
+      let savePromise!: Promise<void>;
+      act(() => {
+        savePromise = useSettingsSaveStore.getState().triggerSave();
+      });
+      const dialog = await screen.findByRole('alertdialog', { name: 'Switch to Waterfall?' });
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+      await act(async () => {
+        await savePromise;
+      });
+
+      expect(mutateAsync).not.toHaveBeenCalled();
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(useSettingsSaveStore.getState().dirty).toBe(true);
+    });
+
+    it('does not warn for a flip between AGILE and HYBRID (both show sprints)', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await user.click(screen.getByRole('radio', { name: /Hybrid/i }));
+      await act(async () => {
+        await useSettingsSaveStore.getState().triggerSave();
+      });
+
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(mutateAsync).toHaveBeenCalledWith({ methodology: 'HYBRID' });
+    });
   });
 });

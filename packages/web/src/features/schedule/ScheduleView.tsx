@@ -71,11 +71,13 @@ import {
 import { ImportModal } from '@/components/import/ImportModal';
 import { CsvImportWizard } from '@/components/import/CsvImportWizard';
 import { EmptyState } from '@/components/EmptyState';
+import { MethodologyEmptyState } from '@/features/shell/MethodologyEmptyState';
 import { Button } from '@/components/Button';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { GanttIcon } from '@/components/Icons';
 import { useExportMsProject } from '@/hooks/useMsProjectImportExport';
-import type { Task } from '@/types';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
+import type { Methodology, Task } from '@/types';
 import { useFeatureFlag } from '@/lib/featureFlags';
 import { useDependencyHover } from './useDependencyHover';
 import { ScheduleDependencyPicker } from './ScheduleDependencyPicker';
@@ -1106,6 +1108,10 @@ export function ScheduleView() {
   // working day >= start_date (#884), falling back to the literal start when the
   // detail field is absent (older payloads / list cache).
   const { projectStartDate, effectiveFloorDate } = resolveProjectFloor(projectDetail);
+  // Server-resolved preset (web-rule 196) — AGILE hides this view's nav entry
+  // (methodologyTabs.ts), but the route stays reachable by direct URL on purpose
+  // (issue #2619). Drives the explanatory empty state below.
+  const effectiveMethodology = projectDetail?.effective_methodology ?? 'HYBRID';
 
   const scheduleCommit = useScheduleCommit({
     engine,
@@ -2017,6 +2023,7 @@ export function ScheduleView() {
         surfaces={surfaces}
         unscheduledTasks={unscheduledTasks}
         sprints={sprints}
+        effectiveMethodology={effectiveMethodology}
       />
 
       {/* Contextual hint strip (#1250, web rule 194): render only while the user
@@ -2903,6 +2910,7 @@ interface ScheduleMainAreaProps {
   surfaces: ReturnType<typeof useSurfaceVisibility>;
   unscheduledTasks: Task[];
   sprints: ComponentProps<typeof UnscheduledGutter>['sprints'];
+  effectiveMethodology: Methodology;
 }
 
 function ScheduleMainArea(props: ScheduleMainAreaProps) {
@@ -2951,8 +2959,10 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
     surfaces,
     unscheduledTasks,
     sprints,
+    effectiveMethodology,
   } = props;
 
+  const itl = useIterationLabel(projectId ?? undefined);
   const totalCanvasWidth = scheduleScales?.totalWidth ?? 0;
 
   if (isMobile) {
@@ -2968,6 +2978,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
         isLoading={isLoading}
         error={error}
         onAddTask={() => setShowAddForm(true)}
+        effectiveMethodology={effectiveMethodology}
       />
     );
   }
@@ -3011,6 +3022,18 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
         {visibleTasks.length === 0 ? (
           buildModeActive ? (
             <BuildModeEmptyState onAddFirstTask={handleAddFirstTask} />
+          ) : effectiveMethodology === 'AGILE' ? (
+            // AGILE hides this view's nav entry (methodologyTabs.ts), but the route
+            // stays reachable by direct URL on purpose (issue #2619).
+            <MethodologyEmptyState
+              className="h-full bg-neutral-surface"
+              projectId={projectId}
+              icon={GanttIcon}
+              title="Schedule isn't part of this project's workflow"
+              description={`This project runs on ${itl.lowerPlural}, not a phase-gated schedule. If a full CPM schedule fits better here, switch the methodology in Settings.`}
+              primaryLabel={`Go to ${itl.plural}`}
+              primaryTo={projectId ? `/projects/${projectId}/sprints` : '#'}
+            />
           ) : (
             <ScheduleEmptyState onAddTask={readOnly ? undefined : () => setShowAddForm(true)} />
           )

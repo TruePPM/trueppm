@@ -80,7 +80,7 @@ test.describe('Always-visible methodology indicator — 768–1023px band (#1907
 
       // Accessible name is always the full methodology word (WCAG 1.4.1 / rule 6) —
       // never the "WF" glyph alone.
-      const badge = page.getByRole('img', { name: 'Waterfall workspace' });
+      const badge = page.getByRole('img', { name: 'Waterfall methodology' });
       await expect(badge).toBeVisible({ timeout: 10_000 });
       await expect(badge).toHaveText('WF');
     });
@@ -92,7 +92,7 @@ test.describe('Always-visible methodology indicator — 768–1023px band (#1907
     await page.setViewportSize({ width: 900, height: 900 });
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/overview`);
-    await expect(page.getByRole('img', { name: 'Waterfall workspace' })).toBeVisible({
+    await expect(page.getByRole('img', { name: 'Waterfall methodology' })).toBeVisible({
       timeout: 10_000,
     });
 
@@ -100,10 +100,10 @@ test.describe('Always-visible methodology indicator — 768–1023px band (#1907
     await page.getByRole('button', { name: 'Show navigation' }).click();
     const rail = page.getByRole('complementary', { name: 'Primary navigation' });
     await expect(rail).toBeVisible();
-    await expect(rail).toContainText('Waterfall workspace');
+    await expect(rail).toContainText('Waterfall methodology');
 
     // The bar badge must be gone now — the rail subtitle is the sole signal.
-    await expect(page.getByRole('img', { name: 'Waterfall workspace' })).toHaveCount(0);
+    await expect(page.getByRole('img', { name: 'Waterfall methodology' })).toHaveCount(0);
   });
 });
 
@@ -120,10 +120,10 @@ test.describe('Methodology indicator at the rail-open default (≥1024px) — no
     // subtitle with the methodology.
     const rail = page.getByRole('complementary', { name: 'Primary navigation' });
     await expect(rail).toBeVisible({ timeout: 10_000 });
-    await expect(rail).toContainText('Waterfall workspace');
+    await expect(rail).toContainText('Waterfall methodology');
 
     // The bar's compact badge must not also render — exactly one signal at a time.
-    await expect(page.getByRole('img', { name: 'Waterfall workspace' })).toHaveCount(0);
+    await expect(page.getByRole('img', { name: 'Waterfall methodology' })).toHaveCount(0);
   });
 
   test('collapsing the rail brings the bar badge back (methodology stays discoverable)', async ({
@@ -137,7 +137,7 @@ test.describe('Methodology indicator at the rail-open default (≥1024px) — no
     await page.getByRole('button', { name: 'Hide navigation' }).click();
     await expect(rail).toHaveCount(0);
 
-    const badge = page.getByRole('img', { name: 'Waterfall workspace' });
+    const badge = page.getByRole('img', { name: 'Waterfall methodology' });
     await expect(badge).toBeVisible();
     await expect(badge).toHaveText('WF');
   });
@@ -146,7 +146,7 @@ test.describe('Methodology indicator at the rail-open default (≥1024px) — no
 /**
  * The sighted half of the signal (#2389).
  *
- * The badge shipped with `role="img"` + `aria-label="Waterfall workspace"` and
+ * The badge shipped with `role="img"` + `aria-label="Waterfall methodology"` and
  * nothing else, so a screen-reader user was told what `WF` meant and a sighted
  * mouse user was not. These cover the three input paths the shared `Tooltip`
  * primitive (rule 287) has to serve — and the mouse path alone is not enough,
@@ -167,12 +167,12 @@ test.describe('the WF/AG/HY code explains itself to sighted users (#2389)', () =
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/overview`);
 
-    const badge = page.getByRole('img', { name: 'Waterfall workspace' });
+    const badge = page.getByRole('img', { name: 'Waterfall methodology' });
     await expect(badge).toBeVisible({ timeout: 10_000 });
     await expect(tooltipPanel(page)).toHaveCount(0);
 
     await badge.hover();
-    await expect(tooltipPanel(page)).toHaveText('Waterfall workspace');
+    await expect(tooltipPanel(page)).toHaveText('Waterfall methodology');
   });
 
   test('keyboard focus reveals it too — the path a native `title` never served', async ({
@@ -182,14 +182,14 @@ test.describe('the WF/AG/HY code explains itself to sighted users (#2389)', () =
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/overview`);
 
-    const badge = page.getByRole('img', { name: 'Waterfall workspace' });
+    const badge = page.getByRole('img', { name: 'Waterfall methodology' });
     await expect(badge).toBeVisible({ timeout: 10_000 });
 
     // The chip is a <span>, so it only has a tab stop because Tooltip gave it
     // one. Focusing it directly (rather than tabbing the whole shell) keeps the
     // assertion about the affordance instead of about shell tab order.
     await badge.focus();
-    await expect(tooltipPanel(page)).toHaveText('Waterfall workspace');
+    await expect(tooltipPanel(page)).toHaveText('Waterfall methodology');
 
     await page.keyboard.press('Escape');
     await expect(tooltipPanel(page)).toHaveCount(0);
@@ -202,20 +202,20 @@ test.describe('the WF/AG/HY code explains itself to sighted users (#2389)', () =
     test.use({ hasTouch: true });
 
     test('tapping reveals it, where hover never fires', async ({ page }) => {
-    await page.setViewportSize({ width: 900, height: 900 });
-    await setup(page);
-    await page.goto(`/projects/${PROJECT_ID}/overview`);
+      await page.setViewportSize({ width: 900, height: 900 });
+      await setup(page);
+      await page.goto(`/projects/${PROJECT_ID}/overview`);
 
-    const badge = page.getByRole('img', { name: 'Waterfall workspace' });
-    await expect(badge).toBeVisible({ timeout: 10_000 });
+      const badge = page.getByRole('img', { name: 'Waterfall methodology' });
+      await expect(badge).toBeVisible({ timeout: 10_000 });
 
-    // A real touch sequence, not `.click()` — a synthetic click reports
-    // `pointerType: 'mouse'` and would exercise the hover path instead.
-    const box = await badge.boundingBox();
-    if (!box) throw new Error('methodology badge has no bounding box');
-    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+      // A real touch sequence, not `.click()` — a synthetic click reports
+      // `pointerType: 'mouse'` and would exercise the hover path instead.
+      const box = await badge.boundingBox();
+      if (!box) throw new Error('methodology badge has no bounding box');
+      await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
 
-    await expect(tooltipPanel(page)).toHaveText('Waterfall workspace');
+      await expect(tooltipPanel(page)).toHaveText('Waterfall methodology');
     });
   });
 });

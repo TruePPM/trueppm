@@ -18,11 +18,17 @@ const h = vi.hoisted(() => ({
   backlog: { isLoading: true, isError: false, data: undefined as ProductBacklog | undefined },
   canManage: true,
   projectId: 'proj-1' as string | undefined,
+  effectiveMethodology: undefined as string | undefined,
   labels: undefined as Array<{ id: string; name: string; color: string }> | undefined,
   /** Drives `useSortable().isDragging` so the lifted-row branch is reachable. */
   rowDragging: false,
   planned: [] as Array<{ id: string; name: string }>,
-  filters: { query: '', dorStates: [] as string[], unestimatedOnly: false, labelIds: [] as string[] },
+  filters: {
+    query: '',
+    dorStates: [] as string[],
+    unestimatedOnly: false,
+    labelIds: [] as string[],
+  },
   filterActive: false,
   intent: null as { kind: string; projectId: string } | null,
   autoRankPending: false,
@@ -105,6 +111,17 @@ vi.mock('react-router', async (orig) => ({
 }));
 
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => h.projectId }));
+
+// Server-resolved methodology (#2619) — drives the explanatory empty state.
+// `undefined` (the default) lets the component's own `?? 'HYBRID'` fallback
+// apply, matching every pre-#2619 test's implicit expectation.
+vi.mock('@/hooks/useProject', () => ({
+  useProject: () => ({
+    data: h.effectiveMethodology ? { effective_methodology: h.effectiveMethodology } : undefined,
+    isLoading: false,
+    error: null,
+  }),
+}));
 
 vi.mock('@/hooks/useIterationLabel', () => ({
   useIterationLabel: () => ({
@@ -325,6 +342,7 @@ beforeEach(() => {
   h.bp.value = 'lg';
   h.backlog = { isLoading: true, isError: false, data: undefined };
   h.canManage = true;
+  h.effectiveMethodology = undefined;
   h.planned = [];
   h.filters = { query: '', dorStates: [], unestimatedOnly: false, labelIds: [] };
   h.filterActive = false;
@@ -407,6 +425,28 @@ describe('DesktopGroomingView data gates', () => {
     // Empty backlog hides the filter bar.
     expect(screen.queryByTestId('filter-bar')).not.toBeInTheDocument();
   });
+
+  // #2619: WATERFALL hides this route's nav entry, but it stays reachable by
+  // direct URL — the bug was the cold-start CTA never saying so.
+  it('shows the methodology-mismatch empty state on a WATERFALL project', () => {
+    h.effectiveMethodology = 'WATERFALL';
+    setData(makeBacklog({ epics: [], ungrouped: [] }));
+    renderPage();
+    expect(screen.getByText("Backlog isn't part of this project's workflow")).toBeInTheDocument();
+    expect(screen.queryByText('No stories yet')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Go to Schedule' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Change methodology' })).toBeInTheDocument();
+  });
+
+  it('keeps the generic empty state on a non-WATERFALL project', () => {
+    h.effectiveMethodology = 'HYBRID';
+    setData(makeBacklog({ epics: [], ungrouped: [] }));
+    renderPage();
+    expect(screen.getByText('No stories yet')).toBeInTheDocument();
+    expect(
+      screen.queryByText("Backlog isn't part of this project's workflow"),
+    ).not.toBeInTheDocument();
+  });
 });
 
 // ── Header / subtitle composition ───────────────────────────────────────────
@@ -437,7 +477,9 @@ describe('DesktopGroomingView header', () => {
       }),
     );
     renderPage();
-    expect(screen.getByText('Epics → stories · 1 pulled into sprint · 1 proposed')).toBeInTheDocument();
+    expect(
+      screen.getByText('Epics → stories · 1 pulled into sprint · 1 proposed'),
+    ).toBeInTheDocument();
   });
 
   it('shows the model badge and score column header only when a model is set', () => {
@@ -696,7 +738,9 @@ describe('By epic / Ranked view toggle', () => {
     window.localStorage.setItem('trueppm.backlog.view', 'ranked');
     setData(makeBacklog());
     renderPage();
-    expect(screen.getByRole('button', { name: 'Open story Signup form, rank 1' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Open story Signup form, rank 1' }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'epic-open-Auth epic' })).not.toBeInTheDocument();
   });
 
@@ -751,7 +795,9 @@ describe('Grooming filter states', () => {
     ).toBeInTheDocument();
     // Only the matching story survives the filter.
     expect(screen.getByRole('button', { name: 'Open story Login flow' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Open story Signup form' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Open story Signup form' }),
+    ).not.toBeInTheDocument();
     expect(screen.getByTestId('filter-bar')).toHaveTextContent('1/3');
   });
 });
@@ -875,23 +921,21 @@ describe('Drag reorder', () => {
   });
 
   it('surfaces the reload banner when a reorder returns a non-400 error', () => {
-    h.reorderMutate.mockImplementation(
-      (_p: unknown, opts: { onError: (e: unknown) => void }) => {
-        opts.onError({ isAxiosError: true, response: { status: 409 } });
-      },
-    );
+    h.reorderMutate.mockImplementation((_p: unknown, opts: { onError: (e: unknown) => void }) => {
+      opts.onError({ isAxiosError: true, response: { status: 409 } });
+    });
     setData(makeBacklog());
     renderPage();
     dragEnd('s1', 's2');
-    expect(screen.getByText('Backlog changed — reloaded. Try your move again.')).toBeInTheDocument();
+    expect(
+      screen.getByText('Backlog changed — reloaded. Try your move again.'),
+    ).toBeInTheDocument();
   });
 
   it('does not show the banner when the reorder error is a 400 (validation)', () => {
-    h.reorderMutate.mockImplementation(
-      (_p: unknown, opts: { onError: (e: unknown) => void }) => {
-        opts.onError({ isAxiosError: true, response: { status: 400 } });
-      },
-    );
+    h.reorderMutate.mockImplementation((_p: unknown, opts: { onError: (e: unknown) => void }) => {
+      opts.onError({ isAxiosError: true, response: { status: 400 } });
+    });
     setData(makeBacklog());
     renderPage();
     dragEnd('s1', 's2');
@@ -902,15 +946,15 @@ describe('Drag reorder', () => {
 
   it('dismisses the reload banner', async () => {
     const user = userEvent.setup();
-    h.reorderMutate.mockImplementation(
-      (_p: unknown, opts: { onError: (e: unknown) => void }) => {
-        opts.onError(new Error('network down'));
-      },
-    );
+    h.reorderMutate.mockImplementation((_p: unknown, opts: { onError: (e: unknown) => void }) => {
+      opts.onError(new Error('network down'));
+    });
     setData(makeBacklog());
     renderPage();
     dragEnd('s1', 's2');
-    expect(screen.getByText('Backlog changed — reloaded. Try your move again.')).toBeInTheDocument();
+    expect(
+      screen.getByText('Backlog changed — reloaded. Try your move again.'),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Dismiss' }));
     expect(
       screen.queryByText('Backlog changed — reloaded. Try your move again.'),
@@ -921,8 +965,8 @@ describe('Drag reorder', () => {
 // ── Drag: reparent across groups (ADR-0183 D3) ──────────────────────────────
 describe('Drag reparent', () => {
   it('reparents a story into an epic and announces the move', () => {
-    h.reparentMutate.mockImplementation(
-      (_p: unknown, opts: { onSuccess: () => void }) => opts.onSuccess(),
+    h.reparentMutate.mockImplementation((_p: unknown, opts: { onSuccess: () => void }) =>
+      opts.onSuccess(),
     );
     setData(makeBacklog());
     renderPage();
@@ -937,8 +981,8 @@ describe('Drag reparent', () => {
   });
 
   it('reparents a story out of all epics (drop on the No-epic bucket)', () => {
-    h.reparentMutate.mockImplementation(
-      (_p: unknown, opts: { onSuccess: () => void }) => opts.onSuccess(),
+    h.reparentMutate.mockImplementation((_p: unknown, opts: { onSuccess: () => void }) =>
+      opts.onSuccess(),
     );
     setData(makeBacklog());
     renderPage();
@@ -951,13 +995,15 @@ describe('Drag reparent', () => {
   });
 
   it('shows the reload banner and announces failure when a reparent errors', () => {
-    h.reparentMutate.mockImplementation(
-      (_p: unknown, opts: { onError: () => void }) => opts.onError(),
+    h.reparentMutate.mockImplementation((_p: unknown, opts: { onError: () => void }) =>
+      opts.onError(),
     );
     setData(makeBacklog());
     renderPage();
     dragEnd('s3', 'epic:e1');
-    expect(screen.getByText('Backlog changed — reloaded. Try your move again.')).toBeInTheDocument();
+    expect(
+      screen.getByText('Backlog changed — reloaded. Try your move again.'),
+    ).toBeInTheDocument();
     expect(announcerText()).toBe(
       "Couldn't move Reset password. The backlog was reloaded — try again.",
     );
@@ -1103,9 +1149,7 @@ describe('Empty-group drop slots', () => {
     renderPage();
     // Start dragging an epic story so the transient No-epic bucket appears.
     dragStart('s1');
-    expect(
-      screen.getByText('Drop here to remove this story from its epic.'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Drop here to remove this story from its epic.')).toBeInTheDocument();
   });
 });
 
@@ -1230,8 +1274,8 @@ describe('Additional composition branches', () => {
 
   it('restores the epic draft when the create fails', async () => {
     const user = userEvent.setup();
-    h.createEpicMutate.mockImplementation(
-      (_p: unknown, opts: { onError: () => void }) => opts.onError(),
+    h.createEpicMutate.mockImplementation((_p: unknown, opts: { onError: () => void }) =>
+      opts.onError(),
     );
     setData(makeBacklog());
     renderPage();
@@ -1244,8 +1288,8 @@ describe('Additional composition branches', () => {
 
   it('restores the quick-add draft when the story create fails', async () => {
     const user = userEvent.setup();
-    h.quickAddMutate.mockImplementation(
-      (_p: unknown, opts: { onError: () => void }) => opts.onError(),
+    h.quickAddMutate.mockImplementation((_p: unknown, opts: { onError: () => void }) =>
+      opts.onError(),
     );
     setData(makeBacklog());
     renderPage();
@@ -1438,7 +1482,9 @@ describe('Ranked view with an active filter', () => {
     expect(
       screen.getByRole('button', { name: 'Open story Login flow, rank 1' }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Open story Signup form/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Open story Signup form/ }),
+    ).not.toBeInTheDocument();
   });
 
   it('suppresses the ranked list entirely when nothing matches', () => {
@@ -1465,7 +1511,10 @@ describe('Label facet counts', () => {
           {
             epic: epicTask,
             stories: [
-              makeStory('t1', { name: 'Tagged', labels: [{ id: 'l1', name: 'backend', color: '#123456' }] }),
+              makeStory('t1', {
+                name: 'Tagged',
+                labels: [{ id: 'l1', name: 'backend', color: '#123456' }],
+              }),
             ],
             rollup: { storyCount: 1, pointsTotal: 2, pointsDone: 0 },
           },

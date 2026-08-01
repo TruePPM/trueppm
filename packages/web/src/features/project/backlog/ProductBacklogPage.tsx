@@ -52,8 +52,10 @@ import { CSS } from '@dnd-kit/utilities';
 import { isAxiosError } from 'axios';
 import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/EmptyState';
+import { MethodologyEmptyState } from '@/features/shell/MethodologyEmptyState';
 import { ListIcon } from '@/components/Icons';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useProject } from '@/hooks/useProject';
 import { useLabels } from '@/hooks/useLabels';
 import { countTasksByLabel } from '@/components/filters/labelFilter';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
@@ -531,6 +533,11 @@ function DesktopGroomingView() {
   const projectId = useProjectId();
   const navigate = useNavigate();
   const itl = useIterationLabel(projectId);
+  // Server-resolved preset (web-rule 196) — WATERFALL hides this view's nav entry
+  // (methodologyTabs.ts), but the route stays reachable by direct URL on purpose
+  // (issue #2619). Drives the explanatory empty state below.
+  const { data: projectDetail } = useProject(projectId);
+  const effectiveMethodology = projectDetail?.effective_methodology ?? 'HYBRID';
   const { data, isLoading, isError } = useProductBacklog(projectId);
   const { data: labelCatalog } = useLabels(projectId);
   const autoRank = useAutoRank(projectId);
@@ -995,7 +1002,17 @@ function DesktopGroomingView() {
           </div>
 
           <div className="px-4 pt-2">
-            {allEmpty && (
+            {allEmpty && effectiveMethodology === 'WATERFALL' && (
+              <MethodologyEmptyState
+                projectId={projectId}
+                icon={ListIcon}
+                title="Backlog isn't part of this project's workflow"
+                description="This project runs on phases and gates, not a product backlog. If backlog grooming fits better here, switch the methodology in Settings."
+                primaryLabel="Go to Schedule"
+                primaryTo={projectId ? `/projects/${projectId}/schedule` : '#'}
+              />
+            )}
+            {allEmpty && effectiveMethodology !== 'WATERFALL' && (
               <EmptyState
                 icon={ListIcon}
                 title="No stories yet"

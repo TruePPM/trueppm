@@ -859,6 +859,12 @@ class Program(VersionedModel):
         null=True,
         blank=True,
     )
+    # Per-scope sprint-picker "Ready only" default override (ADR-0758, #2670). NULL
+    # = inherit the workspace value; a non-null value overrides it for every
+    # project in this program whose own override is NULL. Resolved computed-on-read
+    # in ``apps.projects.sprint_picker_settings``. Not in ``_HISTORY_EXCLUDED_BASE``,
+    # so each override write is captured (audit).
+    sprint_picker_ready_only_default = models.BooleanField(null=True, blank=True)
     # Per-scope attachment-policy overrides (ADR-0153, #976). ``attachments_enabled``
     # NULL = inherit the workspace value; True/False = explicit override for every
     # project in this program whose own override is NULL. ``allowed_attachment_types``
@@ -1410,6 +1416,15 @@ class Project(VersionedModel):
         null=True,
         blank=True,
     )
+    # Per-scope sprint-picker "Ready only" default override (ADR-0758, #2670). NULL
+    # = inherit from the program (or workspace, if the program also inherits);
+    # non-null = explicit override for this project. Resolved computed-on-read in
+    # ``apps.projects.sprint_picker_settings`` and surfaced via the serializer's
+    # ``effective_sprint_picker_ready_only_default``. Advisory only — governs which
+    # stories the picker shows/defaults to by default, never a commit-time block.
+    # Captured by HistoricalRecords (not in ``_HISTORY_EXCLUDED_BASE``) so admin
+    # writes audit.
+    sprint_picker_ready_only_default = models.BooleanField(null=True, blank=True)
     # Per-scope attachment-policy overrides (ADR-0153, #976). ``attachments_enabled``
     # NULL = inherit from the program (or workspace, if the program also inherits);
     # True/False = explicit override for this project. ``allowed_attachment_types``

@@ -7,7 +7,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type RefObject,
 } from 'react';
-import { useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { ROLE_ADMIN, ROLE_MEMBER, ROLE_SCHEDULER } from '@/lib/roles';
 import { useProjectId } from '@/hooks/useProjectId';
@@ -47,6 +47,7 @@ import { GuardrailHealthBadges } from './GuardrailHealthBadges';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { MultiTeamLens } from './MultiTeamLens';
 import { PlanSprintModal } from './PlanSprintModal';
+import { StoryPickerModal } from './StoryPickerModal';
 import {
   SprintFilterPopover,
   applySprintFilter,
@@ -60,6 +61,7 @@ import { ScopePendingReviewPanel } from './ScopePendingReviewPanel';
 import { useCanManageScope } from '@/hooks/useCanManageScope';
 import { useCanEditSprintGoal } from '@/hooks/useCanEditSprintGoal';
 import { EmptyState } from '@/components/EmptyState';
+import { MethodologyEmptyState } from '@/features/shell/MethodologyEmptyState';
 import { isTypingInInput } from '@/hooks/useGlobalShortcut';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { Button } from '@/components/Button';
@@ -71,7 +73,7 @@ import { useCurrentUserResourceId } from '@/hooks/useCurrentUserResourceId';
 import { daysBetween } from './sprintMath';
 import { TaskFormModal } from '@/features/board/TaskFormModal';
 import { TaskDetailDrawer } from '@/features/schedule/TaskDetailDrawer';
-import type { ApiSprint, Task, TaskStatus } from '@/types';
+import type { ApiSprint, Methodology, Task, TaskStatus } from '@/types';
 
 type IterationLabel = ReturnType<typeof useIterationLabel>;
 type CloseSprintMutation = ReturnType<typeof useSprintMutations>['closeSprint'];
@@ -512,6 +514,10 @@ export function SprintsView() {
   const plannedSprint = buckets.planned[0] ?? null;
   const hasPlannedSprint = buckets.planned.length > 0;
   const projectName = projectQuery.data?.name;
+  // Server-resolved preset (web-rule 196) — WATERFALL hides the DELIVER nav group
+  // (methodologyTabs.ts), but the route stays reachable by design (issue #2619).
+  // Drives the explanatory empty state below and the orphaned-sprints banner.
+  const effectiveMethodology = projectQuery.data?.effective_methodology ?? 'HYBRID';
 
   const { selectedSprintId, selectedSprint, setSelectedSprintId } = useSelectedSprint(
     sprints,
@@ -541,6 +547,11 @@ export function SprintsView() {
   const showLensToggle = myTeamsCount >= 2;
   const [scope, setScope] = useState<SprintScope>('project');
   const [planOpen, setPlanOpen] = useState(false);
+  // Story picker (issue #2670) — multi-select existing backlog stories into the
+  // PLANNED sprint without leaving this page. Opened from the planned surface's
+  // "Pull from backlog" button; SprintModals renders the modal itself so its
+  // focus trap sits alongside the other sprint-lifecycle modals.
+  const [storyPickerOpen, setStoryPickerOpen] = useState(false);
   // Edit-mode for the planned sprint card "Edit" button (#299).
   const [editSprintId, setEditSprintId] = useState<string | null>(null);
   // Scope-injection review slide-over (ADR-0102 §5) — alt entry to the board
@@ -678,6 +689,14 @@ export function SprintsView() {
             onReview={() => setScopeReviewOpen(true)}
           />
 
+          {/* A methodology flip to WATERFALL hides the DELIVER nav group but never
+          touches sprint data (issue #2619) — without this, a team that already
+          committed to sprints would see them vanish from the nav with no signal
+          they still exist. */}
+          {!isLoading && !error && effectiveMethodology === 'WATERFALL' && sprints.length > 0 && (
+            <MethodologyMismatchBanner projectId={projectId} itl={itl} count={sprints.length} />
+          )}
+
           <CapacityWarningsAlert
             warnings={capacityWarnings}
             itl={itl}
@@ -719,6 +738,7 @@ export function SprintsView() {
                 outcomeQuery={outcomeQuery}
                 projectTasks={projectTasks}
                 itl={itl}
+                effectiveMethodology={effectiveMethodology}
                 onRetry={refetch}
                 onPlanNext={handlePlanNext}
               />
@@ -764,6 +784,7 @@ export function SprintsView() {
               onAddTask={setAddTaskForSprintId}
               onRemoveTask={handleRemoveFromSprint}
               onOpenTask={setSelectedTaskId}
+              onOpenPicker={() => setStoryPickerOpen(true)}
             />
 
             <SprintRetroSection
@@ -798,6 +819,13 @@ export function SprintsView() {
         taskIndex={taskIndex}
         onCloseTaskDrawer={() => setSelectedTaskId(null)}
         onSwapCanceled={(keptId) => setSelectedTaskId(keptId)}
+        storyPickerOpen={storyPickerOpen}
+        plannedSprint={plannedSprint}
+        plannedDraftPoints={plannedDraftPoints}
+        sprintPickerReadyOnlyDefault={
+          projectQuery.data?.effective_sprint_picker_ready_only_default ?? true
+        }
+        onCloseStoryPicker={() => setStoryPickerOpen(false)}
       />
     </div>
   );
@@ -953,9 +981,7 @@ function CapacityWarningsAlert({
           {warnings.slice(0, 3).map((w) => (
             <li key={w.resource_id}>{w.message}</li>
           ))}
-          {warnings.length > 3 && (
-            <li className="italic">and {warnings.length - 3} more…</li>
-          )}
+          {warnings.length > 3 && <li className="italic">and {warnings.length - 3} more…</li>}
         </ul>
       </div>
       <button
@@ -965,6 +991,48 @@ function CapacityWarningsAlert({
       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-at-risk focus-visible:ring-offset-1 rounded"
       >
         Dismiss
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Explains why sprints are visible on a project now configured as WATERFALL
+ * (issue #2619). A methodology flip hides the DELIVER nav group but never
+ * touches sprint data — including sprints a team already committed to — so
+ * without this notice they become reachable only by URL with no on-screen
+ * signal they still exist. Read-only; routes to Settings → Methodology so
+ * reintegrating them is a deliberate choice, never a silent fix.
+ */
+function MethodologyMismatchBanner({
+  projectId,
+  itl,
+  count,
+}: {
+  projectId: string | undefined;
+  itl: IterationLabel;
+  count: number;
+}) {
+  const navigate = useNavigate();
+  const noun = count === 1 ? itl.lower : itl.lowerPlural;
+  return (
+    <div
+      role="status"
+      className="mx-6 mt-2 rounded-card border border-semantic-at-risk/40 bg-semantic-at-risk-bg
+    text-semantic-at-risk px-3 py-2 text-xs flex items-center justify-between gap-3 flex-wrap"
+    >
+      <p>
+        This project is configured as Waterfall, but {count} {noun} already{' '}
+        {count === 1 ? 'is' : 'are'} committed here — they stay reachable even though they sit
+        outside its workflow.
+      </p>
+      <button
+        type="button"
+        onClick={() => projectId && void navigate(`/projects/${projectId}/settings#methodology`)}
+        className="shrink-0 text-xs font-semibold underline hover:no-underline
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-at-risk focus-visible:ring-offset-1 rounded"
+      >
+        Review methodology
       </button>
     </div>
   );
@@ -990,6 +1058,7 @@ function SprintStateBody({
   outcomeQuery,
   projectTasks,
   itl,
+  effectiveMethodology,
   onRetry,
   onPlanNext,
 }: {
@@ -1010,16 +1079,13 @@ function SprintStateBody({
   outcomeQuery: OutcomeQuery;
   projectTasks: Task[] | undefined;
   itl: IterationLabel;
+  effectiveMethodology: Methodology;
   onRetry: (() => void) | undefined;
   onPlanNext: () => void;
 }) {
   if (isLoading) {
     return (
-      <div
-        role="status"
-        aria-label={`Loading ${itl.lowerPlural}…`}
-        className="flex flex-col gap-4"
-      >
+      <div role="status" aria-label={`Loading ${itl.lowerPlural}…`} className="flex flex-col gap-4">
         {[0, 1].map((i) => (
           <div
             key={i}
@@ -1045,6 +1111,23 @@ function SprintStateBody({
   }
 
   if (sprints.length === 0) {
+    // WATERFALL hides the DELIVER nav group (methodologyTabs.ts), but the route
+    // stays reachable by direct URL on purpose (issue #2619) — the bug was this
+    // generic cold-start CTA inviting the deviation the preset exists to
+    // discourage, with no signal the project is configured otherwise.
+    if (effectiveMethodology === 'WATERFALL') {
+      return (
+        <MethodologyEmptyState
+          className="rounded-card border border-neutral-border bg-neutral-surface-raised"
+          projectId={projectId}
+          icon={SprintIcon}
+          title={`${itl.plural} aren't part of this project's workflow`}
+          description={`This project runs on phases and gates, not ${itl.lowerPlural}. If ${itl.lowerPlural} fit better here, switch the methodology in Settings.`}
+          primaryLabel="Go to Schedule"
+          primaryTo={projectId ? `/projects/${projectId}/schedule` : '#'}
+        />
+      );
+    }
     return (
       <EmptyState
         className="rounded-card border border-neutral-border bg-neutral-surface-raised"
@@ -1054,7 +1137,9 @@ function SprintStateBody({
         // orientation copy stays the single "Plan your first {sprint}" match
         // and never render-depends on the viewer's permission to plan.
         description={`Plan your first ${itl.lower} to start tracking velocity and burn.`}
-        action={canManageScope ? <Button onClick={onPlanNext}>Plan a {itl.lower}</Button> : undefined}
+        action={
+          canManageScope ? <Button onClick={onPlanNext}>Plan a {itl.lower}</Button> : undefined
+        }
       />
     );
   }
@@ -1361,6 +1446,7 @@ function PlannedSprintSurface({
   onAddTask,
   onRemoveTask,
   onOpenTask,
+  onOpenPicker,
 }: {
   ready: boolean;
   selectedSprint: ApiSprint | null;
@@ -1375,6 +1461,8 @@ function PlannedSprintSurface({
   onAddTask: (sprintId: string) => void;
   onRemoveTask: (taskId: string) => void;
   onOpenTask: (taskId: string) => void;
+  /** Opens the story picker (issue #2670) — SCHEDULER+ only, mirroring onAddTask. */
+  onOpenPicker: () => void;
 }) {
   if (!ready || selectedSprint?.id !== plannedSprint?.id || !plannedSprint || !projectId) {
     return null;
@@ -1391,7 +1479,7 @@ function PlannedSprintSurface({
           onOpenTask={onOpenTask}
           showCarryoverLane
           canPullCarryover={canPullCarryover}
-          showBacklogLink
+          onOpenPicker={canManageLifecycle ? onOpenPicker : undefined}
         />
       </div>
       <div className="lg:col-span-2 flex flex-col gap-4">
@@ -1489,6 +1577,11 @@ function SprintModals({
   taskIndex,
   onCloseTaskDrawer,
   onSwapCanceled,
+  storyPickerOpen,
+  plannedSprint,
+  plannedDraftPoints,
+  sprintPickerReadyOnlyDefault,
+  onCloseStoryPicker,
 }: {
   projectId: string | undefined;
   buckets: ReturnType<typeof useSprintsByState>;
@@ -1512,6 +1605,12 @@ function SprintModals({
   taskIndex: Map<string, Task>;
   onCloseTaskDrawer: () => void;
   onSwapCanceled: (keptId: string) => void;
+  /** Story picker (issue #2670). */
+  storyPickerOpen: boolean;
+  plannedSprint: ApiSprint | null;
+  plannedDraftPoints: number;
+  sprintPickerReadyOnlyDefault: boolean;
+  onCloseStoryPicker: () => void;
 }) {
   return (
     <>
@@ -1582,6 +1681,16 @@ function SprintModals({
           onClose={onCloseTaskDrawer}
           // Restore selection to the still-shown task when a dirty swap is kept (#1978).
           onSwapCanceled={onSwapCanceled}
+        />
+      )}
+
+      {storyPickerOpen && projectId && plannedSprint && (
+        <StoryPickerModal
+          projectId={projectId}
+          sprint={plannedSprint}
+          committedPoints={plannedDraftPoints}
+          readyOnlyDefault={sprintPickerReadyOnlyDefault}
+          onClose={onCloseStoryPicker}
         />
       )}
     </>

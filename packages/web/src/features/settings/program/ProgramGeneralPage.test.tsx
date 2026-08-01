@@ -128,6 +128,9 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     estimation_scale: null,
     effective_estimation_scale: 'fibonacci',
     inherited_estimation_scale: 'fibonacci',
+    sprint_picker_ready_only_default: null,
+    effective_sprint_picker_ready_only_default: true,
+    inherited_sprint_picker_ready_only_default: true,
     attachments_enabled: null,
     allowed_attachment_types: null,
     effective_attachments_enabled: true,
@@ -416,6 +419,7 @@ describe('ProgramGeneralPage (settings)', () => {
         mc_history_attribution_audience: null,
         task_duration_change_percent_policy: null,
         estimation_scale: null,
+        sprint_picker_ready_only_default: null,
       },
     });
   });
@@ -498,6 +502,7 @@ describe('ProgramGeneralPage (settings)', () => {
         mc_history_attribution_audience: null,
         task_duration_change_percent_policy: null,
         estimation_scale: null,
+        sprint_picker_ready_only_default: null,
       },
     });
   });
@@ -538,6 +543,7 @@ describe('ProgramGeneralPage (settings)', () => {
         mc_history_attribution_audience: null,
         task_duration_change_percent_policy: null,
         estimation_scale: null,
+        sprint_picker_ready_only_default: null,
       },
     });
   });

@@ -34,6 +34,7 @@ settings that cascade this way are:
 
 - **Methodology** (ADR-0107) and **iteration terminology** (ADR-0116)
 - **Estimation scale** (ADR-0510)
+- **Sprint story picker "Ready only" default** (ADR-0758) — *ships in 0.4*
 - **Public sharing** and **guest access** (ADR-0135) — see [Sharing & Access Inheritance](/administration/sharing-and-access/)
 - **Duration change → percent complete** policy (ADR-0151)
 - **Monte Carlo forecast-history** retention (ADR-0144)
@@ -77,6 +78,7 @@ here affect every project in the program.
 | Methodology | Planning model for the program's projects. Inherits the workspace default unless overridden — see [Methodology presets](/features/methodology-preset/). |
 | Iteration terminology | What the program calls its iteration container (Sprint, Iteration, Cycle…). Inherits the workspace default. |
 | Estimation scale | The estimate scale (story points, hours, T-shirt…) projects inherit. Inherits the workspace default. |
+| Story picker shows Ready stories only, by default *(ships in 0.4)* | Whether the [sprint story picker](/features/sprint-backlog/#story-picker) starts filtered to Definition-of-Ready stories for this program's projects. Advisory only — never a commit-time block. Inherits the workspace default. |
 | Allow guests | Whether guests may be added to this program's projects. Inherits the workspace value — see [Sharing & Access](/administration/sharing-and-access/). |
 | Public sharing | Whether read-only view links may be shared. Inherits the workspace value. |
 | Keep Monte Carlo run history | Whether the program retains past [Monte Carlo](/features/monte-carlo/) forecast runs. Inherits the workspace policy. |

@@ -1,6 +1,7 @@
 ---
 title: Project Settings
 description: Configure a project's identity, membership, board workflow, notifications, and lifecycle from the project settings pages.
+documentedFor: "0.4"
 ---
 
 Every project has a **Settings** area (under `/projects/:id/settings`) where Admins
@@ -39,6 +40,18 @@ The **General** page edits the project's identity:
   project's program) and an Owner/Admin can override them per project. A control with no
   override reads **Inherit (On/Off)**, showing the value that would apply from the parent
   scope. See [Sharing & Access Inheritance](/administration/sharing-and-access/).
+
+:::note[Ships in 0.4]
+The **Sprint planning** section below — the story picker's "Ready only" default —
+ships in **TruePPM 0.4**, the first beta. It is not present in `v0.3.0-alpha.3`,
+the latest release.
+:::
+
+- **Sprint planning** — whether the [sprint story picker](/features/sprint-backlog/#story-picker)
+  starts filtered to Definition-of-Ready stories for this project. Inherits the program or
+  workspace default unless you override it here (Scheduler role or above may set it — PO/team
+  territory, alongside estimation scale). Advisory only: the picker's own "Show all" toggle
+  always reveals a not-ready story, and committing one is never blocked.
 
 Changes are staged and committed with a save bar, so you can review edits before
 applying them. The **General** page also carries the project's **Working calendar**

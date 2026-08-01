@@ -42,6 +42,7 @@ interface WorkspaceSettingsPatchRaw {
   task_duration_change_percent_policy?: DurationChangePercentPolicy;
   task_duration_change_percent_override_policy?: 'inherit' | 'suggest' | 'enforce';
   estimation_scale?: EstimationScale;
+  sprint_picker_ready_only_default?: boolean;
   methodology?: ProgramMethodology;
   methodology_override_policy?: MethodologyOverridePolicy;
   attachments_enabled?: boolean;
@@ -77,6 +78,7 @@ const FIELD_MAP: ReadonlyArray<[keyof WorkspaceSettingsPatch, keyof WorkspaceSet
   ['taskDurationChangePercentPolicy', 'task_duration_change_percent_policy'],
   ['taskDurationChangePercentOverridePolicy', 'task_duration_change_percent_override_policy'],
   ['estimationScale', 'estimation_scale'],
+  ['sprintPickerReadyOnlyDefault', 'sprint_picker_ready_only_default'],
   ['methodology', 'methodology'],
   ['methodologyOverridePolicy', 'methodology_override_policy'],
   ['attachmentsEnabled', 'attachments_enabled'],

@@ -183,6 +183,10 @@ export function ProgramGeneralPage() {
     useState<DurationChangePercentPolicy | null>(null);
   // null = inherit the workspace estimation scale (ADR-0510, #2027).
   const [estimationScale, setEstimationScale] = useState<EstimationScale | null>(null);
+  // null = inherit the workspace default (ADR-0758, #2670).
+  const [sprintPickerReadyOnlyDefault, setSprintPickerReadyOnlyDefault] = useState<boolean | null>(
+    null,
+  );
   const [visibility, setVisibility] = useState<ProgramVisibility>('WORKSPACE');
   // null = no accent chosen (renders as a health-tinted neutral on the card).
   const [color, setColor] = useState<string | null>(null);
@@ -218,6 +222,9 @@ export function ProgramGeneralPage() {
     setInitialTaskDurationChangePercentPolicy,
   ] = useState<DurationChangePercentPolicy | null>(null);
   const [initialEstimationScale, setInitialEstimationScale] = useState<EstimationScale | null>(null);
+  const [initialSprintPickerReadyOnlyDefault, setInitialSprintPickerReadyOnlyDefault] = useState<
+    boolean | null
+  >(null);
   const [initialVisibility, setInitialVisibility] = useState<ProgramVisibility>('WORKSPACE');
   const [initialColor, setInitialColor] = useState<string | null>(null);
   const [initialLead, setInitialLead] = useState<string | null>(null);
@@ -239,6 +246,7 @@ export function ProgramGeneralPage() {
     setMcHistoryAttributionAudience(program.mc_history_attribution_audience ?? null);
     setTaskDurationChangePercentPolicy(program.task_duration_change_percent_policy ?? null);
     setEstimationScale(program.estimation_scale ?? null);
+    setSprintPickerReadyOnlyDefault(program.sprint_picker_ready_only_default ?? null);
     setVisibility(program.visibility);
     setColor(program.color ?? null);
     setLead(program.lead ?? null);
@@ -256,6 +264,7 @@ export function ProgramGeneralPage() {
     setInitialMcHistoryAttributionAudience(program.mc_history_attribution_audience ?? null);
     setInitialTaskDurationChangePercentPolicy(program.task_duration_change_percent_policy ?? null);
     setInitialEstimationScale(program.estimation_scale ?? null);
+    setInitialSprintPickerReadyOnlyDefault(program.sprint_picker_ready_only_default ?? null);
     setInitialVisibility(program.visibility);
     setInitialColor(program.color ?? null);
     setInitialLead(program.lead ?? null);
@@ -277,6 +286,7 @@ export function ProgramGeneralPage() {
       mcHistoryAttributionAudience,
       taskDurationChangePercentPolicy,
       estimationScale,
+      sprintPickerReadyOnlyDefault,
       visibility,
       color,
       lead,
@@ -296,6 +306,7 @@ export function ProgramGeneralPage() {
       mcHistoryAttributionAudience,
       taskDurationChangePercentPolicy,
       estimationScale,
+      sprintPickerReadyOnlyDefault,
       visibility,
       color,
       lead,
@@ -317,6 +328,7 @@ export function ProgramGeneralPage() {
       mcHistoryAttributionAudience: initialMcHistoryAttributionAudience,
       taskDurationChangePercentPolicy: initialTaskDurationChangePercentPolicy,
       estimationScale: initialEstimationScale,
+      sprintPickerReadyOnlyDefault: initialSprintPickerReadyOnlyDefault,
       visibility: initialVisibility,
       color: initialColor,
       lead: initialLead,
@@ -336,6 +348,7 @@ export function ProgramGeneralPage() {
       initialMcHistoryAttributionAudience,
       initialTaskDurationChangePercentPolicy,
       initialEstimationScale,
+      initialSprintPickerReadyOnlyDefault,
       initialVisibility,
       initialColor,
       initialLead,
@@ -367,6 +380,8 @@ export function ProgramGeneralPage() {
         task_duration_change_percent_policy: taskDurationChangePercentPolicy,
         // null clears the estimation-scale override so the program inherits the workspace value (ADR-0510).
         estimation_scale: estimationScale,
+        // null clears the sprint-picker override so the program inherits the workspace value (ADR-0758).
+        sprint_picker_ready_only_default: sprintPickerReadyOnlyDefault,
         visibility,
         color,
         lead,
@@ -387,6 +402,7 @@ export function ProgramGeneralPage() {
     setInitialMcHistoryAttributionAudience(mcHistoryAttributionAudience);
     setInitialTaskDurationChangePercentPolicy(taskDurationChangePercentPolicy);
     setInitialEstimationScale(estimationScale);
+    setInitialSprintPickerReadyOnlyDefault(sprintPickerReadyOnlyDefault);
     setInitialVisibility(visibility);
     setInitialColor(color);
     setInitialLead(lead);
@@ -407,6 +423,7 @@ export function ProgramGeneralPage() {
     mcHistoryAttributionAudience,
     taskDurationChangePercentPolicy,
     estimationScale,
+    sprintPickerReadyOnlyDefault,
     visibility,
     color,
     lead,
@@ -427,6 +444,7 @@ export function ProgramGeneralPage() {
     setMcHistoryAttributionAudience(initialMcHistoryAttributionAudience);
     setTaskDurationChangePercentPolicy(initialTaskDurationChangePercentPolicy);
     setEstimationScale(initialEstimationScale);
+    setSprintPickerReadyOnlyDefault(initialSprintPickerReadyOnlyDefault);
     setVisibility(initialVisibility);
     setColor(initialColor);
     setLead(initialLead);
@@ -445,6 +463,7 @@ export function ProgramGeneralPage() {
     initialMcHistoryAttributionAudience,
     initialTaskDurationChangePercentPolicy,
     initialEstimationScale,
+    initialSprintPickerReadyOnlyDefault,
     initialVisibility,
     initialColor,
     initialLead,
@@ -760,6 +779,34 @@ export function ProgramGeneralPage() {
               onLabel="On"
               offLabel="Off"
               ariaLabel="Allow public link sharing"
+              canEdit={canEdit}
+            />
+          </FieldRow>
+
+          {/* Sprint planning (ADR-0758, #2670). Inherits the workspace default unless
+              this program overrides; projects inherit from here in turn. */}
+          <h3 className="mt-8 mb-1 text-[13px] font-semibold text-neutral-text-primary">
+            Sprint planning
+          </h3>
+
+          <FieldRow
+            label="Story picker shows Ready stories only, by default"
+            hint="The sprint story picker starts filtered to Definition-of-Ready stories. Anyone can still reveal and pull a not-ready story — this only sets the picker's starting view. Inherits the workspace setting unless you override it here."
+            help={fieldHelp({
+              label: 'Story picker shows Ready stories only, by default',
+              body: "When on, the Sprints page's story picker opens showing only stories marked Ready (estimated, with all acceptance criteria met). A `Show all` toggle inside the picker always reveals the rest, dimmed, with the reason each is blocked — this setting never prevents pulling a not-ready story into a sprint, it only sets what the picker shows first. Inherits the workspace setting unless you override it here.",
+              docHref: 'features/sprint-backlog/#story-picker',
+            })}
+          >
+            <InheritableToggleField
+              value={sprintPickerReadyOnlyDefault}
+              onChange={setSprintPickerReadyOnlyDefault}
+              inherited={program?.inherited_sprint_picker_ready_only_default ?? true}
+              inheritFromLabel="the workspace default"
+              scopeNoun="program"
+              onLabel="Ready only"
+              offLabel="Show all"
+              ariaLabel="Story picker shows Ready stories only, by default"
               canEdit={canEdit}
             />
           </FieldRow>

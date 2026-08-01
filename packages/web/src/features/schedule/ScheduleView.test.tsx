@@ -45,6 +45,10 @@ let mockBreakpoint: 'sm' | 'md' | 'lg' = 'lg';
 let mockFeatureFlag = false;
 let mockIsExporting = false;
 let mockExportError: string | null = null;
+// Server-resolved methodology (#2619) — drives the explanatory empty state.
+// `undefined` lets ScheduleView's own `?? 'HYBRID'` fallback apply, matching
+// every pre-#2619 test's implicit expectation.
+let mockEffectiveMethodology: string | undefined;
 
 const exportProjectMock = vi.fn();
 const createTaskMutate = vi.fn(
@@ -117,6 +121,7 @@ vi.mock('@/hooks/useProject', () => ({
       start_floor: '2026-10-01',
       is_sample: false,
       recalculated_at: '2026-10-01T00:00:00Z',
+      effective_methodology: mockEffectiveMethodology,
     },
     isLoading: false,
   }),
@@ -437,6 +442,7 @@ beforeEach(() => {
   mockMobile = false;
   mockIsExporting = false;
   mockExportError = null;
+  mockEffectiveMethodology = undefined;
   capturedKeyBindings = {};
   exportProjectMock.mockReset();
   createTaskMutate.mockClear();
@@ -521,6 +527,30 @@ describe('ScheduleView — empty state', () => {
     // empty-state "+ Add task" action is omitted for the viewer.
     expect(screen.queryByRole('button', { name: '+ Add task' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Add task' })).toBeInTheDocument();
+  });
+
+  // #2619: AGILE hides this route's nav entry, but it stays reachable by direct
+  // URL — the bug was the cold-start CTA never saying so.
+  it('shows the methodology-mismatch empty state on an AGILE project', () => {
+    mockTasks = [];
+    mockLinks = [];
+    mockEffectiveMethodology = 'AGILE';
+    renderSchedule();
+    expect(screen.getByText("Schedule isn't part of this project's workflow")).toBeInTheDocument();
+    expect(screen.queryByText(/no tasks yet/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Go to Sprints' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Change methodology' })).toBeInTheDocument();
+  });
+
+  it('keeps the generic empty state on a non-AGILE project', () => {
+    mockTasks = [];
+    mockLinks = [];
+    mockEffectiveMethodology = 'HYBRID';
+    renderSchedule();
+    expect(screen.getByText(/no tasks yet/i)).toBeInTheDocument();
+    expect(
+      screen.queryByText("Schedule isn't part of this project's workflow"),
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -853,7 +883,7 @@ describe('ScheduleView — PanelSplitter (keyboard + pointer resize)', () => {
     window.localStorage.clear();
     renderSchedule();
     const sep = screen.getByRole('separator', { name: 'Resize task list panel' });
-    (sep).setPointerCapture = vi.fn();
+    sep.setPointerCapture = vi.fn();
     const before = Number(sep.getAttribute('aria-valuenow'));
     fireEvent.pointerDown(sep, { clientX: 100, pointerId: 1 });
     fireEvent.pointerMove(sep, { clientX: 140 });
@@ -971,8 +1001,8 @@ describe('ScheduleView — canvas engine events', () => {
   });
 
   it('announces the link on success via the polite aria-live region', async () => {
-    addDepMutate.mockImplementation(
-      (_vars: unknown, opts: { onSuccess?: () => void }) => opts.onSuccess?.(),
+    addDepMutate.mockImplementation((_vars: unknown, opts: { onSuccess?: () => void }) =>
+      opts.onSuccess?.(),
     );
     const handlers = captureEngineHandlers();
     const { container } = renderSchedule();
@@ -983,9 +1013,8 @@ describe('ScheduleView — canvas engine events', () => {
   });
 
   it('surfaces a circular-dependency error toast when the link would cycle', async () => {
-    addDepMutate.mockImplementation(
-      (_vars: unknown, opts: { onError?: (e: unknown) => void }) =>
-        opts.onError?.({ cyclic: true }),
+    addDepMutate.mockImplementation((_vars: unknown, opts: { onError?: (e: unknown) => void }) =>
+      opts.onError?.({ cyclic: true }),
     );
     const handlers = captureEngineHandlers();
     renderSchedule();
@@ -995,8 +1024,8 @@ describe('ScheduleView — canvas engine events', () => {
   });
 
   it('shows a generic error toast for a non-cyclic link failure', async () => {
-    addDepMutate.mockImplementation(
-      (_vars: unknown, opts: { onError?: (e: unknown) => void }) => opts.onError?.({}),
+    addDepMutate.mockImplementation((_vars: unknown, opts: { onError?: (e: unknown) => void }) =>
+      opts.onError?.({}),
     );
     const handlers = captureEngineHandlers();
     renderSchedule();
@@ -1010,9 +1039,7 @@ describe('ScheduleView — drawer close reverts canvas highlights', () => {
   it('clears selection, hover chain and engine ring when the drawer closes', async () => {
     const user = userEvent.setup();
     renderSchedule(['/?task=t2']);
-    await waitFor(() =>
-      expect(useScheduleStore.getState().selectedTaskId).toBe('t2'),
-    );
+    await waitFor(() => expect(useScheduleStore.getState().selectedTaskId).toBe('t2'));
     await user.click(screen.getByRole('button', { name: 'Close drawer' }));
     expect(useScheduleStore.getState().selectedTaskId).toBeNull();
     expect(fakeEngine.setHoverChain).toHaveBeenCalledWith(null);

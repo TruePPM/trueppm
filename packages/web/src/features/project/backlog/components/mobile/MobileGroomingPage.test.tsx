@@ -1,8 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render as rtlRender, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
 import type { Task } from '@/types';
 import type { ProductBacklog } from '../../types';
 import { MobileGroomingPage } from './MobileGroomingPage';
+
+// MethodologyEmptyState (#2619) reads useNavigate, so every render needs a
+// Router in scope even though this page renders no links of its own.
+function render(ui: Parameters<typeof rtlRender>[0]) {
+  return rtlRender(<MemoryRouter>{ui}</MemoryRouter>);
+}
 
 function story(overrides: Partial<Task> = {}): Task {
   return {
@@ -54,11 +61,21 @@ const h = vi.hoisted(() => ({
   canManage: true,
   quickAddIsError: false,
   quickAddIsPending: false,
+  // Server-resolved methodology (#2619) — HYBRID by default so the pre-#2619
+  // empty-state tests keep exercising the generic "backlog is empty" copy.
+  effectiveMethodology: 'HYBRID' as string,
   setDorMutate: vi.fn(),
   quickAddMutate: vi.fn((_vars: unknown, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.()),
 }));
 
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'proj-1' }));
+vi.mock('@/hooks/useProject', () => ({
+  useProject: () => ({
+    data: { effective_methodology: h.effectiveMethodology },
+    isLoading: false,
+    error: null,
+  }),
+}));
 vi.mock('@/hooks/useIterationLabel', () => ({
   useIterationLabel: () => ({ lower: 'sprint', lowerPlural: 'sprints', singular: 'Sprint' }),
 }));
@@ -90,6 +107,7 @@ beforeEach(() => {
   h.canManage = true;
   h.quickAddIsError = false;
   h.quickAddIsPending = false;
+  h.effectiveMethodology = 'HYBRID';
   h.setDorMutate.mockClear();
   h.quickAddMutate.mockClear();
 });
@@ -117,6 +135,19 @@ describe('MobileGroomingPage (issue 1044)', () => {
     h.data = { ...makeBacklog(), epics: [], ungrouped: [] };
     render(<MobileGroomingPage />);
     expect(screen.getByText('The product backlog is empty')).toBeInTheDocument();
+  });
+
+  // #2619: WATERFALL hides this view's nav entry (methodologyTabs.ts), but the
+  // route stays reachable by direct URL on purpose — the mobile surface must
+  // show the same explanatory state the desktop grooming view does.
+  it('shows the methodology-mismatch empty state on a WATERFALL project', () => {
+    h.data = { ...makeBacklog(), epics: [], ungrouped: [] };
+    h.effectiveMethodology = 'WATERFALL';
+    render(<MobileGroomingPage />);
+    expect(screen.getByText("Backlog isn't part of this project's workflow")).toBeInTheDocument();
+    expect(screen.queryByText('The product backlog is empty')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Go to Schedule' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Change methodology' })).toBeInTheDocument();
   });
 
   it('renders epic-grouped cards plus the ungrouped bucket', () => {

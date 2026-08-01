@@ -1,5 +1,5 @@
 import { screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
 import { SprintsView } from './SprintsView';
 import { makeSprint } from './sprintTestFixtures';
@@ -15,7 +15,9 @@ vi.mock('@/hooks/useProjectId', () => ({
 }));
 
 interface ProjectQueryResult {
-  data: { id: string; name: string; methodology: string } | undefined;
+  data:
+    | { id: string; name: string; methodology: string; effective_methodology?: string }
+    | undefined;
   isLoading: boolean;
   error: unknown;
 }
@@ -40,9 +42,9 @@ const useSprintMutationsMock = vi.fn<(projectId?: string | null) => unknown>(() 
 
 /** Per-sprint capacity read — keyed by sprint id so the ACTIVE and PLANNED
  *  surfaces can be given different payloads in the same render. */
-const useSprintCapacityMock = vi.fn<(sprintId?: string | null) => { data: SprintCapacity | undefined }>(
-  () => ({ data: undefined }),
-);
+const useSprintCapacityMock = vi.fn<
+  (sprintId?: string | null) => { data: SprintCapacity | undefined }
+>(() => ({ data: undefined }));
 const useProjectVelocityMock = vi.fn<() => { data: ProjectVelocity | undefined }>(() => ({
   data: undefined,
 }));
@@ -326,6 +328,85 @@ describe('SprintsView', () => {
     renderWithRouter(<SprintsView />);
     expect(screen.getByText(/No sprints yet/i)).toBeInTheDocument();
     expect(screen.getByText(/Plan your first sprint/i)).toBeInTheDocument();
+  });
+
+  // #2619: a WATERFALL project hides this route from the nav, but the route
+  // stays reachable by direct URL — the bug was the cold-start CTA inviting the
+  // deviation the preset exists to discourage.
+  describe('on a WATERFALL project (#2619)', () => {
+    // Scoped to this block: the file's default `useProjectMock` fixture is
+    // AGILE, and nothing else in this suite resets it between tests.
+    afterEach(() => {
+      useProjectMock.mockReturnValue({
+        data: { id: 'proj-1', name: 'Alpha Platform', methodology: 'AGILE' },
+        isLoading: false,
+        error: null,
+      });
+    });
+
+    it('shows the methodology-mismatch empty state with no sprints', () => {
+      useProjectMock.mockReturnValue({
+        data: {
+          id: 'proj-1',
+          name: 'Alpha Platform',
+          methodology: 'WATERFALL',
+          effective_methodology: 'WATERFALL',
+        },
+        isLoading: false,
+        error: null,
+      });
+      useSprintsMock.mockReturnValue({ sprints: [], isLoading: false, error: null });
+      useSprintsByStateMock.mockReturnValue({
+        closed: [],
+        active: null,
+        planned: [],
+        isLoading: false,
+        error: null,
+      });
+      renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
+
+      expect(screen.getByText(/aren't part of this project's workflow/i)).toBeInTheDocument();
+      expect(screen.queryByText(/No sprints yet/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Plan a sprint/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Go to Schedule' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Change methodology' })).toBeInTheDocument();
+    });
+
+    // Flipping to WATERFALL never touches sprint data, so existing sprints must
+    // stay visible with an explanation rather than being swallowed by an
+    // (incorrect) "No sprints yet" empty state.
+    it('renders existing sprints with a mismatch banner', () => {
+      useProjectMock.mockReturnValue({
+        data: {
+          id: 'proj-1',
+          name: 'Alpha Platform',
+          methodology: 'WATERFALL',
+          effective_methodology: 'WATERFALL',
+        },
+        isLoading: false,
+        error: null,
+      });
+      useSprintsMock.mockReturnValue({ sprints: [ACTIVE], isLoading: false, error: null });
+      useSprintsByStateMock.mockReturnValue({
+        closed: [],
+        active: ACTIVE,
+        planned: [],
+        isLoading: false,
+        error: null,
+      });
+      renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
+
+      expect(
+        screen.getByText(
+          /This project is configured as Waterfall, but 1 sprint already is committed/i,
+        ),
+      ).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Review methodology' })).toBeInTheDocument();
+      // The sprint itself still renders — the mismatch is a banner, not a swap.
+      expect(
+        screen.getByRole('heading', { level: 1, name: /Sprint 1 — Telemetry & FAT prep/ }),
+      ).toBeInTheDocument();
+    });
   });
 
   it('disables Plan next button when a planned sprint already exists', () => {
@@ -1204,7 +1285,9 @@ describe('SprintsView — guards, gates, and overlay dismissal', () => {
     await userEvent.click(screen.getByRole('button', { name: /^Filter$/i }));
     expect(screen.getByRole('radio', { name: /^Anyone$/i })).toBeChecked();
     expect(screen.getByRole('radio', { name: /^Me$/i })).not.toBeChecked();
-    expect(screen.getByRole('button', { name: /In Progress/i, pressed: false })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /In Progress/i, pressed: false }),
+    ).toBeInTheDocument();
   });
 
   it('ignores a stored filter that is not valid JSON', async () => {
@@ -1215,7 +1298,9 @@ describe('SprintsView — guards, gates, and overlay dismissal', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /^Filter$/i }));
     expect(screen.getByRole('radio', { name: /^Anyone$/i })).toBeChecked();
-    expect(screen.getByRole('button', { name: /In Progress/i, pressed: false })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /In Progress/i, pressed: false }),
+    ).toBeInTheDocument();
   });
 
   it('closes the filter popover from its own Apply control', async () => {
@@ -1425,9 +1510,7 @@ describe('SprintsView — guards, gates, and overlay dismissal', () => {
     expect(screen.getByRole('dialog', { name: /Review pending scope/i })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: /Close scope review/i }));
-    expect(
-      screen.queryByRole('dialog', { name: /Review pending scope/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: /Review pending scope/i })).not.toBeInTheDocument();
   });
 
   it('hides the Review pending button when the sprint reports no pending count', () => {
@@ -1666,9 +1749,7 @@ describe('SprintsView — guards, gates, and overlay dismissal', () => {
     setSprints([ACTIVE], { active: ACTIVE });
     renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
 
-    await userEvent.click(
-      screen.getByRole('button', { name: /Remove Second task from sprint/i }),
-    );
+    await userEvent.click(screen.getByRole('button', { name: /Remove Second task from sprint/i }));
     expect(updateTaskMutate).toHaveBeenCalledWith(
       { id: 'task-2', projectId: 'proj-1', sprint: null },
       expect.any(Object),
@@ -1685,9 +1766,7 @@ describe('SprintsView — guards, gates, and overlay dismissal', () => {
     setSprints([ACTIVE], { active: ACTIVE });
     renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
 
-    await userEvent.click(
-      screen.getByRole('button', { name: /Remove Second task from sprint/i }),
-    );
+    await userEvent.click(screen.getByRole('button', { name: /Remove Second task from sprint/i }));
     expect(toastMocks.error).toHaveBeenCalledWith(
       "Couldn't remove the task from the sprint — try again.",
     );
@@ -1702,9 +1781,7 @@ describe('SprintsView — guards, gates, and overlay dismissal', () => {
     setSprints([ACTIVE], { active: ACTIVE });
     renderWithRouter(<SprintsView />, { initialEntries: ['/projects/proj-1/sprints'] });
 
-    await userEvent.click(
-      screen.getByRole('button', { name: /Remove Second task from sprint/i }),
-    );
+    await userEvent.click(screen.getByRole('button', { name: /Remove Second task from sprint/i }));
     expect(toastMocks.error).not.toHaveBeenCalled();
   });
 
@@ -1767,8 +1844,9 @@ describe('SprintsView — guards, gates, and overlay dismissal', () => {
     // Only the assigned 3-pointer counts; the unassigned 5-pointer is draft load
     // that nobody has picked up yet (#864, ADR-0094 §3).
     expect(screen.getByLabelText(/3 of 20 points planned/i)).toBeInTheDocument();
-    // The planned surface offers the backlog pull link and a collapsed velocity panel.
-    expect(screen.getByRole('link', { name: /Pull from backlog/i })).toBeInTheDocument();
+    // The planned surface offers the backlog story picker button (#2670) and a
+    // collapsed velocity panel.
+    expect(screen.getByRole('button', { name: 'Pull from backlog →' })).toBeInTheDocument();
     // The velocity disclosure renders its panel heading once expanded-in-DOM.
     expect(screen.getByRole('heading', { name: /^Velocity$/i })).toBeInTheDocument();
 

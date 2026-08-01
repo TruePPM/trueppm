@@ -337,6 +337,14 @@ export interface Program {
   effective_estimation_scale: EstimationScale;
   /** Read-only scale inherited if the override were cleared (the workspace value). */
   inherited_estimation_scale: EstimationScale;
+  /** Sprint-picker "Ready only" default override (ADR-0758, #2670). null = inherit
+   *  the workspace value. Advisory only — governs which stories the sprint story
+   *  picker shows by default, never a commit-time block. */
+  sprint_picker_ready_only_default: boolean | null;
+  /** Read-only server-resolved effective default (program override ?? workspace). */
+  effective_sprint_picker_ready_only_default: boolean;
+  /** Read-only default inherited if the override were cleared (the workspace value). */
+  inherited_sprint_picker_ready_only_default: boolean;
   /**
    * Calendar override (ADR-0441, issue #1987). null = inherit the workspace
    * calendar (or the system default when the workspace has none set either).
@@ -589,6 +597,11 @@ export interface WorkspaceSettings {
    *  the Workspace → Program → Project chain. No override policy: freely overridable
    *  at every scope (no enforcement seam). */
   estimationScale: EstimationScale;
+  /** Workspace-wide default for the sprint story picker's "Ready only" filter
+   *  (ADR-0758, #2670) — the non-null root of the Workspace → Program → Project
+   *  chain. No override policy: advisory UI guidance, freely overridable at every
+   *  scope, never a commit-time block. */
+  sprintPickerReadyOnlyDefault: boolean;
   /** Workspace-wide default working calendar (ADR-0441, issue #1987) — the root of
    *  the Project → Program → Workspace → system-default chain. null = fall through
    *  to the system default (Mon–Fri, 8h/day); we do not materialize a system-default

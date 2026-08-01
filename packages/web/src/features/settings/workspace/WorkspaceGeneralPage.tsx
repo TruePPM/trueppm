@@ -111,6 +111,9 @@ export function WorkspaceGeneralPage() {
     useState<DurationChangePercentPolicy>('keep');
   const [taskDurationChangePercentOverridePolicy, setTaskDurationChangePercentOverridePolicy] =
     useState<'inherit' | 'suggest' | 'enforce'>('suggest');
+  // Sprint story-picker "Ready only" default (ADR-0758, #2670) — workspace is the
+  // non-null root. No override policy: advisory UI guidance only.
+  const [sprintPickerReadyOnlyDefault, setSprintPickerReadyOnlyDefault] = useState(true);
 
   // Last-saved snapshot — bumped after a successful PATCH so useDirtyForm
   // can detect whether the current local state has diverged again.
@@ -132,6 +135,7 @@ export function WorkspaceGeneralPage() {
     mcHistoryOverridePolicy: 'suggest' as MCHistoryOverridePolicy,
     taskDurationChangePercentPolicy: 'keep' as DurationChangePercentPolicy,
     taskDurationChangePercentOverridePolicy: 'suggest' as 'inherit' | 'suggest' | 'enforce',
+    sprintPickerReadyOnlyDefault: true,
   });
 
   // Seed local state once the query resolves (or re-resolves after invalidation).
@@ -157,6 +161,7 @@ export function WorkspaceGeneralPage() {
       mcHistoryOverridePolicy: ws.mcHistoryOverridePolicy,
       taskDurationChangePercentPolicy: ws.taskDurationChangePercentPolicy,
       taskDurationChangePercentOverridePolicy: ws.taskDurationChangePercentOverridePolicy,
+      sprintPickerReadyOnlyDefault: ws.sprintPickerReadyOnlyDefault,
     };
     setName(snap.name);
     setTimezone(snap.timezone);
@@ -175,6 +180,7 @@ export function WorkspaceGeneralPage() {
     setMcHistoryOverridePolicy(snap.mcHistoryOverridePolicy);
     setTaskDurationChangePercentPolicy(snap.taskDurationChangePercentPolicy);
     setTaskDurationChangePercentOverridePolicy(snap.taskDurationChangePercentOverridePolicy);
+    setSprintPickerReadyOnlyDefault(snap.sprintPickerReadyOnlyDefault);
     setInitial(snap);
   }, [ws]);
 
@@ -196,6 +202,7 @@ export function WorkspaceGeneralPage() {
     mcHistoryOverridePolicy,
     taskDurationChangePercentPolicy,
     taskDurationChangePercentOverridePolicy,
+    sprintPickerReadyOnlyDefault,
   };
 
   const onSave = useCallback(async () => {
@@ -217,6 +224,7 @@ export function WorkspaceGeneralPage() {
       mcHistoryOverridePolicy,
       taskDurationChangePercentPolicy,
       taskDurationChangePercentOverridePolicy,
+      sprintPickerReadyOnlyDefault,
     });
     // Bump the saved snapshot so dirty goes false immediately.
     setInitial({
@@ -237,6 +245,7 @@ export function WorkspaceGeneralPage() {
       mcHistoryOverridePolicy,
       taskDurationChangePercentPolicy,
       taskDurationChangePercentOverridePolicy,
+      sprintPickerReadyOnlyDefault,
     });
   }, [
     name,
@@ -256,6 +265,7 @@ export function WorkspaceGeneralPage() {
     mcHistoryOverridePolicy,
     taskDurationChangePercentPolicy,
     taskDurationChangePercentOverridePolicy,
+    sprintPickerReadyOnlyDefault,
     updateSettings,
   ]);
 
@@ -277,6 +287,7 @@ export function WorkspaceGeneralPage() {
     setMcHistoryOverridePolicy(initial.mcHistoryOverridePolicy);
     setTaskDurationChangePercentPolicy(initial.taskDurationChangePercentPolicy);
     setTaskDurationChangePercentOverridePolicy(initial.taskDurationChangePercentOverridePolicy);
+    setSprintPickerReadyOnlyDefault(initial.sprintPickerReadyOnlyDefault);
   }, [initial]);
 
   useDirtyForm({ values, initialValues: initial, onSave, onReset, apiReady: true });
@@ -630,6 +641,33 @@ export function WorkspaceGeneralPage() {
               </span>
             </span>
           </fieldset>
+        </FieldRow>
+
+        {/* Sprint planning (ADR-0758, #2670). Workspace is the non-null root of the
+            Workspace → Program → Project inheritance chain; programs and projects
+            inherit this unless they override. */}
+        <h3 className="mt-8 mb-1 text-[13px] font-semibold text-neutral-text-primary">
+          Sprint planning
+        </h3>
+
+        <FieldRow
+          label="Story picker shows Ready stories only, by default"
+          hint="The sprint story picker starts filtered to Definition-of-Ready stories. Anyone can still reveal and pull a not-ready story — this only sets the picker's starting view."
+          help={
+            <FieldHelp
+              label="Story picker shows Ready stories only, by default"
+              body="When on, the Sprints page's story picker opens showing only stories marked Ready (estimated, with all acceptance criteria met). A `Show all` toggle inside the picker always reveals the rest, dimmed, with the reason each is blocked — this setting never prevents pulling a not-ready story into a sprint, it only sets what the picker shows first. Programs and projects inherit this unless they override it."
+              docHref="features/sprint-backlog/#story-picker"
+            />
+          }
+        >
+          <Toggle
+            on={sprintPickerReadyOnlyDefault}
+            onChange={setSprintPickerReadyOnlyDefault}
+            ariaLabel="Story picker shows Ready stories only, by default"
+            onLabel="Ready only"
+            offLabel="Show all"
+          />
         </FieldRow>
 
         {/* Forecast history (ADR-0144, issue 1232). Workspace is the non-null root of the

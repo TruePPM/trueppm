@@ -11,7 +11,7 @@
  */
 import type { ComponentProps } from 'react';
 import { screen, fireEvent, waitFor } from '@testing-library/react';
-import { renderWithProviders as render } from '@/test/utils';
+import { renderWithProvidersAndRouter as render } from '@/test/utils';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Task } from '@/types';
 import { useScheduleStore } from '@/stores/scheduleStore';
@@ -23,6 +23,19 @@ const { patchMock } = vi.hoisted(() => ({
 
 vi.mock('@/api/client', () => ({
   apiClient: { patch: patchMock },
+}));
+
+// Fixed forms — the methodology-hidden empty state (#2619) reads these, and no
+// test here exercises relabeling, so a static mock keeps the default suite's
+// existing assertions ("No tasks yet", etc.) untouched.
+vi.mock('@/hooks/useIterationLabel', () => ({
+  useIterationLabel: () => ({
+    singular: 'Sprint',
+    plural: 'Sprints',
+    lower: 'sprint',
+    lowerPlural: 'sprints',
+    possessive: "Sprint's",
+  }),
 }));
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -59,6 +72,7 @@ function renderSchedule(props: Partial<ComponentProps<typeof MobileSchedule>> = 
       isLoading={false}
       error={null}
       onAddTask={noop}
+      effectiveMethodology="HYBRID"
       {...props}
     />,
   );
@@ -138,6 +152,17 @@ describe('MobileSchedule', () => {
   it('renders the empty state when there are no tasks', () => {
     renderSchedule({ tasks: [] });
     expect(screen.getByText('No tasks yet')).toBeInTheDocument();
+  });
+
+  // #2619: AGILE hides this view's nav entry (methodologyTabs.ts), but the
+  // route stays reachable by direct URL on purpose — the mobile surface must
+  // show the same explanatory state the desktop canvas does, not "No tasks yet".
+  it('shows the methodology-mismatch empty state on an AGILE project', () => {
+    renderSchedule({ tasks: [], effectiveMethodology: 'AGILE' });
+    expect(screen.getByText("Schedule isn't part of this project's workflow")).toBeInTheDocument();
+    expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Go to Sprints' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Change methodology' })).toBeInTheDocument();
   });
 
   it('renders the not-scheduled state when every task is unscheduled', () => {
