@@ -51,6 +51,33 @@ def test_cpm_recalculated_only_for_moved_tasks() -> None:
     assert cpm.detail["early_start"] == {"from": "2026-01-01", "to": "2026-01-03"}
 
 
+def test_suppress_movement_events_withholds_cpm_recalculated_only() -> None:
+    """ADR-0752 §7: the status_date-floor-arming pass withholds cpm_recalculated
+    rows (per-task movement) but leaves baseline_drift_detected alone — that
+    event names an outcome (drift vs. plan), not a change attributed to an
+    actor, and is not the "someone moved my schedule" surface §7 guards
+    against."""
+    baseline_finish = date(2026, 1, 10)
+    moved_and_crossing = _task(early_start=date(2026, 1, 3), early_finish=date(2026, 1, 15))
+    old_dates = {
+        str(moved_and_crossing.id): (date(2026, 1, 1), date(2026, 1, 8), None, None),
+    }
+    baseline = {str(moved_and_crossing.id): ("b1", baseline_finish)}
+
+    events = _build_schedule_shift_events(
+        [moved_and_crossing], old_dates, baseline, suppress_movement_events=True
+    )
+    kinds = [e.event_type for e in events]
+    assert "cpm_recalculated" not in kinds
+    assert "baseline_drift_detected" in kinds
+
+    # Same inputs, suppression off (the default): both fire.
+    events_unsuppressed = _build_schedule_shift_events([moved_and_crossing], old_dates, baseline)
+    kinds_unsuppressed = [e.event_type for e in events_unsuppressed]
+    assert "cpm_recalculated" in kinds_unsuppressed
+    assert "baseline_drift_detected" in kinds_unsuppressed
+
+
 def test_baseline_drift_emitted_only_on_crossing() -> None:
     baseline_finish = date(2026, 1, 10)
     crossing = _task(early_finish=date(2026, 1, 15))  # was within, now past

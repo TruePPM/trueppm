@@ -81,6 +81,7 @@ from trueppm_api.apps.scheduling.services import (
     enqueue_recalculate,
     forecast_diagnostic,
     record_monte_carlo_run,
+    resolve_cpm_status_date,
 )
 from trueppm_api.apps.scheduling.telemetry import monte_carlo_span
 from trueppm_api.workflows.consumers.requeue_failed_task import WORKFLOW_NAME as REQUEUE_WORKFLOW
@@ -927,8 +928,9 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                     "delta_vs_current ({p50, p80, p95, cpm_finish} signed calendar-day shifts, "
                     "positive = later/worse, null when a date is missing); runs (n_simulations); "
                     "seed (fixed RNG seed shared by both runs so the delta isolates the change); "
-                    "cpm_status_date and mc_status_date (ADR-0132/#2638) — the raw and "
-                    "today-floored data dates fed to the deterministic and Monte Carlo passes "
+                    "cpm_status_date and mc_status_date (ADR-0132/#2638, floor armed on the "
+                    "CPM path by ADR-0752 §4) — the resolved data dates (project.status_date, "
+                    "or today when unset) fed to the deterministic and Monte Carlo passes "
                     "respectively, shared by both current and whatif since this view runs both "
                     "in one call; this view never persists, so these are the only provenance a "
                     "caller gets for how the forecast was computed."
@@ -1041,15 +1043,16 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
             project.pk, sched_calendar.working_days
         )
 
-        # The deterministic CPM and Monte Carlo use different data dates by design
-        # (ADR-0132), so mirror each engine's canonical status_date here: schedule()
-        # takes the raw status_date (None => earliest-possible dates, matching the
-        # stored plan) and monte_carlo() floors it at today (never forecasts remaining
-        # work in the past). Using each engine's own convention keeps current.cpm_finish
-        # identical to the persisted deterministic finish and current P50/P80/P95
-        # identical to run_monte_carlo.
-        cpm_status_date = project.status_date
-        mc_status_date = project.status_date or timezone.localdate()
+        # The deterministic CPM and Monte Carlo both floor a null status_date at
+        # today (ADR-0752 §4, correcting ADR-0132 §1 — the CPM path used to pass
+        # a null status_date raw, meaning "no floor at all"). Both are resolved
+        # through the same shared helper so this read-time `current` block can
+        # never drift from the persisted deterministic run
+        # (`scheduling/tasks.py::_run_schedule`) on which data date it used —
+        # keeping current.cpm_finish identical to the persisted deterministic
+        # finish and current P50/P80/P95 identical to run_monte_carlo.
+        cpm_status_date = resolve_cpm_status_date(project.status_date)
+        mc_status_date = resolve_cpm_status_date(project.status_date)
 
         def _make_project(tasks: list[Any], status_date: _date | None) -> Any:
             return SchedProject(
@@ -1141,12 +1144,15 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                 "runs": n_simulations,
                 "seed": WHATIF_MC_SEED,
                 # The data dates fed to each engine for both the current and whatif
-                # passes (ADR-0132) — this view never persists, so these are the only
-                # provenance an AI/MCP or human caller gets for how "current" was
-                # computed. Both baseline and perturbed share one resolved value per
-                # engine within a single call, so one top-level pair covers both
-                # `current` and `whatif` rather than duplicating it under each (#2638).
-                "cpm_status_date": cpm_status_date.isoformat() if cpm_status_date else None,
+                # passes (ADR-0132, floor armed on the CPM path by ADR-0752 §4) —
+                # this view never persists, so these are the only provenance an
+                # AI/MCP or human caller gets for how "current" was computed. Both
+                # baseline and perturbed share one resolved value per engine within
+                # a single call, so one top-level pair covers both `current` and
+                # `whatif` rather than duplicating it under each (#2638). Both are
+                # always a resolved date now (never null) — a null status_date no
+                # longer means "no floor at all" on the CPM path.
+                "cpm_status_date": cpm_status_date.isoformat(),
                 "mc_status_date": mc_status_date.isoformat(),
             }
         )
@@ -1966,7 +1972,7 @@ def _build_cpm_sched_project(project: Project, pk: str) -> Any:
         tasks=sched_tasks,
         dependencies=sched_deps,
         calendar=sched_calendar,
-        status_date=project.status_date or timezone.localdate(),
+        status_date=resolve_cpm_status_date(project.status_date),
         velocity_samples=velocity_samples or None,
         sprint_length_days=sprint_length_days,
     )

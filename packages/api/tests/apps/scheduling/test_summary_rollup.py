@@ -32,8 +32,15 @@ def calendar(db: object) -> Calendar:
 
 @pytest.fixture
 def project(user: object, calendar: Calendar) -> Project:
+    # status_date pinned to start_date (ADR-0752 §4) so these exact-date
+    # rollup assertions are unaffected by the now-armed today-floor on a null
+    # status_date — see test_auto_schedule.py's project fixture for the same
+    # rationale.
     p = Project.objects.create(
-        name="Rollup Project", start_date=date(2026, 1, 5), calendar=calendar
+        name="Rollup Project",
+        start_date=date(2026, 1, 5),
+        status_date=date(2026, 1, 5),
+        calendar=calendar,
     )
     ProjectMembership.objects.create(project=p, user=user, role=Role.OWNER)
     return p

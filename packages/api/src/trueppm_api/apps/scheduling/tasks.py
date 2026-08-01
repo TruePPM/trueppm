@@ -701,6 +701,8 @@ def _build_schedule_shift_events(
     tasks_to_update: list[Any],
     old_dates: dict[str, tuple[Any, Any, Any, Any]],
     baseline_finishes: dict[str, tuple[str, date]],
+    *,
+    suppress_movement_events: bool = False,
 ) -> list[Any]:
     """Build ``TaskActivityEvent`` rows for CPM recomputes and baseline-drift crossings.
 
@@ -719,6 +721,17 @@ def _build_schedule_shift_events(
     grouped strictly per ``project_id`` because the helper is shared by the
     program-scoped writeback, where a program-wide count would leak cross-project
     scope (see :func:`_recalc_project_aggregates`).
+
+    ``suppress_movement_events`` (ADR-0752 §7) skips the ``cpm_recalculated`` rows
+    specifically — the one-shot recalculation that arms a project's status_date
+    floor for the first time moves dates as an engine correction, not a user
+    action, and must not be recorded as ordinary per-task movement. This is a
+    feed-persistence half of the suppression; the caller must also withhold the
+    matching ADR-0091 ``task_dates_updated`` broadcast, or the entries reappear on
+    that surface instead (ADR-0752 §10). ``baseline_drift_detected`` is left
+    unsuppressed — it names an outcome (drift vs. plan), not a change attributed
+    to an actor, and is exactly the kind of information the echoed status_date
+    exists to make sense of.
     """
     moved_by_project, new_finish_by_project, prior_finish_by_project = _recalc_project_aggregates(
         tasks_to_update, old_dates
@@ -729,7 +742,7 @@ def _build_schedule_shift_events(
         old = old_dates.get(str(t.id))
         if old is None:
             continue
-        if _cpm_dates_changed(old, t):
+        if _cpm_dates_changed(old, t) and not suppress_movement_events:
             events.append(
                 _cpm_recalculated_event(
                     t,
@@ -940,6 +953,7 @@ def _run_schedule(
     from trueppm_api.apps.scheduling.services import (
         apply_summary_rollups,
         build_sched_tasks,
+        resolve_cpm_status_date,
     )
     from trueppm_api.apps.scheduling.telemetry import cpm_span
 
@@ -984,6 +998,15 @@ def _run_schedule(
         logger.warning("recalculate_schedule: project %s not found, skipping", project_id)
         _settle_empty()
         return
+
+    # ADR-0752 §4/§7: resolve the floor once, up front, from the state this
+    # project was loaded in — before anything below can mutate it. A project
+    # with no explicit status_date and no prior arming is about to have its
+    # floor armed for the first time by *this* recalculation.
+    resolved_status_date = resolve_cpm_status_date(db_project.status_date)
+    is_first_status_date_floor_use = (
+        db_project.status_date is None and db_project.status_date_floor_armed_at is None
+    )
 
     # ADR-0120 D3: if this project belongs to a program that has ≥1 accepted
     # cross-project edge, a single-project CPM would compute program-FALSE floats
@@ -1081,12 +1104,13 @@ def _run_schedule(
         dependencies=expanded_deps,
         calendar=sched_calendar,
         # The stored plan honors recorded actuals (completed tasks pin, in-progress
-        # tasks use remaining duration) always; it only floors not-started work at
-        # the data date when a PM has set one explicitly. Null status_date keeps the
-        # deterministic schedule showing earliest-possible dates rather than drifting
-        # every recalc — the Monte Carlo forecast is what defaults to "today"
-        # (ADR-0132).
-        status_date=db_project.status_date,
+        # tasks use remaining duration) always, and floors not-started work at the
+        # data date: the PM's explicit status_date when set, otherwise today
+        # (resolved once, above, as resolved_status_date — ADR-0752 §4, correcting
+        # ADR-0132 §1). The deterministic CPM pass and the Monte Carlo forecast now
+        # share this same resolution; the CPM path no longer passes a null
+        # status_date raw (which previously meant "no floor at all").
+        status_date=resolved_status_date,
     )
 
     _update(50, "Running CPM…")
@@ -1124,14 +1148,32 @@ def _run_schedule(
         db_tasks, result_map, summary_ids
     )
 
+    # ADR-0752 §7: the suppression only makes sense once there is a prior
+    # schedule to have moved *from*. A project's very first-ever CPM pass
+    # transitions every task from null to computed — exactly like any other
+    # first schedule, floor or no floor — and is not the "someone moved my
+    # schedule" confusion this ADR guards against, so it is reported normally
+    # (matching the existing null -> computed behavior). is_first_status_date_
+    # floor_use still governs whether the armed flag gets persisted below,
+    # regardless of this refinement, so the *next* recalculation is never
+    # treated as arming again.
+    is_arming_status_date_floor = is_first_status_date_floor_use and any(
+        old[0] is not None for old in old_cpm_dates.values()
+    )
+
     from django.db import transaction
 
     from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
-    from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
     cpm_payload: dict[str, object] = {
         "project_finish": result.project_finish.isoformat(),
         "critical_path": result.critical_path,
+        # The data date this run was actually computed against (ADR-0752 §4) —
+        # echoed unconditionally (including on the arming run) so every consumer
+        # of cpm_complete/task_run_completed/the schedule.recalculated webhook
+        # knows which "today" produced these dates, mirroring the MC status_date
+        # provenance convention (#2638).
+        "status_date": resolved_status_date.isoformat(),
     }
 
     # Per-task CPM date deltas (ADR-0091). Broadcast the tasks whose dates just moved so
@@ -1172,8 +1214,13 @@ def _run_schedule(
     # Per-task schedule-shift activity events (ADR-0207, #1604), built from the
     # mutated in-memory tasks and the project's active baseline. Written inside the
     # same atomic block as the writeback so they commit or roll back with it.
+    # suppress_movement_events (ADR-0752 §7) withholds the cpm_recalculated rows
+    # on this project's one-shot floor-arming recalculation only.
     schedule_shift_events = _build_schedule_shift_events(
-        tasks_to_update, old_cpm_dates, _active_baseline_finishes([project_id])
+        tasks_to_update,
+        old_cpm_dates,
+        _active_baseline_finishes([project_id]),
+        suppress_movement_events=is_arming_status_date_floor,
     )
 
     with transaction.atomic():
@@ -1213,18 +1260,18 @@ def _run_schedule(
             project_id=project_id, status=ScheduleRequestStatus.DISPATCHED
         ).update(status=ScheduleRequestStatus.DONE)
 
-        # Backwards-compat cpm_complete event for clients not yet on
-        # task_run_completed, deferred to commit.
-        def _broadcast_cpm_complete(
-            pid: str = project_id, pay: dict[str, object] = cpm_payload
-        ) -> None:
-            broadcast_board_event(project_id=pid, event_type="cpm_complete", payload=pay)
-
-        def _broadcast_dates(pid: str = project_id, pay: dict[str, object] = delta_payload) -> None:
-            broadcast_board_event(project_id=pid, event_type="task_dates_updated", payload=pay)
-
-        transaction.on_commit(_broadcast_cpm_complete)
-        transaction.on_commit(_broadcast_dates)
+        # ADR-0752 §4/§7: persist the one-shot arming flag (if this is the
+        # first use of the floor) and register the on-commit broadcasts,
+        # withholding the per-task movement broadcast on the arming run.
+        # Extracted to its own function to keep this transaction block's
+        # branching flat.
+        _finalize_status_date_floor_arming(
+            project_id,
+            cpm_payload=cpm_payload,
+            delta_payload=delta_payload,
+            is_first_status_date_floor_use=is_first_status_date_floor_use,
+            is_arming_status_date_floor=is_arming_status_date_floor,
+        )
 
         # Capture a project-grain forecast snapshot for drift history (ADR-0154,
         # #388). Strictly post-commit and best-effort: a capture failure must never
@@ -1258,6 +1305,67 @@ def _run_schedule(
         event_type="schedule.recalculated",
         payload={"project": project_id, **cpm_payload},
     )
+
+
+def _finalize_status_date_floor_arming(
+    project_id: str,
+    *,
+    cpm_payload: dict[str, object],
+    delta_payload: dict[str, object],
+    is_first_status_date_floor_use: bool,
+    is_arming_status_date_floor: bool,
+) -> None:
+    """Persist the one-shot arming flag and register the on-commit CPM broadcasts.
+
+    ADR-0752 §4/§7: ``is_first_status_date_floor_use`` marks the recalculation
+    that first resolves this project's null ``status_date`` to today — the
+    armed flag is persisted here so no later recalculation is ever treated as
+    the first use again. ``is_arming_status_date_floor`` is the narrower
+    condition that actually withholds the ADR-0091 ``task_dates_updated``
+    per-task delta broadcast: first use *and* at least one task already had a
+    prior computed date (i.e. this is a genuine correction to an established
+    schedule, not a brand-new project's first-ever pass, which reports
+    null -> computed transitions exactly like it always has). This is the
+    pub/sub surface the §10 threat model names explicitly; suppressing only
+    the ``cpm_recalculated`` TaskActivityEvent rows (see
+    ``_build_schedule_shift_events``) and still firing this broadcast would
+    let the same movement reach connected clients as ordinary activity through
+    a different channel. ``cpm_complete`` still fires unconditionally,
+    including on the arming run — it carries ``project_finish``/
+    ``status_date``, not per-task movement, so it is not part of what §7
+    suppresses.
+
+    MUST be called from inside the writeback's ``transaction.atomic()`` block,
+    matching ``_register_program_broadcasts`` below: the ``.update()`` call
+    needs to commit or roll back with the Task writeback, and ``on_commit``
+    callbacks must be registered before that block exits. Default-arg binding
+    pins each payload against late mutation.
+    """
+    from django.db import transaction
+    from django.utils import timezone
+
+    from trueppm_api.apps.projects.models import Project
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    if is_first_status_date_floor_use:
+        # A plain .update() bypasses VersionedModel.save() — no server_version
+        # bump, no history row, no mobile-sync pull — for this server-owned
+        # bookkeeping field, matching the existing recalculated_at pattern.
+        Project.objects.filter(pk=project_id).update(status_date_floor_armed_at=timezone.now())
+
+    def _broadcast_cpm_complete(
+        pid: str = project_id, pay: dict[str, object] = cpm_payload
+    ) -> None:
+        broadcast_board_event(project_id=pid, event_type="cpm_complete", payload=pay)
+
+    transaction.on_commit(_broadcast_cpm_complete)
+
+    if not is_arming_status_date_floor:
+
+        def _broadcast_dates(pid: str = project_id, pay: dict[str, object] = delta_payload) -> None:
+            broadcast_board_event(project_id=pid, event_type="task_dates_updated", payload=pay)
+
+        transaction.on_commit(_broadcast_dates)
 
 
 # ---------------------------------------------------------------------------

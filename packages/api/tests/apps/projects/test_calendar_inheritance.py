@@ -63,6 +63,10 @@ def project_calendar(db: object) -> Calendar:
 def _project(**kw: object) -> Project:
     kw.setdefault("name", "P")
     kw.setdefault("start_date", START)
+    # status_date pinned to START (ADR-0752 §4) so these exact-date CPM
+    # assertions are unaffected by the now-armed today-floor on a null
+    # status_date.
+    kw.setdefault("status_date", START)
     return Project.objects.create(**kw)
 
 
