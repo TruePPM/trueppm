@@ -189,6 +189,28 @@ check "the warning names the offending endpoint" \
   "$(echo "$OUT" | grep -q 'http://backup.example.com:9000' && echo 0 || echo 1)"
 check "the upload still proceeds (warning does not block)" \
   "$(grep -q 'ARGV: --endpoint-url http://backup.example.com:9000 s3 cp' "$LOG" && echo 0 || echo 1)"
+# The only clear-text URL in the warning must be the endpoint it is reporting
+# (#2712). The original wording also spelled the scheme out as a parenthetical,
+# which shell:S5332 matched inside the quoted string and raised as a clear-text
+# -protocol vulnerability ON THE WARNING THAT DISCOURAGES PLAINTEXT. That was
+# not excluded in sonar-project.properties, because scripts/lib/s3.sh is exactly
+# where a genuine hard-coded plaintext endpoint would need to be caught — so the
+# wording is what holds the finding closed, and this case is what holds the
+# wording. Strip the interpolated endpoint and nothing clear-text may remain
+# ("https://" does not contain the substring "http://", so the recommendation on
+# the next line is not a match).
+check "the warning carries no clear-text scheme literal of its own" \
+  "$(echo "$OUT" | sed 's#http://backup.example.com:9000##g' | grep -q 'http://' && echo 1 || echo 0)"
+
+# The in-cluster CronJob cannot source this library (a Helm template reaches
+# nothing outside the chart, and the job mounts no repo), so it reimplements the
+# same heuristic inline — the template says so and asks for the two to be kept in
+# sync. That makes it the one place the #2712 wording can come back unnoticed:
+# Sonar's shell analyzer never reads a script embedded in YAML, so a
+# reintroduction there is invisible to the gate that caught it here.
+CRONJOB="$REPO_ROOT/packages/helm/templates/cronjob-backup.yaml"
+check "the chart's duplicated warning also carries no clear-text scheme literal" \
+  "$(grep 'WARNING: S3_ENDPOINT' "$CRONJOB" | grep -q 'http://' && echo 1 || echo 0)"
 
 reset_log
 OUT="$(
