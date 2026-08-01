@@ -304,11 +304,27 @@ describe('sprint selector + story-point lock', () => {
 // ----- Agile-only projects suppress the Duration field ---------------------
 
 it('edit mode: a pure-agile project (methodology AGILE) hides the Duration field', () => {
-  mockProject = { agile_features: true, methodology: 'AGILE' };
+  mockProject = { agile_features: true, methodology: 'AGILE', effective_methodology: 'AGILE' };
   renderModal({ task: baseTask() });
   expect(screen.queryByLabelText(/Duration/)).not.toBeInTheDocument();
   // Planned start still renders — only Duration is suppressed.
   expect(screen.getByLabelText('Planned start')).toBeInTheDocument();
+});
+
+it('edit mode: reads effective_methodology, not the raw per-project override, for the Duration gate (#2667)', () => {
+  // Under a workspace INHERIT/ENFORCE lock (or a program-level preset) the
+  // resolved methodology can be AGILE while the project's own stored
+  // `methodology` override is not — the Duration gate must follow the
+  // resolved value, matching every other methodology-gated surface.
+  mockProject = { agile_features: true, methodology: 'WATERFALL', effective_methodology: 'AGILE' };
+  renderModal({ task: baseTask() });
+  expect(screen.queryByLabelText(/Duration/)).not.toBeInTheDocument();
+});
+
+it('edit mode: a non-agile effective_methodology still shows Duration even if the raw override says AGILE (#2667)', () => {
+  mockProject = { agile_features: true, methodology: 'AGILE', effective_methodology: 'WATERFALL' };
+  renderModal({ task: baseTask() });
+  expect(screen.getByLabelText(/Duration/)).toBeInTheDocument();
 });
 
 // ----- Member read-only heuristic ------------------------------------------
