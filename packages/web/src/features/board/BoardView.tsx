@@ -2426,12 +2426,24 @@ export function BoardView() {
   );
 
   // Drop into a `${phaseId}:${status}` grid cell — the status move, plus the
-  // workshop-mode phase move and the sprint-view assignment that ride with it.
+  // phase-lane re-parent (#2681: any phase-grouped board, not just workshop
+  // mode) and the sprint-view assignment that ride with it.
   const dropOnCell = useCallback(
     (task: Task, cellId: string) => {
       const [newPhaseId, newStatus] = cellId.split(':');
       if (!newStatus) return;
-      const phaseChanged = workshopMode && newPhaseId !== (task.parentId ?? 'root');
+      // #2681: re-parenting used to be gated on workshopMode, so a cross-phase
+      // drop outside Workshop mode moved the status but left parentId alone —
+      // the card snapped back into its original lane on the next render. That
+      // gate was an oversight, not a deliberate restriction: workshopMode always
+      // implies groupMode === 'phase' (see the groupMode derivation above), but
+      // the reverse isn't true — a non-workshop board with phase grouping (the
+      // default view) hit the same gate. Key on groupMode === 'phase' instead so
+      // every phase-lane drop re-parents regardless of workshop mode, while the
+      // deliberate assignee/epic status-only asymmetry below (drag-to-reassign
+      // isn't available yet) is untouched — this fix is scoped to phase-lane
+      // grouping only.
+      const phaseChanged = groupMode === 'phase' && newPhaseId !== (task.parentId ?? 'root');
       // Cross-lane drag under assignee (324) or epic (364) grouping: drag-to-
       // reassign is a deferred follow-up, so a drop into a different assignee or
       // epic lane never changes the assignee or the parent epic. A status
@@ -2492,7 +2504,6 @@ export function BoardView() {
       projectId,
       selectedSprint,
       updateStatus,
-      workshopMode,
     ],
   );
 

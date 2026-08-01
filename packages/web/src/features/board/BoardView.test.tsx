@@ -1,8 +1,10 @@
-import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor, within, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { MemoryRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
+import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core';
 import { BoardView } from './BoardView';
 import { ROLE_VIEWER } from '@/lib/roles';
 
@@ -2770,12 +2772,53 @@ describe('mobile create FAB (#605)', () => {
 // Drives the board paths the suite above never reached: quick capture, workshop
 // authoring writes, PDF export, overallocation regrouping, the dep-chain hover
 // dim set, facet seeding from a shared link / localStorage, search dimming, and
-// the keyboard-navigation guards. Drag-driven paths (dropOnCell /
-// dropOnBacklogBand / reorderPhases) are deliberately absent — @dnd-kit's
-// sensors need real layout rects, which jsdom does not provide.
+// the keyboard-navigation guards. Most drag-driven paths (dropOnBacklogBand /
+// reorderPhases) are deliberately absent — @dnd-kit's sensors need real layout
+// rects, which jsdom does not provide. `dropOnCell` is the exception (#2681
+// below): its decision logic never touches layout, so a synthetic onDragEnd
+// fired through a mocked DndContext exercises it directly — the same pattern
+// already used in OutlineMode.test.tsx and ProductBacklogPage.test.tsx.
 // ===========================================================================
 
 import { facetsStorageKey, serializeFacets } from './boardFacets';
+
+// #2681 — capture BoardView's real onDragStart/onDragEnd handlers so tests can
+// fire synthetic drag events without jsdom having to drive @dnd-kit's pointer
+// sensors. Only DndContext is replaced; useDroppable/useSortable/etc. used
+// deeper in the tree stay real and fall back to @dnd-kit/core's safe no-op
+// default context (no provider needed for registration to no-op cleanly).
+const capturedDnd: {
+  onDragStart?: (e: DragStartEvent) => void;
+  onDragEnd?: (e: DragEndEvent) => void;
+} = {};
+vi.mock('@dnd-kit/core', async (orig) => {
+  const actual = await orig<typeof import('@dnd-kit/core')>();
+  return {
+    ...actual,
+    DndContext: ({
+      children,
+      onDragStart,
+      onDragEnd,
+    }: {
+      children: ReactNode;
+      onDragStart?: (e: DragStartEvent) => void;
+      onDragEnd?: (e: DragEndEvent) => void;
+    }) => {
+      capturedDnd.onDragStart = onDragStart;
+      capturedDnd.onDragEnd = onDragEnd;
+      return <>{children}</>;
+    },
+  };
+});
+const dragStart = (id: string) =>
+  act(() => capturedDnd.onDragStart?.({ active: { id } } as unknown as DragStartEvent));
+const dragEnd = (activeId: string, overId: string) =>
+  act(() =>
+    capturedDnd.onDragEnd?.({
+      active: { id: activeId },
+      over: { id: overId },
+    } as unknown as DragEndEvent),
+  );
 
 // Board card search hits GET /tasks/search/; mock it so typing in the search
 // box exercises BoardView's query mirroring + dim plumbing without a request.
@@ -2808,6 +2851,97 @@ function reset2459() {
   mockSearchMatchIds = new Set<string>();
   mockSearchMatchCount = 0;
 }
+
+// -------------------------------------------------------------------------
+// Cross-phase drop re-parenting (issue #2681)
+//
+// `dropOnCell` used to gate the parentId patch on `workshopMode`, so a
+// cross-phase drag outside Workshop mode moved the status but left the card
+// parented to its original phase — it snapped back into the source lane on
+// the next render. That gate was an oversight (workshopMode always implies
+// phase grouping, but a non-workshop board with the default phase grouping
+// hit the same gate), so the fix keys on `groupMode === 'phase'` instead —
+// every phase-lane drop re-parents regardless of workshop mode.
+// -------------------------------------------------------------------------
+describe('cross-phase drop re-parenting (#2681)', () => {
+  beforeEach(reset2459);
+
+  const phaseA: Task = {
+    id: 'phase-a',
+    wbs: '1',
+    name: 'Phase A',
+    start: '2026-08-01',
+    finish: '2026-08-10',
+    duration: 10,
+    progress: 0,
+    parentId: null,
+    isCritical: false,
+    isComplete: false,
+    isSummary: true,
+    isMilestone: false,
+    status: 'IN_PROGRESS',
+    assignees: [],
+    notes: '',
+  };
+  const phaseB: Task = { ...phaseA, id: 'phase-b', wbs: '2', name: 'Phase B' };
+  const cardInPhaseA: Task = {
+    ...phaseA,
+    id: 'card-1',
+    wbs: '1.1',
+    name: 'Card One',
+    parentId: 'phase-a',
+    isSummary: false,
+    status: 'NOT_STARTED',
+  };
+  const backlogIdea: Task = {
+    ...phaseA,
+    id: 'idea-1',
+    wbs: '3',
+    name: 'Backlog Idea',
+    parentId: null,
+    isSummary: false,
+    status: 'BACKLOG',
+  };
+
+  it('sends the new parentId on a cross-phase drop outside Workshop mode, matching Workshop-mode behavior', () => {
+    // Regression case for #2681: before the fix, this drop moved the card's
+    // status to IN_PROGRESS but never patched parentId, so the card snapped
+    // back into Phase A's lane on the next fetch — a "half worked" drop.
+    mockTasks = [phaseA, phaseB, cardInPhaseA];
+    renderBoard();
+
+    dragStart('card-1');
+    dragEnd('card-1', 'phase-b:IN_PROGRESS');
+
+    expect(updateMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: 'card-1',
+        status: 'IN_PROGRESS',
+        parentId: 'phase-b',
+      }),
+    );
+  });
+
+  it('lands a backlog-promoted idea in the phase lane it was dropped on, not the synthetic Project Tasks lane', () => {
+    // Regression case for the backlog-promote scenario named in #2681: a
+    // quick-captured idea (parentId: null) dropped onto a real phase lane
+    // must send THAT phase's id as parentId, not fall through to whatever
+    // synthetic 'root' bucket buildPhases would otherwise construct.
+    mockTasks = [phaseA, phaseB, backlogIdea];
+    renderBoard();
+
+    dragStart('idea-1');
+    dragEnd('idea-1', 'phase-a:NOT_STARTED');
+
+    expect(updateMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: 'idea-1',
+        status: 'NOT_STARTED',
+        parentId: 'phase-a',
+      }),
+    );
+  });
+});
 
 describe('backlog quick capture (#2459)', () => {
   beforeEach(reset2459);
