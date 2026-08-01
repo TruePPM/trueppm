@@ -104,6 +104,7 @@ pub(crate) fn compute_downstream(
                 total_float: t.total_float,
                 free_float: t.free_float,
                 is_critical: t.is_critical,
+                scheduled_start: t.scheduled_start.unwrap(),
             }
         })
         .collect();
@@ -193,6 +194,7 @@ mod tests {
             early_finish: None,
             late_start: None,
             late_finish: None,
+            scheduled_start: None,
             total_float: 0.0,
             free_float: 0.0,
             is_critical: false,

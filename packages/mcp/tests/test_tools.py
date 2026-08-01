@@ -520,6 +520,28 @@ async def test_get_schedule_derivation_returns_why(settings: Settings) -> None:
     assert result["pass"] == "forward"
 
 
+async def test_get_schedule_derivation_accepts_scheduled_start(settings: Settings) -> None:
+    """ADR-0752: scheduled_start (the task's SPAN start) is a valid quantity —
+    a plain passthrough to the API, so no MCP-side enumeration to keep in sync,
+    but this pins the wire contract an agent client relies on."""
+    routes: Routes = {
+        "projects/p-1/schedule/derivation/": _json(
+            {
+                "task_id": "t-2",
+                "quantity": "scheduled_start",
+                "value": "2026-03-01",
+                "pass": "forward",
+                "binding": {"kind": "actual_start"},
+                "contributions": [{"kind": "actual_start", "is_binding": True}],
+            }
+        )
+    }
+    async with _client(settings, routes) as client:
+        result = await _get_schedule_derivation(client, "p-1", "t-2", "scheduled_start")
+    assert result["quantity"] == "scheduled_start"
+    assert result["binding"]["kind"] == "actual_start"
+
+
 # ---------------------------------------------------------------------------
 # Inline provenance — the compact "why" on primary answers (ADR-0368, #1848)
 # ---------------------------------------------------------------------------

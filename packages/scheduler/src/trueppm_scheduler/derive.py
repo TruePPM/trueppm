@@ -43,6 +43,7 @@ from trueppm_scheduler.engine import (
     _resolve_task_calendars,
     _retreat_calendar_days,
     _safe_offset,
+    _start_from_finish,
     _working_days_between,
     schedule,
 )
@@ -63,6 +64,12 @@ class Quantity(enum.Enum):
     LATE_FINISH = "late_finish"
     TOTAL_FLOAT = "total_float"
     FREE_FLOAT = "free_float"
+    #: The task's span start (ADR-0752), as distinct from ``early_start``'s
+    #: remaining-work window. ``scheduled_finish`` is deliberately NOT a
+    #: member here — it is always identical to ``early_finish``, and a second
+    #: name for one quantity in this allow-list would invite a client to ask
+    #: the same question twice and get two answers (ADR-0752 §5).
+    SCHEDULED_START = "scheduled_start"
 
 
 # Which pass produced each quantity — a fixed fact of the CPM algorithm.
@@ -73,6 +80,7 @@ _PASS_FOR_QUANTITY: dict[Quantity, str] = {
     Quantity.LATE_FINISH: "backward",
     Quantity.TOTAL_FLOAT: "float",
     Quantity.FREE_FLOAT: "float",
+    Quantity.SCHEDULED_START: "forward",
 }
 
 
@@ -95,7 +103,9 @@ class DerivationContribution:
     #: ``actual_start`` | ``actual_finish`` | ``early_start`` | ``late_start`` |
     #: ``successor_free_slack`` | ``total_float`` | ``duration_from_early_start`` |
     #: ``early_finish_pullback`` | ``duration_from_late_finish`` |
-    #: ``duration_from_late_start``.
+    #: ``duration_from_late_start`` | ``full_duration_backoff`` (ADR-0752
+    #: ``scheduled_start``: the calendar back-off of the task's full duration
+    #: from ``early_finish``, for an in-progress task with no ``actual_start``).
     kind: str
     #: The driving predecessor/successor task id for a link term; ``None`` for an
     #: anchor (project start/finish, data date, SNET, recorded actual).
@@ -236,6 +246,59 @@ def _completed_forward_contribs(task: Task, *, want_finish: bool) -> list[Deriva
             )
         )
     return contribs
+
+
+def _derive_scheduled_start(
+    task: Task, cal: Calendar
+) -> tuple[str | None, list[DerivationContribution]]:
+    """Explain ``scheduled_start`` (ADR-0752 §2): the task's span start.
+
+    Mirrors :func:`engine._compute_scheduled_start`'s branches, each with its own
+    honest citation:
+
+    - Not started or complete: the remaining-work window *is* the span, so the
+      binding citation is ``early_start`` itself.
+    - In progress with a recorded ``actual_start``: that actual is the binding
+      citation — work began when it began, however long ago, regardless of what
+      the network would otherwise compute.
+    - In progress with no ``actual_start``: the binding citation is the
+      full-duration calendar back-off from ``early_finish`` (unaffected by
+      progress — remaining work still ends when the task ends), so the
+      contribution carries the ``early_finish`` it was computed from and the
+      full duration (in ``slack_days``, following ``_forward_duration_binding``'s
+      precedent of citing a duration count there).
+    """
+    assert task.early_start is not None and task.early_finish is not None
+    if _is_complete(task) or (task.percent_complete or 0.0) <= 0:
+        contribs = [
+            DerivationContribution(
+                kind="early_start", imposed_date=task.early_start, is_binding=True
+            )
+        ]
+        return task.early_start.isoformat(), contribs
+
+    if task.actual_start is not None:
+        contribs = [
+            DerivationContribution(
+                kind="actual_start", imposed_date=task.actual_start, is_binding=True
+            )
+        ]
+        return task.actual_start.isoformat(), contribs
+
+    full_days = task.duration.days
+    scheduled_start = _start_from_finish(task.early_finish, full_days, cal)
+    contribs = [
+        DerivationContribution(
+            kind="early_finish", imposed_date=task.early_finish, is_binding=False
+        ),
+        DerivationContribution(
+            kind="full_duration_backoff",
+            imposed_date=scheduled_start,
+            slack_days=full_days,
+            is_binding=True,
+        ),
+    ]
+    return scheduled_start.isoformat(), contribs
 
 
 # Provenance kind + label per dependency type, mirroring ``engine._forward_pass``.
@@ -727,7 +790,7 @@ def derive_value(
         task_id: The task whose computed value is being explained.
         quantity: Which value to explain — a :class:`Quantity` or its string value
             (``early_start`` / ``early_finish`` / ``late_start`` / ``late_finish`` /
-            ``total_float`` / ``free_float``).
+            ``total_float`` / ``free_float`` / ``scheduled_start``).
         result: A precomputed :class:`~trueppm_scheduler.engine.ScheduleResult` for
             ``project``. When omitted, ``schedule(project)`` is run. Passing the
             already-computed result avoids scheduling the network twice.
@@ -798,6 +861,8 @@ def derive_value(
             result.project_finish,
             want_start=q is Quantity.LATE_START,
         )
+    elif q is Quantity.SCHEDULED_START:
+        value, contribs = _derive_scheduled_start(task, cal)
     else:  # TOTAL_FLOAT / FREE_FLOAT — both start from the same total-float replay.
         tf_days, tf_contribs = _derive_total_float(task, cal)
         if q is Quantity.TOTAL_FLOAT:

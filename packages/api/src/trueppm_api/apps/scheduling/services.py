@@ -715,6 +715,12 @@ def apply_summary_rollups(
         ef_dates = [t.early_finish for t in leaf_results if t.early_finish is not None]
         ls_dates = [t.late_start for t in leaf_results if t.late_start is not None]
         lf_dates = [t.late_finish for t in leaf_results if t.late_finish is not None]
+        # ADR-0752: a summary's span start is the earliest of its leaves' span
+        # starts — the same min-aggregation as early_start, so a leaf whose work
+        # actually began before its own remaining-work window (actual_start <
+        # early_start) still pulls the rolled-up summary bar's span left. Falls
+        # back to early_start when no leaf carries one (pre-#2622 synced rows).
+        ss_dates = [t.scheduled_start for t in leaf_results if t.scheduled_start is not None]
         floats = [t.total_float for t in leaf_results if t.total_float is not None]
 
         if not es_dates or not ef_dates:
@@ -729,6 +735,7 @@ def apply_summary_rollups(
         summary_sched.early_finish = max(ef_dates)
         summary_sched.late_start = min(ls_dates) if ls_dates else summary_sched.early_start
         summary_sched.late_finish = max(lf_dates) if lf_dates else summary_sched.early_finish
+        summary_sched.scheduled_start = min(ss_dates) if ss_dates else summary_sched.early_start
         summary_sched.total_float = min(floats) if floats else timedelta(days=0)
         summary_sched.free_float = timedelta(days=0)
         summary_sched.is_critical = any(t.is_critical for t in leaf_results)

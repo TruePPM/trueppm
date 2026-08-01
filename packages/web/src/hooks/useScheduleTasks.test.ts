@@ -707,6 +707,53 @@ describe('deriveBarGeometry', () => {
     ).toBe('2026-10-05');
   });
 
+  // ADR-0752 / #2622: the bar's geometry must be the task's SPAN
+  // (scheduled_start..early_finish), not early_start's remaining-work window
+  // — otherwise a 4-day task at 83% renders as 83% of the ONE remaining day
+  // instead of 83% of its full 4-day bar (drawProgressOverlay applying
+  // progress on top of an already-shrunken geometry).
+  it('uses scheduled_start (the span), not early_start (the remaining window), for bar geometry', () => {
+    const g = deriveBarGeometry({
+      plannedStart: null,
+      // early_start/early_finish are the remaining-work window for this
+      // in-progress task: 1 day left, ending on the 25th.
+      earlyStart: '2026-10-24',
+      earlyFinish: '2026-10-24',
+      // scheduled_start is the SPAN start — where the full 4-day estimate
+      // actually began.
+      scheduledStart: '2026-10-21',
+      duration: 4,
+      isSummary: false,
+    });
+    expect(g.start).toBe('2026-10-21'); // NOT '2026-10-24' (the remaining window)
+    expect(g.finish).toBe('2026-10-24'); // finish is unaffected — always early_finish
+  });
+
+  it('falls back to early_start for bar geometry when scheduled_start is absent (pre-ADR-0752 payload)', () => {
+    const g = deriveBarGeometry({
+      plannedStart: null,
+      earlyStart: '2026-10-24',
+      earlyFinish: '2026-10-24',
+      // scheduledStart omitted entirely — a payload/delta that predates the field.
+      duration: 4,
+      isSummary: false,
+    });
+    expect(g.start).toBe('2026-10-24');
+  });
+
+  it('the SNET floor still wins over a later scheduled_start (drag-optimistic feedback)', () => {
+    expect(
+      deriveBarGeometry({
+        plannedStart: '2026-10-25',
+        earlyStart: '2026-10-20',
+        earlyFinish: '2026-10-24',
+        scheduledStart: '2026-10-21',
+        duration: 4,
+        isSummary: false,
+      }).start,
+    ).toBe('2026-10-25');
+  });
+
   it('falls back to start + duration for a leaf with no early_finish yet', () => {
     const g = deriveBarGeometry({
       plannedStart: '2026-10-05',
@@ -771,6 +818,18 @@ describe('applyTaskDatesDelta', () => {
     expect(spliced.totalFloat).toBe(refetched.totalFloat);
     expect(spliced.lateFinish).toBe(refetched.lateFinish);
     expect(spliced.plannedStart).toBe(refetched.plannedStart);
+  });
+
+  it('splices scheduled_start (the span) into bar geometry, not just early_start (ADR-0752)', () => {
+    const existing = mapTask(base);
+    const spliced = applyTaskDatesDelta(existing, {
+      ...delta,
+      early_start: '2026-11-11', // remaining-work window: 1 day left
+      early_finish: '2026-11-11',
+      scheduled_start: '2026-11-02', // the actual span start
+    });
+    expect(spliced.start).toBe('2026-11-02');
+    expect(spliced.finish).toBe('2026-11-11');
   });
 
   it('splices late_finish so the drag preview stays fresh after a CPM re-run (issue #1493)', () => {

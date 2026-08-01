@@ -2845,6 +2845,13 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # Computed: actual_finish - early_finish in days.  Positive = late, negative = early.
     schedule_variance_days = serializers.SerializerMethodField()
 
+    # ADR-0752: scheduled_start (the model field) is exposed implicitly via
+    # Meta.fields, same as early_start. scheduled_finish and remaining_duration
+    # are serializer-computed — neither is a stored column (see the getters
+    # below for why).
+    scheduled_finish = serializers.SerializerMethodField()
+    remaining_duration = serializers.SerializerMethodField()
+
     # Summary task annotations — computed from wbs_path hierarchy, not stored.
     is_summary = serializers.BooleanField(read_only=True, default=False)
     # is_phase — computed: a non-subtask task with >=1 structural (non-subtask)
@@ -3021,6 +3028,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "actual_finish",
             "early_start",
             "early_finish",
+            "scheduled_start",
+            "scheduled_finish",
+            "remaining_duration",
             "late_start",
             "late_finish",
             "total_float",
@@ -3119,6 +3129,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "qualified_id",
             "early_start",
             "early_finish",
+            "scheduled_start",
+            "scheduled_finish",
+            "remaining_duration",
             "late_start",
             "late_finish",
             "total_float",
@@ -4212,6 +4225,33 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         if actual and baseline:
             return (actual - baseline).days
         return None
+
+    def get_scheduled_finish(self, obj: Task) -> str | None:
+        """Mirror of ``early_finish`` under the ADR-0752 ``scheduled_*`` name.
+
+        Not a stored column: remaining work always ends when the task ends, so
+        ``scheduled_finish`` is always identical to ``early_finish``. Exposed
+        under its own name so a consumer never has to mix the
+        ``scheduled_*``/``early_*`` vocabularies in one expression (ADR-0752 §2).
+        """
+        return obj.early_finish.isoformat() if obj.early_finish else None
+
+    def get_remaining_duration(self, obj: Task) -> int:
+        """Working days of REMAINING work (ADR-0752 §2).
+
+        ``duration - floor(duration * percent_complete / 100)``, mirroring the
+        engine's ``_effective_duration_days`` exactly — the same rule that
+        makes ``early_start``/``early_finish`` name the remaining-work window.
+        Serializer-computed, not persisted: unlike ``scheduled_start`` (which
+        utilization, #2623, needs to filter on in the database), nothing queries
+        this value, so no column is needed for it.
+        """
+        duration = obj.duration or 0
+        pct = obj.percent_complete or 0.0
+        if pct <= 0:
+            return duration
+        elapsed = int(duration * min(pct, 100.0) / 100.0)
+        return max(0, duration - elapsed)
 
     @extend_schema_field(_EXTERNAL_LINK_SUMMARY_SCHEMA)
     def get_external_link_summary(self, obj: Task) -> dict[str, object]:

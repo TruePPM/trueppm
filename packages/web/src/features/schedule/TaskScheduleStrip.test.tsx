@@ -85,6 +85,58 @@ describe('TaskScheduleStrip', () => {
     expect(within(startCell).getByText('—')).toBeInTheDocument();
   });
 
+  describe('remaining-duration qualifier chip (ADR-0752 §9)', () => {
+    it('shows "Nd left" when remaining work has shrunk below the full estimate', () => {
+      render(<TaskScheduleStrip task={makeTask({ duration: 4, remainingDuration: 1 })} />);
+      const durationCell = screen.getByRole('group', { name: 'Duration' });
+      expect(within(durationCell).getByText('4d')).toBeInTheDocument();
+      expect(within(durationCell).getByText('1d left')).toBeInTheDocument();
+    });
+
+    it('omits the chip for a not-started task (remaining equals full duration)', () => {
+      render(<TaskScheduleStrip task={makeTask({ duration: 4, remainingDuration: 4 })} />);
+      const durationCell = screen.getByRole('group', { name: 'Duration' });
+      expect(within(durationCell).queryByText(/left/)).not.toBeInTheDocument();
+    });
+
+    it('omits the chip for a complete task', () => {
+      render(
+        <TaskScheduleStrip
+          task={makeTask({ duration: 4, remainingDuration: 0, isComplete: true })}
+        />,
+      );
+      const durationCell = screen.getByRole('group', { name: 'Duration' });
+      expect(within(durationCell).queryByText(/left/)).not.toBeInTheDocument();
+    });
+
+    it('omits the chip when remainingDuration is absent (pre-ADR-0752 payload)', () => {
+      render(<TaskScheduleStrip task={makeTask({ duration: 4, remainingDuration: undefined })} />);
+      const durationCell = screen.getByRole('group', { name: 'Duration' });
+      expect(within(durationCell).queryByText(/left/)).not.toBeInTheDocument();
+    });
+
+    it('the chip is aria-hidden with an sr-only long form (rule 276)', () => {
+      render(<TaskScheduleStrip task={makeTask({ duration: 4, remainingDuration: 1 })} />);
+      const chip = screen.getByText('1d left');
+      expect(chip).toHaveAttribute('aria-hidden', 'true');
+      expect(screen.getByText(/1 day of work remaining/)).toBeInTheDocument();
+    });
+
+    it('folds the remaining-days fact into the editable button\'s aria-label', () => {
+      render(
+        <TaskScheduleStrip
+          task={makeTask({ duration: 4, remainingDuration: 1 })}
+          projectId="p1"
+          canEdit={true}
+        />,
+      );
+      expect(
+        screen.getByRole('button', { name: 'Duration, 4 days, 1 day left. Edit.' }),
+      ).toBeInTheDocument();
+      expect(screen.getByText('1d left')).toHaveAttribute('aria-hidden', 'true');
+    });
+  });
+
   describe('editable Duration (#2106)', () => {
     beforeEach(() => {
       mutate.mockReset();

@@ -109,13 +109,23 @@ export interface Task {
   id: string;
   wbs: string;
   name: string;
-  /** ISO date string — `max(planned_start, early_start)`. CPM fills in
-   * `early_start` for every task, so this is rarely empty in production —
-   * it's "where the bar paints", not "what the PM committed to". Use
-   * `plannedStart` to check whether the PM has actually committed a date. */
+  /** ISO date string — `max(planned_start, scheduled_start)` (ADR-0752). CPM
+   * fills in `scheduled_start` (the task's SPAN start) for every task, so
+   * this is rarely empty in production — it's "where the bar paints", not
+   * "what the PM committed to". Use `plannedStart` to check whether the PM
+   * has actually committed a date. Distinct from the server's `early_start`,
+   * which names the *remaining-work window* for an in-progress task and is
+   * NOT what the bar draws from — see `deriveBarGeometry`. */
   start: string;
-  /** ISO date string */
+  /** ISO date string. Always identical to the server's `early_finish` AND
+   * `scheduled_finish` (ADR-0752) — remaining work ends when the task ends,
+   * so there is exactly one finish date regardless of which vocabulary names
+   * it. */
   finish: string;
+  /** Working days of REMAINING work (ADR-0752) — `duration` minus what
+   * `progress` has consumed. Drives the schedule drawer's "Nd left" duration
+   * qualifier chip (rule 276). Null when the task carries no CPM output yet. */
+  remainingDuration?: number | null;
   /** ISO date string — the PM-committed start (SNET constraint). Distinct
    * from `start`: CPM auto-computes `early_start` for every task it
    * processes, so `start` is rarely empty in production. `plannedStart`

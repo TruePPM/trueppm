@@ -201,6 +201,10 @@ _HISTORY_EXCLUDED_TASK = [
     "total_float",
     "free_float",
     "is_critical",
+    # scheduled_start (ADR-0752) is CPM output, not a user-meaningful audit
+    # fact, exactly like early_start/early_finish above — tracking it would
+    # name it on every recalc in the ADR-0217 merge header.
+    "scheduled_start",
 ]
 # ``deleted_at`` (Task, Dependency) is grouped with ``deleted_version`` as a
 # tombstone-reap bookkeeping field, not a user-meaningful audit fact — the
@@ -2292,6 +2296,16 @@ class Task(VersionedModel):
     early_finish = models.DateField(null=True, blank=True)
     late_start = models.DateField(null=True, blank=True)
     late_finish = models.DateField(null=True, blank=True)
+    # The task's SPAN start (ADR-0752), distinct from early_start's
+    # remaining-work window (ADR-0132). Not started/complete: equals
+    # early_start. In progress with actual_start recorded: equals
+    # actual_start (the span may then exceed ``duration`` — a task running
+    # long, which is deliberate, see the ADR). In progress with no
+    # actual_start: the calendar-aware full-duration back-off from
+    # early_finish. Written by the same bulk_update that writes early_start;
+    # never client-writable. No ``scheduled_finish`` column exists — it is
+    # always identical to early_finish, so read that under its existing name.
+    scheduled_start = models.DateField(null=True, blank=True)
     total_float = models.IntegerField(
         null=True, blank=True, help_text="Total float in working days"
     )

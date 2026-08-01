@@ -214,6 +214,19 @@ def _public_schedule_task(task: Task, show_assignees: bool) -> dict[str, Any]:
     excluded by omission — criticality is surfaced via the boolean ``is_critical``
     flag, never the raw float. Assignee identity is opt-in only (a display name,
     never email/id/avatar), matching the board projection.
+
+    ``scheduled_start`` (ADR-0752) is a **deliberate** widening of this
+    allow-list, not an incidental one: ``actual_start``/``actual_finish`` stay
+    withheld, but for an in-progress task ``scheduled_start`` *is*
+    ``actual_start`` (the span starts where work actually began). The public
+    Gantt needs the real span to draw a correct bar — an
+    ignore-``actual_start``, back-off-only span would silently draw a
+    *different* schedule than the authenticated product on the one surface
+    where trust matters most (ADR-0752 §8) — so the widening is accepted and
+    recorded here rather than left for a future reader to discover by diffing
+    field names. ``when work actually began`` is the same class of
+    delivery-status fact this projection already discloses via
+    ``percent_complete`` and ``planned_start``.
     """
     row: dict[str, Any] = {
         "short_id": task.short_id,
@@ -224,6 +237,7 @@ def _public_schedule_task(task: Task, show_assignees: bool) -> dict[str, Any]:
         "planned_start": task.planned_start.isoformat() if task.planned_start else None,
         "early_start": task.early_start.isoformat() if task.early_start else None,
         "early_finish": task.early_finish.isoformat() if task.early_finish else None,
+        "scheduled_start": task.scheduled_start.isoformat() if task.scheduled_start else None,
         "is_milestone": task.is_milestone,
         "is_critical": bool(task.is_critical),
         "percent_complete": task.percent_complete,

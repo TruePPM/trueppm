@@ -61,6 +61,7 @@ DATE_QUANTITIES = [
     Quantity.EARLY_FINISH,
     Quantity.LATE_START,
     Quantity.LATE_FINISH,
+    Quantity.SCHEDULED_START,
 ]
 
 
@@ -456,6 +457,44 @@ class TestProgress:
         assert d.binding.kind == "actual_finish"
         assert d.value == date(2026, 3, 4).isoformat()
 
+    def test_scheduled_start_not_started_cites_early_start(self) -> None:
+        p = make_project([task("A", "A", 5)])
+        d = derive_value(p, "A", Quantity.SCHEDULED_START)
+        assert d.binding is not None
+        assert d.binding.kind == "early_start"
+        assert d.value == date(2026, 3, 2).isoformat()
+
+    def test_scheduled_start_in_progress_with_actual_start_cites_the_actual(self) -> None:
+        p = make_project(
+            [task("A", "A", 4, actual_start=date(2026, 3, 2), percent_complete=50.0)],
+        )
+        p.status_date = date(2026, 3, 20)
+        d = derive_value(p, "A", Quantity.SCHEDULED_START)
+        assert d.binding is not None
+        assert d.binding.kind == "actual_start"
+        assert d.value == date(2026, 3, 2).isoformat()
+
+    def test_scheduled_start_in_progress_no_actual_start_cites_backoff_from_early_finish(
+        self,
+    ) -> None:
+        """No recorded actual_start: the binding cites the full-duration
+        calendar back-off from early_finish, carrying the full duration in
+        ``slack_days`` (mirroring ``_forward_duration_binding``'s precedent)."""
+        p = make_project([task("A", "A", 10, percent_complete=60.0)])
+        p.status_date = date(2026, 3, 16)
+        result = schedule(p)
+        a = next(t for t in result.tasks if t.id == "A")
+        d = derive_value(p, "A", Quantity.SCHEDULED_START, result=result)
+        assert d.value == a.scheduled_start.isoformat()
+        assert d.binding is not None
+        assert d.binding.kind == "full_duration_backoff"
+        assert d.binding.imposed_date == a.scheduled_start
+        assert d.binding.slack_days == 10
+        # early_finish is cited as the (non-binding) anchor it backed off from.
+        anchor = next(c for c in d.contributions if c.kind == "early_finish")
+        assert anchor.imposed_date == a.early_finish
+        assert not anchor.is_binding
+
     def test_in_progress_task_bound_by_actual_start_floor(self) -> None:
         """ADR-0132 §2 / #2621: an in-progress task's early_start derivation
         must name ``actual_start`` as the binding term when it is the tightest
@@ -552,7 +591,7 @@ class TestPrebuiltResultEquivalence:
     def test_prebuilt_result_matches_fresh_schedule_for_all_quantities(self) -> None:
         """derive_value must produce byte-identical derivations whether it
         schedules the project itself or reuses a prebuilt ScheduleResult — across
-        every task and all six quantities. This pins the O(degree) incident-edge
+        every task and every quantity. This pins the O(degree) incident-edge
         scan (#1859) to the same output as scheduling from scratch: any drift in
         how predecessors/successors are gathered would surface as a dict diff."""
         project = make_project(

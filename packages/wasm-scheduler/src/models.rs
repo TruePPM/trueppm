@@ -81,6 +81,15 @@ pub struct Task {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub late_finish: Option<NaiveDate>,
 
+    /// Span start (ADR-0752), populated by the engine. `early_start` means the
+    /// *remaining-work window* start for an in-progress task (ADR-0132);
+    /// `scheduled_start` means the task's whole span instead. See
+    /// `forward::compute_scheduled_start` for the per-state derivation table.
+    /// No `scheduled_finish` field exists — it is always identical to
+    /// `early_finish`, so callers read that under its existing name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduled_start: Option<NaiveDate>,
+
     /// Total float in seconds (divide by 86400 for working days).
     #[serde(default)]
     pub total_float: f64,
@@ -314,6 +323,8 @@ pub struct TaskResult {
     pub total_float: f64,
     pub free_float: f64,
     pub is_critical: bool,
+    /// The task's span start (ADR-0752) — see `Task::scheduled_start`.
+    pub scheduled_start: NaiveDate,
 }
 
 #[cfg(test)]
@@ -331,6 +342,7 @@ mod tests {
             early_finish: None,
             late_start: None,
             late_finish: None,
+            scheduled_start: None,
             total_float: 0.0,
             free_float: 0.0,
             is_critical: false,

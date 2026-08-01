@@ -11,7 +11,8 @@
       "late_finish": "2026-04-15",
       "total_float": 0.0,
       "free_float": 0.0,
-      "is_critical": true
+      "is_critical": true,
+      "scheduled_start": "2026-04-02"
     },
     {
       "id": "B",
@@ -21,7 +22,8 @@
       "late_finish": "2026-04-20",
       "total_float": 0.0,
       "free_float": 0.0,
-      "is_critical": true
+      "is_critical": true,
+      "scheduled_start": "2026-04-16"
     }
   ],
   "critical_path": [

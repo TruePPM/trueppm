@@ -438,7 +438,7 @@ implementation is not yet available.
 | PUT / PATCH | `/api/v1/tasks/{id}/` | Update |
 | DELETE | `/api/v1/tasks/{id}/` | Soft-delete (cascades to edges) |
 
-CPM fields (`early_start`, `early_finish`, `late_start`, `late_finish`, `total_float`, `is_critical`) are read-only — set by the auto-scheduler.
+CPM fields (`early_start`, `early_finish`, `late_start`, `late_finish`, `total_float`, `is_critical`) are read-only — set by the auto-scheduler. `early_start`/`early_finish` name the **remaining-work window** for an in-progress task, not its span — a 4-day task at 83% carries a one-day `early_start`..`early_finish` (ADR-0132). `scheduled_start` (paired with `early_finish` as `scheduled_finish` for symmetry — not a separate stored field, always identical to `early_finish`) and `remaining_duration` (also read-only) instead name the task's **span** and the working days of work left on it, so a consumer never has to branch on task state to know which quantity a date field means (ADR-0752). Any client that assumes `finish − start ≈ duration` should read `scheduled_start`/`scheduled_finish`, not `early_start`/`early_finish`.
 
 Assigning a **phase** (a task that rolls up one or more real child tasks) to a sprint is rejected unconditionally with `400` and a standard field error on `sprint` carrying the stable code `phase_in_sprint_forbidden`. This is a hard invariant — it is *not* affected by the project's guardrail policy and cannot be escalated or relaxed by an Owner (assigning a phase to a sprint double-counts velocity). Assign the child tasks inside the phase instead. Other sprint-composition guardrails (`summary_in_sprint`, `task_outside_sprint_window`, `recurring_in_sprint`) remain Warn-by-default and are configurable via the guardrail policy.
 

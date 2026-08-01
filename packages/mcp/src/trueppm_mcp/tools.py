@@ -775,8 +775,14 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
             task_id: The task whose computed value is being explained. Required for
                 a CPM quantity; ignored for a Monte Carlo percentile.
             quantity: A CPM quantity (early_start, early_finish, late_start,
-                late_finish, total_float, free_float) or a Monte Carlo percentile
-                (p50, p80, p95).
+                late_finish, total_float, free_float, scheduled_start) or a Monte
+                Carlo percentile (p50, p80, p95). ``early_start``/``early_finish``
+                name the task's REMAINING-WORK window for an in-progress task
+                (ADR-0132); ``scheduled_start`` names its SPAN start instead — ask
+                for that one when the question is "when did this task's work
+                actually begin", not "when does its remaining work start".
+                ``scheduled_finish`` is not a separate quantity — it always
+                equals ``early_finish`` (ADR-0752).
         """
         return await _get_schedule_derivation(client, project_id, task_id, quantity)
 

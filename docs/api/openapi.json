@@ -17917,7 +17917,7 @@
                         "schema": {
                             "type": "string"
                         },
-                        "description": "Which computed value to explain: a CPM quantity (early_start, early_finish, late_start, late_finish, total_float, free_float) or a Monte Carlo percentile (p50, p80, p95). CPM quantities return {task_id, task_name, quantity, value, pass, is_critical, binding, contributions[]}, each contribution carrying its source task, dep_type, lag_days, imposed_date, calendar_days_added, slack_days, and is_binding. Percentiles return {quantity, value, cpm_finish, delta_vs_cpm_days, drivers[]} from the latest simulation.",
+                        "description": "Which computed value to explain: a CPM quantity (early_start, early_finish, late_start, late_finish, total_float, free_float, scheduled_start) or a Monte Carlo percentile (p50, p80, p95). CPM quantities return {task_id, task_name, quantity, value, pass, is_critical, binding, contributions[]}, each contribution carrying its source task, dep_type, lag_days, imposed_date, calendar_days_added, slack_days, and is_binding. Percentiles return {quantity, value, cpm_finish, delta_vs_cpm_days, drivers[]} from the latest simulation.",
                         "required": true
                     },
                     {
@@ -56340,6 +56340,23 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "scheduled_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "scheduled_finish": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Mirror of ``early_finish`` under the ADR-0752 ``scheduled_*`` name.\n\nNot a stored column: remaining work always ends when the task ends, so\n``scheduled_finish`` is always identical to ``early_finish``. Exposed\nunder its own name so a consumer never has to mix the\n``scheduled_*``/``early_*`` vocabularies in one expression (ADR-0752 §2).",
+                        "readOnly": true
+                    },
+                    "remaining_duration": {
+                        "type": "integer",
+                        "description": "Working days of REMAINING work (ADR-0752 §2).\n\n``duration - floor(duration * percent_complete / 100)``, mirroring the\nengine's ``_effective_duration_days`` exactly — the same rule that\nmakes ``early_start``/``early_finish`` name the remaining-work window.\nSerializer-computed, not persisted: unlike ``scheduled_start`` (which\nutilization, #2623, needs to filter on in the database), nothing queries\nthis value, so no column is needed for it.",
+                        "readOnly": true
+                    },
                     "late_start": {
                         "type": "string",
                         "format": "date",
@@ -56832,7 +56849,10 @@
                     "project",
                     "qualified_id",
                     "readiness",
+                    "remaining_duration",
                     "schedule_variance_days",
+                    "scheduled_finish",
+                    "scheduled_start",
                     "server_version",
                     "short_id",
                     "short_id_display",

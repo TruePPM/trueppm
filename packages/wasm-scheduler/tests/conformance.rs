@@ -154,6 +154,14 @@ fn load_and_check(fixture_name: &str) {
             rt["is_critical"], et["is_critical"],
             "{fixture_name}/{task_id}: is_critical mismatch"
         );
+        // ADR-0752: scheduled_start (the task's span start) must match Python's
+        // _compute_scheduled_start bit-for-bit — a shared divergence here cannot
+        // be caught by anything except this fixture comparison, since both
+        // engines independently implement the same per-state derivation table.
+        assert_eq!(
+            rt["scheduled_start"], et["scheduled_start"],
+            "{fixture_name}/{task_id}: scheduled_start mismatch"
+        );
     }
 }
 

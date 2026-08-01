@@ -18,6 +18,18 @@ change between releases. Pin an exact version (e.g.
 
 ### Added
 
+- **`Task.scheduled_start`** (ADR-0752): a new CPM-computed field naming the
+  task's *span* start, as distinct from `early_start`, which (since ADR-0132)
+  names the *remaining-work window* start for an in-progress task.
+  `scheduled_finish` is not a new field — it is always identical to
+  `early_finish`, so callers read that under its existing name.
+  `derive.Quantity` gains `SCHEDULED_START = "scheduled_start"` and
+  `derive_value()` explains it: not-started/complete tasks cite `early_start`
+  (the windows coincide); an in-progress task with a recorded `actual_start`
+  cites that actual; otherwise the citation is the calendar-aware full-duration
+  back-off from `early_finish`. See the ADR for the full per-state derivation
+  table and the `scheduled_start > duration`-when-`actual_start`-is-set
+  behavior, which is deliberate.
 - The public API is now property-fuzzed in CI: every input to `schedule()`,
   `monte_carlo()`, `find_cycle()`, `expand_summary_dependencies()`, and
   `Project.from_json()` either succeeds or raises a documented `SchedulerError`

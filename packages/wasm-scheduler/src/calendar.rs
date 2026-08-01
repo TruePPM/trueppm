@@ -627,6 +627,7 @@ mod tests {
             early_finish: Some(es),
             late_start: Some(lf),
             late_finish: Some(lf),
+            scheduled_start: Some(es),
             total_float: 0.0,
             free_float: 0.0,
             is_critical: false,

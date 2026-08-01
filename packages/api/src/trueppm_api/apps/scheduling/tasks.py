@@ -789,6 +789,10 @@ _CPM_DELTA_FIELDS: tuple[str, ...] = (
     "free_float",
     "is_critical",
     "duration",
+    # scheduled_start (ADR-0752): the task's span start, distinct from
+    # early_start's remaining-work window. Same write-back, same broadcast —
+    # a client rendering the span bar needs to know it moved too.
+    "scheduled_start",
 )
 """Every CPM-owned field a ``task_dates_updated`` delta can carry (ADR-0091, #2573).
 
@@ -863,6 +867,9 @@ def _apply_cpm_results(
         db_task.total_float = sched.total_float.days if sched.total_float else None
         db_task.free_float = sched.free_float.days if sched.free_float else None
         db_task.is_critical = sched.is_critical
+        # ADR-0752: the task's span start, distinct from early_start's
+        # remaining-work window.
+        db_task.scheduled_start = sched.scheduled_start
         # Belt-and-suspenders: milestones are single-point gates. Even if the
         # boundary normalisation is bypassed, a milestone's finish must equal its
         # start so client-facing rows never render a date range.
@@ -1181,6 +1188,7 @@ def _run_schedule(
                 "free_float",
                 "is_critical",
                 "duration",
+                "scheduled_start",
             ],
             batch_size=_WRITEBACK_BATCH_SIZE,
         )
@@ -1350,6 +1358,10 @@ def _member_cpm_delta(moved_tasks: list[Any]) -> dict[str, object]:
                 "is_critical": t.is_critical,
                 "planned_start": t.planned_start.isoformat() if t.planned_start else None,
                 "duration": t.duration,
+                # ADR-0752: the task's span start, distinct from early_start's
+                # remaining-work window. Reaches the same project subscribers
+                # early_start already does — no new field-leak (ADR §10).
+                "scheduled_start": t.scheduled_start.isoformat() if t.scheduled_start else None,
             }
             for t in moved_tasks
         ],
@@ -1365,6 +1377,7 @@ _PROGRAM_WRITE_FIELDS = [
     "free_float",
     "is_critical",
     "duration",
+    "scheduled_start",
 ]
 
 

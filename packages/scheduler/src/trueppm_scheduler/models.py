@@ -144,6 +144,17 @@ class Task:
     late_start: date | None = None
     late_finish: date | None = None
 
+    # Span start (ADR-0752). ``early_start`` means the *remaining-work window*
+    # for an in-progress task (ADR-0132); ``scheduled_start`` means the task's
+    # whole span instead, so a bar/consumer that wants "where does this task's
+    # work begin" never has to branch on task state. See
+    # :func:`trueppm_scheduler.engine._compute_scheduled_start` for the
+    # per-state derivation table. ``scheduled_finish`` is deliberately NOT a
+    # field here — it is always identical to ``early_finish`` (remaining work
+    # ends when the task ends), so a second stored/computed date would just be
+    # a copy; callers that want it read ``early_finish`` under that name.
+    scheduled_start: date | None = None
+
     # Float
     total_float: timedelta = field(default_factory=timedelta)
     free_float: timedelta = field(default_factory=timedelta)
@@ -299,6 +310,7 @@ def _coerce_task_dates(d: dict[str, Any]) -> None:
         "late_finish",
         "actual_start",
         "actual_finish",
+        "scheduled_start",
     ):
         if d.get(f) is not None:
             d[f] = _parse_date(d[f], f)

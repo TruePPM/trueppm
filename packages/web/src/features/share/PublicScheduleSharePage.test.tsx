@@ -34,6 +34,7 @@ function task(overrides: Partial<PublicScheduleTask> = {}): PublicScheduleTask {
     planned_start: '2026-08-01',
     early_start: '2026-08-01',
     early_finish: '2026-08-06',
+    scheduled_start: '2026-08-01',
     is_milestone: false,
     is_critical: true,
     percent_complete: 40,
@@ -95,6 +96,32 @@ describe('PublicScheduleSharePage', () => {
     expect(container.querySelector('.bg-brand-accent.rotate-45')).not.toBeNull();
     // The legend gains a Milestone entry once a milestone is present.
     expect(screen.getByText('Milestone')).toBeInTheDocument();
+  });
+
+  it('draws the bar from scheduled_start (the span), not early_start (the remaining window) — #2622/ADR-0752', async () => {
+    // A 4-day task at 83%: early_start/early_finish are the 1-day remaining
+    // window; scheduled_start is where the full 4-day span actually began.
+    const t = task({
+      duration: 4,
+      percent_complete: 83,
+      early_start: '2026-08-05',
+      early_finish: '2026-08-05',
+      scheduled_start: '2026-08-01',
+    });
+    fetchMock.mockResolvedValueOnce({ ...schedule, tasks: [t] });
+    renderAt();
+    const bar = await screen.findByLabelText('Frame walls, 83% complete');
+    // The title (and therefore the bar geometry it mirrors) is anchored on the
+    // SPAN start, not the remaining-work window's early_start.
+    expect(bar.getAttribute('title')).toBe('2026-08-01 → 2026-08-05 · 83%');
+  });
+
+  it('falls back to early_start when scheduled_start is null (pre-first-CPM-run)', async () => {
+    const t = task({ scheduled_start: null });
+    fetchMock.mockResolvedValueOnce({ ...schedule, tasks: [t] });
+    renderAt();
+    const bar = await screen.findByLabelText('Frame walls, 40% complete');
+    expect(bar.getAttribute('title')).toBe('2026-08-01 → 2026-08-06 · 40%');
   });
 
   it('explains the omission when the link hid milestone dates (#2532)', async () => {
