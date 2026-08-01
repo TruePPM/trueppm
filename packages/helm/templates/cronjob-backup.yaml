@@ -161,6 +161,15 @@ repo. Keep the two heuristics in sync if either changes (#2650).
   # Warn — never block — when S3_ENDPOINT is unencrypted (http://) and does
   # not look in-cluster / private-network. The artifact is a full PostgreSQL
   # dump; see scripts/lib/s3.sh for the full heuristic rationale and limits.
+  #
+  # The warning text below tracks the one in scripts/lib/s3.sh (they differ
+  # only in which opt-out they name — the Helm value here, the env var there),
+  # and it deliberately does NOT spell out the "http" + "://" literal:
+  # shell:S5332 matched that sequence in the library's copy and raised the
+  # plaintext warning itself as a clear-text-protocol vulnerability (#2712).
+  # The YAML analyzer never reads this embedded script, so Sonar would not
+  # report a reintroduction here — scripts/tests/backup-s3.test.sh greps this
+  # template for it instead.
   case "${S3_ENDPOINT:-}" in
     http://*)
       if [ "${TRUEPPM_S3_ALLOW_PLAINTEXT:-}" != "1" ] && [ "${TRUEPPM_S3_ALLOW_PLAINTEXT:-}" != "true" ]; then
@@ -176,7 +185,7 @@ repo. Keep the two heuristics in sync if either changes (#2650).
           127.*.*.* | 10.*.*.* | 192.168.*.*) ;;
           172.1[6-9].*.* | 172.2[0-9].*.* | 172.3[01].*.*) ;;
           *.*)
-            echo "WARNING: S3_ENDPOINT (${S3_ENDPOINT}) is plaintext (http://) and does not look like an in-cluster or private-network address — the backup artifact (a full database dump) will cross the network unencrypted. Use https:// for any off-cluster endpoint, or set backup.s3.allowPlaintext=true if this path is known-trusted."
+            echo "WARNING: S3_ENDPOINT (${S3_ENDPOINT}) is unencrypted and does not look like an in-cluster or private-network address — the backup artifact (a full database dump) will cross the network unencrypted. Use https:// for any off-cluster endpoint, or set backup.s3.allowPlaintext=true if this path is known-trusted."
             ;;
           *) ;; # no dot at all → bare short name → treat as in-cluster
         esac

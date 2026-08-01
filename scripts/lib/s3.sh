@@ -136,6 +136,16 @@ _s3_endpoint_looks_incluster() {
 # endpoint puts that dump on the wire in the clear, and nothing else in this
 # path objects. In-cluster plaintext (the documented http://minio:9000
 # default) is fine and must stay silent — see _s3_endpoint_looks_incluster.
+#
+# The warning text below deliberately does NOT spell out the "http" + "://"
+# literal (#2712). shell:S5332 matches that sequence inside any quoted string
+# and reported this very message as a clear-text-protocol vulnerability — the
+# mitigation flagged as the risk. Excluding this file in
+# sonar-project.properties was rejected: the library is the one place where a
+# hard-coded plaintext endpoint WOULD be a real finding, and the shhttp3 block
+# there records keeping it under the rule as deliberate. The parenthetical was
+# redundant anyway — the message interpolates $S3_ENDPOINT, whose value carries
+# the scheme. Do not reintroduce it.
 _s3_warn_if_remote_plaintext() {
   case "${S3_ENDPOINT:-}" in
     http://*) ;;
@@ -148,7 +158,7 @@ _s3_warn_if_remote_plaintext() {
   _host="${_host%%/*}"
   _host="${_host%%:*}"
   if ! _s3_endpoint_looks_incluster "$_host"; then
-    echo "WARNING: S3_ENDPOINT ($S3_ENDPOINT) is plaintext (http://) and does not" \
+    echo "WARNING: S3_ENDPOINT ($S3_ENDPOINT) is unencrypted and does not" \
       "look like an in-cluster or private-network address — the backup" \
       "artifact (a full database dump) will cross the network unencrypted." \
       "Use https:// for any off-cluster endpoint, or set" \
