@@ -1,30 +1,37 @@
-import { useRef, useState, useEffect, type FormEvent } from 'react';
+import { useRef, useState, useEffect, type ChangeEvent, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCreateProject } from '@/hooks/useProjectMutations';
 import { useProjects } from '@/hooks/useProjects';
+import { usePrograms } from '@/hooks/usePrograms';
 import { RolePicker } from '@/features/settings/members/RolePicker';
 import { toast } from '@/components/Toast';
-import { ROLE_MEMBER } from '@/lib/roles';
+import { ROLE_ADMIN, ROLE_MEMBER } from '@/lib/roles';
 import type { Methodology } from '@/types';
+
+// Shared chevron affordance for this modal's native <select> controls (matches the
+// step-3 "Copy settings from" picker) — defined once so the Program picker (#2673)
+// reuses the identical data-URI rather than a hand-retyped copy.
+const SELECT_CHEVRON =
+  "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 16 16'><path d='M4 6l4 4 4-4' stroke='%23667085' stroke-width='2' stroke-linecap='round' fill='none' /></svg>\")";
 
 interface Props {
   onClose: () => void;
   /** Called after the project is created so the caller can navigate to it. */
   onCreated: (projectId: string) => void;
   /**
-   * Optional program to assign the new project to at creation time (ADR-0070).
-   * When provided, the modal sends ``program`` in the create payload and
-   * invalidates the program-projects cache so the source page reflects the
-   * new row without a manual refetch. Caller must already hold ADMIN on the
-   * target program — the server gate raises 400 otherwise.
+   * Optional route-inferred program to preselect in the step-1 picker (ADR-0070,
+   * ADR-0764). This only SEEDS the modal's own `selectedProgramId` state — once the
+   * user changes the picker, the payload and the step-3 "Use program defaults"
+   * affordance follow that selection, never this prop (#2673). Caller must already
+   * hold ADMIN+ on the target program for it to be a legal initial value — the
+   * server gate raises 400 otherwise, and the picker itself only ever offers
+   * programs the current user administers.
    */
   programId?: string;
   /**
-   * Optional parent program name. Shown as a first-class identity field on step 1
-   * (#2666) so the dialog always names the destination the project is silently
-   * attached to, and labels the "Use program defaults" affordance on step 3 (#1909).
-   * Falls back to a generic label/value when absent (e.g. the program hasn't
-   * resolved yet) rather than showing nothing.
+   * Display name for `programId`, used only until `usePrograms()` resolves and the
+   * picker can show the canonical name from the fetched list (ADR-0764 §2) — a
+   * transient fallback, not a second source of truth.
    */
   programName?: string;
 }
@@ -55,9 +62,9 @@ function getFocusable(container: HTMLElement): HTMLElement[] {
 
 /**
  * Multi-step modal for creating a new project.
- * Step 1: Name + description (plus the target program, when creating under one —
- * #2666, so the attachment is never a silent fact). Step 2: Schedule dates.
- * Step 3: Template.
+ * Step 1: Name + description, plus a program picker (#2666, #2673) so the project's
+ * program attachment is always a deliberate choice, never a silent route-inferred fact.
+ * Step 2: Schedule dates. Step 3: Template.
  * Focus is trapped within the dialog and restored to the trigger element on close.
  */
 export function NewProjectModal({ onClose, onCreated, programId, programName }: Props) {
@@ -75,6 +82,10 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
   // so the manual planning-model picker and the project-source copy are disabled to
   // signal the program is providing those values.
   const [useProgramDefaults, setUseProgramDefaults] = useState(false);
+  // The program this project attaches to (#2673, ADR-0764). `programId` only seeds
+  // this — it is the single source of truth from here on, read by the step-1
+  // picker, the step-3 "Use program defaults" affordance, and the create payload.
+  const [selectedProgramId, setSelectedProgramId] = useState<string | null>(programId ?? null);
   // Default RBAC role applied to members later added without an explicit role
   // (ADR-0363, #157). Defaults to Team Member; the picker offers Viewer..Project
   // Manager (Owner is never a sensible blanket default).
@@ -91,6 +102,36 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
   // field's queryset is IDOR-safe server-side, so we simply offer every readable
   // project as a source (ADR-0242).
   const { data: projects, isLoading: projectsLoading } = useProjects();
+  // Program picker options (#2673, ADR-0764). Fetched unconditionally — usually
+  // already warm in the ['programs'] cache from Sidebar, which mounts on every
+  // authenticated route. Filtered to the exact RBAC predicate MoveToProgramModal
+  // established: open programs where the caller holds ADMIN+ (ADR-0070) — offering
+  // anything less would 400 at submit.
+  const { data: programs, isLoading: programsLoading } = usePrograms();
+  const eligiblePrograms = (programs ?? []).filter(
+    (p) => !p.is_closed && p.my_role !== null && p.my_role >= ROLE_ADMIN,
+  );
+  const selectedProgramInEligible = eligiblePrograms.some((p) => p.id === selectedProgramId);
+  // Canonical display name for the current selection: prefer the fetched list (the
+  // more current source), falling back to the route-inferred `programName` prop only
+  // while the selection still equals its original seed and the list hasn't resolved
+  // it yet (or, defensively, never resolves it — e.g. the program closed between
+  // CreateMenu's gate check and this modal opening).
+  const selectedProgramName =
+    eligiblePrograms.find((p) => p.id === selectedProgramId)?.name ??
+    (selectedProgramId !== null && selectedProgramId === (programId ?? null)
+      ? programName
+      : undefined);
+
+  // Changing the picker always resets "Use program defaults" (ADR-0764 §3) — an
+  // opt-in reviewed against Program A must never silently carry over to Program B.
+  // The checkbox's own re-render (new program name, unchecked) is the only signal;
+  // no separate transition toast/hint (ux-design #2673).
+  function handleProgramChange(e: ChangeEvent<HTMLSelectElement>) {
+    const next = e.target.value === '' ? null : e.target.value;
+    setSelectedProgramId(next);
+    setUseProgramDefaults(false);
+  }
 
   // Capture trigger before modal opens; restore focus on unmount.
   useEffect(() => {
@@ -149,14 +190,16 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
     // payload always wins over the copy (server precedence), which would defeat the
     // opt-in. `inherit_program_defaults` and `copy_settings_from` are mutually
     // exclusive (the server rejects both); the UI already gates them to one at a time.
-    const inheritProgram = Boolean(programId) && useProgramDefaults;
+    // Both read `selectedProgramId` — the picker's current value, not the
+    // route-inferred `programId` prop (#2673, ADR-0764 §2).
+    const inheritProgram = Boolean(selectedProgramId) && useProgramDefaults;
     createProject.mutate(
       {
         name: name.trim(),
         start_date: startDate,
         description: description.trim() || undefined,
         ...(inheritProgram ? {} : { methodology }),
-        ...(programId ? { program: programId } : {}),
+        ...(selectedProgramId ? { program: selectedProgramId } : {}),
         ...(inheritProgram
           ? { inherit_program_defaults: true }
           : copySettingsFrom
@@ -166,8 +209,10 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
       },
       {
         onSuccess: (data) => {
-          if (programId) {
-            void queryClient.invalidateQueries({ queryKey: ['programs', programId, 'projects'] });
+          if (selectedProgramId) {
+            void queryClient.invalidateQueries({
+              queryKey: ['programs', selectedProgramId, 'projects'],
+            });
           }
           // Confirm the create like every other creation moment (rule 185, #2048) —
           // the modal closes on navigation, so without this the user's first
@@ -233,25 +278,50 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
             {step === 1 && (
               <>
                 <h2 className="text-base font-semibold text-neutral-text-primary">Project details</h2>
-                {/* Names the destination as a first-class identity field (#2666) — the
-                    program a project attaches to determines its rollup, cadence
-                    inheritance, and the step-3 defaults, so it belongs here rather than
-                    only surfacing (optionally) on step 3 via the "Use program defaults"
-                    checkbox. Read-only for now: changing or clearing the program is a
-                    picker-sized follow-up (#2673), out of scope for this wiring fix. */}
-                {programId && (
-                  // Full-opacity bg-neutral-surface-raised (not the /40 used on the step-3
-                  // checkbox and TimesheetGrid's hover row) — this field is a static
-                  // identity display, not an interactive affordance, and the codebase's
-                  // only precedent for the /40 variant is interactive rows. Using the
-                  // same treatment here would visually imply this is clickable too.
-                  <div className="flex items-center justify-between gap-2 rounded-control border border-neutral-border bg-neutral-surface-raised px-3 py-2">
-                    <span className="text-xs font-medium text-neutral-text-secondary">Program</span>
-                    <span className="text-sm font-medium text-neutral-text-primary">
-                      {programName ?? 'Unnamed program'}
-                    </span>
-                  </div>
-                )}
+                {/* Program picker (#2673, ADR-0764) — the program a project attaches to
+                    determines its rollup, cadence inheritance, and the step-3 defaults, so
+                    it belongs here as a first-class field rather than only surfacing
+                    (optionally) on step 3. Unconditional: renders whether or not a program
+                    was inferred from the route, because a user creating a project with no
+                    route context should still be able to attach it to a program they
+                    administer, not only clear an inferred one. Options are scoped to open
+                    programs the caller administers (ADR-0070) — offering anything less
+                    would 400 at submit. */}
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-medium text-neutral-text-secondary">Program</span>
+                  <select
+                    value={selectedProgramId ?? ''}
+                    onChange={handleProgramChange}
+                    disabled={programsLoading}
+                    aria-label="Program"
+                    style={{ backgroundImage: SELECT_CHEVRON }}
+                    className="h-9 pl-3 pr-8 rounded-control border border-neutral-border bg-neutral-surface
+                      text-sm text-neutral-text-primary appearance-none bg-no-repeat bg-[right_0.5rem_center]
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+                      disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <option value="">None — standalone project</option>
+                    {/* Synthetic option for a selection not (yet, or ever) present in the
+                        fetched list — the route-inferred seed while usePrograms() is still
+                        loading, or defensively if it never resolves as eligible (ADR-0764 §5).
+                        Guarantees the select never points at a value with no matching
+                        <option>, which would otherwise render blank. */}
+                    {selectedProgramId && !selectedProgramInEligible && (
+                      <option value={selectedProgramId}>
+                        {selectedProgramName ?? (programsLoading ? 'Loading…' : 'Unnamed program')}
+                      </option>
+                    )}
+                    {eligiblePrograms.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.code ? `${p.name} (${p.code})` : p.name}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-xs text-neutral-text-secondary">
+                    Groups this project for shared rollup and cadence. You can move it to a
+                    different program later from project settings.
+                  </span>
+                </label>
                 <label className="flex flex-col gap-1">
                   <span className="text-xs font-medium text-neutral-text-secondary">
                     Name <span aria-hidden="true">*</span>
@@ -320,20 +390,24 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
                     is created under a program. Seeds the planning model and visibility
                     from the parent program at create time (a one-time copy; everything
                     stays editable in project settings afterward). Mutually exclusive
-                    with "Copy settings from", so both manual pickers dim while it is on. */}
-                {programId && (
+                    with "Copy settings from", so both manual pickers dim while it is on.
+                    Follows the step-1 picker's current selection, not the route-inferred
+                    `programId` prop (#2673, ADR-0764 §3) — the picker resets this opt-in
+                    to false on every change, so by the time it's visible it always
+                    reflects `selectedProgramId`. */}
+                {selectedProgramId && (
                   <label className="flex items-start gap-2 rounded-control border border-neutral-border p-3 bg-neutral-surface-raised/40">
                     <input
                       type="checkbox"
                       checked={useProgramDefaults}
                       onChange={(e) => setUseProgramDefaults(e.target.checked)}
-                      aria-label={`Use ${programName ? `${programName}'s` : 'program'} defaults`}
+                      aria-label={`Use ${selectedProgramName ? `${selectedProgramName}'s` : 'program'} defaults`}
                       className="mt-0.5 h-4 w-4 rounded border-neutral-border text-brand-primary
                         focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
                     />
                     <span className="flex flex-col gap-0.5">
                       <span className="text-sm font-medium text-neutral-text-primary">
-                        Use {programName ? `${programName}'s` : 'program'} defaults
+                        Use {selectedProgramName ? `${selectedProgramName}'s` : 'program'} defaults
                       </span>
                       <span className="text-xs text-neutral-text-secondary">
                         Copies this program&rsquo;s planning model and visibility. A one-time
@@ -385,10 +459,7 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
                     onChange={(e) => setCopySettingsFrom(e.target.value)}
                     aria-label="Copy settings from"
                     disabled={projectsLoading || useProgramDefaults}
-                    style={{
-                      backgroundImage:
-                        "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 16 16'><path d='M4 6l4 4 4-4' stroke='%23667085' stroke-width='2' stroke-linecap='round' fill='none' /></svg>\")",
-                    }}
+                    style={{ backgroundImage: SELECT_CHEVRON }}
                     className="h-9 pl-3 pr-8 rounded-control border border-neutral-border bg-neutral-surface
                       text-sm text-neutral-text-primary appearance-none bg-no-repeat bg-[right_0.5rem_center]
                       focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
