@@ -3295,6 +3295,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         self._validate_blocking_task(attrs)
         self._validate_assignee_membership(attrs)
         self._reject_pending_sprint_relink(attrs)
+        self._reject_status_change_on_closed_sprint(attrs)
         self._evaluate_sprint_guardrails(attrs)
         self._enforce_progress_anchor(attrs)
         self._enforce_milestone_rollup_lock(attrs)
@@ -3642,6 +3643,41 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                         "This task is pending sprint acceptance — accept or reject it "
                         "via the scope-change endpoints rather than changing its sprint "
                         "directly."
+                    )
+                }
+            )
+
+    def _reject_status_change_on_closed_sprint(self, attrs: dict[str, Any]) -> None:
+        """#2680: a COMPLETED sprint freezes every task in it, board-wide.
+
+        The web board computes ``boardReadOnly = sprintClosed || !canEditTask(role)``
+        (``useBoardIdentity.ts``) — the ``sprintClosed`` term disables drag-to-promote
+        for *every* role, including Admin, once the viewed sprint has closed, because
+        ``completed_*`` and velocity are frozen at close (``SprintState.COMPLETED``)
+        and a later status move would silently corrupt those already-reported
+        numbers. That freeze lived in the client only: nothing here re-checked
+        ``sprint.state`` on a task PATCH, so a direct ``PATCH /tasks/{id}/`` — or any
+        client that skips the disabled drag handle — could still move a task inside
+        a closed sprint even though the UI treats the board as read-only. Reject any
+        ``status`` change on a task whose *current* sprint is COMPLETED, regardless
+        of the caller's role, so the server enforces the same blanket freeze the
+        client only used to imply.
+
+        Deliberately narrower than ``can_user_edit_task``: this only ever removes a
+        capability (it can reject a write ``can_user_edit_task`` would otherwise
+        permit), it never grants one, so it is safe to run unconditionally rather
+        than being folded into that predicate.
+        """
+        if self.instance is None or "status" not in attrs:
+            return
+        if attrs["status"] == self.instance.status:
+            return
+        sprint = self.instance.sprint
+        if sprint is not None and sprint.state == SprintState.COMPLETED:
+            raise serializers.ValidationError(
+                {
+                    "status": (
+                        "This task belongs to a closed sprint and can no longer change status."
                     )
                 }
             )
@@ -4580,6 +4616,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         self._apply_date_gated_start_transition(instance, validated_data)
         self._apply_progress_auto_promote(instance, validated_data)
         self._apply_percent_complete_auto_status(instance, validated_data)
+        self._reject_auto_status_injection_on_closed_sprint(instance, validated_data)
         self._apply_status_transition_side_effects(instance, validated_data)
         self._stamp_blocked_by(instance, validated_data)
         self._apply_estimate_governance(instance, validated_data)
@@ -4689,6 +4726,45 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 validated_data["status"] = TaskStatus.COMPLETE
             else:
                 validated_data["status"] = TaskStatus.REVIEW
+
+    def _reject_auto_status_injection_on_closed_sprint(
+        self, instance: Task, validated_data: dict[str, Any]
+    ) -> None:
+        """#2680 follow-up: close the auto-status blind spot in the closed-sprint freeze.
+
+        ``_reject_status_change_on_closed_sprint`` (in ``validate()``) only ever
+        sees ``status`` when the caller put it in the payload directly. But three
+        auto-status side effects above — ``_apply_date_gated_start_transition``
+        (a ``planned_start`` in the past/today), ``_apply_progress_auto_promote``
+        (a ``percent_complete`` 0 → >0), and ``_apply_percent_complete_auto_status``
+        (``percent_complete`` reaching 100) — inject ``status`` into
+        ``validated_data`` *after* ``validate()`` has already passed, with no
+        ``status`` key in the original payload for that check to see. Without this,
+        a plain PATCH of `planned_start` or `percent_complete` alone — no `status`
+        field at all — would silently promote a closed-sprint task's status,
+        defeating the very guard #2680 added. Re-run the same freeze here, once
+        all three injectors have run and before the transition side effects below
+        consume the (possibly injected) value.
+
+        Raising here (rather than only in ``validate()``) still surfaces as a
+        normal 400: ``ATOMIC_REQUESTS`` wraps the request in a transaction, and
+        DRF's exception handler calls ``set_rollback()`` on any raised
+        ``APIException`` (``ValidationError`` included), so any side effect this
+        ``update()`` already applied above (e.g. the project-start shift) is
+        rolled back along with it — nothing partially commits.
+        """
+        new_status = validated_data.get("status")
+        if new_status is None or new_status == instance.status:
+            return
+        sprint = instance.sprint
+        if sprint is not None and sprint.state == SprintState.COMPLETED:
+            raise serializers.ValidationError(
+                {
+                    "status": (
+                        "This task belongs to a closed sprint and can no longer change status."
+                    )
+                }
+            )
 
     def _apply_status_transition_side_effects(
         self, instance: Task, validated_data: dict[str, Any]

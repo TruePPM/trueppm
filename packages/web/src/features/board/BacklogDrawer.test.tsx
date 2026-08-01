@@ -15,7 +15,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { DndContext } from '@dnd-kit/core';
-import { BacklogDrawer } from './BacklogDrawer';
+import { BacklogDrawer, type BacklogDrawerProps } from './BacklogDrawer';
 import type { Task } from '@/types';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -48,7 +48,7 @@ const BASE_PROPS = {
   onCardClick: vi.fn(),
 };
 
-function renderDrawer(props: Partial<typeof BASE_PROPS> & { tasks: Task[] }) {
+function renderDrawer(props: Partial<BacklogDrawerProps> & { tasks: Task[] }) {
   return render(
     <DndContext>
       <BacklogDrawer {...BASE_PROPS} {...props} />
@@ -158,5 +158,22 @@ describe('BacklogDrawer (top strip)', () => {
     const items = list.querySelectorAll('[role="listitem"]');
     expect(items[0]).toHaveTextContent('Newer');
     expect(items[1]).toHaveTextContent('Older');
+  });
+
+  // Drag guard (#2680) — the drawer shares BacklogCard with the rail, but had
+  // its own missing `readOnly` prop plumbing (BoardBody never forwarded it),
+  // so it needs its own coverage rather than relying on the rail's tests.
+  it('a Viewer or closed-sprint Member (readOnly) cannot drag a drawer card', () => {
+    renderDrawer({ tasks: [makeTask()], readOnly: true });
+    const card = screen.getByRole('button', { name: /Idea, backlog idea/i });
+    expect(card).not.toHaveAttribute('aria-roledescription', 'draggable');
+    expect(card.className).toContain('cursor-default');
+  });
+
+  it('an allowed role (not readOnly) can still drag a drawer card', () => {
+    renderDrawer({ tasks: [makeTask()], readOnly: false });
+    const card = screen.getByRole('button', { name: /Idea, backlog idea/i });
+    expect(card).toHaveAttribute('aria-roledescription', 'draggable');
+    expect(card.className).toContain('cursor-grab');
   });
 });

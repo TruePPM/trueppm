@@ -194,6 +194,7 @@ export function BoardBody(props: BoardBodyProps) {
           focusedCardId={focusedCardId}
           onCardFocus={onCardFocus}
           onCardClick={onCardClick}
+          readOnly={readOnly}
         />
       )}
       {/* Mobile snap-scroll board (v3 case 8). On phones the phase ×

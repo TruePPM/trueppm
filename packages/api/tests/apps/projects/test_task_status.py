@@ -10,7 +10,14 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Project, Task, TaskStatus
+from trueppm_api.apps.projects.models import (
+    Calendar,
+    Project,
+    Sprint,
+    SprintState,
+    Task,
+    TaskStatus,
+)
 from trueppm_api.apps.projects.signals import task_status_changed
 
 User = get_user_model()
@@ -843,3 +850,209 @@ def test_readiness_baselined_takes_precedence_over_idea(project: Project) -> Non
     assert TaskSerializer().get_readiness(task) == "idea"
     task.baseline_start = date(2026, 1, 5)
     assert TaskSerializer().get_readiness(task) == "baselined"
+
+
+# ---------------------------------------------------------------------------
+# #2680 — the web board's read-only guard (Viewer, closed sprint) must have a
+# server-side equivalent for the status-changing PATCH the drag paths fire.
+# Viewer was already covered by can_user_edit_task (test_viewer_cannot_patch_progress_at_all
+# above proves the general Viewer write-block; this asserts it explicitly for
+# a plain `status` PATCH too). The closed-sprint case had NO server-side check
+# at all prior to this fix — any role that could otherwise write the task
+# (assignee Member, Admin, Owner) could move a task's status inside a
+# COMPLETED sprint, silently corrupting that sprint's already-closed
+# completed_*/velocity numbers. This section pins the fix.
+# ---------------------------------------------------------------------------
+
+
+def _make_sprint(project: Project, **kwargs: object) -> Sprint:
+    return Sprint.objects.create(
+        project=project,
+        name=kwargs.pop("name", "Sprint 1"),
+        start_date=kwargs.pop("start_date", date(2026, 4, 1)),
+        finish_date=kwargs.pop("finish_date", date(2026, 4, 14)),
+        **kwargs,
+    )
+
+
+@pytest.mark.django_db
+def test_viewer_cannot_patch_status(
+    viewer_client: APIClient, project: Project, task: Task, viewer_membership: ProjectMembership
+) -> None:
+    """A Viewer's status-changing PATCH /tasks/{id}/ is rejected server-side (403).
+
+    This is the "does the API independently reject a Viewer" question #2680
+    asked before triaging severity — it does, via can_user_edit_task's Viewer
+    branch (permissions.py), independent of the web board's own readOnly guard.
+    """
+    r = viewer_client.patch(f"/api/v1/tasks/{task.pk}/", {"status": "IN_PROGRESS"}, format="json")
+    assert r.status_code == 403
+    task.refresh_from_db()
+    assert task.status == TaskStatus.NOT_STARTED
+
+
+@pytest.mark.django_db
+def test_admin_cannot_patch_status_on_closed_sprint_task(
+    client: APIClient, project: Project, task: Task, membership: ProjectMembership
+) -> None:
+    """#2680: an Admin (otherwise fully permitted by can_user_edit_task) is still
+    rejected on a status PATCH once the task's sprint has closed.
+
+    Prior to this fix nothing server-side checked sprint.state on a task write —
+    only the web board's client-side `boardReadOnly` guard blocked the drag. This
+    pins the genuine RBAC/consistency hole the issue's Step 1 investigation found:
+    a closed sprint must freeze every task in it board-wide, matching the client.
+    """
+    sprint = _make_sprint(project, state=SprintState.COMPLETED)
+    task.sprint = sprint
+    task.status = TaskStatus.NOT_STARTED
+    task.save()
+    r = client.patch(f"/api/v1/tasks/{task.pk}/", {"status": "IN_PROGRESS"}, format="json")
+    assert r.status_code == 400, r.content
+    assert "status" in r.data
+    task.refresh_from_db()
+    assert task.status == TaskStatus.NOT_STARTED
+
+
+@pytest.mark.django_db
+def test_member_assignee_cannot_patch_status_on_closed_sprint_task(
+    member_client: APIClient,
+    project: Project,
+    member_user: object,
+    member_membership: ProjectMembership,
+) -> None:
+    """Same as the Admin case above, for a Member who is the task's own
+    assignee — normally permitted to edit their own task per can_user_edit_task,
+    but a closed sprint overrides that and freezes the status field regardless.
+    """
+    sprint = _make_sprint(project, state=SprintState.COMPLETED)
+    task = Task.objects.create(
+        project=project,
+        name="Closed-sprint task",
+        duration=2,
+        assignee=member_user,
+        sprint=sprint,
+        status=TaskStatus.NOT_STARTED,
+    )
+    r = member_client.patch(f"/api/v1/tasks/{task.pk}/", {"status": "IN_PROGRESS"}, format="json")
+    assert r.status_code == 400, r.content
+    assert "status" in r.data
+    task.refresh_from_db()
+    assert task.status == TaskStatus.NOT_STARTED
+
+
+@pytest.mark.django_db
+def test_patch_status_still_allowed_on_active_sprint_task(
+    client: APIClient, project: Project, task: Task, membership: ProjectMembership
+) -> None:
+    """Control: the new closed-sprint guard must not over-fire on an ACTIVE
+    sprint — only COMPLETED freezes status."""
+    sprint = _make_sprint(project, state=SprintState.ACTIVE)
+    task.sprint = sprint
+    task.status = TaskStatus.NOT_STARTED
+    task.save()
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
+    ):
+        r = client.patch(f"/api/v1/tasks/{task.pk}/", {"status": "IN_PROGRESS"}, format="json")
+    assert r.status_code == 200, r.content
+    task.refresh_from_db()
+    assert task.status == TaskStatus.IN_PROGRESS
+
+
+@pytest.mark.django_db
+def test_patch_non_status_field_still_allowed_on_closed_sprint_task(
+    client: APIClient, project: Project, task: Task, membership: ProjectMembership
+) -> None:
+    """Control: the guard is scoped to `status` changes only — it must not
+    block an unrelated field edit (e.g. renaming) on a closed-sprint task."""
+    sprint = _make_sprint(project, state=SprintState.COMPLETED)
+    task.sprint = sprint
+    task.save()
+    r = client.patch(f"/api/v1/tasks/{task.pk}/", {"name": "Renamed"}, format="json")
+    assert r.status_code == 200, r.content
+    task.refresh_from_db()
+    assert task.name == "Renamed"
+
+
+# ---------------------------------------------------------------------------
+# #2680 follow-up: three auto-status side effects inject `status` into
+# validated_data *after* validate() already passed, with no `status` key in
+# the original payload — a bare `_reject_status_change_on_closed_sprint`
+# check in validate() alone cannot see these. Each one is a real bypass of
+# the closed-sprint freeze via a plain PATCH that never mentions `status`.
+# `_reject_auto_status_injection_on_closed_sprint` (called from `update()`,
+# after all three injectors) closes it. Pinned here individually since each
+# injector has its own trigger condition.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_planned_start_auto_promote_blocked_on_closed_sprint_task(
+    client: APIClient, project: Project, task: Task, membership: ProjectMembership
+) -> None:
+    """#336's date-gated NOT_STARTED -> IN_PROGRESS auto-transition must not
+    fire on a closed-sprint task — even though the payload never mentions
+    `status` at all, only `planned_start`."""
+    sprint = _make_sprint(project, state=SprintState.COMPLETED)
+    task.sprint = sprint
+    task.status = TaskStatus.NOT_STARTED
+    task.save()
+    r = client.patch(
+        f"/api/v1/tasks/{task.pk}/",
+        {"planned_start": date.today().isoformat()},
+        format="json",
+    )
+    assert r.status_code == 400, r.content
+    assert "status" in r.data
+    task.refresh_from_db()
+    assert task.status == TaskStatus.NOT_STARTED
+    assert task.planned_start is None
+
+
+@pytest.mark.django_db
+def test_percent_complete_auto_promote_blocked_on_closed_sprint_task(
+    member_client: APIClient,
+    project: Project,
+    member_user: object,
+    member_membership: ProjectMembership,
+) -> None:
+    """#362's percent_complete 0 -> >0 auto-promote (NOT_STARTED -> IN_PROGRESS)
+    must not fire on a closed-sprint task via a payload that only sends
+    `percent_complete`, never `status`."""
+    sprint = _make_sprint(project, state=SprintState.COMPLETED)
+    task = Task.objects.create(
+        project=project,
+        name="Closed-sprint task",
+        duration=2,
+        assignee=member_user,
+        sprint=sprint,
+        status=TaskStatus.NOT_STARTED,
+        percent_complete=0,
+    )
+    r = member_client.patch(f"/api/v1/tasks/{task.pk}/", {"percent_complete": 40}, format="json")
+    assert r.status_code == 400, r.content
+    assert "status" in r.data
+    task.refresh_from_db()
+    assert task.status == TaskStatus.NOT_STARTED
+    assert task.percent_complete == 0
+
+
+@pytest.mark.django_db
+def test_percent_complete_100_auto_status_blocked_on_closed_sprint_task(
+    client: APIClient, project: Project, task: Task, membership: ProjectMembership
+) -> None:
+    """Option E's percent_complete=100 auto-status (-> REVIEW or COMPLETE per
+    role) must not fire on a closed-sprint task via a payload that only sends
+    `percent_complete`, never `status`."""
+    sprint = _make_sprint(project, state=SprintState.COMPLETED)
+    task.sprint = sprint
+    task.status = TaskStatus.IN_PROGRESS
+    task.save()
+    r = client.patch(f"/api/v1/tasks/{task.pk}/", {"percent_complete": 100}, format="json")
+    assert r.status_code == 400, r.content
+    assert "status" in r.data
+    task.refresh_from_db()
+    assert task.status == TaskStatus.IN_PROGRESS
+    assert task.percent_complete != 100.0

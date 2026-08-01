@@ -212,6 +212,33 @@ describe('BacklogBand (rail)', () => {
     expect(screen.getByRole('button', { name: /Add with details/i })).toBeInTheDocument();
   });
 
+  // --- Drag guard (#2680) — the read-only rail must also disable drag, not
+  // just suppress the capture affordances above. Exercised per the three
+  // cases the issue named: a Viewer, a closed-sprint Member, and an allowed
+  // role (both map to a `readOnly` boolean by the time they reach the rail —
+  // see useBoardIdentity.test.ts for the role/sprint matrix that produces it).
+
+  it('a Viewer or closed-sprint Member (readOnly) cannot drag a backlog card', () => {
+    renderBand({ tasks: [makeTask()], readOnly: true });
+    const card = screen.getByRole('button', { name: /Idea, backlog idea/i });
+    // dnd-kit's `attributes` (dropped here) are what carry this marker; its
+    // absence proves the drag activator was never wired up, mirroring
+    // BoardCard's readOnly handling (#2146).
+    expect(card).not.toHaveAttribute('aria-roledescription', 'draggable');
+    expect(card.className).toContain('cursor-default');
+    expect(card.className).not.toContain('cursor-grab');
+    // Never aria-disabled — the card stays click-to-open (#2146 pattern).
+    expect(card).not.toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('an allowed role (not readOnly) can still drag a backlog card', () => {
+    renderBand({ tasks: [makeTask()], readOnly: false });
+    const card = screen.getByRole('button', { name: /Idea, backlog idea/i });
+    expect(card).toHaveAttribute('aria-roledescription', 'draggable');
+    expect(card.className).toContain('cursor-grab');
+    expect(card.className).not.toContain('cursor-default');
+  });
+
   // --- Capture-first affordance (#1973) ---
 
   it('renders the capture field with a "+" affordance, captures on Enter, and clears the field', () => {
@@ -887,6 +914,15 @@ describe('BacklogBand — compact density', () => {
     expect(screen.getByText('Raw idea').className).toContain('italic');
     expect(screen.getByText('Groomed idea').className).not.toContain('italic');
     expect(screen.getByText('Groomed idea').className).toContain('text-neutral-text-primary');
+  });
+
+  // Drag guard (#2680) applies identically in the compact render branch — it
+  // has its own `{...dragProps}` spread, so it needs its own coverage.
+  it('drops the drag activator on a compact card when readOnly', () => {
+    renderCompact({ tasks: [makeTask({ name: 'Triage requests' })], readOnly: true });
+    const card = screen.getByRole('button', { name: /Triage requests, backlog idea/ });
+    expect(card).not.toHaveAttribute('aria-roledescription', 'draggable');
+    expect(card.className).toContain('cursor-default');
   });
 });
 
