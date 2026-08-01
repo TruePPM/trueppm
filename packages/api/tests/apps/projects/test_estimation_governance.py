@@ -638,6 +638,341 @@ def test_approve_estimates_action_still_reaches_accepted(
 
 
 # ---------------------------------------------------------------------------
+# ADR-0766 (#2597): a no-op PERT re-write must not revoke an accepted estimate,
+# and a genuine change on an accepted estimate must still downgrade it.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_noop_pert_rewrite_does_not_revoke_accepted(
+    suggest_project: Project, suggest_task: Task, sa_contributor: object
+) -> None:
+    """Re-sending the identical stored value must not flip accepted -> pending.
+
+    This is the debounced blur-PATCH scenario from the issue: EstimatesTab fires
+    a PATCH on blur even when the field was never edited.
+    """
+    from django.contrib.auth import get_user_model as _get_user_model
+
+    _u = _get_user_model().objects.get(username="sa_contributor")
+    suggest_task.assignee = _u
+    suggest_task.optimistic_duration = 3
+    suggest_task.most_likely_duration = 5
+    suggest_task.pessimistic_duration = 8
+    suggest_task.estimate_status = EstimateStatus.ACCEPTED
+    suggest_task.save(
+        update_fields=[
+            "assignee",
+            "optimistic_duration",
+            "most_likely_duration",
+            "pessimistic_duration",
+            "estimate_status",
+        ]
+    )
+
+    c = _client(sa_contributor)
+    resp = c.patch(
+        f"/api/v1/tasks/{suggest_task.pk}/",
+        # Identical values to what's already stored — a true no-op write.
+        {"most_likely_duration": 5},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    suggest_task.refresh_from_db()
+    assert suggest_task.estimate_status == EstimateStatus.ACCEPTED
+    assert resp.data["estimate_status"] == EstimateStatus.ACCEPTED
+
+
+@pytest.mark.django_db
+def test_genuine_pert_change_still_revokes_accepted(
+    suggest_project: Project, suggest_task: Task, sa_contributor: object
+) -> None:
+    """Regression guard: a real edit must still require re-approval."""
+    from django.contrib.auth import get_user_model as _get_user_model
+
+    _u = _get_user_model().objects.get(username="sa_contributor")
+    suggest_task.assignee = _u
+    suggest_task.optimistic_duration = 3
+    suggest_task.most_likely_duration = 5
+    suggest_task.pessimistic_duration = 8
+    suggest_task.estimate_status = EstimateStatus.ACCEPTED
+    suggest_task.save(
+        update_fields=[
+            "assignee",
+            "optimistic_duration",
+            "most_likely_duration",
+            "pessimistic_duration",
+            "estimate_status",
+        ]
+    )
+
+    c = _client(sa_contributor)
+    resp = c.patch(
+        f"/api/v1/tasks/{suggest_task.pk}/",
+        {"most_likely_duration": 6},  # genuinely different from stored 5
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    suggest_task.refresh_from_db()
+    assert suggest_task.estimate_status == EstimateStatus.PENDING
+
+
+@pytest.mark.django_db
+def test_pert_field_cleared_to_null_still_revokes_accepted(
+    suggest_project: Project, suggest_task: Task, sa_contributor: object
+) -> None:
+    """Clearing a stored value to null is a real edit, not a no-op."""
+    from django.contrib.auth import get_user_model as _get_user_model
+
+    _u = _get_user_model().objects.get(username="sa_contributor")
+    suggest_task.assignee = _u
+    suggest_task.optimistic_duration = 3
+    suggest_task.most_likely_duration = 5
+    suggest_task.pessimistic_duration = 8
+    suggest_task.estimate_status = EstimateStatus.ACCEPTED
+    suggest_task.save(
+        update_fields=[
+            "assignee",
+            "optimistic_duration",
+            "most_likely_duration",
+            "pessimistic_duration",
+            "estimate_status",
+        ]
+    )
+
+    c = _client(sa_contributor)
+    resp = c.patch(
+        f"/api/v1/tasks/{suggest_task.pk}/",
+        {"pessimistic_duration": None},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    suggest_task.refresh_from_db()
+    assert suggest_task.estimate_status == EstimateStatus.PENDING
+
+
+@pytest.mark.django_db
+def test_noop_pert_rewrite_in_open_mode_does_not_touch_stale_status(
+    project: Project, task: Task, admin: object
+) -> None:
+    """A stale non-null estimate_status from a prior mode is only cleared by a
+    real edit, not by a no-op re-write, in OPEN/PM_ONLY mode too (ADR-0766)."""
+    task.optimistic_duration = 3
+    task.most_likely_duration = 5
+    task.pessimistic_duration = 8
+    # Simulate a stale value left over from a prior SUGGEST_APPROVE window.
+    task.estimate_status = EstimateStatus.ACCEPTED
+    task.save(
+        update_fields=[
+            "optimistic_duration",
+            "most_likely_duration",
+            "pessimistic_duration",
+            "estimate_status",
+        ]
+    )
+
+    resp = _client(admin).patch(
+        f"/api/v1/tasks/{task.pk}/",
+        {"most_likely_duration": 5},  # identical to stored
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    task.refresh_from_db()
+    # Untouched by the no-op write — still the stale ACCEPTED value.
+    assert task.estimate_status == EstimateStatus.ACCEPTED
+
+
+@pytest.mark.django_db
+def test_mc_band_unchanged_after_noop_pert_patch_on_accepted_task(
+    suggest_project: Project, sa_scheduler: object, sa_contributor: object
+) -> None:
+    """A no-op PERT PATCH on an accepted task must not withhold its triple from MC."""
+    from django.contrib.auth import get_user_model as _get_user_model
+
+    _u = _get_user_model().objects.get(username="sa_contributor")
+    task = Task.objects.create(
+        project=suggest_project,
+        name="T",
+        duration=5,
+        assignee=_u,
+        optimistic_duration=3,
+        most_likely_duration=5,
+        pessimistic_duration=8,
+        estimate_status=EstimateStatus.ACCEPTED,
+    )
+
+    # Blur-PATCH with the identical stored value — must not revoke.
+    resp = _client(sa_contributor).patch(
+        f"/api/v1/tasks/{task.pk}/",
+        {"most_likely_duration": 5},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    task.refresh_from_db()
+    assert task.estimate_status == EstimateStatus.ACCEPTED
+
+    mc_resp = _client(sa_scheduler).post(
+        f"/api/v1/projects/{suggest_project.pk}/monte-carlo/", format="json"
+    )
+    assert mc_resp.status_code == 200
+    # Still accepted, so the triple reaches the sampler and the band stays open.
+    assert date.fromisoformat(mc_resp.data["p95"]) > date.fromisoformat(mc_resp.data["p50"])
+    assert mc_resp.data["forecast_diagnostic"]["reason"] is None
+
+
+# ---------------------------------------------------------------------------
+# ADR-0766 (#2597): withdraw-approval — the Scheduler's symmetric un-approve door
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_scheduler_can_withdraw_approval(
+    suggest_project: Project, suggest_task: Task, sa_scheduler: object
+) -> None:
+    suggest_task.optimistic_duration = 3
+    suggest_task.most_likely_duration = 5
+    suggest_task.pessimistic_duration = 8
+    suggest_task.estimate_status = EstimateStatus.ACCEPTED
+    suggest_task.save(
+        update_fields=[
+            "optimistic_duration",
+            "most_likely_duration",
+            "pessimistic_duration",
+            "estimate_status",
+        ]
+    )
+
+    resp = _client(sa_scheduler).post(f"/api/v1/tasks/{suggest_task.pk}/withdraw-approval/")
+    assert resp.status_code == 200, resp.data
+    suggest_task.refresh_from_db()
+    assert suggest_task.estimate_status == EstimateStatus.PENDING
+    assert resp.data["estimate_status"] == EstimateStatus.PENDING
+
+
+@pytest.mark.django_db
+def test_withdraw_approval_idempotent_when_already_pending(
+    suggest_project: Project, suggest_task: Task, sa_scheduler: object
+) -> None:
+    suggest_task.estimate_status = EstimateStatus.PENDING
+    suggest_task.save(update_fields=["estimate_status"])
+
+    resp = _client(sa_scheduler).post(f"/api/v1/tasks/{suggest_task.pk}/withdraw-approval/")
+    assert resp.status_code == 200
+    suggest_task.refresh_from_db()
+    assert suggest_task.estimate_status == EstimateStatus.PENDING
+
+
+@pytest.mark.django_db
+def test_withdraw_approval_idempotent_when_null(
+    suggest_project: Project, suggest_task: Task, sa_scheduler: object
+) -> None:
+    assert suggest_task.estimate_status is None
+    resp = _client(sa_scheduler).post(f"/api/v1/tasks/{suggest_task.pk}/withdraw-approval/")
+    assert resp.status_code == 200
+    suggest_task.refresh_from_db()
+    assert suggest_task.estimate_status is None
+
+
+@pytest.mark.django_db
+def test_withdraw_approval_returns_400_for_open_mode(
+    project: Project, task: Task, scheduler: object
+) -> None:
+    c = _client(scheduler)
+    resp = c.post(f"/api/v1/tasks/{task.pk}/withdraw-approval/")
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_withdraw_approval_forbidden_for_contributor(
+    suggest_project: Project, suggest_task: Task, sa_contributor: object
+) -> None:
+    suggest_task.estimate_status = EstimateStatus.ACCEPTED
+    suggest_task.save(update_fields=["estimate_status"])
+
+    resp = _client(sa_contributor).post(f"/api/v1/tasks/{suggest_task.pk}/withdraw-approval/")
+    assert resp.status_code == 403
+    suggest_task.refresh_from_db()
+    # Unauthorized call must not have written anything.
+    assert suggest_task.estimate_status == EstimateStatus.ACCEPTED
+
+
+@pytest.mark.django_db
+def test_withdraw_approval_forbidden_for_viewer(
+    suggest_project: Project, sa_contributor: object
+) -> None:
+    u = _make_user("sa_viewer_withdraw")
+    _make_membership(suggest_project, u, Role.VIEWER)
+    task = Task.objects.create(
+        project=suggest_project, name="T3", duration=3, estimate_status=EstimateStatus.ACCEPTED
+    )
+    resp = _client(u).post(f"/api/v1/tasks/{task.pk}/withdraw-approval/")
+    assert resp.status_code == 403
+    task.refresh_from_db()
+    assert task.estimate_status == EstimateStatus.ACCEPTED
+
+
+@pytest.mark.django_db
+def test_withdraw_approval_forbidden_for_unauthenticated(
+    suggest_project: Project, suggest_task: Task
+) -> None:
+    c = APIClient()
+    resp = c.post(f"/api/v1/tasks/{suggest_task.pk}/withdraw-approval/")
+    assert resp.status_code == 401
+
+
+@pytest.mark.django_db
+def test_withdraw_approval_forbidden_on_archived_project(
+    suggest_project: Project, suggest_task: Task, sa_scheduler: object
+) -> None:
+    """IsProjectNotArchived blocks the action the same as approve_estimates."""
+    suggest_task.estimate_status = EstimateStatus.ACCEPTED
+    suggest_task.save(update_fields=["estimate_status"])
+    suggest_project.is_archived = True
+    suggest_project.save(update_fields=["is_archived"])
+
+    resp = _client(sa_scheduler).post(f"/api/v1/tasks/{suggest_task.pk}/withdraw-approval/")
+    assert resp.status_code == 403
+    suggest_task.refresh_from_db()
+    assert suggest_task.estimate_status == EstimateStatus.ACCEPTED
+
+
+@pytest.mark.django_db
+def test_withdraw_approval_records_status_change_in_history(
+    suggest_project: Project, suggest_task: Task, sa_scheduler: object
+) -> None:
+    suggest_task.estimate_status = EstimateStatus.ACCEPTED
+    suggest_task.save(update_fields=["estimate_status"])
+
+    _client(sa_scheduler).post(f"/api/v1/tasks/{suggest_task.pk}/withdraw-approval/")
+
+    statuses = list(
+        suggest_task.history.order_by("-history_date").values_list("estimate_status", flat=True)
+    )
+    assert EstimateStatus.PENDING in statuses
+    assert EstimateStatus.ACCEPTED in statuses
+
+
+@pytest.mark.django_db
+def test_withdraw_then_reapprove_round_trip(
+    suggest_project: Project, suggest_task: Task, sa_scheduler: object
+) -> None:
+    """A Scheduler can withdraw their own approval and re-grant it later."""
+    suggest_task.estimate_status = EstimateStatus.ACCEPTED
+    suggest_task.save(update_fields=["estimate_status"])
+
+    c = _client(sa_scheduler)
+    resp1 = c.post(f"/api/v1/tasks/{suggest_task.pk}/withdraw-approval/")
+    assert resp1.status_code == 200
+    suggest_task.refresh_from_db()
+    assert suggest_task.estimate_status == EstimateStatus.PENDING
+
+    resp2 = c.post(f"/api/v1/tasks/{suggest_task.pk}/approve-estimates/")
+    assert resp2.status_code == 200
+    suggest_task.refresh_from_db()
+    assert suggest_task.estimate_status == EstimateStatus.ACCEPTED
+
+
+# ---------------------------------------------------------------------------
 # The general shape (#2570): every server-owned Task field must reject a direct
 # client write, not merely document that callers should not send it.
 #

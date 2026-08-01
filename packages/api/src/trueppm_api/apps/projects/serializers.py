@@ -4730,7 +4730,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                     validated_data["blocked_by"] = user
 
     def _apply_estimate_governance(self, instance: Task, validated_data: dict[str, Any]) -> None:
-        """Mark estimate_status pending when PERT fields are written in suggest_approve mode.
+        """Mark estimate_status pending when a PERT field's *value* actually changes.
 
         estimate_status is in ``Meta.read_only_fields``, so a client-supplied value is
         dropped before it reaches ``validated_data`` and this hook is the only thing
@@ -4746,14 +4746,32 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         what makes them safe is not a role gate but that they only ever create a new
         project/program on which the caller immediately becomes Owner. Neither can
         reach an existing task.
+
+        ADR-0766 (#2597): gating on ``self._PERT_FIELDS & set(validated_data)`` alone
+        keys off *payload presence*, not an actual change — a client that re-sends a
+        PERT field's current value (e.g. a debounced blur-PATCH that fires without an
+        edit) would silently downgrade an already-``accepted`` estimate. ``changed``
+        below compares each present field against the stored instance value so a
+        true no-op write leaves ``estimate_status`` untouched. A field going from a
+        value to ``None`` (or vice versa) still counts as changed — clearing an
+        estimate is a real edit, not a no-op. Both branches (SUGGEST_APPROVE and the
+        OPEN/PM_ONLY clear-to-None branch) are gated the same way: a mode transition
+        can leave a stale non-null ``estimate_status`` on a task from a prior
+        governance mode, so even the "clear tracking" branch must not fire on a
+        payload that re-sends identical values.
         """
-        if self._PERT_FIELDS & set(validated_data):
-            project = instance.project
-            if project.estimation_mode == EstimationMode.SUGGEST_APPROVE:
-                validated_data["estimate_status"] = EstimateStatus.PENDING
-            else:
-                # OPEN or PM_ONLY: clear status tracking — not applicable.
-                validated_data["estimate_status"] = None
+        present = self._PERT_FIELDS & set(validated_data)
+        if not present:
+            return
+        changed = any(validated_data[f] != getattr(instance, f) for f in present)
+        if not changed:
+            return
+        project = instance.project
+        if project.estimation_mode == EstimationMode.SUGGEST_APPROVE:
+            validated_data["estimate_status"] = EstimateStatus.PENDING
+        else:
+            # OPEN or PM_ONLY: clear status tracking — not applicable.
+            validated_data["estimate_status"] = None
 
     def _apply_duration_change_policy(self, instance: Task, validated_data: dict[str, Any]) -> None:
         """Apply the duration-change percent policy and record an audit event (ADR-0151).

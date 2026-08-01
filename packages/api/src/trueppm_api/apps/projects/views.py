@@ -4470,7 +4470,13 @@ class TaskViewSet(
             return [IsAuthenticated(), IsProjectMemberWriteOrOwn(), IsProjectNotArchived()]
         if self.action == "create":
             return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
-        if self.action == "approve_estimates":
+        # ADR-0766 (#2597): withdraw_approval shares approve_estimates's gate —
+        # whoever can grant a SUGGEST_APPROVE approval can revoke it. Both must be
+        # named here because this override replaces the @action's inline
+        # permission_classes entirely (see the ADR-0217 note on `split` below); an
+        # action absent from this if-chain falls through to the generic
+        # IsProjectMember branch, which would let a Viewer call it.
+        if self.action in ("approve_estimates", "withdraw_approval"):
             return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
         # ADR-0105: splitting a story restructures the backlog → can_manage_backlog
         # (Admin+), the same gate as auto-rank / epic management. The custom
@@ -5215,6 +5221,58 @@ class TaskViewSet(
             return Response(serializer.data)
 
         task.estimate_status = EstimateStatus.ACCEPTED
+        task.save(update_fields=["estimate_status"])
+
+        project_id = str(task.project_id)
+        task_id = str(task.pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "task_updated", {"id": task_id})
+        )
+
+        serializer = self.get_serializer(task)
+        return Response(serializer.data)
+
+    @extend_schema(
+        summary="Withdraw an approved three-point estimate back to pending",
+        responses={
+            200: TaskSerializer,
+            400: OpenApiResponse(description="Project estimation_mode is not suggest_approve."),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="withdraw-approval",
+        permission_classes=[IsAuthenticated, IsProjectScheduler, IsProjectNotArchived],
+    )
+    def withdraw_approval(self, request: Request, **kwargs: Any) -> Response:
+        """Revoke an accepted three-point estimate back to pending (ADR-0766, #2597).
+
+        Symmetric counterpart to approve_estimates: lets a Scheduler undo an approval
+        given in error without having to trigger a PERT-field no-op write to force
+        the downgrade — that no-op path was the accidental-revocation bug this same
+        issue closes. Only meaningful when estimation_mode is SUGGEST_APPROVE.
+        Idempotent — calling on a task that is not currently accepted (already
+        pending, or ungoverned/null) is a no-op (200, no DB write, no broadcast).
+
+        Permission: IsProjectScheduler+ (Resource Manager and above) — same gate as
+        approve_estimates; whoever can grant the approval can withdraw it.
+        """
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        task: Task = self.get_object()
+        project: Project = task.project
+
+        if project.estimation_mode != EstimationMode.SUGGEST_APPROVE:
+            detail = "withdraw-approval is only available when estimation_mode is suggest_approve."
+            return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Idempotent: not currently accepted — no write, no broadcast.
+        if task.estimate_status != EstimateStatus.ACCEPTED:
+            serializer = self.get_serializer(task)
+            return Response(serializer.data)
+
+        task.estimate_status = EstimateStatus.PENDING
         task.save(update_fields=["estimate_status"])
 
         project_id = str(task.project_id)
