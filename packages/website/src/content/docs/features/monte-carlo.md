@@ -84,6 +84,7 @@ removes it.
   "p50": "2025-11-14",
   "p80": "2025-12-02",
   "p95": "2026-01-08",
+  "status_date": "2025-10-21",
   "distribution": ["2025-10-21", "2025-10-22", "..."]
 }
 ```
@@ -93,6 +94,7 @@ removes it.
 | `p50` | 50% of simulated runs finished on or before this date. Closest to the deterministic CPM date. |
 | `p80` | 80% of runs finished by this date. The standard commitment date for most project plans. |
 | `p95` | 95% of runs finished by this date. Use for contractual deadlines and hard external commitments. |
+| `status_date` | *(coming in 0.4)* The data date this run was actually computed against — the project's explicit status date, or today when unset (see [Progress-aware forecasting](#progress-aware-forecasting) below). Recorded on every run so a past forecast states which "today" produced it. |
 | `distribution` | Full sorted list of all simulated finish dates. Use this to render a histogram or answer "what is the probability of finishing by date X?" |
 
 The most recent result is also available without re-running the simulation:
@@ -133,6 +135,7 @@ It will return persisted runs newest-first. Each run carries:
 | `cpm_finish` | The deterministic CPM spine at run time, for context. |
 | `n_simulations` | Number of runs in that simulation. |
 | `task_count` | Committed tasks included in that simulation. |
+| `status_date` | *(coming in 0.4)* The data date that run was computed against — see [Progress-aware forecasting](#progress-aware-forecasting) below. `null` for runs recorded before this field existed. |
 | `delta` | Per-percentile signed day change versus the immediately previous run (positive = the forecast slipped later). `null` on the oldest/baseline run. |
 | `triggered_by_name` | Who ran the simulation — see the visibility note below. |
 
@@ -194,6 +197,7 @@ same `MC_SIMULATION_CAP` as a normal run). The response will carry:
 | `critical_path_changed` | `true` when the perturbation moved which tasks are on the critical path. |
 | `delta_vs_current` | Per-field signed calendar-day shift (`p50`/`p80`/`p95`/`cpm_finish`); positive = later/worse. |
 | `applied` | The resolved perturbation (`base_duration_days`, `duration_delta_days`, `new_duration_days`). |
+| `cpm_status_date` / `mc_status_date` | The raw and today-floored data dates fed to the deterministic CPM and Monte Carlo passes respectively — see [Progress-aware forecasting](#progress-aware-forecasting) below. Shared by both `current` and `whatif`, since one call resolves each once. This endpoint never persists a run, so these are the only record of which data date produced the answer. |
 
 Both forecasts sample with the same fixed RNG seed, so the delta isolates the effect
 of your change rather than run-to-run noise, and the same query always returns the
@@ -234,6 +238,13 @@ configuration; a PM who wants a reproducible, frozen forecast for a report can
 pin an explicit date. The same progress signals will flow through the
 deterministic CPM schedule, so the Gantt bars and the Monte Carlo band stay
 consistent.
+
+Whichever date actually anchors a given simulation — the project's explicit
+`status_date`, or today when it is unset — is recorded as `status_date` on that
+run's response and on its history row, so a forecast is always traceable to the
+data date that produced it. Re-running an otherwise-unchanged project on two
+different days will show different percentiles with different recorded
+`status_date` values, rather than looking like an unexplained change.
 
 ## The math
 

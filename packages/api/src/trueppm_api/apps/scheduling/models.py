@@ -379,6 +379,19 @@ class MonteCarloRun(models.Model):
     # the frontend falls back to the measured presentation with the band collapsed
     # (it never guesses "unmeasurable" from a missing reason).
     diagnostic = models.JSONField(null=True, blank=True)
+    # The data date this run was actually computed against — ADR-0132 floors a null
+    # ``Project.status_date`` at "today" for Monte Carlo (never forecast remaining
+    # work in the past), but that substitution used to happen only in memory and was
+    # never recorded, so a past run could not be re-derived and two runs of an
+    # unchanged project on different days returned different percentiles with nothing
+    # in the row explaining why (#2638). ADR-0132's Implementation Notes already
+    # called this out as "additive on ADR-0175" when this model was designed; it
+    # simply never landed until now.
+    #
+    # Nullable with NO backfill, same pattern as ``distribution``/``diagnostic``:
+    # runs recorded before #2638 have no stored data date and read back as
+    # ``status_date: null`` rather than a guessed value.
+    status_date = models.DateField(null=True, blank=True)
 
     class Meta:
         db_table = "scheduling_montecarlorun"

@@ -267,6 +267,7 @@ class MonteCarloRunSerializer(serializers.ModelSerializer[MonteCarloRun]):
             "cpm_finish",
             "n_simulations",
             "task_count",
+            "status_date",
             "delta",
             "triggered_by_name",
             "distribution",
