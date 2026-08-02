@@ -1197,7 +1197,7 @@ export function ScheduleView() {
   // non-member majority. The server is authoritative; this is the UX gate.
   const readOnly = !canEditTask(currentRole);
   // Per-project leaf-surface visibility (ADR-0193, issue 956): the in-Schedule
-  // Monte-Carlo and baseline sub-surfaces read the server-resolved values. Hide-only
+  // Monte-Carlo sub-surface reads the server-resolved values. Hide-only
   // (ADR-0041) — a false value hides the chrome; the underlying data is still computed
   // and the section stays reachable by direct URL.
   const surfaces = useSurfaceVisibility(projectIdUndef);
@@ -2020,7 +2020,6 @@ export function ScheduleView() {
         mcResult={mcResult}
         scheduleScales={scheduleScales}
         panelWidth={panelWidth}
-        surfaces={surfaces}
         unscheduledTasks={unscheduledTasks}
         sprints={sprints}
         effectiveMethodology={effectiveMethodology}
@@ -2907,7 +2906,6 @@ interface ScheduleMainAreaProps {
   mcResult: ReturnType<typeof useMonteCarloResult>['data'];
   scheduleScales: GanttScaleData | null;
   panelWidth: number;
-  surfaces: ReturnType<typeof useSurfaceVisibility>;
   unscheduledTasks: Task[];
   sprints: ComponentProps<typeof UnscheduledGutter>['sprints'];
   effectiveMethodology: Methodology;
@@ -2956,7 +2954,6 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
     mcResult,
     scheduleScales,
     panelWidth,
-    surfaces,
     unscheduledTasks,
     sprints,
     effectiveMethodology,
@@ -3090,7 +3087,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
 
         {/* Floating legend overlay (#474, ADR-0064) — anchored to the bottom-left of
             the canvas viewport. Hidden below `lg` per design rule 12. */}
-        <ScheduleLegend taskListWidth={panelWidth} showBaselines={surfaces.baselines} />
+        <ScheduleLegend taskListWidth={panelWidth} />
       </div>
 
       {/* Unscheduled gutter — tasks with no planned/CPM dates (#213). Desktop

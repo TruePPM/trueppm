@@ -9,13 +9,6 @@ interface ScheduleLegendProps {
    * task list. Comes from useColumnWidths().totalWidth in ScheduleView.
    */
   taskListWidth: number;
-  /**
-   * Whether the baselines sub-surface is visible for this project (ADR-0193,
-   * issue 956). When false the "Planned baseline" legend entry is hidden so the
-   * legend stays consistent with what is actually drawn on the canvas.
-   * Defaults to true (all-visible until the project detail loads).
-   */
-  showBaselines?: boolean;
 }
 
 /**
@@ -31,7 +24,7 @@ interface ScheduleLegendProps {
  * it, so any future canvas export pipeline starts from "explicitly include"
  * rather than "explicitly exclude".
  */
-export function ScheduleLegend({ taskListWidth, showBaselines = true }: ScheduleLegendProps) {
+export function ScheduleLegend({ taskListWidth }: ScheduleLegendProps) {
   const { collapsed, toggle } = useScheduleLegendCollapsed();
   const headerId = useId();
   const bodyId = `${headerId}-body`;
@@ -105,12 +98,11 @@ export function ScheduleLegend({ taskListWidth, showBaselines = true }: Schedule
           <LegendRow label="Today">
             <TodaySwatch />
           </LegendRow>
-          {/* Row 3 — lines &amp; arrows */}
-          {showBaselines && (
-            <LegendRow label="Planned baseline">
-              <BaselineSwatch />
-            </LegendRow>
-          )}
+          {/* Row 3 — lines &amp; arrows.
+              No "Planned baseline" entry: ADR-0376 defers the baseline ghost-bar
+              overlay to 0.5, so the canvas draws nothing from baseline dates. A
+              legend names marks that are drawn — reinstate this row with the
+              overlay, not before. */}
           <LegendRow label="Finish-to-start">
             <ArrowFsSwatch />
           </LegendRow>
@@ -209,14 +201,6 @@ function TodaySwatch() {
   // Vertical sage line — matches the canvas today-line (sage-600 light /
   // sage-400 dark) in GanttRenderer.ts. brand-primary reverses itself by mode.
   return <span className="block h-full w-[2px] mx-auto bg-brand-primary" />;
-}
-
-function BaselineSwatch() {
-  // Dashed border falls back to neutral-text-secondary in dark mode because
-  // neutral-text-disabled is below WCAG 1.4.11 3:1 against the dark surface.
-  return (
-    <span className="block w-full border-t-2 border-dashed border-neutral-text-disabled dark:border-neutral-text-secondary" />
-  );
 }
 
 function ArrowFsSwatch() {

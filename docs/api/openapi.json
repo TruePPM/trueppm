@@ -19804,7 +19804,7 @@
         "/api/v1/projects/{project_pk}/baselines/": {
             "get": {
                 "operationId": "v1_projects_baselines_list",
-                "description": "CRUD for schedule baselines within a project.\n\nA baseline is a frozen snapshot of all task dates at a point in time,\nused for plan-vs-actual tracking via ghost bars on the Gantt.\n\nPermission matrix:\n  list / retrieve — any project member (Viewer+)\n  create          — Project Manager+ (IsProjectAdmin, role ≥ 3)\n  destroy         — Project Owner only (IsProjectOwner, role == Role.OWNER)",
+                "description": "CRUD for schedule baselines within a project.\n\nA baseline is a frozen snapshot of all task dates at a point in time, used\nfor plan-vs-actual tracking via the baseline comparison table and the\nper-task variance in the detail drawer. ADR-0376 defers the Gantt ghost-bar\noverlay to 0.5 — these dates are not drawn on the canvas.\n\nPermission matrix:\n  list / retrieve — any project member (Viewer+)\n  create          — Project Manager+ (IsProjectAdmin, role ≥ 3)\n  destroy         — Project Owner only (IsProjectOwner, role == Role.OWNER)",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -19880,7 +19880,7 @@
             },
             "post": {
                 "operationId": "v1_projects_baselines_create",
-                "description": "CRUD for schedule baselines within a project.\n\nA baseline is a frozen snapshot of all task dates at a point in time,\nused for plan-vs-actual tracking via ghost bars on the Gantt.\n\nPermission matrix:\n  list / retrieve — any project member (Viewer+)\n  create          — Project Manager+ (IsProjectAdmin, role ≥ 3)\n  destroy         — Project Owner only (IsProjectOwner, role == Role.OWNER)",
+                "description": "CRUD for schedule baselines within a project.\n\nA baseline is a frozen snapshot of all task dates at a point in time, used\nfor plan-vs-actual tracking via the baseline comparison table and the\nper-task variance in the detail drawer. ADR-0376 defers the Gantt ghost-bar\noverlay to 0.5 — these dates are not drawn on the canvas.\n\nPermission matrix:\n  list / retrieve — any project member (Viewer+)\n  create          — Project Manager+ (IsProjectAdmin, role ≥ 3)\n  destroy         — Project Owner only (IsProjectOwner, role == Role.OWNER)",
                 "parameters": [
                     {
                         "in": "path",
@@ -20026,7 +20026,7 @@
         "/api/v1/projects/{project_pk}/baselines/{id}/": {
             "get": {
                 "operationId": "v1_projects_baselines_retrieve",
-                "description": "CRUD for schedule baselines within a project.\n\nA baseline is a frozen snapshot of all task dates at a point in time,\nused for plan-vs-actual tracking via ghost bars on the Gantt.\n\nPermission matrix:\n  list / retrieve — any project member (Viewer+)\n  create          — Project Manager+ (IsProjectAdmin, role ≥ 3)\n  destroy         — Project Owner only (IsProjectOwner, role == Role.OWNER)",
+                "description": "CRUD for schedule baselines within a project.\n\nA baseline is a frozen snapshot of all task dates at a point in time, used\nfor plan-vs-actual tracking via the baseline comparison table and the\nper-task variance in the detail drawer. ADR-0376 defers the Gantt ghost-bar\noverlay to 0.5 — these dates are not drawn on the canvas.\n\nPermission matrix:\n  list / retrieve — any project member (Viewer+)\n  create          — Project Manager+ (IsProjectAdmin, role ≥ 3)\n  destroy         — Project Owner only (IsProjectOwner, role == Role.OWNER)",
                 "parameters": [
                     {
                         "in": "path",
@@ -20094,7 +20094,7 @@
             },
             "delete": {
                 "operationId": "v1_projects_baselines_destroy",
-                "description": "CRUD for schedule baselines within a project.\n\nA baseline is a frozen snapshot of all task dates at a point in time,\nused for plan-vs-actual tracking via ghost bars on the Gantt.\n\nPermission matrix:\n  list / retrieve — any project member (Viewer+)\n  create          — Project Manager+ (IsProjectAdmin, role ≥ 3)\n  destroy         — Project Owner only (IsProjectOwner, role == Role.OWNER)",
+                "description": "CRUD for schedule baselines within a project.\n\nA baseline is a frozen snapshot of all task dates at a point in time, used\nfor plan-vs-actual tracking via the baseline comparison table and the\nper-task variance in the detail drawer. ADR-0376 defers the Gantt ghost-bar\noverlay to 0.5 — these dates are not drawn on the canvas.\n\nPermission matrix:\n  list / retrieve — any project member (Viewer+)\n  create          — Project Manager+ (IsProjectAdmin, role ≥ 3)\n  destroy         — Project Owner only (IsProjectOwner, role == Role.OWNER)",
                 "parameters": [
                     {
                         "in": "path",

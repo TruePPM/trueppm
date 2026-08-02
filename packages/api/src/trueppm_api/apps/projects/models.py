@@ -3207,8 +3207,11 @@ class TaskRelation(VersionedModel):
 class Baseline(VersionedModel):
     """A frozen snapshot of all task dates at a point in time.
 
-    Baselines enable plan-vs-actual tracking: ghost bars on the Gantt canvas
-    render from BaselineTask.start / BaselineTask.finish.
+    Baselines enable plan-vs-actual tracking: BaselineTask.start / .finish reach
+    the client as the baseline_start / baseline_finish annotation on tasks, which
+    feeds the baseline comparison table and the per-task variance in the detail
+    drawer. ADR-0376 defers the Gantt ghost-bar overlay to 0.5, so nothing is
+    drawn on the canvas from these dates — do not describe one as existing.
 
     Only one baseline per project may be "active" at a time; the active baseline
     is overlaid automatically on GET /api/v1/tasks/ without a ?baseline= param.
