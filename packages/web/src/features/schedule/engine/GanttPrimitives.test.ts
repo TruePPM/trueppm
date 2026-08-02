@@ -22,8 +22,10 @@ import {
   drawMilestone,
   drawDragShadow,
   drawResizeIndicator,
+  drawLinkHandle,
   BAR_HEIGHT,
 } from './GanttRenderer';
+import { LINK_DOT_CENTER_OFFSET } from './GanttHitIndex';
 import { buildScaleData } from './GanttScaleData';
 import type { Task } from '@/types';
 
@@ -43,6 +45,7 @@ function makeCtxSpy(canvasWidth = 800) {
     lineTo: record('lineTo'),
     rect: record('rect'),
     roundRect: record('roundRect'),
+    arc: record('arc'),
     fill: record('fill'),
     stroke: record('stroke'),
     fillRect: record('fillRect'),
@@ -130,6 +133,37 @@ describe('drawMilestone', () => {
     drawMilestone(ctx, milestone({ plannedStart: undefined, sprintId: undefined }), 0, SCALES, 0, false);
     expect(count('rect')).toBe(0);
     expect(count('fill')).toBe(0);
+  });
+});
+
+describe('drawLinkHandle (#2702)', () => {
+  it('draws a filled-then-stroked circle so an arrow beneath cannot read through it', () => {
+    const { ctx, count } = makeCtxSpy();
+    drawLinkHandle(ctx, 200, 14);
+    expect(count('arc')).toBe(1);
+    // Fill first (chart surface) then stroke (link color) — a hollow circle over a
+    // dependency arrow otherwise reads as a smudge rather than a grab point.
+    expect(count('fill')).toBe(1);
+    expect(count('stroke')).toBe(1);
+  });
+
+  it('centers on the link-dot hit zone, so the mark and the hotspot cannot diverge', () => {
+    // The whole point of the affordance: a handle drawn off its own hotspot is worse
+    // than none, because the user aims at what they see, misses, and starts a *move*
+    // drag instead — silently rescheduling the task. LINK_DOT_CENTER_OFFSET is the
+    // single shared constant that keeps GanttHitIndex and the renderer in step.
+    const { ctx, calls } = makeCtxSpy();
+    const barRight = 300;
+    drawLinkHandle(ctx, barRight + LINK_DOT_CENTER_OFFSET, 14);
+    const arc = calls.find((c) => c.name === 'arc');
+    expect(arc?.args[0]).toBe(312); // barRight + (8 + 16) / 2, the zone's midpoint
+  });
+
+  it('restores the context so its stroke style does not leak into later draws', () => {
+    const { ctx, count } = makeCtxSpy();
+    drawLinkHandle(ctx, 200, 14);
+    expect(count('save')).toBe(1);
+    expect(count('restore')).toBe(1);
   });
 });
 
