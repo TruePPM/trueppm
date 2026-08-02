@@ -9,7 +9,7 @@ describe('ScheduleLegend', () => {
     localStorage.clear();
   });
 
-  it('renders expanded by default with all nine entries', () => {
+  it('renders expanded by default with all eight entries', () => {
     render(<ScheduleLegend taskListWidth={240} />);
     expect(screen.getByTestId('schedule-legend-body')).toBeInTheDocument();
     // Row 1 — bar variants
@@ -21,9 +21,16 @@ describe('ScheduleLegend', () => {
     expect(screen.getByText('Milestone')).toBeInTheDocument();
     expect(screen.getByText('Today')).toBeInTheDocument();
     // Row 3 — lines & arrows
-    expect(screen.getByText('Planned baseline')).toBeInTheDocument();
     expect(screen.getByText('Finish-to-start')).toBeInTheDocument();
     expect(screen.getByText('Merged trunk')).toBeInTheDocument();
+  });
+
+  it('does not name a "Planned baseline" mark the canvas never draws (ADR-0376)', () => {
+    // ADR-0376 keeps the baseline ghost-bar overlay out of 0.4; the comparison
+    // table is the variance surface. A legend entry for an undrawn mark tells the
+    // reader the overlay exists. Reinstate this row when the overlay lands in 0.5.
+    render(<ScheduleLegend taskListWidth={240} />);
+    expect(screen.queryByText('Planned baseline')).not.toBeInTheDocument();
   });
 
   it('renders the Task (progress) swatch in the brand info blue that matches the canvas bar (#1700)', () => {

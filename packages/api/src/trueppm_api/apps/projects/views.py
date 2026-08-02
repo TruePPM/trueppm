@@ -5926,8 +5926,10 @@ class RetroBoardItemViewSet(IdempotencyMixin, viewsets.GenericViewSet[RetroBoard
 class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
     """CRUD for schedule baselines within a project.
 
-    A baseline is a frozen snapshot of all task dates at a point in time,
-    used for plan-vs-actual tracking via ghost bars on the Gantt.
+    A baseline is a frozen snapshot of all task dates at a point in time, used
+    for plan-vs-actual tracking via the baseline comparison table and the
+    per-task variance in the detail drawer. ADR-0376 defers the Gantt ghost-bar
+    overlay to 0.5 — these dates are not drawn on the canvas.
 
     Permission matrix:
       list / retrieve — any project member (Viewer+)
