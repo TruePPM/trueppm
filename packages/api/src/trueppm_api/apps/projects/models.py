@@ -1209,11 +1209,24 @@ class Project(VersionedModel):
     start_date = models.DateField()
     # Data date / status date for progress-aware forecasting (ADR-0132). The
     # "as-of" anchor: completed work is held fixed and remaining/not-started work
-    # is forecast from this date. Null means "no explicit anchor" — the Monte
-    # Carlo forecast falls back to today, while the deterministic CPM plan keeps
-    # showing earliest-possible dates. PM-settable so a forecast can be frozen
-    # for a report rather than drifting every run.
+    # is forecast from this date. Null means "no explicit anchor" — both the
+    # Monte Carlo forecast and the deterministic CPM plan floor at today
+    # (ADR-0752 §4; resolved via ``resolve_cpm_status_date()``,
+    # ``scheduling/services.py``). PM-settable so a forecast can be frozen for a
+    # report rather than drifting every run.
     status_date = models.DateField(null=True, blank=True)
+    # Set the first time a CPM recalculation resolves a null ``status_date`` to
+    # today for this project (ADR-0752 §4/§7). Before this field existed, a null
+    # ``status_date`` fed the CPM path raw (no floor at all); arming the floor
+    # moves dates once, on the first recalculation after it ships, for every
+    # project that carries progress and no explicit ``status_date`` — most of
+    # them. That first recalculation is not a user action, so its per-task
+    # movement is suppressed from the activity feed and the ADR-0091 broadcast
+    # (``scheduling/tasks.py::_run_schedule``); every recalculation after this
+    # timestamp is set reports genuine data-date-driven movement normally.
+    # Server-owned bookkeeping, not a domain fact — excluded from
+    # HistoricalRecords below, same treatment as ``recalculated_at``.
+    status_date_floor_armed_at = models.DateTimeField(null=True, blank=True)
     calendar = models.ForeignKey(
         Calendar,
         on_delete=models.PROTECT,
@@ -1558,6 +1571,7 @@ class Project(VersionedModel):
             "recalculated_at",
             "last_sync_version",
             "deleted_at",
+            "status_date_floor_armed_at",
         ]
     )
 

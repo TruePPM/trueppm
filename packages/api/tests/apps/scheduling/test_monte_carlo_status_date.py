@@ -12,9 +12,10 @@ Covers: the resolved date is persisted on a real run and echoed on the fresh
 response, cache reads, and the from-history fallback; two runs taken on
 different simulated "todays" are distinguishable by the recorded date; the
 field round-trips through `MonteCarloRunSerializer`; and the non-persisting
-what-if endpoint reports both `cpm_status_date` (raw, may be null) and
-`mc_status_date` (always resolved) so an AI/MCP or human caller still gets
-provenance for a computation that leaves no row behind.
+what-if endpoint reports both `cpm_status_date` and `mc_status_date` (both
+always resolved, floored at today when `Project.status_date` is unset —
+ADR-0752 §4 armed this floor on the CPM path too) so an AI/MCP or human caller
+still gets provenance for a computation that leaves no row behind.
 """
 
 from __future__ import annotations
@@ -307,17 +308,18 @@ def member_client(admin: object, project: Project) -> APIClient:
 
 @pytest.mark.django_db
 class TestWhatIfReportsStatusDates:
-    def test_null_project_status_date_reports_raw_none_and_resolved_today(
+    def test_null_project_status_date_resolves_both_to_today(
         self,
         member_client: APIClient,
         project: Project,
         pert_task: Task,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """cpm_status_date mirrors the deterministic pass (raw, null when unset);
-        mc_status_date mirrors the Monte Carlo pass (always resolved) — the same
-        split ADR-0132 defines for the persisted endpoints, surfaced here because
-        this view never persists a row to carry it."""
+        """cpm_status_date and mc_status_date both floor a null status_date at
+        today (ADR-0752 §4, correcting ADR-0132 §1 — the CPM path used to pass
+        a null status_date raw, meaning "no floor at all"). Both are resolved
+        through the same shared helper now, so they can never drift from each
+        other on this read-time endpoint."""
         assert project.status_date is None
         frozen_today = date(2026, 4, 20)
         _pin_today(monkeypatch, frozen_today)
@@ -327,7 +329,7 @@ class TestWhatIfReportsStatusDates:
             {"task_id": str(pert_task.pk), "duration_delta": 2, "n_simulations": 100},
         )
         assert res.status_code == 200, res.data
-        assert res.data["cpm_status_date"] is None
+        assert res.data["cpm_status_date"] == "2026-04-20"
         assert res.data["mc_status_date"] == "2026-04-20"
 
     def test_explicit_project_status_date_reports_the_same_value_for_both(

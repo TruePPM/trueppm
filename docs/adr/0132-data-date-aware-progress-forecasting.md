@@ -1,22 +1,26 @@
 # ADR-0132: Data-Date-Aware (Progress-Aware) Forecasting
 
 ## Status
-Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: status_date)
+Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: status_date);
+§1/§2 correction below landed in #2676 (ADR-0752 §4/§7)
 
-> **Two claims below do not match the shipped code** (verified 2026-07-31, #2622). Read them
-> with this note:
+> **Two claims below did not match the shipped code as of 2026-07-31 (#2622); both are now
+> corrected by ADR-0752 §4/§7, landed in #2676.** Read §1 and §2 with this note:
 >
-> - **§2 — "It is *not* floored at the status date" is wrong.** Both engines *do* apply the
->   data-date floor to in-progress work (`engine.py:840-856` takes the floored `start`;
->   `wasm-scheduler/src/forward.rs:138` matches). The prose describes an engine we do not ship.
-> - **§1 — "When null, the engine anchors to the server's current date" is not true on the
->   CPM path.** `scheduling/views.py:1021-1022` passes `status_date` raw to `schedule()`
->   (null ⇒ no floor) and defaults to today only for `monte_carlo()`. Since `status_date` is
->   unset on most projects, the floor described in §2 is implemented but almost never armed —
->   which is the condition #2621 reproduces.
->
-> ADR-0752 corrects §2's prose and arms §1 on the CPM path. Do not cite §1 or §2 as the
-> shipped contract until it is accepted.
+> - **§2 — "It is *not* floored at the status date" was wrong, and still is — the prose
+>   itself remains uncorrected below; treat this note as the authoritative statement.** Both
+>   engines *do* apply the data-date floor to in-progress work (`engine.py:840-856` takes the
+>   floored `start`; `wasm-scheduler/src/forward.rs:138` matches).
+> - **§1 — "When null, the engine anchors to the server's current date" is now true on the
+>   CPM path too.** A null `status_date` is resolved to today in the shared
+>   `resolve_cpm_status_date()` helper (`scheduling/services.py`), used by both the persisted
+>   deterministic recalculation (`scheduling/tasks.py::_run_schedule`) and every read-time
+>   caller (the Monte Carlo what-if `current` block, the schedule-derivation builder) — no
+>   more drift between them. Before #2676, `status_date` was unset on most projects, so the
+>   floor described in §2 was implemented but almost never armed, which is the condition #2621
+>   reproduced. The one-time date shift this arming causes on an already-scheduled project is
+>   deliberately not reported as ordinary per-task movement (ADR-0752 §7, tracked per-project
+>   by the new `Project.status_date_floor_armed_at` field).
 
 ## Context
 

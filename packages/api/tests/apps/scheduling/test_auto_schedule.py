@@ -32,7 +32,15 @@ def calendar(db: object) -> Calendar:
 
 @pytest.fixture
 def project(calendar: Calendar) -> Project:
-    return Project.objects.create(name="Sched", start_date=date(2026, 1, 5), calendar=calendar)
+    # status_date pinned to start_date (ADR-0752 §4): these tests assert exact
+    # CPM dates against a fixed 2026 fixture calendar, unrelated to status_date
+    # semantics. Without an explicit status_date, a null value now floors at
+    # today (the whole point of #2676) — which would otherwise silently
+    # re-anchor every not-started task at the wall-clock date the suite
+    # happens to run on instead of the fixture's intended start date.
+    return Project.objects.create(
+        name="Sched", start_date=date(2026, 1, 5), status_date=date(2026, 1, 5), calendar=calendar
+    )
 
 
 @pytest.fixture

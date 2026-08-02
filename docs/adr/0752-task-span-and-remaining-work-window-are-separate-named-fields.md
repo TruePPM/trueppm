@@ -421,14 +421,14 @@ communication), *not* an audit control.
    `trueppm-scheduler`. **Shipped** in the #2622 MR.
 3. **API half** — model field, migration, serializer, sync payload,
    `_CPM_DERIVATION_QUANTITIES`, the public share projection and its docstring (§8).
-   **Shipped** in the #2622 MR. **Deferred, not shipped in #2622**: the resolved `status_date`
-   echo and §4's floor-arming, and §7's one-shot activity suppression. Arming the floor is a
+   **Shipped** in the #2622 MR. §4's floor-arming, the resolved `status_date` echo, and §7's
+   one-shot activity suppression **shipped together in #2676** — arming the floor was a
    materially separate, production-risk behavior change (it moves dates once on every project
-   carrying progress and no explicit `status_date` — most of them) that needs its own reviewed
-   MR with §7's suppression landing in the same change, not split across two; shipping the
-   floor without the suppression would produce exactly the "someone moved my schedule"
-   confusion §7 exists to prevent. Tracked as **#2676**; `early_start` continues to resolve
-   `status_date` unchanged (raw, no floor) until then.
+   carrying progress and no explicit `status_date` — most of them), so it landed in its own
+   reviewed MR with §7's suppression in the same change, not split across two; shipping the
+   floor without the suppression would have produced exactly the "someone moved my schedule"
+   confusion §7 exists to prevent. `Project.status_date_floor_armed_at` (additive, nullable)
+   tracks the one-shot arming per project.
 4. **Web half** — bar geometry, drawer qualifier chip, public share renderer. **Shipped** in the
    #2622 MR. Grid Start/Finish columns share the same underlying value as the bar
    (`deriveBarGeometry`), so they reconcile automatically without a separate change.

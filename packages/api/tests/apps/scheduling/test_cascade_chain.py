@@ -33,9 +33,14 @@ def calendar(db: object) -> Calendar:
 
 @pytest.fixture
 def project(calendar: Calendar) -> Project:
+    # status_date pinned to start_date (ADR-0752 §4) so these delta/broadcast
+    # assertions are unaffected by the now-armed today-floor on a null
+    # status_date — see test_auto_schedule.py's project fixture for the same
+    # rationale.
     return Project.objects.create(
         name="CascadeProj",
         start_date=date(2026, 1, 5),  # Monday
+        status_date=date(2026, 1, 5),
         calendar=calendar,
     )
 
@@ -350,9 +355,15 @@ def wide_project(calendar: Calendar) -> tuple[Project, list[list[Task]]]:
     bounded subgraph rather than "everything" — a finish shift re-anchors the
     backward pass and legitimately moves every task's late dates.
     """
+    # status_date pinned before start_date (ADR-0752 §4) so a null status_date's
+    # now-armed today-floor never dominates over the project-start shift this
+    # fixture's tests apply — test_wide_recalculation_still_trips_the_cap moves
+    # start_date to re-anchor every task, which only works if status_date
+    # stays out of the way.
     p = Project.objects.create(
         name="WideScale",
         start_date=date(2026, 1, 5),  # Monday
+        status_date=date(2026, 1, 1),
         calendar=calendar,
     )
     rows: list[Task] = []

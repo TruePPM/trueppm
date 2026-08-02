@@ -28,6 +28,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 from trueppm_api.apps.scheduling.models import ScheduleRequestReason
 
@@ -47,6 +48,22 @@ MIN_CLOSED_SPRINTS_FOR_SUGGESTION = 3
 # balance between responsiveness to a real velocity shift and smoothing of
 # one-off scope churn.
 VELOCITY_ROLLING_WINDOW = 6
+
+
+def resolve_cpm_status_date(status_date: date | None) -> date:
+    """Resolve a project's CPM data date, flooring a null value at today.
+
+    Mirrors the Monte Carlo resolution that already lived at each call site
+    (``mc_status_date = project.status_date or timezone.localdate()``) so the
+    deterministic CPM pass and the read-time ``current`` block use the exact
+    same convention (ADR-0752 §4, correcting ADR-0132 §1). Before this, a null
+    ``status_date`` passed raw to the CPM path meant "no floor at all" — this
+    function is the single place that resolution happens, so the persisted
+    recalculation (``scheduling/tasks.py::_run_schedule``) and every read-time
+    caller (the Monte Carlo what-if ``current`` block, the schedule-derivation
+    builder) cannot drift on which data date they used.
+    """
+    return status_date or timezone.localdate()
 
 
 def enqueue_recalculate(

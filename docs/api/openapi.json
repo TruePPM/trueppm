@@ -16358,7 +16358,7 @@
                                 }
                             }
                         },
-                        "description": "What-if forecast. Keys: task_id; applied ({base_duration_days, duration_delta_days, new_duration_days}); current and whatif (each {p50, p80, p95, cpm_finish (ISO-8601 or null), critical_path ([task_id])}); critical_path_changed (bool — did the set of critical tasks change); delta_vs_current ({p50, p80, p95, cpm_finish} signed calendar-day shifts, positive = later/worse, null when a date is missing); runs (n_simulations); seed (fixed RNG seed shared by both runs so the delta isolates the change); cpm_status_date and mc_status_date (ADR-0132/#2638) — the raw and today-floored data dates fed to the deterministic and Monte Carlo passes respectively, shared by both current and whatif since this view runs both in one call; this view never persists, so these are the only provenance a caller gets for how the forecast was computed."
+                        "description": "What-if forecast. Keys: task_id; applied ({base_duration_days, duration_delta_days, new_duration_days}); current and whatif (each {p50, p80, p95, cpm_finish (ISO-8601 or null), critical_path ([task_id])}); critical_path_changed (bool — did the set of critical tasks change); delta_vs_current ({p50, p80, p95, cpm_finish} signed calendar-day shifts, positive = later/worse, null when a date is missing); runs (n_simulations); seed (fixed RNG seed shared by both runs so the delta isolates the change); cpm_status_date and mc_status_date (ADR-0132/#2638, floor armed on the CPM path by ADR-0752 §4) — the resolved data dates (project.status_date, or today when unset) fed to the deterministic and Monte Carlo passes respectively, shared by both current and whatif since this view runs both in one call; this view never persists, so these are the only provenance a caller gets for how the forecast was computed."
                     },
                     "400": {
                         "content": {
@@ -54363,7 +54363,7 @@
             },
             "SchedulerRunResultSummary": {
                 "type": "object",
-                "description": "Typed view over TaskRun.result_summary when task_name='scheduling.recalculate'.\n\nThe tracker writes ``{\"project_finish\": \"YYYY-MM-DD\", \"critical_path\": [uuid, ...]}``\nfrom ``_run_schedule``. Fields are optional because failed runs may never\nreach ``set_result()``.",
+                "description": "Typed view over TaskRun.result_summary when task_name='scheduling.recalculate'.\n\nThe tracker writes ``{\"project_finish\": \"YYYY-MM-DD\", \"critical_path\": [uuid, ...],\n\"status_date\": \"YYYY-MM-DD\"}`` from ``_run_schedule``. Fields are optional\nbecause failed runs may never reach ``set_result()``.",
                 "properties": {
                     "project_finish": {
                         "type": "string",
@@ -54375,6 +54375,11 @@
                         "items": {
                             "type": "string"
                         },
+                        "nullable": true
+                    },
+                    "status_date": {
+                        "type": "string",
+                        "format": "date",
                         "nullable": true
                     }
                 }

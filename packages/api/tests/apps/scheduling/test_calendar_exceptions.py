@@ -34,7 +34,13 @@ def calendar(db: object) -> Calendar:
 
 @pytest.fixture
 def project(calendar: Calendar) -> Project:
-    return Project.objects.create(name="Holiday Project", start_date=START, calendar=calendar)
+    # status_date pinned to START (ADR-0752 §4) so this exact-date CPM
+    # assertion is unaffected by the now-armed today-floor on a null
+    # status_date — see test_auto_schedule.py's project fixture for the same
+    # rationale.
+    return Project.objects.create(
+        name="Holiday Project", start_date=START, status_date=START, calendar=calendar
+    )
 
 
 @pytest.fixture

@@ -55,7 +55,11 @@ def holidays_calendar(db: object) -> Calendar:
 
 @pytest.fixture
 def project(base_calendar: Calendar) -> Project:
-    return Project.objects.create(name="Overlay Project", start_date=START, calendar=base_calendar)
+    # status_date pinned to START (ADR-0752 §4) so exact-date CPM assertions
+    # here are unaffected by the now-armed today-floor on a null status_date.
+    return Project.objects.create(
+        name="Overlay Project", start_date=START, status_date=START, calendar=base_calendar
+    )
 
 
 def _client(user: object) -> APIClient:

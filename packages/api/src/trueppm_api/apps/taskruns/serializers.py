@@ -41,15 +41,21 @@ class TaskRunSerializer(serializers.ModelSerializer[TaskRun]):
 class SchedulerRunResultSummarySerializer(serializers.Serializer[Any]):
     """Typed view over TaskRun.result_summary when task_name='scheduling.recalculate'.
 
-    The tracker writes ``{"project_finish": "YYYY-MM-DD", "critical_path": [uuid, ...]}``
-    from ``_run_schedule``. Fields are optional because failed runs may never
-    reach ``set_result()``.
+    The tracker writes ``{"project_finish": "YYYY-MM-DD", "critical_path": [uuid, ...],
+    "status_date": "YYYY-MM-DD"}`` from ``_run_schedule``. Fields are optional
+    because failed runs may never reach ``set_result()``.
     """
 
     project_finish = serializers.DateField(required=False, allow_null=True)
     critical_path = serializers.ListField(
         child=serializers.CharField(), required=False, allow_null=True
     )
+    # The data date this run was actually computed against (ADR-0752 §4) — a
+    # REST fallback for a client that missed the live cpm_complete/
+    # task_run_completed broadcast, mirroring the MC status_date provenance
+    # convention (#2638). Always present on a successful run; absent on a
+    # dateless-but-settled result (``_settle_empty``), which never resolves one.
+    status_date = serializers.DateField(required=False, allow_null=True)
 
 
 class SchedulerRunSerializer(serializers.ModelSerializer[TaskRun]):
