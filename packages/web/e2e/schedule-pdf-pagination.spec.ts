@@ -124,12 +124,8 @@ test('a tall schedule exports as a multi-page PDF with repeated headers', async 
   await page.goto(BASE_URL);
   const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
   await expect(toolbar).toBeVisible({ timeout: 10_000 });
-  // #1741: Export is now an item in the Actions (⋯) menu, not a standalone button.
-  await toolbar.getByRole('button', { name: 'Project actions' }).click();
-  await page
-    .getByRole('menu', { name: 'Project actions' })
-    .getByRole('menuitem', { name: 'Export schedule as PDF…' })
-    .click();
+  // #2703: Export is a dedicated, primary toolbar button, not an Actions (⋯) menu item.
+  await toolbar.getByRole('button', { name: 'Export schedule as PDF' }).click();
 
   const dialog = page.getByRole('dialog', { name: 'Export schedule' });
   await expect(dialog).toBeVisible();

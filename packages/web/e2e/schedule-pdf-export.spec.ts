@@ -6,8 +6,13 @@
  * clicking "Export PDF" runs the client-side html-to-image + jsPDF pipeline over
  * the off-screen Layout-A print surface and produces a `<Project>_Schedule_<date>.pdf`
  * download, then the dialog shows the success state.
- * Responsive: at md the button folds into the Project-actions ⋯ menu (opening the
- * same dialog); below sm export is hidden entirely (a deck export is a desk task).
+ * Responsive (#2703): the Export button is a *primary* toolbar control (rule 110)
+ * — visible with a short "Export" label at every width the toolbar itself renders
+ * (md and up), gaining the full "Export PDF" label at lg. It is never in the
+ * Project-actions ⋯ menu (one home per control, matching Today / Display / Zoom).
+ * Below md the whole desktop toolbar is suppressed (#1670) in favor of the mobile
+ * Schedule surface, so the button disappears there as a consequence of that
+ * existing rule, not a PDF-specific carve-out.
  * Empty state: with no activities the Export button is disabled.
  */
 import { test, expect } from './fixtures/coverage';
@@ -135,13 +140,9 @@ test.describe('Schedule export surfaces (issue 1438)', () => {
     const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
     await expect(toolbar).toBeVisible({ timeout: 10_000 });
 
-    // #1741: Export is now an item in the Actions (⋯) menu at every width, not a
-    // standalone toolbar button.
-    await toolbar.getByRole('button', { name: 'Project actions' }).click();
-    await page
-      .getByRole('menu', { name: 'Project actions' })
-      .getByRole('menuitem', { name: 'Export schedule as PDF…' })
-      .click();
+    // #2703: Export is a dedicated, primary toolbar button — not buried in the
+    // Actions (⋯) overflow menu.
+    await toolbar.getByRole('button', { name: 'Export schedule as PDF' }).click();
 
     const dialog = page.getByRole('dialog', { name: 'Export schedule' });
     await expect(dialog).toBeVisible();
@@ -178,11 +179,7 @@ test.describe('Schedule export surfaces (issue 1438)', () => {
 
     const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
     await expect(toolbar).toBeVisible({ timeout: 10_000 });
-    await toolbar.getByRole('button', { name: 'Project actions' }).click();
-    await page
-      .getByRole('menu', { name: 'Project actions' })
-      .getByRole('menuitem', { name: 'Export schedule as PDF…' })
-      .click();
+    await toolbar.getByRole('button', { name: 'Export schedule as PDF' }).click();
 
     const dialog = page.getByRole('dialog', { name: 'Export schedule' });
     await expect(dialog).toBeVisible();
@@ -205,7 +202,9 @@ test.describe('Schedule export surfaces (issue 1438)', () => {
     await expect(dialog.getByRole('button', { name: 'Open printable PDF' })).toBeVisible();
   });
 
-  test('Export is available in the Project-actions ⋯ menu at the md breakpoint', async ({ page }) => {
+  test('Export is a visible toolbar button (short label) at the md breakpoint (#2703)', async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 900, height: 800 });
     await setup(page);
     await page.goto(BASE_URL);
@@ -213,14 +212,37 @@ test.describe('Schedule export surfaces (issue 1438)', () => {
     const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
     await expect(toolbar).toBeVisible({ timeout: 10_000 });
 
-    // No standalone button (never one after #1741) — it lives in the ⋯ menu.
-    await expect(toolbar.getByRole('button', { name: 'Export schedule as PDF' })).toHaveCount(0);
+    // Primary control (rule 110): present at md with its accessible name intact,
+    // but the visible label is the short "Export" — " PDF" is CSS-hidden (`hidden
+    // lg:inline`, same technique as ZoomControl's "Fit to project") until lg.
+    // `textContent()`/default `toHaveText` would still see the hidden span, so
+    // assert on the rendered (`innerText`-equivalent) text instead.
+    const exportButton = toolbar.getByRole('button', { name: 'Export schedule as PDF' });
+    await expect(exportButton).toBeVisible();
+    await expect(exportButton).toHaveText('Export', { useInnerText: true });
 
+    // It is never duplicated in the Project-actions ⋯ menu (one home per control).
     await toolbar.getByRole('button', { name: 'Project actions' }).click();
-    const menu = page.getByRole('menu', { name: 'Project actions' });
-    await menu.getByRole('menuitem', { name: 'Export schedule as PDF…' }).click();
+    await expect(
+      page.getByRole('menu', { name: 'Project actions' }).getByRole('menuitem', { name: /Export schedule as PDF/ }),
+    ).toHaveCount(0);
+    await page.keyboard.press('Escape');
 
+    await exportButton.click();
     await expect(page.getByRole('dialog', { name: 'Export schedule' })).toBeVisible();
+  });
+
+  test('Export shows the full "Export PDF" label at the lg breakpoint (#2703)', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await setup(page);
+    await page.goto(BASE_URL);
+
+    const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
+    await expect(toolbar).toBeVisible({ timeout: 10_000 });
+    await expect(toolbar.getByRole('button', { name: 'Export schedule as PDF' })).toHaveText(
+      'Export PDF',
+      { useInnerText: true },
+    );
   });
 
   test('Export is hidden at the mobile breakpoint (below md)', async ({ page }) => {
@@ -229,9 +251,10 @@ test.describe('Schedule export surfaces (issue 1438)', () => {
     await page.goto(BASE_URL);
 
     // Below md the desktop Gantt toolbar is suppressed entirely — the dedicated
-    // mobile Schedule surface owns the region (#1671, ADR-0348). Gate on that
-    // surface having mounted (a WBS row button), then assert neither the
-    // Schedule toolbar nor any export affordance exists: export is a desk task.
+    // mobile Schedule surface owns the region (#1671, ADR-0348). This is a
+    // consequence of the whole toolbar disappearing on phones, not a PDF-specific
+    // carve-out (#2703) — gate on that surface having mounted (a WBS row button),
+    // then assert neither the Schedule toolbar nor any export affordance exists.
     await expect(page.getByRole('button', { name: /^Design,/ })).toBeVisible({
       timeout: 10_000,
     });
@@ -240,7 +263,7 @@ test.describe('Schedule export surfaces (issue 1438)', () => {
     await expect(page.getByRole('button', { name: 'Export schedule as PDF' })).toHaveCount(0);
   });
 
-  test('Export menu item is disabled when the schedule is empty (lg)', async ({ page }) => {
+  test('Export button is disabled when the schedule is empty (lg)', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await setup(page, []);
     await page.goto(BASE_URL);
@@ -248,12 +271,7 @@ test.describe('Schedule export surfaces (issue 1438)', () => {
     const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
     await expect(toolbar).toBeVisible({ timeout: 10_000 });
 
-    await toolbar.getByRole('button', { name: 'Project actions' }).click();
-    await expect(
-      page
-        .getByRole('menu', { name: 'Project actions' })
-        .getByRole('menuitem', { name: 'Export schedule as PDF…' }),
-    ).toBeDisabled();
+    await expect(toolbar.getByRole('button', { name: 'Export schedule as PDF' })).toBeDisabled();
   });
 
   test('A wide (multi-year) schedule bands across sheets and still exports cleanly (lg)', async ({
@@ -290,11 +308,7 @@ test.describe('Schedule export surfaces (issue 1438)', () => {
 
     const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
     await expect(toolbar).toBeVisible({ timeout: 10_000 });
-    await toolbar.getByRole('button', { name: 'Project actions' }).click();
-    await page
-      .getByRole('menu', { name: 'Project actions' })
-      .getByRole('menuitem', { name: 'Export schedule as PDF…' })
-      .click();
+    await toolbar.getByRole('button', { name: 'Export schedule as PDF' }).click();
 
     const dialog = page.getByRole('dialog', { name: 'Export schedule' });
     await expect(dialog).toBeVisible();
