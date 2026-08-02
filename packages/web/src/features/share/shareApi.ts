@@ -48,7 +48,11 @@ export async function fetchPublicBoard(token: string): Promise<PublicBoard> {
 
 export function classifyShareError(err: unknown): PublicShareErrorKind {
   if (axios.isAxiosError(err)) {
-    // 410 covers both revoked and expired links — same "no longer active" copy.
+    // 410 covers every "intentionally gone" cause — revoked, expired, project
+    // moved to Trash (#2607), and public sharing turned off (#2697) — which all
+    // share the "no longer active" copy. The server distinguishes them in its
+    // `detail`, but the recipient is not told which: that is the link owner's
+    // business, and the recipient's next step ("ask for a new link") is the same.
     if (err.response?.status === 410) return 'revoked';
     if (err.response?.status === 429) return 'rate_limited';
     if (err.response?.status === 404) return 'not_found';

@@ -340,10 +340,30 @@ def test_mint_blocked_when_public_sharing_policy_off(project, admin_client):
 
 
 @pytest.mark.django_db
-def test_public_link_404_when_policy_turned_off_after_mint(project):
+def test_public_link_410_when_policy_turned_off_after_mint(project):
     """Turning 'Public sharing' off after a link exists immediately stops it resolving."""
     _link, raw = share_services.mint_share_link(project, None)
     assert APIClient().get(_public_url(raw)).status_code == 200
     project.public_sharing = False
     project.save()
-    assert APIClient().get(_public_url(raw)).status_code == 404
+    # 410, not 404 (#2697): the link was real and an admin deliberately withdrew
+    # it, the same "intentionally gone" family as revocation, expiry and Trash.
+    # The workspace toggle's own help copy promises 410.
+    resp = APIClient().get(_public_url(raw))
+    assert resp.status_code == 410
+    assert "turned off" in resp.data["detail"].lower()
+
+
+@pytest.mark.django_db
+def test_policy_off_is_distinguishable_from_a_token_that_never_existed(project):
+    """A withdrawn link reads as gone; a forged token still reads as not-found.
+
+    The distinction is the whole point of #2697 — but it must not become a
+    token-probing oracle, so it is only drawn *after* the token resolves.
+    """
+    _link, raw = share_services.mint_share_link(project, None)
+    project.public_sharing = False
+    project.save()
+
+    assert APIClient().get(_public_url(raw)).status_code == 410
+    assert APIClient().get(_public_url("nonexistenttoken")).status_code == 404

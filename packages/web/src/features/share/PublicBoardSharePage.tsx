@@ -157,7 +157,7 @@ export function PublicBoardSharePage() {
     return (
       <StatePage
         title="This link is no longer active"
-        body="It was revoked, or it has expired. Ask the project owner for a new share link."
+        body="It was revoked, it expired, or public sharing was turned off. Ask the project owner for a new share link."
       />
     );
   }

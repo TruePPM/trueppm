@@ -243,11 +243,22 @@ def _serve_public_share(
         )
     if not _public_sharing_allowed(link.project):
         # The "Public sharing" policy (ADR-0135) was turned off for this project
-        # (or an ancestor) after the link was minted — stop resolving it, uniform
-        # 404 like the instance kill switch.
+        # (or an ancestor) after the link was minted — stop resolving it.
+        #
+        # 410, not 404 (#2697): this is the same "intentionally gone" family as
+        # revocation, expiry and Trash above — the link was real and an admin
+        # deliberately withdrew it. 404 would tell the recipient "no such thing",
+        # which is the wrong thing to tell someone holding a link that worked
+        # yesterday, and it contradicted the workspace toggle's own help copy.
+        #
+        # It reveals nothing the sibling branches do not: reaching this line
+        # means the token already resolved, so the recipient demonstrably held a
+        # valid link to this project. The instance kill switch above stays 404
+        # because it answers *before* resolution and cannot distinguish a real
+        # token from a forged one.
         return Response(
-            {"detail": _LINK_UNAVAILABLE_DETAIL},
-            status=status.HTTP_404_NOT_FOUND,
+            {"detail": "Public sharing has been turned off for this project."},
+            status=status.HTTP_410_GONE,
         )
 
     payload = serialize(link)
