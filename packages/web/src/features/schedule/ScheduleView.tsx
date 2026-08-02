@@ -74,7 +74,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { MethodologyEmptyState } from '@/features/shell/MethodologyEmptyState';
 import { Button } from '@/components/Button';
 import { QueryErrorState } from '@/components/QueryErrorState';
-import { GanttIcon } from '@/components/Icons';
+import { GanttIcon, FilePdfIcon } from '@/components/Icons';
 import { useExportMsProject } from '@/hooks/useMsProjectImportExport';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { Methodology, Task } from '@/types';
@@ -2503,10 +2503,8 @@ function buildProjectActionsItems(ctx: {
   canImport: boolean;
   canShare: boolean;
   canCaptureBaseline: boolean;
-  breakpoint: ReturnType<typeof useBreakpoint>;
   isExporting: boolean;
   exportProject: ReturnType<typeof useExportMsProject>['exportProject'];
-  scheduleExport: ReturnType<typeof useScheduleExport>;
   setImportOpen: (v: boolean) => void;
   canImportCsv: boolean;
   setCsvImportOpen: (v: boolean) => void;
@@ -2515,7 +2513,7 @@ function buildProjectActionsItems(ctx: {
   setBaselineManagerOpen: (v: boolean) => void;
   setTaskTrashOpen: (v: boolean) => void;
 }): ToolbarOverflowItem[] {
-  const { projectId, isExporting, exportProject, scheduleExport } = ctx;
+  const { projectId, isExporting, exportProject } = ctx;
   return [
     ...(projectId && ctx.canImport
       ? [
@@ -2550,19 +2548,12 @@ function buildProjectActionsItems(ctx: {
           },
         ]
       : []),
-    // Schedule PDF export (issue 1438). Disabled (not hidden) when nothing is
-    // exportable so it stays discoverable; hidden at sm (a desk task).
-    ...(projectId && ctx.breakpoint !== 'sm'
-      ? [
-          {
-            kind: 'action' as const,
-            id: 'export-pdf',
-            label: 'Export schedule as PDF…',
-            disabled: !scheduleExport.canExport,
-            onSelect: scheduleExport.openDialog,
-          },
-        ]
-      : []),
+    // Schedule PDF export (issue 1438) moved out of this menu and into a
+    // dedicated, primary toolbar button (#2703) — it is a weekly-cadence,
+    // client-facing task for the PM/PMO personas, not a secondary action, and
+    // this codebase's convention (rule 243: the Display popover, Today, Zoom)
+    // is one home per control, not a toolbar+overflow duplicate. See
+    // `ScheduleToolbar`'s render for the button.
     // Share (#1486) — Admin+ only.
     ...(projectId && ctx.canShare
       ? [
@@ -2827,6 +2818,35 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
         <QuarterModeControl />
       </div>
 
+      {/* Schedule PDF export (#2703) — a dedicated, primary toolbar button.
+          Previously buried in the ⋯ overflow and hidden below `md` entirely;
+          the client-ready PDF is a weekly-cadence, client-facing task for the
+          PM/PMO personas (steering pack, exec prep), not a secondary action.
+          Primary classification (rule 110): visible with a short label at
+          every width the toolbar itself renders (≥ md — the toolbar is
+          desktop-only, see `isMobile` above), full label at lg — same
+          treatment as the "Today" / "Fit to project" buttons in the Time
+          cluster. Disabled (not hidden) when nothing is exportable so it
+          stays discoverable, matching the disabled-not-hidden convention the
+          overflow entry used. */}
+      {projectId && (
+        <button
+          type="button"
+          onClick={scheduleExport.openDialog}
+          disabled={!scheduleExport.canExport}
+          aria-label="Export schedule as PDF"
+          title="Export schedule as PDF (⌘⇧E)"
+          className="inline-flex items-center gap-1.5 border border-neutral-border rounded-control h-7 px-3 text-xs font-medium flex-shrink-0
+            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+            focus-visible:ring-offset-neutral-surface
+            focus-visible:outline-none hover:border-brand-primary hover:text-brand-primary
+            disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-neutral-border disabled:hover:text-inherit"
+        >
+          <FilePdfIcon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+          Export<span className="hidden lg:inline"> PDF</span>
+        </button>
+      )}
+
       <div aria-hidden="true" className="mx-0.5 h-5 w-px bg-neutral-border shrink-0" />
       {/* Project actions (···) — always present so Import/Export are discoverable
           at every width. */}
@@ -2838,10 +2858,8 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
             canImport,
             canShare,
             canCaptureBaseline,
-            breakpoint,
             isExporting,
             exportProject,
-            scheduleExport,
             setImportOpen,
             canImportCsv,
             setCsvImportOpen,

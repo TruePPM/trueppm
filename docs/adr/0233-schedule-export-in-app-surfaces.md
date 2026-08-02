@@ -3,6 +3,17 @@
 ## Status
 Accepted
 
+> **Superseded in part by issue #2703 (2026-08-02).** Decision §1 (dedicated `lg`-only
+> secondary button → `···` overflow at `md` → hidden at `sm`) was itself silently
+> overridden by #1741's toolbar clustering shortly after this ADR shipped, which folded
+> the entry point into the `···` Project-actions overflow **at every width** and hid it
+> below `md` (see `docs/design/decisions/110-*.md`, the "desk-task carve-out") — that
+> intermediate state was never reflected back into this ADR, which is the drift #2703
+> found. #2703 reclassifies Export PDF as a **primary** toolbar control per rule 110: a
+> dedicated button visible whenever the toolbar itself renders (`md`+), never duplicated
+> in the overflow menu. The options dialog, generation states, and everything in §2–§4
+> below are unaffected.
+
 ## Context
 Epic #79 (schedule PDF export) is delivered in five children. #1436 (shared print
 infra) and #1437 (Layout A one-page Gantt) are merged; the export pipeline
