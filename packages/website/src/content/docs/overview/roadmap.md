@@ -152,13 +152,21 @@ scheduled work, not a known-unknown: it is tracked on #2277, in the **0.5** mile
   complexity and CodeQL maintainability findings. No behavior change, and every batch ships
   with its tests: the point is that the 0.5–1.0 feature work lands on a codebase that can
   absorb it
-- **Quality gates** — nightly API fuzzing against the live OpenAPI schema (#2121), mutation
-  testing on the scheduler to prove the assertions actually catch regressions (#2282), a
-  Helm chart deploy smoke test on a real cluster (#2279), a nightly OIDC handshake against a
-  live Keycloak (#2274), and deployable images built from the commit under test whenever a
-  change touches the chart or CI, so the Helm drill runs HEAD's chart against HEAD's code
-  rather than the last released tag (#2284). Each one closes a class of defect that had
-  been reaching `main`
+- **Quality gates** — five additions to CI, of two kinds. The difference matters, because
+  a job that cannot fail a pipeline is not a gate no matter what it is named.
+  **Blocking a merge:** a Helm chart deploy smoke test on a real `kind` cluster (#2279),
+  which runs on any change to the chart or to CI and has already caught a real deploy
+  regression (the web nginx upstream mismatch, #2283); an OIDC handshake against a live
+  Keycloak (#2274) on any change to the SSO app; and deployable images built from the
+  commit under test (#2284), so the Helm drill runs HEAD's chart against HEAD's code
+  rather than the last released tag. **Reporting nightly, not blocking:** API fuzzing
+  against the live OpenAPI schema (#2121) and mutation testing on the scheduler (#2282)
+  both run on the nightly schedule with `allow_failure: true`. That is deliberate — a
+  fuzz case or a surviving mutant is a triage signal, and letting one red a schedule
+  shared with dependency and coverage runs would train everyone to ignore it. Mutation
+  testing further reports its score without enforcing a floor, and covers the scheduler's
+  models, derivation and CLI rather than the CPM and Monte Carlo core; that scope limit is
+  recorded as a [known issue](/overview/known-issues/) and its expansion is tracked on #2468
 - **Correctness fixes** — several hundred, concentrated in the surfaces an evaluator touches
   first: the schedule drawer and Gantt interaction model, board and sprint state, the
   settings shell, time capture, exports, and the offline and reconnect paths
