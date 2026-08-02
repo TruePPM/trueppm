@@ -1,6 +1,7 @@
 ---
 title: Connected Accounts & Git-Aware Links
 description: Connect your own GitLab, GitHub, or generic Git account to track live MR, PR, and issue status on TruePPM tasks — and preview Google Drive, Dropbox, Box, and OneDrive file links inline, no account needed.
+documentedFor: "0.4"
 ---
 
 TruePPM lets each contributor connect their **own** Git host credentials and
@@ -79,6 +80,17 @@ The connected credential is consumed by **git-aware task links** to fetch live
 status.
 
 ## Available sources
+
+:::note[Ships in 0.4]
+**This section only.** External task sources — the Jira personal pull described
+below, its connect wizard, the `EXTERNAL_TASK_SOURCES` registry, and the mirrored
+items in My Work — ship in **TruePPM 0.4**, the first beta. They are **not** present
+in `v0.3.0-alpha.3`, the latest release: on 0.3 the Connected Accounts page carries
+the git credential sections above and no **Available sources** section at all.
+
+Everything earlier on this page — connected accounts for GitLab, GitHub, and generic
+Git hosts, and git-aware task links — is in the current release and is unaffected.
+:::
 
 Below the credentials list, the same page carries an **Available sources**
 section — the personal registry of external task **sources** you can pull *your
