@@ -345,12 +345,24 @@ may follow in a later release.
 ## Team-level opt-out
 
 The instance switch above is the *operator's* lever. A team has its own, over
-reads of its own data: **Project settings → Agents → Agent read access**. The
-same control exists at program scope (**Program settings → Agents**) and at
-workspace scope.
+reads of its own data: **Project settings → Agents → Agent read access**.
 
-Each scope is three-state: **Inherit** (no opinion of its own), **Allowed**, or
-**Blocked**.
+:::note[Settings UI available at project scope only today]
+The underlying `mcp_enabled` field and the instance → workspace → program →
+project cascade already exist at all three scopes, but only the **project**
+settings page has a UI for it. To set program or workspace scope today, use the
+API directly: `PATCH /api/v1/programs/{id}/` or `PATCH /api/v1/workspace/` with
+`{"mcp_enabled": true|false|null}` (Admin role or above). Every scope's
+serializer also exposes read-only `effective_mcp_enabled` and
+`inherited_mcp_enabled` fields so a client can show the resolved value without
+re-implementing the cascade. Workspace- and program-scope settings pages are
+tracked for a future release.
+:::
+
+**Project** and **program** scope are three-state: **Inherit** (no opinion of
+its own), **Allowed**, or **Blocked**. The **workspace** root has no scope above
+it to inherit from, so it is two-state — **Allowed** or **Blocked** — and
+defaults to Allowed.
 
 ### What the control actually guarantees
 
