@@ -1,7 +1,7 @@
 # ADR-0193: Independent Leaf-Surface Visibility Toggles (reporting / time-tracking / baselines / Monte-Carlo)
 
 ## Status
-Proposed
+Accepted — status corrected 2026-08-02 after ADR audit (#2685, verified: `Project.show_reporting/show_time_tracking/show_baselines/show_monte_carlo`, `apps/projects/surface_visibility.py`, web `ProjectVisibilityPage.tsx`). 
 
 ## Context
 

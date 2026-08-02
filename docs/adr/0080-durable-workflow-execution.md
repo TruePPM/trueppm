@@ -1,6 +1,6 @@
 # ADR-0080: Durable Workflow Execution
 
-## Status: Proposed
+## Status: Accepted — status corrected 2026-08-02 after ADR audit (#2685, verified: `workflows/interface.py` + `workflows/services.py` engine, orphan-recovery sweep in `settings/base.py`).
 
 ## Context
 

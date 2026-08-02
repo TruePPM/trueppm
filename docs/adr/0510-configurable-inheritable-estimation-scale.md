@@ -1,7 +1,7 @@
 # ADR-0510: Configurable, Inheritable Estimation Scale (Workspace → Program → Project)
 
 ## Status
-Proposed
+Accepted — status corrected 2026-08-02 after ADR audit (#2685, verified: `apps/projects/estimation_scale.py` + two migrations). 
 
 ## Context
 

@@ -3,7 +3,7 @@
 > **Companion ADRs (0.3 agile-team architecture batch).** ADR-0104 = Unified Team-Signal Privacy Model · ADR-0105 = PO Product-Backlog Hierarchy & Scoring · ADR-0106 = Agile/Waterfall Bridge. Where this ADR refers to "the Privacy ADR", "the Backlog ADR", or "the Bridge ADR" it means 0104 / 0105 / 0106 respectively. **ADR-0104** is this document.
 
 ## Status
-Proposed
+Accepted — status corrected 2026-08-02 after ADR audit (#2685, verified: `SignalAudience` ladder + Amendment A ratification in `apps/scheduling/serializers.py`, `views.py`). 
 
 > **Erratum (2026-06-06, reconciled in the #553 implementation MR).** The §2 reader
 > gate is **`read iff tier <= audience`** (suppress when the requester's band is

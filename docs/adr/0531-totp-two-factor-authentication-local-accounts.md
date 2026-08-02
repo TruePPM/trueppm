@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (planning artifact for #2216, milestone 0.5 — implementation deferred; this ADR records the design so 0.5 development starts from a settled plan)
+Proposed (planning artifact for #2216, milestone **0.6** — implementation deferred; this ADR records the design so development starts from a settled plan. Milestone corrected 2026-08-02 after ADR audit (#2685): the 0.5 re-triage in #2558 moved two-factor authentication to 0.6, and the roadmap is the source of truth for milestone placement)
 
 ## Context
 

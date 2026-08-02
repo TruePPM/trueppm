@@ -1,7 +1,7 @@
 # ADR-0101: Sprint / Phase / WBS Guardrails
 
 ## Status
-Proposed
+Accepted — status corrected 2026-08-02 after ADR audit (#2685, verified: `apps/projects/signals.py` phase guardrails, Tier-3 sprint-health in `services.py`). 
 
 > **Amended by ADR-0293 (#1755, epic #1752 Increment C).** The `phase_in_sprint`
 > rule is no longer a Warn-default, Owner-escalatable composition guardrail. Committing

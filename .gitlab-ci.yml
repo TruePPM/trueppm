@@ -585,6 +585,40 @@ boundary:check:
   script:
     - bash scripts/check-issue-boundary.sh
 
+chore:release-stale-wip-labels:
+  extends: .fast-job
+  # Strip `status::wip` from closed issues (#2693). The label is a checked claim —
+  # `wt new`/`wt claim` refuse an already-claimed issue and check-issue-collision.sh
+  # (in `make pre-push`) warns on it — so a stale one makes the collision warning
+  # fire on work that finished weeks ago. People then learn to ignore it, and it
+  # stops catching the real duplicate it exists to catch (#1985 / !1352 / !1353).
+  #
+  # `wt remove`/`wt prune` already release the label, but only for work that went
+  # through a worktree and was cleaned up. This catches everything else: a merged MR
+  # whose worktree was never removed, a plain `git checkout -b`, or an issue closed
+  # by hand in the UI.
+  #
+  # Schedule-only and `allow_failure` on purpose. This is a janitor, not a gate: a
+  # stale label is untidy, not broken, and redding a shared nightly for it would be
+  # the exact noise-desensitization the job exists to prevent. Set WIP_SWEEP_TOKEN
+  # (api scope) in CI/CD variables to let it write; without one it reports only,
+  # because CI_JOB_TOKEN cannot PUT issue labels.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+  allow_failure: true
+  before_script:
+    - apk add --no-cache curl bash python3
+  script:
+    - |
+      if [ -n "${WIP_SWEEP_TOKEN:-}" ]; then
+        bash scripts/release-stale-wip-labels.sh --apply
+      else
+        echo "WIP_SWEEP_TOKEN not set — reporting only (CI_JOB_TOKEN cannot write labels)."
+        bash scripts/release-stale-wip-labels.sh
+      fi
+
 boundary:imports:
   extends: .fast-job
   # The source-tree half of the Two-Repo Rule (#2603). boundary:check above
@@ -791,6 +825,32 @@ docs:version-accuracy:
   script:
     - bash scripts/check-version-status.sh
     - bash scripts/check-version-status.sh --self-test
+
+docs:adr-status:
+  extends: .fast-job
+  # ADR status-drift gate (#2685). An ADR cited by name from packages/*/src must
+  # not say "Proposed" — citing it from shipped code is the author asserting the
+  # decision is in effect, which is incompatible with "not decided yet".
+  #
+  # Why a gate and not another audit: #2539 was a one-off manual sweep in July
+  # 2026, and within a month twelve ADRs had drifted back to Proposed while fully
+  # implemented. This grep-level check found twenty-two. The ADR corpus is the
+  # project's own record of what shipped; if it says Proposed for shipped work it
+  # misrepresents the release.
+  #
+  # Also checks the four corpus statistics quoted by the published ADR index
+  # (count, span, unused numbers, gap ranges) against the tree — they had drifted
+  # by 13 ADRs and 64 unused numbers. Escape hatch for a genuinely
+  # partially-implemented ADR is ADR_STATUS_ALLOWLIST in the script. ~2s.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache bash grep sed findutils python3
+  script:
+    - bash scripts/check-adr-status.sh
 
 security:demo-nginx-allowlist:
   extends: .fast-job

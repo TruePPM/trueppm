@@ -3,7 +3,7 @@
 ## Status
 
 Proposed — amends ADR-0023 (field independence), ADR-0136 (completed-task layout), and
-ADR-0132 (§ edge cases); extends ADR-0752 (span vs remaining window, itself Proposed).
+ADR-0132 (§ edge cases); extends ADR-0752 (span vs remaining window, Accepted).
 Resolves #2664.
 
 ## Context

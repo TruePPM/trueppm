@@ -1,7 +1,7 @@
 # ADR-0084: OSS Dead-Letter Alerting Receiver
 
 ## Status
-Proposed
+Accepted — status corrected 2026-08-02 after ADR audit (#2685, verified: `apps/scheduling/deadletter.py`, `receivers.py`, `signals.py`). 
 
 ## Context
 
