@@ -118,6 +118,47 @@ def import_msproject(
                 _mark_import_dead(import_request_id)
             raise
 
+        # Reject an infeasible dependency graph BEFORE any write (ADR-0259).
+        # A hand-maintained .mpp/.xml routinely carries a cyclic or
+        # self-referential predecessor link, and the importer persists links
+        # with bulk_create — which bypasses DependencySerializer's per-edge
+        # cycle check, the only other gate. Without this the file writes an
+        # infeasible network that then crashes the CPM engine on the next
+        # recalc: the exact bug ADR-0259 was written for.
+        #
+        # Placed here, not in _import_dependencies, for two reasons. The graph
+        # is validated in the file's own uid space, so a bad file is rejected
+        # while the project is still empty rather than rolled back. And this
+        # runs OUTSIDE the atomic() block below: raising inside it would roll
+        # the outbox claim back to DISPATCHED, so the orphan drain would
+        # re-dispatch a deterministically bad file forever (ADR-0092) — the
+        # same reason the parse failure above marks the row DEAD.
+        from trueppm_api.apps.msproject.importer import (
+            collect_dependency_edges,
+            describe_bad_graph,
+        )
+        from trueppm_api.apps.scheduling.graph_guard import (
+            InfeasibleGraphError,
+            validate_task_graph,
+        )
+
+        tracker.update(15, "Validating dependency graph...")
+        try:
+            validate_task_graph(collect_dependency_edges(project_data))
+        except InfeasibleGraphError as exc:
+            # ImportRequest has no result_summary column to persist the detail
+            # on (unlike CsvImportRequest), so the TaskRunTracker's FAILED
+            # message is the only surface that outlives the worker — log the
+            # human-readable form for the operator as well (#2714).
+            logger.warning(
+                "import.msproject: rejected %s — %s",
+                filename,
+                describe_bad_graph(project_data, exc),
+            )
+            if import_request_id:
+                _mark_import_dead(import_request_id)
+            raise
+
         if creates_project:
             _apply_header_to_project(project_id, project_data)
 
