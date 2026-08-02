@@ -7,6 +7,13 @@
 # gate had to bounce). The reservation logic has no other harness, and a break here
 # silently reintroduces the collision class, so guard it directly.
 #
+# Also covers `wt remove`'s status::wip check-out label gating (#2693): 24 closed
+# 0.4 issues were found still carrying the label because nothing cleared it after
+# their worktree was torn down. Case 6 stubs `glab` (no network, no real GitLab
+# project) to prove `wt remove` clears the label when the issue is closed and
+# leaves it alone when the issue is still open — this is the only harness for
+# scripts/wt, so the gating logic is guarded here rather than left unverified.
+#
 # scripts/wt derives REPO_ROOT / the git common dir from the repo it is run in, so
 # each case stages a throwaway git repo and runs the REAL script against it. The
 # ledger lives in that sandbox's .git, so cases are fully isolated.
@@ -121,12 +128,59 @@ rnum2="$(cd "$D4" && bash "$WT" reserve adr 2>/dev/null)"
 check "freed number 0217 is reused after release" "$([[ "$rnum2" == "0217" ]]; echo $?)"
 unset TRUEPPM_WT_BASE
 
+# --- Case 6: remove gates the status::wip label on GitLab issue state ------
+# #2693: `wt remove` used to release the check-out unconditionally, so a
+# closed issue's label only cleared if someone remembered to run `wt release`
+# separately — and 24 closed 0.4 issues were found still carrying it. The fix
+# checks the issue's live state: clear the label when GitLab shows it closed,
+# leave it alone when the worktree is torn down without merging (issue still
+# open, so the label is the only signal a parallel agent has left that it's
+# spoken for). `glab` is stubbed here — it returns a fixed `state` per issue
+# number and logs every invocation, so the label-clearing call itself (not
+# just its precondition) is directly assertable.
+echo "Case 6: remove clears status::wip only when the issue is closed"
+D6="$TMP/case6"; mk_repo "$D6"
+GSTUB="$TMP/glab-bin"; mkdir -p "$GSTUB"
+GLOG="$TMP/glab-calls.log"
+cat > "$GSTUB/glab" <<'STUBEOF'
+#!/usr/bin/env bash
+{ echo "ARGV: $*"; } >> "$GLAB_STUB_LOG"
+if [[ "$1 $2" == "issue view" ]]; then
+  case "$3" in
+    9001) printf '{"state":"closed"}' ;;
+    9002) printf '{"state":"opened"}' ;;
+    *)    printf '{}' ;;
+  esac
+fi
+exit 0
+STUBEOF
+chmod +x "$GSTUB/glab"
+export GLAB_STUB_LOG="$GLOG"
+
+WTDIR6="$TMP/case6-wts"
+export TRUEPPM_WT_BASE="$WTDIR6"
+( cd "$D6" && git branch fix/9001-closed-thing && git worktree add -q "$WTDIR6/9001-closed-thing" fix/9001-closed-thing )
+( cd "$D6" && git branch fix/9002-open-thing   && git worktree add -q "$WTDIR6/9002-open-thing"   fix/9002-open-thing )
+
+: > "$GLOG"
+( cd "$D6" && PATH="$GSTUB:$PATH" bash "$WT" remove 9001 >/dev/null 2>&1 )
+check "closed issue: state was checked"       "$(grep -q 'issue view 9001 --output json' "$GLOG"; echo $?)"
+check "closed issue: label-clear call made"   "$(grep -q 'issue update 9001 --unlabel status::wip' "$GLOG"; echo $?)"
+
+: > "$GLOG"
+( cd "$D6" && PATH="$GSTUB:$PATH" bash "$WT" remove 9002 >/dev/null 2>&1 )
+check "open issue: state was checked"         "$(grep -q 'issue view 9002 --output json' "$GLOG"; echo $?)"
+check "open issue: label-clear call NOT made" "$(! grep -q 'issue update 9002 --unlabel status::wip' "$GLOG"; echo $?)"
+
+unset TRUEPPM_WT_BASE GLAB_STUB_LOG
+
 # --- Case 5: wiring + bash 3.2 portability guards --------------------------
 echo "Case 5: wiring + bash 3.2 portability"
 check "cmd_new auto-reserves ADRs for feat branches" "$(grep -q 'reserve_adr' "$WT"; echo $?)"
 check "cmd_new honors --adr/--no-adr"                "$(grep -qE '\-\-no-adr' "$WT"; echo $?)"
 check "remove releases reservations"                 "$(grep -q 'ledger_release_branch "\$rm_branch"' "$WT"; echo $?)"
 check "prune releases reservations"                  "$(grep -q 'ledger_release_branch "\$branch"' "$WT"; echo $?)"
+check "remove gates label-clear on issue state"      "$(grep -q 'issue_is_closed "\$rm_issue"' "$WT"; echo $?)"
 check ".wt-reservation is allowlisted in dirty check" "$(grep -q '\\.wt-reservation' "$WT"; echo $?)"
 CODE="$(grep -vE '^[[:space:]]*#' "$WT")"
 if printf '%s\n' "$CODE" | grep -qE 'declare -A|mapfile|readarray|local -n'; then r=1; else r=0; fi

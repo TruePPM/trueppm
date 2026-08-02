@@ -21,8 +21,10 @@
 #                                         started). Same lock as `new`.
 #   scripts/wt release <issue>            Release an issue check-out (clear the label).
 #   scripts/wt list                       List active worktrees and WIP count.
-#   scripts/wt remove <issue|name>        Remove a worktree by issue # or name; releases
-#                                         its issue check-out.
+#   scripts/wt remove <issue|name>        Remove a worktree by issue # or name; if the
+#                                         issue is closed, clears its status::wip
+#                                         check-out label too (left alone if the issue
+#                                         is still open — e.g. removed without merging).
 #   scripts/wt prune                      Remove worktrees whose branches were merged
 #                                         to main and deleted on origin. Refuses to
 #                                         remove worktrees with uncommitted work.
@@ -406,6 +408,18 @@ issue_is_locked() {
     2>/dev/null || true
 }
 
+# Print "closed" if issue $1's GitLab state is closed, else "" — including on
+# lookup failure (best-effort, same fail-open shape as issue_is_locked). Used
+# by `wt remove` to decide whether it's safe to strip the lock label: closed
+# means the work is done and the claim can clear; still-open means someone
+# removed a worktree without merging, and the label should keep signaling
+# that the issue is spoken for.
+issue_is_closed() {
+  glab issue view "$1" --output json 2>/dev/null \
+    | python3 -c "import json,sys; d=json.load(sys.stdin); print('closed' if d.get('state') == 'closed' else '')" \
+    2>/dev/null || true
+}
+
 # Print the body of the most recent check-out comment on issue $1 (best effort;
 # empty if none found or the comment JSON shape isn't recognized).
 last_checkout_note() {
@@ -684,10 +698,25 @@ cmd_remove() {
   # Free any ADR / migration numbers this branch reserved but may not have used.
   [[ -n "$rm_branch" ]] && ledger_release_branch "$rm_branch"
 
-  # Release the issue check-out (best-effort).
+  # Release the issue check-out (best-effort) — but only strip the lock label
+  # when GitLab shows the issue as closed. This is the automated half of
+  # #2693: 24 closed 0.4 issues were found still carrying `status::wip`
+  # because nothing cleared it after the worktree that claimed them was gone,
+  # and the pre-push collision gate then warns on work that finished weeks
+  # ago. Gating on closed state (rather than clearing unconditionally) also
+  # protects the inverse case named in #2693: if `wt remove` runs on
+  # abandoned/unmerged work — someone tears down the worktree without
+  # merging — the issue is still open and the label is the only signal left
+  # that it's spoken for, so leave it alone. `clear_lock`'s --unlabel is
+  # idempotent (a no-op if the label is already absent), so this is safe to
+  # run even if the label was already cleared by some other path.
   if [[ -n "$rm_issue" ]] && lock_available; then
-    clear_lock "$rm_issue" "$rm_branch"
-    ok "released check-out of #$rm_issue"
+    if [[ "$(issue_is_closed "$rm_issue")" == "closed" ]]; then
+      clear_lock "$rm_issue" "$rm_branch"
+      ok "released check-out of #$rm_issue (issue closed)"
+    else
+      dim "  #$rm_issue still open — leaving '$WT_LOCK_LABEL' in place"
+    fi
   fi
 }
 
