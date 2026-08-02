@@ -39,6 +39,25 @@ to *lock* the workspace value as a hard ceiling that downstream scopes cannot lo
 Both are booleans, both default at the workspace, and both behave the same way under
 inheritance.
 
+### Turning Public sharing off revokes existing links
+
+The switch is **retroactive and immediate**. The effective policy is re-checked on
+every request to a public link, so turning Public sharing off at any scope stops
+every already-minted link below it from resolving — no restart, no cache flush, and
+no need to revoke links individually.
+
+A recipient who opens a withdrawn link gets **`410 Gone`** and the "this link is no
+longer active" page — the same response as a link that was revoked by hand, that
+expired, or whose project was moved to Trash. `410` rather than `404` is deliberate:
+the link was real and was deliberately withdrawn, and the recipient is told to ask
+the project owner for a new one rather than that the link never existed.
+
+The recipient is **not** told which of those four causes applied. That is the link
+owner's business, and the recipient's next step is the same either way.
+
+Turning the setting back on restores the links that were not otherwise revoked or
+expired — withdrawal is a policy check at read time, not a change to the links.
+
 ## The inheritance model
 
 The value that actually applies at a given scope is **resolved on the server** and

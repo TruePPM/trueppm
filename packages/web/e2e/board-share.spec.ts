@@ -76,7 +76,9 @@ test.describe('Public board share viewer', () => {
     await page.goto('/share/board/tok123');
     await expect(page.getByText('This link is no longer active')).toBeVisible();
     await expect(
-      page.getByText('It was revoked, or it has expired. Ask the project owner for a new share link.'),
+      page.getByText(
+        'It was revoked, it expired, or public sharing was turned off. Ask the project owner for a new share link.',
+      ),
     ).toBeVisible();
   });
 

@@ -135,6 +135,35 @@ test.describe('Public schedule share viewer', () => {
     await expect(page.getByText('This link is no longer active')).toBeVisible();
   });
 
+  test('a link withdrawn by the sharing policy shows the same 410 page (#2697)', async ({
+    page,
+  }) => {
+    // Turning the workspace "Public sharing" toggle off retroactively withdraws
+    // every minted link. The server answers 410 with this detail — the same
+    // "intentionally gone" family as revoked/expired, NOT the 404 that means
+    // "no such link". Pinned here because the toggle's own help copy promises
+    // 410, and for two releases the serve path answered 404 instead.
+    await page.route(SHARE_URL, (route) =>
+      route.fulfill({
+        status: 410,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          detail: 'Public sharing has been turned off for this project.',
+        }),
+      }),
+    );
+
+    await page.goto('/share/schedule/tok123');
+    await expect(page.getByText('This link is no longer active')).toBeVisible();
+    await expect(
+      page.getByText(
+        'It was revoked, it expired, or public sharing was turned off. Ask the project owner for a new share link.',
+      ),
+    ).toBeVisible();
+    // Not the 404 page — a withdrawn link is not an invalid one.
+    await expect(page.getByText("This share link isn't available")).toHaveCount(0);
+  });
+
   test('invalid/disabled link shows the not-available page on a 404', async ({ page }) => {
     await page.route(SHARE_URL, (route) =>
       route.fulfill({

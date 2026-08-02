@@ -607,8 +607,8 @@ export function WorkspaceGeneralPage() {
               <li>· Toolbars — the Share button is disabled with a tooltip.</li>
               <li>· Project settings — Create is disabled; existing links stop resolving (410).</li>
               <li>
-                · Public pages — already-open links show the &ldquo;sharing is turned off&rdquo;
-                page.
+                · Public pages — already-open links show the &ldquo;no longer active&rdquo; page,
+                the same one a revoked or expired link shows.
               </li>
             </ul>
           ) : (
