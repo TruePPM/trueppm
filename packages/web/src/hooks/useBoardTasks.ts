@@ -58,9 +58,8 @@ export function useUpdateTaskStatus(): UpdateTaskStatusHandle {
       await queryClient.cancelQueries({ queryKey: ['tasks', vars.projectId] });
       const snapshot = queryClient.getQueryData<Task[]>(['tasks', vars.projectId]);
       const patch = optimisticStatusPatch(vars);
-      queryClient.setQueryData<Task[]>(
-        ['tasks', vars.projectId],
-        (old) => old?.map((t) => (t.id === vars.taskId ? { ...t, ...patch } : t)) ?? [],
+      queryClient.setQueryData<Task[]>(['tasks', vars.projectId], (old) =>
+        old ? old.map((t) => (t.id === vars.taskId ? { ...t, ...patch } : t)) : old,
       );
       return { snapshot };
     },
