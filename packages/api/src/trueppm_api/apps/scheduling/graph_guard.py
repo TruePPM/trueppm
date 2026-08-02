@@ -3,9 +3,12 @@
 The human write path (``DependencySerializer._check_no_cycle``) runs
 self-reference and cycle detection on every single proposed edge before it is
 persisted. Bulk and agent write paths — the MS Project importer, the offline
-Jira importer (#1664), and any future non-interactive writer — build whole
-``Dependency`` graphs with ``bulk_create`` and therefore **bypass** that gate
-entirely.
+Jira importer (#1664), the spreadsheet importer, and any future non-interactive
+writer — build whole ``Dependency`` graphs with ``bulk_create`` and therefore
+**bypass** that gate entirely.
+
+Every importer named above now calls this guard before its write. The seed
+importer (``apps/seed/importer.py``) still does not — tracked in #2589.
 
 That gap is benign only while no bulk writer accepts an untrusted graph. The
 moment a prospect's messy Jira export can be imported (#1664), a cyclic or

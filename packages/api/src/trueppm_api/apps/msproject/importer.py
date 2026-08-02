@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from trueppm_api.apps.msproject.dataclasses import CalendarData, ProjectData, TaskData
 from trueppm_api.apps.sync.sequence import allocate_for_projects
+
+if TYPE_CHECKING:
+    from trueppm_api.apps.scheduling.graph_guard import InfeasibleGraphError
 
 logger = logging.getLogger(__name__)
 
@@ -450,6 +453,44 @@ def _maybe_shift_project_start(project_id: str, data: ProjectData, summary: dict
     if project is not None and shift_project_start_if_needed(project, earliest_start):
         summary["project_start_date"] = project.start_date.isoformat()
         summary["project_start_shifted"] = True
+
+
+def collect_dependency_edges(data: ProjectData) -> list[tuple[str, str]]:
+    """Return every predecessor link in the file's own uid space.
+
+    Exists so a caller can run the ADR-0259 graph guard *before* any row is
+    written. Cycle and self-reference structure is invariant under relabeling,
+    so validating uids rather than the PKs they become is what lets a cyclic
+    file be rejected while the project is still empty — ``bulk_create`` bypasses
+    ``DependencySerializer._check_no_cycle``, so there is no later gate.
+
+    Links whose predecessor uid is absent from the file are included: a dangling
+    uid can only ever be a source node (successors are always file tasks), so it
+    cannot manufacture a cycle, and keeping them makes this edge set identical
+    in shape to the one the CSV importer validates.
+    """
+    return [
+        (str(link.predecessor_uid), str(td.uid))
+        for td in data.tasks
+        for link in td.predecessor_links
+    ]
+
+
+def describe_bad_graph(data: ProjectData, exc: InfeasibleGraphError) -> str:
+    """Name the offending tasks of a rejected graph in the uploader's terms.
+
+    Built from ``exc.reason``/``exc.offending`` rather than ``str(exc)``, whose
+    message is a domain signal carrying an internal reason code and a list repr
+    in uid space ("Infeasible task graph (cyclic_dependency): ['2', '5', '2']").
+    The person who uploaded the file knows task names, not uids, and needs the
+    two reasons distinguished — a self-referencing task is a different edit from
+    a multi-task loop.
+    """
+    names = {str(td.uid): td.name for td in data.tasks}
+    labelled = [f"{names.get(uid, 'unknown task')} (uid {uid})" for uid in exc.offending]
+    if exc.reason == "self_reference":
+        return f"Task {labelled[0]} lists itself as its own predecessor."
+    return "Circular dependency: " + " -> ".join(labelled)
 
 
 def _import_dependencies(

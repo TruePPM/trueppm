@@ -72,6 +72,18 @@ role on the project. Members below Admin do not see the import control. Export
 is available to any project member (see below).
 :::
 
+:::caution[A circular predecessor link rejects the whole file]
+If the file's predecessor links form a cycle (task 1 depends on 2, and 2 depends
+on 1), or a task lists itself as its own predecessor, the import is rejected
+**before anything is written** — no tasks, no dependencies, and no change to the
+project name or start date. A cyclic network has no critical path, so importing
+it would produce a schedule the engine cannot compute. Fix the loop in MS Project
+and re-upload.
+
+This applies to both entry points — creating a project from a file and importing
+into an existing one.
+:::
+
 ## Export a project
 
 Open the **Project actions** (`···`) overflow menu in the Schedule view and choose **Export to MS Project (.xml)**. The browser downloads the current schedule as MS Project XML 2003+. Export is allowed for **any project member** — Viewer role and above.
