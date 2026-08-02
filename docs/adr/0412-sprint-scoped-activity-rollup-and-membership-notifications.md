@@ -1,7 +1,7 @@
 # ADR-0412: Sprint-scoped activity rollup + sprint-membership-change notifications
 
 ## Status
-Proposed
+Accepted — status corrected 2026-08-02 after ADR audit (#2685, verified: `apps/projects/board_activity.py`, `board_activity_views.py`, `notifications/models.py`). 
 
 ## Context
 

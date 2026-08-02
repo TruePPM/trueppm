@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted — status corrected 2026-08-02 after ADR audit (#2685, verified: `apps/scheduling/views.py`, `risk_premium.py`, web `types/index.ts`). 
 
 ## Context
 

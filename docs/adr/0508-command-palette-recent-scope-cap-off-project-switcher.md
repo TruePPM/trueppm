@@ -1,7 +1,7 @@
 # ADR-0508: Expand the ⌘K command palette — Recent projects, scope-aware task cap, off-project switcher
 
 ## Status
-Proposed (extends ADR-0138 §"frontend-only, no new endpoints" — see Decision D0; builds on ADR-0150 ProjectVisit and ADR-0401 palette people/overflow work)
+Accepted — status corrected 2026-08-02 after ADR audit (#2685, verified: web `hooks/useRecentProjects.ts`, `commandPalette/useCommandItems.ts`). (extends ADR-0138 §"frontend-only, no new endpoints" — see Decision D0; builds on ADR-0150 ProjectVisit and ADR-0401 palette people/overflow work)
 
 ## Context
 Issue #1557 asks to "expand the ⌘K command palette" so it scales past the demo

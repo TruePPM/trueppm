@@ -1,7 +1,7 @@
 # ADR-0515: Editable task duration in the detail drawer
 
 ## Status
-Proposed
+Accepted — status corrected 2026-08-02 after ADR audit (#2685, verified: web `features/schedule/TaskScheduleStrip.tsx`). 
 
 ## Context
 

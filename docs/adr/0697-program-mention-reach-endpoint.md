@@ -1,7 +1,7 @@
 # ADR-0697: Program mention-reach endpoint and the two-arm reach copy contract
 
 ## Status
-Proposed
+Accepted — status corrected 2026-08-02 after ADR audit (#2685, verified: `mention_reach` in `apps/projects/program_views.py`, web `useProgramMentionReach.ts`). 
 
 > Numbering note: 0697 was reserved for this worktree while the highest ADR on
 > `main` was 0689. Sibling worktree `2530-external-stakeholder-rows-have-no-edit-f`

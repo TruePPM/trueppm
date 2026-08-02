@@ -1,7 +1,7 @@
 # ADR-0743: Task placement fields and estimate-write authority on TaskSerializer
 
 ## Status
-Proposed — 2026-07-30, for #2585 and #2596 (0.4)
+Accepted — status corrected 2026-08-02 after ADR audit (#2685, verified: `apps/access/permissions.py`, `apps/projects/serializers.py` write-authority gate, originally proposed 2026-07-30 for #2585 and #2596 in 0.4).
 
 ## Context
 

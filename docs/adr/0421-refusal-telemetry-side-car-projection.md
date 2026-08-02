@@ -1,7 +1,7 @@
 # ADR-0421: Refusal-Telemetry as a Non-Hashed Side-Car Projection of the AgentAction Chain
 
 ## Status
-Proposed
+Accepted — status corrected 2026-08-02 after ADR audit (#2685, verified: `apps/agents/models.py` refusal taxonomy, `apps/access/permissions.py`, web `RefusalLog`). 
 
 ## Context
 

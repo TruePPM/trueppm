@@ -1,7 +1,7 @@
 # ADR-0107: Workspace Experience Preset — Methodology Inheritance and the Enforce Extension Point
 
 ## Status
-Proposed
+Accepted — status corrected 2026-08-02 after ADR audit (#2685, verified: `effective_methodology` inheritance on Workspace/Program/Project in `apps/projects/models.py`, `services.py`). 
 
 ## Context
 

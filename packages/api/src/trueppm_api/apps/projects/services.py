@@ -2942,7 +2942,7 @@ def reject_scope_change(scope_change: Any, by: Any) -> Any:
 
     Team-owned gate (role>=ADMIN + project membership). Sets ``status=REJECTED``,
     clears ``task.sprint`` (removes from sprint) and forces ``sprint_pending=False``
-    in one transaction, writes ``history_change_reason`` (ADR-0098 — so the
+    in one transaction, writes ``history_change_reason`` (ADR-0102 §4 — so the
     timeline shows "removed from sprint" not a bare "Updated" pill), and rides the
     recompute + broadcast on commit. The REJECTED row is retained for the audit
     trail (cleared on sprint close like every other row). Idempotent.

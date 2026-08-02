@@ -1,7 +1,7 @@
 # ADR-0371: Typed-Array Drag-Preview Result for the WASM Scheduler
 
 ## Status
-Proposed
+Accepted — status corrected 2026-08-02 after ADR audit (#2685, verified: `packages/wasm-scheduler/src/lib.rs` typed-array drag result + `typed.rs` contract). 
 
 Extends the resident-session design of **ADR (#1533)** / `SchedulerSession` and the
 dense-node-order convention of **#1535**. Does not change the CPM math or the shared

@@ -1,7 +1,7 @@
 # ADR-0108: Rollup Engine — parent percent-complete, schedule dates, and scope delta
 
 ## Status
-Proposed
+Accepted — status corrected 2026-08-02 after ADR audit (#2685, verified: computed-on-read `_delta` in `apps/scheduling/serializers.py`, `forecast_history_settings.py`). 
 
 ## Context
 

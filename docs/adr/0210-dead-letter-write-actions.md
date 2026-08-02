@@ -1,7 +1,7 @@
 # ADR-0210: Dead-letter write actions — requeue via workflow backend, drop with audit note, bulk-over-filter
 
 ## Status
-Proposed
+Accepted — status corrected 2026-08-02 after ADR audit (#2685, verified: requeue/drop/requeue_all/drop_all in `apps/scheduling/views.py`, `workflows/consumers/requeue_failed_task.py`). 
 
 Extends ADR-0080 (durable workflow execution — this registers the *first* consumer
 workflow against its registry), ADR-0172 (System Health operator UI — this is the

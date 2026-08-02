@@ -1,7 +1,7 @@
 # ADR-0420: Board matrix — opt-in, exception-aware per-cell card cap
 
 ## Status
-Proposed
+Accepted — status corrected 2026-08-02 after ADR audit (#2685, verified: web `features/board/cellCap.ts` + `cellCap.test.ts` + E2E). 
 
 ## Context
 

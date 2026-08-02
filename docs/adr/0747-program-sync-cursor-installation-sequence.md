@@ -1,7 +1,7 @@
 # ADR-0747: An installation-wide sequence for the program sync cursor
 
 ## Status
-Proposed — 2026-07-31, for #2498 (0.4)
+Accepted — status corrected 2026-08-02 after ADR audit (#2685, verified: `apps/sync/sequence.py`, `apps/sync/models.py`, migration `0005_program_sync_sequence.py`, originally proposed 2026-07-31 for #2498 in 0.4).
 
 ## Context
 

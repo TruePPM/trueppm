@@ -1,7 +1,7 @@
 # ADR-0196: Methodology-aware mobile BottomNav with a "More" overflow sheet
 
 ## Status
-Proposed
+Accepted — status corrected 2026-08-02 after ADR audit (#2685, verified: web `features/shell/bottomNavItems.ts`, `BottomNav.tsx`, `MoreSheet.tsx`). 
 
 ## Context
 The mobile bottom navigation rail (`packages/web/src/features/shell/BottomNav.tsx`,
