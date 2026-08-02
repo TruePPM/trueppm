@@ -144,6 +144,14 @@ class MeTimeEntryDetailView(IdempotencyMixin, APIView):
     The queryset is hard-scoped to ``user=request.user``, so PATCH or DELETE on another
     user's entry returns **404** (existence-oracle close, matches #996) — never 403.
     DELETE is a ``soft_delete`` so the undo toast and mobile sync tombstone both work.
+
+    **No ``TimesheetSubmission`` check, deliberately.** ADR-0224 ships submission as a
+    week-level *marker*: "no approver, no lock, no return". Entries stay editable after
+    submit — that is why un-submit exists at all, so a fat-fingered Submit cannot strand
+    a week. Do not add a submitted-week guard here: it would pre-empt the approval and
+    locking design that #100 owns at 0.5, and it would silently break the un-submit
+    escape hatch. The timesheet grid renders a submitted week read-only as a UI
+    convention only, and says so on the page (#2701).
     """
 
     permission_classes = [IsAuthenticated]

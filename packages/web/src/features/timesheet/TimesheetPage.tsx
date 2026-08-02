@@ -188,6 +188,20 @@ export function TimesheetPage() {
         )}
       </div>
 
+      {/* Submission is a marker, not an approval lock (ADR-0224: "no approver, no lock,
+          no return"). The grid renders a submitted week read-only, which reads as an
+          enforced lock and is the inference three of eight VoC personas drew — so say
+          plainly that the time is still yours to correct. Without this line the only
+          honest reading of the inert grid is "the server refuses my edit", which is
+          false: MeTimeEntryDetailView.patch applies no submission check. Approval and a
+          real lock are #100 at 0.5; when that lands, this line goes, not the grid. */}
+      {submitted && (
+        <p className="mb-3 text-xs text-neutral-text-secondary">
+          Submitting marks the week as ready for review — it doesn&rsquo;t lock your time.
+          Use <span className="font-medium">Reopen week</span> to correct it here.
+        </p>
+      )}
+
       {/* Body */}
       {isLoading ? (
         <div

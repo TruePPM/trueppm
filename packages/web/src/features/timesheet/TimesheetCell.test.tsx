@@ -84,7 +84,7 @@ describe('TimesheetCell', () => {
   });
 
   it('renders a multi-entry cell read-only (ADR-0224) with an edit-on-My-Work hint', () => {
-    renderCell({ editable: false, entryCount: 3, minutes: 180, lockReason: 'multi-entry' });
+    renderCell({ editable: false, entryCount: 3, minutes: 180, readOnlyReason: 'multi-entry' });
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     const cell = screen.getByRole('gridcell');
     expect(cell).toHaveAttribute('aria-readonly', 'true');
@@ -95,14 +95,14 @@ describe('TimesheetCell', () => {
   it('pluralizes the multi-entry hint by count (never "1 entries")', () => {
     // A single-entry cell must never reach this branch in the grid, but the label must
     // still read correctly if it does (#2174 — the grammar bug the batch fixes).
-    renderCell({ editable: false, entryCount: 1, minutes: 60, lockReason: 'multi-entry' });
+    renderCell({ editable: false, entryCount: 1, minutes: 60, readOnlyReason: 'multi-entry' });
     const cell = screen.getByRole('gridcell');
     expect(cell).toHaveAccessibleName(/1 entry — edit on My Work/);
     expect(cell).not.toHaveAccessibleName(/1 entries/);
   });
 
   it('a submitted cell with time names the Reopen-week remedy, not My Work (#2174)', () => {
-    renderCell({ editable: false, entryCount: 1, minutes: 300, lockReason: 'submitted' });
+    renderCell({ editable: false, entryCount: 1, minutes: 300, readOnlyReason: 'submitted' });
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     const cell = screen.getByRole('gridcell');
     expect(cell).toHaveAttribute('aria-readonly', 'true');
@@ -116,7 +116,7 @@ describe('TimesheetCell', () => {
   });
 
   it('a submitted empty cell is inert, non-focusable, and not announced as "0 entries" (#2174)', () => {
-    renderCell({ editable: false, entryCount: 0, minutes: 0, lockReason: 'submitted' });
+    renderCell({ editable: false, entryCount: 0, minutes: 0, readOnlyReason: 'submitted' });
     const cell = screen.getByRole('gridcell');
     expect(cell).toHaveAttribute('aria-readonly', 'true');
     expect(cell).toHaveAccessibleName(/week submitted/);
