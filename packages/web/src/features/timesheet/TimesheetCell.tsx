@@ -8,10 +8,16 @@
  *
  * A cell can be read-only for two distinct reasons, and the guidance must name the *right*
  * remedy for each (#2174): `multi-entry` (≥2 entries — a single number can't split them,
- * so editing moves to My Work) vs `submitted` (the whole week is locked by the submission
- * marker — the remedy is *Reopen week* at the top-right, not My Work). Reopening never
- * unlocks a multi-entry cell, so a multi-entry cell keeps its My-Work guidance even when
- * the week is also submitted.
+ * so editing moves to My Work) vs `submitted` (the week carries a submission marker — the
+ * remedy is *Reopen week* at the top-right, not My Work). Reopening never re-opens a
+ * multi-entry cell, so a multi-entry cell keeps its My-Work guidance even when the week is
+ * also submitted.
+ *
+ * `submitted` is **not** an enforced lock, and nothing here should imply one: ADR-0224
+ * ships "no approver, no lock, no return", and the API accepts a PATCH to an entry in a
+ * submitted week. Read-only here is a deliberate week-level UI convention that keeps the
+ * grid's week total consistent with what was submitted — the page says so in as many
+ * words next to the Submitted chip. Approval and a real server-side lock are #100 at 0.5.
  */
 import { useEffect, useId, useRef, useState } from 'react';
 import { formatMinutesAsHm, parseHoursToMinutes } from '@/lib/parseHours';
@@ -26,11 +32,14 @@ interface TimesheetCellProps {
    *  #1926). Rendered inert regardless of `editable`; future cells never hold entries. */
   isFuture?: boolean;
   /**
-   * Why a `!editable` cell is locked, so the read-only guidance names the correct remedy
-   * (#2174). `multi-entry`: ≥2 entries, edit on My Work. `submitted`: the week is submitted,
-   * reopen it (top-right) to edit. Ignored when the cell is editable.
+   * Why a `!editable` cell is read-only, so the guidance names the correct remedy (#2174).
+   * `multi-entry`: ≥2 entries, edit on My Work. `submitted`: the week carries a submission
+   * marker, reopen it (top-right) to edit here. Ignored when the cell is editable.
+   *
+   * Named `readOnlyReason`, not `lockReason`: neither reason is an enforced lock, and the
+   * old name is what let "the week is locked" spread into the guidance copy.
    */
-  lockReason?: 'multi-entry' | 'submitted';
+  readOnlyReason?: 'multi-entry' | 'submitted';
   /** Announces day + task for screen readers (a11y — the grid builds it). */
   ariaLabel: string;
   /**
@@ -71,8 +80,10 @@ function FutureCell({ ariaLabel, surface }: { ariaLabel: string; surface: string
 }
 
 /**
- * The whole week is submitted (a week-level marker) — the remedy is *Reopen week*
- * (top-right), NOT My Work (#2174). Empty submitted cells are rendered inert and
+ * The week carries a submission marker — the remedy is *Reopen week* (top-right), NOT My
+ * Work (#2174). The marker is not an enforced lock (ADR-0224); read-only here is a UI
+ * convention, and the page states that next to the Submitted chip so the inert grid is
+ * not read as the server refusing the edit. Empty submitted cells are rendered inert and
  * non-focusable (like future cells) so a submitted week doesn't add a tab stop per
  * blank day; a cell that carries time stays focusable so the reopen guidance is
  * reachable in a screen reader's focus mode where it actually matters.
@@ -257,7 +268,7 @@ export function TimesheetCell({
   isWeekend,
   isToday,
   isFuture = false,
-  lockReason = 'multi-entry',
+  readOnlyReason = 'multi-entry',
   ariaLabel,
   errorText,
   onSave,
@@ -265,7 +276,7 @@ export function TimesheetCell({
   const surface = surfaceClass(isWeekend, isToday);
 
   if (isFuture) return <FutureCell ariaLabel={ariaLabel} surface={surface} />;
-  if (!editable && lockReason === 'submitted') {
+  if (!editable && readOnlyReason === 'submitted') {
     return <SubmittedCell minutes={minutes} ariaLabel={ariaLabel} surface={surface} />;
   }
   if (!editable) {

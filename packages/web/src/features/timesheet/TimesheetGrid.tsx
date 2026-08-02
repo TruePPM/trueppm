@@ -114,10 +114,13 @@ export function TimesheetGrid({
                     isWeekend={d.isWeekend}
                     isToday={d.isToday}
                     isFuture={d.isFuture}
-                    // A multi-entry cell (`!cell.editable`) is locked by ADR-0224 and stays
-                    // locked even after reopening, so its remedy is always My Work; an
-                    // otherwise-editable cell is locked only by the week submission (#2174).
-                    lockReason={!cell.editable ? 'multi-entry' : submitted ? 'submitted' : undefined}
+                    // A multi-entry cell (`!cell.editable`) is read-only per ADR-0224 and
+                    // stays read-only after reopening, so its remedy is always My Work; an
+                    // otherwise-editable cell is read-only only while the week carries the
+                    // submission marker (#2174). Neither is a server-enforced lock (#2701).
+                    readOnlyReason={
+                      !cell.editable ? 'multi-entry' : submitted ? 'submitted' : undefined
+                    }
                     ariaLabel={`${row.taskShortId} ${row.taskName}, ${WEEKDAY_LABELS[i]} ${dayOfMonth(d.date)}`}
                     errorText={cellErrors[`${row.taskId}|${d.date}`]}
                     onSave={(minutes) => onCellSave(row, d.date, minutes)}

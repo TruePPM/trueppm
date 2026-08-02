@@ -5849,7 +5849,7 @@
         "/api/v1/me/time-entries/{id}/": {
             "patch": {
                 "operationId": "v1_me_time_entries_partial_update",
-                "description": "``/api/v1/me/time-entries/{id}/`` — author-only PATCH / DELETE (ADR-0185 §4).\n\nThe queryset is hard-scoped to ``user=request.user``, so PATCH or DELETE on another\nuser's entry returns **404** (existence-oracle close, matches #996) — never 403.\nDELETE is a ``soft_delete`` so the undo toast and mobile sync tombstone both work.",
+                "description": "``/api/v1/me/time-entries/{id}/`` — author-only PATCH / DELETE (ADR-0185 §4).\n\nThe queryset is hard-scoped to ``user=request.user``, so PATCH or DELETE on another\nuser's entry returns **404** (existence-oracle close, matches #996) — never 403.\nDELETE is a ``soft_delete`` so the undo toast and mobile sync tombstone both work.\n\n**No ``TimesheetSubmission`` check, deliberately.** ADR-0224 ships submission as a\nweek-level *marker*: \"no approver, no lock, no return\". Entries stay editable after\nsubmit — that is why un-submit exists at all, so a fat-fingered Submit cannot strand\na week. Do not add a submitted-week guard here: it would pre-empt the approval and\nlocking design that #100 owns at 0.5, and it would silently break the un-submit\nescape hatch. The timesheet grid renders a submitted week read-only as a UI\nconvention only, and says so on the page (#2701).",
                 "parameters": [
                     {
                         "in": "path",
@@ -5926,7 +5926,7 @@
             },
             "delete": {
                 "operationId": "v1_me_time_entries_destroy",
-                "description": "``/api/v1/me/time-entries/{id}/`` — author-only PATCH / DELETE (ADR-0185 §4).\n\nThe queryset is hard-scoped to ``user=request.user``, so PATCH or DELETE on another\nuser's entry returns **404** (existence-oracle close, matches #996) — never 403.\nDELETE is a ``soft_delete`` so the undo toast and mobile sync tombstone both work.",
+                "description": "``/api/v1/me/time-entries/{id}/`` — author-only PATCH / DELETE (ADR-0185 §4).\n\nThe queryset is hard-scoped to ``user=request.user``, so PATCH or DELETE on another\nuser's entry returns **404** (existence-oracle close, matches #996) — never 403.\nDELETE is a ``soft_delete`` so the undo toast and mobile sync tombstone both work.\n\n**No ``TimesheetSubmission`` check, deliberately.** ADR-0224 ships submission as a\nweek-level *marker*: \"no approver, no lock, no return\". Entries stay editable after\nsubmit — that is why un-submit exists at all, so a fat-fingered Submit cannot strand\na week. Do not add a submitted-week guard here: it would pre-empt the approval and\nlocking design that #100 owns at 0.5, and it would silently break the un-submit\nescape hatch. The timesheet grid renders a submitted week read-only as a UI\nconvention only, and says so on the page (#2701).",
                 "parameters": [
                     {
                         "in": "path",

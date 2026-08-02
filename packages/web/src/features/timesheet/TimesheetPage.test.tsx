@@ -134,6 +134,22 @@ describe('TimesheetPage', () => {
     expect(submitMutate).toHaveBeenCalledWith(false);
   });
 
+  it('says a submitted week is not locked, so the inert grid is not read as enforcement (#2701)', () => {
+    // The grid renders a submitted week read-only, but ADR-0224 ships submission as a
+    // marker — "no approver, no lock, no return" — and the API accepts a PATCH to an
+    // entry in a submitted week. Three of eight VoC personas read the inert grid as a
+    // server-side lock. This line is the only thing that contradicts that inference.
+    setWeek({ data: weekData(true, [weekEntry(120)]) });
+    render(<TimesheetPage />);
+    expect(screen.getByText(/doesn’t lock your time/i)).toBeInTheDocument();
+  });
+
+  it('does not claim the week is unlocked before it is submitted', () => {
+    setWeek({ data: weekData(false, [weekEntry(120)]) });
+    render(<TimesheetPage />);
+    expect(screen.queryByText(/doesn’t lock your time/i)).not.toBeInTheDocument();
+  });
+
   it('steps to the next and previous week', () => {
     render(<TimesheetPage />);
     const label = () => screen.getByText(/–/).textContent ?? '';
