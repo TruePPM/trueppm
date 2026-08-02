@@ -5,11 +5,11 @@ All notable changes to TruePPM are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-TruePPM is pre-1.0. The 0.1, 0.2, and upcoming 0.3 milestones are all **alpha**
-releases — `0.1.0-alpha.1`, `0.2.0-alpha.1`, and the in-flight `0.3.0-alpha.1` —
-on the road to the first stable release at 1.0. The release line stays alpha
-through 0.3; 0.4 is planned as the first beta. Each release below opens with its
-**main part** — the headline change — followed by the detailed entries.
+TruePPM is pre-1.0. The 0.1, 0.2, and 0.3 milestones all shipped as **alpha**
+releases — `0.1.0-alpha.1`, `0.2.0-alpha.1`, and `0.3.0-alpha.3` — on the road to
+the first stable release at 1.0. The alpha line ends there: 0.4 will be the first
+**beta**. Each release below opens with its **main part** — the headline change —
+followed by the detailed entries.
 
 ## [Unreleased]
 
