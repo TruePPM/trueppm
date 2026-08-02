@@ -30,6 +30,17 @@ const RESIZE_HANDLE_WIDTH = 16;
 const RESIZE_RIGHT_OVERHANG = 8;
 /** Right edge of the link-dot zone. */
 const LINK_DOT_RIGHT = 16;
+
+/**
+ * Center of the link-dot zone, as an offset from `barRight` — the x the visible
+ * link handle is drawn at (#2702).
+ *
+ * Exported so the renderer cannot drift from the hit zone. A handle painted even a
+ * few px off its own hotspot is worse than no handle: the user aims at what they can
+ * see, misses, and starts a *move* drag instead of a link, silently rescheduling the
+ * task. Both must move together or neither should.
+ */
+export const LINK_DOT_CENTER_OFFSET = (RESIZE_RIGHT_OVERHANG + LINK_DOT_RIGHT) / 2;
 /**
  * Minimum bar-body width (logical px) preserved for the drag-to-move zone.
  * A bar narrower than RESIZE_HANDLE_WIDTH (a 1–2 day task at Week zoom, or any
@@ -59,6 +70,24 @@ export interface HitZone {
 
 export interface HitIndex {
   query(canvasX: number, canvasY: number, isTouch: boolean): HitZone | null;
+  /**
+   * Bar geometry for a row, or null when the row has no bar (unscheduled task).
+   *
+   * Exists so the renderer can place the visible link handle (#2702) on the exact
+   * geometry the hit test uses, rather than recomputing `dateToRight` and risking a
+   * silent divergence between what is drawn and what is clickable.
+   */
+  rowGeometry(rowIndex: number): RowGeometry | null;
+}
+
+/** Bar geometry for one row, as the hit index computed it. */
+export interface RowGeometry {
+  taskId: string;
+  barLeft: number;
+  barRight: number;
+  barTop: number;
+  barBottom: number;
+  isMilestone: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -96,6 +125,24 @@ class HitIndexImpl implements HitIndex {
       if (zone) return zone;
     }
 
+    return null;
+  }
+
+  rowGeometry(rowIndex: number): RowGeometry | null {
+    // Linear scan rather than an index: `_rows` skips unscheduled tasks, so its
+    // positions are not task positions, and this is called at most once per repaint.
+    for (const row of this._rows) {
+      if (row.rowIndex === rowIndex) {
+        return {
+          taskId: row.taskId,
+          barLeft: row.barLeft,
+          barRight: row.barRight,
+          barTop: row.barTop,
+          barBottom: row.barBottom,
+          isMilestone: row.isMilestone,
+        };
+      }
+    }
     return null;
   }
 }

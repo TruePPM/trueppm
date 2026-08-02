@@ -437,6 +437,47 @@ export function drawHoverRowBand(
   ctx.fillRect(0, top, viewportWidth, height);
 }
 
+/** Radius of the drag-to-link handle (logical px). */
+const LINK_HANDLE_RADIUS = 3.5;
+
+/**
+ * Draw the drag-to-link handle at a bar's right edge on the hovered row (#2702).
+ *
+ * Drag-to-link worked, but at rest its only cue was a `crosshair` cursor over an
+ * invisible 8px strip — an evaluator had no way to learn the gesture exists without
+ * already knowing it. The legend has always *called* it "the handle at a bar's right
+ * edge"; this draws the thing that sentence describes.
+ *
+ * Hover-scoped rather than always-on: a dot on every bar at rest would add N marks to
+ * a dense chart and compete with the milestone diamond and the progress pill. Hover
+ * already scopes the row band, so the handle rides an established signal.
+ *
+ * `cx` MUST come from LINK_DOT_CENTER_OFFSET against the hit index's own `barRight`.
+ * A handle drawn off its hotspot is worse than none: the user aims at what they see,
+ * misses, and starts a *move* drag instead — silently rescheduling the task.
+ *
+ * Hollow, matching the legend's unfilled RadioDotIcon, so it reads as a grab point
+ * rather than a status dot. In forced-colors mode the palette resolves to Highlight,
+ * which keeps it visible where the decorative hover wash is suppressed.
+ */
+export function drawLinkHandle(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+): void {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, LINK_HANDLE_RADIUS, 0, Math.PI * 2);
+  // Fill with the chart surface first so a dependency arrow passing beneath does not
+  // read through the hollow center and turn the handle into a smudge.
+  ctx.fillStyle = _palette.surface;
+  ctx.fill();
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = _palette.linkPreview;
+  ctx.stroke();
+  ctx.restore();
+}
+
 /**
  * Draw vertical grid lines aligned to scale minor ticks, plus horizontal row
  * separators for the visible range.

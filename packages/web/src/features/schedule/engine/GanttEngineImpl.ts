@@ -26,7 +26,7 @@ import {
   dateToLeft,
   leftToDate,
 } from './GanttScaleData';
-import { buildHitIndex } from './GanttHitIndex';
+import { buildHitIndex, LINK_DOT_CENTER_OFFSET } from './GanttHitIndex';
 import type { HitIndex, HitZone } from './GanttHitIndex';
 import { GanttDragFSM } from './GanttDragFSM';
 import { GanttLinkFSM } from './GanttLinkFSM';
@@ -44,6 +44,7 @@ import {
   refreshFontScale,
   drawRowBands,
   drawHoverRowBand,
+  drawLinkHandle,
   drawGridLines,
   drawTodayLine,
   drawTimelineHeader,
@@ -1117,6 +1118,11 @@ export class GanttEngineImpl implements GanttEngine {
       ctx.restore();
     }
 
+    // Drag-to-link handle on the hovered row (#2702) — the rest-state affordance for
+    // a gesture whose only other cue is a crosshair cursor over an invisible strip.
+    // Painted after bars, arrows and labels so nothing overdraws it.
+    this._paintHoverLinkHandle(ctx);
+
     // Aligned-left name gutter (#2096) — painted last so it reads as a frozen
     // column the timeline scrolls under. Drawn in screen coords (no translate).
     if (this._chartOptions.showNameGutter) {
@@ -1129,6 +1135,38 @@ export class GanttEngineImpl implements GanttEngine {
         this._viewportHeight,
       );
     }
+  }
+
+  /**
+   * Paint the drag-to-link handle on the hovered row (#2702).
+   *
+   * Geometry comes from the hit index rather than a fresh `dateToRight`, so the mark
+   * cannot drift from the zone that accepts the drag. Every row the hit index knows
+   * about gets a handle — including milestones and summaries, whose link-dot zone is
+   * tested before the milestone-specific resize skip and is therefore live. Drawing
+   * the handle wherever the hotspot is, and only there, is the whole invariant.
+   *
+   * Suppressed while ANY gesture is in flight. During a link drag the preview line
+   * and target highlight are the feedback, and a leftover source dot competes with
+   * them. During a move or resize the bar is under the pointer and its own ghost is
+   * the feedback — a handle still pinned to the bar's pre-drag right edge would read
+   * as a second, stationary target. A rest-state affordance has no job mid-gesture.
+   */
+  private _paintHoverLinkHandle(ctx: CanvasRenderingContext2D): void {
+    if (this._hoverRowIndex < 0 || !this._hitIndex) return;
+    if (this._linkFSM.state !== 'IDLE' || this._dragFSM.state !== 'IDLE') return;
+
+    const geom = this._hitIndex.rowGeometry(this._hoverRowIndex);
+    if (!geom) return;
+
+    ctx.save();
+    ctx.translate(0, -this._scrollTop);
+    drawLinkHandle(
+      ctx,
+      geom.barRight + LINK_DOT_CENTER_OFFSET - this._scrollLeft,
+      (geom.barTop + geom.barBottom) / 2,
+    );
+    ctx.restore();
   }
 
   private _paintRow(rowIndex: number): void {
