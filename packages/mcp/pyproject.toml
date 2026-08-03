@@ -44,6 +44,10 @@ classifiers = [
 dependencies = [
     "mcp[cli]>=1.2,<2",
     "httpx>=0.27,<1",
+    # Transitive via mcp[cli] -> pyjwt[crypto]; promoted to a direct dep purely to
+    # force the resolver past 49.0.0, which clears GHSA-g6cj-pr64-35w5 (PKCS#7
+    # Bleichenbacher oracle, fixed in 50.0.0). Not used directly by this package.
+    "cryptography>=50.0.0,<51",
 ]
 
 [project.optional-dependencies]

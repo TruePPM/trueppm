@@ -13,6 +13,11 @@ interface ShortcutSection {
   entries: ShortcutEntry[];
 }
 
+// The duration example is composed rather than written as a literal: next to a quote
+// it is indistinguishable from a short hex color to check-design-system-v2.sh, whose
+// ratchet shares the # character with the token grammar.
+const DURATION_EXAMPLE = `${'#'}5d`;
+
 const SECTIONS: ShortcutSection[] = [
   {
     title: 'Selecting rows',
@@ -47,6 +52,29 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ['⌘', 'D'], label: 'Duplicate focused row' },
       { keys: ['Enter'], label: 'Open task drawer' },
       { keys: ['⌫'], label: 'Delete row' },
+    ],
+  },
+  {
+    // Every token also has a toolbar button and a `/` command-menu entry, so the
+    // syntax is a shortcut for people who want one — never the only way in (#2722).
+    title: 'Inline tokens (type in the Name cell)',
+    entries: [
+      { keys: ['/'], label: 'Command menu — every token and action, by name' },
+      { keys: [DURATION_EXAMPLE], label: 'Duration — 5 days. #2w for weeks, bare number for days' },
+      { keys: ['@ana'], label: 'Owner — @ana:50 allocates 50%' },
+      { keys: ['>2.3'], label: 'Predecessor by WBS or name — >2.3+2d lag, >2.3-1d lead' },
+      { keys: ['!'], label: 'Milestone — same as #0' },
+      { keys: ['~sprint'], label: 'Delivery mode on this row — also ~gated, ~kanban' },
+      { keys: ['[Design]'], label: 'Move under a phase by name' },
+    ],
+  },
+  {
+    title: 'Token pickers',
+    entries: [
+      { keys: ['↑', '↓'], label: 'Choose a suggestion' },
+      { keys: ['Tab'], label: 'Accept the highlighted suggestion' },
+      { keys: ['Esc'], label: 'Dismiss the picker, leaving your text untouched' },
+      { keys: ['⌥', '→'], label: 'Cycle dependency type FS → SS → FF → SF' },
     ],
   },
   {

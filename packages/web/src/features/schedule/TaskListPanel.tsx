@@ -243,6 +243,24 @@ export function TaskListPanel({
 
   const nameSuggestions = useMemo(() => computeNameSuggestions(tasks), [tasks]);
 
+  /**
+   * Candidates for the `>predecessor` and `[phase]` authoring tokens (#2722).
+   *
+   * Derived here rather than fetched, because this panel already holds the whole
+   * task list — and scoping both lists to it is what keeps a token from binding
+   * across a project boundary the author cannot see. Phases are the summary rows:
+   * only a task with children is something another row can be filed under.
+   */
+  const authoringCandidates = useMemo(
+    () => ({
+      tasks: tasks.map((t) => ({ id: t.id, name: t.name, wbs: t.wbs ?? '' })),
+      phases: tasks
+        .filter((t) => summaryIds?.has(t.id) ?? t.isSummary)
+        .map((t) => ({ id: t.id, name: t.name })),
+    }),
+    [tasks, summaryIds],
+  );
+
   const milestoneParentsMap = useMemo(() => {
     const map = new Map<string, { name: string; finish?: string }[]>();
     for (const task of tasks) {
@@ -378,6 +396,7 @@ export function TaskListPanel({
                   siblingNames={siblingNamesMap.get(task.id)}
                   nameSuggestions={nameSuggestions}
                   resourcePool={resourcePool}
+                  authoringCandidates={authoringCandidates}
                   milestoneParents={milestoneParentsMap.get(task.id)}
                   onHoverChange={onHoverChange}
                   isHovered={hoveredTaskId === task.id}
