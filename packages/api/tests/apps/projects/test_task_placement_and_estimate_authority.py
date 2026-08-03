@@ -171,6 +171,67 @@ def test_create_under_a_parent_still_derives_a_child_path(
 
 
 # ---------------------------------------------------------------------------
+# #2682 follow-up — Schedule's Enter-to-add-row must send a non-blank name
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_blank_name_is_rejected_on_create() -> None:
+    """Documents the contract the client must honor: ``Task.name`` has no
+    ``blank=True``, so DRF derives ``allow_blank=False``. A client that POSTs an
+    empty name (as Schedule's Enter-to-add-row / ``insertBelow`` briefly did)
+    gets a 400 with no task created — silently, if the caller has no
+    ``onError`` handler. This is the exact bug #2682's follow-up fixed on the
+    frontend; this test guards the server-side half of that contract so a
+    future client regression fails loudly in CI instead of shipping a
+    "pressing Enter creates nothing" defect again.
+    """
+    calendar = Calendar.objects.create(name="Std")
+    project = Project.objects.create(name="P", start_date=date(2026, 4, 1), calendar=calendar)
+    user = User.objects.create_user(username="member2682", password="pw")
+    ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    resp = client.post(
+        "/api/v1/tasks/",
+        {"project": str(project.pk), "name": "", "duration": 1},
+        format="json",
+    )
+
+    assert resp.status_code == 400
+    assert "name" in resp.data
+    assert not Task.objects.filter(project=project).exists()
+
+
+@pytest.mark.django_db
+def test_create_with_the_exact_payload_shape_insertbelow_sends(
+    owner_client: APIClient, project: Project
+) -> None:
+    """Enter-to-add-row (`ScheduleView.tsx`'s `insertBelow`) sends exactly
+    ``{project, name: 'New task', duration: 1, parent_id}`` (or no
+    ``parent_id`` for a root-level sibling). Pin the contract so a future
+    server-side change to ``name``'s constraints or required fields can't
+    silently break the Schedule Enter flow again without a failing test.
+    """
+    parent = Task.objects.create(project=project, name="Phase", wbs_path="1", duration=1)
+
+    resp = owner_client.post(
+        "/api/v1/tasks/",
+        {
+            "project": str(project.pk),
+            "name": "New task",
+            "duration": 1,
+            "parent_id": str(parent.pk),
+        },
+        format="json",
+    )
+
+    assert resp.status_code == 201, resp.content
+    assert resp.data["name"] == "New task"
+
+
+# ---------------------------------------------------------------------------
 # #2596 — PM_ONLY estimate authority is enforced on the server
 # ---------------------------------------------------------------------------
 

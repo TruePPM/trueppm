@@ -2,17 +2,12 @@ import { test, expect, type Page } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
- * Settings → Schedule → Build mode (beta) toggle (issue 1633).
+ * Settings → Schedule (issue #2682).
  *
- * Golden path: a hosted user with no dev tooling navigates to Settings → Schedule,
- * flips Build mode on, and the `schedule_build_mode_v1` flag is persisted to
- * localStorage — the same key the Schedule view reads to unlock the keyboard-first
- * build surface. Reachability is proven two ways: the flag survives a reload, and
- * the keyboard cheatsheet becomes openable from the settings row.
+ * Build mode is on by default on desktop now (the `schedule_build_mode_v1`
+ * flag was deleted, ADR-0054's removal criteria met) — this page no longer
+ * offers a toggle, only a reference link into the keyboard cheatsheet.
  */
-
-const FLAG_KEY = 'trueppm.featureFlags';
-const FLAG = 'schedule_build_mode_v1';
 
 const WORKSPACE = {
   name: 'TrueScope Aerospace',
@@ -82,70 +77,23 @@ async function setup(page: Page) {
 // on, so we never click chrome before the consolidated page has laid out.
 const scheduleSection = (page: Page) => page.locator('[data-settings-section="schedule"]');
 
-test.describe('Settings → Schedule → Build mode toggle (issue 1633)', () => {
-  test('golden path: enabling Build mode persists the flag and unlocks the cheatsheet', async ({
+test.describe('Settings → Schedule (#2682)', () => {
+  test('golden path: no toggle, keyboard shortcuts cheatsheet opens from the link', async ({
     page,
   }) => {
     await setup(page);
     await page.goto('/settings/schedule');
 
-    // Gate on the section being rendered before touching the toggle.
     const section = scheduleSection(page);
     await expect(section.getByRole('heading', { name: 'Schedule' })).toBeVisible();
-    await expect(section.getByText('Beta')).toBeVisible();
 
-    const toggle = section.getByRole('switch', { name: 'Build mode (beta)' });
-    await expect(toggle).toHaveAttribute('aria-checked', 'false');
-    // No cheatsheet link before the flag is on.
-    await expect(
-      section.getByRole('button', { name: 'View keyboard shortcuts' }),
-    ).toHaveCount(0);
+    // No toggle and no Beta chip — build mode is not opt-in anymore.
+    await expect(section.getByRole('switch')).toHaveCount(0);
+    await expect(section.getByText('Beta')).toHaveCount(0);
 
-    // Flip it on.
-    await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-checked', 'true');
-
-    // Persisted to the same localStorage key the Schedule view reads.
-    const stored = await page.evaluate((key) => localStorage.getItem(key), FLAG_KEY);
-    expect(stored).toBeTruthy();
-    expect(JSON.parse(stored as string)[FLAG]).toBe(true);
-
-    // Reachability #1: the cheatsheet (the Build mode help surface) opens.
     await section.getByRole('button', { name: 'View keyboard shortcuts' }).click();
     await expect(page.getByRole('dialog', { name: 'Schedule shortcuts' })).toBeVisible();
     await page.getByRole('button', { name: 'Close shortcuts' }).click();
     await expect(page.getByRole('dialog', { name: 'Schedule shortcuts' })).toHaveCount(0);
-
-    // Reachability #2: the flag survives a fresh app boot (reload).
-    await page.reload();
-    const sectionAfter = scheduleSection(page);
-    await expect(sectionAfter.getByRole('heading', { name: 'Schedule' })).toBeVisible();
-    await expect(
-      sectionAfter.getByRole('switch', { name: 'Build mode (beta)' }),
-    ).toHaveAttribute('aria-checked', 'true');
-  });
-
-  test('reflects an already-enabled flag and can turn it back off', async ({ page }) => {
-    await setup(page);
-    await page.addInitScript(
-      ([key, flag]) => {
-        localStorage.setItem(key, JSON.stringify({ [flag]: true }));
-      },
-      [FLAG_KEY, FLAG] as const,
-    );
-    await page.goto('/settings/schedule');
-
-    const section = scheduleSection(page);
-    await expect(section.getByRole('heading', { name: 'Schedule' })).toBeVisible();
-
-    const toggle = section.getByRole('switch', { name: 'Build mode (beta)' });
-    await expect(toggle).toHaveAttribute('aria-checked', 'true');
-
-    // Turn it off.
-    await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-checked', 'false');
-
-    const stored = await page.evaluate((key) => localStorage.getItem(key), FLAG_KEY);
-    expect(JSON.parse(stored as string)[FLAG]).toBe(false);
   });
 });

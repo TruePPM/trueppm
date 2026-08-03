@@ -25,41 +25,41 @@ describe('useFeatureFlag', () => {
   });
 
   it('returns true after setFeatureFlag override', () => {
-    const { result } = renderHook(() => useFeatureFlag('schedule_build_mode_v1'));
+    const { result } = renderHook(() => useFeatureFlag('example_flag'));
     expect(result.current).toBe(false);
-    act(() => setFeatureFlag('schedule_build_mode_v1', true));
+    act(() => setFeatureFlag('example_flag', true));
     expect(result.current).toBe(true);
   });
 
   it('toggles back to false when override is removed', () => {
-    const { result } = renderHook(() => useFeatureFlag('schedule_build_mode_v1'));
-    act(() => setFeatureFlag('schedule_build_mode_v1', true));
+    const { result } = renderHook(() => useFeatureFlag('example_flag'));
+    act(() => setFeatureFlag('example_flag', true));
     expect(result.current).toBe(true);
-    act(() => setFeatureFlag('schedule_build_mode_v1', false));
+    act(() => setFeatureFlag('example_flag', false));
     expect(result.current).toBe(false);
   });
 
   it('reads pre-existing localStorage values on first render', () => {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ schedule_build_mode_v1: true }),
+      JSON.stringify({ example_flag: true }),
     );
-    const { result } = renderHook(() => useFeatureFlag('schedule_build_mode_v1'));
+    const { result } = renderHook(() => useFeatureFlag('example_flag'));
     expect(result.current).toBe(true);
   });
 
   it('treats malformed localStorage as empty', () => {
     localStorage.setItem(STORAGE_KEY, 'not json');
-    const { result } = renderHook(() => useFeatureFlag('schedule_build_mode_v1'));
+    const { result } = renderHook(() => useFeatureFlag('example_flag'));
     expect(result.current).toBe(false);
   });
 
   it('ignores non-boolean values in localStorage', () => {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ schedule_build_mode_v1: 'yes' }),
+      JSON.stringify({ example_flag: 'yes' }),
     );
-    const { result } = renderHook(() => useFeatureFlag('schedule_build_mode_v1'));
+    const { result } = renderHook(() => useFeatureFlag('example_flag'));
     expect(result.current).toBe(false);
   });
 
@@ -74,9 +74,9 @@ describe('useFeatureFlag', () => {
 
 describe('isFeatureFlagEnabled', () => {
   it('reads the same store as the hook', () => {
-    expect(isFeatureFlagEnabled('schedule_build_mode_v1')).toBe(false);
-    setFeatureFlag('schedule_build_mode_v1', true);
-    expect(isFeatureFlagEnabled('schedule_build_mode_v1')).toBe(true);
+    expect(isFeatureFlagEnabled('example_flag')).toBe(false);
+    setFeatureFlag('example_flag', true);
+    expect(isFeatureFlagEnabled('example_flag')).toBe(true);
   });
 });
 
@@ -90,11 +90,11 @@ describe('coerceFlagMap (validation branches)', () => {
   });
 
   it('returns empty for a string (not an object)', () => {
-    expect(coerceFlagMap('schedule_build_mode_v1')).toEqual({});
+    expect(coerceFlagMap('example_flag')).toEqual({});
   });
 
   it('returns empty for an array (typeof === object but Array.isArray)', () => {
-    expect(coerceFlagMap(['schedule_build_mode_v1'])).toEqual({});
+    expect(coerceFlagMap(['example_flag'])).toEqual({});
   });
 
   it('returns empty for a number', () => {
@@ -126,9 +126,9 @@ describe('applyFeatureFlagsFromUrl', () => {
   });
 
   it('sets the flag and strips the param from the URL', () => {
-    window.history.replaceState(null, '', '/?ff=schedule_build_mode_v1');
+    window.history.replaceState(null, '', '/?ff=example_flag');
     applyFeatureFlagsFromUrl();
-    expect(isFeatureFlagEnabled('schedule_build_mode_v1')).toBe(true);
+    expect(isFeatureFlagEnabled('example_flag')).toBe(true);
     expect(window.location.search).not.toContain('ff=');
   });
 
@@ -142,6 +142,6 @@ describe('applyFeatureFlagsFromUrl', () => {
   it('is a no-op when ff param is absent', () => {
     window.history.replaceState(null, '', '/');
     applyFeatureFlagsFromUrl();
-    expect(isFeatureFlagEnabled('schedule_build_mode_v1')).toBe(false);
+    expect(isFeatureFlagEnabled('example_flag')).toBe(false);
   });
 });

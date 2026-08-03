@@ -161,7 +161,7 @@ async function setup(page: Page, { role, rule }: SetupOptions) {
 async function openRecurrence(page: Page) {
   const grid = page.getByRole('grid', { name: 'Task list' });
   await expect(grid).toBeVisible({ timeout: 10_000 });
-  await grid.getByText('Weekly Safety Walk', { exact: true }).click();
+  await grid.getByRole('button', { name: 'Open properties for Weekly Safety Walk' }).click();
   const drawer = page.getByRole('dialog', { name: /Weekly Safety Walk/ }).first();
   await expect(drawer).toBeVisible({ timeout: 5_000 });
   // Since #2317 the server reports emptiness via `has_recurrence`, so on a task

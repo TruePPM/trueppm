@@ -101,12 +101,6 @@ const ROSTER = [
 ];
 
 async function setup(page: Page): Promise<TaskStoreHandle> {
-  await page.addInitScript(() => {
-    localStorage.setItem(
-      'trueppm.featureFlags',
-      JSON.stringify({ schedule_build_mode_v1: true }),
-    );
-  });
   await setupAuth(page);
   await setupCatchAll(page);
   // No `tasks:` — setupTaskStore below owns every /tasks/ read, and leaving the
@@ -178,6 +172,11 @@ test.describe('@owner token — build-mode row entry', () => {
     await expect(listbox).toBeVisible();
     await listbox.getByRole('option', { name: /Ana Rivera/ }).click();
 
+    // Since #2722 a pick COMPLETES the token in place rather than committing the
+    // row — focus never leaves the row, so more tokens may follow. Enter commits.
+    await expect(input).toHaveValue('Draft migration plan @"Ana Rivera"');
+    await input.press('Enter');
+
     await expect.poll(() => store.patches.length).toBeGreaterThan(0);
     const body = store.patches[store.patches.length - 1];
     // The assignment lands on TaskResource (via `owners`), never on `assignee`.
@@ -216,7 +215,7 @@ test.describe('@owner token — build-mode row entry', () => {
     // The row commits with the literal text intact and no owners — never a silent drop.
     expect(body.name).toBe('Draft plan @nobody');
     expect(body).not.toHaveProperty('owners');
-    await expect(page.getByLabel('@nobody — unresolved owner')).toBeVisible();
+    await expect(page.getByLabel('@nobody — unresolved')).toBeVisible();
   });
 
   test('an @ inside a word does not summon the picker', async ({ page }) => {
@@ -280,6 +279,8 @@ test.describe('@owner token — the assignment reaches the heat map', () => {
       .getByRole('listbox', { name: 'Assign owner' })
       .getByRole('option', { name: /Ana Rivera/ })
       .click();
+    // The pick completes the token; Enter is what commits the row (#2722).
+    await input.press('Enter');
     await expect.poll(() => store.patches.length).toBeGreaterThan(0);
 
     await page.goto(`/projects/${PROJECT_ID}/resources/heatmap`);

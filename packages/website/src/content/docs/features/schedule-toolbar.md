@@ -127,5 +127,5 @@ On tablet widths the toggle folds into the toolbar overflow (⋯) menu as a
 
 ## See also
 
-- [Schedule build mode](/features/schedule-build-mode/) — keyboard-first plan authoring (opt-in flag)
+- [Schedule build mode](/features/schedule-build-mode/) — keyboard-first plan authoring
 - [Schedule view](/features/schedule/) — overview of the full Schedule feature

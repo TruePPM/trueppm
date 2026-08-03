@@ -230,17 +230,17 @@ def _fetch_existing_tasks(tasks: dict[str, Any], project: Project) -> dict[str, 
     id (→ create). The updated and deleted loops re-apply their project +
     is_deleted predicate in Python as a backstop.
     """
+    from trueppm_api.apps.projects.row_identity import fetch_project_scoped_tasks
+
     batch_ids = {
         str(rid)
         for bucket in ("created", "updated")
         for row in (tasks.get(bucket, []) or [])
         if (rid := row.get("id"))
     } | {str(del_id) for del_id in (tasks.get("deleted", []) or []) if del_id}
-    return (
-        {str(t.pk): t for t in Task.objects.filter(pk__in=batch_ids, project=project)}
-        if batch_ids
-        else {}
-    )
+    # Shared with TaskBulkView so the two client-minted-id write paths cannot drift
+    # (ADR-0772 §Security; ADR-0743 §4 is the standing rule).
+    return fetch_project_scoped_tasks(batch_ids, project)
 
 
 def _cross_project_created_ids(
@@ -252,18 +252,13 @@ def _cross_project_created_ids(
     absent from the project-scoped fetch can be foreign, so probe just those — the
     common (all-local) batch issues no extra query.
     """
+    from trueppm_api.apps.projects.row_identity import foreign_task_ids
+
     created_ids = {str(rid) for row in (tasks.get("created", []) or []) if (rid := row.get("id"))}
-    if not created_ids:
-        return set()
-    unknown_ids = created_ids - set(existing_by_id)
-    if not unknown_ids:
-        return set()
-    return {
-        str(pk)
-        for pk in Task.objects.filter(pk__in=unknown_ids)
-        .exclude(project=project)
-        .values_list("pk", flat=True)
-    }
+    # Shared with TaskBulkView — see _fetch_existing_tasks. The two paths differ only
+    # in how they REPORT a hit: sync aborts the request with a 409, the batch endpoint
+    # rejects the single row with a non-asserting ``id_unavailable``.
+    return foreign_task_ids(created_ids, existing_by_id, project)
 
 
 def _apply_created_row(

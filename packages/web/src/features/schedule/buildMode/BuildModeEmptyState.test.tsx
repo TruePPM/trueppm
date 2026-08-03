@@ -35,4 +35,15 @@ describe('BuildModeEmptyState', () => {
     render(<BuildModeEmptyState onAddFirstTask={vi.fn()} />);
     expect(screen.getByText(/keyboard shortcuts/)).toBeInTheDocument();
   });
+
+  // #2682: build mode is now the desktop default, so a read-only Viewer landing
+  // on an empty schedule reaches this state too — omitting the callback (the
+  // same contract as ScheduleEmptyState's onAddTask) must hide the CTA rather
+  // than render a button that silently no-ops.
+  it('omits the CTA for a read-only viewer (no onAddFirstTask)', () => {
+    render(<BuildModeEmptyState />);
+    expect(screen.getByText('No tasks yet')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Add first task/i })).toBeNull();
+    expect(screen.getByText(/No tasks have been added to this schedule yet/)).toBeInTheDocument();
+  });
 });

@@ -2,8 +2,12 @@ import { useEffect, useRef } from 'react';
 import { Button } from '@/components/Button';
 
 export interface BuildModeEmptyStateProps {
-  /** Called when the CTA button is clicked or Enter is pressed inside the panel. */
-  onAddFirstTask: () => void;
+  /**
+   * Called when the CTA button is clicked or Enter is pressed inside the panel.
+   * Omitted for read-only roles (Viewer), who have no create affordance to offer —
+   * mirrors ScheduleEmptyState's `onAddTask` contract.
+   */
+  onAddFirstTask?: () => void;
 }
 
 /**
@@ -16,8 +20,8 @@ export function BuildModeEmptyState({ onAddFirstTask }: BuildModeEmptyStateProps
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    buttonRef.current?.focus();
-  }, []);
+    if (onAddFirstTask) buttonRef.current?.focus();
+  }, [onAddFirstTask]);
 
   return (
     <div
@@ -34,21 +38,29 @@ export function BuildModeEmptyState({ onAddFirstTask }: BuildModeEmptyStateProps
       <h2 className="text-[17px] font-semibold text-neutral-text-primary mb-2">
         No tasks yet
       </h2>
-      <p className="text-[13px] text-neutral-text-secondary max-w-xs mb-5">
-        Press Enter, or click below to add the first task.
-      </p>
-      <Button
-        ref={buttonRef}
-        variant="primary"
-        size="lg"
-        onClick={onAddFirstTask}
-        className="gap-2"
-      >
-        + Add first task
-        <kbd className="inline-flex h-5 px-1.5 items-center rounded-chip border border-navy-900/40 text-xs tppm-mono">
-          ⏎
-        </kbd>
-      </Button>
+      {onAddFirstTask ? (
+        <>
+          <p className="text-[13px] text-neutral-text-secondary max-w-xs mb-5">
+            Press Enter, or click below to add the first task.
+          </p>
+          <Button
+            ref={buttonRef}
+            variant="primary"
+            size="lg"
+            onClick={onAddFirstTask}
+            className="gap-2"
+          >
+            + Add first task
+            <kbd className="inline-flex h-5 px-1.5 items-center rounded-chip border border-navy-900/40 text-xs tppm-mono">
+              ⏎
+            </kbd>
+          </Button>
+        </>
+      ) : (
+        <p className="text-[13px] text-neutral-text-secondary max-w-xs mb-5">
+          No tasks have been added to this schedule yet.
+        </p>
+      )}
       <p className="mt-6 text-[12px] text-neutral-text-secondary max-w-xs">
         New here? Press <kbd className="inline-flex h-4 px-1 items-center rounded-chip border border-neutral-border text-xs tppm-mono">?</kbd> to see all keyboard shortcuts.
       </p>

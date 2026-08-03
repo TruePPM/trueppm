@@ -4,7 +4,13 @@ description: Keyboard-first surface for laying down and structuring a project pl
 documentedFor: "0.4"
 ---
 
-Schedule build mode turns the Schedule list into a keyboard-first surface for laying down and structuring a project plan. It is opt-in, gated behind the `schedule_build_mode_v1` feature flag, and is a desktop-only experience — mobile continues to use the existing Add Task modal.
+Schedule build mode turns the Schedule list into a keyboard-first surface for laying down and structuring a project plan. It is **on by default** and is a desktop-only experience — mobile continues to use the existing Add Task modal.
+
+:::note[Ships in 0.4]
+In the current release, build mode is **off by default** and opt-in per browser — turn it
+on from **Settings → Schedule**. 0.4 removes that toggle and turns build mode on for
+everyone on desktop.
+:::
 
 The goal is to collapse the round-trip cost of structuring a plan from "open modal → fill form → save → repeat" to "type, Tab, type, Enter."
 
@@ -21,29 +27,16 @@ Build mode is **not** sprint planning. It does not create sprints, move cards, s
 | Wiring predecessor / successor dependencies | Board triage or backlog refinement |
 | Keyboard-first plan entry on the Schedule view | Any mobile workflow — build mode is desktop-only |
 
-## Enabling build mode
+## Learning the shortcuts
 
-Build mode is **off by default** and opt-in per browser. The recommended way to turn it on needs no developer tooling; the remaining methods exist for URL sharing, scripting, and self-hoster defaults.
+Build mode needs no setup — open any project's Schedule view and it's already there.
+**Settings → Schedule** has a **View keyboard shortcuts** link that opens the same
+cheatsheet you get by pressing `?` on the Schedule view, so you can learn the hotkeys
+before you start.
 
-### From Settings (recommended)
+## What you see on the Schedule view
 
-Open **Settings → Schedule** and switch **Build mode (beta)** on. The setting is per-user and applies to the browser you toggle it in — it takes effect on the Schedule view immediately, with no page reload. Turn it off again from the same place.
-
-Once build mode is on, a **View keyboard shortcuts** link appears beside the toggle; it opens the same cheatsheet you get by pressing `?` on the Schedule view, so you can learn the hotkeys before you start.
-
-### Other ways to enable it
-
-| How | Where | Notes |
-|---|---|---|
-| URL parameter | Append `?ff=schedule_build_mode_v1` to any TruePPM URL once. | The flag is stored in `localStorage` and persists across navigations and page reloads. The `ff` query string is stripped from the URL after it's applied. Handy for sharing an enable link. |
-| Browser devtools | `localStorage.setItem('trueppm.featureFlags', JSON.stringify({schedule_build_mode_v1: true}))` | Same persistence as the URL form. |
-| Build-time default | Set `VITE_FEATURE_FLAGS='{"schedule_build_mode_v1":true}'` in `packages/web/.env` (or `.env.development`) before `npm run build` / `npm run dev`. | Useful for self-hosters who want to enable build mode for all users by default. Per-user `localStorage` overrides (including the Settings toggle) win over the build-time default. |
-
-To turn it off in your browser, switch the Settings toggle off, run `localStorage.setItem('trueppm.featureFlags', JSON.stringify({schedule_build_mode_v1: false}))`, or clear the `trueppm.featureFlags` key entirely.
-
-## What changes when build mode is on
-
-Two visible signals appear on the Schedule view:
+Two visible signals appear:
 
 - A **`⌨ Build mode` pill** in the toolbar (left side, next to the +Task button). Clicking it opens the keyboard cheatsheet.
 - A **bottom hint strip** that always shows the three most relevant hotkeys for what you're currently focused on. Pressing `?` opens the full cheatsheet from anywhere on the page.
@@ -84,7 +77,7 @@ The Schedule list is in one of three focus states at any time. The same keys do 
 | Key | Action |
 |---|---|
 | ⌘ M / Ctrl + M | Insert a new milestone at today's date |
-| ? | Open the keyboard shortcut cheatsheet (build mode only) |
+| ? | Open the keyboard shortcut cheatsheet |
 
 ### When a cell is being edited (CellEdit)
 
@@ -104,38 +97,72 @@ The editable cells in v1 are **Task name**, **Duration**, and **% complete**. St
 | Hover a row | Reveals its dependency chain — predecessors highlight blue, successors highlight green |
 | Right-click | Opens the row menu, where **Add predecessor** / **Add successor** open a task picker |
 
-## Assigning an owner inline with `@`
+## Inline authoring tokens
 
 :::note[Ships in 0.4]
-The `@owner` token described in this section lands in **TruePPM 0.4**. In the current
-release, assign people from the task drawer's **Assignees** editor instead — it writes
-the same kind of assignment.
+The tokens described in this section land in **TruePPM 0.4**. In the current release,
+set these fields from the task drawer instead — the drawer's Assignees, Duration,
+Dependencies, and Delivery mode editors write exactly the same values.
 :::
 
-While you are naming a row, type `@` to give the task an owner without leaving the cell.
-A picker lists the people on the **project's resource roster**; keep typing to filter it,
-then `↑` / `↓` and `Enter` (or click) to choose.
+While you are naming a row, a handful of short tokens set the rest of the row without
+leaving the cell. Each one opens a picker, so nothing has to be memorized.
 
-| You type | What happens |
+| You type | What it does |
 |---|---|
-| `Draft the plan @ana` | Ana is assigned at 100%; the task is named "Draft the plan" |
-| `Review specs @ana:50` | Ana is assigned at 50% |
-| `Kickoff @"Ana Rivera"` | Quotes let you name someone whose name contains a space |
+| `#5d` `#2w` | Duration — 5 days, 2 weeks. A bare `#3` is 3 days |
+| `@ana` `@ana:50` | Owner, at 100% or at 50% |
+| `>2.3` `>Survey` | Predecessor, by WBS path or by name |
+| `>2.3+2d` `>2.3-1d` | …with 2 days of lag, or 1 day of lead |
+| `>2.3:SS` | …as a Start-to-Start link (`FS`, `SS`, `FF`, `SF`) |
+| `!` or `#0` | Milestone |
+| `~sprint` `~gated` `~kanban` | Delivery mode for this row |
+| `[Design]` | File the row under the "Design" phase |
+| `/` | Command menu — every token and toolbar action, found by typing |
 
-Two things are worth knowing about how this behaves:
+So `Wireframes #5d @ana >2.3 [Design]` creates a 5-day task called "Wireframes",
+assigns Ana, links it after task 2.3, and files it under the Design phase.
 
-**The token disappears from the name once it resolves.** `Draft the plan @ana` saves a
-task called "Draft the plan" — the `@ana` is an instruction, not part of the title.
+Everything a token does is also a toolbar button and a `/` menu entry. The syntax is a
+shortcut for people who want one — never the only way in.
 
-**A name that matches nobody stays put.** If `@ana` matches no one on the roster — or
-matches *two* people ambiguously — the row still saves, the text stays in the name, and
-the token is underlined in amber so you can see and fix it. Nothing is silently dropped
-and nothing is silently guessed at.
+### Working with the pickers
 
-The picker only ever offers people already on **this project's** roster; it never reaches
-into the workspace-wide resource library, so a name typed here cannot bind work to
-someone outside the project. To add somebody new, add them to the roster first from
-**Team → Roster**.
+Typing a token's first character opens a type-ahead. It is deliberately **non-modal**:
+
+| Key | What it does |
+|---|---|
+| `↑` `↓` | Move through the suggestions |
+| `⇥` | Accept the highlighted suggestion |
+| `Esc` | Dismiss the picker — **your text is left exactly as you typed it** |
+| `⌥` `→` | Cycle the dependency type of the link you are on: FS → SS → FF → SF |
+
+Typing past a picker is always allowed, and accepting a suggestion completes the token
+in place rather than saving the row — so you can keep going and add another token.
+Focus never leaves the row.
+
+### What happens to your text
+
+**A token that resolves disappears from the name.** `Draft the plan @ana` saves a task
+called "Draft the plan" — the `@ana` was an instruction, not part of the title.
+
+**A token that doesn't resolve stays put, and the row still saves.** If `@ana` matches
+nobody on the roster — or matches *two* people ambiguously — the text stays in the name
+and is underlined in amber so you can see and fix it. The same goes for a phase name
+that doesn't exist or a task you mistyped. Nothing is silently dropped and nothing is
+silently guessed at, and one bad token never costs you the rest of the row.
+
+**A token that loses a conflict is shown crossed out.** `Launch ! ~scrum` is a
+milestone: a milestone is a zero-duration gate, so it cannot also be a scrum row. The
+row saves as a milestone and the `~scrum` is echoed back struck through, so you can see
+that it did not take.
+
+### Scope of the pickers
+
+The owner picker only ever offers people already on **this project's** roster; it never
+reaches into the workspace-wide resource library, so a name typed here cannot bind work
+to someone outside the project. To add somebody new, add them to the roster first from
+**Team → Roster**. Predecessor and phase pickers are scoped to this project the same way.
 
 Adding an owner this way never removes anyone else already assigned to the row — `@ana`
 means "Ana owns this", not "Ana is now the only person here". Remove an assignment from

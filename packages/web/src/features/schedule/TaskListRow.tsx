@@ -18,6 +18,7 @@ import { useScheduleStore, type ScheduleActionToast } from '@/stores/scheduleSto
 import { toast } from '@/components/Toast';
 import {
   useUpdateTask,
+  useReparentTask,
   useReorderTasks,
   parseMilestoneRollupLockedError,
   parseProgressAnchorError,
@@ -27,6 +28,7 @@ import {
   useDuplicateTask,
   type GuardrailWarning,
 } from '@/hooks/useTaskMutations';
+import { useCreateDependency } from '@/hooks/useDependencyMutations';
 import { formatRelative } from '@/lib/formatRelative';
 import { milestoneVarianceAnnotation, varianceToneTextClass } from '@/lib/milestoneVariance';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
@@ -61,13 +63,21 @@ import {
   EditableCell,
   BuildModeRowMenu,
   NameAutocomplete,
-  OwnerAutocomplete,
-  UnresolvedOwnerName,
+  UnresolvedTokenName,
   MilestoneDatePopover,
   SprintPrompt,
-  activeOwnerQuery,
   ownerTokensToApiPayload,
-  parseOwnerDraft,
+  TokenAutocomplete,
+  COMMAND_MENU,
+  tokenLiteralFor,
+  activeTokenFragment,
+  applySuggestion,
+  commandSuggestions,
+  cycleDependencyTypeInDraft,
+  resolveAuthoringDraft,
+  suggestionsForFragment,
+  type ParentCandidate,
+  type PredecessorCandidate,
   type RowMenuItem,
 } from './buildMode';
 
@@ -134,6 +144,12 @@ interface Props {
    * popover, and nothing is stripped from the committed name.
    */
   resourcePool?: ProjectResource[];
+  /**
+   * Index for the `>predecessor` and `[phase]` authoring tokens (#2722). Scoped to
+   * this project by the panel that derives it; absent disables both tokens, which
+   * then stay literal text like any other unresolvable token.
+   */
+  authoringCandidates?: { tasks: PredecessorCandidate[]; phases: ParentCandidate[] };
   /** Parent summary tasks (closest ancestor first) — for milestone date quick-picks (#345). */
   milestoneParents?: { name: string; finish?: string }[];
   /**
@@ -1149,7 +1165,13 @@ function RowPropertiesButton({
         'absolute right-1 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-control',
         'text-neutral-text-secondary hover:text-neutral-text-primary',
         'transition-opacity duration-100',
-        isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+        // Faintly persistent at rest (not opacity-0) so this is a discoverable
+        // way to open the task's full detail drawer without hovering first —
+        // in build mode (the desktop default since #2682) a plain row click
+        // only focuses the row for keyboard editing, so this button is the
+        // only path to the drawer. Same rationale as the Duration-cell pencil
+        // icon (#2106): full-strength on hover/focus/selected, faint otherwise.
+        isSelected ? 'opacity-100' : 'opacity-40 group-hover:opacity-100 focus-visible:opacity-100',
         'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-primary',
       ].join(' ')}
     >
@@ -1264,6 +1286,7 @@ function TaskListRowInner({
   siblingIds,
   nameSuggestions,
   resourcePool,
+  authoringCandidates,
   milestoneParents,
   onHoverChange,
   isHovered = false,
@@ -1544,6 +1567,7 @@ function TaskListRowInner({
           setAutocompleteQuery={setAutocompleteQuery}
           nameSuggestions={nameSuggestions}
           resourcePool={resourcePool}
+          authoringCandidates={authoringCandidates}
           isEditing={isEditing}
           inputRef={inputRef}
           editValue={editValue}
@@ -1567,7 +1591,9 @@ function TaskListRowInner({
         />
 
         {/* Properties button — absolute within the task column so it never overlaps
-            the Dur·Start or % columns. Visible on hover/focus or when selected. */}
+            the Dur·Start or % columns. Faintly visible at rest, full-strength on
+            hover/focus or when selected (#2106 pattern) — the only path to the
+            task detail drawer while build mode owns the row click. */}
         <RowPropertiesButton
           task={task}
           isSelected={isSelected}
@@ -1798,6 +1824,7 @@ interface TaskNameContentProps {
   setAutocompleteQuery: React.Dispatch<React.SetStateAction<string>>;
   nameSuggestions: Props['nameSuggestions'];
   resourcePool: Props['resourcePool'];
+  authoringCandidates: Props['authoringCandidates'];
   isEditing: boolean;
   inputRef: React.RefObject<HTMLInputElement | null>;
   editValue: string;
@@ -1841,17 +1868,53 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
     setAutocompleteQuery,
     nameSuggestions,
     resourcePool,
+    authoringCandidates,
   } = props;
   const pool = resourcePool ?? [];
+  const suggestionContext = {
+    pool,
+    tasks: authoringCandidates?.tasks ?? [],
+    phases: authoringCandidates?.phases ?? [],
+  };
   // `autocompleteQuery` carries the whole live draft (EditableCell's `onQueryChange`),
   // so the active token is derivable without EditableCell exposing its internal state.
-  const ownerFragment = pool.length > 0 ? activeOwnerQuery(autocompleteQuery) : null;
+  // A picker the author dismissed with Esc stays shut until the draft changes —
+  // Esc must not touch the text, so the query alone cannot record the dismissal.
+  // The `[phase]` and `>predecessor` tokens each write through their own endpoint
+  // rather than the task PATCH — see the commit handler below for why.
+  const reparentTask = useReparentTask(projectId);
+  const createDependency = useCreateDependency(projectId);
+  const [dismissedFor, setDismissedFor] = useState<string | null>(null);
+  const [draftOverride, setDraftOverride] = useState<{ value: string } | null>(null);
+  const pickersSuppressed = dismissedFor === autocompleteQuery;
+  const tokenFragment = pickersSuppressed ? null : activeTokenFragment(autocompleteQuery);
+  const tokenPicker = tokenFragment
+    ? suggestionsForFragment(tokenFragment, suggestionContext)
+    : null;
+  // The `/` command menu is every token plus every toolbar action, discoverable by
+  // typing. It is checked separately from the sigil pickers because it does not
+  // complete a token — it INSERTS one and hands the caret to that token's picker.
+  const slashAt = pickersSuppressed ? -1 : autocompleteQuery.lastIndexOf('/');
+  const slashOpen =
+    slashAt >= 0 &&
+    (slashAt === 0 || /\s/.test(autocompleteQuery[slashAt - 1])) &&
+    !/\s/.test(autocompleteQuery.slice(slashAt + 1));
+  const slashFragment = slashOpen
+    ? { start: slashAt, query: autocompleteQuery.slice(slashAt + 1) }
+    : null;
   if (!buildMode) return null;
+  // A row `insertBelow` just created carries a non-blank placeholder name
+  // (the API rejects blank on create), but renders blank here until the user
+  // types — keeps the "type over it" UX and the double-Enter no-op guard
+  // both reading "blank until touched", same as before the placeholder fix
+  // (#2682 follow-up).
+  const isPristine = buildMode.isPristineNewRow?.(task.id) ?? false;
+  const clearPristine = () => buildMode.clearPristineNewRow?.(task.id);
   return (
     <div className="relative flex-1 min-w-0">
       <EditableCell
         column="name"
-        value={task.name}
+        value={isPristine ? '' : task.name}
         isEditing={true}
         inputType="text"
         ariaLabel={`Rename task ${task.name}`}
@@ -1860,12 +1923,13 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
           /* already editing */
         }}
         onCommit={(parsed) => {
+          clearPristine();
           if (typeof parsed === 'string' && projectId) {
             // Split the draft into name + owners. A token that matches no roster member
             // is left in the name verbatim and the row still commits (ADR-0774 §6) —
             // the alternative, silently dropping it, is the zero-capacity failure this
             // whole contract exists to prevent.
-            const parse = parseOwnerDraft(parsed, pool);
+            const parse = resolveAuthoringDraft(parsed, suggestionContext);
             updateTask.mutate({
               id: task.id,
               projectId,
@@ -1873,57 +1937,103 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
               ...(parse.owners.length > 0
                 ? { owners: ownerTokensToApiPayload(parse.owners) }
                 : {}),
+              ...(parse.duration !== null ? { duration: parse.duration } : {}),
+              ...(parse.isMilestone ? { is_milestone: true } : {}),
+              // delivery_mode is sent only when the row did not resolve to a
+              // milestone: the two are coupled server-side, so sending both would
+              // re-litigate a conflict the parser has already settled.
+              ...(parse.deliveryMode && !parse.isMilestone
+                ? { delivery_mode: parse.deliveryMode }
+                : {}),
             });
+            // `parent` and `predecessors` are NOT writable on the task serializer —
+            // `parent_id` is explicitly read-only and the only dependency field is a
+            // read-only `predecessor_count`. Sending them on the PATCH would be
+            // silently ignored, which is exactly the "looks applied, did nothing"
+            // failure the token contract exists to prevent. Each has its own endpoint.
+            if (parse.parentId && parse.parentId !== task.id) {
+              reparentTask.mutate({ taskId: task.id, newParentId: parse.parentId });
+            }
+            for (const predecessor of parse.predecessors) {
+              createDependency.mutate({
+                predecessor: predecessor.taskId,
+                successor: task.id,
+                dep_type: predecessor.depType,
+                lag: predecessor.lag,
+              });
+            }
             setShowSprintPrompt(true);
           }
           setAutocompleteQuery('');
           buildMode.focus.commitToRow();
         }}
         onRollback={() => {
+          clearPristine();
           setAutocompleteQuery('');
           buildMode.focus.rollbackToRow();
         }}
         onTabForward={() => buildMode.focus.tabForward()}
         onTabBackward={() => buildMode.focus.tabBackward()}
-        onQueryChange={setAutocompleteQuery}
+        onQueryChange={(q) => {
+          if (q !== '') clearPristine();
+          setAutocompleteQuery(q);
+        }}
         // Commit-and-continue (#1666): Enter in the Name cell commits, then
         // inserts a new sibling below and drops into its Name cell. A blank
         // Name (emptyIsNoop) makes the second Enter a calm no-op.
         onEnterCommit={() => buildMode.insertBelow(task.id)}
         emptyIsNoop
+        draftOverride={draftOverride}
+        onInputKeyDown={(e) => {
+          // ⌥→ / ⌥← cycle the dependency type of the predecessor token under the
+          // caret (FS → SS → FF → SF). It rewrites the draft rather than committing
+          // anything, so it runs ahead of EditableCell's own key handling.
+          if (!e.altKey || (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft')) return;
+          const next = cycleDependencyTypeInDraft(
+            autocompleteQuery,
+            e.currentTarget.selectionStart ?? autocompleteQuery.length,
+            e.key === 'ArrowRight' ? 1 : -1,
+          );
+          // Null means the caret is not on a predecessor token — let the keystroke
+          // through rather than swallowing an arrow key meant for cursor movement.
+          if (next === null) return;
+          e.preventDefault();
+          setAutocompleteQuery(next);
+          setDraftOverride({ value: next });
+        }}
       />
-      {ownerFragment && (
-        <OwnerAutocomplete
-          query={ownerFragment.query}
-          pool={pool}
+      {slashFragment && commandSuggestions(slashFragment.query).length > 0 && (
+        <TokenAutocomplete
+          suggestions={commandSuggestions(slashFragment.query)}
+          ariaLabel="Insert"
           onSelect={(picked) => {
-            // Everything before the active `@` is the name (plus any owner tokens the
-            // author already resolved); the picked person replaces the fragment.
-            const parse = parseOwnerDraft(
-              autocompleteQuery.slice(0, ownerFragment.start),
-              pool,
-            );
-            const owners = [
-              ...parse.owners.filter((o) => o.resourceId !== picked.resourceId),
-              {
-                resourceId: picked.resourceId,
-                name: picked.resource.name,
-                units: ownerFragment.units,
-              },
-            ];
-            updateTask.mutate({
-              id: task.id,
-              projectId,
-              name: parse.name || task.name,
-              owners: ownerTokensToApiPayload(owners),
-            });
-            setAutocompleteQuery('');
-            buildMode.focus.commitToRow();
+            // A command inserts its sigil and hands the caret to that token's own
+            // picker — it never completes a value itself. One grammar, two ways in.
+            const entry = COMMAND_MENU.find((c) => c.id === picked.id);
+            if (!entry) return;
+            const next = applySuggestion(autocompleteQuery, slashFragment, entry.insert);
+            setAutocompleteQuery(next);
+            setDraftOverride({ value: next });
           }}
-          onDismiss={() => setAutocompleteQuery('')}
+          onDismiss={() => setDismissedFor(autocompleteQuery)}
         />
       )}
-      {!ownerFragment && nameSuggestions && (
+      {!slashFragment && tokenFragment && tokenPicker && tokenPicker.suggestions.length > 0 && (
+        <TokenAutocomplete
+          suggestions={tokenPicker.suggestions}
+          ariaLabel={tokenPicker.ariaLabel}
+          onSelect={(picked) => {
+            const literal = tokenLiteralFor(tokenFragment.kind, picked);
+            const next = applySuggestion(autocompleteQuery, tokenFragment, literal);
+            setAutocompleteQuery(next);
+            // Rewrite the draft rather than commit: focus never leaves the row, and
+            // the author may still be adding tokens.
+            setDraftOverride({ value: next });
+          }}
+          onDismiss={() => setDismissedFor(autocompleteQuery)}
+        />
+      )}
+      {!slashFragment && !tokenFragment && nameSuggestions && (
         <NameAutocomplete
           query={autocompleteQuery}
           suggestions={nameSuggestions}
@@ -1974,7 +2084,7 @@ function TaskNameEditInput(props: TaskNameContentProps) {
  * TaskNameContent (#2245); markup and aria/title strings verbatim.
  */
 function TaskNameLabel(props: TaskNameContentProps) {
-  const { task, isCriticalStyle, isSummaryStyle, resourcePool } = props;
+  const { task, isCriticalStyle, isSummaryStyle, resourcePool, authoringCandidates } = props;
   return (
     <>
       <span
@@ -1995,7 +2105,12 @@ function TaskNameLabel(props: TaskNameContentProps) {
             underlined rather than hidden so the author can see and correct it
             (ADR-0774 §6). `aria-label` above already carries the plain name, so the
             per-token annotation adds signal without duplicating the row's label. */}
-        <UnresolvedOwnerName name={task.name} pool={resourcePool ?? []} />
+        <UnresolvedTokenName
+          name={task.name}
+          pool={resourcePool ?? []}
+          tasks={authoringCandidates?.tasks}
+          phases={authoringCandidates?.phases}
+        />
       </span>
       {task.latestNoteAt && (
         <span

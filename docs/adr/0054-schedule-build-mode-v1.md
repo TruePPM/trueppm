@@ -1,7 +1,7 @@
 # ADR-0054: Schedule Build Mode v1 — Keyboard-First Build Surface
 
 ## Status
-Accepted
+Accepted — flag deleted and build mode made the desktop default 2026-08-03 (#2682); see [Amendment](#amendment-2682-flag-removed) below.
 
 ## Context
 
@@ -199,3 +199,17 @@ The Playwright spec MUST use the new `e2e/fixtures/api-mocks.ts` fixture (#348) 
 | Sprint backlog parity? | Out of scope, follow-up issue. |
 
 ## No 🔴 blocking design questions remain. Ready for ux-design.
+
+## Amendment (#2682, flag removed)
+
+The 0.4 built-vs-promised audit (2026-08-01) found the roadmap already selling Enter-to-add-row
+as one of "the two interactions an evaluator hits in the first minute" (#1666) while the flag
+that gates it defaulted to `false` — the removal criteria above were never formally measured
+against adoption telemetry (none exists), but the beta-readiness bar makes the point moot: a
+default install must have this on day one, not behind Settings → Schedule.
+
+`schedule_build_mode_v1` and every `useFeatureFlag('schedule_build_mode_v1')` call site are
+deleted. `buildModeActive` is now `!isMobile` — desktop always builds in build mode; mobile keeps
+the legacy tap-to-edit / `AddTaskModal` surface, unchanged. The generic flag primitive
+(`featureFlags.ts`, `useFeatureFlag`, `?ff=` URL param, `VITE_FEATURE_FLAGS`) stays in place,
+dormant, for the next flag — it was never specific to this feature.

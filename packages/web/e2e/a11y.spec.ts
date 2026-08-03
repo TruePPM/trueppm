@@ -494,7 +494,7 @@ test.describe('accessibility @a11y — routes', () => {
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
     const grid = page.getByRole('grid', { name: 'Task list' });
     await expect(grid).toBeVisible({ timeout: 10_000 });
-    await grid.getByText('Technical Design', { exact: true }).click();
+    await grid.getByRole('button', { name: 'Open properties for Technical Design' }).click();
     const drawer = page.getByRole('dialog', { name: /Technical Design/ }).first();
     await expect(drawer).toBeVisible({ timeout: 5_000 });
 

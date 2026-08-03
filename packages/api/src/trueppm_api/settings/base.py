@@ -1965,6 +1965,14 @@ SPECTACULAR_SETTINGS = {
         # rename existing stable enums (the same schema-drift regression class as
         # ScopeChangeStatus above — project_drf_enum_name_collision).
         "TermOverridePolicyEnum": "trueppm_api.apps.workspace.models.TermOverridePolicy",
+        # #2723: TaskBulkAppliedEntry.outcome adds a SECOND "outcome" choice set,
+        # alongside the telemetry export result's. Without a pin drf-spectacular
+        # disambiguates both by serializer prefix and *renames* the existing stable
+        # OutcomeEnum to TelemetryTestExportResultOutcomeEnum — a published component
+        # disappearing, which breaks generated SDKs and trips schema-check. Pinning
+        # keeps the incumbent's name and lets the new one take the prefixed form.
+        # Same regression class as ScopeChangeStatus above (project_drf_enum_name_collision).
+        "OutcomeEnum": ["success", "reachable", "failure"],
         # ADR-0107: Workspace gains a third use of Methodology (after Project +
         # Program) and methodology_override_policy reuses TermOverridePolicy. Pin
         # Methodology to its stable component name proactively so the third use does

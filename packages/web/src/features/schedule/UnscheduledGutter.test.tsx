@@ -247,16 +247,28 @@ describe('UnscheduledGutter — reveal bridge (#1798)', () => {
 });
 
 describe('UnscheduledGutter — collapse / empty header states', () => {
-  it('renders the empty header note and no collapse control when there are no tasks', () => {
+  it('starts collapsed with the reassurance message hidden when there are no tasks, reachable via the toggle', () => {
     renderGutter([]);
     expect(screen.getByText('(0)')).toBeInTheDocument();
+    // Collapsed by default — the one-time confirmation isn't permanent chrome.
+    expect(
+      screen.queryByText('All To Do and Backlog tasks have planned dates'),
+    ).toBeNull();
+    // With an empty list the tray itself never renders — there's nothing to page.
+    expect(screen.queryByText(/To Do · Unscheduled/)).toBeNull();
+
+    const expandBtn = screen.getByRole('button', { name: 'Expand unscheduled tasks' });
+    fireEvent.click(expandBtn);
     expect(
       screen.getByText('All To Do and Backlog tasks have planned dates'),
     ).toBeInTheDocument();
-    // The collapse/expand button is gated on totalCount > 0.
-    expect(screen.queryByRole('button', { name: /unscheduled tasks/i })).toBeNull();
-    // And with an empty list the tray itself is not rendered.
-    expect(screen.queryByText(/To Do · Unscheduled/)).toBeNull();
+    expect(localStorage.getItem('trueppm.gantt.unscheduledGutter.collapsed')).toBe('false');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse unscheduled tasks' }));
+    expect(
+      screen.queryByText('All To Do and Backlog tasks have planned dates'),
+    ).toBeNull();
+    expect(localStorage.getItem('trueppm.gantt.unscheduledGutter.collapsed')).toBe('true');
   });
 
   it('collapses the tray and persists the choice, then re-expands', () => {
