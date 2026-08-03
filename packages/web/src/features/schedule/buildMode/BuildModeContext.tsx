@@ -22,6 +22,20 @@ export interface BuildModeApi {
   /** Delete a task. Used by the row menu and the Delete key. */
   deleteTask: (taskId: string) => void;
   /**
+   * Backspace on an empty row (#2727): delete it and focus the previous
+   * visible row's Name cell with the caret at the end of its text. No-op
+   * when there is no previous visible row.
+   */
+  mergeIntoPreviousRow: (taskId: string) => void;
+  /**
+   * True for the one task, if any, whose Name cell should focus with the
+   * caret at the end of its text rather than the usual select-all — set by
+   * `mergeIntoPreviousRow`.
+   */
+  isCaretAtEndRow: (taskId: string) => boolean;
+  /** Marks a task as no longer the caret-at-end target (first keystroke, commit, or rollback). */
+  clearCaretAtEndRow: (taskId: string) => void;
+  /**
    * True when an indent / outdent / delete mutation is in flight for the
    * given task. Delete is included (#806) so the row gets the in-flight
    * treatment and the context-menu guards in `TaskListRow` fire before the

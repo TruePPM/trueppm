@@ -50,6 +50,21 @@ export interface EditableCellProps {
    * error. Only meaningful for text cells.
    */
   emptyIsNoop?: boolean;
+  /**
+   * Fired when Backspace is pressed on an already-empty text draft (#2727) —
+   * the outliner "merge into the row above" convention. Used by the Name
+   * cell; not fired for duration/percent cells. When set, this cell should
+   * also pass `caretPosition="end"` on the NEXT row it renders as the
+   * merge target, so the caret lands correctly rather than re-selecting all.
+   */
+  onEmptyBackspace?: () => void;
+  /**
+   * How the input focuses on entering edit mode: `'select-all'` (default —
+   * the existing "type over the placeholder" UX) or `'end'` (caret placed
+   * after the last character, no selection — used when this cell is the
+   * merge target of a `mergeIntoPreviousRow`, #2727).
+   */
+  caretPosition?: 'select-all' | 'end';
 }
 
 /**
@@ -106,6 +121,8 @@ export function EditableCell({
   onQueryChange,
   onEnterCommit,
   emptyIsNoop = false,
+  onEmptyBackspace,
+  caretPosition = 'select-all',
 }: EditableCellProps) {
   const [draft, setDraft] = useState(value);
   const [flash, setFlash] = useState<FlashKind>(null);
@@ -117,14 +134,22 @@ export function EditableCell({
     if (!isEditing) setDraft(value);
   }, [value, isEditing]);
 
-  // Focus input + select all on entering edit mode.
+  // Focus input on entering edit mode — select all by default (the "type
+  // over the placeholder" UX), or just place the caret at the end when this
+  // cell is a `mergeIntoPreviousRow` target (#2727) so Backspace-merge lands
+  // exactly where a human would expect, not with the whole line re-selected.
   useEffect(() => {
     if (isEditing && !prevEditingRef.current && inputRef.current) {
       inputRef.current.focus();
-      inputRef.current.select();
+      if (caretPosition === 'end') {
+        const len = inputRef.current.value.length;
+        inputRef.current.setSelectionRange(len, len);
+      } else {
+        inputRef.current.select();
+      }
     }
     prevEditingRef.current = isEditing;
-  }, [isEditing]);
+  }, [isEditing, caretPosition]);
 
   // Auto-clear flash after the brief animation window.
   useEffect(() => {
@@ -242,6 +267,17 @@ export function EditableCell({
             tryCommit(draft);
             if (e.shiftKey) onTabBackward();
             else onTabForward();
+          } else if (
+            e.key === 'Backspace' &&
+            inputType === 'text' &&
+            draft === '' &&
+            onEmptyBackspace
+          ) {
+            // Backspace on an already-empty draft (#2727) — merge into the
+            // row above, outliner-style. Nothing left in this field to
+            // delete a character from, so re-purposing the keypress is safe.
+            e.preventDefault();
+            onEmptyBackspace();
           }
         }}
         className="w-full h-full bg-neutral-surface text-neutral-text-primary text-xs px-1

@@ -42,6 +42,9 @@ interface Captured {
   insertBelow: ReturnType<typeof vi.fn>;
   insertAbove: ReturnType<typeof vi.fn>;
   insertChild: ReturnType<typeof vi.fn>;
+  mergeIntoPreviousRow: ReturnType<typeof vi.fn>;
+  isCaretAtEndRow: ReturnType<typeof vi.fn>;
+  clearCaretAtEndRow: ReturnType<typeof vi.fn>;
   convertToMilestone: ReturnType<typeof vi.fn>;
   deleteTask: ReturnType<typeof vi.fn>;
 }
@@ -56,6 +59,9 @@ const stableSpies = {
   insertBelow: vi.fn(),
   insertAbove: vi.fn(),
   insertChild: vi.fn(),
+  mergeIntoPreviousRow: vi.fn(),
+  isCaretAtEndRow: vi.fn(() => false),
+  clearCaretAtEndRow: vi.fn(),
   convertToMilestone: vi.fn(),
   deleteTask: vi.fn(),
 };
@@ -78,6 +84,9 @@ function Harness({
       insertBelow: stableSpies.insertBelow,
       insertAbove: stableSpies.insertAbove,
       insertChild: stableSpies.insertChild,
+      mergeIntoPreviousRow: stableSpies.mergeIntoPreviousRow,
+      isCaretAtEndRow: stableSpies.isCaretAtEndRow,
+      clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
       convertToMilestone: stableSpies.convertToMilestone,
       deleteTask: stableSpies.deleteTask,
       isMutationPending: () => false,
@@ -92,6 +101,9 @@ function Harness({
     insertBelow: stableSpies.insertBelow,
     insertAbove: stableSpies.insertAbove,
     insertChild: stableSpies.insertChild,
+    mergeIntoPreviousRow: stableSpies.mergeIntoPreviousRow,
+    isCaretAtEndRow: stableSpies.isCaretAtEndRow,
+    clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
     convertToMilestone: stableSpies.convertToMilestone,
     deleteTask: stableSpies.deleteTask,
   };
@@ -223,6 +235,25 @@ describe('TaskListRow — build-mode keyboard', () => {
     expect(c.current.focus.state.mode).toBe('CellEdit');
   });
 
+  it('Backspace on an emptied Name cell calls mergeIntoPreviousRow (#2727)', () => {
+    const c = renderHarness();
+    act(() => c.current.focus.focusRow('t-build-1'));
+    fireEvent.keyDown(screen.getByRole('row'), { key: 'F2' });
+    const input = screen.getByLabelText(/Rename task/i);
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.keyDown(input, { key: 'Backspace' });
+    expect(c.current.mergeIntoPreviousRow).toHaveBeenCalledWith('t-build-1');
+  });
+
+  it('Backspace on a non-empty Name cell does NOT call mergeIntoPreviousRow', () => {
+    const c = renderHarness();
+    act(() => c.current.focus.focusRow('t-build-1'));
+    fireEvent.keyDown(screen.getByRole('row'), { key: 'F2' });
+    const input = screen.getByLabelText(/Rename task/i);
+    fireEvent.keyDown(input, { key: 'Backspace' });
+    expect(c.current.mergeIntoPreviousRow).not.toHaveBeenCalled();
+  });
+
   it('double-click on row jumps directly into Name cell-edit', () => {
     const c = renderHarness();
     fireEvent.doubleClick(screen.getByRole('row'));
@@ -243,6 +274,9 @@ describe('TaskListRow — build-mode keyboard', () => {
           insertBelow: stableSpies.insertBelow,
           insertAbove: stableSpies.insertAbove,
           insertChild: stableSpies.insertChild,
+          mergeIntoPreviousRow: stableSpies.mergeIntoPreviousRow,
+          isCaretAtEndRow: stableSpies.isCaretAtEndRow,
+          clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
           convertToMilestone: stableSpies.convertToMilestone,
           deleteTask: stableSpies.deleteTask,
           isMutationPending: () => false,
@@ -256,6 +290,9 @@ describe('TaskListRow — build-mode keyboard', () => {
         insertBelow: stableSpies.insertBelow,
         insertAbove: stableSpies.insertAbove,
         insertChild: stableSpies.insertChild,
+        mergeIntoPreviousRow: stableSpies.mergeIntoPreviousRow,
+        isCaretAtEndRow: stableSpies.isCaretAtEndRow,
+        clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
         convertToMilestone: stableSpies.convertToMilestone,
         deleteTask: stableSpies.deleteTask,
       };
@@ -293,6 +330,9 @@ describe('TaskListRow — build-mode keyboard', () => {
           insertBelow: stableSpies.insertBelow,
           insertAbove: stableSpies.insertAbove,
           insertChild: stableSpies.insertChild,
+          mergeIntoPreviousRow: stableSpies.mergeIntoPreviousRow,
+          isCaretAtEndRow: stableSpies.isCaretAtEndRow,
+          clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
           convertToMilestone: stableSpies.convertToMilestone,
           deleteTask: stableSpies.deleteTask,
           isMutationPending: () => false,
@@ -306,6 +346,9 @@ describe('TaskListRow — build-mode keyboard', () => {
         insertBelow: stableSpies.insertBelow,
         insertAbove: stableSpies.insertAbove,
         insertChild: stableSpies.insertChild,
+        mergeIntoPreviousRow: stableSpies.mergeIntoPreviousRow,
+        isCaretAtEndRow: stableSpies.isCaretAtEndRow,
+        clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
         convertToMilestone: stableSpies.convertToMilestone,
         deleteTask: stableSpies.deleteTask,
       };
@@ -456,6 +499,9 @@ describe('TaskListRow — pending-mutation guards (#806)', () => {
           insertBelow: stableSpies.insertBelow,
           insertAbove: stableSpies.insertAbove,
           insertChild: stableSpies.insertChild,
+          mergeIntoPreviousRow: stableSpies.mergeIntoPreviousRow,
+          isCaretAtEndRow: stableSpies.isCaretAtEndRow,
+          clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
           convertToMilestone: stableSpies.convertToMilestone,
           deleteTask: stableSpies.deleteTask,
           isMutationPending: (id: string) => ids.has(id),
@@ -521,6 +567,9 @@ function PendingHarness({ pending }: { pending: boolean }) {
       insertBelow: stableSpies.insertBelow,
       insertAbove: stableSpies.insertAbove,
       insertChild: stableSpies.insertChild,
+      mergeIntoPreviousRow: stableSpies.mergeIntoPreviousRow,
+      isCaretAtEndRow: stableSpies.isCaretAtEndRow,
+      clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
       convertToMilestone: stableSpies.convertToMilestone,
       deleteTask: stableSpies.deleteTask,
       isMutationPending: (id: string) => pending && id === 't-build-1',

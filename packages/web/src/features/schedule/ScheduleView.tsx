@@ -1396,7 +1396,7 @@ export function ScheduleView() {
   // Undo itself is a faithful server restore (#2078), so the recovery copy is a
   // plain "Restored" whether or not a subtree was involved.
   const performBuildModeDelete = useCallback(
-    (taskId: string, descendantCount: number) => {
+    (taskId: string, descendantCount: number, onDeleted?: () => void) => {
       if (!projectId) {
         deleteTaskMut.mutate(taskId);
         return;
@@ -1404,6 +1404,7 @@ export function ScheduleView() {
       const snapshot = allTasks.find((t) => t.id === taskId);
       deleteTaskMut.mutate(taskId, {
         onSuccess: () => {
+          onDeleted?.();
           if (!snapshot) return;
           const label = snapshot.name || 'Untitled task';
           const subtaskSuffix =
@@ -1427,6 +1428,11 @@ export function ScheduleView() {
   // created and whose Name cell hasn't been touched yet — see
   // `isPristineNewRow` on BuildModeApi.
   const [pristineNewRowId, setPristineNewRowId] = useState<string | null>(null);
+
+  // The one task, if any, whose Name cell should focus with the caret at the
+  // END of its text rather than the usual select-all — set right after
+  // `mergeIntoPreviousRow` deletes an empty row and lands here (#2727).
+  const [caretAtEndRowId, setCaretAtEndRowId] = useState<string | null>(null);
 
   // Shared create step for the three Enter variants (#2727). Non-blank
   // placeholder name (mirrors handleAddFirstTask / handleAddPhaseFirstChild):
@@ -1541,6 +1547,35 @@ export function ScheduleView() {
         }
         performBuildModeDelete(taskId, 0);
       },
+      mergeIntoPreviousRow: (taskId) => {
+        // Backspace on an empty row (#2727): delete it and land the caret at
+        // the end of the previous VISIBLE row's Name cell — the outliner
+        // "backspace merges into the line above" convention. No-op if this is
+        // already the first visible row (nothing above to merge into). A
+        // blank-named row that still carries a subtree falls back to the
+        // ordinary subtree-confirm gate (the merge is skipped, not the
+        // delete) — the same safe default `deleteTask` already uses.
+        const idx = visibleTasks.findIndex((t) => t.id === taskId);
+        if (idx <= 0) return;
+        const prevTask = visibleTasks[idx - 1];
+        const summary = childCountById.get(taskId);
+        if (summary && summary.count > 0) {
+          setPendingSubtreeDelete({
+            id: taskId,
+            name: summary.name || 'Untitled task',
+            count: summary.count,
+          });
+          return;
+        }
+        performBuildModeDelete(taskId, 0, () => {
+          focus.focusRow(prevTask.id);
+          focus.enterCellEdit(prevTask.id, 'name');
+          setCaretAtEndRowId(prevTask.id);
+        });
+      },
+      isCaretAtEndRow: (taskId) => taskId === caretAtEndRowId,
+      clearCaretAtEndRow: (taskId) =>
+        setCaretAtEndRowId((cur) => (cur === taskId ? null : cur)),
       // #806: include deleteTask so the row gets the "in-flight" treatment during
       // delete and downstream guards (context-menu suppression, auto-close of an
       // already-open menu) fire. Without delete here, the row unmounts on cache
@@ -1562,9 +1597,11 @@ export function ScheduleView() {
       reorderTaskMut,
       projectId,
       allTasks,
+      visibleTasks,
       childCountById,
       performBuildModeDelete,
       pristineNewRowId,
+      caretAtEndRowId,
     ],
   );
 

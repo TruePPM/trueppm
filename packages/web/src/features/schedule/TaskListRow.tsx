@@ -1881,6 +1881,8 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
   // (#2682 follow-up).
   const isPristine = buildMode.isPristineNewRow?.(task.id) ?? false;
   const clearPristine = () => buildMode.clearPristineNewRow?.(task.id);
+  const isCaretAtEnd = buildMode.isCaretAtEndRow(task.id);
+  const clearCaretAtEnd = () => buildMode.clearCaretAtEndRow(task.id);
   return (
     <div className="relative flex-1 min-w-0">
       <EditableCell
@@ -1890,11 +1892,14 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
         inputType="text"
         ariaLabel={`Rename task ${task.name}`}
         className="flex-1 min-w-0 w-full"
+        caretPosition={isCaretAtEnd ? 'end' : 'select-all'}
+        onEmptyBackspace={() => buildMode.mergeIntoPreviousRow(task.id)}
         onStartEdit={() => {
           /* already editing */
         }}
         onCommit={(parsed) => {
           clearPristine();
+          clearCaretAtEnd();
           if (typeof parsed === 'string' && projectId) {
             // Split the draft into name + owners. A token that matches no roster member
             // is left in the name verbatim and the row still commits (ADR-0774 §6) —
@@ -1916,13 +1921,17 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
         }}
         onRollback={() => {
           clearPristine();
+          clearCaretAtEnd();
           setAutocompleteQuery('');
           buildMode.focus.rollbackToRow();
         }}
         onTabForward={() => buildMode.focus.tabForward()}
         onTabBackward={() => buildMode.focus.tabBackward()}
         onQueryChange={(q) => {
-          if (q !== '') clearPristine();
+          if (q !== '') {
+            clearPristine();
+            clearCaretAtEnd();
+          }
           setAutocompleteQuery(q);
         }}
         // Commit-and-continue (#1666, extended #2727): Enter in the Name cell

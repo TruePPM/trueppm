@@ -270,6 +270,60 @@ describe('EditableCell — commit-and-continue / blank guard (#1666)', () => {
   });
 });
 
+describe('EditableCell — empty-Backspace merge and caret positioning (#2727)', () => {
+  it('fires onEmptyBackspace when Backspace is pressed on an already-empty draft', () => {
+    const onEmptyBackspace = vi.fn();
+    render(
+      <EditableCell {...baseProps} value="" isEditing={true} onEmptyBackspace={onEmptyBackspace} />,
+    );
+    fireEvent.keyDown(screen.getByLabelText('Task name'), { key: 'Backspace' });
+    expect(onEmptyBackspace).toHaveBeenCalledOnce();
+  });
+
+  it('does NOT fire onEmptyBackspace when the draft still has text', () => {
+    const onEmptyBackspace = vi.fn();
+    render(
+      <EditableCell
+        {...baseProps}
+        value="Something"
+        isEditing={true}
+        onEmptyBackspace={onEmptyBackspace}
+      />,
+    );
+    fireEvent.keyDown(screen.getByLabelText('Task name'), { key: 'Backspace' });
+    expect(onEmptyBackspace).not.toHaveBeenCalled();
+  });
+
+  it('does NOT fire onEmptyBackspace for a duration/number cell (text-only)', () => {
+    const onEmptyBackspace = vi.fn();
+    render(
+      <EditableCell
+        {...baseProps}
+        inputType="duration"
+        value=""
+        isEditing={true}
+        onEmptyBackspace={onEmptyBackspace}
+      />,
+    );
+    fireEvent.keyDown(screen.getByLabelText('Task name'), { key: 'Backspace' });
+    expect(onEmptyBackspace).not.toHaveBeenCalled();
+  });
+
+  it('caretPosition="end" places the caret after the last character instead of selecting all', () => {
+    render(<EditableCell {...baseProps} value="Design Phase" isEditing={true} caretPosition="end" />);
+    const input = screen.getByLabelText<HTMLInputElement>('Task name');
+    expect(input.selectionStart).toBe('Design Phase'.length);
+    expect(input.selectionEnd).toBe('Design Phase'.length);
+  });
+
+  it('caretPosition="select-all" (the default) selects the whole value', () => {
+    render(<EditableCell {...baseProps} value="Design Phase" isEditing={true} />);
+    const input = screen.getByLabelText<HTMLInputElement>('Task name');
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe('Design Phase'.length);
+  });
+});
+
 describe('EditableCell — outside-driven value updates', () => {
   it('updates draft when value changes externally and not editing', () => {
     const { rerender } = render(<EditableCell {...baseProps} isEditing={false} />);
