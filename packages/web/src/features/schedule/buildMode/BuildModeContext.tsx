@@ -20,6 +20,17 @@ export interface BuildModeApi {
    * row unmounts on cache invalidation.
    */
   isMutationPending: (taskId: string) => boolean;
+  /**
+   * True for a task that `insertBelow` just created and whose Name has not
+   * been touched yet. The row is created with a non-blank placeholder name
+   * (the API rejects a blank one), but the Name cell renders empty for this
+   * task so the UX and the double-Enter no-op guard both still read "blank
+   * until typed" (#2682 follow-up). Optional — only `ScheduleView`'s real
+   * wiring provides it; test mocks of `BuildModeApi` may omit it.
+   */
+  isPristineNewRow?: (taskId: string) => boolean;
+  /** Marks a task as no longer pristine (first keystroke, commit, or rollback). */
+  clearPristineNewRow?: (taskId: string) => void;
 }
 
 const BuildModeContext = createContext<BuildModeApi | null>(null);

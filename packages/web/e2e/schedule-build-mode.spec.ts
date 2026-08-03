@@ -1,11 +1,11 @@
 /**
- * Schedule build-mode v1 (#338 #339 #341 #342, gated by #349).
+ * Schedule build-mode v1 (#338 #339 #341 #342), on by default on desktop
+ * since #2682 (ADR-0054's removal criteria were met and the flag deleted).
  *
  * Covers the user-visible acceptance criteria:
- * - Flag-on shows the always-on toolbar pill and the cheatsheet on `?`
+ * - The always-on toolbar pill and the cheatsheet on `?`
  * - Hint strip is contextual (#1250): hidden when idle (NoSelection), revealed
  *   once a row is focused so the Forecast bar owns the idle bottom band
- * - Flag-off leaves the Schedule toolbar, list, and footer unchanged (regression)
  * - Right-click on a row opens the context menu with the expected items
  *
  * Deeper structural / mutation flows (Tab → indent server call, EditableCell
@@ -51,38 +51,8 @@ const FIXTURE_TASKS = [
   },
 ];
 
-async function enableBuildMode(page: import('@playwright/test').Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem(
-      'trueppm.featureFlags',
-      JSON.stringify({ schedule_build_mode_v1: true }),
-    );
-  });
-}
-
-test.describe('Schedule build-mode — flag off (regression)', () => {
+test.describe('Schedule build-mode — default on desktop (#2682)', () => {
   test.beforeEach(async ({ page }) => {
-    await setupAuth(page);
-    await setupCatchAll(page);
-    await setupApiMocks(page, {
-      projects: FIXTURE_PROJECTS,
-      projectId: FIXTURE_PROJECT_ID,
-      tasks: FIXTURE_TASKS,
-    });
-  });
-
-  test('toolbar does not show the Build mode pill when flag is off', async ({ page }) => {
-    await page.goto(BASE_URL);
-    // Wait for tasks to render so we know the Schedule view mounted.
-    await expect(page.getByText('Foundation')).toBeVisible();
-    await expect(page.getByTestId('build-mode-pill')).toHaveCount(0);
-    await expect(page.getByTestId('build-mode-hint-strip')).toHaveCount(0);
-  });
-});
-
-test.describe('Schedule build-mode — flag on', () => {
-  test.beforeEach(async ({ page }) => {
-    await enableBuildMode(page);
     await setupAuth(page);
     await setupCatchAll(page);
     await setupApiMocks(page, {
@@ -176,7 +146,6 @@ test.describe('Schedule build-mode — delete does not block subsequent right-cl
   let currentTasks: typeof FIXTURE_TASKS;
 
   test.beforeEach(async ({ page }) => {
-    await enableBuildMode(page);
     await setupAuth(page);
     await setupCatchAll(page);
     currentTasks = [...FIXTURE_TASKS];
@@ -237,7 +206,6 @@ test.describe('Schedule build-mode — delete surfaces an Undo toast (#1762)', (
   let restoreCalls: string[];
 
   test.beforeEach(async ({ page }) => {
-    await enableBuildMode(page);
     await setupAuth(page);
     await setupCatchAll(page);
     currentTasks = FIXTURE_TASKS.map((t) => ({ ...t }));
@@ -364,7 +332,6 @@ test.describe('Schedule build-mode — subtree delete confirms, Undo restores it
   let deleteCount: number;
 
   test.beforeEach(async ({ page }) => {
-    await enableBuildMode(page);
     await setupAuth(page);
     await setupCatchAll(page);
     currentTasks = SUBTREE_TASKS.map((t) => ({ ...t }));
@@ -520,7 +487,6 @@ test.describe('Schedule build-mode — Enter inserts a sibling row (#1666)', () 
   let deleteCount: number;
 
   test.beforeEach(async ({ page }) => {
-    await enableBuildMode(page);
     await setupAuth(page);
     await setupCatchAll(page);
     currentTasks = NESTED_TASKS.map((t) => ({ ...t }));

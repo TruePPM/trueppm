@@ -613,7 +613,7 @@ async function openDrawer(page: Page): Promise<ReturnType<Page['locator']>> {
   await page.goto(`/projects/${PROJECT_ID}/schedule`);
   const grid = page.getByRole('grid', { name: 'Task list' });
   await expect(grid).toBeVisible({ timeout: 10_000 });
-  await grid.getByText(FIXTURE_TASK.name, { exact: true }).click();
+  await grid.getByRole('button', { name: `Open properties for ${FIXTURE_TASK.name}` }).click();
   const drawer = page.getByRole('dialog', { name: new RegExp(FIXTURE_TASK.name) }).first();
   await expect(drawer).toBeVisible({ timeout: 5_000 });
   return drawer;

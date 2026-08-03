@@ -103,12 +103,6 @@ interface Recorder {
 async function setup(page: Page): Promise<Recorder> {
   const recorder: Recorder = { patches: [] };
 
-  await page.addInitScript(() => {
-    localStorage.setItem(
-      'trueppm.featureFlags',
-      JSON.stringify({ schedule_build_mode_v1: true }),
-    );
-  });
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page, {

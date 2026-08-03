@@ -71,12 +71,6 @@ const CROSS_ROWS = [
   { id: 'x3', name: 'Legal go-ahead', short_id: 'LEG-1', project_id: 'p-leg', project_name: 'Legal' },
 ];
 
-async function enableBuildMode(page: import('@playwright/test').Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem('trueppm.featureFlags', JSON.stringify({ schedule_build_mode_v1: true }));
-  });
-}
-
 /** Register the program task-search mock. */
 async function mockTaskSearch(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/programs/*/task-search/**', (route) =>
@@ -142,7 +136,7 @@ async function openDrawerDependencies(
   await page.goto(url);
   const grid = page.getByRole('grid', { name: 'Task list' });
   await expect(grid).toBeVisible({ timeout: 10_000 });
-  await grid.getByText(taskName, { exact: true }).click();
+  await grid.getByRole('button', { name: `Open properties for ${taskName}` }).click();
   const drawer = page.getByRole('dialog', { name: new RegExp(taskName) }).first();
   await expect(drawer).toBeVisible({ timeout: 5_000 });
   await drawer.getByRole('button', { name: 'Dependencies' }).click();
@@ -154,7 +148,6 @@ test.describe('Cross-project dependency picker (#1150)', () => {
     page,
   }) => {
     const capture: { payload: Record<string, unknown> | null } = { payload: null };
-    await enableBuildMode(page);
     await setupAuth(page);
     await setupCatchAll(page);
     await setupApiMocks(page, {
@@ -184,7 +177,6 @@ test.describe('Cross-project dependency picker (#1150)', () => {
 
   test('an inert (pending-acceptance) edge surfaces the consent toast', async ({ page }) => {
     const capture: { payload: Record<string, unknown> | null } = { payload: null };
-    await enableBuildMode(page);
     await setupAuth(page);
     await setupCatchAll(page);
     await setupApiMocks(page, {
@@ -204,7 +196,6 @@ test.describe('Cross-project dependency picker (#1150)', () => {
   });
 
   test('a standalone project shows no scope toggle (regression)', async ({ page }) => {
-    await enableBuildMode(page);
     await setupAuth(page);
     await setupCatchAll(page);
     await setupApiMocks(page, {

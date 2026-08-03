@@ -55,7 +55,7 @@ function task(flagged: boolean) {
 async function openBlockerSection(page: Page): Promise<Locator> {
   await page.goto(`/projects/${PROJECT_ID}/schedule`);
   const grid = page.getByRole('grid', { name: 'Task list' });
-  await grid.getByText('Foundation', { exact: true }).click();
+  await grid.getByRole('button', { name: 'Open properties for Foundation' }).click();
   const drawer = page.getByRole('dialog', { name: /Foundation/ }).first();
   await expect(drawer).toBeVisible({ timeout: 5_000 });
   const header = drawer.getByRole('button', { name: 'Blocker' });
