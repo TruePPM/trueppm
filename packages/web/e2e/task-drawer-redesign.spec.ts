@@ -417,7 +417,7 @@ async function gotoSchedule(page: Page, opts: { role?: number; canEdit?: boolean
 async function openDrawer(page: Page, taskName: string) {
   const grid = page.getByRole('grid', { name: 'Task list' });
   await expect(grid).toBeVisible({ timeout: 10_000 });
-  await grid.getByText(taskName, { exact: true }).click();
+  await grid.getByRole('button', { name: `Open properties for ${taskName}` }).click();
   const drawer = page.getByRole('dialog', { name: new RegExp(taskName) }).first();
   await expect(drawer).toBeVisible({ timeout: 5_000 });
   return drawer;

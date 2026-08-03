@@ -165,7 +165,7 @@ async function setup(page: Page, opts: SetupOptions = {}) {
 async function openSprintSection(page: Page) {
   const grid = page.getByRole('grid', { name: 'Task list' });
   await expect(grid).toBeVisible({ timeout: 10_000 });
-  await grid.getByText('Migrate billing service', { exact: true }).click();
+  await grid.getByRole('button', { name: 'Open properties for Migrate billing service' }).click();
   const drawer = page.getByRole('dialog', { name: /Migrate billing service/ }).first();
   await expect(drawer).toBeVisible({ timeout: 5_000 });
   await drawer.getByRole('button', { name: 'Sprint' }).click();

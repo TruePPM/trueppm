@@ -595,7 +595,7 @@ test.describe('Schedule task edit — failed rename rolls back (#1518)', () => {
     await expect(grid).toBeVisible({ timeout: 10_000 });
 
     // Open the detail drawer for the task and rename it via the editable title.
-    await grid.getByText('Discovery & Design', { exact: true }).click();
+    await grid.getByRole('button', { name: 'Open properties for Discovery & Design' }).click();
     const drawer = page.getByRole('dialog', { name: /Discovery & Design/ });
     await expect(drawer).toBeVisible({ timeout: 5_000 });
 
