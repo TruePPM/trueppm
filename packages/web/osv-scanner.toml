@@ -18,13 +18,16 @@
 # but not their length, so chained brace groups exhaust memory and kill the Node
 # process with a fatal, uncatchable OOM.
 #
-# Fixed in 5.0.8 only; the 1.x and 2.x maintenance lines have no patched
-# release. We take 5.0.8 on the one path that can reach it (minimatch@10, via
-# @typescript-eslint/parser) and suppress the two that cannot:
+# Fixed in the 5.x line (5.0.8, then again by GHSA-rgw5-rvv9-x895's fix in
+# 5.0.9); the 1.x and 2.x maintenance lines have no patched release. We take
+# 5.0.9 on the one path that can reach it (minimatch@10, via
+# @typescript-eslint/parser) and suppress the two that cannot — pinned to
+# whatever patch version each line is currently locked at, since neither line
+# picks up the 5.x fix on its own:
 #
-#   1.1.16 <- minimatch@3.1.5 <- eslint, @eslint/config-array, @eslint/eslintrc,
+#   1.1.18 <- minimatch@3.1.5 <- eslint, @eslint/config-array, @eslint/eslintrc,
 #             eslint-plugin-jsx-a11y, eslint-plugin-react
-#   2.1.2  <- minimatch@5.1.9 <- @redocly/openapi-core <- openapi-typescript
+#   2.1.4  <- minimatch@5.1.9 <- @redocly/openapi-core <- openapi-typescript
 #
 # Both are devDependencies only — the lint toolchain and the OpenAPI codegen.
 # Neither is in `dependencies`; neither is bundled into the shipped SPA. The
@@ -40,7 +43,7 @@
 
 [[PackageOverrides]]
 name = "brace-expansion"
-version = "1.1.16"
+version = "1.1.18"
 ecosystem = "npm"
 ignore = true
 effectiveUntil = 2026-12-31
@@ -48,7 +51,7 @@ reason = "GHSA-mh99-v99m-4gvg: no patched 1.x release exists. Dev-only, via mini
 
 [[PackageOverrides]]
 name = "brace-expansion"
-version = "2.1.2"
+version = "2.1.4"
 ecosystem = "npm"
 ignore = true
 effectiveUntil = 2026-12-31

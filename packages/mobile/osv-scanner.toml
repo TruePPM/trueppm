@@ -18,13 +18,16 @@
 # but not their length, so chained brace groups exhaust memory and kill the Node
 # process with a fatal, uncatchable OOM.
 #
-# Fixed in 5.0.8 only; the 1.x and 2.x maintenance lines have no patched
-# release. We take 5.0.8 on the hoisted resolution and suppress the one that
-# cannot be reached, which arrives on two distinct paths:
+# Fixed in the 5.x line (5.0.8, then again by GHSA-rgw5-rvv9-x895's fix in
+# 5.0.9); the 1.x and 2.x maintenance lines have no patched release. We take
+# 5.0.9 on the hoisted resolution and suppress the one that cannot be reached
+# — pinned to whatever patch version that line is currently locked at, since
+# it doesn't pick up the 5.x fix on its own — which arrives on two distinct
+# paths:
 #
-#   1.1.16 <- minimatch@3.1.5 <- eslint, @eslint/config-array, @eslint/eslintrc,
+#   1.1.18 <- minimatch@3.1.5 <- eslint, @eslint/config-array, @eslint/eslintrc,
 #             eslint-plugin-react                             (devDependencies)
-#   1.1.16 <- minimatch@3.1.5 <- glob <- react-native, @react-native/codegen,
+#   1.1.18 <- minimatch@3.1.5 <- glob <- react-native, @react-native/codegen,
 #             rimraf; and <- test-exclude <- babel-plugin-istanbul
 #
 # The second path is marked non-dev only because react-native declares its own
@@ -42,7 +45,7 @@
 
 [[PackageOverrides]]
 name = "brace-expansion"
-version = "1.1.16"
+version = "1.1.18"
 ecosystem = "npm"
 ignore = true
 effectiveUntil = 2026-12-31
