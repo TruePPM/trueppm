@@ -229,6 +229,10 @@ export function TaskListPanel({
   // Derived maps computed once per tasks change — passed to each row for #343/#345/#347
   const siblingIdsMap = useMemo(() => buildSiblingIdsMap(tasks), [tasks]);
 
+  // Full visible row order (#2727 multi-select) — Shift+↑/↓ selection-extend
+  // and ⌘A's "whole tree" expansion are computed against this.
+  const visibleTaskIds = useMemo(() => tasks.map((t) => t.id), [tasks]);
+
   // Per-task sibling NAMES (not just ids) — used by the Duplicate action to
   // suffix "(copy)" uniquely without collisions. Cached once per tasks change.
   const siblingNamesMap = useMemo(() => {
@@ -375,6 +379,7 @@ export function TaskListPanel({
                   }
                   depChips={depChipsById?.get(task.id)}
                   siblingIds={siblingIdsMap.get(task.id)}
+                  visibleTaskIds={visibleTaskIds}
                   siblingNames={siblingNamesMap.get(task.id)}
                   nameSuggestions={nameSuggestions}
                   resourcePool={resourcePool}

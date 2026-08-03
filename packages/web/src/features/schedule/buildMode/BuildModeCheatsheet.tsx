@@ -18,6 +18,8 @@ const SECTIONS: ShortcutSection[] = [
     title: 'Selecting rows',
     entries: [
       { keys: ['↑', '↓'], label: 'Move row focus' },
+      { keys: ['Shift', '↑', '↓'], label: 'Extend selection' },
+      { keys: ['⌘', 'A'], label: 'Select siblings, then the whole tree' },
       { keys: ['Esc'], label: 'Clear selection' },
     ],
   },
