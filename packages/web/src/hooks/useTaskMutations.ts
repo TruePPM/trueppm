@@ -550,15 +550,51 @@ export function useDeleteTask(projectId: string | null) {
 // useBulkDeleteTasks — POST /api/v1/projects/{pk}/tasks/bulk/ (delete ops)
 // ---------------------------------------------------------------------------
 
-/** POST /api/v1/projects/{pk}/tasks/bulk/ — delete multiple tasks in a single atomic request. */
+/** Thrown when a 207 batch response reports one or more refused rows (#2723). */
+export class BulkRowRejectedError extends Error {
+  readonly rejected: BulkRowRejection[];
+
+  constructor(rejected: BulkRowRejection[]) {
+    super(rejected[0]?.message ?? 'Some rows could not be applied.');
+    this.name = 'BulkRowRejectedError';
+    this.rejected = rejected;
+  }
+}
+
+/** One rejected row from a 207 batch response (#2723). */
+export interface BulkRowRejection {
+  /** Zero-based position of the operation in the request's `operations` array. */
+  index: number;
+  /** `null` when the row was rejected before an id could be parsed. */
+  id: string | null;
+  code: string;
+  message: string;
+}
+
+/**
+ * POST /api/v1/projects/{pk}/tasks/bulk/ — delete multiple tasks in one request.
+ *
+ * The endpoint returns **207**, not 200, and applies rows independently (#2723). A
+ * row the server refuses now comes back in `rejected` rather than failing the
+ * request, so a partially-refused batch is a 2xx: without the check below, a delete
+ * the server declined would resolve through `onSuccess` and the UI would report a
+ * deletion that never happened. Throwing keeps the pre-207 behavior — the caller's
+ * existing error path still fires — while the thrown error carries the per-row detail
+ * the old 403 could not.
+ */
 export function useBulkDeleteTasks(projectId: string | null) {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (taskIds: string[]) => {
-      await apiClient.post(`/projects/${projectId}/tasks/bulk/`, {
-        operations: taskIds.map((id) => ({ op: 'delete', id })),
-      });
+      const res = await apiClient.post<{ rejected?: BulkRowRejection[] }>(
+        `/projects/${projectId}/tasks/bulk/`,
+        { operations: taskIds.map((id) => ({ op: 'delete', id })) },
+      );
+      const rejected = res.data?.rejected ?? [];
+      if (rejected.length > 0) {
+        throw new BulkRowRejectedError(rejected);
+      }
     },
     onSuccess: (_data, taskIds) => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });

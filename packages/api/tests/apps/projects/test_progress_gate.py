@@ -493,6 +493,11 @@ def test_bulk_update_gate_blocks_unanchored_progress(
         },
         format="json",
     )
-    assert r.status_code == 400
-    assert r.data["code"] == "progress_requires_anchor"
-    assert r.data.get("task_id") == str(unanchored_task.pk)
+    # Per-row since #2723: the gate still blocks, but as a row rejection inside a
+    # 207 rather than a 400 that discards the batch.
+    assert r.status_code == 207, r.data
+    assert r.data["applied"] == []
+    rejected = r.data["rejected"][0]
+    assert rejected["code"] == "invalid"
+    assert rejected["id"] == str(unanchored_task.pk)
+    assert "planned start" in rejected["message"]

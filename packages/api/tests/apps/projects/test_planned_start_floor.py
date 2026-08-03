@@ -247,7 +247,8 @@ def test_bulk_update_before_start_auto_shifts(
             },
             format="json",
         )
-    assert r.status_code == 200
+    assert r.status_code == 207, r.data
+    assert r.data["rejected"] == []
     task.refresh_from_db()
     project.refresh_from_db()
     assert task.planned_start == date(2026, 3, 15)
@@ -269,7 +270,8 @@ def test_bulk_create_before_start_auto_shifts(pm_client: APIClient, project: Pro
             },
             format="json",
         )
-    assert r.status_code == 200
+    assert r.status_code == 207, r.data
+    assert r.data["rejected"] == []
     project.refresh_from_db()
     assert project.start_date == date(2026, 3, 15)
 

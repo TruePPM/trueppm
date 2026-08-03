@@ -210,8 +210,9 @@ def test_bulk_create_carries_owners_through(
         },
         format="json",
     )
-    assert res.status_code == 200, res.data
-    created_id = res.data["created"][0]["id"]
+    assert res.status_code == 207, res.data
+    assert res.data["rejected"] == []
+    created_id = res.data["applied"][0]["task"]["id"]
     assert TaskResource.objects.get(task_id=created_id, resource=ana).units == Decimal("0.75")
 
 

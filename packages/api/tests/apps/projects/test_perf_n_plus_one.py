@@ -158,8 +158,9 @@ def test_bulk_update_response_carries_is_summary_annotation(
         format="json",
     )
 
-    assert r.status_code == 200, r.data
-    updated = r.data["updated"]
+    assert r.status_code == 207, r.data
+    assert r.data["rejected"] == []
+    updated = [e["task"] for e in r.data["applied"] if e["outcome"] == "updated"]
     assert len(updated) == 1
     assert updated[0]["is_summary"] is True
     assert updated[0]["name"] == "Phase A"
@@ -173,8 +174,9 @@ def test_bulk_create_returns_all_created(client: APIClient, project: Project) ->
         {"operations": [{"op": "create", "data": {"name": f"T{i}"}} for i in range(5)]},
         format="json",
     )
-    assert r.status_code == 200, r.data
-    created = r.data["created"]
+    assert r.status_code == 207, r.data
+    assert r.data["rejected"] == []
+    created = [e["task"] for e in r.data["applied"]]
     assert [t["name"] for t in created] == [f"T{i}" for i in range(5)]
     # Annotation-backed field present (would be absent on a bare instance with no default).
     assert all("is_summary" in t for t in created)

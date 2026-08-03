@@ -170,6 +170,77 @@ def can_user_edit_task(request: Request, task: Any, *, method: str = "PATCH") ->
     return False
 
 
+def can_user_author_plan(request: Request, project: Any) -> bool:
+    """Authoritative "may this user author a plan" predicate (ADR-0773 §2).
+
+    Backs BOTH enforcement (:class:`IsProjectPlanAuthor` on the task-authoring
+    endpoints) and the declarative ``ProjectSerializer.can_author`` field, so the
+    Designer's Read/Author toggle reads the exact rule the server enforces — the
+    ADR-0133 "one rule, called twice" pattern.
+
+    The rule is ``role >= Role.MEMBER`` **minus the resource-management band**::
+
+        role >= Role.MEMBER and not (Role.SCHEDULER <= role < Role.ADMIN)
+
+    A plain ``role >= Role.MEMBER`` is wrong here, and the reason is a live defect
+    rather than a hypothetical: ``Role.SCHEDULER`` (200) is ordinally *above* Member
+    but :func:`can_user_edit_task` refuses it task content outright, while
+    :class:`IsProjectMemberWrite` admits it. So a Scheduler can create a task and
+    then cannot edit or delete the task they just created. Survivable in a modal —
+    one task, one 403 — but in a keyboard-fast row grid it is a trap: the rows
+    commit and every subsequent keystroke 403s. Author mode is therefore an explicit
+    deny for the whole band, not an emergent property of a ``>=`` comparison.
+
+    The band-range form (``Role.SCHEDULER <= role < Role.ADMIN``) rather than
+    ``role == Role.SCHEDULER`` is required by ADR-0072's band contract: an
+    Enterprise custom role registered in the 201-299 resource-management band
+    inherits the same exclusion, instead of silently gaining authoring rights the
+    OSS tier it sits beside does not have.
+
+    This is a *project*-level capability — "may this user enter Author mode at all".
+    It does not decide which rows they may touch; that stays with
+    :func:`can_user_edit_task`, applied per row (ADR-0773 §3).
+
+    Fails closed: unresolved auth, membership, or project yields ``False``.
+    """
+    if project is None:
+        return False
+    project_id = getattr(project, "pk", None)
+    if project_id is None:
+        return False
+    return _can_author_plan_for_project_id(request, project_id)
+
+
+def role_can_author_plan(role: int | None) -> bool:
+    """The plan-authoring rule, as a pure function of the role ordinal (ADR-0773 §2).
+
+    The single implementation. :func:`can_user_author_plan` and
+    :class:`IsProjectPlanAuthor` resolve a role and call this; the serializer's
+    ``can_author`` field calls it against the viewset's ``_my_role`` annotation so a
+    project list does not pay a membership query per row. Mirrors the existing
+    :func:`can_manage_backlog` ordinal-predicate shape.
+    """
+    if role is None:
+        return False
+    if Role.SCHEDULER <= role < Role.ADMIN:
+        return False
+    return role >= Role.MEMBER
+
+
+def _can_author_plan_for_project_id(request: Request, project_id: Any) -> bool:
+    """Resolve the caller's role on ``project_id`` and apply the authoring rule.
+
+    Split out from :func:`can_user_author_plan` only so the permission class can
+    reach it from a URL kwarg without loading a ``Project`` row it does not
+    otherwise need.
+    """
+    if not (request.user and request.user.is_authenticated):
+        return False
+    if project_id is None:
+        return False
+    return role_can_author_plan(_membership_role(request, str(project_id)))
+
+
 def can_user_write_estimates(request: Request, project: Any) -> bool:
     """Authoritative "may this user write three-point estimates" predicate (ADR-0743).
 
@@ -318,6 +389,47 @@ class IsProjectMemberWrite(BasePermission):
         if safe:
             return True
         return role >= Role.MEMBER
+
+
+class IsProjectPlanAuthor(BasePermission):
+    """Declarative wrapper on :func:`can_user_author_plan` (ADR-0773 §(b)).
+
+    Sits *alongside* ``IsProjectMemberWrite`` on the task-authoring endpoints rather
+    than replacing it, per ADR-0184's additive doctrine: the permission class is
+    defense-in-depth and OpenAPI-visible, while the in-body per-row checks
+    (``can_user_edit_task``, ``_require_wbs_restructure_permission``) stay
+    authoritative for *which rows* a caller may touch.
+
+    Safe methods fall through to the read gate — Read mode is open to every project
+    member including Viewer, so only writes consult the authoring predicate.
+
+    Note this class is currently defense-in-depth rather than the load-bearing gate
+    on ``<pk>``-routed ``APIView``s: ``_project_pk_from_view`` reads only
+    ``project_pk``, so ``has_permission`` cannot resolve the project on a
+    ``projects/<pk>/...`` route and falls through (#2745). The in-body
+    ``check_object_permissions(request, project)`` call is what actually enforces
+    this today, which is why the authoring views call it explicitly.
+    """
+
+    message = "Your role on this project cannot author the plan."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if not (request.user and request.user.is_authenticated):
+            return False
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return True
+        project_pk = _project_pk_from_view(view)
+        if project_pk is None:
+            return True
+        return _can_author_plan_for_project_id(request, project_pk)
+
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+        project_id = _get_project_id_from_obj(obj)
+        if project_id is None:
+            return False
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return _membership_role(request, project_id) is not None
+        return _can_author_plan_for_project_id(request, project_id)
 
 
 class IsProjectMemberWriteOrOwn(BasePermission):
