@@ -64,9 +64,13 @@ export function UnscheduledGutter({
   sprints,
 }: UnscheduledGutterProps) {
   const itl = useIterationLabel();
+  // Absent a persisted choice, default to collapsed when there is nothing
+  // unscheduled — the reassurance message is a one-time confirmation, not
+  // chrome worth showing forever on an otherwise fully-scheduled project.
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
-      return localStorage.getItem(COLLAPSED_KEY) === 'true';
+      const stored = localStorage.getItem(COLLAPSED_KEY);
+      return stored !== null ? stored === 'true' : tasks.length === 0;
     } catch {
       return tasks.length === 0;
     }
@@ -314,29 +318,27 @@ export function UnscheduledGutter({
           <span className="tppm-mono text-xs text-neutral-text-secondary ml-1">
             ({totalCount})
           </span>
-          {totalCount === 0 && (
+          {totalCount === 0 && !collapsed && (
             <span className="text-xs italic text-neutral-text-secondary ml-3">
               All To Do and Backlog tasks have planned dates
             </span>
           )}
           <div className="flex-1" />
-          {totalCount > 0 && (
-            <button
-              type="button"
-              aria-label={collapsed ? 'Expand unscheduled tasks' : 'Collapse unscheduled tasks'}
-              onClick={() => persistCollapsed(!collapsed)}
-              className="w-8 h-8 flex items-center justify-center mr-2 rounded-control text-neutral-text-secondary
-                hover:text-neutral-text-primary
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          <button
+            type="button"
+            aria-label={collapsed ? 'Expand unscheduled tasks' : 'Collapse unscheduled tasks'}
+            onClick={() => persistCollapsed(!collapsed)}
+            className="w-8 h-8 flex items-center justify-center mr-2 rounded-control text-neutral-text-secondary
+              hover:text-neutral-text-primary
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          >
+            <span
+              className={`inline-block transition-transform duration-150 ${collapsed ? '' : 'rotate-180'}`}
+              aria-hidden="true"
             >
-              <span
-                className={`inline-block transition-transform duration-150 ${collapsed ? '' : 'rotate-180'}`}
-                aria-hidden="true"
-              >
-                ▾
-              </span>
-            </button>
-          )}
+              ▾
+            </span>
+          </button>
         </div>
 
         {/* Two-section tray — one scroll container, sticky sub-headers (rule 132) */}
