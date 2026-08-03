@@ -1920,7 +1920,18 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
           buildMode.focus.commitToRow();
         }}
         onRollback={() => {
-          clearPristine();
+          // Esc on a still-pristine row discards it rather than rolling back
+          // (#2727, ADR-0776 §4) — there is no "last committed value" to
+          // revert to, since it was never committed in the first place. A
+          // row that has ever been committed, rolled back once, or had a
+          // real value typed is no longer pristine and gets the ordinary
+          // revert-to-last-committed-value behavior below.
+          if (isPristine) {
+            setAutocompleteQuery('');
+            buildMode.deleteTask(task.id);
+            buildMode.focus.clear();
+            return;
+          }
           clearCaretAtEnd();
           setAutocompleteQuery('');
           buildMode.focus.rollbackToRow();

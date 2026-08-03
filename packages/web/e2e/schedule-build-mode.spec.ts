@@ -687,7 +687,7 @@ test.describe('Schedule build-mode — Enter inserts a sibling row (#1666)', () 
     await expect(nameInput(page)).toBeVisible();
   });
 
-  test('Escape in the new row Name cell reverts to the row without deleting it', async ({
+  test('Escape in a still-pristine new row Name cell discards the row (#2727)', async ({
     page,
   }) => {
     await page.goto(BASE_URL);
@@ -700,8 +700,32 @@ test.describe('Schedule build-mode — Enter inserts a sibling row (#1666)', () 
     await expect(input).toBeVisible();
     await expect.poll(() => currentTasks.length).toBe(4); // phase + task-a + task-b + new-1
 
-    // Escape reverts the edit and drops to RowFocused — it does NOT delete the
-    // just-created row.
+    // Escape on the still-pristine row (never typed into) discards it — there
+    // is no "last committed value" to revert to (ADR-0776 §4). This flips the
+    // pre-#2727 behavior on purpose: ADR-0776 documents the reversal.
+    await input.press('Escape');
+    await expect(nameInput(page)).toHaveCount(0);
+    await expect.poll(() => deleteCount).toBe(1);
+    await expect.poll(() => currentTasks.length).toBe(3);
+  });
+
+  test('Escape after typing into a new row reverts to the last committed value, no delete (#2727)', async ({
+    page,
+  }) => {
+    await page.goto(BASE_URL);
+    const row = page.locator('[data-row-id="task-a"]');
+    await expect(row).toBeVisible();
+    await row.focus();
+    await page.keyboard.press('Enter');
+
+    const input = nameInput(page);
+    await expect(input).toBeVisible();
+    await expect.poll(() => currentTasks.length).toBe(4);
+
+    // The row is no longer pristine once the user types into it — Escape now
+    // reverts to the last committed value (the server placeholder name) and
+    // does NOT discard the row.
+    await input.fill('Homepage draft');
     await input.press('Escape');
     await expect(nameInput(page)).toHaveCount(0);
     await page.waitForTimeout(200);
