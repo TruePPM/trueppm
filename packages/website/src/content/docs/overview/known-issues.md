@@ -217,21 +217,6 @@ The Schedule is the surface an evaluator reaches first. These are open against t
 milestone at the time of writing: each is either fixed before the tag comes off, or it
 moves to 0.5. The issue is the authority on which happened, not this page.
 
-### Enter-to-add-row does nothing on a default install
-
-The keyboard-first way to lay a plan out — inline cell editing, Tab and Shift-Tab to
-indent and outdent, Enter to commit — sits behind the `schedule_build_mode_v1` feature
-flag, which is **off** unless someone turns it on.
-
-- **Impact:** on a fresh install, focusing a schedule row and pressing Enter creates
-  nothing. The default empty state offers only a **+ Add task** button and names no
-  keyboard path, so there is nothing to suggest the interaction exists.
-- **Workaround:** turn on **Build mode (beta)** at **Settings → Workspace → Schedule**.
-  Note it is a **per-browser** preference and **desktop-only** — it does not follow you
-  to another machine, and it does not apply on mobile. A deployment can switch the
-  default on for everyone with `VITE_FEATURE_FLAGS={"schedule_build_mode_v1":true}`.
-- **Tracked on** [#2682](https://gitlab.com/trueppm/trueppm/-/issues/2682).
-
 ### Drag-to-link between tasks is hard to discover
 
 Dragging from one task bar to another to create a dependency works, but its only

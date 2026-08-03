@@ -401,6 +401,16 @@ describe('TaskListRow', () => {
     expect(useScheduleStore.getState().selectedTaskId).toBe('t1');
   });
 
+  // Build mode's row click only focuses the row for keyboard editing (it does
+  // NOT open the drawer), so this button is the sole discoverable path to the
+  // task detail drawer. It must not be opacity-0-until-hover — a mouse user
+  // scanning the list with no hover has to be able to see it (#2106 pattern).
+  it('properties button is faintly visible at rest, not hidden until hover', () => {
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} />);
+    const propBtn = screen.getByLabelText(/Open properties/i);
+    expect(propBtn.className).not.toMatch(/\bopacity-0\b/);
+  });
+
   it('renders assignee chips for non-summary non-milestone tasks', () => {
     const taskWithAssignees = {
       ...base,

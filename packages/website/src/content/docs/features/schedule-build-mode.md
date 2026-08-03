@@ -4,7 +4,13 @@ description: Keyboard-first surface for laying down and structuring a project pl
 documentedFor: "0.4"
 ---
 
-Schedule build mode turns the Schedule list into a keyboard-first surface for laying down and structuring a project plan. It is opt-in, gated behind the `schedule_build_mode_v1` feature flag, and is a desktop-only experience — mobile continues to use the existing Add Task modal.
+Schedule build mode turns the Schedule list into a keyboard-first surface for laying down and structuring a project plan. It is **on by default** and is a desktop-only experience — mobile continues to use the existing Add Task modal.
+
+:::note[Ships in 0.4]
+In the current release, build mode is **off by default** and opt-in per browser — turn it
+on from **Settings → Schedule**. 0.4 removes that toggle and turns build mode on for
+everyone on desktop.
+:::
 
 The goal is to collapse the round-trip cost of structuring a plan from "open modal → fill form → save → repeat" to "type, Tab, type, Enter."
 
@@ -21,29 +27,16 @@ Build mode is **not** sprint planning. It does not create sprints, move cards, s
 | Wiring predecessor / successor dependencies | Board triage or backlog refinement |
 | Keyboard-first plan entry on the Schedule view | Any mobile workflow — build mode is desktop-only |
 
-## Enabling build mode
+## Learning the shortcuts
 
-Build mode is **off by default** and opt-in per browser. The recommended way to turn it on needs no developer tooling; the remaining methods exist for URL sharing, scripting, and self-hoster defaults.
+Build mode needs no setup — open any project's Schedule view and it's already there.
+**Settings → Schedule** has a **View keyboard shortcuts** link that opens the same
+cheatsheet you get by pressing `?` on the Schedule view, so you can learn the hotkeys
+before you start.
 
-### From Settings (recommended)
+## What you see on the Schedule view
 
-Open **Settings → Schedule** and switch **Build mode (beta)** on. The setting is per-user and applies to the browser you toggle it in — it takes effect on the Schedule view immediately, with no page reload. Turn it off again from the same place.
-
-Once build mode is on, a **View keyboard shortcuts** link appears beside the toggle; it opens the same cheatsheet you get by pressing `?` on the Schedule view, so you can learn the hotkeys before you start.
-
-### Other ways to enable it
-
-| How | Where | Notes |
-|---|---|---|
-| URL parameter | Append `?ff=schedule_build_mode_v1` to any TruePPM URL once. | The flag is stored in `localStorage` and persists across navigations and page reloads. The `ff` query string is stripped from the URL after it's applied. Handy for sharing an enable link. |
-| Browser devtools | `localStorage.setItem('trueppm.featureFlags', JSON.stringify({schedule_build_mode_v1: true}))` | Same persistence as the URL form. |
-| Build-time default | Set `VITE_FEATURE_FLAGS='{"schedule_build_mode_v1":true}'` in `packages/web/.env` (or `.env.development`) before `npm run build` / `npm run dev`. | Useful for self-hosters who want to enable build mode for all users by default. Per-user `localStorage` overrides (including the Settings toggle) win over the build-time default. |
-
-To turn it off in your browser, switch the Settings toggle off, run `localStorage.setItem('trueppm.featureFlags', JSON.stringify({schedule_build_mode_v1: false}))`, or clear the `trueppm.featureFlags` key entirely.
-
-## What changes when build mode is on
-
-Two visible signals appear on the Schedule view:
+Two visible signals appear:
 
 - A **`⌨ Build mode` pill** in the toolbar (left side, next to the +Task button). Clicking it opens the keyboard cheatsheet.
 - A **bottom hint strip** that always shows the three most relevant hotkeys for what you're currently focused on. Pressing `?` opens the full cheatsheet from anywhere on the page.
@@ -84,7 +77,7 @@ The Schedule list is in one of three focus states at any time. The same keys do 
 | Key | Action |
 |---|---|
 | ⌘ M / Ctrl + M | Insert a new milestone at today's date |
-| ? | Open the keyboard shortcut cheatsheet (build mode only) |
+| ? | Open the keyboard shortcut cheatsheet |
 
 ### When a cell is being edited (CellEdit)
 

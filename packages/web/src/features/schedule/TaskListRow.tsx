@@ -1165,7 +1165,13 @@ function RowPropertiesButton({
         'absolute right-1 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-control',
         'text-neutral-text-secondary hover:text-neutral-text-primary',
         'transition-opacity duration-100',
-        isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+        // Faintly persistent at rest (not opacity-0) so this is a discoverable
+        // way to open the task's full detail drawer without hovering first —
+        // in build mode (the desktop default since #2682) a plain row click
+        // only focuses the row for keyboard editing, so this button is the
+        // only path to the drawer. Same rationale as the Duration-cell pencil
+        // icon (#2106): full-strength on hover/focus/selected, faint otherwise.
+        isSelected ? 'opacity-100' : 'opacity-40 group-hover:opacity-100 focus-visible:opacity-100',
         'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-primary',
       ].join(' ')}
     >
@@ -1583,7 +1589,9 @@ function TaskListRowInner({
         />
 
         {/* Properties button — absolute within the task column so it never overlaps
-            the Dur·Start or % columns. Visible on hover/focus or when selected. */}
+            the Dur·Start or % columns. Faintly visible at rest, full-strength on
+            hover/focus or when selected (#2106 pattern) — the only path to the
+            task detail drawer while build mode owns the row click. */}
         <RowPropertiesButton
           task={task}
           isSelected={isSelected}
@@ -1863,11 +1871,18 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
   // so the active token is derivable without EditableCell exposing its internal state.
   const ownerFragment = pool.length > 0 ? activeOwnerQuery(autocompleteQuery) : null;
   if (!buildMode) return null;
+  // A row `insertBelow` just created carries a non-blank placeholder name
+  // (the API rejects blank on create), but renders blank here until the user
+  // types — keeps the "type over it" UX and the double-Enter no-op guard
+  // both reading "blank until touched", same as before the placeholder fix
+  // (#2682 follow-up).
+  const isPristine = buildMode.isPristineNewRow?.(task.id) ?? false;
+  const clearPristine = () => buildMode.clearPristineNewRow?.(task.id);
   return (
     <div className="relative flex-1 min-w-0">
       <EditableCell
         column="name"
-        value={task.name}
+        value={isPristine ? '' : task.name}
         isEditing={true}
         inputType="text"
         ariaLabel={`Rename task ${task.name}`}
@@ -1876,6 +1891,7 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
           /* already editing */
         }}
         onCommit={(parsed) => {
+          clearPristine();
           if (typeof parsed === 'string' && projectId) {
             // Split the draft into name + owners. A token that matches no roster member
             // is left in the name verbatim and the row still commits (ADR-0774 §6) —
@@ -1896,12 +1912,16 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
           buildMode.focus.commitToRow();
         }}
         onRollback={() => {
+          clearPristine();
           setAutocompleteQuery('');
           buildMode.focus.rollbackToRow();
         }}
         onTabForward={() => buildMode.focus.tabForward()}
         onTabBackward={() => buildMode.focus.tabBackward()}
-        onQueryChange={setAutocompleteQuery}
+        onQueryChange={(q) => {
+          if (q !== '') clearPristine();
+          setAutocompleteQuery(q);
+        }}
         // Commit-and-continue (#1666): Enter in the Name cell commits, then
         // inserts a new sibling below and drops into its Name cell. A blank
         // Name (emptyIsNoop) makes the second Enter a calm no-op.

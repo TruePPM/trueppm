@@ -261,10 +261,10 @@ async function openDrawer(page: import('@playwright/test').Page, taskName: strin
   const grid = page.getByRole('grid', { name: 'Task list' });
   await expect(grid).toBeVisible({ timeout: 10_000 });
 
-  // TaskListRow renders as role="row" without aria-label. The task name text
-  // is inside a span within the row — clicking the text propagates to the row's
-  // onClick which sets selectedTaskId and opens the drawer.
-  await grid.getByText(taskName, { exact: true }).click();
+  // Build mode is always active on desktop (ADR-0054): a plain row click just
+  // focuses the cell for inline editing, so opening the drawer goes through the
+  // row's "Open properties for …" button instead.
+  await grid.getByRole('button', { name: `Open properties for ${taskName}` }).click();
 
   // On desktop (1280px viewport) the drawer renders as a slide-in role="dialog".
   // Its aria-label is set to drawerTitle only when a task is selected.

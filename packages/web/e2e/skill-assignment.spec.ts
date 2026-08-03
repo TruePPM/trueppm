@@ -280,11 +280,12 @@ test('Skill-fit groups appear in the assignment picker when task has requirement
 }) => {
   await seedAndNavigate(page);
 
-  // Open task detail drawer by clicking the task row (scoped to grid to avoid
-  // matching the canvas aria-overlay row which resolves to a second element)
+  // Open task detail drawer via the row's Properties button — a plain row
+  // click just focuses the cell for inline editing under build mode (ADR-0054).
   await page
     .getByRole('grid', { name: 'Task list' })
     .getByRole('row', { name: /Build API/i })
+    .getByRole('button', { name: /Open properties for/i })
     .click();
   const drawer = page.getByRole('dialog');
   await expect(drawer).toBeVisible();
@@ -311,6 +312,7 @@ test('Missing skill badge shown for no-match resources', async ({ page }) => {
   await page
     .getByRole('grid', { name: 'Task list' })
     .getByRole('row', { name: /Build API/i })
+    .getByRole('button', { name: /Open properties for/i })
     .click();
   const drawer = page.getByRole('dialog');
   await expect(drawer).toBeVisible();

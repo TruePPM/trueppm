@@ -274,7 +274,7 @@ async function setupScheduleWithPendingSuggestion(
 async function openEstimates(page: Page) {
   const grid = page.getByRole('grid', { name: 'Task list' });
   await expect(grid).toBeVisible({ timeout: 10_000 });
-  await grid.getByText(TASK.name, { exact: true }).click();
+  await grid.getByRole('button', { name: `Open properties for ${TASK.name}` }).click();
   const drawer = page.getByRole('dialog', { name: new RegExp(TASK.name) }).first();
   await expect(drawer).toBeVisible({ timeout: 5_000 });
   await drawer.getByRole('button', { name: 'Estimates' }).click();
