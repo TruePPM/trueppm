@@ -36,11 +36,13 @@ export interface EditableCellProps {
   onQueryChange?: (query: string) => void;
   /**
    * Called after a SUCCESSFUL Enter-commit (not blur, not Tab, not Esc). Used by
-   * the Name cell for commit-and-continue (#1666): after committing the edit,
-   * insert a new sibling row below and move into its Name cell. Not fired when
+   * the Name cell for commit-and-continue (#1666, extended #2727): after
+   * committing the edit, insert a new row and move into its Name cell — plain
+   * Enter below, Shift+Enter above, ⌘/Ctrl+Enter as a child. `mods` carries the
+   * modifier keys held on the Enter that triggered the commit. Not fired when
    * the commit is rejected (see `emptyIsNoop`).
    */
-  onEnterCommit?: () => void;
+  onEnterCommit?: (mods: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) => void;
   /**
    * When true, an Enter on an empty/whitespace value is a calm no-op — no error
    * flash, no `onCommit`, no `onEnterCommit`. Used by the Name cell so the
@@ -224,10 +226,11 @@ export function EditableCell({
             e.preventDefault();
             if (tryCommit(draft)) {
               // Commit succeeded (onCommit already ran + caller transitioned to
-              // RowFocused). Commit-and-continue: insert a new sibling below and
-              // move into its Name cell (#1666). No-op commits (blank guard)
+              // RowFocused). Commit-and-continue: insert a new row and move into
+              // its Name cell — sibling below by default, above/child per
+              // modifier (#1666, extended #2727). No-op commits (blank guard)
               // return false above, so this never spawns a second blank row.
-              onEnterCommit?.();
+              onEnterCommit?.({ shiftKey: e.shiftKey, metaKey: e.metaKey, ctrlKey: e.ctrlKey });
             }
           } else if (e.key === 'Escape') {
             e.preventDefault();

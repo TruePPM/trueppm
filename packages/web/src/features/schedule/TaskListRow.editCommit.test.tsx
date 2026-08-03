@@ -123,6 +123,8 @@ const spies = {
   indent: vi.fn(),
   outdent: vi.fn(),
   insertBelow: vi.fn(),
+  insertAbove: vi.fn(),
+  insertChild: vi.fn(),
   convertToMilestone: vi.fn(),
   deleteTask: vi.fn(),
 };
@@ -152,6 +154,8 @@ function Harness({
       indent: spies.indent,
       outdent: spies.outdent,
       insertBelow: spies.insertBelow,
+      insertAbove: spies.insertAbove,
+      insertChild: spies.insertChild,
       convertToMilestone: spies.convertToMilestone,
       deleteTask: spies.deleteTask,
       isMutationPending: () => false,

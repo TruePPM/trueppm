@@ -62,6 +62,8 @@ describe('TaskListRow — Option/Alt+↑/↓ sibling reorder (#347)', () => {
         indent: vi.fn(),
         outdent: vi.fn(),
         insertBelow: vi.fn(),
+        insertAbove: vi.fn(),
+        insertChild: vi.fn(),
         convertToMilestone: vi.fn(),
         deleteTask: vi.fn(),
         isMutationPending: () => false,

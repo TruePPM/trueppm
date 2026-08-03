@@ -108,11 +108,12 @@ import {
   useDeleteTask,
   useRestoreTask,
   useCreateTask,
+  useReorderTasks,
   useAddDependency,
   parseCyclicDependencyError,
 } from '@/hooks/useTaskMutations';
 import { toast } from '@/components/Toast';
-import { siblingParentId } from './buildMode/insertBelow';
+import { wbsParentPath, siblingIdsOf } from './buildMode/insertBelow';
 import { isPhaseTask } from '@/lib/isPhaseTask';
 
 // ---------------------------------------------------------------------------
@@ -1218,6 +1219,7 @@ export function ScheduleView() {
   const deleteTaskMut = useDeleteTask(projectId);
   const restoreTaskMut = useRestoreTask(projectId);
   const createTaskMut = useCreateTask(projectId);
+  const reorderTaskMut = useReorderTasks(projectId);
   // Drag-to-link (#1666): the canvas `create-link` gesture lands here as an
   // FS/0-lag dependency create. Server enforces cycle detection (400
   // cyclic_dependency) and self-link rejection (ADR-0055); the arrow appears
@@ -1421,9 +1423,49 @@ export function ScheduleView() {
     [projectId, allTasks, deleteTaskMut, undoBuildModeDelete, setScheduleActionToast],
   );
 
-  // The one task, if any, that `insertBelow` just created and whose Name cell
-  // hasn't been touched yet — see `isPristineNewRow` on BuildModeApi.
+  // The one task, if any, that `insertBelow`/`insertAbove`/`insertChild` just
+  // created and whose Name cell hasn't been touched yet — see
+  // `isPristineNewRow` on BuildModeApi.
   const [pristineNewRowId, setPristineNewRowId] = useState<string | null>(null);
+
+  // Shared create step for the three Enter variants (#2727). Non-blank
+  // placeholder name (mirrors handleAddFirstTask / handleAddPhaseFirstChild):
+  // the API rejects a blank name at create (Task.name has no blank=True) —
+  // a blank-name payload made Enter silently create nothing against a real
+  // backend (#2682 follow-up finding). Inherits the source row's delivery
+  // mode so the new row doesn't silently fall back to the server default; a
+  // per-task calendar override doesn't exist on the wire today, so there is
+  // nothing to inherit there (ADR-0776).
+  const createNewTask = useCallback(
+    (
+      parentId: string | null,
+      sourceTask: Task | undefined,
+      onCreated?: (created: { id: string }) => void,
+    ) => {
+      createTaskMut.mutate(
+        {
+          name: 'New task',
+          duration: 1,
+          parent_id: parentId,
+          ...(sourceTask?.deliveryMode ? { delivery_mode: sourceTask.deliveryMode } : {}),
+        },
+        {
+          // Drop straight into the new row's Name cell in edit mode so Enter
+          // always ends with the cursor in an editable Name cell. The row
+          // mounts after the tasks cache invalidates; the focus reducer state
+          // is applied when TaskListRow renders and reads it.
+          onSuccess: (created) => {
+            focus.focusRow(created.id);
+            focus.enterCellEdit(created.id, 'name');
+            setPristineNewRowId(created.id);
+            onCreated?.(created);
+          },
+          onError: () => toast.error("Couldn't add a new task — try again."),
+        },
+      );
+    },
+    [createTaskMut, focus],
+  );
 
   const buildModeApi = useMemo<BuildModeApi>(
     () => ({
@@ -1435,29 +1477,45 @@ export function ScheduleView() {
         // (#1666). The previous behavior ignored the arg and created at the WBS
         // root, which was the "broken Enter binding" this fixes. Position within
         // the parent is append-only for v1: the server appends the new row at the
-        // end of the parent's children (no `after_id` positioning yet).
+        // end of the parent's children (no `after_id` positioning yet) — which is
+        // where a plain "below" sibling belongs anyway, no reorder needed.
         if (!projectId) return;
-        const parentId = siblingParentId(allTasks, taskId);
-        // Non-blank placeholder name (mirrors handleAddFirstTask /
-        // handleAddPhaseFirstChild): the API rejects a blank name at create
-        // (Task.name has no blank=True), and there was no onError handler
-        // here to surface that — a blank-name payload made Enter silently
-        // create nothing against a real backend (#2682 follow-up finding).
-        createTaskMut.mutate(
-          { name: 'New task', duration: 1, parent_id: parentId },
-          {
-            // On create, drop straight into the new row's Name cell in edit mode
-            // so Enter always ends with the cursor in an editable Name cell. The
-            // row mounts after the tasks cache invalidates; the focus reducer
-            // state is applied when TaskListRow renders and reads it.
-            onSuccess: (created) => {
-              focus.focusRow(created.id);
-              focus.enterCellEdit(created.id, 'name');
-              setPristineNewRowId(created.id);
-            },
-            onError: () => toast.error("Couldn't add a new task — try again."),
-          },
-        );
+        const focused = allTasks.find((t) => t.id === taskId);
+        const parentId = focused?.parentId ?? null;
+        createNewTask(parentId, focused);
+      },
+      insertAbove: (taskId) => {
+        // Shift+Enter (#2727): same depth as insertBelow, but the new row must
+        // land immediately BEFORE the focused row. The create endpoint only
+        // appends at the end of the parent's children (v1, no `after_id`), so
+        // this composes create + the existing reorder endpoint — same pattern
+        // Alt+↑/↓ already uses for moving a row among its siblings.
+        if (!projectId) return;
+        const focused = allTasks.find((t) => t.id === taskId);
+        if (!focused) return;
+        const parentId = focused.parentId ?? null;
+        const siblingIdsBeforeCreate = siblingIdsOf(allTasks, parentId);
+        createNewTask(parentId, focused, (created) => {
+          const idx = siblingIdsBeforeCreate.indexOf(taskId);
+          const ordered =
+            idx === -1
+              ? [...siblingIdsBeforeCreate, created.id]
+              : [
+                  ...siblingIdsBeforeCreate.slice(0, idx),
+                  created.id,
+                  ...siblingIdsBeforeCreate.slice(idx),
+                ];
+          reorderTaskMut.mutate({ parent_path: wbsParentPath(focused.wbs), ordered_ids: ordered });
+        });
+      },
+      insertChild: (taskId) => {
+        // ⌘/Ctrl+Enter (#2727): one level deeper than the focused row, which
+        // becomes that child's parent. The focused row becomes a summary as a
+        // side effect of gaining a child — `isSummary` is server-derived from
+        // having children, not a settable flag, so nothing else to toggle.
+        if (!projectId) return;
+        const focused = allTasks.find((t) => t.id === taskId);
+        createNewTask(taskId, focused);
       },
       isPristineNewRow: (taskId) => taskId === pristineNewRowId,
       clearPristineNewRow: (taskId) =>
@@ -1500,7 +1558,8 @@ export function ScheduleView() {
       outdentTask,
       updateTaskMut,
       deleteTaskMut,
-      createTaskMut,
+      createNewTask,
+      reorderTaskMut,
       projectId,
       allTasks,
       childCountById,

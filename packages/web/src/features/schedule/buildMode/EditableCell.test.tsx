@@ -222,6 +222,21 @@ describe('EditableCell — commit-and-continue / blank guard (#1666)', () => {
     expect(onEnterCommit).toHaveBeenCalledOnce();
   });
 
+  it('passes the Enter keydown modifiers to onEnterCommit (#2727)', () => {
+    const onEnterCommit = vi.fn();
+    render(
+      <EditableCell {...baseProps} isEditing={true} onEnterCommit={onEnterCommit} />,
+    );
+    const input = screen.getByLabelText('Task name');
+    fireEvent.change(input, { target: { value: 'Design' } });
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
+    expect(onEnterCommit).toHaveBeenCalledWith({
+      shiftKey: true,
+      metaKey: false,
+      ctrlKey: false,
+    });
+  });
+
   it('fires onEnterCommit even when the name is unchanged (Enter always continues)', () => {
     const onEnterCommit = vi.fn();
     render(

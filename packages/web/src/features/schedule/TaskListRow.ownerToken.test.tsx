@@ -102,6 +102,8 @@ function Harness({ task = base, resourcePool, nameSuggestions, focusRef }: Harne
       indent: vi.fn(),
       outdent: vi.fn(),
       insertBelow: vi.fn(),
+      insertAbove: vi.fn(),
+      insertChild: vi.fn(),
       convertToMilestone: vi.fn(),
       deleteTask: vi.fn(),
       isMutationPending: () => false,

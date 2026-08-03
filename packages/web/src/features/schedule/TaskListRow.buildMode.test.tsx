@@ -40,6 +40,8 @@ interface Captured {
   indent: ReturnType<typeof vi.fn>;
   outdent: ReturnType<typeof vi.fn>;
   insertBelow: ReturnType<typeof vi.fn>;
+  insertAbove: ReturnType<typeof vi.fn>;
+  insertChild: ReturnType<typeof vi.fn>;
   convertToMilestone: ReturnType<typeof vi.fn>;
   deleteTask: ReturnType<typeof vi.fn>;
 }
@@ -52,6 +54,8 @@ const stableSpies = {
   indent: vi.fn(),
   outdent: vi.fn(),
   insertBelow: vi.fn(),
+  insertAbove: vi.fn(),
+  insertChild: vi.fn(),
   convertToMilestone: vi.fn(),
   deleteTask: vi.fn(),
 };
@@ -72,6 +76,8 @@ function Harness({
       indent: stableSpies.indent,
       outdent: stableSpies.outdent,
       insertBelow: stableSpies.insertBelow,
+      insertAbove: stableSpies.insertAbove,
+      insertChild: stableSpies.insertChild,
       convertToMilestone: stableSpies.convertToMilestone,
       deleteTask: stableSpies.deleteTask,
       isMutationPending: () => false,
@@ -84,6 +90,8 @@ function Harness({
     indent: stableSpies.indent,
     outdent: stableSpies.outdent,
     insertBelow: stableSpies.insertBelow,
+    insertAbove: stableSpies.insertAbove,
+    insertChild: stableSpies.insertChild,
     convertToMilestone: stableSpies.convertToMilestone,
     deleteTask: stableSpies.deleteTask,
   };
@@ -185,6 +193,29 @@ describe('TaskListRow — build-mode keyboard', () => {
     expect(c.current.insertBelow).toHaveBeenCalledWith('t-build-1');
   });
 
+  it('Shift+Enter on focused row inserts a sibling above via insertAbove (#2727)', () => {
+    const c = renderHarness();
+    act(() => c.current.focus.focusRow('t-build-1'));
+    fireEvent.keyDown(screen.getByRole('row'), { key: 'Enter', shiftKey: true });
+    expect(c.current.insertAbove).toHaveBeenCalledWith('t-build-1');
+    expect(c.current.insertBelow).not.toHaveBeenCalled();
+  });
+
+  it('⌘+Enter on focused row inserts a child via insertChild (#2727)', () => {
+    const c = renderHarness();
+    act(() => c.current.focus.focusRow('t-build-1'));
+    fireEvent.keyDown(screen.getByRole('row'), { key: 'Enter', metaKey: true });
+    expect(c.current.insertChild).toHaveBeenCalledWith('t-build-1');
+    expect(c.current.insertBelow).not.toHaveBeenCalled();
+  });
+
+  it('Ctrl+Enter on focused row also inserts a child via insertChild (#2727)', () => {
+    const c = renderHarness();
+    act(() => c.current.focus.focusRow('t-build-1'));
+    fireEvent.keyDown(screen.getByRole('row'), { key: 'Enter', ctrlKey: true });
+    expect(c.current.insertChild).toHaveBeenCalledWith('t-build-1');
+  });
+
   it('F2 on focused row enters Name cell-edit (build-mode override)', () => {
     const c = renderHarness();
     act(() => c.current.focus.focusRow('t-build-1'));
@@ -210,6 +241,8 @@ describe('TaskListRow — build-mode keyboard', () => {
           indent: stableSpies.indent,
           outdent: stableSpies.outdent,
           insertBelow: stableSpies.insertBelow,
+          insertAbove: stableSpies.insertAbove,
+          insertChild: stableSpies.insertChild,
           convertToMilestone: stableSpies.convertToMilestone,
           deleteTask: stableSpies.deleteTask,
           isMutationPending: () => false,
@@ -221,6 +254,8 @@ describe('TaskListRow — build-mode keyboard', () => {
         indent: stableSpies.indent,
         outdent: stableSpies.outdent,
         insertBelow: stableSpies.insertBelow,
+        insertAbove: stableSpies.insertAbove,
+        insertChild: stableSpies.insertChild,
         convertToMilestone: stableSpies.convertToMilestone,
         deleteTask: stableSpies.deleteTask,
       };
@@ -256,6 +291,8 @@ describe('TaskListRow — build-mode keyboard', () => {
           indent: stableSpies.indent,
           outdent: stableSpies.outdent,
           insertBelow: stableSpies.insertBelow,
+          insertAbove: stableSpies.insertAbove,
+          insertChild: stableSpies.insertChild,
           convertToMilestone: stableSpies.convertToMilestone,
           deleteTask: stableSpies.deleteTask,
           isMutationPending: () => false,
@@ -267,6 +304,8 @@ describe('TaskListRow — build-mode keyboard', () => {
         indent: stableSpies.indent,
         outdent: stableSpies.outdent,
         insertBelow: stableSpies.insertBelow,
+        insertAbove: stableSpies.insertAbove,
+        insertChild: stableSpies.insertChild,
         convertToMilestone: stableSpies.convertToMilestone,
         deleteTask: stableSpies.deleteTask,
       };
@@ -415,6 +454,8 @@ describe('TaskListRow — pending-mutation guards (#806)', () => {
           indent: stableSpies.indent,
           outdent: stableSpies.outdent,
           insertBelow: stableSpies.insertBelow,
+          insertAbove: stableSpies.insertAbove,
+          insertChild: stableSpies.insertChild,
           convertToMilestone: stableSpies.convertToMilestone,
           deleteTask: stableSpies.deleteTask,
           isMutationPending: (id: string) => ids.has(id),
@@ -478,6 +519,8 @@ function PendingHarness({ pending }: { pending: boolean }) {
       indent: stableSpies.indent,
       outdent: stableSpies.outdent,
       insertBelow: stableSpies.insertBelow,
+      insertAbove: stableSpies.insertAbove,
+      insertChild: stableSpies.insertChild,
       convertToMilestone: stableSpies.convertToMilestone,
       deleteTask: stableSpies.deleteTask,
       isMutationPending: (id: string) => pending && id === 't-build-1',

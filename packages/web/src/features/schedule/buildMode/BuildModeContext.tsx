@@ -3,12 +3,20 @@ import type { UseScheduleFocusReturn } from './useScheduleFocus';
 
 export interface BuildModeApi {
   focus: UseScheduleFocusReturn;
-  /** Indent the row (Tab from RowFocused). */
+  /** Indent the row (Alt+→ from RowFocused, #2727 — not Tab, see ADR-0776 §6). */
   indent: (taskId: string) => void;
-  /** Outdent the row (Shift-Tab from RowFocused). */
+  /** Outdent the row (Alt+← from RowFocused, #2727 — not Shift-Tab, see ADR-0776 §6). */
   outdent: (taskId: string) => void;
   /** Insert a sibling row below the current row (Enter from RowFocused). */
   insertBelow: (taskId: string) => void;
+  /** Insert a sibling row above the current row (Shift+Enter, #2727). */
+  insertAbove: (taskId: string) => void;
+  /**
+   * Insert a child row one level under the current row (⌘/Ctrl+Enter, #2727).
+   * The current row becomes a summary as a side effect of gaining a child —
+   * `isSummary` is server-derived from having children, not a settable flag.
+   */
+  insertChild: (taskId: string) => void;
   /** Convert a task to a milestone (set duration=0). Used by the row menu. */
   convertToMilestone: (taskId: string) => void;
   /** Delete a task. Used by the row menu and the Delete key. */

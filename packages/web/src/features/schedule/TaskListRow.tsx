@@ -70,6 +70,7 @@ import {
   parseOwnerDraft,
   type RowMenuItem,
 } from './buildMode';
+import { wbsParentPath } from './buildMode/insertBelow';
 
 interface Props {
   task: Task;
@@ -211,12 +212,6 @@ export function truncateWbsPath(path: string, maxChars: number): string {
   const parts = path.split('.');
   if (parts.length <= 2) return path.slice(0, maxChars - 1) + '…';
   return `${parts[0]}.…${parts[parts.length - 1]}`;
-}
-
-/** Derive WBS parent path for reorder API (ltree format). Root tasks return "". */
-function wbsParentPath(wbs: string): string {
-  const parts = wbs.split('.');
-  return parts.slice(0, -1).join('.');
 }
 
 /** Add n calendar days to an ISO date string. */
@@ -409,16 +404,24 @@ function tryRowArrowSelect(e: React.KeyboardEvent, ctx: RowKeyDownCtx): boolean 
 }
 
 /**
- * Enter on a focused row. In build mode it inserts a new sibling below (same
- * parent / depth) and drops the cursor into its Name cell (#1666); otherwise it
- * toggles row selection. F2 remains the "edit this row's name" affordance. One
- * mental model: Enter always ends with the cursor in an editable Name cell.
- * Split from handleRowKeyDown (#2245); semantics verbatim.
+ * Enter on a focused row. In build mode it inserts a new row and drops the
+ * cursor into its Name cell — sibling below (same parent/depth) by default
+ * (#1666), sibling above on Shift, child (one level deeper) on ⌘/Ctrl
+ * (#2727); otherwise it toggles row selection. F2 remains the "edit this
+ * row's name" affordance. One mental model: Enter always ends with the
+ * cursor in an editable Name cell. Split from handleRowKeyDown (#2245).
  */
-function handleRowEnter(ctx: RowKeyDownCtx): void {
+function handleRowEnter(
+  e: Pick<React.KeyboardEvent, 'shiftKey' | 'metaKey' | 'ctrlKey'>,
+  ctx: RowKeyDownCtx,
+): void {
   const { buildMode, task, isSelected, setSelectedTaskId } = ctx;
   if (buildMode) {
-    buildMode.insertBelow(task.id);
+    // Shift+Enter = sibling above, ⌘/Ctrl+Enter = child, plain Enter = sibling
+    // below (#2727).
+    if (e.metaKey || e.ctrlKey) buildMode.insertChild(task.id);
+    else if (e.shiftKey) buildMode.insertAbove(task.id);
+    else buildMode.insertBelow(task.id);
   } else {
     setSelectedTaskId(isSelected ? null : task.id);
   }
@@ -463,7 +466,7 @@ function handleRowShortcuts(e: React.KeyboardEvent, ctx: RowKeyDownCtx): void {
   }
   if (e.key === 'Enter') {
     e.preventDefault();
-    handleRowEnter(ctx);
+    handleRowEnter(e, ctx);
     return;
   }
   if (e.key === 'F2') {
@@ -1922,10 +1925,16 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
           if (q !== '') clearPristine();
           setAutocompleteQuery(q);
         }}
-        // Commit-and-continue (#1666): Enter in the Name cell commits, then
-        // inserts a new sibling below and drops into its Name cell. A blank
-        // Name (emptyIsNoop) makes the second Enter a calm no-op.
-        onEnterCommit={() => buildMode.insertBelow(task.id)}
+        // Commit-and-continue (#1666, extended #2727): Enter in the Name cell
+        // commits, then inserts a new row and drops into its Name cell —
+        // sibling below by default, sibling above (Shift) or child (⌘/Ctrl)
+        // per modifier. A blank Name (emptyIsNoop) makes the second Enter a
+        // calm no-op.
+        onEnterCommit={(mods) => {
+          if (mods.metaKey || mods.ctrlKey) buildMode.insertChild(task.id);
+          else if (mods.shiftKey) buildMode.insertAbove(task.id);
+          else buildMode.insertBelow(task.id);
+        }}
         emptyIsNoop
       />
       {ownerFragment && (

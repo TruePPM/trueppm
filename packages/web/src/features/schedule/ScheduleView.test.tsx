@@ -56,6 +56,7 @@ const createTaskMutate = vi.fn(
   },
 );
 const deleteTaskMutate = vi.fn();
+const reorderTaskMutate = vi.fn();
 const createBaselineMutate = vi.fn();
 // Drag-to-link create (#1666). Capturable so create-link tests can assert the
 // FS/0-lag payload and drive the onSuccess / onError branches.
@@ -162,6 +163,7 @@ vi.mock('@/hooks/useTaskMutations', () => ({
   useDeleteTask: () => ({ mutate: deleteTaskMutate, isPending: false, variables: undefined }),
   useRestoreTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
   useCreateTask: () => ({ mutate: createTaskMutate, isPending: false, variables: undefined }),
+  useReorderTasks: () => ({ mutate: reorderTaskMutate, isPending: false, variables: undefined }),
   useAddDependency: () => ({ mutate: addDepMutate, isPending: false, variables: undefined }),
   parseCyclicDependencyError: (err: unknown) =>
     (err as { cyclic?: boolean } | null)?.cyclic ? { path: ['a', 'b'] } : null,
