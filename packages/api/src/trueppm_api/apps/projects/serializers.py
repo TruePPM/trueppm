@@ -7,6 +7,7 @@ import os
 import re
 import uuid
 from datetime import date
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any, cast
 
 from django.contrib.auth import get_user_model
@@ -96,7 +97,14 @@ from trueppm_api.apps.projects.schema_migrations import (
     SURFACE_BOARD_SAVED_VIEW,
     migrate_payload,
 )
-from trueppm_api.apps.resources.models import TaskResource
+from trueppm_api.apps.resources.models import Resource, TaskResource
+from trueppm_api.apps.resources.services import (
+    MAX_ASSIGNMENT_UNITS,
+    MIN_ASSIGNMENT_UNITS,
+    apply_task_owners,
+    rostered_resource_ids,
+    task_is_summary,
+)
 
 User = get_user_model()
 
@@ -2610,6 +2618,31 @@ class TaskAssignmentSerializer(serializers.ModelSerializer[TaskResource]):
         read_only_fields = fields
 
 
+class TaskOwnerWriteSerializer(serializers.Serializer[dict[str, Any]]):
+    """One inbound owner assignment carried on a task write (ADR-0774, #2718).
+
+    The write-side counterpart to ``TaskAssignmentSerializer``. Deliberately takes a
+    resource **id**, never free text: the Project Designer's ``@ana`` token resolves the
+    name client-side against the roster it already holds, so no name-collision surface
+    reaches the server (ADR-0774 §3, contrast #2485).
+
+    ``units`` is a fraction of full capacity — ``1.0`` is 100%, matching
+    ``TaskResource.units`` and ``TaskResourceSerializer``. The token's ``@ana:50``
+    percent form is a web-only presentation and is divided by 100 before it gets here;
+    one conversion, in one place.
+    """
+
+    resource = serializers.UUIDField()
+    units = serializers.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        required=False,
+        default=Decimal("1.0"),
+        min_value=MIN_ASSIGNMENT_UNITS,
+        max_value=MAX_ASSIGNMENT_UNITS,
+    )
+
+
 class AcceptanceCriterionSerializer(serializers.ModelSerializer[AcceptanceCriterion]):
     """Read/write serializer for a story's acceptance criteria (ADR-0105 §2).
 
@@ -2870,6 +2903,22 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # Nested resource assignments — read-only, used for Gantt assignee chips.
     assignments = TaskAssignmentSerializer(many=True, read_only=True)
 
+    # Write-only companion to ``assignments`` (ADR-0774, #2718). The inline-authoring
+    # path: the Project Designer's ``@ana`` token, the import Owner column, and the
+    # seeded-landing owner action all express ownership through this and never through
+    # ``assignee`` — a bare ``assignee`` contributes ZERO to every capacity, utilization,
+    # heat-map and sprint-capacity number, silently and permanently.
+    #
+    # Upsert, not replace-set: owners not named are left alone, so a single ``@ana``
+    # edit cannot delete a co-assignee somebody else added. Removal stays on
+    # ``DELETE /task-resources/``.
+    #
+    # Authority is inherited, never restated — this rides whatever gates the surrounding
+    # task write (``IsProjectMemberWrite`` on create, ``can_user_edit_task`` on update),
+    # which is why it declares no permission class of its own: when the authoring-role
+    # predicate lands (#2719) this picks up the corrected bar without being touched.
+    owners = TaskOwnerWriteSerializer(many=True, write_only=True, required=False)
+
     # Nested labels (ADR-0400) — read-only pills for board cards + schedule drawer.
     # Writes go through the task-nested attach/detach endpoints, never here, so the
     # replace-set lost-update race never exists. Prefetched in TaskViewSet.get_queryset.
@@ -3053,6 +3102,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "is_phase",
             "parent_id",
             "assignments",
+            "owners",
             "labels",
             "readiness",
             "predecessor_count",
@@ -3305,8 +3355,67 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         self._validate_three_point_order(attrs)
         self._validate_estimate_write_permitted(attrs)
         self._validate_product_backlog(attrs)
+        self._resolve_owners(attrs)
 
         return attrs
+
+    def _request_user(self) -> Any:
+        """The acting user for the inline-owner audit row, or None outside a request."""
+        request = self.context.get("request")
+        user = getattr(request, "user", None) if request else None
+        return user if user is not None and getattr(user, "is_authenticated", False) else None
+
+    def _resolve_owners(self, attrs: dict[str, Any]) -> None:
+        """Resolve inline ``owners`` ids against the project's roster (ADR-0774 §3).
+
+        Runs in ``validate`` rather than ``validate_owners`` because it needs the
+        destination project, which on create arrives in the same payload and on update
+        comes from the instance — neither is visible to a per-field validator.
+
+        Scoping is the security property, not a convenience: ``Resource`` is a
+        workspace-**global** library, so resolving an id against it would let a caller
+        holding write on one project bind an assignment to a person who is a member of
+        none of theirs. The roster (``ProjectResource``) is the membership index that
+        stops it. An id outside it is a field error — never a silent drop, which is the
+        failure mode this whole issue exists to close.
+
+        Replaces each entry's raw UUID with the ``Resource`` instance so
+        ``apply_task_owners`` does not re-query.
+        """
+        owners: list[dict[str, Any]] | None = attrs.get("owners")
+        if not owners:
+            return
+
+        project = attrs.get("project") or (self.instance.project if self.instance else None)
+        if project is None:
+            raise serializers.ValidationError(
+                {"owners": "Cannot resolve owners without a project."}
+            )
+
+        # A summary task rolls up from its children, so a direct assignment on it is
+        # ambiguous (ADR-0024) — the same rule TaskResourceViewSet enforces, shared via
+        # one helper so the two paths cannot drift. A create is never a summary (it has
+        # no children yet), so this only ever fires on update.
+        if self.instance is not None and task_is_summary(self.instance):
+            raise serializers.ValidationError(
+                {"owners": "Cannot assign resources to a summary task."}
+            )
+
+        rostered = rostered_resource_ids(project)
+        requested = [str(o["resource"]) for o in owners]
+        unknown = [rid for rid in requested if rid not in rostered]
+        if unknown:
+            raise serializers.ValidationError(
+                {
+                    "owners": (
+                        f"Not on this project's resource roster: {', '.join(sorted(unknown))}."
+                    )
+                }
+            )
+
+        by_id = {str(r.pk): r for r in Resource.objects.filter(pk__in=requested)}
+        for owner in owners:
+            owner["resource"] = by_id[str(owner["resource"])]
 
     #: The three PERT inputs ``EstimationMode`` governs. Kept beside the guard that
     #: reads it so the two cannot drift.
@@ -4567,10 +4676,18 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         insert (``shift_project_start_if_needed``) so a sub-start task never
         persists as a ghost value. The prior start is stashed on the returned
         instance so the viewset can broadcast the project change.
+
+        #2718: inline ``owners`` are applied after the insert, inside the same
+        transaction, so a row composed with an ``@ana`` token can never commit carrying
+        no owner — the failure that would look saved and silently contribute zero
+        capacity (ADR-0774 §2).
         """
+        owners = validated_data.pop("owners", None)
         project = validated_data.get("project")
         candidate = validated_data.get("planned_start")
         instance = super().create(validated_data)
+        if owners:
+            apply_task_owners(instance, owners, actor=self._request_user())
         if project is not None and candidate is not None:
             from trueppm_api.apps.projects.services import shift_project_start_if_needed
 
@@ -4611,6 +4728,11 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         - estimate_status is never set by this method to 'accepted' — that path goes
           through the dedicated approve-estimates action on TaskViewSet.
         """
+        # Popped before the helper chain: ``owners`` is not a model field, so it must
+        # not reach ``super().update()``. Applied after the save so the assignment rides
+        # the task write's transaction, CPM re-trigger, and board broadcast (ADR-0774).
+        owners = validated_data.pop("owners", None)
+
         self._apply_project_start_shift(instance, validated_data)
         self._sync_early_start_to_planned(instance, validated_data)
         self._apply_date_gated_start_transition(instance, validated_data)
@@ -4627,7 +4749,10 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         # set percent_complete before super().update() persists it.
         self._apply_duration_change_policy(instance, validated_data)
 
-        return super().update(instance, validated_data)
+        updated = super().update(instance, validated_data)
+        if owners:
+            apply_task_owners(updated, owners, actor=self._request_user())
+        return updated
 
     def _apply_project_start_shift(self, instance: Task, validated_data: dict[str, Any]) -> None:
         """#867 auto-shift: pull the project start back to an earlier planned_start.

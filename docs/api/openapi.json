@@ -49196,6 +49196,13 @@
                         "minimum": 0,
                         "nullable": true
                     },
+                    "owners": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskOwnerWriteRequest"
+                        },
+                        "writeOnly": true
+                    },
                     "blocked_reason": {
                         "type": "string",
                         "description": "Why the task is blocked; empty means not blocked."
@@ -57450,6 +57457,44 @@
                     "body"
                 ]
             },
+            "TaskOwnerWrite": {
+                "type": "object",
+                "description": "One inbound owner assignment carried on a task write (ADR-0774, #2718).\n\nThe write-side counterpart to ``TaskAssignmentSerializer``. Deliberately takes a\nresource **id**, never free text: the Project Designer's ``@ana`` token resolves the\nname client-side against the roster it already holds, so no name-collision surface\nreaches the server (ADR-0774 §3, contrast #2485).\n\n``units`` is a fraction of full capacity — ``1.0`` is 100%, matching\n``TaskResource.units`` and ``TaskResourceSerializer``. The token's ``@ana:50``\npercent form is a web-only presentation and is divided by 100 before it gets here;\none conversion, in one place.",
+                "properties": {
+                    "resource": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "units": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,2}(?:\\.\\d{0,2})?$",
+                        "default": "1.00"
+                    }
+                },
+                "required": [
+                    "resource"
+                ]
+            },
+            "TaskOwnerWriteRequest": {
+                "type": "object",
+                "description": "One inbound owner assignment carried on a task write (ADR-0774, #2718).\n\nThe write-side counterpart to ``TaskAssignmentSerializer``. Deliberately takes a\nresource **id**, never free text: the Project Designer's ``@ana`` token resolves the\nname client-side against the roster it already holds, so no name-collision surface\nreaches the server (ADR-0774 §3, contrast #2485).\n\n``units`` is a fraction of full capacity — ``1.0`` is 100%, matching\n``TaskResource.units`` and ``TaskResourceSerializer``. The token's ``@ana:50``\npercent form is a web-only presentation and is divided by 100 before it gets here;\none conversion, in one place.",
+                "properties": {
+                    "resource": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "units": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,2}(?:\\.\\d{0,2})?$",
+                        "default": "1.00"
+                    }
+                },
+                "required": [
+                    "resource"
+                ]
+            },
             "TaskProjectRef": {
                 "type": "object",
                 "description": "The project a cross-project row belongs to.\n\n``code`` is included alongside the name because it is what appears in a task's\nshort reference, and it is how PMs actually disambiguate two similarly named\nprojects at a glance.",
@@ -57848,6 +57893,13 @@
                         "maximum": 36525,
                         "minimum": 0,
                         "nullable": true
+                    },
+                    "owners": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskOwnerWriteRequest"
+                        },
+                        "writeOnly": true
                     },
                     "blocked_reason": {
                         "type": "string",

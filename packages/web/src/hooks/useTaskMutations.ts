@@ -128,6 +128,22 @@ export interface UpdateTaskPayload {
   blocker_type?: string;
   blocking_task?: string | null;
   /**
+   * Inline owner assignments authored with the task (ADR-0774, #2718). Write-only —
+   * the read projection is `Task.assignees`, mapped from the API's `assignments`.
+   *
+   * `units` is a FRACTION of full capacity (`0.5` = 50%), matching `TaskResource.units`.
+   * The `@ana:50` token's percent form is converted exactly once, in
+   * `ownerTokensToApiPayload`; a second conversion anywhere in the client is a bug.
+   *
+   * Upsert, not replace-set: owners not listed are left alone, so a one-token edit
+   * cannot silently delete a co-assignee. Removal goes through `useRemoveAssignment`.
+   *
+   * This exists because writing `Task.assignee` instead — the obvious implementation —
+   * contributes ZERO to every capacity, utilization, heat-map and sprint-capacity
+   * number, silently and permanently.
+   */
+  owners?: { resource: string; units: number }[];
+  /**
    * The `serverVersion` this edit was based on (ADR-0217, issue 322). When provided,
    * the server does field-level merge: a disjoint concurrent edit merges (200),
    * an overlapping one returns 409 and surfaces the "Someone else changed this"

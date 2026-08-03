@@ -18,6 +18,7 @@ from trueppm_api.apps.resources.models import (
     TaskResource,
     TaskSkillRequirement,
 )
+from trueppm_api.apps.resources.services import MAX_ASSIGNMENT_UNITS, MIN_ASSIGNMENT_UNITS
 
 
 class SkillSerializer(serializers.ModelSerializer[Skill]):
@@ -291,8 +292,13 @@ class TaskResourceSerializer(serializers.ModelSerializer[TaskResource]):
 
         0.01 (1%) is the minimum meaningful allocation; 2.0 (200%) is the
         maximum to catch data-entry errors while still allowing overtime.
+
+        The bounds live in ``resources.services`` because a second assignment-write
+        path now exists — the inline ``owners`` field on task writes (ADR-0774) — and
+        two allocation ranges that could drift apart is exactly the kind of split this
+        field was added to avoid.
         """
-        if value < Decimal("0.01") or value > Decimal("2.0"):
+        if value < MIN_ASSIGNMENT_UNITS or value > MAX_ASSIGNMENT_UNITS:
             raise serializers.ValidationError("units must be between 0.01 and 2.0 (1% to 200%)")
         return value
 

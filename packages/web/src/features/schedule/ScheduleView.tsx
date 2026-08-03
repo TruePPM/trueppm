@@ -19,6 +19,7 @@ import { dateToLeft, leftToDate, ZOOM_STEP_FACTOR } from './engine';
 import { computeInitialFraming, type RowBar } from './scheduleUtils';
 import { HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
+import { useProjectResourcePool } from '@/hooks/useProjectResourcePool';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { useWbsStore } from '@/stores/wbsStore';
 import { useDragCpm } from '@/hooks/useDragCpm';
@@ -1181,6 +1182,15 @@ export function ScheduleView() {
   const buildModeFlag = useFeatureFlag('schedule_build_mode_v1');
   const buildModeActive = buildModeFlag && !isMobile;
 
+  // Roster for the `@owner` authoring token (ADR-0774, #2718). Fetched only while build
+  // mode is active — passing '' disables the query, so a plain read of the schedule does
+  // not pay for a roster it has no surface to use. The rows resolve `@ana` against this
+  // and nothing else: the scoping is what stops a name typed here binding work to
+  // somebody who is a member of no project the author can see.
+  const { data: resourcePool } = useProjectResourcePool(
+    buildModeActive ? (projectId ?? '') : '',
+  );
+
   // Toolbar responsive tier (issue #568 / #1741, rules 110–114).
   //   lg → the Display trigger shows its full "Display ▾" label
   //   md/sm → the Display trigger collapses to icon-only (`iconOnly`)
@@ -2009,6 +2019,7 @@ export function ScheduleView() {
         pendingAutoEditId={pendingAutoEditId}
         setPendingAutoEditId={setPendingAutoEditId}
         plannedByPhase={plannedByPhase}
+        resourcePool={resourcePool}
         buildModeActive={buildModeActive}
         handleAddFirstTask={handleAddFirstTask}
         canvasScrollRef={canvasScrollRef}
@@ -2913,6 +2924,7 @@ interface ScheduleMainAreaProps {
   pendingAutoEditId: string | null;
   setPendingAutoEditId: Dispatch<SetStateAction<string | null>>;
   plannedByPhase: ComponentProps<typeof TaskListPanel>['plannedByPhase'];
+  resourcePool: ComponentProps<typeof TaskListPanel>['resourcePool'];
   buildModeActive: boolean;
   handleAddFirstTask: () => void;
   canvasScrollRef: RefObject<HTMLDivElement | null>;
@@ -2961,6 +2973,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
     pendingAutoEditId,
     setPendingAutoEditId,
     plannedByPhase,
+    resourcePool,
     buildModeActive,
     handleAddFirstTask,
     canvasScrollRef,
@@ -3028,6 +3041,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
               autoEditTaskId={pendingAutoEditId}
               onAutoEditConsumed={() => setPendingAutoEditId(null)}
               plannedByPhase={plannedByPhase}
+              resourcePool={resourcePool}
             />
             {/* Panel splitter — drag to resize task list width */}
             <PanelSplitter currentTaskWidth={widths.task} setWidth={setWidth} />
