@@ -2,7 +2,10 @@
 
 ## Status
 
-Proposed — 2026-08-02, for #2726 (0.4). Gates #2723; child of epic #2739.
+Accepted — status corrected 2026-08-03 when #2723 implemented it (verified: the
+`id`-on-create upsert, the four guards in `apps/projects/row_identity.py` shared with
+`apps/sync/upload.py`, the `dependencies` bucket, and the 207 contract all ship in
+!1891). Originally proposed 2026-08-02 for #2726 (0.4); child of epic #2739.
 
 **Depends on ADR-0773 (#2719).** The replay guarantee in Decision §5 is conditional on
 ADR-0773's `can_user_author_plan` predicate excluding `Role.SCHEDULER` from plan

@@ -2,8 +2,11 @@
 
 ## Status
 
-Proposed — 2026-08-02, for #2719 (0.4). Cross-cutting prerequisite for the Project
-Designer epics #2739 / #2740 / #2741, and a hard predecessor of ADR-0772 and #2723.
+Accepted — status corrected 2026-08-03 when #2723 implemented it (verified:
+`can_user_author_plan` and `IsProjectPlanAuthor` in `apps/access/permissions.py`, and
+`ProjectSerializer.can_author`, all ship in !1891). Originally proposed 2026-08-02 for
+#2719 (0.4). Cross-cutting prerequisite for the Project Designer epics #2739 / #2740 /
+#2741, and a hard predecessor of ADR-0772 and #2723.
 
 ## Context
 
