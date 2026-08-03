@@ -48,6 +48,19 @@ export interface EditableCellProps {
    * error. Only meaningful for text cells.
    */
   emptyIsNoop?: boolean;
+  /**
+   * An externally-authored replacement for the live draft, applied whenever the
+   * object identity changes (#2722).
+   *
+   * Accepting a token suggestion has to REWRITE the draft — `@an` becomes
+   * `@"Ana Rivera"` and the author keeps typing — rather than commit the row, because
+   * focus never leaves the row and more tokens may follow. The draft otherwise lives
+   * inside this component, so a picker sitting outside it has no other way in.
+   *
+   * Keyed on identity rather than value so that re-applying the *same* text (picking
+   * the same suggestion twice) still takes.
+   */
+  draftOverride?: { value: string } | null;
 }
 
 /**
@@ -104,6 +117,7 @@ export function EditableCell({
   onQueryChange,
   onEnterCommit,
   emptyIsNoop = false,
+  draftOverride = null,
 }: EditableCellProps) {
   const [draft, setDraft] = useState(value);
   const [flash, setFlash] = useState<FlashKind>(null);
@@ -114,6 +128,20 @@ export function EditableCell({
   useEffect(() => {
     if (!isEditing) setDraft(value);
   }, [value, isEditing]);
+
+  // Apply an externally-authored draft edit (a token picker completing a token) and
+  // put the caret at the end, so the author keeps typing where the token finished.
+  useEffect(() => {
+    if (!draftOverride) return;
+    setDraft(draftOverride.value);
+    const input = inputRef.current;
+    if (input) {
+      input.focus();
+      requestAnimationFrame(() => {
+        input.setSelectionRange(draftOverride.value.length, draftOverride.value.length);
+      });
+    }
+  }, [draftOverride]);
 
   // Focus input + select all on entering edit mode.
   useEffect(() => {

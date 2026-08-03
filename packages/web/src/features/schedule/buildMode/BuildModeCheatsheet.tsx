@@ -50,6 +50,29 @@ const SECTIONS: ShortcutSection[] = [
     ],
   },
   {
+    // Every token also has a toolbar button and a `/` command-menu entry, so the
+    // syntax is a shortcut for people who want one — never the only way in (#2722).
+    title: 'Inline tokens (type in the Name cell)',
+    entries: [
+      { keys: ['/'], label: 'Command menu — every token and action, by name' },
+      { keys: ['#5d'], label: 'Duration — 5 days. #2w for weeks, bare number for days' },
+      { keys: ['@ana'], label: 'Owner — @ana:50 allocates 50%' },
+      { keys: ['>2.3'], label: 'Predecessor by WBS or name — >2.3+2d lag, >2.3-1d lead' },
+      { keys: ['!'], label: 'Milestone — same as #0' },
+      { keys: ['~sprint'], label: 'Delivery mode on this row — also ~gated, ~kanban' },
+      { keys: ['[Design]'], label: 'Move under a phase by name' },
+    ],
+  },
+  {
+    title: 'Token pickers',
+    entries: [
+      { keys: ['↑', '↓'], label: 'Choose a suggestion' },
+      { keys: ['Tab'], label: 'Accept the highlighted suggestion' },
+      { keys: ['Esc'], label: 'Dismiss the picker, leaving your text untouched' },
+      { keys: ['⌥', '→'], label: 'Cycle dependency type FS → SS → FF → SF' },
+    ],
+  },
+  {
     title: 'Dependencies',
     entries: [
       { keys: ['Hover'], label: 'Reveal predecessor (blue) and successor (green) chain' },
