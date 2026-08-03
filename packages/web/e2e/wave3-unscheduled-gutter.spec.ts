@@ -268,10 +268,16 @@ test.describe('Unscheduled gutter — header (#213)', () => {
     await expect(page.getByText('(2)', { exact: true })).toBeVisible();
   });
 
-  test('shows "All To Do and Backlog tasks have planned dates" when no unscheduled tasks', async ({
+  test('shows "All To Do and Backlog tasks have planned dates" when no unscheduled tasks, once expanded', async ({
     page,
   }) => {
     await gotoSchedule(page, FIXTURE_API_TASKS_ALL_SCHEDULED);
+    // Zero unscheduled tasks → the gutter starts collapsed (no reassurance
+    // chrome shown by default) and the message is reachable via the toggle.
+    await expect(
+      page.getByText('All To Do and Backlog tasks have planned dates'),
+    ).toHaveCount(0);
+    await page.getByRole('button', { name: 'Expand unscheduled tasks' }).click();
     await expect(page.getByText('All To Do and Backlog tasks have planned dates')).toBeVisible();
   });
 
