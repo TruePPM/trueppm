@@ -112,11 +112,17 @@ def _bulk_update(client: APIClient, project: Project, task: Task, name: str) -> 
 def test_member_bulk_update_others_task_forbidden(
     member_client: APIClient, project: Project, others_task: Task
 ) -> None:
-    """A Member bulk-updating a task assigned to someone else is rejected 403 —
-    mirroring the delete branch, the whole request fails and nothing mutates."""
+    """A Member bulk-updating a task assigned to someone else is refused (#1548).
+
+    Per-row since #2723: the row is rejected with ``forbidden`` inside a 207 rather
+    than 403-ing the request. The permission decision is unchanged — only its blast
+    radius is.
+    """
     with _no_side_effects():
         r = _bulk_update(member_client, project, others_task, "Hijacked")
-    assert r.status_code == 403
+    assert r.status_code == 207, r.data
+    assert r.data["applied"] == []
+    assert [e["code"] for e in r.data["rejected"]] == ["forbidden"]
     others_task.refresh_from_db()
     assert others_task.name == "Theirs"
 
@@ -128,7 +134,8 @@ def test_member_bulk_update_own_task_succeeds(
     """A Member may bulk-update a task they are assigned to."""
     with _no_side_effects():
         r = _bulk_update(member_client, project, own_task, "Renamed")
-    assert r.status_code == 200
+    assert r.status_code == 207, r.data
+    assert r.data["rejected"] == []
     own_task.refresh_from_db()
     assert own_task.name == "Renamed"
 
@@ -140,18 +147,27 @@ def test_admin_bulk_update_any_task_succeeds(
     """Admin+ may bulk-update any task regardless of assignee."""
     with _no_side_effects():
         r = _bulk_update(admin_client, project, others_task, "AdminEdit")
-    assert r.status_code == 200
+    assert r.status_code == 207, r.data
+    assert r.data["rejected"] == []
     others_task.refresh_from_db()
     assert others_task.name == "AdminEdit"
 
 
 @pytest.mark.django_db
-def test_member_bulk_update_mixed_batch_rejects_whole_request(
+def test_member_bulk_update_mixed_batch_rejects_only_the_forbidden_row(
     member_client: APIClient, project: Project, own_task: Task, others_task: Task
 ) -> None:
-    """A batch containing a task the Member may not edit is rejected 403 before
-    any sibling op commits — the forbidden op is placed first so the request
-    short-circuits and neither task mutates."""
+    """A forbidden row rejects alone; the Member's own row still applies (#2723).
+
+    This replaces an expectation that was never actually delivered. The old test
+    asserted the request "short-circuits so neither task mutates" — true only
+    because the forbidden op was placed *first*. With the order reversed, the
+    permission check returned an error Response from inside the atomic block, which
+    exits the block normally, so the preceding row committed anyway — and the
+    post-commit recalculation and broadcast were skipped, because the view had
+    already returned (#2746). Per-row application makes the outcome independent of
+    where the forbidden row sits.
+    """
     with _no_side_effects():
         r = member_client.post(
             f"/api/v1/projects/{project.pk}/tasks/bulk/",
@@ -163,8 +179,11 @@ def test_member_bulk_update_mixed_batch_rejects_whole_request(
             },
             format="json",
         )
-    assert r.status_code == 403
+    assert r.status_code == 207, r.data
+    assert [e["index"] for e in r.data["rejected"]] == [0]
+    assert r.data["rejected"][0]["code"] == "forbidden"
+    assert [e["index"] for e in r.data["applied"]] == [1]
     own_task.refresh_from_db()
     others_task.refresh_from_db()
-    assert own_task.name == "Mine"
+    assert own_task.name == "OwnEdit"
     assert others_task.name == "Theirs"

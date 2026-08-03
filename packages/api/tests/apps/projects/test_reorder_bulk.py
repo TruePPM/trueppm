@@ -331,11 +331,15 @@ class TestTaskBulkView:
             ]
         }
         r = client.post(self.url(project), payload, format="json")
-        assert r.status_code == 200, r.data
-        assert len(r.data["created"]) == 1
-        assert r.data["created"][0]["name"] == "New Task"
-        assert r.data["updated"] == []
-        assert r.data["deleted"] == []
+        assert r.status_code == 207, r.data
+        assert r.data["rejected"] == []
+        assert r.data["skipped"] == []
+        assert len(r.data["applied"]) == 1
+        entry = r.data["applied"][0]
+        assert entry["index"] == 0
+        assert entry["op"] == "create"
+        assert entry["outcome"] == "created"
+        assert entry["task"]["name"] == "New Task"
         assert Task.objects.filter(project=project, name="New Task", is_deleted=False).exists()
 
     def test_update_happy_path(
@@ -352,8 +356,9 @@ class TestTaskBulkView:
             ]
         }
         r = client.post(self.url(project), payload, format="json")
-        assert r.status_code == 200, r.data
-        assert len(r.data["updated"]) == 1
+        assert r.status_code == 207, r.data
+        assert r.data["rejected"] == []
+        assert [e["outcome"] for e in r.data["applied"]] == ["updated"]
         t1.refresh_from_db()
         assert t1.percent_complete == 0.5
 
@@ -367,8 +372,10 @@ class TestTaskBulkView:
         t3 = root_tasks[2]
         payload = {"operations": [{"op": "delete", "id": str(t3.pk)}]}
         r = client.post(self.url(project), payload, format="json")
-        assert r.status_code == 200, r.data
-        assert str(t3.pk) in r.data["deleted"]
+        assert r.status_code == 207, r.data
+        assert r.data["rejected"] == []
+        assert [e["id"] for e in r.data["applied"]] == [str(t3.pk)]
+        assert r.data["applied"][0]["outcome"] == "deleted"
         t3.refresh_from_db()
         assert t3.is_deleted is True
 
@@ -391,10 +398,11 @@ class TestTaskBulkView:
             ]
         }
         r = client.post(self.url(project), payload, format="json")
-        assert r.status_code == 200, r.data
-        assert len(r.data["created"]) == 1
-        assert len(r.data["updated"]) == 1
-        assert len(r.data["deleted"]) == 1
+        assert r.status_code == 207, r.data
+        assert r.data["rejected"] == []
+        assert [e["outcome"] for e in r.data["applied"]] == ["created", "updated", "deleted"]
+        # index correlates each result back to its position in `operations`.
+        assert [e["index"] for e in r.data["applied"]] == [0, 1, 2]
 
     def test_bulk_mutated_broadcast_carries_task_ids(
         self,
@@ -423,7 +431,7 @@ class TestTaskBulkView:
             django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
         ):
             r = client.post(self.url(project), payload, format="json")
-        assert r.status_code == 200, r.data
+        assert r.status_code == 207, r.data
 
         bulk_calls = [
             c.args for c in mock_bcast.call_args_list if c.args[1] == "tasks_bulk_mutated"
@@ -461,7 +469,14 @@ class TestTaskBulkView:
             "operations": [{"op": "update", "id": str(uuid.uuid4()), "data": {"duration": 5}}]
         }
         r = client.post(self.url(project), payload, format="json")
-        assert r.status_code == 400
+        # Per-row now (#2723): an unknown id rejects its own row, it does not 400 the
+        # batch. The code is non-committal — a row in another project and a row that
+        # does not exist are reported identically, so the response is not a membership
+        # oracle (#359).
+        assert r.status_code == 207, r.data
+        assert r.data["applied"] == []
+        assert [e["code"] for e in r.data["rejected"]] == ["not_found"]
+        assert r.data["rejected"][0]["index"] == 0
 
     def test_missing_id_for_delete_rejected(
         self,
@@ -471,7 +486,11 @@ class TestTaskBulkView:
     ) -> None:
         payload = {"operations": [{"op": "delete"}]}
         r = client.post(self.url(project), payload, format="json")
-        assert r.status_code == 400
+        assert r.status_code == 207, r.data
+        assert [e["code"] for e in r.data["rejected"]] == ["invalid"]
+        # No id to echo back, so `index` is the only correlation handle.
+        assert r.data["rejected"][0]["id"] is None
+        assert r.data["rejected"][0]["index"] == 0
 
     def test_unauthenticated_rejected(
         self,
@@ -520,16 +539,24 @@ class TestTaskBulkView:
         r = client.post(url, payload, format="json")
         assert r.status_code == 404
 
-    def test_atomicity_rollback_on_invalid_update(
+    def test_one_invalid_row_does_not_discard_the_others(
         self,
         client: APIClient,
         project: Project,
         membership: ProjectMembership,
         root_tasks: list[Task],
     ) -> None:
-        """If one op is invalid, the whole transaction rolls back."""
+        """A bad row rejects alone; the good rows around it still apply (#2723).
+
+        This inverts the previous expectation, deliberately. The old test asserted
+        that an invalid op rolled the whole batch back, and it passed only because
+        that particular failure *raised* out of the atomic block. The ops that
+        **returned** an error Response instead — permission denials, the progress
+        anchor gate — left the block normally and silently committed everything
+        before them, with no recalculation and no broadcast (#2746). Per-row
+        application replaces both behaviors with one that is the same either way.
+        """
         t1 = root_tasks[0]
-        initial_duration = t1.duration
         payload = {
             "operations": [
                 {"op": "update", "id": str(t1.pk), "data": {"duration": 99}},
@@ -538,7 +565,9 @@ class TestTaskBulkView:
             ]
         }
         r = client.post(self.url(project), payload, format="json")
-        assert r.status_code == 400
-        # t1 must still have original duration — transaction rolled back.
+        assert r.status_code == 207, r.data
+        assert [e["index"] for e in r.data["applied"]] == [0]
+        assert [e["index"] for e in r.data["rejected"]] == [1]
+        assert r.data["rejected"][0]["code"] == "invalid"
         t1.refresh_from_db()
-        assert t1.duration == initial_duration
+        assert t1.duration == 99

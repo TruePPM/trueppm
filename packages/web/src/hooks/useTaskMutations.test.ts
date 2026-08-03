@@ -17,6 +17,7 @@ import {
   useIndentTask,
   useOutdentTask,
   useDeleteTask,
+  BulkRowRejectedError,
   useBulkDeleteTasks,
   useRestoreTask,
   useBulkRestoreTasks,
@@ -685,6 +686,34 @@ describe('useBulkDeleteTasks', () => {
     await waitFor(() =>
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', undefined] }),
     );
+  });
+
+  it('fails the mutation when the 207 response refuses a row (#2723)', async () => {
+    // The endpoint applies rows independently, so a refused delete comes back inside
+    // a 2xx. Without this the mutation would resolve and the UI would report a
+    // deletion that never happened.
+    postMock.mockResolvedValue({
+      data: {
+        applied: [],
+        rejected: [{ index: 0, id: 't1', code: 'forbidden', message: 'You may not edit this task.' }],
+        skipped: [],
+      },
+    });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useBulkDeleteTasks('p1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate(['t1']);
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect((result.current.error as BulkRowRejectedError).rejected).toHaveLength(1);
+    expect((result.current.error as BulkRowRejectedError).rejected[0].code).toBe('forbidden');
+    expect(invalidateSpy).not.toHaveBeenCalled();
+  });
+
+  it('succeeds when the 207 response refuses nothing', async () => {
+    postMock.mockResolvedValue({ data: { applied: [], rejected: [], skipped: [] } });
+    const { result } = renderHook(() => useBulkDeleteTasks('p1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate(['t1']);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
   });
 });
 
