@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import type { EditableColumn } from './useScheduleFocus';
 
 export type EditableCellInputType = 'text' | 'number' | 'duration';
@@ -61,6 +61,16 @@ export interface EditableCellProps {
    * the same suggestion twice) still takes.
    */
   draftOverride?: { value: string } | null;
+  /**
+   * Extra key handling for the input, run **before** this component's own
+   * Enter/Escape/Tab handling; call `preventDefault()` to claim the key (#2722).
+   *
+   * Lives here rather than on a wrapper element because the interaction belongs to
+   * the focusable input — a keydown handler on a plain wrapper div is both an
+   * accessibility smell (`jsx-a11y/no-static-element-interactions`) and a lie about
+   * where focus is.
+   */
+  onInputKeyDown?: (e: KeyboardEvent<HTMLInputElement>) => void;
 }
 
 /**
@@ -118,6 +128,7 @@ export function EditableCell({
   onEnterCommit,
   emptyIsNoop = false,
   draftOverride = null,
+  onInputKeyDown,
 }: EditableCellProps) {
   const [draft, setDraft] = useState(value);
   const [flash, setFlash] = useState<FlashKind>(null);
@@ -248,6 +259,10 @@ export function EditableCell({
           if (draft !== value) tryCommit(draft);
         }}
         onKeyDown={(e) => {
+          // Caller-supplied bindings get first refusal; a handler that calls
+          // preventDefault() has claimed the key.
+          onInputKeyDown?.(e);
+          if (e.defaultPrevented) return;
           if (e.key === 'Enter') {
             e.preventDefault();
             if (tryCommit(draft)) {

@@ -1911,28 +1911,7 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
   const isPristine = buildMode.isPristineNewRow?.(task.id) ?? false;
   const clearPristine = () => buildMode.clearPristineNewRow?.(task.id);
   return (
-    <div
-      className="relative flex-1 min-w-0"
-      onKeyDown={(e) => {
-        // ⌥→ / ⌥← cycle the dependency type of the predecessor token under the caret
-        // (FS → SS → FF → SF). Handled here rather than inside EditableCell because
-        // it rewrites the draft rather than committing anything.
-        if (!e.altKey || (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft')) return;
-        const input = e.target as HTMLInputElement;
-        const next = cycleDependencyTypeInDraft(
-          autocompleteQuery,
-          input.selectionStart ?? autocompleteQuery.length,
-          e.key === 'ArrowRight' ? 1 : -1,
-        );
-        // Null means the caret is not on a predecessor token — let the keystroke
-        // through rather than swallowing an arrow key meant for cursor movement.
-        if (next === null) return;
-        e.preventDefault();
-        e.stopPropagation();
-        setAutocompleteQuery(next);
-        setDraftOverride({ value: next });
-      }}
-    >
+    <div className="relative flex-1 min-w-0">
       <EditableCell
         column="name"
         value={isPristine ? '' : task.name}
@@ -2005,6 +1984,23 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
         onEnterCommit={() => buildMode.insertBelow(task.id)}
         emptyIsNoop
         draftOverride={draftOverride}
+        onInputKeyDown={(e) => {
+          // ⌥→ / ⌥← cycle the dependency type of the predecessor token under the
+          // caret (FS → SS → FF → SF). It rewrites the draft rather than committing
+          // anything, so it runs ahead of EditableCell's own key handling.
+          if (!e.altKey || (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft')) return;
+          const next = cycleDependencyTypeInDraft(
+            autocompleteQuery,
+            e.currentTarget.selectionStart ?? autocompleteQuery.length,
+            e.key === 'ArrowRight' ? 1 : -1,
+          );
+          // Null means the caret is not on a predecessor token — let the keystroke
+          // through rather than swallowing an arrow key meant for cursor movement.
+          if (next === null) return;
+          e.preventDefault();
+          setAutocompleteQuery(next);
+          setDraftOverride({ value: next });
+        }}
       />
       {slashFragment && commandSuggestions(slashFragment.query).length > 0 && (
         <TokenAutocomplete
