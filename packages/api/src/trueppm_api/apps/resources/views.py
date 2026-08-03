@@ -6,7 +6,7 @@ from collections.abc import Callable
 from decimal import Decimal
 from typing import Any
 
-from django.db import connection, models, transaction
+from django.db import models, transaction
 from django.db.models import ProtectedError, QuerySet, Sum
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -35,7 +35,7 @@ from trueppm_api.apps.access.permissions import (
     _membership_role,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
-from trueppm_api.apps.projects.models import Task, TaskActivityEvent, TaskActivityEventType
+from trueppm_api.apps.projects.models import Task, TaskActivityEventType
 from trueppm_api.apps.resources.models import (
     Proficiency,
     ProjectResource,
@@ -54,7 +54,11 @@ from trueppm_api.apps.resources.serializers import (
     TaskResourceSerializer,
     TaskSkillRequirementSerializer,
 )
-from trueppm_api.apps.resources.services import ensure_project_resource
+from trueppm_api.apps.resources.services import (
+    ensure_project_resource,
+    record_assignment_event,
+    task_is_summary,
+)
 from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue_recalculate
 from trueppm_api.core.protect_conflict import protected_error_response
 
@@ -971,46 +975,6 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
 # ---------------------------------------------------------------------------
 
 
-def _record_assignment_event(
-    *,
-    task_id: Any,
-    event_type: str,
-    resource: Resource,
-    actor: Any,
-    units_from: Decimal | None = None,
-    units_to: Decimal | None = None,
-) -> None:
-    """Write one task-activity audit row for a resource-assignment change (ADR-0394).
-
-    ``TaskResource`` is a through-table with no ``HistoricalRecords`` (like ``RiskTask``),
-    so assignment add/remove/re-allocation is recorded in ``TaskActivityEvent`` following
-    the ADR-0207 precedent. Written synchronously inside the request transaction so the
-    audit row commits or rolls back with the assignment mutation itself — it is a DB row,
-    not an external side effect, so (unlike the board broadcast) it is not deferred to
-    ``transaction.on_commit``. ``actor`` is the acting member (never null here — every
-    assignment change is made by a request user).
-
-    ``units`` carries the allocation: a single value for add/remove, or a
-    ``{"from", "to"}`` delta for ``assignee_units_changed`` (mirroring the
-    ``cpm_recalculated`` date-delta shape). Decimals are stringified so the JSON detail
-    is exact and stable.
-    """
-    detail: dict[str, object] = {
-        "resource_id": str(resource.pk),
-        "resource_name": resource.name,
-    }
-    if event_type == TaskActivityEventType.ASSIGNEE_UNITS_CHANGED:
-        detail["units"] = {
-            "from": str(units_from) if units_from is not None else None,
-            "to": str(units_to) if units_to is not None else None,
-        }
-    else:
-        detail["units"] = str(units_to) if units_to is not None else None
-    TaskActivityEvent.objects.create(
-        task_id=task_id, actor=actor, event_type=event_type, detail=detail
-    )
-
-
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -1138,22 +1102,8 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
                 raise PermissionDenied(
                     "You need at least Resource Manager role to assign resources."
                 )
-        if task and task.wbs_path:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT EXISTS("
-                    "  SELECT 1 FROM projects_task c"
-                    "  WHERE c.project_id = %s"
-                    "    AND c.is_deleted = false"
-                    "    AND c.id != %s"
-                    "    AND c.wbs_path IS NOT NULL"
-                    "    AND c.wbs_path ~ (%s || '.*{1}')::lquery"
-                    ")",
-                    [task.project_id, task.pk, str(task.wbs_path)],
-                )
-                is_summary = cursor.fetchone()[0]
-                if is_summary:
-                    raise ValidationError({"task": "Cannot assign resources to a summary task."})
+        if task and task_is_summary(task):
+            raise ValidationError({"task": "Cannot assign resources to a summary task."})
         obj = serializer.save()
         project_id = str(obj.task.project_id)
         task_id = str(obj.task.pk)
@@ -1165,7 +1115,7 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
 
         # Task-activity audit row (ADR-0394, #1886): written synchronously in the
         # request transaction so it commits/rolls back with the assignment itself.
-        _record_assignment_event(
+        record_assignment_event(
             task_id=obj.task_id,
             event_type=TaskActivityEventType.ASSIGNEE_ADDED,
             resource=obj.resource,
@@ -1205,14 +1155,14 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
         # Task-activity audit (ADR-0394, #1886), synchronous in-transaction:
         # a resource swap is an unassign+reassign; a units-only edit is a re-allocation.
         if old_resource is not None and old_resource.pk != obj.resource_id:
-            _record_assignment_event(
+            record_assignment_event(
                 task_id=obj.task_id,
                 event_type=TaskActivityEventType.ASSIGNEE_REMOVED,
                 resource=old_resource,
                 actor=self.request.user,
                 units_to=old_units,
             )
-            _record_assignment_event(
+            record_assignment_event(
                 task_id=obj.task_id,
                 event_type=TaskActivityEventType.ASSIGNEE_ADDED,
                 resource=obj.resource,
@@ -1220,7 +1170,7 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
                 units_to=obj.units,
             )
         elif old_units != obj.units:
-            _record_assignment_event(
+            record_assignment_event(
                 task_id=obj.task_id,
                 event_type=TaskActivityEventType.ASSIGNEE_UNITS_CHANGED,
                 resource=obj.resource,
@@ -1250,7 +1200,7 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
         # Task-activity audit row (ADR-0394, #1886) before the hard delete, while the
         # resource/units are still readable; the task FK survives (only the assignment
         # row is removed). Synchronous in-transaction, like the risk-link precedent.
-        _record_assignment_event(
+        record_assignment_event(
             task_id=instance.task_id,
             event_type=TaskActivityEventType.ASSIGNEE_REMOVED,
             resource=instance.resource,

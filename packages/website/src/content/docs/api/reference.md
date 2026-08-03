@@ -642,6 +642,45 @@ overallocation flag, and no cross-program rollup. Each row carries:
 | PUT / PATCH | `/api/v1/task-resources/{id}/` | Update |
 | DELETE | `/api/v1/task-resources/{id}/` | Remove |
 
+Writes on this route require **Resource Manager (Scheduler)** or above — it is the
+allocation-management surface. To assign an owner *while composing a task*, use the
+task write's `owners` field below, which takes the authority of the task write itself.
+
+#### Assigning owners inline on a task write
+
+`POST /api/v1/tasks/` and `PATCH /api/v1/tasks/{id}/` accept a **write-only** `owners`
+array that creates `TaskResource` rows in the same request:
+
+```json
+{
+  "name": "Draft the migration plan",
+  "owners": [{ "resource": "8e2b…", "units": "0.5" }]
+}
+```
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `resource` | uuid | Must be on the **destination project's** roster (`/project-resources/`). An id outside it is a `400` on the `owners` field — never a silent drop, and never a match-or-create against the workspace-wide resource library. |
+| `units` | decimal | Fraction of full capacity, `0.01`–`2.0` (`0.5` = 50%). Defaults to `1.0`. |
+
+Semantics worth pinning down:
+
+- **Write-only.** The read projection is the nested `assignments` array on the task.
+- **Upsert, not replace-set.** Naming a resource already assigned updates its `units`;
+  naming a new one adds it. Owners *not* listed are left alone, so a one-owner write can
+  never delete a co-assignee. `[]` is a no-op, not "remove everyone" — removal goes
+  through `DELETE /api/v1/task-resources/{id}/`.
+- **Authority is the task write's.** `owners` adds no permission class: it is gated by
+  whatever gates the surrounding create or update.
+- **Never sets `assignee`.** `Task.assignee` is the legacy quick-assign field and carries
+  no units; every capacity, utilization, heat-map and sprint-capacity computation reads
+  `TaskResource` only. `owners` is the field that makes assigned work count.
+- Assigned resources are auto-added to the project roster, so an owner is never assigned
+  yet invisible in Team → Roster.
+- A summary task rejects an inline owner (`400`) — summary rows roll up from children.
+
+See ADR-0774.
+
 ### Project resource roster
 
 | Method | Path | Description |

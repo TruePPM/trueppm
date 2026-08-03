@@ -122,6 +122,36 @@ class TestImportComputability:
         names = set(Resource.objects.values_list("name", flat=True))
         assert {"A. Rivera", "J. Chen", "P. Osei"} <= names
 
+    def test_owner_column_writes_task_resource_not_a_bare_assignee(self, project: Project) -> None:
+        """The Owner mapping target must land on the capacity axis (ADR-0774, #2718).
+
+        The importer already does this; the assertion exists so it cannot regress to
+        ``Task.assignee`` under a future refactor. A bare ``assignee`` contributes ZERO
+        to every capacity, utilization, heat-map and sprint-capacity number, silently
+        and permanently — and nothing in the product would report the discrepancy.
+        """
+        from trueppm_api.apps.resources.models import ProjectResource, TaskResource
+
+        parsed = parse_spreadsheet(REFERENCE_CSV, "plan.csv")
+        import_project(str(project.pk), parsed.project_data)
+
+        assignments = TaskResource.objects.filter(task__project=project)
+        assert assignments.exists(), "the Owner column produced no TaskResource rows"
+        assert all(a.units > 0 for a in assignments)
+
+        # Nothing on this path may write the legacy quick-assign field.
+        assert not Task.objects.filter(project=project, assignee__isnull=False).exists()
+
+        # Every assigned person is on the roster, so they are visible in Team → Roster,
+        # Allocation, and the heat map rather than assigned-but-invisible (#241).
+        assigned_ids = set(assignments.values_list("resource_id", flat=True))
+        rostered_ids = set(
+            ProjectResource.objects.filter(project=project, is_deleted=False).values_list(
+                "resource_id", flat=True
+            )
+        )
+        assert assigned_ids <= rostered_ids
+
     def test_xlsx_takes_the_identical_path(self, project: Project) -> None:
         content = build_xlsx(
             [["Name", "Duration", "Start"], ["Design", 3, "2026-03-02"], ["Build", 5, ""]]

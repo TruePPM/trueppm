@@ -1,6 +1,7 @@
 ---
 title: Schedule Build Mode
 description: Keyboard-first surface for laying down and structuring a project plan directly in the Schedule list.
+documentedFor: "0.4"
 ---
 
 Schedule build mode turns the Schedule list into a keyboard-first surface for laying down and structuring a project plan. It is opt-in, gated behind the `schedule_build_mode_v1` feature flag, and is a desktop-only experience — mobile continues to use the existing Add Task modal.
@@ -102,6 +103,43 @@ The editable cells in v1 are **Task name**, **Duration**, and **% complete**. St
 |---|---|
 | Hover a row | Reveals its dependency chain — predecessors highlight blue, successors highlight green |
 | Right-click | Opens the row menu, where **Add predecessor** / **Add successor** open a task picker |
+
+## Assigning an owner inline with `@`
+
+:::note[Ships in 0.4]
+The `@owner` token described in this section lands in **TruePPM 0.4**. In the current
+release, assign people from the task drawer's **Assignees** editor instead — it writes
+the same kind of assignment.
+:::
+
+While you are naming a row, type `@` to give the task an owner without leaving the cell.
+A picker lists the people on the **project's resource roster**; keep typing to filter it,
+then `↑` / `↓` and `Enter` (or click) to choose.
+
+| You type | What happens |
+|---|---|
+| `Draft the plan @ana` | Ana is assigned at 100%; the task is named "Draft the plan" |
+| `Review specs @ana:50` | Ana is assigned at 50% |
+| `Kickoff @"Ana Rivera"` | Quotes let you name someone whose name contains a space |
+
+Two things are worth knowing about how this behaves:
+
+**The token disappears from the name once it resolves.** `Draft the plan @ana` saves a
+task called "Draft the plan" — the `@ana` is an instruction, not part of the title.
+
+**A name that matches nobody stays put.** If `@ana` matches no one on the roster — or
+matches *two* people ambiguously — the row still saves, the text stays in the name, and
+the token is underlined in amber so you can see and fix it. Nothing is silently dropped
+and nothing is silently guessed at.
+
+The picker only ever offers people already on **this project's** roster; it never reaches
+into the workspace-wide resource library, so a name typed here cannot bind work to
+someone outside the project. To add somebody new, add them to the roster first from
+**Team → Roster**.
+
+Adding an owner this way never removes anyone else already assigned to the row — `@ana`
+means "Ana owns this", not "Ana is now the only person here". Remove an assignment from
+the task drawer's Assignees editor.
 
 ## Indenting and emergent phases
 

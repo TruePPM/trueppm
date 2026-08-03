@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState, useEffect, useMemo, type RefObject } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import type { Task } from '@/types';
+import type { ProjectResource, Task } from '@/types';
 import { ROW_HEIGHT } from './scheduleConstants';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
 import { useScheduleStore } from '@/stores/scheduleStore';
@@ -190,6 +190,12 @@ interface Props {
    * badge; a phase with no such work is simply absent from the map.
    */
   plannedByPhase?: Map<string, PhasePlannedBadge>;
+  /**
+   * Project resource roster — the only index the `@owner` authoring token resolves
+   * against (ADR-0774, #2718). Owned by ScheduleView, which already runs the project's
+   * queries; this panel stays presentational so it is renderable without a query client.
+   */
+  resourcePool?: ProjectResource[];
 }
 
 export function TaskListPanel({
@@ -214,6 +220,7 @@ export function TaskListPanel({
   autoEditTaskId,
   onAutoEditConsumed,
   plannedByPhase,
+  resourcePool,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollToTaskId = useScheduleStore((s) => s.scrollToTaskId);
@@ -370,6 +377,7 @@ export function TaskListPanel({
                   siblingIds={siblingIdsMap.get(task.id)}
                   siblingNames={siblingNamesMap.get(task.id)}
                   nameSuggestions={nameSuggestions}
+                  resourcePool={resourcePool}
                   milestoneParents={milestoneParentsMap.get(task.id)}
                   onHoverChange={onHoverChange}
                   isHovered={hoveredTaskId === task.id}

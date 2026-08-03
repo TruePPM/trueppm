@@ -10,7 +10,7 @@ import {
   type ProgressAutoStatusConfirm,
 } from './useProgressAutoStatusConfirm';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
-import type { Task } from '@/types';
+import type { ProjectResource, Task } from '@/types';
 import { ROW_HEIGHT, WBS_INDENT } from './scheduleConstants';
 import { ScopeChangedChip } from '@/features/sprints/ScopeChangedChip';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
@@ -61,8 +61,13 @@ import {
   EditableCell,
   BuildModeRowMenu,
   NameAutocomplete,
+  OwnerAutocomplete,
+  UnresolvedOwnerName,
   MilestoneDatePopover,
   SprintPrompt,
+  activeOwnerQuery,
+  ownerTokensToApiPayload,
+  parseOwnerDraft,
   type RowMenuItem,
 } from './buildMode';
 
@@ -123,6 +128,12 @@ interface Props {
   siblingIds?: string[];
   /** Task name suggestions for the inline autocomplete dropdown (#343). */
   nameSuggestions?: string[];
+  /**
+   * The project's resource roster — the only index the `@owner` authoring token
+   * resolves against (ADR-0774, #2718). Absent (or empty) disables the token: no
+   * popover, and nothing is stripped from the committed name.
+   */
+  resourcePool?: ProjectResource[];
   /** Parent summary tasks (closest ancestor first) — for milestone date quick-picks (#345). */
   milestoneParents?: { name: string; finish?: string }[];
   /**
@@ -1252,6 +1263,7 @@ function TaskListRowInner({
   depChips,
   siblingIds,
   nameSuggestions,
+  resourcePool,
   milestoneParents,
   onHoverChange,
   isHovered = false,
@@ -1531,6 +1543,7 @@ function TaskListRowInner({
           autocompleteQuery={autocompleteQuery}
           setAutocompleteQuery={setAutocompleteQuery}
           nameSuggestions={nameSuggestions}
+          resourcePool={resourcePool}
           isEditing={isEditing}
           inputRef={inputRef}
           editValue={editValue}
@@ -1784,6 +1797,7 @@ interface TaskNameContentProps {
   autocompleteQuery: string;
   setAutocompleteQuery: React.Dispatch<React.SetStateAction<string>>;
   nameSuggestions: Props['nameSuggestions'];
+  resourcePool: Props['resourcePool'];
   isEditing: boolean;
   inputRef: React.RefObject<HTMLInputElement | null>;
   editValue: string;
@@ -1810,6 +1824,11 @@ interface TaskNameContentProps {
  * Build-mode Name cell in edit state: the inline EditableCell plus its
  * name-autocomplete popover. Split out of TaskNameContent (#2245) so each render
  * branch stays under the cognitive-complexity budget; markup is verbatim.
+ *
+ * The cell also hosts the `@owner` authoring token (ADR-0774, #2718). While the caret
+ * sits inside an `@…` fragment the owner picker replaces the name-suggestion popover —
+ * two listboxes in one cell would fight over the same Arrow/Enter keys — and on commit
+ * the draft is split into a task name and a set of `TaskResource` assignments.
  */
 function TaskNameBuildEditCell(props: TaskNameContentProps) {
   const {
@@ -1821,7 +1840,12 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
     autocompleteQuery,
     setAutocompleteQuery,
     nameSuggestions,
+    resourcePool,
   } = props;
+  const pool = resourcePool ?? [];
+  // `autocompleteQuery` carries the whole live draft (EditableCell's `onQueryChange`),
+  // so the active token is derivable without EditableCell exposing its internal state.
+  const ownerFragment = pool.length > 0 ? activeOwnerQuery(autocompleteQuery) : null;
   if (!buildMode) return null;
   return (
     <div className="relative flex-1 min-w-0">
@@ -1837,7 +1861,19 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
         }}
         onCommit={(parsed) => {
           if (typeof parsed === 'string' && projectId) {
-            updateTask.mutate({ id: task.id, projectId, name: parsed });
+            // Split the draft into name + owners. A token that matches no roster member
+            // is left in the name verbatim and the row still commits (ADR-0774 §6) —
+            // the alternative, silently dropping it, is the zero-capacity failure this
+            // whole contract exists to prevent.
+            const parse = parseOwnerDraft(parsed, pool);
+            updateTask.mutate({
+              id: task.id,
+              projectId,
+              name: parse.name || parsed,
+              ...(parse.owners.length > 0
+                ? { owners: ownerTokensToApiPayload(parse.owners) }
+                : {}),
+            });
             setShowSprintPrompt(true);
           }
           setAutocompleteQuery('');
@@ -1856,7 +1892,38 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
         onEnterCommit={() => buildMode.insertBelow(task.id)}
         emptyIsNoop
       />
-      {nameSuggestions && (
+      {ownerFragment && (
+        <OwnerAutocomplete
+          query={ownerFragment.query}
+          pool={pool}
+          onSelect={(picked) => {
+            // Everything before the active `@` is the name (plus any owner tokens the
+            // author already resolved); the picked person replaces the fragment.
+            const parse = parseOwnerDraft(
+              autocompleteQuery.slice(0, ownerFragment.start),
+              pool,
+            );
+            const owners = [
+              ...parse.owners.filter((o) => o.resourceId !== picked.resourceId),
+              {
+                resourceId: picked.resourceId,
+                name: picked.resource.name,
+                units: ownerFragment.units,
+              },
+            ];
+            updateTask.mutate({
+              id: task.id,
+              projectId,
+              name: parse.name || task.name,
+              owners: ownerTokensToApiPayload(owners),
+            });
+            setAutocompleteQuery('');
+            buildMode.focus.commitToRow();
+          }}
+          onDismiss={() => setAutocompleteQuery('')}
+        />
+      )}
+      {!ownerFragment && nameSuggestions && (
         <NameAutocomplete
           query={autocompleteQuery}
           suggestions={nameSuggestions}
@@ -1907,7 +1974,7 @@ function TaskNameEditInput(props: TaskNameContentProps) {
  * TaskNameContent (#2245); markup and aria/title strings verbatim.
  */
 function TaskNameLabel(props: TaskNameContentProps) {
-  const { task, isCriticalStyle, isSummaryStyle } = props;
+  const { task, isCriticalStyle, isSummaryStyle, resourcePool } = props;
   return (
     <>
       <span
@@ -1924,7 +1991,11 @@ function TaskNameLabel(props: TaskNameContentProps) {
         }
         aria-label={`${task.wbs} ${task.name}${task.isCritical ? ' (critical path)' : ''}${task.assignees.length > 0 ? ` — assigned to ${task.assignees.map((a) => a.name).join(', ')}` : ''}${task.latestNoteAt ? `, last note ${formatRelative(new Date(task.latestNoteAt))}` : ''}`}
       >
-        {task.name}
+        {/* An `@name` left in the committed name matched nobody on the roster — it is
+            underlined rather than hidden so the author can see and correct it
+            (ADR-0774 §6). `aria-label` above already carries the plain name, so the
+            per-token annotation adds signal without duplicating the row's label. */}
+        <UnresolvedOwnerName name={task.name} pool={resourcePool ?? []} />
       </span>
       {task.latestNoteAt && (
         <span
