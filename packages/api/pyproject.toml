@@ -106,7 +106,9 @@ dependencies = [
     # so without WhiteNoise every /static/ request (admin CSS, Swagger UI / ReDoc
     # bundles) 404s. Wired as the second middleware; see settings/base.py MIDDLEWARE.
     "whitenoise>=6.0,<7.0",
-    "cryptography>=48.0.1,<49",
+    # Floor raised to 50.0.0 to clear GHSA-jwv3-5hgf-82ww (49.0.0), GHSA-m2h6-j472-rp4c
+    # (49.0.0), and GHSA-g6cj-pr64-35w5 (50.0.0, PKCS#7 Bleichenbacher oracle).
+    "cryptography>=50.0.0,<51",
     # OIDC ID-token signature verification (ADR-0187, basic SSO). Already present
     # transitively via djangorestframework-simplejwt; promoted to a direct dep with
     # the [crypto] extra so the SSO relying party can verify RS256/ES256 ID tokens
