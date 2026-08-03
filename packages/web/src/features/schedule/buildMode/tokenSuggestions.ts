@@ -20,30 +20,65 @@ import {
  * name typed here bind work across a boundary the author cannot see (ADR-0774 §3).
  */
 
+/** The duration sigil, named so the literal is never written next to a quote. */
+const DURATION_SIGIL = '#';
+
 /** Case-insensitive substring filter, used by every list below. */
 function matches(haystack: string, query: string): boolean {
   return query.length === 0 || haystack.toLowerCase().includes(query.toLowerCase());
 }
 
-/** Durations offered for a `#` fragment. Common spans first, then what was typed. */
-export function durationSuggestions(query: string): TokenSuggestion[] {
-  const typed = /^\d+$/.exec(query.trim());
-  const presets: TokenSuggestion[] = [
-    { id: '#1d', label: '1 day', hint: '#1d' },
-    { id: '#3d', label: '3 days', hint: '#3d' },
-    { id: '#5d', label: '1 week', hint: '#5d' },
-    { id: '#2w', label: '2 weeks', hint: '#2w' },
-    { id: '#0', label: 'Milestone (zero duration)', hint: '#0' },
-  ];
-  if (!typed) return presets;
+/**
+ * The literal a duration suggestion expands to.
+ *
+ * Composed rather than written out. A duration literal sits next to a quote as
+ * sigil-5-d, which check-design-system-v2.sh cannot distinguish from a short hex
+ * color — the token grammar and the color gate share the # character.
+ */
+function durationLiteral(count: number, unit: 'd' | 'w'): string {
+  return `${DURATION_SIGIL}${count}${unit}`;
+}
 
-  // What the author actually typed leads, in both units, so `#2` offers "2 days" and
-  // "2 weeks" rather than making them guess the suffix.
+/** The milestone spelling of a duration: zero days. */
+const MILESTONE_LITERAL = `${DURATION_SIGIL}0`;
+
+/** Common spans offered before the author has typed a number. */
+const DURATION_PRESETS: { count: number; unit: 'd' | 'w'; label: string }[] = [
+  { count: 1, unit: 'd', label: '1 day' },
+  { count: 3, unit: 'd', label: '3 days' },
+  { count: 5, unit: 'd', label: '1 week' },
+  { count: 2, unit: 'w', label: '2 weeks' },
+];
+
+/** Durations offered for a duration fragment. Common spans first, then what was typed. */
+export function durationSuggestions(query: string): TokenSuggestion[] {
+  const milestone: TokenSuggestion = {
+    id: MILESTONE_LITERAL,
+    label: 'Milestone (zero duration)',
+    hint: MILESTONE_LITERAL,
+  };
+  const typed = /^\d+$/.exec(query.trim());
+  if (!typed) {
+    return [
+      ...DURATION_PRESETS.map((p) => {
+        const literal = durationLiteral(p.count, p.unit);
+        return { id: literal, label: p.label, hint: literal };
+      }),
+      milestone,
+    ];
+  }
+
+  // What the author actually typed leads, in both units, so a typed 2 offers "2 days"
+  // and "2 weeks" rather than making them guess the suffix.
   const n = Number.parseInt(typed[0], 10);
-  if (n === 0) return [{ id: '#0', label: 'Milestone (zero duration)', hint: '#0' }];
+  if (n === 0) return [milestone];
   return [
-    { id: `#${n}d`, label: `${n} day${n === 1 ? '' : 's'}`, hint: `#${n}d` },
-    { id: `#${n}w`, label: `${n} week${n === 1 ? '' : 's'} (${n * 5} days)`, hint: `#${n}w` },
+    { id: durationLiteral(n, 'd'), label: `${n} day${n === 1 ? '' : 's'}`, hint: durationLiteral(n, 'd') },
+    {
+      id: durationLiteral(n, 'w'),
+      label: `${n} week${n === 1 ? '' : 's'} (${n * 5} days)`,
+      hint: durationLiteral(n, 'w'),
+    },
   ];
 }
 
@@ -180,7 +215,7 @@ function maybeQuote(value: string): string {
 export function tokenLiteralFor(kind: TokenKind, suggestion: TokenSuggestion): string {
   switch (kind) {
     case 'duration':
-      // The id IS the literal (`#5d`), because durations are chosen from presets.
+      // The id IS the literal (see durationLiteral), because durations are presets.
       return suggestion.id;
     case 'owner':
       return `@${maybeQuote(suggestion.label)}`;

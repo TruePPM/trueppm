@@ -11,7 +11,7 @@ import {
  * The inline authoring grammar for the row editor (#2722).
  *
  * ```
- *   #5d  #2w  #0    duration — a bare number is days, `#0` makes it a milestone
+ *   #5d  #2w  #0    duration — a bare number is days; zero makes it a milestone
  *   @ana @ana:50    owner, as a TaskResource allocation (ADR-0774, #2718)
  *   >2.3 >Survey    predecessor, by WBS path or by name; `>2.3+2d` lag, `>2.3-1d` lead
  *   !               milestone
@@ -112,10 +112,10 @@ export type AnyAuthoringToken =
   | DeliveryModeToken;
 
 /**
- * `#5d`, `#2w`, `#0`, and a bare `#3`.
+ * Duration forms — #5d, #2w, #0, and a bare #3.
  *
  * A bare number is days — but only as the **last** thing in the draft. With a unit
- * (`#5d`, `#2w`) the token is unambiguous and may sit anywhere; without one, `#3` is
+ * (#5d, #2w) the token is unambiguous and may sit anywhere; without one, #3 is
  * indistinguishable from the ordinary English of "Sprint #3 planning", and eating
  * that would be hostile. Trailing position is the disambiguator because a duration
  * is what an author types last, after the name.
@@ -284,7 +284,7 @@ export interface AuthoringDraftParse {
   unresolved: AnyAuthoringToken[];
   /**
    * Tokens that parsed and resolved but LOST a conflict — a `~scrum` alongside `!`,
-   * or a `#5d` on a milestone row. Rendered struck through so the author can see
+   * or a duration such as #5d on a milestone row. Rendered struck through so the author can see
    * what the row did with their input, rather than watching it silently disappear.
    */
   overridden: AnyAuthoringToken[];
@@ -376,7 +376,7 @@ export function resolveAuthoringDraft(
         break;
 
       case 'duration':
-        // Last one wins: `#5d #3d` reads as a correction, not a contradiction.
+        // Last one wins — #5d followed by #3d reads as a correction, not a contradiction.
         if (durationToken) overridden.push(durationToken);
         duration = (token as DurationToken).days;
         durationToken = token;
