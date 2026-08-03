@@ -84,6 +84,42 @@ typed defaults; pass `opts` to override for test-specific data:
 - `GET /api/v1/tasks/**` → `opts.tasks` or empty (other methods fall through to test-specific routes)
 - `GET /api/v1/dependencies/**` → `opts.dependencies` or empty
 
+## Asserting on the DOM *after* a write — use `setupTaskStore`
+
+Every route above is **stateless**: it re-serves the same fixture on every request.
+That is correct for a spec that only reads, and a silent race for a spec that
+writes, because `useUpdateTask` patches the cache optimistically in `onMutate` and
+then **invalidates `['tasks', projectId]` in `onSuccess`**. The refetch the app's own
+success handler fires re-serves the *original* `opts.tasks`, so the committed value
+lives for the few tens of milliseconds between the optimistic render and the refetch
+landing. Under CI worker contention Playwright's poll misses that window; the spec
+then fails nondeterministically and only on a loaded runner (#2752).
+
+Raising the assertion timeout does not help — after the refetch the value is gone
+permanently, so a 5 s and a 60 s `toBeVisible` fail identically.
+
+**Rule: if a spec asserts DOM state after a write, the read endpoint it refetches
+must echo that write.** For tasks, that is `setupTaskStore` — a live row array the
+PATCH handler mutates and the list/detail GETs serve:
+
+```ts
+const store = await setupTaskStore(page, { tasks: FIXTURE_TASKS });
+// ... commit an edit ...
+await expect.poll(() => store.patches.length).toBeGreaterThan(0);  // request-side contract
+await expect(page.getByText('the committed name')).toBeVisible();  // stable end state
+```
+
+Register it **after** `setupApiMocks` and omit `opts.tasks` — the store owns every
+`/tasks/` read, and leaving the stateless default registered too puts two sources of
+truth for one list a route-precedence change apart. Requests the store does not own
+(`POST`, `DELETE`, nested paths like `/tasks/{id}/notes/`) `route.fallback()` to the
+handlers below it, so existing mocks are untouched.
+
+Pass `applyPatch` whenever a write field is **write-only** on the serializer and
+reads back under another name — `owners` (write) → `assignments` (read). The default
+shallow merge would otherwise put a field on the row that the real API never returns,
+and the spec would be asserting against a shape the server cannot produce.
+
 ## Adding a new auxiliary endpoint
 
 If a new endpoint is needed by 3+ specs, add it to `setupApiMocks` rather
