@@ -46186,6 +46186,15 @@
                     "task"
                 ]
             },
+            "OutcomeEnum": {
+                "enum": [
+                    "success",
+                    "reachable",
+                    "failure"
+                ],
+                "type": "string",
+                "description": "* `success` - success\n* `reachable` - reachable\n* `failure` - failure"
+            },
             "PaginatedAcceptanceCriterionList": {
                 "type": "object",
                 "required": [
@@ -58721,7 +58730,7 @@
                         "$ref": "#/components/schemas/ModeEnum"
                     },
                     "outcome": {
-                        "$ref": "#/components/schemas/TelemetryTestExportResultOutcomeEnum"
+                        "$ref": "#/components/schemas/OutcomeEnum"
                     },
                     "endpoint": {
                         "type": "string"
@@ -58749,15 +58758,6 @@
                     "outcome",
                     "protocol"
                 ]
-            },
-            "TelemetryTestExportResultOutcomeEnum": {
-                "enum": [
-                    "success",
-                    "reachable",
-                    "failure"
-                ],
-                "type": "string",
-                "description": "* `success` - success\n* `reachable` - reachable\n* `failure` - failure"
             },
             "TermOverridePolicyEnum": {
                 "enum": [
