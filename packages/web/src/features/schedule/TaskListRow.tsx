@@ -277,6 +277,24 @@ function tryBuildModeReorder(e: React.KeyboardEvent, ctx: BuildKeyDownCtx): bool
 }
 
 /**
+ * Alt+→/← indent/outdent (#2727, ADR-0776 §6). NOT bound to Tab/Shift-Tab —
+ * that was the original v1 binding, but it reproduces the exact WCAG 2.1.2
+ * keyboard trap `packages/web/src/features/grid/OutlineMode.tsx` already hit
+ * and fixed once (#2192): intercepting every Tab keydown means a keyboard
+ * user can never leave the grid, and every escape attempt fires a mutation.
+ * Alt+→/← mirrors that fix and frees plain Tab to fall through to native
+ * focus traversal, same as everywhere else on the page.
+ */
+function tryBuildModeIndent(e: React.KeyboardEvent, ctx: BuildKeyDownCtx): boolean {
+  const { buildMode, task } = ctx;
+  if (!e.altKey || (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') || !buildMode) return false;
+  e.preventDefault();
+  if (e.key === 'ArrowRight') buildMode.indent(task.id);
+  else buildMode.outdent(task.id);
+  return true;
+}
+
+/**
  * Arrow up/down row-focus traversal in build mode — move focus to the
  * previous/next visible row (documented in useScheduleFocus; #340 follow-up).
  * Returns `true` when it consumes the event. Split from handleBuildModeKeyDown
@@ -302,8 +320,10 @@ function tryBuildModeFocusMove(e: React.KeyboardEvent, ctx: BuildKeyDownCtx): bo
 
 /**
  * Build-mode keyboard reducer for a task row. Handles Option/Alt+↑/↓ sibling
- * reorder (#347), arrow-key row focus traversal, Tab/Shift-Tab indent/outdent,
- * single-letter Name cell-edit entry, Delete/Backspace, and Esc. Returns early
+ * reorder (#347), Option/Alt+→/← indent/outdent (#2727), arrow-key row focus
+ * traversal, single-letter Name cell-edit entry, Delete/Backspace, and Esc.
+ * Plain Tab/Shift-Tab is deliberately left alone (see `tryBuildModeIndent`).
+ * Returns early
  * (no-op) when build mode is inactive or a cell is being edited. The caller
  * inspects `e.defaultPrevented` afterward to decide whether to run the flag-off
  * shortcuts, so this function's preventDefault contract is load-bearing.
@@ -312,15 +332,11 @@ function handleBuildModeKeyDown(e: React.KeyboardEvent, ctx: BuildKeyDownCtx): v
   const { buildMode, anyCellInEdit, task } = ctx;
   if (!buildMode || anyCellInEdit) return;
   if (tryBuildModeReorder(e, ctx)) return;
+  if (tryBuildModeIndent(e, ctx)) return;
   if (tryBuildModeFocusMove(e, ctx)) return;
-  // Tab on a focused row → indent (Shift-Tab → outdent). The focus reducer
-  // ignores Tab in RowFocused — caller (this) handles the structural action.
-  if (e.key === 'Tab') {
-    e.preventDefault();
-    if (e.shiftKey) buildMode.outdent(task.id);
-    else buildMode.indent(task.id);
-    return;
-  }
+  // Plain Tab/Shift-Tab is deliberately NOT intercepted here — see
+  // tryBuildModeIndent's doc comment. It falls through to native browser
+  // focus traversal, same as everywhere else on the page.
   // Letter key (single printable, not modified) opens Name cell-edit
   // pre-filled with the typed letter — but we keep it simple in v1 and
   // just enter cell-edit; the user re-types if they want to overwrite.

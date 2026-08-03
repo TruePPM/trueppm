@@ -4,15 +4,17 @@ import { useReducer, useCallback } from 'react';
  * The three legal focus states for the Schedule list when build-mode is on.
  *
  * - NoSelection: nothing focused. Tab/Shift-Tab fall through to browser default.
- * - RowFocused: a row is selected. Tab=indent, Shift-Tab=outdent, Enter/F2=enter
- *   cell-edit, letter-key=enter Name cell, ArrowUp/Down=move row, Esc=NoSelection.
+ * - RowFocused: a row is selected. Alt+→=indent, Alt+←=outdent (#2727, ADR-0776
+ *   §6 — NOT Tab/Shift-Tab, which would reproduce the WCAG 2.1.2 keyboard trap
+ *   #2192 already fixed once in OutlineMode.tsx), Enter/F2=enter cell-edit,
+ *   letter-key=enter Name cell, ArrowUp/Down=move row, Esc=NoSelection.
  * - CellEdit: an editable cell input is focused. Tab=commit + next field,
  *   Shift-Tab=commit + previous field, Enter=commit + back to RowFocused,
  *   Esc=rollback + back to RowFocused.
  *
  * The reducer is the single source of truth for keyboard disambiguation —
- * Tab on a row indents, Tab in cell-edit moves to the next field. Without this
- * machine those two semantics collide.
+ * Tab falls through to native focus traversal outside cell-edit, and moves to
+ * the next field inside it. Without this machine those two contexts collide.
  */
 export type FocusMode = 'NoSelection' | 'RowFocused' | 'CellEdit';
 

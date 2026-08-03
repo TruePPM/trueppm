@@ -119,14 +119,30 @@ describe('TaskListRow — build-mode keyboard', () => {
     expect(c.current.focus.state.rowId).toBe('t-build-1');
   });
 
-  it('Tab on focused row triggers indent (Shift-Tab triggers outdent)', () => {
+  it('Alt+Right on focused row triggers indent (Alt+Left triggers outdent) — #2727', () => {
     const c = renderHarness();
     act(() => c.current.focus.focusRow('t-build-1'));
     const row = screen.getByRole('row');
-    fireEvent.keyDown(row, { key: 'Tab' });
+    fireEvent.keyDown(row, { key: 'ArrowRight', altKey: true });
     expect(c.current.indent).toHaveBeenCalledWith('t-build-1');
-    fireEvent.keyDown(row, { key: 'Tab', shiftKey: true });
+    fireEvent.keyDown(row, { key: 'ArrowLeft', altKey: true });
     expect(c.current.outdent).toHaveBeenCalledWith('t-build-1');
+  });
+
+  // #2727 (ADR-0776 §6): plain Tab must NOT be intercepted on a focused row —
+  // the old Tab=indent binding reproduced the WCAG 2.1.2 keyboard trap #2192
+  // already fixed once in OutlineMode.tsx (every Tab prevented, no way to
+  // leave the grid by keyboard). Regression guard mirroring
+  // OutlineMode.test.tsx's equivalent assertion.
+  it('plain Tab on a focused row is not intercepted (falls through to native focus traversal)', () => {
+    const c = renderHarness();
+    act(() => c.current.focus.focusRow('t-build-1'));
+    const row = screen.getByRole('row');
+    const event = fireEvent.keyDown(row, { key: 'Tab' });
+    expect(event).toBe(true); // not defaultPrevented
+    expect(c.current.indent).not.toHaveBeenCalled();
+    fireEvent.keyDown(row, { key: 'Tab', shiftKey: true });
+    expect(c.current.outdent).not.toHaveBeenCalled();
   });
 
   it('Delete key on focused row triggers deleteTask', () => {

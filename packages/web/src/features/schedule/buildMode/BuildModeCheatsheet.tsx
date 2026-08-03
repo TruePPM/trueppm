@@ -35,8 +35,8 @@ const SECTIONS: ShortcutSection[] = [
   {
     title: 'Structuring (the WBS tree)',
     entries: [
-      { keys: ['Tab'], label: 'Indent under previous row' },
-      { keys: ['Shift', 'Tab'], label: 'Outdent one level' },
+      { keys: ['⌥', '→'], label: 'Indent under previous row' },
+      { keys: ['⌥', '←'], label: 'Outdent one level' },
       { keys: ['Right-click'], label: 'Open row menu' },
     ],
   },
