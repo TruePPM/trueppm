@@ -42,7 +42,6 @@ let mockError: Error | null = null;
 let mockRole: number | null = ROLE_MEMBER;
 let mockSurfaces = { monte_carlo: true, baselines: true };
 let mockBreakpoint: 'sm' | 'md' | 'lg' = 'lg';
-let mockFeatureFlag = false;
 let mockIsExporting = false;
 let mockExportError: string | null = null;
 // Server-resolved methodology (#2619) — drives the explanatory empty state.
@@ -137,9 +136,6 @@ vi.mock('@/hooks/useSurfaceVisibility', () => ({
 }));
 vi.mock('@/hooks/useBreakpoint', () => ({
   useBreakpoint: () => mockBreakpoint,
-}));
-vi.mock('@/lib/featureFlags', () => ({
-  useFeatureFlag: () => mockFeatureFlag,
 }));
 vi.mock('@/hooks/useBaselines', () => ({
   useCreateBaseline: () => ({ mutate: createBaselineMutate, isPending: false }),
@@ -438,7 +434,6 @@ beforeEach(() => {
   mockRole = ROLE_MEMBER;
   mockSurfaces = { monte_carlo: true, baselines: true };
   mockBreakpoint = 'lg';
-  mockFeatureFlag = false;
   mockMobile = false;
   mockIsExporting = false;
   mockExportError = null;
@@ -506,27 +501,30 @@ describe('ScheduleView — top-level states', () => {
 });
 
 describe('ScheduleView — empty state', () => {
-  it('shows the create CTA for a member and opens the task form', async () => {
+  it('shows the create CTA for a member and creates a task directly (build mode default)', async () => {
     const user = userEvent.setup();
     mockTasks = [];
     mockLinks = [];
     renderSchedule();
     expect(screen.getByText(/no tasks yet/i)).toBeInTheDocument();
-    const cta = screen.getByRole('button', { name: '+ Add task' });
+    const cta = screen.getByRole('button', { name: /add first task/i });
     await user.click(cta);
-    expect(screen.getByRole('dialog', { name: 'Task form' })).toBeInTheDocument();
+    expect(createTaskMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'New task', duration: 1 }),
+      expect.anything(),
+    );
   });
 
-  it('omits the empty-state CTA for a read-only viewer', () => {
+  // #2682: build mode's empty state is reachable by every desktop role now
+  // (previously gated behind the opt-in flag), so a Viewer must not see an
+  // actionable-looking create CTA it has no permission to use.
+  it('omits the build-mode empty-state CTA for a read-only viewer', () => {
     mockTasks = [];
     mockLinks = [];
     mockRole = ROLE_VIEWER;
     renderSchedule();
     expect(screen.getByText(/no tasks yet/i)).toBeInTheDocument();
-    // The toolbar "+ Task" button (aria-label "Add task") still exists; the
-    // empty-state "+ Add task" action is omitted for the viewer.
-    expect(screen.queryByRole('button', { name: '+ Add task' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Add task' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /add first task/i })).toBeNull();
   });
 
   // #2619: AGILE hides this route's nav entry, but it stays reachable by direct
@@ -1058,10 +1056,9 @@ describe('ScheduleView — milestone created side effect', () => {
   });
 });
 
-describe('ScheduleView — build mode (schedule_build_mode_v1 flag on)', () => {
+describe('ScheduleView — build mode (default on desktop, #2682)', () => {
   it('shows the build-mode pill and opens the cheatsheet on click', async () => {
     const user = userEvent.setup();
-    mockFeatureFlag = true;
     renderSchedule();
     const pill = screen.getByTestId('build-mode-pill');
     expect(pill).toBeInTheDocument();
@@ -1070,7 +1067,6 @@ describe('ScheduleView — build mode (schedule_build_mode_v1 flag on)', () => {
   });
 
   it('toggles the cheatsheet with the ? key binding', () => {
-    mockFeatureFlag = true;
     renderSchedule();
     expect(screen.queryByRole('dialog', { name: /schedule shortcuts/i })).toBeNull();
     const preventDefault = vi.fn();
@@ -1084,7 +1080,6 @@ describe('ScheduleView — build mode (schedule_build_mode_v1 flag on)', () => {
 
   it('renders the build-mode empty state and creates the first task', async () => {
     const user = userEvent.setup();
-    mockFeatureFlag = true;
     mockTasks = [];
     mockLinks = [];
     renderSchedule();

@@ -71,12 +71,6 @@ const CROSS_ROWS = [
   { id: 'x3', name: 'Legal go-ahead', short_id: 'LEG-1', project_id: 'p-leg', project_name: 'Legal' },
 ];
 
-async function enableBuildMode(page: import('@playwright/test').Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem('trueppm.featureFlags', JSON.stringify({ schedule_build_mode_v1: true }));
-  });
-}
-
 /** Register the program task-search mock. */
 async function mockTaskSearch(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/programs/*/task-search/**', (route) =>
@@ -154,7 +148,6 @@ test.describe('Cross-project dependency picker (#1150)', () => {
     page,
   }) => {
     const capture: { payload: Record<string, unknown> | null } = { payload: null };
-    await enableBuildMode(page);
     await setupAuth(page);
     await setupCatchAll(page);
     await setupApiMocks(page, {
@@ -184,7 +177,6 @@ test.describe('Cross-project dependency picker (#1150)', () => {
 
   test('an inert (pending-acceptance) edge surfaces the consent toast', async ({ page }) => {
     const capture: { payload: Record<string, unknown> | null } = { payload: null };
-    await enableBuildMode(page);
     await setupAuth(page);
     await setupCatchAll(page);
     await setupApiMocks(page, {
@@ -204,7 +196,6 @@ test.describe('Cross-project dependency picker (#1150)', () => {
   });
 
   test('a standalone project shows no scope toggle (regression)', async ({ page }) => {
-    await enableBuildMode(page);
     await setupAuth(page);
     await setupCatchAll(page);
     await setupApiMocks(page, {

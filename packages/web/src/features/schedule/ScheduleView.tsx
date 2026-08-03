@@ -79,7 +79,6 @@ import { GanttIcon, FilePdfIcon } from '@/components/Icons';
 import { useExportMsProject } from '@/hooks/useMsProjectImportExport';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { Methodology, Task } from '@/types';
-import { useFeatureFlag } from '@/lib/featureFlags';
 import { useDependencyHover } from './useDependencyHover';
 import { ScheduleDependencyPicker } from './ScheduleDependencyPicker';
 import { PendingCrossProjectReview } from './PendingCrossProjectReview';
@@ -1175,12 +1174,12 @@ export function ScheduleView() {
   const canvasSupported = canvasIsSupported();
 
   // ──────────────────────────────────────────────────────────────────────
-  // Build-mode (issues #338/#339/#341/#342, gated by #349)
-  // Hooks must be declared above all early returns. The provider + UI only
-  // mount when the flag is on AND we are on the desktop happy path.
+  // Build-mode (issues #338/#339/#341/#342, default since #2682/ADR-0054)
+  // Hooks must be declared above all early returns. The provider + UI mount
+  // whenever we are on the desktop happy path — mobile keeps the legacy
+  // tap-to-edit surface (build mode's keyboard model doesn't map to touch).
   // ──────────────────────────────────────────────────────────────────────
-  const buildModeFlag = useFeatureFlag('schedule_build_mode_v1');
-  const buildModeActive = buildModeFlag && !isMobile;
+  const buildModeActive = !isMobile;
 
   // Roster for the `@owner` authoring token (ADR-0774, #2718). Fetched only while build
   // mode is active — passing '' disables the query, so a plain read of the schedule does
@@ -1624,12 +1623,12 @@ export function ScheduleView() {
 
   // The row's inline rename input (TaskListRow's local `isEditing`, the
   // always-available "double-click to rename" path) is what actually drops a
-  // freshly created row into edit mode when Build Mode (`schedule_build_mode_v1`,
-  // opt-in and default OFF) is not active — `focus.enterCellEdit` below only
-  // does anything when the `BuildModeProvider` is mounted (buildModeActive).
+  // freshly created row into edit mode on mobile, where build mode is not
+  // active — `focus.enterCellEdit` below only does anything when the
+  // `BuildModeProvider` is mounted (buildModeActive, i.e. desktop).
   // Tracking one pending id here (rather than relying on focus.enterCellEdit
-  // alone) is what makes "+ Phase" work for every user, not just Build Mode
-  // opt-ins. Cleared as soon as the matching row consumes it so scrolling a
+  // alone) is what makes "+ Phase" work on mobile too, not just on desktop.
+  // Cleared as soon as the matching row consumes it so scrolling a
   // virtualized row back into view can never re-trigger edit mode.
   const [pendingAutoEditId, setPendingAutoEditId] = useState<string | null>(null);
 
@@ -1826,7 +1825,7 @@ export function ScheduleView() {
   }, [buildModeActive]);
 
   const handleAddFirstTask = useCallback(() => {
-    if (!projectId) return;
+    if (!projectId || readOnly) return;
     // Per ux-design: the new row enters RowFocused immediately, then auto-
     // transitions to CellEdit on the Name column — saves the user one keystroke
     // vs. requiring F2 after the row appears.
@@ -1841,7 +1840,7 @@ export function ScheduleView() {
         },
       },
     );
-  }, [projectId, createTaskMut, focus]);
+  }, [projectId, readOnly, createTaskMut, focus]);
 
   // Mobile owns its own error/loading/empty states inside MobileSchedule
   // (#1671), so these desktop-only early returns are skipped below md — the
@@ -3049,11 +3048,11 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
         )}
 
         {visibleTasks.length === 0 ? (
-          buildModeActive ? (
-            <BuildModeEmptyState onAddFirstTask={handleAddFirstTask} />
-          ) : effectiveMethodology === 'AGILE' ? (
+          effectiveMethodology === 'AGILE' ? (
             // AGILE hides this view's nav entry (methodologyTabs.ts), but the route
-            // stays reachable by direct URL on purpose (issue #2619).
+            // stays reachable by direct URL on purpose (issue #2619). This
+            // methodology mismatch takes priority over build mode — an AGILE
+            // project has no schedule to build regardless of surface.
             <MethodologyEmptyState
               className="h-full bg-neutral-surface"
               projectId={projectId}
@@ -3062,6 +3061,10 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
               description={`This project runs on ${itl.lowerPlural}, not a phase-gated schedule. If a full CPM schedule fits better here, switch the methodology in Settings.`}
               primaryLabel={`Go to ${itl.plural}`}
               primaryTo={projectId ? `/projects/${projectId}/sprints` : '#'}
+            />
+          ) : buildModeActive ? (
+            <BuildModeEmptyState
+              onAddFirstTask={readOnly ? undefined : handleAddFirstTask}
             />
           ) : (
             <ScheduleEmptyState onAddTask={readOnly ? undefined : () => setShowAddForm(true)} />

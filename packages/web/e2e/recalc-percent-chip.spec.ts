@@ -45,12 +45,6 @@ const TASK = {
   linked_risks_max_severity: null,
 };
 
-async function enableBuildMode(page: import('@playwright/test').Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem('trueppm.featureFlags', JSON.stringify({ schedule_build_mode_v1: true }));
-  });
-}
-
 async function editDurationTo(page: import('@playwright/test').Page, value: string) {
   await page.locator('[aria-label*="Duration: 5 days"]').first().click();
   const input = page.locator('[data-editing="true"] input');
@@ -60,7 +54,6 @@ async function editDurationTo(page: import('@playwright/test').Page, value: stri
 
 test.describe('Recalc %? inline prompt — confirm policy', () => {
   test.beforeEach(async ({ page }) => {
-    await enableBuildMode(page);
     await setupAuth(page);
     await setupCatchAll(page);
     await setupApiMocks(page, {
@@ -139,7 +132,6 @@ test.describe('Recalc %? inline prompt — confirm policy', () => {
 
 test.describe('Recalc %? inline prompt — mobile suppressed', () => {
   test.beforeEach(async ({ page }) => {
-    await enableBuildMode(page);
     // Force a coarse pointer so the client treats `confirm` as `keep` (ADR-0151).
     await page.addInitScript(() => {
       const orig = window.matchMedia.bind(window);
