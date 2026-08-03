@@ -213,9 +213,8 @@ export function useUpdateTask() {
       await queryClient.cancelQueries({ queryKey: ['tasks', projectId] });
       const snapshot = queryClient.getQueryData<Task[]>(['tasks', projectId]);
       const patch = optimisticTaskPatch(variables);
-      queryClient.setQueryData<Task[]>(
-        ['tasks', projectId],
-        (old) => old?.map((t) => (t.id === id ? { ...t, ...patch } : t)) ?? [],
+      queryClient.setQueryData<Task[]>(['tasks', projectId], (old) =>
+        old ? old.map((t) => (t.id === id ? { ...t, ...patch } : t)) : old,
       );
       return { snapshot };
     },
@@ -284,25 +283,25 @@ export function useRescheduleTask() {
       await queryClient.cancelQueries({ queryKey: ['tasks', projectId] });
       const snapshot = queryClient.getQueryData<Task[]>(['tasks', projectId]);
       const todayIso = new Date().toISOString().slice(0, 10);
-      queryClient.setQueryData<Task[]>(
-        ['tasks', projectId],
-        (old) =>
-          old?.map((t) => {
-            if (t.id !== id) return t;
-            // Mirror the server's date-gated NOT_STARTED → IN_PROGRESS rule (#336)
-            // so the board doesn't flicker after a today-drag round-trip. Applied
-            // only when the caller didn't explicitly include a status of its own.
-            const willPromote =
-              t.status === 'NOT_STARTED' &&
-              optimistic.status === undefined &&
-              planned_start != null &&
-              planned_start <= todayIso;
-            return {
-              ...t,
-              ...optimistic,
-              ...(willPromote ? { status: 'IN_PROGRESS' as const } : {}),
-            };
-          }) ?? [],
+      queryClient.setQueryData<Task[]>(['tasks', projectId], (old) =>
+        old
+          ? old.map((t) => {
+              if (t.id !== id) return t;
+              // Mirror the server's date-gated NOT_STARTED → IN_PROGRESS rule (#336)
+              // so the board doesn't flicker after a today-drag round-trip. Applied
+              // only when the caller didn't explicitly include a status of its own.
+              const willPromote =
+                t.status === 'NOT_STARTED' &&
+                optimistic.status === undefined &&
+                planned_start != null &&
+                planned_start <= todayIso;
+              return {
+                ...t,
+                ...optimistic,
+                ...(willPromote ? { status: 'IN_PROGRESS' as const } : {}),
+              };
+            })
+          : old,
       );
       return { snapshot };
     },
@@ -466,27 +465,27 @@ export function usePromoteTask() {
       await queryClient.cancelQueries({ queryKey: ['tasks', projectId] });
       const snapshot = queryClient.getQueryData<Task[]>(['tasks', projectId]);
       const todayIso = new Date().toISOString().slice(0, 10);
-      queryClient.setQueryData<Task[]>(
-        ['tasks', projectId],
-        (old) =>
-          old?.map((t) => {
-            if (t.id !== id) return t;
-            // When the caller sends no explicit status (To Do path), mirror the
-            // server's date-gated NOT_STARTED → IN_PROGRESS rule so the row
-            // doesn't flicker after the round-trip. When the caller IS explicit
-            // (#318 backlog promote → NOT_STARTED), honor it and skip the bump.
-            const willPromote =
-              status === undefined && t.status === 'NOT_STARTED' && planned_start <= todayIso;
-            return {
-              ...t,
-              plannedStart: planned_start,
-              ...(status !== undefined ? { status: status as Task['status'] } : {}),
-              ...(willPromote ? { status: 'IN_PROGRESS' as const } : {}),
-              // Keep the card visible on a sprint-scoped board the instant it's
-              // promoted (#2170) — otherwise the refetch briefly hides it.
-              ...(sprint !== undefined ? { sprintId: sprint } : {}),
-            };
-          }) ?? [],
+      queryClient.setQueryData<Task[]>(['tasks', projectId], (old) =>
+        old
+          ? old.map((t) => {
+              if (t.id !== id) return t;
+              // When the caller sends no explicit status (To Do path), mirror the
+              // server's date-gated NOT_STARTED → IN_PROGRESS rule so the row
+              // doesn't flicker after the round-trip. When the caller IS explicit
+              // (#318 backlog promote → NOT_STARTED), honor it and skip the bump.
+              const willPromote =
+                status === undefined && t.status === 'NOT_STARTED' && planned_start <= todayIso;
+              return {
+                ...t,
+                plannedStart: planned_start,
+                ...(status !== undefined ? { status: status as Task['status'] } : {}),
+                ...(willPromote ? { status: 'IN_PROGRESS' as const } : {}),
+                // Keep the card visible on a sprint-scoped board the instant it's
+                // promoted (#2170) — otherwise the refetch briefly hides it.
+                ...(sprint !== undefined ? { sprintId: sprint } : {}),
+              };
+            })
+          : old,
       );
       return { snapshot };
     },
@@ -1017,19 +1016,19 @@ export function useToggleComplete() {
       await queryClient.cancelQueries({ queryKey: ['tasks', projectId] });
       const snapshot = queryClient.getQueryData<Task[]>(['tasks', projectId]);
       const nextStatus = previousStatus === 'COMPLETE' ? 'NOT_STARTED' : 'COMPLETE';
-      queryClient.setQueryData<Task[]>(
-        ['tasks', projectId],
-        (old) =>
-          old?.map((t) => {
-            if (t.id !== id) return t;
-            // Match the server's COMPLETE coercion (`progress` is the TS-side
-            // mirror of API `percent_complete` — useScheduleTasks line 135) so
-            // the row settles to its final state immediately, no green-flash
-            // → snap-back when the server confirms (~150 ms typical).
-            return nextStatus === 'COMPLETE'
-              ? { ...t, status: nextStatus, progress: 100, isComplete: true }
-              : { ...t, status: nextStatus };
-          }) ?? [],
+      queryClient.setQueryData<Task[]>(['tasks', projectId], (old) =>
+        old
+          ? old.map((t) => {
+              if (t.id !== id) return t;
+              // Match the server's COMPLETE coercion (`progress` is the TS-side
+              // mirror of API `percent_complete` — useScheduleTasks line 135) so
+              // the row settles to its final state immediately, no green-flash
+              // → snap-back when the server confirms (~150 ms typical).
+              return nextStatus === 'COMPLETE'
+                ? { ...t, status: nextStatus, progress: 100, isComplete: true }
+                : { ...t, status: nextStatus };
+            })
+          : old,
       );
       return { snapshot };
     },

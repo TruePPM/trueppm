@@ -151,8 +151,11 @@ describe('useRescheduleTask', () => {
     });
   });
 
-  it('sets cache to [] when there is no prior cache entry', async () => {
-    // old is undefined → falls through to ?? []
+  it('leaves the cache absent when there is no prior cache entry (#2717)', async () => {
+    // old is undefined → the updater is a no-op, not `?? []`. A missing cache
+    // entry at onMutate time is a real race (cancelQueries vs. another
+    // in-flight invalidation), not "no tasks exist" — coercing it to []
+    // previously wiped every other task on the board (#2717).
     const { result } = renderHook(() => useRescheduleTask(), { wrapper: makeWrapper(qc) });
 
     result.current.mutate({
@@ -164,7 +167,7 @@ describe('useRescheduleTask', () => {
 
     await waitFor(() => {
       const cached = qc.getQueryData<Task[]>(['tasks', 'proj1']);
-      expect(cached).toEqual([]);
+      expect(cached).toBeUndefined();
     });
   });
 
@@ -884,7 +887,7 @@ describe('optimistic rollback with no prior cache snapshot', () => {
     patchMock.mockResolvedValue({ data: {} });
   });
 
-  it('useRescheduleTask leaves the seeded empty cache alone when there was nothing to snapshot', async () => {
+  it('useRescheduleTask leaves the absent cache alone when there was nothing to snapshot (#2717)', async () => {
     patchMock.mockRejectedValueOnce(new Error('offline'));
     const { result } = renderHook(() => useRescheduleTask(), { wrapper: makeWrapper(qc) });
 
@@ -896,28 +899,28 @@ describe('optimistic rollback with no prior cache snapshot', () => {
     });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
-    // onMutate seeded [] (no prior entry) → there is no snapshot to restore.
-    expect(qc.getQueryData<Task[]>(['tasks', 'p1'])).toEqual([]);
+    // onMutate no-ops on a missing cache entry (#2717) → nothing to restore.
+    expect(qc.getQueryData<Task[]>(['tasks', 'p1'])).toBeUndefined();
   });
 
-  it('usePromoteTask survives an error with no prior cache entry', async () => {
+  it('usePromoteTask survives an error with no prior cache entry (#2717)', async () => {
     patchMock.mockRejectedValueOnce(new Error('offline'));
     const { result } = renderHook(() => usePromoteTask(), { wrapper: makeWrapper(qc) });
 
     result.current.mutate({ id: 't1', projectId: 'p1', planned_start: '2026-01-05' });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(qc.getQueryData<Task[]>(['tasks', 'p1'])).toEqual([]);
+    expect(qc.getQueryData<Task[]>(['tasks', 'p1'])).toBeUndefined();
   });
 
-  it('useToggleComplete survives an error with no prior cache entry', async () => {
+  it('useToggleComplete survives an error with no prior cache entry (#2717)', async () => {
     patchMock.mockRejectedValueOnce(new Error('offline'));
     const { result } = renderHook(() => useToggleComplete(), { wrapper: makeWrapper(qc) });
 
     result.current.mutate({ id: 't1', projectId: 'p1', previousStatus: 'NOT_STARTED' });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(qc.getQueryData<Task[]>(['tasks', 'p1'])).toEqual([]);
+    expect(qc.getQueryData<Task[]>(['tasks', 'p1'])).toBeUndefined();
   });
 });
 

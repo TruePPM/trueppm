@@ -85,6 +85,27 @@ describe('useUpdateTaskStatus (online)', () => {
     resolvePatch({ data: { id: 't1', status: 'IN_PROGRESS' } });
   });
 
+  it('does not wipe sibling tasks when the cache is empty at onMutate time (#2717)', async () => {
+    // Regression: cancelQueries can race an invalidation from elsewhere (a WS
+    // task_updated handler, the offline reconnect flush, this mutation's own
+    // onSuccess) and leave ['tasks', projectId] absent right when onMutate reads
+    // it. The optimistic updater must no-op in that case, not manufacture [] —
+    // which previously blanked every card on the board, not just the dragged one.
+    let resolvePatch: (v: { data: { id: string; status: string } }) => void = () => {};
+    patchMock.mockImplementationOnce(() => new Promise((resolve) => (resolvePatch = resolve)));
+    const qc = makeQC();
+    // Deliberately do NOT seed ['tasks', 'p1'] — simulates the cache being
+    // absent when onMutate's setQueryData updater runs.
+    const { result } = renderHook(() => useUpdateTaskStatus(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ projectId: 'p1', taskId: 't1', status: 'IN_PROGRESS' });
+
+    await waitFor(() => expect(patchMock).toHaveBeenCalled());
+    // The cache must stay untouched (undefined), never coerced to an empty array.
+    expect(qc.getQueryData<Task[]>(['tasks', 'p1'])).toBeUndefined();
+    resolvePatch({ data: { id: 't1', status: 'IN_PROGRESS' } });
+  });
+
   it('rolls the optimistic move back and toasts when the PATCH fails (#2037, #1631)', async () => {
     patchMock.mockRejectedValueOnce(new Error('boom'));
     const qc = makeQC();

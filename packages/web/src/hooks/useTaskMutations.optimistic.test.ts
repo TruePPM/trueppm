@@ -169,14 +169,14 @@ describe('useToggleComplete', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['task-history', 'p1', 't1'] });
   });
 
-  it('starts from an empty cache when there is no prior tasks entry', async () => {
-    // old undefined → the ?? [] fallback in onMutate.
+  it('leaves the cache absent when there is no prior tasks entry (#2717)', async () => {
+    // old undefined → the updater no-ops rather than manufacturing [] (#2717).
     patchMock.mockReturnValueOnce(new Promise(() => {}));
     const { result } = renderHook(() => useToggleComplete(), { wrapper: makeWrapper(qc) });
 
     result.current.mutate({ id: 't1', projectId: 'p1', previousStatus: 'NOT_STARTED' });
 
-    await waitFor(() => expect(qc.getQueryData<Task[]>(['tasks', 'p1'])).toEqual([]));
+    await waitFor(() => expect(qc.getQueryData<Task[]>(['tasks', 'p1'])).toBeUndefined());
   });
 });
 
