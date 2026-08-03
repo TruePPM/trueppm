@@ -1421,6 +1421,10 @@ export function ScheduleView() {
     [projectId, allTasks, deleteTaskMut, undoBuildModeDelete, setScheduleActionToast],
   );
 
+  // The one task, if any, that `insertBelow` just created and whose Name cell
+  // hasn't been touched yet — see `isPristineNewRow` on BuildModeApi.
+  const [pristineNewRowId, setPristineNewRowId] = useState<string | null>(null);
+
   const buildModeApi = useMemo<BuildModeApi>(
     () => ({
       focus,
@@ -1434,8 +1438,13 @@ export function ScheduleView() {
         // end of the parent's children (no `after_id` positioning yet).
         if (!projectId) return;
         const parentId = siblingParentId(allTasks, taskId);
+        // Non-blank placeholder name (mirrors handleAddFirstTask /
+        // handleAddPhaseFirstChild): the API rejects a blank name at create
+        // (Task.name has no blank=True), and there was no onError handler
+        // here to surface that — a blank-name payload made Enter silently
+        // create nothing against a real backend (#2682 follow-up finding).
         createTaskMut.mutate(
-          { name: '', duration: 1, parent_id: parentId },
+          { name: 'New task', duration: 1, parent_id: parentId },
           {
             // On create, drop straight into the new row's Name cell in edit mode
             // so Enter always ends with the cursor in an editable Name cell. The
@@ -1444,10 +1453,15 @@ export function ScheduleView() {
             onSuccess: (created) => {
               focus.focusRow(created.id);
               focus.enterCellEdit(created.id, 'name');
+              setPristineNewRowId(created.id);
             },
+            onError: () => toast.error("Couldn't add a new task — try again."),
           },
         );
       },
+      isPristineNewRow: (taskId) => taskId === pristineNewRowId,
+      clearPristineNewRow: (taskId) =>
+        setPristineNewRowId((cur) => (cur === taskId ? null : cur)),
       convertToMilestone: (taskId) => {
         if (!projectId) return;
         updateTaskMut.mutate({ id: taskId, projectId, duration: 0 });
@@ -1491,6 +1505,7 @@ export function ScheduleView() {
       allTasks,
       childCountById,
       performBuildModeDelete,
+      pristineNewRowId,
     ],
   );
 
