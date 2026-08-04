@@ -229,6 +229,31 @@ def _milestone_gate_applies(task: Task, data: dict[str, Any]) -> bool:
     return bool(task.is_milestone)
 
 
+def _resolve_bulk_create_placement(
+    index: int,
+    row_id: uuid.UUID | None,
+    parent_id_raw: Any,
+    is_subtask: bool,
+    ctx: BulkContext,
+    out: BulkOutcome,
+) -> tuple[Task | None, str] | None:
+    """Resolve a bulk create's WBS placement, or record its rejection and return ``None``.
+
+    Mirrors ``TaskViewSet.perform_create`` rather than duplicating its guards.
+    Imported locally — ``views`` imports ``task_bulk`` at call time
+    (``TaskBulkView.post``), so a module-level import here would be circular.
+    """
+    from trueppm_api.apps.projects.views import _next_root_wbs_path, _resolve_create_parent
+
+    if not parent_id_raw:
+        return None, _next_root_wbs_path(ctx.project)
+    try:
+        return _resolve_create_parent(ctx.project, parent_id_raw, is_subtask=is_subtask)
+    except DRFValidationError as exc:
+        out.reject(index, row_id, CODE_INVALID, _first_error_message(exc))
+        return None
+
+
 def _apply_create(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOutcome) -> None:
     """Apply one ``create`` op, honoring the four client-minted-id guards."""
     from trueppm_api.apps.projects.serializers import (
@@ -265,6 +290,11 @@ def _apply_create(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOut
     data.pop("project", None)
     data.pop("wbs_path", None)
     data.pop("id", None)
+    # Popped here (not just on the create branch below) so a re-create-as-edit never
+    # re-parents an existing row through this path — same as perform_update, which
+    # never touches wbs_path on PATCH.
+    parent_id_raw = data.pop("parent_id", None)
+    is_subtask = str(data.pop("is_subtask", "") or "").lower() in ("true", "1")
 
     if existing is not None:
         # Idempotent re-create: the row already landed in a prior batch. Apply it as
@@ -304,6 +334,16 @@ def _apply_create(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOut
         _note_project_start_shift(task, out)
         return
 
+    # Hierarchy placement (#2724). A batch's rows apply in `operations` order
+    # (apply_task_operations), so a child row naming a parent created earlier IN
+    # THIS SAME BATCH resolves: the parent's INSERT already committed to this
+    # transaction, just not to the outer request's response yet — client-minted
+    # ids (ADR-0772) make that forward reference possible without a round trip.
+    placement = _resolve_bulk_create_placement(index, row_id, parent_id_raw, is_subtask, ctx, out)
+    if placement is None:
+        return
+    parent_task, wbs_path = placement
+
     ser = TaskSerializer(
         data={**data, "project": str(ctx.project.pk)}, context=_row_serializer_context(ctx)
     )
@@ -325,7 +365,14 @@ def _apply_create(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOut
     # passed as an explicit save() kwarg rather than made writable on TaskSerializer,
     # which is shared by the plain REST create and the sync upload: making the field
     # writable would silently hand a caller-supplied PK to every one of them.
-    task = ser.save(id=row_id) if row_id is not None else ser.save()
+    save_kwargs: dict[str, Any] = {"wbs_path": wbs_path, "is_subtask": is_subtask}
+    if row_id is not None:
+        save_kwargs["id"] = row_id
+    task = ser.save(**save_kwargs)
+    if is_subtask and parent_task is not None:
+        from trueppm_api.apps.projects.views import _record_subtask_spawn
+
+        _record_subtask_spawn(parent_task, task, ctx.request.user)
     maybe_record_scope_injection(task, None, ctx.request.user)
     out.created_ids.append(task.pk)
     out.applied.append({"index": index, "id": str(task.pk), "op": "create", "outcome": "created"})

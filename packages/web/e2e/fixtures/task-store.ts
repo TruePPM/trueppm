@@ -104,5 +104,40 @@ export async function setupTaskStore(
     return route.fallback();
   });
 
+  // `tasks/bulk/` (#2724) lives under a different path (`projects/{pk}/tasks/bulk/`,
+  // not `tasks/{id}/`), so the route above never sees it — a separate registration,
+  // sharing the same `rows` closure. Scoped to what paste-many's own spec needs:
+  // `create` (client-minted `id`, per ADR-0772) and `delete` (its Undo). No `update`
+  // support — nothing in this repo's specs bulk-updates yet.
+  await page.route(/\/api\/v1\/projects\/[^/]+\/tasks\/bulk\/$/, async (route: Route) => {
+    const request = route.request();
+    if (request.method() !== 'POST') return route.fallback();
+    const body = (request.postDataJSON() ?? {}) as {
+      operations?: { op: string; id?: string; data?: Record<string, unknown> }[];
+    };
+    const applied: Record<string, unknown>[] = [];
+    const rejected: Record<string, unknown>[] = [];
+    (body.operations ?? []).forEach((op, index) => {
+      if (op.op === 'create') {
+        const id = op.id ?? `bulk-${rows.length}-${index}`;
+        rows.push({ id, ...op.data });
+        applied.push({ index, id, op: 'create', outcome: 'created' });
+        return;
+      }
+      if (op.op === 'delete') {
+        const idx = rows.findIndex((r) => r.id === op.id);
+        if (idx < 0) {
+          rejected.push({ index, id: op.id ?? null, code: 'not_found', message: 'No such task.' });
+          return;
+        }
+        rows.splice(idx, 1);
+        applied.push({ index, id: op.id, op: 'delete', outcome: 'deleted' });
+        return;
+      }
+      rejected.push({ index, id: op.id ?? null, code: 'invalid', message: `Unknown op '${op.op}'.` });
+    });
+    return route.fulfill(json({ applied, rejected, skipped: [] }, 207));
+  });
+
   return { patches, rows: () => rows.map((r) => ({ ...r })) };
 }

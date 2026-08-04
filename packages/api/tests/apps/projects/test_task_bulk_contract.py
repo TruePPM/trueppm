@@ -846,3 +846,172 @@ def test_the_207_body_matches_the_schema_it_publishes(
         method="post",
         status_code="207",
     )
+
+
+# ---------------------------------------------------------------------------
+# Hierarchy placement on create (#2724 — paste-many needs a real tree, not a
+# batch of root-level rows). Mirrors TaskViewSet.perform_create's parent_id
+# handling, which _apply_create did not call before this.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_create_under_an_existing_parent_gets_a_child_wbs_path(
+    owner_client: APIClient, project: Project
+) -> None:
+    phase = Task.objects.create(project=project, name="Phase 1", duration=1, wbs_path="1")
+
+    with _no_side_effects():
+        r = owner_client.post(
+            url(project),
+            {
+                "operations": [
+                    {
+                        "op": "create",
+                        "data": {"name": "Child", "duration": 2, "parent_id": str(phase.pk)},
+                    }
+                ]
+            },
+            format="json",
+        )
+
+    assert r.status_code == 207, r.data
+    assert len(r.data["applied"]) == 1
+    child = Task.objects.get(pk=r.data["applied"][0]["id"])
+    assert child.wbs_path == "1.1"
+
+
+@pytest.mark.django_db
+def test_batch_creates_a_whole_subtree_via_intra_batch_parent_references(
+    owner_client: APIClient, project: Project
+) -> None:
+    """The paste-many case: a fresh phase and its children in one request.
+
+    The children name the phase's CLIENT-MINTED id (ADR-0772) — a forward reference
+    that only resolves because phase 1 (apply_task_operations) materializes rows in
+    ``operations`` order, so a later row's parent already exists in this same
+    transaction by the time it is processed.
+    """
+    phase_id = str(uuid.uuid4())
+    operations = [
+        {"op": "create", "id": phase_id, "data": {"name": "Design", "duration": 1}},
+        {"op": "create", "data": {"name": "Wireframes", "duration": 3, "parent_id": phase_id}},
+        {"op": "create", "data": {"name": "Review", "duration": 1, "parent_id": phase_id}},
+    ]
+
+    with _no_side_effects():
+        r = owner_client.post(url(project), {"operations": operations}, format="json")
+
+    assert r.status_code == 207, r.data
+    assert len(r.data["applied"]) == 3
+    phase = Task.objects.get(pk=phase_id)
+    assert phase.wbs_path == "1"
+    children = list(Task.objects.filter(project=project).exclude(pk=phase_id).order_by("wbs_path"))
+    assert [c.wbs_path for c in children] == ["1.1", "1.2"]
+    assert [c.name for c in children] == ["Wireframes", "Review"]
+
+
+@pytest.mark.django_db
+def test_root_level_creates_in_one_batch_get_sequential_wbs_paths(
+    owner_client: APIClient, project: Project
+) -> None:
+    operations = [{"op": "create", "data": {"name": f"Row {i}", "duration": 1}} for i in range(3)]
+
+    with _no_side_effects():
+        r = owner_client.post(url(project), {"operations": operations}, format="json")
+
+    assert r.status_code == 207, r.data
+    created = Task.objects.filter(project=project).order_by("wbs_path")
+    assert [t.wbs_path for t in created] == ["1", "2", "3"]
+
+
+@pytest.mark.django_db
+def test_create_under_a_milestone_parent_is_rejected_without_discarding_siblings(
+    owner_client: APIClient, project: Project
+) -> None:
+    """The depth/milestone placement guards apply per row — one bad parent must not
+    fail the rest of the batch (#2723 §1 extended to placement, not just validation).
+    """
+    milestone = Task.objects.create(
+        project=project, name="Ship", duration=0, wbs_path="1", is_milestone=True
+    )
+    operations = [
+        {
+            "op": "create",
+            "data": {"name": "Bad child", "duration": 1, "parent_id": str(milestone.pk)},
+        },
+        {"op": "create", "data": {"name": "Fine at root", "duration": 1}},
+    ]
+
+    with _no_side_effects():
+        r = owner_client.post(url(project), {"operations": operations}, format="json")
+
+    assert r.status_code == 207, r.data
+    assert [e["index"] for e in r.data["rejected"]] == [0]
+    assert r.data["rejected"][0]["code"] == "invalid"
+    assert [e["index"] for e in r.data["applied"]] == [1]
+    assert Task.objects.filter(project=project, name="Bad child").exists() is False
+
+
+@pytest.mark.django_db
+def test_create_with_a_parent_id_from_another_project_is_rejected(
+    owner_client: APIClient, project: Project, other_project: Project
+) -> None:
+    foreign_parent = Task.objects.create(
+        project=other_project, name="Theirs", duration=1, wbs_path="1"
+    )
+
+    with _no_side_effects():
+        r = owner_client.post(
+            url(project),
+            {
+                "operations": [
+                    {
+                        "op": "create",
+                        "data": {
+                            "name": "Orphan",
+                            "duration": 1,
+                            "parent_id": str(foreign_parent.pk),
+                        },
+                    }
+                ]
+            },
+            format="json",
+        )
+
+    assert r.status_code == 207, r.data
+    assert len(r.data["rejected"]) == 1
+    assert r.data["rejected"][0]["code"] == "invalid"
+
+
+@pytest.mark.django_db
+def test_update_op_ignores_a_parent_id_in_its_data(
+    owner_client: APIClient, project: Project
+) -> None:
+    """PATCH-shaped update never re-parents through this path (matches perform_update,
+    which does not touch wbs_path) — parent_id is popped unconditionally in
+    _apply_create, not only on the create branch.
+    """
+    phase = Task.objects.create(project=project, name="Phase", duration=1, wbs_path="1")
+    task = Task.objects.create(project=project, name="Loose", duration=1, wbs_path="2")
+
+    with _no_side_effects():
+        r = owner_client.post(
+            url(project),
+            {
+                "operations": [
+                    {
+                        "op": "update",
+                        "id": str(task.pk),
+                        "data": {"parent_id": str(phase.pk), "duration": 5},
+                    }
+                ]
+            },
+            format="json",
+        )
+
+    assert r.status_code == 207, r.data
+    assert len(r.data["applied"]) == 1
+    task.refresh_from_db()
+    assert task.wbs_path == "2"
+    assert task.duration == 5

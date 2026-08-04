@@ -25,8 +25,8 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ['↑', '↓'], label: 'Move row focus' },
       { keys: ['Shift', '↑', '↓'], label: 'Extend selection' },
       { keys: ['⌘', 'A'], label: 'Select siblings, then the whole tree' },
-      { keys: ['F8'], label: 'Jump to next unresolved @owner' },
-      { keys: ['Shift', 'F8'], label: 'Jump to previous unresolved @owner' },
+      { keys: ['F8'], label: 'Jump to next unresolved @owner or missing duration' },
+      { keys: ['Shift', 'F8'], label: 'Jump to previous unresolved @owner or missing duration' },
       { keys: ['Esc'], label: 'Clear selection' },
     ],
   },
@@ -48,6 +48,11 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ['⏎'], label: 'New row below, same level' },
       { keys: ['Shift', '⏎'], label: 'New row above, same level' },
       { keys: ['⌘', '⏎'], label: 'New child row (one level deeper)' },
+      {
+        keys: ['⌘', 'V'],
+        label: 'Paste spreadsheet rows — hierarchy read from leading indentation',
+      },
+      { keys: ['⌘', 'Z'], label: 'Undo the last paste, while its receipt is showing' },
     ],
   },
   {
