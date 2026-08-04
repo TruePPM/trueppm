@@ -14,11 +14,19 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import DatabaseError
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import role_can_author_plan
-from trueppm_api.apps.projects.models import Calendar, DeliveryMode, Dependency, Project, Task
+from trueppm_api.apps.projects.models import (
+    Calendar,
+    DeliveryMode,
+    Dependency,
+    Program,
+    Project,
+    Task,
+)
 from trueppm_api.apps.projects.task_bulk import TASK_BULK_MAX_OPERATIONS
 
 URL = "/api/v1/projects/{pk}/tasks/bulk/"
@@ -401,6 +409,9 @@ def test_a_self_referential_edge_is_rejected(owner_client: APIClient, project: P
         )
     assert r.status_code == 207, r.data
     assert [e["code"] for e in r.data["dependencies"]["rejected"]] == ["self_reference"]
+    # Dependency ids are server-assigned, so a rejection never has one to echo back —
+    # but the key itself is required by TaskBulkProblemEntry (#2757).
+    assert r.data["dependencies"]["rejected"][0]["id"] is None
     assert not Dependency.objects.filter(predecessor_id=a).exists()
 
 
@@ -428,6 +439,7 @@ def test_a_member_may_paste_rows_but_not_author_edges(project: Project) -> None:
     assert r.status_code == 207, r.data
     assert len(r.data["applied"]) == 2
     assert [e["code"] for e in r.data["dependencies"]["rejected"]] == ["forbidden"]
+    assert r.data["dependencies"]["rejected"][0]["id"] is None
     assert not Dependency.objects.filter(predecessor_id=a).exists()
 
 
@@ -453,6 +465,143 @@ def test_a_caller_supplied_dependency_id_is_rejected(
         )
     assert r.status_code == 207, r.data
     assert [e["code"] for e in r.data["dependencies"]["rejected"]] == ["invalid"]
+    assert r.data["dependencies"]["rejected"][0]["id"] is None
+
+
+@pytest.mark.django_db
+def test_a_malformed_edge_endpoint_is_rejected(owner_client: APIClient, project: Project) -> None:
+    """A non-UUID endpoint fails before any DB lookup runs."""
+    a = str(uuid.uuid4())
+    with _no_side_effects():
+        r = owner_client.post(
+            url(project),
+            {
+                "operations": [{"op": "create", "id": a, "data": {"name": "A", "duration": 1}}],
+                "dependencies": {"created": [{"predecessor": a, "successor": "not-a-uuid"}]},
+            },
+            format="json",
+        )
+    assert r.status_code == 207, r.data
+    assert [e["code"] for e in r.data["dependencies"]["rejected"]] == ["malformed_id"]
+    assert r.data["dependencies"]["rejected"][0]["id"] is None
+
+
+@pytest.mark.django_db
+def test_an_edge_referencing_a_task_that_does_not_exist_is_rejected(
+    owner_client: APIClient, project: Project
+) -> None:
+    """A well-formed UUID that resolves to no live task is a distinct rejection
+    from a malformed one — the batch's own create ops are visible (forward
+    references), so this can only be a genuinely absent or tombstoned task."""
+    a = str(uuid.uuid4())
+    missing = str(uuid.uuid4())
+    with _no_side_effects():
+        r = owner_client.post(
+            url(project),
+            {
+                "operations": [{"op": "create", "id": a, "data": {"name": "A", "duration": 1}}],
+                "dependencies": {"created": [{"predecessor": a, "successor": missing}]},
+            },
+            format="json",
+        )
+    assert r.status_code == 207, r.data
+    assert [e["code"] for e in r.data["dependencies"]["rejected"]] == ["unresolved_endpoint"]
+    assert r.data["dependencies"]["rejected"][0]["id"] is None
+
+
+@pytest.mark.django_db
+def test_a_cross_project_edge_without_successor_access_is_forbidden(
+    owner_client: APIClient, project: Project, other_project: Project
+) -> None:
+    """The role gate in `_resolve_edges` only checks the caller's role on
+    `ctx.project` — a cross-project edge still owes the ADR-0120 D2 consent
+    check on the successor's own project, which this caller has no access to."""
+    a = str(uuid.uuid4())
+    foreign_task = Task.objects.create(project=other_project, name="Foreign", duration=1)
+    with _no_side_effects():
+        r = owner_client.post(
+            url(project),
+            {
+                "operations": [{"op": "create", "id": a, "data": {"name": "A", "duration": 1}}],
+                "dependencies": {
+                    "created": [{"predecessor": a, "successor": str(foreign_task.pk)}]
+                },
+            },
+            format="json",
+        )
+    assert r.status_code == 207, r.data
+    assert [e["code"] for e in r.data["dependencies"]["rejected"]] == ["forbidden"]
+    assert r.data["dependencies"]["rejected"][0]["id"] is None
+    assert not Dependency.objects.filter(predecessor_id=a).exists()
+
+
+@pytest.mark.django_db
+def test_a_cross_program_edge_is_rejected_as_invalid(
+    project: Project, other_project: Project, calendar: Calendar
+) -> None:
+    """A caller with Scheduler+ on both endpoints still hits the ADR-0070
+    Enterprise boundary when the projects share no Program — a portfolio-level
+    concern, not a permission one, so it surfaces as `invalid` rather than
+    `forbidden`."""
+    User = get_user_model()
+    user = User.objects.create_user(username="cross_program_author", password="pw")
+    ProjectMembership.objects.create(project=project, user=user, role=Role.OWNER)
+    other_program = Program.objects.create(name="Other Program")
+    other_project.program = other_program
+    other_project.save(update_fields=["program"])
+    ProjectMembership.objects.create(project=other_project, user=user, role=Role.SCHEDULER)
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    a = str(uuid.uuid4())
+    foreign_task = Task.objects.create(project=other_project, name="Foreign", duration=1)
+    with _no_side_effects():
+        r = client.post(
+            url(project),
+            {
+                "operations": [{"op": "create", "id": a, "data": {"name": "A", "duration": 1}}],
+                "dependencies": {
+                    "created": [{"predecessor": a, "successor": str(foreign_task.pk)}]
+                },
+            },
+            format="json",
+        )
+    assert r.status_code == 207, r.data
+    assert [e["code"] for e in r.data["dependencies"]["rejected"]] == ["invalid"]
+    assert r.data["dependencies"]["rejected"][0]["id"] is None
+
+
+@pytest.mark.django_db
+def test_a_database_error_during_dependency_write_is_rejected_not_500(
+    owner_client: APIClient, project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A DB-level failure mid-write (e.g. a race lost to a concurrent writer)
+    must surface as a structured rejection, not a 500 — and the entry still
+    carries a null id per TaskBulkProblemEntry (#2757)."""
+    from trueppm_api.apps.projects import serializers as project_serializers
+
+    def _raise_database_error(self: object, **_kwargs: object) -> None:
+        raise DatabaseError("could not serialize access due to concurrent update")
+
+    monkeypatch.setattr(project_serializers.DependencySerializer, "save", _raise_database_error)
+
+    a, b = str(uuid.uuid4()), str(uuid.uuid4())
+    with _no_side_effects():
+        r = owner_client.post(
+            url(project),
+            {
+                "operations": [
+                    {"op": "create", "id": a, "data": {"name": "A", "duration": 1}},
+                    {"op": "create", "id": b, "data": {"name": "B", "duration": 1}},
+                ],
+                "dependencies": {"created": [{"predecessor": a, "successor": b}]},
+            },
+            format="json",
+        )
+    assert r.status_code == 207, r.data
+    assert [e["code"] for e in r.data["dependencies"]["rejected"]] == ["conflict"]
+    assert r.data["dependencies"]["rejected"][0]["id"] is None
+    assert not Dependency.objects.filter(predecessor_id=a).exists()
 
 
 @pytest.mark.django_db
@@ -651,7 +800,12 @@ def test_the_207_body_matches_the_schema_it_publishes(
     It proves the committed document matches the current code's *declarations*, not
     that a response body satisfies them — so a wrong `responses={...}` passes CI and
     breaks a generated SDK instead. This asserts the actual body, with all three
-    buckets non-trivially populated, against the committed schema.
+    buckets — and both `dependencies` buckets — non-trivially populated, against the
+    committed schema.
+
+    The pre-#2757 gap: this test populated `dependencies.applied` but never
+    `dependencies.rejected`, so a dep-edge rejection missing the schema's required
+    `id` key (#2757) passed this exact conformance check untouched.
     """
     from tests.test_openapi_response_conformance import (
         assert_response_matches_schema,
@@ -672,13 +826,19 @@ def test_the_207_body_matches_the_schema_it_publishes(
                     {"op": "create", "data": {"duration": 1}},  # rejected: no name
                     {"op": "create", "id": str(dead.pk), "data": {"name": "Z"}},  # skipped
                 ],
-                "dependencies": {"created": [{"predecessor": a, "successor": b}]},
+                "dependencies": {
+                    "created": [
+                        {"predecessor": a, "successor": b},
+                        {"predecessor": a, "successor": a},  # rejected: self-reference
+                    ]
+                },
             },
             format="json",
         )
 
     assert r.data["applied"] and r.data["rejected"] and r.data["skipped"]
     assert r.data["dependencies"]["applied"]
+    assert r.data["dependencies"]["rejected"]
     assert_response_matches_schema(
         load_committed_schema(),
         r,
