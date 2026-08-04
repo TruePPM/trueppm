@@ -395,9 +395,10 @@ test.describe('accessibility @a11y — routes', () => {
 
   test('project Overview has no critical/serious WCAG violations', async ({ page }, testInfo) => {
     await page.goto(`/projects/${PROJECT_ID}/overview`);
-    // The fixture project has no tasks, so Overview renders its first-run state:
-    // the sr-only page landmark (#2200) + ProjectHeader + "add your first task"
-    // CTA. The h1 renders in both first-run and populated branches.
+    // The fixture project has no tasks. Since #2733 there is no separate first-run
+    // branch — the "add your first task" card was deleted rather than restyled, and
+    // a zero-task project renders the ordinary Overview body. The sr-only page
+    // landmark (#2200) is the h1 either way.
     await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible({
       timeout: 10_000,
     });

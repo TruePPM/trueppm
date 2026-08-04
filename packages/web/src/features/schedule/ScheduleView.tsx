@@ -14,6 +14,7 @@ import {
 import { useLocation, useSearchParams } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { setSearchParam } from '@/hooks/useUrlSelectedId';
+import { findUndatedRow } from './buildMode/undatedNav';
 import type { GanttEngine, GanttScaleData } from './engine';
 import { dateToLeft, leftToDate, ZOOM_STEP_FACTOR } from './engine';
 import { computeInitialFraming, type RowBar } from './scheduleUtils';
@@ -107,7 +108,7 @@ import {
   BuildModeProvider,
   BuildModeHintStrip,
   BuildModeCheatsheet,
-  BuildModeEmptyState,
+  BlankProjectCanvas,
   BuildModePill,
   AuthorModePill,
   hasUnresolvedOwnerToken,
@@ -2126,6 +2127,30 @@ export function ScheduleView() {
         useScheduleStore.getState().scrollToTask(target.id);
         focusRowByIdSoon(target.id);
       };
+      // F7 / Shift+F7 (#2733): jump to the next/previous visible row that still
+      // needs a committed date, wrapping around. Rows without dates are legal, so
+      // this is navigation, not error triage — it just makes the "needs dates"
+      // count actionable instead of decorative.
+      //
+      // F7 rather than the F8 the design handoff names: F8 is already "next
+      // unresolved @owner" (#2727, ADR-0776 §3), shipped and in the cheatsheet.
+      // The handoff predates it. See undatedNav.ts.
+      out['f7'] = (e) => {
+        e.preventDefault();
+        const target = findUndatedRow(visibleTasks, focus.state.rowId, 'forward');
+        if (!target) return;
+        focus.focusRow(target.id);
+        useScheduleStore.getState().scrollToTask(target.id);
+        focusRowByIdSoon(target.id);
+      };
+      out['shift+f7'] = (e) => {
+        e.preventDefault();
+        const target = findUndatedRow(visibleTasks, focus.state.rowId, 'backward');
+        if (!target) return;
+        focus.focusRow(target.id);
+        useScheduleStore.getState().scrollToTask(target.id);
+        focusRowByIdSoon(target.id);
+      };
       // ⌘Z / Ctrl+Z (#2724): undo the most recent paste-many batch while its
       // receipt strip is still up. Claimed only while a receipt is showing —
       // otherwise this falls through to the browser's ordinary undo so a
@@ -2200,23 +2225,29 @@ export function ScheduleView() {
     return claimHelpShortcut();
   }, [buildModeActive]);
 
-  const handleAddFirstTask = useCallback(() => {
-    if (!projectId || readOnly) return;
-    // Per ux-design: the new row enters RowFocused immediately, then auto-
-    // transitions to CellEdit on the Name column — saves the user one keystroke
-    // vs. requiring F2 after the row appears.
-    // Placeholder `name` matches the milestone path; the server CharField does
-    // not allow blank, and the cell editor opens immediately for overwrite.
-    createTaskMut.mutate(
-      { name: 'New task', duration: 1 },
-      {
-        onSuccess: (data) => {
-          focus.focusRow(data.id);
-          focus.enterCellEdit(data.id, 'name');
-        },
-      },
-    );
-  }, [projectId, readOnly, createTaskMut, focus]);
+  // Blank project (#2733): commit the outline's live draft row. Unlike
+  // handleAddFirstTask below this does NOT open the cell editor afterwards — the
+  // draft input keeps the caret itself so a second row can be typed immediately,
+  // and stealing focus into a freshly-created row's editor would interrupt that.
+  const handleCommitDraftRow = useCallback(
+    (name: string) => {
+      if (!projectId || readOnly) return;
+      createTaskMut.mutate({ name, duration: 1 });
+    },
+    [projectId, readOnly, createTaskMut],
+  );
+
+  // The project's stated facts, shown beside the horizon so the ruler is legible
+  // — gridlines with no named calendar behind them explain nothing (#2733).
+  const blankProjectFacts = useMemo(
+    () => ({
+      startDate: projectDetail?.start_date ?? null,
+      calendarName: projectDetail?.effective_calendar?.name ?? null,
+      defaultMode: projectDetail?.effective_methodology ?? null,
+      views: projectDetail?.default_view ? [projectDetail.default_view] : [],
+    }),
+    [projectDetail],
+  );
 
   // Mobile owns its own error/loading/empty states inside MobileSchedule
   // (#1671), so these desktop-only early returns are skipped below md — the
@@ -2398,7 +2429,9 @@ export function ScheduleView() {
         plannedByPhase={plannedByPhase}
         resourcePool={resourcePool}
         buildModeActive={buildModeActive}
-        handleAddFirstTask={handleAddFirstTask}
+        handleCommitDraftRow={handleCommitDraftRow}
+        handleImportFile={() => setCsvImportOpen(true)}
+        blankProjectFacts={blankProjectFacts}
         canvasScrollRef={canvasScrollRef}
         handleCanvasScroll={handleCanvasScroll}
         links={links}
@@ -3340,7 +3373,9 @@ interface ScheduleMainAreaProps {
   plannedByPhase: ComponentProps<typeof TaskListPanel>['plannedByPhase'];
   resourcePool: ComponentProps<typeof TaskListPanel>['resourcePool'];
   buildModeActive: boolean;
-  handleAddFirstTask: () => void;
+  handleCommitDraftRow: (name: string) => void;
+  handleImportFile: () => void;
+  blankProjectFacts: ComponentProps<typeof BlankProjectCanvas>['facts'];
   canvasScrollRef: RefObject<HTMLDivElement | null>;
   handleCanvasScroll: () => void;
   links: ComponentProps<typeof CanvasScheduleTimeline>['links'];
@@ -3389,7 +3424,9 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
     plannedByPhase,
     resourcePool,
     buildModeActive,
-    handleAddFirstTask,
+    handleCommitDraftRow,
+    handleImportFile,
+    blankProjectFacts,
     canvasScrollRef,
     handleCanvasScroll,
     links,
@@ -3456,6 +3493,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
               onAutoEditConsumed={() => setPendingAutoEditId(null)}
               plannedByPhase={plannedByPhase}
               resourcePool={resourcePool}
+              onCommitDraftRow={readOnly ? undefined : handleCommitDraftRow}
             />
             {/* Panel splitter — drag to resize task list width */}
             <PanelSplitter currentTaskWidth={widths.task} setWidth={setWidth} />
@@ -3478,7 +3516,14 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
               primaryTo={projectId ? `/projects/${projectId}/sprints` : '#'}
             />
           ) : buildModeActive ? (
-            <BuildModeEmptyState onAddFirstTask={readOnly ? undefined : handleAddFirstTask} />
+            // #2733: a blank project is a canvas, not a card. The horizon draws
+            // against the chosen calendar so an empty project reads as a plan
+            // surface, and the fill options sit quietly at the edge so they do not
+            // compete with the live row already holding the caret in the outline.
+            <BlankProjectCanvas
+              facts={blankProjectFacts}
+              onImportFile={readOnly ? undefined : handleImportFile}
+            />
           ) : (
             <ScheduleEmptyState onAddTask={readOnly ? undefined : () => setShowAddForm(true)} />
           )

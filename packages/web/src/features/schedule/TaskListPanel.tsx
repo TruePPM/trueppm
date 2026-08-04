@@ -6,6 +6,7 @@ import type { ColumnWidths } from '@/hooks/useColumnWidths';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { TaskListHeader } from './TaskListHeader';
 import { TaskListRow } from './TaskListRow';
+import { BlankOutlineDraftRow } from './buildMode/BlankOutlineDraftRow';
 import type { PhasePlannedBadge } from './plannedByPhase';
 
 /** Derive WBS nesting level from the dot-separated wbs string (e.g. '1.2.3' → level 3) */
@@ -194,6 +195,12 @@ interface Props {
    */
   plannedByPhase?: Map<string, PhasePlannedBadge>;
   /**
+   * Commit the blank-project draft row as a real task (#2733). Omitted for
+   * read-only roles — the draft row then renders as a static line rather than an
+   * input, because a caret in a field that cannot save is worse than no caret.
+   */
+  onCommitDraftRow?: (name: string) => void;
+  /**
    * Project resource roster — the only index the `@owner` authoring token resolves
    * against (ADR-0774, #2718). Owned by ScheduleView, which already runs the project's
    * queries; this panel stays presentational so it is renderable without a query client.
@@ -224,6 +231,7 @@ export function TaskListPanel({
   onAutoEditConsumed,
   plannedByPhase,
   resourcePool,
+  onCommitDraftRow,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollToTaskId = useScheduleStore((s) => s.scrollToTaskId);
@@ -347,6 +355,15 @@ export function TaskListPanel({
       aria-rowcount={tasks.length + 1}
     >
       <TaskListHeader widths={widths} visible={visible} setWidth={setWidth} />
+
+      {/* Blank project (#2733): the outline opens with a LIVE row and the caret
+          already in it, instead of a "No tasks yet" card the user has to get past.
+          Rendered here rather than inside the virtualizer because there is nothing
+          to virtualize — it is exactly one row, and it must not be unmounted by a
+          scroll measurement while somebody is typing into it. */}
+      {tasks.length === 0 && (
+        <BlankOutlineDraftRow onCommit={onCommitDraftRow} nameWidth={widths.task} />
+      )}
 
       {/*
         Scrollable virtualized rows. The scroll wrapper, the sizer, and each
