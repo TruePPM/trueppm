@@ -20,6 +20,8 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ['↑', '↓'], label: 'Move row focus' },
       { keys: ['Shift', '↑', '↓'], label: 'Extend selection' },
       { keys: ['⌘', 'A'], label: 'Select siblings, then the whole tree' },
+      { keys: ['F8'], label: 'Jump to next unresolved @owner' },
+      { keys: ['Shift', 'F8'], label: 'Jump to previous unresolved @owner' },
       { keys: ['Esc'], label: 'Clear selection' },
     ],
   },

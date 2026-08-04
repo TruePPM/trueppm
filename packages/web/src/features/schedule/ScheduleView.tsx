@@ -105,6 +105,7 @@ import {
   BuildModeEmptyState,
   BuildModePill,
   AuthorModePill,
+  findUnresolvedOwnerRow,
   type BuildModeApi,
 } from './buildMode';
 import { useScheduleAuthorMode, type ScheduleAuthorMode } from '@/hooks/useScheduleAuthorMode';
@@ -359,6 +360,24 @@ type AddDependencyMutation = ReturnType<typeof useAddDependency>;
  */
 function schedulePanelWidth(effectiveViewMode: 'grid' | 'timeline', totalWidth: number): number {
   return effectiveViewMode === 'timeline' ? 0 : totalWidth;
+}
+
+/**
+ * Focus a row by id once it mounts, retrying across animation frames — F8 /
+ * Shift+F8 (#2727, ADR-0776 §3) can jump to a row far outside the
+ * virtualized window, so a single `querySelector` right after triggering the
+ * scroll usually misses (the row hasn't rendered yet). Bounded to ~10 frames
+ * (~160ms at 60fps) so a stale/removed id can't spin forever.
+ */
+function focusRowByIdSoon(id: string, attemptsLeft = 10): void {
+  requestAnimationFrame(() => {
+    const el = document.querySelector<HTMLElement>(`[data-row-id="${id}"]`);
+    if (el) {
+      el.focus();
+      return;
+    }
+    if (attemptsLeft > 0) focusRowByIdSoon(id, attemptsLeft - 1);
+  });
 }
 
 /**
@@ -2000,6 +2019,35 @@ export function ScheduleView() {
         e.preventDefault();
         toggleAuthorMode();
       };
+      // F8 / Shift+F8 (#2727, ADR-0776 §3): jump to the next/previous visible
+      // row carrying an unresolved @owner token, wrapping around. No-op when
+      // nothing is unresolved. Non-destructive — this only moves focus.
+      out['f8'] = (e) => {
+        e.preventDefault();
+        const target = findUnresolvedOwnerRow(
+          visibleTasks,
+          resourcePool ?? [],
+          focus.state.rowId,
+          'forward',
+        );
+        if (!target) return;
+        focus.focusRow(target.id);
+        useScheduleStore.getState().scrollToTask(target.id);
+        focusRowByIdSoon(target.id);
+      };
+      out['shift+f8'] = (e) => {
+        e.preventDefault();
+        const target = findUnresolvedOwnerRow(
+          visibleTasks,
+          resourcePool ?? [],
+          focus.state.rowId,
+          'backward',
+        );
+        if (!target) return;
+        focus.focusRow(target.id);
+        useScheduleStore.getState().scrollToTask(target.id);
+        focusRowByIdSoon(target.id);
+      };
     }
     // Continuous zoom shortcuts (#351). ⌘=/⌘- step geometrically through the
     // store (→ engine.setPxPerDay with viewport-center anchor, rule 80); ⌘0
@@ -2028,6 +2076,9 @@ export function ScheduleView() {
     handleAddPhase,
     buildModeActive,
     toggleAuthorMode,
+    focus,
+    visibleTasks,
+    resourcePool,
     engine,
     setSelectedTaskId,
   ]);

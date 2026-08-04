@@ -1303,3 +1303,75 @@ describe('ScheduleView — buildModeApi.duplicateSubtree (#2727, ADR-0776 §2)',
     expect(names.filter((n) => n.includes('Discovery & Design'))).toHaveLength(1);
   });
 });
+
+describe('ScheduleView — F8/Shift+F8 unresolved-owner-token navigation (#2727, ADR-0776 §3)', () => {
+  // useProjectResourcePool is not mocked in this file — the real hook runs
+  // against no network client in jsdom and `.data` stays undefined, which
+  // the F8 binding treats as an empty roster. An empty roster can never
+  // resolve an @token, so every @mention below reads as "unresolved" —
+  // exactly the fixture this predicate needs, with no extra mocking.
+  const UNRESOLVED_TASKS: Task[] = [
+    { ...FIXTURE_TASKS[0], id: 'u1', wbs: '1', name: 'Plan', parentId: null },
+    { ...FIXTURE_TASKS[0], id: 'u2', wbs: '2', name: 'Build @nobody', parentId: null },
+    { ...FIXTURE_TASKS[0], id: 'u3', wbs: '3', name: 'Ship it', parentId: null },
+    { ...FIXTURE_TASKS[0], id: 'u4', wbs: '4', name: 'Review @ghost', parentId: null },
+    { ...FIXTURE_TASKS[0], id: 'u5', wbs: '5', name: 'Done', parentId: null },
+  ];
+
+  beforeEach(() => {
+    mockTasks = UNRESOLVED_TASKS;
+    mockLinks = [];
+  });
+
+  it('F8 with nothing focused jumps to the first unresolved row', () => {
+    renderSchedule();
+    const preventDefault = vi.fn();
+    act(() => capturedKeyBindings['f8']?.({ preventDefault } as unknown as KeyboardEvent));
+    expect(preventDefault).toHaveBeenCalled();
+    expect(capturedBuildMode!.focus.state.rowId).toBe('u2');
+  });
+
+  it('a second F8 advances to the next unresolved row', () => {
+    renderSchedule();
+    const e = { preventDefault: vi.fn() } as unknown as KeyboardEvent;
+    act(() => capturedKeyBindings['f8']?.(e));
+    act(() => capturedKeyBindings['f8']?.(e));
+    expect(capturedBuildMode!.focus.state.rowId).toBe('u4');
+  });
+
+  it('F8 wraps around past the last unresolved row', () => {
+    renderSchedule();
+    const e = { preventDefault: vi.fn() } as unknown as KeyboardEvent;
+    act(() => capturedKeyBindings['f8']?.(e)); // -> u2
+    act(() => capturedKeyBindings['f8']?.(e)); // -> u4
+    act(() => capturedKeyBindings['f8']?.(e)); // wraps -> u2
+    expect(capturedBuildMode!.focus.state.rowId).toBe('u2');
+  });
+
+  it('Shift+F8 with nothing focused jumps to the last unresolved row', () => {
+    renderSchedule();
+    const preventDefault = vi.fn();
+    act(() =>
+      capturedKeyBindings['shift+f8']?.({ preventDefault } as unknown as KeyboardEvent),
+    );
+    expect(preventDefault).toHaveBeenCalled();
+    expect(capturedBuildMode!.focus.state.rowId).toBe('u4');
+  });
+
+  it('Shift+F8 after F8 moves back to the previous unresolved row', () => {
+    renderSchedule();
+    const e = { preventDefault: vi.fn() } as unknown as KeyboardEvent;
+    act(() => capturedKeyBindings['f8']?.(e)); // -> u2
+    act(() => capturedKeyBindings['f8']?.(e)); // -> u4
+    act(() => capturedKeyBindings['shift+f8']?.(e)); // back -> u2
+    expect(capturedBuildMode!.focus.state.rowId).toBe('u2');
+  });
+
+  it('is a no-op when no row has an unresolved owner token', () => {
+    mockTasks = [{ ...FIXTURE_TASKS[0], id: 'r1', wbs: '1', name: 'Plan', parentId: null }];
+    renderSchedule();
+    const e = { preventDefault: vi.fn() } as unknown as KeyboardEvent;
+    act(() => capturedKeyBindings['f8']?.(e));
+    expect(capturedBuildMode!.focus.state.rowId).toBeNull();
+  });
+});

@@ -29,10 +29,12 @@ export {
   parseOwnerDraft,
   parseOwnerTokens,
   segmentUnresolvedOwners,
+  hasUnresolvedOwnerToken,
   DEFAULT_OWNER_PERCENT,
   type OwnerToken,
   type OwnerTokenParse,
   type ResolvedOwner,
 } from './ownerToken';
+export { findUnresolvedOwnerRow } from './unresolvedOwnerNav';
 export { MilestoneDatePopover, type MilestoneParent } from './MilestoneDatePopover';
 export { SprintPrompt } from './SprintPrompt';
