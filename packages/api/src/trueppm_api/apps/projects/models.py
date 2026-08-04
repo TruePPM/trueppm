@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import time
+from datetime import time, timedelta
 from typing import Any
 
 from django.conf import settings
@@ -205,6 +205,16 @@ _HISTORY_EXCLUDED_TASK = [
     # fact, exactly like early_start/early_finish above — tracking it would
     # name it on every recalc in the ADR-0217 merge header.
     "scheduled_start",
+    # Seed provenance (ADR-0786 §6). edited_at is excluded for a hard reason, not
+    # to save space: it changes on *every* human write by construction, so tracking
+    # it would name it in every ADR-0217 field-level merge header and make it a
+    # permanent phantom conflict on every concurrent edit. The other four are
+    # immutable after the write that sets them and have nothing to add to an audit.
+    "source_kind",
+    "source_id",
+    "source_version",
+    "seeded_at",
+    "edited_at",
 ]
 # ``deleted_at`` (Task, Dependency) is grouped with ``deleted_version`` as a
 # tombstone-reap bookkeeping field, not a user-meaningful audit fact — the
@@ -2080,6 +2090,78 @@ class DeliveryMode(models.TextChoices):
     MILESTONE = "milestone", "Milestone"
 
 
+class TaskSource(models.TextChoices):
+    """What wrote a task row (ADR-0786, #2730).
+
+    Only bulk row-writing origins get their own value; everything a person typed
+    one row at a time is ``HAND``, which is the field default so no existing row
+    needs a backfill. ``HAND`` rows carry ``seeded_at IS NULL`` and are therefore
+    outside the untouched-seed sweep by construction, whatever else is true of them.
+    """
+
+    HAND = "hand", "Hand-authored"
+    TEMPLATE = "template", "Project template"
+    SEED_IMPORT = "seed_import", "Native seed import"
+    CSV_IMPORT = "csv_import", "CSV/Excel import"
+    MSPROJECT_IMPORT = "msproject_import", "MS Project import"
+    JIRA_IMPORT = "jira_import", "Jira import"
+    PASTE = "paste", "Pasted rows"
+
+
+#: Default window for "recently seeded" — the seven days the seeded landing offers
+#: "Delete untouched rows (N)" for (ADR-0786 §2). Callers that measure retention
+#: rather than offer a sweep pass their own window; nothing hard-codes this but the
+#: default argument.
+UNTOUCHED_SEED_WINDOW = timedelta(days=7)
+
+
+class TaskManager(models.Manager["Task"]):
+    """Default (unfiltered) task manager, plus the untouched-seed predicate.
+
+    Stays unfiltered — the Board renders BACKLOG cards through it and it must remain
+    ``_default_manager`` (ADR-0057). It exists only so ``untouched_seeded`` has one
+    home; no manager is registered for migrations, so swapping ``models.Manager``
+    for this class is not a schema change.
+    """
+
+    def untouched_seeded(
+        self,
+        project: Any,
+        *,
+        within: timedelta | None = UNTOUCHED_SEED_WINDOW,
+    ) -> models.QuerySet[Task]:
+        """Rows a machine wrote into ``project`` that no person has touched since.
+
+        THE single definition of "untouched" (ADR-0786 §3). The seeded-landing count,
+        the outline margin tick, B4's bulk delete, and Epic E's divergence digest all
+        call this — none of them re-writes the filter.
+
+        That is not fastidiousness about DRY. This predicate decides what gets
+        **deleted**, and the closest precedent in this codebase is capacity: two call
+        sites that looked like they detected the same fact re-derived it independently,
+        one read the wrong column, and a whole class of load went silently missing. A
+        second copy of this filter that drifts by one clause deletes work someone typed.
+
+        ``edited_at IS NULL`` rather than ``edited_at > seeded_at``: once a person
+        touches a seeded row it leaves the set permanently, and a null says that
+        without needing a comparison to be right.
+
+        Args:
+            project: The owning project, or its id.
+            within: Only rows seeded inside this window. ``None`` disables the window
+                entirely (the retention measurement wants every seeded row ever).
+        """
+        qs = self.get_queryset().filter(
+            project=project,
+            is_deleted=False,
+            seeded_at__isnull=False,
+            edited_at__isnull=True,
+        )
+        if within is not None:
+            qs = qs.filter(seeded_at__gte=timezone.now() - within)
+        return qs
+
+
 class CommittedTaskManager(models.Manager["Task"]):
     """Tasks that represent committed delivery: not BACKLOG and not soft-deleted.
 
@@ -2563,11 +2645,44 @@ class Task(VersionedModel):
     # the row is live.
     deleted_at = models.DateTimeField(null=True, blank=True)
 
+    # ---- Seed provenance (ADR-0786, #2730) --------------------------------
+    # Together these answer "did a machine write this row, what wrote it, and has
+    # a person touched it since" — the input to "Delete untouched rows (N)". All
+    # five are server-owned and read-only on every serializer: provenance a caller
+    # asserts about itself is not provenance, and a client that could clear
+    # edited_at could make the sweep delete work it had typed.
+    source_kind = models.CharField(
+        max_length=20,
+        choices=TaskSource.choices,
+        default=TaskSource.HAND,
+        help_text="What wrote this row (ADR-0786).",
+    )
+    # Deliberately not a FK: it points at four different tables (CsvImportRequest,
+    # ProgramImportJob, the MS Project job, and #2729's template), and a generic
+    # relation would buy referential integrity at the cost of a join on the hottest
+    # read in the product. A dangling id degrades to "a template wrote this, we no
+    # longer know which" — which is why source_kind is its own column rather than
+    # being inferred from whatever source_id points at.
+    source_id = models.UUIDField(null=True, blank=True)
+    source_version = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text="Template version this row was seeded from; empty for other sources.",
+    )
+    # Non-null iff a machine wrote this row in bulk. Set on the instances the
+    # importers hand to bulk_create — which never reaches save() — so it can never
+    # be stamped by an ordinary edit.
+    seeded_at = models.DateTimeField(null=True, blank=True)
+    # Last human-caused write. Stamped by save() unless the caller declares a system
+    # write; see Task.save(). Null means "no person has ever touched this row".
+    edited_at = models.DateTimeField(null=True, blank=True)
+
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_TASK)
 
     # Default manager — unfiltered. Listed first so it remains _default_manager
     # (Board view depends on seeing BACKLOG cards).
-    objects: models.Manager[Task] = models.Manager()
+    objects: TaskManager = TaskManager()
     # Aggregate manager — filters out BACKLOG and soft-deleted. Used by Schedule
     # view, capacity, Monte Carlo, PDF export. See CommittedTaskManager docstring.
     committed: CommittedTaskManager = CommittedTaskManager()
@@ -2597,6 +2712,16 @@ class Task(VersionedModel):
             # (#810). The composite turns it into a single index range seek.
             models.Index(fields=["project", "server_version"], name="task_proj_serverver_idx"),
             models.Index(fields=["project", "sync_seq"], name="task_proj_syncseq_idx"),
+            # Untouched-seed sweep (ADR-0786 §2). Partial on the two conditions that
+            # never vary between callers, leaving only the seeded_at window as a
+            # range seek — so the landing count, the 14-day retention measurement
+            # and B4's delete all read the same small index rather than scanning
+            # every task in the project.
+            models.Index(
+                fields=["project", "seeded_at"],
+                condition=models.Q(edited_at__isnull=True, is_deleted=False),
+                name="task_untouched_seeded_idx",
+            ),
             # Board card full-text search (#323, ADR-0145). gin_trgm_ops GIN indexes
             # turn the `?q=` board search's `name ILIKE '%q%' OR notes ILIKE '%q%'`
             # into index scans instead of per-row seq-scans — the same pattern the
@@ -2656,7 +2781,29 @@ class Task(VersionedModel):
     def __str__(self) -> str:
         return f"{self.project.name} / {self.name}"
 
-    def save(self, *args: Any, **kwargs: Any) -> None:
+    def save(self, *args: Any, system_write: bool | None = None, **kwargs: Any) -> None:
+        """Save the task, stamping ``edited_at`` unless this is a system write.
+
+        Args:
+            system_write: Pass ``True`` when the write is not attributable to a
+                person, so ``edited_at`` is left alone (ADR-0786 §4). Defaults to
+                the instance's ``_system_write`` marker, then to ``False`` — i.e.
+                **a write is treated as human unless it says otherwise.**
+
+        The direction of that default is the decision, and it is chosen for its
+        failure mode. A system path that forgets to opt out marks a seeded row as
+        edited, so the row is *retained*; a human path that slipped past ``save()``
+        would leave the row looking untouched, so the sweep would *delete* work
+        someone typed. Only the first failure is acceptable, so the default must
+        produce it.
+
+        The second failure is closed structurally rather than by vigilance: CPM is
+        the one bulk writer of task rows and it persists via ``bulk_update``, which
+        bypasses ``save()`` entirely and deliberately (ADR-0091,
+        ``scheduling/tasks.py``). Every authoring path — ``TaskViewSet``,
+        ``TaskBulkView`` (per row), the backlog/poker/retro services, and the offline
+        sync upload — goes through here.
+        """
         # Assign short_id on INSERT (first save).
         is_new = not type(self).objects.filter(pk=self.pk).exists() if self.pk else True
         if is_new and not self.short_id:
@@ -2672,6 +2819,15 @@ class Task(VersionedModel):
         if requested is None or "blocked_reason" in requested:
             kwargs = self._stamp_blocker_transition(kwargs, is_new=is_new)
         kwargs = self._coerce_signoff_percent(kwargs)
+        # DRF's serializer.save() cannot forward an extra save() kwarg down to the
+        # model, so system callers that go through a serializer mark the instance
+        # instead — the same escape hatch VersionedModel.save() uses for
+        # _sync_known_exists, and scoped to the one instance it is set on.
+        if system_write is None:
+            system_write = bool(getattr(self, "_system_write", False))
+        if not system_write:
+            self.edited_at = timezone.now()
+            kwargs = self._also_write(kwargs, "edited_at")
 
         super().save(*args, **kwargs)
 
@@ -2810,7 +2966,16 @@ class Task(VersionedModel):
             for child in list(subtask_children):
                 child.soft_delete()
         self.deleted_at = timezone.now()
-        super().soft_delete()
+        # Deleting a row is not editing its content (ADR-0786 §4). Without this a
+        # trash round-trip would silently convert an untouched seeded row into an
+        # edited one, so B4's undo could restore a row the sweep would then refuse
+        # to re-offer. try/finally so the marker cannot leak onto a later real edit
+        # of the same instance.
+        self._system_write = True
+        try:
+            super().soft_delete()
+        finally:
+            self._system_write = False
 
     def restore(self) -> None:
         """Un-tombstone this single task, clearing ``deleted_at`` (#2078).
@@ -2823,7 +2988,14 @@ class Task(VersionedModel):
         (:func:`cascade_task_children_restore`); this covers only the single top row.
         """
         self.deleted_at = None
-        super().restore()
+        # Symmetric with soft_delete: restoring a row is not editing it, so an
+        # undo of B4's sweep returns rows to the untouched set rather than
+        # permanently disqualifying them (ADR-0786 §4).
+        self._system_write = True
+        try:
+            super().restore()
+        finally:
+            self._system_write = False
 
 
 class AcceptanceCriterion(VersionedModel):

@@ -29,6 +29,7 @@ free — ``server_version``, ``sync_seq``, and the ``simple_history`` row.
 from __future__ import annotations
 
 import logging
+import uuid
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from functools import partial
@@ -59,6 +60,7 @@ from trueppm_api.apps.projects.models import (
     Task,
     TaskLabel,
     TaskRelation,
+    TaskSource,
     TaskStatus,
 )
 from trueppm_api.apps.projects.seed.forecast_backfill import backfill_forecast_history
@@ -224,6 +226,8 @@ class _SeedImporter:
         replace: bool = False,
         expected_program_id: str | None = None,
         target_program: Program | None = None,
+        provenance_kind: str = TaskSource.SEED_IMPORT,
+        provenance_source_id: uuid.UUID | None = None,
     ) -> None:
         self.payload = payload
         self.owner = owner
@@ -233,6 +237,12 @@ class _SeedImporter:
         self.replace = replace
         self.expected_program_id = expected_program_id
         self.target_program = target_program
+        #: Seed provenance stamped on every task this run creates (ADR-0786).
+        #: Parameterized rather than hard-coded because #2729's template seeding
+        #: materializes through this same importer and must record itself as
+        #: ``TaskSource.TEMPLATE`` with the template's id, not as a seed import.
+        self.provenance_kind = provenance_kind
+        self.provenance_source_id = provenance_source_id
         #: Program this run tore down, for the caller's audit record. None when
         #: nothing collided.
         self.replaced_program_id: str | None = None
@@ -887,6 +897,11 @@ class _SeedImporter:
         ``_stamp_blocker_transition`` is deliberately not replicated: on INSERT it
         only acts when ``blocked_reason`` is non-empty, and the seed schema has no
         blocker fields, so it is a guaranteed no-op here.
+
+        Seed provenance (ADR-0786, #2730) is stamped here too, and ``edited_at`` is
+        deliberately left null: these rows were written by a machine and nobody has
+        touched them yet, which is exactly what makes them eligible for the
+        "Delete untouched rows (N)" sweep for the next seven days.
         """
         if not rows:
             return
@@ -894,6 +909,9 @@ class _SeedImporter:
         for task, short_id in zip(rows, self._short_id_block(project.pk, len(rows)), strict=True):
             task.short_id = short_id
             task.status_changed_at = now
+            task.source_kind = self.provenance_kind
+            task.source_id = self.provenance_source_id
+            task.seeded_at = now
             if task.status in (TaskStatus.REVIEW, TaskStatus.COMPLETE):
                 task.percent_complete = 100.0
 
