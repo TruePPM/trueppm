@@ -7,7 +7,7 @@
  *
  * The gesture runs on the interaction canvas, whose bars have no DOM. Geometry
  * is read from the transparent ScheduleAriaOverlay (rule 67): every visible bar
- * has a `role="gridcell"` node positioned exactly over its bar, so its
+ * has a `role="option"` node positioned exactly over its bar, so its
  * boundingClientRect is the bar's on-screen rect — robust to the engine's
  * auto-fit zoom (no scale math replicated in the test). Synthetic PointerEvents
  * are dispatched directly on the interaction canvas (the same seam schedule.spec
@@ -20,7 +20,7 @@
  *
  * Every endpoint the Schedule page reads is mocked with its real shape (per the
  * #1190 catch-all rule); interactions gate on a "page rendered" signal (the
- * bar's aria gridcell) so the drag never races the first paint.
+ * bar's aria option) so the drag never races the first paint.
  */
 import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
@@ -33,7 +33,7 @@ const BASE_URL = `/projects/${PROJECT_ID}/schedule`;
 // project the framing clamps to scrollLeft 0, so the canvas never scrolls
 // horizontally on mount. That matters because the aria overlay derives each bar's
 // on-screen x from the engine's scroll offset but only re-renders on *vertical*
-// scroll — a horizontal framing scroll would leave the gridcell geometry stale,
+// scroll — a horizontal framing scroll would leave the option geometry stale,
 // and the link gesture (read from that geometry) would land on the wrong canvas
 // coordinate. Without a pinned clock the real wall-clock is months past these
 // bars, so framing scrolls right and the drag misses. Noon UTC keeps the
@@ -75,10 +75,10 @@ const FIXTURE_TASKS = [
 
 type Rect = { left: number; right: number; top: number; bottom: number };
 
-/** Read the on-screen rect of a bar from its aria-overlay gridcell. */
+/** Read the on-screen rect of a bar from its aria-overlay option. */
 async function barRect(page: import('@playwright/test').Page, name: string): Promise<Rect> {
   const cell = page.locator(
-    `[role="grid"][aria-label="Schedule chart"] [role="gridcell"][aria-label^="${name},"]`,
+    `[role="listbox"][aria-label="Schedule chart"] [role="option"][aria-label^="${name},"]`,
   );
   await expect(cell).toBeVisible();
   const box = await cell.boundingBox();
@@ -210,7 +210,7 @@ test.describe('Drag-to-link on the Schedule canvas (#1666)', () => {
     // The dependency refetch draws the arrow; its accessible description appears
     // on the successor bar ("Depends on: Foundation").
     await expect(
-      page.locator('[role="grid"][aria-label="Schedule chart"]').getByText(/Depends on: Foundation/),
+      page.locator('[role="listbox"][aria-label="Schedule chart"]').getByText(/Depends on: Foundation/),
     ).toBeAttached();
   });
 
@@ -259,7 +259,7 @@ test.describe('Drag-to-link on the Schedule canvas (#1666)', () => {
 
     // No arrow was added — no dep description ever appears on either bar.
     await expect(
-      page.locator('[role="grid"][aria-label="Schedule chart"]').getByText(/Depends on:/),
+      page.locator('[role="listbox"][aria-label="Schedule chart"]').getByText(/Depends on:/),
     ).toHaveCount(0);
   });
 });
