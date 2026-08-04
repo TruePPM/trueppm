@@ -54951,6 +54951,19 @@
                 "type": "string",
                 "description": "* `none` - No action\n* `warn` - Warn only\n* `block` - Block & escalate"
             },
+            "SourceKindEnum": {
+                "enum": [
+                    "hand",
+                    "template",
+                    "seed_import",
+                    "csv_import",
+                    "msproject_import",
+                    "jira_import",
+                    "paste"
+                ],
+                "type": "string",
+                "description": "* `hand` - Hand-authored\n* `template` - Project template\n* `seed_import` - Native seed import\n* `csv_import` - CSV/Excel import\n* `msproject_import` - MS Project import\n* `jira_import` - Jira import\n* `paste` - Pasted rows"
+            },
             "Sprint": {
                 "type": "object",
                 "description": "Read/write serializer for sprints.\n\nState, committed_*, completed_*, activated_at, closed_at are read-only —\nthey are written by the dedicated activate/close actions, not by PATCH.\n\ncompletion_ratio_* are computed from snapshotted committed/completed\nfields and only become non-null after sprint close.",
@@ -56666,6 +56679,42 @@
                         "additionalProperties": true,
                         "description": "Per-task custom-field values keyed by field id. Value type follows the field's field_type (string/number/bool/ISO-date/option-key/array/{id,name,initials} person). Unset fields are omitted.",
                         "readOnly": true
+                    },
+                    "source_kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SourceKindEnum"
+                            }
+                        ],
+                        "readOnly": true,
+                        "description": "What wrote this row (ADR-0786).\n\n* `hand` - Hand-authored\n* `template` - Project template\n* `seed_import` - Native seed import\n* `csv_import` - CSV/Excel import\n* `msproject_import` - MS Project import\n* `jira_import` - Jira import\n* `paste` - Pasted rows"
+                    },
+                    "source_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "source_version": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "Template version this row was seeded from; empty for other sources."
+                    },
+                    "seeded_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "edited_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "is_untouched_seed": {
+                        "type": "boolean",
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -56689,6 +56738,7 @@
                     "dwell_days",
                     "early_finish",
                     "early_start",
+                    "edited_at",
                     "estimate_status",
                     "external_link_summary",
                     "free_float",
@@ -56702,6 +56752,7 @@
                     "is_stalled",
                     "is_subtask",
                     "is_summary",
+                    "is_untouched_seed",
                     "labels",
                     "late_finish",
                     "late_start",
@@ -56721,9 +56772,13 @@
                     "schedule_variance_days",
                     "scheduled_finish",
                     "scheduled_start",
+                    "seeded_at",
                     "server_version",
                     "short_id",
                     "short_id_display",
+                    "source_id",
+                    "source_kind",
+                    "source_version",
                     "spi",
                     "spi_band",
                     "sprint_pending",

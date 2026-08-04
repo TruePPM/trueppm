@@ -11,6 +11,7 @@ import type {
   TaskStatus,
   LinkType,
   TaskReadiness,
+  TaskSourceKind,
   TaskType,
   GovernanceClass,
   DeliveryMode,
@@ -107,6 +108,14 @@ export interface ApiTask {
   // At-a-glance external-link summary (issue 767, ADR-0155). worst_status is null when
   // count is 0. snake_case on the wire (TaskSerializer does not camelCase).
   external_link_summary?: { count: number; worst_status: ExternalLinkStatus | null };
+  // Seed provenance (ADR-0786, #2730) — snake_case on the wire, read-only.
+  // `is_untouched_seed` is the server's own verdict rather than something the
+  // client re-derives from the two timestamps: the predicate decides what B4's
+  // sweep deletes, and a second copy of it here could drift by one clause.
+  source_kind?: string | null;
+  seeded_at?: string | null;
+  edited_at?: string | null;
+  is_untouched_seed?: boolean;
   // Board batch 5 (issue #105) — entry stamps, priority rank, readiness.
   status_changed_at?: string | null;
   priority_rank?: number | null;
@@ -401,6 +410,10 @@ export function mapTask(t: ApiTask): Task {
           worstStatus: t.external_link_summary.worst_status ?? null,
         }
       : undefined,
+    sourceKind: (t.source_kind as TaskSourceKind | undefined) ?? undefined,
+    seededAt: t.seeded_at ?? undefined,
+    editedAt: t.edited_at ?? undefined,
+    isUntouchedSeed: t.is_untouched_seed ?? false,
     statusEnteredAt: t.status_changed_at ?? undefined,
     priorityRank: t.priority_rank ?? undefined,
     readiness: (t.readiness as TaskReadiness | undefined) ?? undefined,

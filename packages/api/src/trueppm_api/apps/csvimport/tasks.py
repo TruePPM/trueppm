@@ -150,6 +150,7 @@ def import_csv(
             broadcast_import_project_record_change,
             import_project,
         )
+        from trueppm_api.apps.projects.models import TaskSource
 
         # Make the additive CSV import idempotent under re-dispatch. import_project
         # defaults to wipe_existing=False, so a second delivery would bulk-create
@@ -170,7 +171,17 @@ def import_csv(
                         import_request_id,
                     )
                     return {"skipped": True, "tasks_created": 0}
-                summary = import_project(project_id, parsed.project_data, tracker=tracker)
+                # source_kind is passed explicitly because this path shares
+                # import_project with the MS Project importer (ADR-0786, #2730) — the
+                # default would label spreadsheet rows as an MS Project import, and
+                # the divergence digest would then attribute them to the wrong file.
+                summary = import_project(
+                    project_id,
+                    parsed.project_data,
+                    tracker=tracker,
+                    source_kind=TaskSource.CSV_IMPORT,
+                    source_id=import_request_id or None,
+                )
         except Exception as exc:
             # Any unanticipated failure during persistence (e.g. a Postgres
             # DataError from an oversized ltree path that slipped past the
