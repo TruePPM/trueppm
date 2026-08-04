@@ -14,11 +14,7 @@ export { BuildModeCheatsheet } from './BuildModeCheatsheet';
 export { BuildModeEmptyState } from './BuildModeEmptyState';
 export { BuildModePill } from './BuildModePill';
 export { AuthorModePill } from './AuthorModePill';
-export {
-  BuildModeProvider,
-  useBuildMode,
-  type BuildModeApi,
-} from './BuildModeContext';
+export { BuildModeProvider, useBuildMode, type BuildModeApi } from './BuildModeContext';
 export { NameAutocomplete } from './NameAutocomplete';
 export { OwnerAutocomplete } from './OwnerAutocomplete';
 export { UnresolvedTokenName } from './UnresolvedTokenName';
@@ -68,3 +64,19 @@ export {
 } from './tokenSuggestions';
 export { MilestoneDatePopover, type MilestoneParent } from './MilestoneDatePopover';
 export { SprintPrompt } from './SprintPrompt';
+export { findRowByPredicate } from './rowWalk';
+export { usePasteMany, type PasteReceiptState } from './pasteMany/usePasteMany';
+export { PasteReceiptStrip, buildPasteReceiptMessage } from './pasteMany/PasteReceiptStrip';
+export { PasteColumnMappingDialog } from './pasteMany/PasteColumnMappingDialog';
+export { findMissingDurationRow } from './pasteMany/pasteDurationNav';
+export { isMultiRowPaste, parsePastedText, type ParsedPasteRow } from './pasteMany/parsePastedText';
+export type {
+  PasteSummary,
+  BuiltPasteBatch,
+  PasteCreateOperation,
+} from './pasteMany/buildPasteOperations';
+export type {
+  PasteField,
+  PasteColumnMapping,
+  PasteColumnConfidence,
+} from './pasteMany/inferColumns';

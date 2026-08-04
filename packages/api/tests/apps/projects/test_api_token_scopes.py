@@ -34,6 +34,7 @@ from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership,
 from trueppm_api.apps.access.permissions import TokenHasScope, TokenReadOnlyMethods
 from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
 from trueppm_api.apps.projects.models import (
+    MCP_READ_TOKEN_MAX_EXPIRY_DAYS,
     SCOPE_LEGACY_FULL,
     SCOPE_MCP_READ,
     ApiToken,
@@ -412,6 +413,53 @@ def test_create_mcp_read_token_without_expiry_rejected(
     )
     assert resp.status_code == 400, resp.data
     assert "expires_at" in resp.data
+
+
+@pytest.mark.django_db
+def test_create_mcp_read_token_beyond_max_horizon_rejected(
+    admin_client: APIClient, project: Project
+) -> None:
+    # #2764: "must expire" alone still let a caller mint an effectively
+    # non-expiring token (e.g. a far-future date). A ceiling closes that gap.
+    too_far = (timezone.now() + timedelta(days=MCP_READ_TOKEN_MAX_EXPIRY_DAYS + 1)).isoformat()
+    resp = admin_client.post(
+        _tokens_url(project),
+        {"name": "MCP", "scopes": ["mcp:read"], "expires_at": too_far},
+        format="json",
+    )
+    assert resp.status_code == 400, resp.data
+    assert "expires_at" in resp.data
+
+
+@pytest.mark.django_db
+def test_create_mcp_read_token_at_max_horizon_accepted(
+    admin_client: APIClient, project: Project
+) -> None:
+    # A value within the ceiling must still succeed — the fix should not
+    # regress the existing "non-null, in the future" behavior.
+    within = (timezone.now() + timedelta(days=MCP_READ_TOKEN_MAX_EXPIRY_DAYS - 1)).isoformat()
+    resp = admin_client.post(
+        _tokens_url(project),
+        {"name": "MCP", "scopes": ["mcp:read"], "expires_at": within},
+        format="json",
+    )
+    assert resp.status_code == 201, resp.data
+    assert resp.data["scopes"] == [SCOPE_MCP_READ]
+
+
+@pytest.mark.django_db
+def test_create_legacy_full_token_beyond_max_horizon_accepted(
+    admin_client: APIClient, project: Project
+) -> None:
+    # The ceiling is scoped to mcp:read only — legacy:full sync tokens must
+    # remain unaffected, consistent with their existing optional-expiry rule.
+    far = (timezone.now() + timedelta(days=MCP_READ_TOKEN_MAX_EXPIRY_DAYS + 1)).isoformat()
+    resp = admin_client.post(
+        _tokens_url(project),
+        {"name": "CI", "scopes": ["legacy:full"], "expires_at": far},
+        format="json",
+    )
+    assert resp.status_code == 201, resp.data
 
 
 @pytest.mark.django_db

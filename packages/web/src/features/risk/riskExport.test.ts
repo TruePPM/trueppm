@@ -139,6 +139,38 @@ describe('generateRisksCSV — RFC 4180 quoting', () => {
   });
 });
 
+// ── CSV/DDE formula-injection mitigation (#2762) ────────────────────────────
+// Free-text fields (owner, trigger, contingency, description) are user-supplied,
+// so a value starting with a formula-trigger character must be neutralized on
+// export or it executes as a formula when the file is opened in a spreadsheet.
+describe('generateRisksCSV — formula-injection mitigation', () => {
+  it.each(['=', '+', '-', '@', '\t', '\r'])('prefixes a description starting with %j with a leading apostrophe', (char) => {
+    const csv = generateRisksCSV([makeRisk({ description: `${char}cmd|'/C calc'!A0` })]);
+    const rows = parseCsv(csv);
+    expect(rows[1][12]).toBe(`'${char}cmd|'/C calc'!A0`);
+  });
+
+  it('does not prefix a value where the trigger character is not first', () => {
+    const csv = generateRisksCSV([makeRisk({ trigger: 'Budget = exceeded' })]);
+    const rows = parseCsv(csv);
+    expect(rows[1][10]).toBe('Budget = exceeded');
+  });
+
+  it('composes the formula prefix with comma/quote quoting', () => {
+    const csv = generateRisksCSV([makeRisk({ description: '=SUM(A1), "bad"' })]);
+    // Raw, unprefixed formula text must never appear verbatim in the output.
+    expect(csv).not.toMatch(/[^']=SUM\(A1\)/);
+    const rows = parseCsv(csv);
+    expect(rows[1][12]).toBe('\'=SUM(A1), "bad"');
+  });
+
+  it('composes the formula prefix with newline quoting', () => {
+    const csv = generateRisksCSV([makeRisk({ description: '=cmd\nline2' })]);
+    const rows = parseCsv(csv);
+    expect(rows[1][12]).toBe("'=cmd\nline2");
+  });
+});
+
 describe('generateRisksCSV — row content', () => {
   function row(overrides: Partial<Risk> = {}): string[] {
     const csv = generateRisksCSV([makeRisk(overrides)]);

@@ -39,6 +39,30 @@ describe('escapeField', () => {
   it('wraps strings containing a newline', () => {
     expect(escapeField('line1\nline2')).toBe('"line1\nline2"');
   });
+
+  // ── CSV/DDE formula-injection mitigation (#2762) ──────────────────────────
+  // A task name is user-supplied and, via CSV import, ingested with no character
+  // filtering — so a name starting with a formula-trigger character must be
+  // neutralized on export or it executes as a formula when opened in a spreadsheet.
+  describe('formula-injection mitigation', () => {
+    it.each(['=', '+', '-', '@', '\t', '\r'])('prefixes a value starting with %j with a leading apostrophe', (char) => {
+      expect(escapeField(`${char}cmd|'/C calc'!A0`)).toBe(`'${char}cmd|'/C calc'!A0`);
+    });
+
+    it('does not prefix a value where the trigger character is not first', () => {
+      expect(escapeField('Task = something')).toBe('Task = something');
+    });
+
+    it('composes the formula prefix with comma quoting', () => {
+      // The prefixed value still contains a comma and a double-quote, so it must
+      // also be RFC 4180–wrapped with the embedded quote doubled.
+      expect(escapeField('=SUM(A1), "bad"')).toBe('"\'=SUM(A1), ""bad"""');
+    });
+
+    it('composes the formula prefix with newline quoting', () => {
+      expect(escapeField('=cmd\nline2')).toBe('"\'=cmd\nline2"');
+    });
+  });
 });
 
 describe('tasksToCsvString', () => {
@@ -70,6 +94,15 @@ describe('tasksToCsvString', () => {
     const task = makeTask({ name: 'Phase 1, Design' });
     const lines = tasksToCsvString([task]).split('\r\n');
     expect(lines[1]).toContain('"Phase 1, Design"');
+  });
+
+  it('neutralizes a formula-injection task name imported from CSV (#2762)', () => {
+    // CSV import applies no character filtering to Task.name (parser.py), so a
+    // malicious name persists verbatim and must be neutralized here on export.
+    const task = makeTask({ name: "=cmd|'/C calc'!A0" });
+    const lines = tasksToCsvString([task]).split('\r\n');
+    expect(lines[1]).toContain("'=cmd|'/C calc'!A0");
+    expect(lines[1]).not.toMatch(/,=cmd/); // raw unprefixed formula must not appear
   });
 
   it('produces valid RFC 4180 line endings (CRLF)', () => {

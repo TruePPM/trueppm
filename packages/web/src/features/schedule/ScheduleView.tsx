@@ -110,7 +110,12 @@ import {
   BuildModeEmptyState,
   BuildModePill,
   AuthorModePill,
-  findUnresolvedOwnerRow,
+  hasUnresolvedOwnerToken,
+  findRowByPredicate,
+  usePasteMany,
+  PasteReceiptStrip,
+  PasteColumnMappingDialog,
+  isMultiRowPaste,
   type BuildModeApi,
 } from './buildMode';
 import { useScheduleAuthorMode, type ScheduleAuthorMode } from '@/hooks/useScheduleAuthorMode';
@@ -1248,9 +1253,7 @@ export function ScheduleView() {
   // not pay for a roster it has no surface to use. The rows resolve `@ana` against this
   // and nothing else: the scoping is what stops a name typed here binding work to
   // somebody who is a member of no project the author can see.
-  const { data: resourcePool } = useProjectResourcePool(
-    buildModeActive ? (projectId ?? '') : '',
-  );
+  const { data: resourcePool } = useProjectResourcePool(buildModeActive ? (projectId ?? '') : '');
 
   // Toolbar responsive tier (issue #568 / #1741, rules 110–114).
   //   lg → the Display trigger shows its full "Display ▾" label
@@ -1320,6 +1323,32 @@ export function ScheduleView() {
   // gating the wizard at Admin would hide it from Schedulers the API accepts.
   const [csvImportOpen, setCsvImportOpen] = useState(false);
   const canImportCsv = currentRole !== null && currentRole >= ROLE_SCHEDULER;
+  // `?import=csv` deep link (#2710) — how "Create & import spreadsheet" in the
+  // new-project flow lands the user in the wizard instead of on an empty project.
+  //
+  // An effect rather than a useState initializer, because the permission gate is
+  // the point: `currentRole` is null on first render, so an initializer would
+  // either open the wizard before the role is known or need the same gate anyway.
+  // Waiting for the role means a pasted link cannot get a Viewer past
+  // `canImportCsv` — the deep link is a shortcut through the *navigation*, never
+  // through the authorization (the server gate at IsProjectScheduler is the real
+  // boundary; this keeps the UI from disagreeing with it).
+  //
+  // The ref makes it one-shot: without it, closing the wizard while the param is
+  // still in the URL for a commit would immediately reopen it — the same trap
+  // `?task=` documents just below.
+  const importParamConsumedRef = useRef(false);
+  useEffect(() => {
+    if (importParamConsumedRef.current) return;
+    if (searchParams.get('import') !== 'csv') return;
+    if (currentRole === null) return; // role still resolving — decide, don't guess
+    importParamConsumedRef.current = true;
+    if (canImportCsv) setCsvImportOpen(true);
+    // Strip the param either way, so a refresh (or a back-navigation after the
+    // import finishes) does not reopen the wizard, and a denied link does not
+    // sit in the URL looking like it might still work.
+    setSearchParam(setSearchParams, 'import', null);
+  }, [searchParams, currentRole, canImportCsv, setSearchParams]);
   // Public share links (#1486): mint/manage is Admin+ (mirrors board sharing). The
   // instance/workspace kill switch is enforced server-side — the dialog surfaces the
   // verbatim 403 detail if sharing is off, so the button never silently no-ops.
@@ -1590,8 +1619,7 @@ export function ScheduleView() {
         createNewTask(taskId, focused);
       },
       isPristineNewRow: (taskId) => taskId === pristineNewRowId,
-      clearPristineNewRow: (taskId) =>
-        setPristineNewRowId((cur) => (cur === taskId ? null : cur)),
+      clearPristineNewRow: (taskId) => setPristineNewRowId((cur) => (cur === taskId ? null : cur)),
       convertToMilestone: (taskId) => {
         if (!projectId) return;
         updateTaskMut.mutate({ id: taskId, projectId, duration: 0 });
@@ -1725,8 +1753,7 @@ export function ScheduleView() {
         });
       },
       isCaretAtEndRow: (taskId) => taskId === caretAtEndRowId,
-      clearCaretAtEndRow: (taskId) =>
-        setCaretAtEndRowId((cur) => (cur === taskId ? null : cur)),
+      clearCaretAtEndRow: (taskId) => setCaretAtEndRowId((cur) => (cur === taskId ? null : cur)),
       // #806: include deleteTask so the row gets the "in-flight" treatment during
       // delete and downstream guards (context-menu suppression, auto-close of an
       // already-open menu) fire. Without delete here, the row unmounts on cache
@@ -1758,6 +1785,17 @@ export function ScheduleView() {
       setScheduleActionToast,
     ],
   );
+
+  // Paste-many (#2724): spreadsheet rows pasted into the outline, hierarchy
+  // read from leading indentation. Scoped to the row the author is sitting on
+  // — same "sibling, same depth" target `insertBelow` uses for Enter.
+  const pasteMany = usePasteMany({
+    projectId,
+    resourcePool: resourcePool ?? [],
+    allTasks,
+    focusedRowId: focus.state.rowId,
+    onFocusRow: focus.focusRow,
+  });
 
   // Pulse trigger for the most recently inserted milestone (#340). Cleared
   // automatically by MilestonePulseOverlay after 1.5 s.
@@ -2053,16 +2091,20 @@ export function ScheduleView() {
         e.preventDefault();
         toggleAuthorMode();
       };
-      // F8 / Shift+F8 (#2727, ADR-0776 §3): jump to the next/previous visible
-      // row carrying an unresolved @owner token, wrapping around. No-op when
-      // nothing is unresolved. Non-destructive — this only moves focus.
+      // F8 / Shift+F8 (#2727, ADR-0776 §3; extended by #2724): jump to the
+      // next/previous visible row that needs attention — an unresolved
+      // @owner token, or (while a paste-many receipt is showing) a row that
+      // paste couldn't resolve a duration for. No-op when nothing matches.
+      // Non-destructive — this only moves focus.
       out['f8'] = (e) => {
         e.preventDefault();
-        const target = findUnresolvedOwnerRow(
+        const target = findRowByPredicate(
           visibleTasks,
-          resourcePool ?? [],
           focus.state.rowId,
           'forward',
+          (task) =>
+            hasUnresolvedOwnerToken(task.name, resourcePool ?? []) ||
+            pasteMany.needsDurationIds.has(task.id),
         );
         if (!target) return;
         focus.focusRow(target.id);
@@ -2071,17 +2113,29 @@ export function ScheduleView() {
       };
       out['shift+f8'] = (e) => {
         e.preventDefault();
-        const target = findUnresolvedOwnerRow(
+        const target = findRowByPredicate(
           visibleTasks,
-          resourcePool ?? [],
           focus.state.rowId,
           'backward',
+          (task) =>
+            hasUnresolvedOwnerToken(task.name, resourcePool ?? []) ||
+            pasteMany.needsDurationIds.has(task.id),
         );
         if (!target) return;
         focus.focusRow(target.id);
         useScheduleStore.getState().scrollToTask(target.id);
         focusRowByIdSoon(target.id);
       };
+      // ⌘Z / Ctrl+Z (#2724): undo the most recent paste-many batch while its
+      // receipt strip is still up. Claimed only while a receipt is showing —
+      // otherwise this falls through to the browser's ordinary undo so a
+      // build-mode session with no pending paste never loses that behavior.
+      if (pasteMany.receipt) {
+        out['mod+z'] = (e) => {
+          e.preventDefault();
+          pasteMany.undo();
+        };
+      }
     }
     // Continuous zoom shortcuts (#351). ⌘=/⌘- step geometrically through the
     // store (→ engine.setPxPerDay with viewport-center anchor, rule 80); ⌘0
@@ -2115,8 +2169,27 @@ export function ScheduleView() {
     resourcePool,
     engine,
     setSelectedTaskId,
+    pasteMany,
   ]);
   useScheduleKeyboard(keyBindings);
+
+  // Paste-many (#2724): a multi-row clipboard paste while sitting on a row
+  // (not mid cell-edit, which keeps its own single-value paste) is intercepted
+  // and routed through usePasteMany instead of the browser default, which
+  // would otherwise try to paste into whatever's focused — usually nothing,
+  // since a row-focused element isn't itself editable.
+  useEffect(() => {
+    if (!buildModeActive || readOnly) return;
+    const handlePasteEvent = (e: ClipboardEvent) => {
+      if (focus.state.mode === 'CellEdit') return;
+      const text = e.clipboardData?.getData('text/plain') ?? '';
+      if (!isMultiRowPaste(text)) return;
+      e.preventDefault();
+      pasteMany.handlePaste(text);
+    };
+    window.addEventListener('paste', handlePasteEvent);
+    return () => window.removeEventListener('paste', handlePasteEvent);
+  }, [buildModeActive, readOnly, focus.state.mode, pasteMany]);
 
   // In build mode the Schedule binds `?` to its own cheatsheet; claim `?` so the
   // global help hotkey (useHelpShortcut) yields here and the two never both open
@@ -2433,6 +2506,7 @@ export function ScheduleView() {
         cheatsheetOpen={cheatsheetOpen}
         setCheatsheetOpen={setCheatsheetOpen}
         scheduleExport={scheduleExport}
+        pasteMany={pasteMany}
       />
     </div>
   );
@@ -2507,6 +2581,7 @@ interface ScheduleOverlayLayerProps {
   cheatsheetOpen: boolean;
   setCheatsheetOpen: (v: boolean) => void;
   scheduleExport: ReturnType<typeof useScheduleExport>;
+  pasteMany: ReturnType<typeof usePasteMany>;
 }
 
 function ScheduleOverlayLayer({
@@ -2558,6 +2633,7 @@ function ScheduleOverlayLayer({
   cheatsheetOpen,
   setCheatsheetOpen,
   scheduleExport,
+  pasteMany,
 }: ScheduleOverlayLayerProps) {
   const selectedTask = selectedTaskId
     ? (allTasks.find((t) => t.id === selectedTaskId) ?? null)
@@ -2649,6 +2725,27 @@ function ScheduleOverlayLayer({
       {/* Sprint Undo toast (#477 / ADR-0066 Q2) — fires after Duplicate inherits
           an ACTIVE sprint, gives the PM a one-click escape hatch. */}
       <ScheduleActionToastRenderer />
+
+      {/* Paste-many receipt (#2724) — stays up until Undo/Keep/remap, not on a
+          timer, since its needs-a-duration count stays F8-walkable while shown. */}
+      {pasteMany.receipt && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-full max-w-xl px-4">
+          <PasteReceiptStrip
+            summary={pasteMany.receipt.summary}
+            isUndoing={pasteMany.isUndoing}
+            onUndo={pasteMany.undo}
+            onKeep={pasteMany.keep}
+            onMapColumns={pasteMany.openMapColumns}
+          />
+        </div>
+      )}
+      {pasteMany.mappingDialogOpen && pasteMany.receipt && (
+        <PasteColumnMappingDialog
+          columns={pasteMany.receipt.columns}
+          onCancel={pasteMany.closeMapColumns}
+          onConfirm={pasteMany.applyColumnMapping}
+        />
+      )}
 
       {/* MS Project import modal (#68) — opened from the Project actions menu. */}
       {importOpen && projectId && (
@@ -3381,9 +3478,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
               primaryTo={projectId ? `/projects/${projectId}/sprints` : '#'}
             />
           ) : buildModeActive ? (
-            <BuildModeEmptyState
-              onAddFirstTask={readOnly ? undefined : handleAddFirstTask}
-            />
+            <BuildModeEmptyState onAddFirstTask={readOnly ? undefined : handleAddFirstTask} />
           ) : (
             <ScheduleEmptyState onAddTask={readOnly ? undefined : () => setShowAddForm(true)} />
           )

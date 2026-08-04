@@ -256,9 +256,33 @@ a data-integrity bug, not a formatting detail.
 
 ## The wizard
 
-Open a project's **Schedule**, then **Project actions → Import from spreadsheet
-(CSV/Excel)…**. The wizard walks the three steps below so you never have to call
-the API yourself.
+### Getting to it
+
+There are two ways in, and which one you want depends on whether the project
+already exists.
+
+**Starting from a spreadsheet.** Choose **Create & import spreadsheet** in the
+new-project flow. TruePPM creates the project and opens the wizard on arrival, so
+you go from "I have a plan in Excel" to mapping columns without stopping at an
+empty project in between. The same option is offered as **Import a spreadsheet**
+on the sidebar and the My Work screen when you have no projects yet — the two
+places you land as a brand-new user.
+
+**Importing into a project you already have.** Open its **Schedule**, then
+**Project actions → Import from spreadsheet (CSV/Excel)…**.
+
+Both routes open the same wizard. The import always needs a project to import
+*into*, which is why the first route creates one for you rather than deferring it
+— but that is a detail of the plumbing, not a step you perform.
+
+Importing requires the **Scheduler** role or above on the project. Creating a
+project does not require any project role (you become its Owner), so the
+create-and-import route is open to anyone who can create a project.
+
+### The three steps
+
+The wizard walks the three steps below so you never have to call the API
+yourself.
 
 **Step 1 — Upload.** Drag a `.csv`, `.tsv`, `.txt`, `.xlsx`, or `.xlsm` file onto
 the drop zone, or pick one. Files over the size cap are rejected before the

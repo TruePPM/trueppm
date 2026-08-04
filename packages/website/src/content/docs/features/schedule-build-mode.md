@@ -70,7 +70,9 @@ The Schedule list is in one of three focus states at any time. The same keys do 
 | Shift + ↑ / ↓ | Extend a contiguous selection from the focused row |
 | ⌘ A / Ctrl + A | Select every sibling of the focused row; press again to expand to the whole visible tree |
 | Alt + ↑ / ↓ | Move the row **and its subtree** among its same-indent siblings — no-op on a selection that spans more than one parent |
-| F8 | Jump to the next row whose name still carries an unresolved `@owner` mention |
+| ⌘ V / Ctrl + V | Paste rows from a spreadsheet — see [Paste rows from a spreadsheet](#paste-rows-from-a-spreadsheet) below |
+| ⌘ Z / Ctrl + Z | Undo the most recent paste, while its receipt strip is still showing |
+| F8 | Jump to the next row that needs attention — an unresolved `@owner` mention, or a row a recent paste couldn't infer a duration for |
 | Shift + F8 | Jump to the previous such row |
 | Alt + A | Toggle **Author** / **Read** mode for the whole Schedule (see below) — persists per project, per browser |
 | Space | Mark the focused row complete / un-complete |
@@ -176,6 +178,52 @@ Adding an owner this way never removes anyone else already assigned to the row �
 means "Ana owns this", not "Ana is now the only person here". Remove an assignment from
 the task drawer's Assignees editor.
 
+## Paste rows from a spreadsheet
+
+:::note[Ships in 0.4]
+Paste-many lands in **TruePPM 0.4**. In the current release, build a plan row by row
+with Enter / Shift + Enter / ⌘ Enter, or bring in an existing plan with
+[MS Project import](/features/schedule/) or [CSV/Excel import](/features/schedule-toolbar/).
+:::
+
+With a row focused, `⌘ V` (`Ctrl + V`) pastes multiple rows copied from a spreadsheet
+straight into the outline — the fastest way to bring an existing plan in without 200
+trips through the Add Task modal.
+
+**Hierarchy comes from leading indentation.** A cell indented under the row above it —
+by leading spaces or a leading tab, however your spreadsheet expressed it — becomes that
+row's child. A block copied straight out of Excel, Google Sheets, or a plain indented
+outline all read the same way; TruePPM does not care which application produced the
+leading whitespace.
+
+**Columns are guessed, not required to match exactly.** A header row (a first row
+reading something like `Task`, `Duration`, `Owner`) is detected automatically and used
+to map columns; without one, the first column is assumed to be the task name and any
+column that looks like a set of durations is mapped by shape. Anything TruePPM can't
+place is left out — never silently guessed at.
+
+**A receipt strip confirms what happened**, right where you pasted: how many rows
+landed, how many hierarchy levels were read from indentation, which columns matched,
+how many were ignored, and how many rows have no duration yet (legal — TruePPM defaults
+an unset duration to 1 day, and you review them at your own pace). It stays on screen
+until you act on it:
+
+| Action | What it does |
+|---|---|
+| `⌘ Z` / **Undo** | Removes the whole paste as one step |
+| **Keep** | Dismisses the strip; the rows stay |
+| **Map columns…** | Corrects a wrong column guess and re-applies the paste under the new mapping |
+| `F8` | Walks to the next row the paste couldn't infer a duration for |
+
+Rows without a resolved duration are never treated as failures — they commit like every
+other pasted row, and `F8` is how you find and fix them afterward, on your schedule, not
+the paste's.
+
+A pasted block always lands as siblings of whichever row was focused when you pasted —
+the same "same level as the focused row" placement Enter uses — so pasting while sitting
+inside a phase adds to that phase, and pasting with nothing focused lands at the project
+root.
+
 ## Indenting and emergent phases
 
 When you indent a row under a leaf row (one with no children), the parent automatically becomes a summary task — its name goes bold, computed dates roll up from its children, and the chevron lets you collapse / expand. There is no "convert this to a phase" step; phases form as a side effect of structuring.
@@ -232,8 +280,8 @@ never the only signal.
 - **No mobile signal.** Build mode is desktop-only. On mobile, use the Add Task button as before.
 - **Enter's positional insert is one-directional.** Plain `Enter` appends the new row at the end of its parent's children rather than immediately after the focused row. `Shift + Enter` (insert above) *does* land exactly where you'd expect — it composes the create with a reorder — but the common "type, Enter, type" flow still appends.
 - **No optimistic indent.** Indent / outdent waits ~50ms for the server to confirm before the row position updates.
-- **No fill-down or paste-from-Excel.** Multi-row select and duplicate exist; bulk paste from a spreadsheet does not yet.
-- **No multi-step undo, no bulk-edit sheet, no Enter-to-create on the Timeline.** Undoing a paste/cascade/import fix as one step, a `⌘ ⇧ K` sheet for bulk-editing mode/phase/calendar/owner/dates across a selection, and creating rows from the Timeline the way Enter does on the list are tracked separately, not in this release.
+- **No fill-down.** Multi-row select and duplicate exist, and 0.4 adds [paste-many from a spreadsheet](#paste-rows-from-a-spreadsheet); a fill-down / fill-series gesture for extending a value down a column does not exist yet.
+- **No multi-step undo, no bulk-edit sheet, no Enter-to-create on the Timeline.** A paste undoes as one step (see [Paste rows from a spreadsheet](#paste-rows-from-a-spreadsheet)); undoing a cascade or an import fix as one step, a `⌘ ⇧ K` sheet for bulk-editing mode/phase/calendar/owner/dates across a selection, and creating rows from the Timeline the way Enter does on the list are tracked separately, not in this release.
 - **No Sprint backlog parity yet.** The same inline-edit / Tab pattern will extend to the Sprint backlog table in a future release.
 
 ## See also

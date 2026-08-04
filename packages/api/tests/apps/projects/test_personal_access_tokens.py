@@ -24,6 +24,7 @@ from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
 from trueppm_api.apps.projects.models import (
     MAX_PERSONAL_ACCESS_TOKENS,
+    MCP_READ_TOKEN_MAX_EXPIRY_DAYS,
     ApiToken,
     ApiTokenAuditEntry,
     Calendar,
@@ -129,6 +130,41 @@ def test_create_mcp_read_pat_with_expiry(client: APIClient, user: object) -> Non
     assert token.scopes == ["mcp:read"]
     assert token.owner_id == user.pk
     assert token.expires_at is not None
+
+
+@pytest.mark.django_db
+def test_create_mcp_read_pat_beyond_max_horizon_rejected(client: APIClient) -> None:
+    # #2764: "must expire" alone still let a caller mint an effectively
+    # non-expiring token (e.g. a far-future date). A ceiling closes that gap.
+    too_far = (timezone.now() + timedelta(days=MCP_READ_TOKEN_MAX_EXPIRY_DAYS + 1)).isoformat()
+    resp = client.post(
+        _URL, {"name": "MCP", "scopes": ["mcp:read"], "expires_at": too_far}, format="json"
+    )
+    assert resp.status_code == 400, resp.data
+    assert "expires_at" in resp.data
+
+
+@pytest.mark.django_db
+def test_create_mcp_read_pat_at_max_horizon_accepted(client: APIClient) -> None:
+    # A value within the ceiling must still succeed — the fix should not
+    # regress the existing "non-null, in the future" behavior.
+    within = (timezone.now() + timedelta(days=MCP_READ_TOKEN_MAX_EXPIRY_DAYS - 1)).isoformat()
+    resp = client.post(
+        _URL, {"name": "MCP", "scopes": ["mcp:read"], "expires_at": within}, format="json"
+    )
+    assert resp.status_code == 201, resp.data
+    assert resp.data["scopes"] == ["mcp:read"]
+
+
+@pytest.mark.django_db
+def test_create_legacy_full_pat_beyond_max_horizon_accepted(client: APIClient) -> None:
+    # The ceiling is scoped to mcp:read only — legacy:full PATs remain
+    # unaffected, consistent with their existing optional-expiry rule.
+    far = (timezone.now() + timedelta(days=MCP_READ_TOKEN_MAX_EXPIRY_DAYS + 1)).isoformat()
+    resp = client.post(
+        _URL, {"name": "CI", "scopes": ["legacy:full"], "expires_at": far}, format="json"
+    )
+    assert resp.status_code == 201, resp.data
 
 
 @pytest.mark.django_db

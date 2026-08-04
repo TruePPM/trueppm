@@ -660,6 +660,64 @@ export function useBulkDeleteTasks(projectId: string | null) {
 }
 
 // ---------------------------------------------------------------------------
+// useBulkCreateTasks — POST /api/v1/projects/{pk}/tasks/bulk/ (create ops)
+// ---------------------------------------------------------------------------
+
+/** One `create` op in a `tasks/bulk` batch — the client mints `id` (ADR-0772). */
+export interface BulkCreateOperation {
+  op: 'create';
+  id: string;
+  data: Record<string, unknown>;
+}
+
+/** One successfully-applied row from a 207 batch response. */
+export interface BulkAppliedEntry {
+  index: number;
+  id: string;
+  op: 'create' | 'update' | 'delete';
+  outcome: 'created' | 'updated' | 'deleted';
+}
+
+/** One row a 207 batch response skipped as a documented no-op (#2723 §4). */
+export interface BulkSkippedEntry {
+  index: number;
+  id: string | null;
+  code: string;
+  message: string;
+}
+
+/** The full 207 shape `tasks/bulk` returns (`task_bulk.py::BulkOutcome`). */
+export interface TaskBulkResponse {
+  applied: BulkAppliedEntry[];
+  rejected: BulkRowRejection[];
+  skipped: BulkSkippedEntry[];
+}
+
+/**
+ * POST /api/v1/projects/{pk}/tasks/bulk/ — create multiple tasks in one request
+ * (paste-many, #2724). Unlike `useBulkDeleteTasks`, a partial batch is not thrown
+ * as an error here: the caller (paste-many's receipt strip) reports applied vs.
+ * rejected counts itself, since "35 of 38 rows landed" is the expected everyday
+ * outcome of a pasted block, not a failure.
+ */
+export function useBulkCreateTasks(projectId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (operations: BulkCreateOperation[]) => {
+      const res = await apiClient.post<TaskBulkResponse>(`/projects/${projectId}/tasks/bulk/`, {
+        operations,
+      });
+      return res.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+      void queryClient.invalidateQueries({ queryKey: ['task-history', projectId ?? undefined] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // useTrashedTasks — GET /api/v1/tasks/trash/?project=<id>
 // ---------------------------------------------------------------------------
 
