@@ -3,6 +3,7 @@ import {
   DEFAULT_OWNER_PERCENT,
   matchRosterMember,
   parseOwnerTokens,
+  tokenFragmentQuery,
   type OwnerToken,
   type ResolvedOwner,
 } from './ownerToken';
@@ -519,7 +520,7 @@ export function activeTokenFragment(draft: string, caret = draft.length): Active
     if (kind !== 'parent' && /\s/.test(fragment)) continue;
     if (kind === 'parent' && fragment.includes(']')) continue;
     if (best === null || at > best.start) {
-      best = { kind, query: fragment.replace(/:.*$/, ''), start: at };
+      best = { kind, query: tokenFragmentQuery(fragment), start: at };
     }
   }
   return best;

@@ -75,6 +75,23 @@ export interface OwnerTokenParse {
  */
 const OWNER_TOKEN_RE = /@(?:"([^"]+)"|([A-Za-z0-9._'À-ɏ-]+))(?::(\d{1,3}))?/g;
 
+/**
+ * The name portion of a mid-type token fragment — everything before its first `:`
+ * modifier, so `ana:50` offers people named "ana" rather than nobody.
+ *
+ * Deliberately `indexOf`, not `replace(/:.*$/, '')`. A greedy `.*` followed by an
+ * anchor backtracks once per character on every fragment the anchor rejects, which is
+ * quadratic on text the author types (typescript:S8786). The anchored form is also
+ * wrong on a fragment carrying a newline: `.` skips no line breaks and `$` cannot
+ * match mid-string without `m`, so the modifier survives into the query instead of
+ * being stripped. Both token surfaces call this one function — a second copy of the
+ * expression is how the two would drift.
+ */
+export function tokenFragmentQuery(fragment: string): string {
+  const modifier = fragment.indexOf(':');
+  return modifier < 0 ? fragment : fragment.slice(0, modifier);
+}
+
 /** Clamp a parsed percent into the API's supported allocation range. */
 function clampPercent(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_OWNER_PERCENT;
@@ -197,7 +214,7 @@ export function activeOwnerQuery(
   if (/\s/.test(fragment)) return null;
   const percent = /:(\d{1,3})$/.exec(fragment);
   return {
-    query: fragment.replace(/:.*$/, ''),
+    query: tokenFragmentQuery(fragment),
     start: at,
     // `@ana:5` mid-type is a real (if small) allocation, so an in-progress percent is
     // honored rather than discarded — picking from the list must not silently reset

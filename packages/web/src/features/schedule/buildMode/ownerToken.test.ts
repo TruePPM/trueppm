@@ -8,6 +8,7 @@ import {
   parseOwnerTokens,
   segmentUnresolvedOwners,
   hasUnresolvedOwnerToken,
+  tokenFragmentQuery,
 } from './ownerToken';
 
 function member(id: string, name: string): ProjectResource {
@@ -171,6 +172,32 @@ describe('activeOwnerQuery', () => {
 
   it('is null when the draft has no @ at all', () => {
     expect(activeOwnerQuery('Draft plan')).toBeNull();
+  });
+
+  it('strips an in-progress percent out of the query it offers', () => {
+    expect(activeOwnerQuery('Draft @ana:25')?.query).toBe('ana');
+  });
+});
+
+describe('tokenFragmentQuery', () => {
+  it('returns the fragment unchanged when it carries no modifier', () => {
+    expect(tokenFragmentQuery('ana')).toBe('ana');
+  });
+
+  it('drops everything from the first colon', () => {
+    expect(tokenFragmentQuery('ana:50')).toBe('ana');
+    expect(tokenFragmentQuery('ana:50:9')).toBe('ana');
+  });
+
+  it('yields an empty query for a bare colon, so the picker lists the whole roster', () => {
+    expect(tokenFragmentQuery(':')).toBe('');
+  });
+
+  // The `/:.*$/` form this replaced could not match mid-string (no `m` flag) and `.`
+  // skips no line breaks, so a pasted multi-line fragment kept its modifier — and cost
+  // a backtrack per character to find that out.
+  it('still strips the modifier when the fragment carries a newline', () => {
+    expect(tokenFragmentQuery('Design: Phase\n2')).toBe('Design');
   });
 });
 
