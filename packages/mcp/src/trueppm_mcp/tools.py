@@ -13,6 +13,13 @@ The compact-result contract (#504):
 * Null and empty (``None`` / ``""`` / ``[]`` / ``{}``) fields are omitted.
 * Long free-text fields (``description``, ``notes``, …) are truncated to 200
   characters and the containing object is marked ``"truncated": true``.
+* Every retained free-text field (:data:`_TEXT_FIELDS`) is wrapped in
+  ``<untrusted-content>...</untrusted-content>`` markers (#2763). These fields
+  are user-authored task/risk/sprint text — anyone with write access to the
+  project can put arbitrary content there — so the wrapper gives client-side
+  prompt construction a structural signal to treat the contents as data to
+  report on, never as an instruction to follow. This is a framing mitigation,
+  not a sanitizer; it does not alter or reject the underlying text.
 * ``list_projects`` / ``get_project`` (and ``list_programs``) carry
   ``caller_role`` — the caller's own role, passed through from the API's
   authoritative ``my_role_label``, never inferred in the MCP server (ADR-0186 §F).
@@ -47,6 +54,13 @@ _TEXT_FIELDS = frozenset({"description", "notes", "mitigation", "response", "sum
 #: Maximum length (characters) of a retained free-text field before truncation.
 _TEXT_LIMIT = 200
 
+#: Boundary markers wrapped around every retained :data:`_TEXT_FIELDS` value
+#: (#2763). These fields are user-authored content, not server framing — the
+#: markers give client-side prompt construction a structural way to keep the
+#: two apart. See :func:`_compact_mapping`.
+_UNTRUSTED_OPEN = "<untrusted-content>"
+_UNTRUSTED_CLOSE = "</untrusted-content>"
+
 
 # ---------------------------------------------------------------------------
 # Compaction helpers
@@ -63,12 +77,17 @@ def _compact_value(value: Any) -> Any:
 
 
 def _compact_mapping(data: Mapping[str, Any]) -> dict[str, Any]:
-    """Drop null/empty entries and truncate long free-text fields.
+    """Drop null/empty entries, truncate long free-text, and mark it untrusted.
 
     Zero and ``False`` are preserved (only ``None`` / ``""`` / ``[]`` / ``{}`` are
     dropped). When any field in :data:`_TEXT_FIELDS` exceeds :data:`_TEXT_LIMIT`
-    it is cut to the limit and the returned object gains a ``"truncated": true``
-    marker so the model knows the text was elided.
+    it is cut to the limit *first* and the returned object gains a
+    ``"truncated": true`` marker so the model knows the text was elided — then
+    every retained :data:`_TEXT_FIELDS` value (truncated or not) is wrapped in
+    :data:`_UNTRUSTED_OPEN` / :data:`_UNTRUSTED_CLOSE` markers (#2763). Truncating
+    before wrapping keeps the markers themselves out of the cut text and off the
+    truncation budget. Non-text fields (IDs, dates, enums, counts, …) are never
+    wrapped — only the free-text fields a project Member could have authored.
     """
     out: dict[str, Any] = {}
     truncated = False
@@ -76,9 +95,11 @@ def _compact_mapping(data: Mapping[str, Any]) -> dict[str, Any]:
         value = _compact_value(raw)
         if value is None or value == "" or value == [] or value == {}:
             continue
-        if key in _TEXT_FIELDS and isinstance(value, str) and len(value) > _TEXT_LIMIT:
-            value = value[:_TEXT_LIMIT]
-            truncated = True
+        if key in _TEXT_FIELDS and isinstance(value, str):
+            if len(value) > _TEXT_LIMIT:
+                value = value[:_TEXT_LIMIT]
+                truncated = True
+            value = f"{_UNTRUSTED_OPEN}{value}{_UNTRUSTED_CLOSE}"
         out[key] = value
     if truncated:
         out["truncated"] = True

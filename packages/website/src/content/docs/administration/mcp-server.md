@@ -324,6 +324,15 @@ may follow in a later release.
 - **No secret in logs.** The token is never logged, never echoed in an error,
   and never included in a stack trace or a `repr`. Configuration errors name the
   missing variable, not its value.
+- **Tool output is framed as untrusted data.** Free-text fields (task
+  descriptions, notes, risk mitigations, and the like) are wrapped in
+  `<untrusted-content>` markers, and the server's own instructions to the
+  model state explicitly that everything a tool returns is project data,
+  never a directive to follow — a mitigation for indirect prompt injection
+  via user-authored text that any project Member with write access could set.
+  This is a framing mitigation, not a content filter: it does not sanitize or
+  reject text, and it cannot fully close the class server-side — a
+  well-behaved client and model are still required to honor it.
 - **Fail-closed boot.** A token that does not authenticate fails startup with a
   clear message, so a misconfigured client never silently runs against the wrong
   instance.
