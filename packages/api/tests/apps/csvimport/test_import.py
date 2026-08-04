@@ -102,6 +102,35 @@ class TestImportComputability:
         assert str(tasks["Backend"].wbs_path) == "1.2.1"
         assert str(tasks["Phase Two"].wbs_path) == "2"
 
+    def test_extreme_indent_depth_is_clamped_not_left_unbounded(self, project: Project) -> None:
+        """An extreme indent depth must clamp, not reach the WBS-path builder
+        unbounded (#2761).
+
+        Unclamped, this depth would route into `_wbs_paths_from_levels` and mint
+        an ltree path exceeding Postgres's label-count ceiling -- raising a
+        `DataError` from `bulk_create` that used to escape every handler in
+        `import_csv`. The parser must instead clamp the depth and report a
+        normal row warning; the row still imports.
+        """
+        from trueppm_api.apps.csvimport.parser import MAX_OUTLINE_DEPTH
+
+        from .fixtures import EXTREME_INDENT_CSV
+
+        parsed = parse_spreadsheet(EXTREME_INDENT_CSV, "plan.csv")
+        deep = next(t for t in parsed.project_data.tasks if t.name == "Deep")
+        assert deep.outline_level == MAX_OUTLINE_DEPTH
+
+        matching = [e for e in parsed.row_errors if e.code == "excessive_indent_depth"]
+        assert len(matching) == 1
+        assert matching[0].severity == "warning"
+
+        # No DataError from an oversized ltree path -- the row still persists,
+        # and the resulting ltree path stays well under Postgres's 65,535-label
+        # ceiling rather than growing unbounded with the raw indent depth.
+        import_project(str(project.pk), parsed.project_data)
+        deep_task = Task.objects.get(project=project, name="Deep")
+        assert len(str(deep_task.wbs_path).split(".")) <= MAX_OUTLINE_DEPTH + 1
+
     def test_dependency_types_and_lag_persist(self, project: Project) -> None:
         parsed = parse_spreadsheet(REFERENCE_CSV, "plan.csv")
         import_project(str(project.pk), parsed.project_data)
@@ -228,6 +257,88 @@ class TestImportTaskDeadLettering:
         # dead-letter path that is the only surface reporting the failure.
         odd = _describe_bad_graph(InfeasibleGraphError("cyclic_dependency", ["a", "b", "a"]))
         assert "task a -> task b -> task a" in odd
+
+    def test_extreme_wbs_depth_clamps_and_completes_the_import(self, project: Project) -> None:
+        """Same failure mode as the indentation case, via the bare-digit WBS
+        column, exercised end-to-end through the async task (#2761).
+
+        The request must complete DONE with the depth clamped and reported as a
+        row warning -- not dead-letter, and not hang DISPATCHED.
+        """
+        from trueppm_api.apps.csvimport.tasks import import_csv
+
+        from .fixtures import EXTREME_WBS_DEPTH_CSV
+
+        req = CsvImportRequest.objects.create(
+            project=project,
+            filename="deep_wbs.csv",
+            file_content_b64=base64.b64encode(EXTREME_WBS_DEPTH_CSV).decode("ascii"),
+            status=CsvImportStatus.DISPATCHED,
+        )
+        with (
+            patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+            patch("trueppm_api.apps.scheduling.services.enqueue_recalculate"),
+        ):
+            summary = import_csv.apply(
+                kwargs={
+                    "project_id": str(project.pk),
+                    "file_content_b64": req.file_content_b64,
+                    "filename": req.filename,
+                    "import_request_id": str(req.pk),
+                },
+                throw=True,
+            ).get()
+
+        assert summary["tasks_created"] == 2
+        assert any(e["code"] == "excessive_indent_depth" for e in summary["row_errors"])
+        req.refresh_from_db()
+        assert req.status == CsvImportStatus.DONE
+
+    def test_unexpected_persistence_failure_dead_letters_instead_of_looping(
+        self, project: Project
+    ) -> None:
+        """A persistence failure the parser's own caps did not anticipate must
+        still dead-letter the request rather than leave it DISPATCHED (#2761).
+
+        Before this fix, `import_csv` only caught `CsvImportError` and
+        `InfeasibleGraphError` around `import_project`; any other exception
+        (e.g. a Postgres `DataError`) escaped uncaught, so the row was never
+        marked DEAD and the 15-minute orphan-recovery drain retried it
+        identically forever -- a self-sustaining worker-slot DoS with no
+        user-visible error.
+        """
+        from django.db.utils import DataError
+
+        from trueppm_api.apps.csvimport.tasks import import_csv
+
+        req = CsvImportRequest.objects.create(
+            project=project,
+            filename="plan.csv",
+            file_content_b64=base64.b64encode(REFERENCE_CSV).decode("ascii"),
+            status=CsvImportStatus.DISPATCHED,
+        )
+        with patch(
+            "trueppm_api.apps.msproject.importer.import_project",
+            side_effect=DataError("value too long for type character varying(65535)"),
+        ):
+            result = import_csv.apply(
+                kwargs={
+                    "project_id": str(project.pk),
+                    "file_content_b64": req.file_content_b64,
+                    "filename": req.filename,
+                    "import_request_id": str(req.pk),
+                },
+                throw=False,
+            )
+
+        assert result.failed()
+        req.refresh_from_db()
+        # Terminal: the drain must not re-dispatch a request stuck on a
+        # persistence failure it will hit identically on every retry.
+        assert req.status == CsvImportStatus.DEAD
+        assert req.file_content_b64 == ""
+        assert "unexpectedly" in req.result_summary["error"].lower()
+        assert Task.objects.filter(project=project).count() == 0
 
     def test_unreadable_file_marks_the_row_dead_with_a_reason(self, project: Project) -> None:
         from trueppm_api.apps.csvimport.tasks import import_csv

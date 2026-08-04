@@ -90,9 +90,12 @@ def import_csv(
 
     A deterministic failure — an unreadable file, or a spreadsheet whose
     predecessor column encodes a cycle — marks the outbox row DEAD so the drain
-    stops re-dispatching it forever. Row-level problems (a bad date, an unknown
-    predecessor) are **not** failures: those rows import without the offending
-    field and the errors ride back in the summary.
+    stops re-dispatching it forever. Any other unexpected exception raised while
+    persisting (e.g. a database error the parser's own row-level caps did not
+    anticipate) marks the row DEAD too, for the same reason (#2761). Row-level
+    problems (a bad date, an unknown predecessor) are **not** failures: those
+    rows import without the offending field and the errors ride back in the
+    summary.
     """
     from django.conf import settings
 
@@ -159,14 +162,25 @@ def import_csv(
         # import share the transaction, a mid-import failure rolls the claim back
         # too, returning the row to DISPATCHED for a clean retry.
         summary: dict[str, Any]
-        with transaction.atomic():
-            if import_request_id and not _claim_import(import_request_id):
-                logger.info(
-                    "import.csv: request %s already completed — skipping duplicate delivery",
-                    import_request_id,
-                )
-                return {"skipped": True, "tasks_created": 0}
-            summary = import_project(project_id, parsed.project_data, tracker=tracker)
+        try:
+            with transaction.atomic():
+                if import_request_id and not _claim_import(import_request_id):
+                    logger.info(
+                        "import.csv: request %s already completed — skipping duplicate delivery",
+                        import_request_id,
+                    )
+                    return {"skipped": True, "tasks_created": 0}
+                summary = import_project(project_id, parsed.project_data, tracker=tracker)
+        except Exception as exc:
+            # Any unanticipated failure during persistence (e.g. a Postgres
+            # DataError from an oversized ltree path that slipped past the
+            # parser's own caps) must not leave the row DISPATCHED for the
+            # orphan-recovery drain to retry identically forever (#2761). The
+            # atomic() block above rolls the claim back to DISPATCHED on any
+            # exception, so a row is always here to flip terminal.
+            if import_request_id:
+                _mark_import_dead(import_request_id, f"Import failed unexpectedly: {exc}")
+            raise
 
         summary["row_errors"] = [e.as_dict() for e in parsed.row_errors]
         summary["row_error_count"] = len(parsed.row_errors)

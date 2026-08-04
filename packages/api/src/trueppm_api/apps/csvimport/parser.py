@@ -61,6 +61,16 @@ MAX_LABELS_PER_TASK = 20
 #: rather than dropped so the label still lands on the task.
 LABEL_NAME_MAX_LENGTH = 50
 
+#: Ceiling on inferred or declared outline depth (indentation levels, or a
+#: bare-digit WBS column value). Well under Postgres's ltree label-count
+#: limit -- this exists purely so a malformed or malicious cell (tens of
+#: thousands of leading tabs, or a huge bare integer) can never reach
+#: `_wbs_paths_from_levels` and mint an unbounded ltree path, which crashes
+#: `bulk_create` with a `DataError` (#2761). A violation clamps and records a
+#: row warning; the row still imports, same as every other malformed-cell
+#: contract in this module.
+MAX_OUTLINE_DEPTH = 100
+
 _CSV_EXTENSIONS = {"csv", "tsv", "txt"}
 _XLSX_EXTENSIONS = {"xlsx", "xlsm"}
 SUPPORTED_EXTENSIONS = _CSV_EXTENSIONS | _XLSX_EXTENSIONS
@@ -119,6 +129,7 @@ SEVERITY_BY_CODE: dict[str, str] = {
     "unknown_predecessor": "warning",
     "self_dependency": "warning",
     "finish_before_start": "warning",
+    "excessive_indent_depth": "warning",
 }
 
 #: Fallback for a code added without a severity. Warning, not error: a new check
@@ -400,6 +411,33 @@ def _indent_level(raw_name: str) -> int:
     return tabs + dots + spaces // 2
 
 
+def _clamp_outline_level(
+    level: int,
+    result: ParseResult,
+    row_number: int,
+    column: str,
+) -> int:
+    """Cap an inferred or declared outline depth at ``MAX_OUTLINE_DEPTH``.
+
+    Called from both hierarchy sources (name-column indentation and a
+    bare-digit WBS column) right where each produces a depth, so neither can
+    hand an unbounded value to the shared WBS-path builder. See
+    ``MAX_OUTLINE_DEPTH`` for why the ceiling exists.
+    """
+    if level <= MAX_OUTLINE_DEPTH:
+        return level
+    result.row_errors.append(
+        RowError(
+            row_number,
+            column,
+            "excessive_indent_depth",
+            f"Indent depth {level} exceeds the maximum of {MAX_OUTLINE_DEPTH}; "
+            f"clamped to {MAX_OUTLINE_DEPTH}.",
+        )
+    )
+    return MAX_OUTLINE_DEPTH
+
+
 # --- Main entry point ----------------------------------------------------
 
 
@@ -586,12 +624,15 @@ def _build_task(
     """Build one ``TaskData`` from a named row, applying every mapped column."""
     task = TaskData(uid=offset + 1, name=raw_name.strip()[:255])
     task.outline_number = str(task_count + 1)
-    task.outline_level = _indent_level(raw_name)
+    task.outline_level = _clamp_outline_level(
+        _indent_level(raw_name), result, row_number, result.headers[_one(by_field, "name")]
+    )
 
     if "wbs" in by_field:
-        wbs_raw = _cell(row, _one(by_field, "wbs")).strip()
+        wbs_index = _one(by_field, "wbs")
+        wbs_raw = _cell(row, wbs_index).strip()
         if wbs_raw:
-            _apply_wbs(task, wbs_raw)
+            _apply_wbs(task, wbs_raw, result, row_number, result.headers[wbs_index])
 
     _apply_duration(task, row, by_field, result, row_number)
     _apply_dates(task, row, by_field, result, row_number, day_first)
@@ -608,7 +649,13 @@ def _build_task(
     return task
 
 
-def _apply_wbs(task: TaskData, wbs_raw: str) -> None:
+def _apply_wbs(
+    task: TaskData,
+    wbs_raw: str,
+    result: ParseResult,
+    row_number: int,
+    column: str,
+) -> None:
     """Apply a WBS column value as either a dotted code or a bare depth."""
     if "." in wbs_raw and all(p.strip().isdigit() for p in wbs_raw.split(".")):
         # A dotted outline code carries the hierarchy directly; the importer's
@@ -617,7 +664,12 @@ def _apply_wbs(task: TaskData, wbs_raw: str) -> None:
         task.outline_level = wbs_raw.count(".")
     elif wbs_raw.isdigit():
         # A bare integer in a "Level"/"Outline" column is a depth, not a code.
-        task.outline_level = int(wbs_raw)
+        # The length gate avoids handing an enormous digit string straight to
+        # int(): Python's int-from-str conversion limit would raise before
+        # _clamp_outline_level ever runs, and no legitimate depth is remotely
+        # this long (#2761).
+        level = int(wbs_raw) if len(wbs_raw) <= 10 else MAX_OUTLINE_DEPTH + 1
+        task.outline_level = _clamp_outline_level(level, result, row_number, column)
 
 
 def _apply_duration(

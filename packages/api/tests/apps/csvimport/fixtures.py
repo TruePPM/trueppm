@@ -61,6 +61,20 @@ ID,Name,Duration,Start,Predecessors
 6,,2,2026-03-02,
 """
 
+# An indent depth deep enough that, unclamped, it would blow past Postgres's
+# ltree label-count ceiling once routed through _wbs_paths_from_levels (#2761).
+# The parser must clamp it to MAX_OUTLINE_DEPTH rather than let it reach
+# persistence unbounded.
+EXTREME_INDENT_CSV = b"Name,Duration\n" + (b"\t" * 70000) + b"Deep,1\nSibling,1\n"
+
+# Same failure mode via the bare-digit WBS/"Level" column instead of
+# name-column indentation (#2761).
+EXTREME_WBS_DEPTH_CSV = b"""\
+Name,Level
+Shallow,1
+Deep,70000
+"""
+
 # A 2-cycle in the predecessor column: 1 depends on 2 and 2 depends on 1. The
 # parser leaves the edge set intact; the graph guard must reject it before any
 # write happens.
