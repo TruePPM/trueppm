@@ -16,7 +16,7 @@
  *   arrows (no critical-red), summary rollups excluded as endpoints. SS/FF/SF Bézier.
  */
 
-import type { ExternalLinkStatus, Task, TaskLink } from '@/types';
+import type { DeliveryMode, ExternalLinkStatus, Task, TaskLink } from '@/types';
 import type { FiscalConfig, GanttScaleData } from './GanttScaleData';
 import {
   CALENDAR_QUARTERS,
@@ -212,6 +212,19 @@ export const COLOR = {
   // Leading accent on a label-filter match (#2384). brand-primary, the same
   // ink as the link preview: both mean "this is the thing you are acting on".
   filterMarker: SAGE_700,
+  // Delivery-mode gutter/texture (#2727 pt.7, WCAG 1.4.1): a redundant,
+  // non-color cue for which methodology governs a task, on top of the hue
+  // here. Waterfall (the default/baseline mode) draws neither a gutter nor a
+  // texture — omission is itself the "nothing special" signal, the same
+  // convention drawTaskBarChip already uses for a fresh NOT_STARTED task.
+  // Hues chosen to not collide with any existing bar-state color (info blue,
+  // sage complete/today, critical red, slate summary, amber milestone, navy
+  // selection ring).
+  deliveryScrum: '#6D4AC4', // same hue as --violet/--agile (globals.css) — already the codebase's agile-methodology accent (BurnChart)
+  deliveryKanban: '#0D9488', // teal-600
+  // Texture stroke/dot color — low alpha so the pattern reads as a secondary
+  // cue and never fights the progress overlay's own 30%-alpha black tint.
+  deliveryTexture: 'rgba(0,0,0,0.12)',
 } as const;
 
 /** Semantic type for the color palette. Both COLOR and COLOR_DARK satisfy this. */
@@ -262,6 +275,9 @@ export const COLOR_DARK: ColorPalette = {
   // barComplete / todayLine; #1666).
   linkPreview: SAGE_400, // sage-400 — brand-primary (dark)
   filterMarker: SAGE_400,
+  deliveryScrum: '#A78BFA', // same hue as --violet/--agile dark (globals.css) — readable on the dark navy surface
+  deliveryKanban: '#2DD4BF', // teal-400
+  deliveryTexture: 'rgba(255,255,255,0.14)',
 };
 
 /**
@@ -306,6 +322,12 @@ export const COLOR_FORCED: ColorPalette = {
   // Forced colors: the marker must survive a high-contrast theme, and dimming
   // is suppressed there entirely (the OS palette has no opacity budget).
   filterMarker: 'Highlight',
+  // Both delivery modes collapse to plain ink under forced-colors — the
+  // texture PATTERN (stripes vs. dots), not hue, carries the distinction
+  // here, matching the file's existing shape-over-hue policy for bar kinds.
+  deliveryScrum: 'CanvasText',
+  deliveryKanban: 'CanvasText',
+  deliveryTexture: 'CanvasText', // alpha tints aren't honored under forced-colors
 };
 
 /**
@@ -904,12 +926,28 @@ function barFillColor(task: Task): string {
 }
 
 /**
+ * Single-letter delivery-mode prefix for the bar chip (#2727 pt.7). Waterfall
+ * (the default/baseline mode) gets no letter — same "omission is the
+ * baseline signal" convention as the gutter/texture in
+ * {@link drawDeliveryModeMark}.
+ */
+function deliveryModeChipLetter(mode: DeliveryMode | undefined): string {
+  if (mode === 'scrum') return 'S';
+  if (mode === 'kanban') return 'K';
+  if (mode === 'milestone') return 'M';
+  return '';
+}
+
+/**
  * Draw a % completion chip inside a task bar (canvas-bars layer).
  *
  * Chip is left-anchored, clipped to bar bounds, and omitted when the bar is
  * narrower than 32px or when the task has 0% progress and is NOT_STARTED
- * (no useful signal to show).  The chip uses a translucent overlay so the bar
- * fill color reads through slightly.
+ * (no useful signal to show) — unless a non-waterfall delivery mode still has
+ * a letter to show (#2727 pt.7), in which case a mode-only chip appears so a
+ * not-yet-started sprint/kanban task doesn't lose its only wide-bar signal.
+ * The chip uses a translucent overlay so the bar fill color reads through
+ * slightly.
  */
 function drawTaskBarChip(
   ctx: CanvasRenderingContext2D,
@@ -918,7 +956,13 @@ function drawTaskBarChip(
   barTop: number,
   barWidth: number,
 ): void {
-  const label = `${Math.round(task.progress)}%`;
+  const modeLetter = deliveryModeChipLetter(task.deliveryMode);
+  const showPercent = !(task.progress === 0 && task.status === 'NOT_STARTED');
+  const label = modeLetter
+    ? showPercent
+      ? `${modeLetter} ${Math.round(task.progress)}%`
+      : modeLetter
+    : `${Math.round(task.progress)}%`;
   const chipPadX = 4;
   const chipH = 12;
 
@@ -1074,6 +1118,16 @@ export function drawTaskBar(
   ctx.roundRect(barLeft, barTop, barWidth, BAR_HEIGHT, 3);
   ctx.fill();
 
+  // Delivery-mode gutter + texture (#2727 pt.7). Skipped for external-redacted
+  // bars — that diagonal hatch is already reserved to mean "not yours"; a
+  // second, differently-meaning pattern on top would be confusing. Summary
+  // tasks are dispatched to drawSummaryBar() instead of this function in the
+  // real paint path (GanttEngineImpl); the guard here is defensive for
+  // direct callers, matching the existing `criticalFrame` guard below.
+  if (!task.isExternal && !task.isSummary) {
+    drawDeliveryModeMark(ctx, task.deliveryMode, barLeft, barTop, barWidth);
+  }
+
   // Redacted external task (ADR-0120 D5 / ADR-0182): a task in a member project
   // the viewer can't access. Diagonal hatch over the muted fill so it reads as
   // "not yours"; criticality shows as a red OUTLINE (never red fill) so the
@@ -1110,11 +1164,16 @@ export function drawTaskBar(
   }
 
   // % chip inside bar — omit when the Chart menu hides progress pills (#2097),
-  // for very narrow bars, and for 0% NOT_STARTED tasks (no useful signal).
+  // for very narrow bars, and for 0% NOT_STARTED tasks (no useful signal) —
+  // unless a non-waterfall delivery mode (#2727 pt.7) still has a letter to
+  // show, since gutter/texture degrade below 32px but the chip doesn't exist
+  // at all below it, so a not-yet-started sprint/kanban task would otherwise
+  // lose every wide-bar signal at once.
+  const hasChipModeLetter = deliveryModeChipLetter(task.deliveryMode) !== '';
   if (
     _chartOptions.showProgressPills &&
     barWidth >= 32 &&
-    !(task.progress === 0 && task.status === 'NOT_STARTED')
+    (!(task.progress === 0 && task.status === 'NOT_STARTED') || hasChipModeLetter)
   ) {
     drawTaskBarChip(ctx, task, barLeft, barTop, barWidth);
   }
@@ -1136,6 +1195,87 @@ export function drawTaskBar(
   if (!skipLabel) {
     drawTaskBarLabel(ctx, task, rowIndex, scales, scrollLeft, viewportWidth);
   }
+}
+
+/**
+ * Delivery-mode gutter + texture (#2727 pt.7, WCAG 1.4.1): a redundant,
+ * non-color cue for which methodology governs a task, so a mixed-methodology
+ * schedule reads correctly for colorblind users and under forced-colors —
+ * see the `deliveryScrum`/`deliveryKanban`/`deliveryTexture` palette comment.
+ * Waterfall (or no mode) draws nothing; 'milestone' delivery mode landing on
+ * an actual bar (rather than a diamond, isMilestone shape) is a rare edge
+ * case and gets a cross-hatch, reusing the milestone hue for the gutter.
+ *
+ * Drawn as part of the base-fill step in `drawTaskBar` — before the progress
+ * overlay / selection ring / critical frame — so none of their existing
+ * z-order priority changes, and it inherits the same globalAlpha dimming
+ * scope for free (focus mode / label-filter dim). Uses the same
+ * clip-then-stroke-lines technique as `drawExternalRedaction` rather than
+ * `CanvasPattern`/`OffscreenCanvas`: this is not a hot path (the renderer
+ * only repaints on scroll/data/selection change, not every frame), so no new
+ * caching layer is needed.
+ */
+function drawDeliveryModeMark(
+  ctx: CanvasRenderingContext2D,
+  mode: DeliveryMode | undefined,
+  barLeft: number,
+  barTop: number,
+  barWidth: number,
+): void {
+  if (!mode || mode === 'waterfall') return;
+  const gutterColor =
+    mode === 'scrum' ? _palette.deliveryScrum
+    : mode === 'kanban' ? _palette.deliveryKanban
+    : _palette.milestone;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(barLeft, barTop, barWidth, BAR_HEIGHT, 3);
+  ctx.clip();
+
+  // Gutter: solid left-edge accent, 3px wide — visible even on a bar clamped
+  // to the 2px minimum width.
+  ctx.fillStyle = gutterColor;
+  ctx.fillRect(barLeft, barTop, 3, BAR_HEIGHT);
+
+  // Texture: low-alpha pattern across the bar body, independent of the
+  // gutter hue — a wider 6px pitch than drawExternalRedaction's 5px hatch so
+  // the two patterns read as visually distinct from each other.
+  ctx.strokeStyle = _palette.deliveryTexture;
+  ctx.lineWidth = 1;
+  if (mode === 'scrum') {
+    for (let hx = barLeft - BAR_HEIGHT; hx < barLeft + barWidth; hx += 6) {
+      ctx.beginPath();
+      ctx.moveTo(hx, barTop + BAR_HEIGHT);
+      ctx.lineTo(hx + BAR_HEIGHT, barTop);
+      ctx.stroke();
+    }
+  } else if (mode === 'kanban') {
+    ctx.fillStyle = _palette.deliveryTexture;
+    for (let dx = barLeft + 3; dx < barLeft + barWidth; dx += 6) {
+      for (let dy = barTop + 3; dy < barTop + BAR_HEIGHT; dy += 6) {
+        ctx.beginPath();
+        ctx.arc(dx, dy, 1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  } else {
+    // 'milestone' delivery mode on an actual bar — cross-hatch, the most
+    // visually distinct pattern, reserved for this rare edge case.
+    for (let hx = barLeft - BAR_HEIGHT; hx < barLeft + barWidth; hx += 6) {
+      ctx.beginPath();
+      ctx.moveTo(hx, barTop + BAR_HEIGHT);
+      ctx.lineTo(hx + BAR_HEIGHT, barTop);
+      ctx.stroke();
+    }
+    for (let hx = barLeft; hx < barLeft + barWidth + BAR_HEIGHT; hx += 6) {
+      ctx.beginPath();
+      ctx.moveTo(hx, barTop);
+      ctx.lineTo(hx - BAR_HEIGHT, barTop + BAR_HEIGHT);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
 }
 
 /** Diagonal hatch marking a redacted external task (ADR-0120 D5 / ADR-0182) — a
