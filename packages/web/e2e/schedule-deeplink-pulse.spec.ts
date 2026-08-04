@@ -88,7 +88,7 @@ test.describe('Schedule deep-link pulse (#734)', () => {
   test('a plain navigation (no hash) does not pulse', async ({ page }) => {
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
     // Gate on the schedule actually rendering before asserting the absence.
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId('milestone-pulse-overlay')).toHaveCount(0);
   });
 });

@@ -169,7 +169,7 @@ const TASKS: Task[] = [
 ];
 
 function cellFor(name: string): HTMLElement {
-  return screen.getByRole('gridcell', { name: new RegExp(name) });
+  return screen.getByRole('option', { name: new RegExp(name) });
 }
 
 beforeEach(() => {
@@ -223,30 +223,56 @@ describe('buildTaskAriaLabel (rule 69 canonical format)', () => {
     );
     expect(label).toBe('Kickoff, 1 days, starts Jan 1, finishes Jan 1');
   });
+
+  // #2727: delivery mode is announced since the visual encoding (gutter/chip/
+  // texture, #2727 pt.7) is sighted-only.
+  it('appends the delivery-mode suffix when the task carries one', () => {
+    expect(
+      buildTaskAriaLabel(makeTask('t1', 'Design', { deliveryMode: 'scrum' })),
+    ).toBe('Design, 5 days, starts Apr 6, finishes Apr 10, Scrum delivery');
+  });
+
+  it('appends the delivery-mode suffix to an unscheduled task too', () => {
+    expect(
+      buildTaskAriaLabel(makeTask('t1', 'Design', { start: '', deliveryMode: 'kanban' })),
+    ).toBe('Design, 5 days, unscheduled, Kanban delivery');
+  });
+
+  it('omits the delivery-mode suffix when the task carries none', () => {
+    expect(buildTaskAriaLabel(makeTask('t1', 'Design'))).not.toMatch(/delivery/);
+  });
+
+  it('combines the critical-path and delivery-mode suffixes in order', () => {
+    expect(
+      buildTaskAriaLabel(
+        makeTask('t1', 'Design', { isCritical: true, deliveryMode: 'waterfall' }),
+      ),
+    ).toBe('Design, 5 days, starts Apr 6, finishes Apr 10, on the critical path, Waterfall delivery');
+  });
 });
 
 // ---------------------------------------------------------------------------
 // Grid structure
 // ---------------------------------------------------------------------------
 
-describe('ScheduleAriaOverlay grid structure', () => {
-  it('exposes one gridcell per task with the canonical label and row index', () => {
+describe('ScheduleAriaOverlay listbox structure (#2727 — role="listbox"/"option", not role="grid")', () => {
+  it('exposes one option per task with the canonical label and set position', () => {
     mount();
-    const grid = screen.getByRole('grid', { name: 'Schedule chart' });
-    expect(grid).toHaveAttribute('aria-rowcount', '3');
-    expect(screen.getAllByRole('gridcell')).toHaveLength(3);
+    const list = screen.getByRole('listbox', { name: 'Schedule chart' });
+    expect(list).not.toHaveAttribute('aria-rowcount');
+    expect(screen.getAllByRole('option')).toHaveLength(3);
     expect(cellFor('Build')).toHaveAttribute(
       'aria-label',
       'Build, 5 days, starts Apr 6, finishes Apr 10',
     );
-    const rows = screen.getAllByRole('row');
-    expect(rows[2]).toHaveAttribute('aria-rowindex', '3');
+    expect(cellFor('Build')).toHaveAttribute('aria-setsize', '3');
+    expect(cellFor('Test')).toHaveAttribute('aria-posinset', '3');
   });
 
-  it('renders an empty grid — and no roving tab stop — when there are no tasks', () => {
+  it('renders an empty list — and no roving tab stop — when there are no tasks', () => {
     mount({ tasks: [] });
-    expect(screen.getByRole('grid')).toHaveAttribute('aria-rowcount', '0');
-    expect(screen.queryAllByRole('gridcell')).toHaveLength(0);
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+    expect(screen.queryAllByRole('option')).toHaveLength(0);
   });
 
   it('makes the first row the tab stop until the user focuses another one (#779)', () => {
@@ -350,10 +376,10 @@ describe('ScheduleAriaOverlay row virtualization', () => {
   it('renders only the visible window plus overscan, clamped to the first row', () => {
     mount({ tasks: MANY, clientHeight: 300 });
     // scrollTop 0 → firstRow clamps to 0; maxY = 300 - 28 header + 140 overscan.
-    const cells = screen.getAllByRole('gridcell');
+    const cells = screen.getAllByRole('option');
     expect(cells).toHaveLength(16);
-    expect(screen.getByRole('gridcell', { name: /Task 0,/ })).toBeInTheDocument();
-    expect(screen.queryByRole('gridcell', { name: /Task 20,/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /Task 0,/ })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Task 20,/ })).not.toBeInTheDocument();
   });
 
   it('drops rows above the window and clamps the last row to the task count on scroll', () => {
@@ -361,11 +387,11 @@ describe('ScheduleAriaOverlay row virtualization', () => {
     host.scrollTop = 1000;
     fireEvent.scroll(host);
 
-    expect(screen.queryByRole('gridcell', { name: /Task 0,/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Task 0,/ })).not.toBeInTheDocument();
     // Last row is clamped to tasks.length - 1 even though maxY runs past it.
-    const last = screen.getByRole('gridcell', { name: /Task 39,/ });
+    const last = screen.getByRole('option', { name: /Task 39,/ });
     expect(last).toBeInTheDocument();
-    expect(last.closest('[role="row"]')).toHaveAttribute('aria-rowindex', '40');
+    expect(last).toHaveAttribute('aria-posinset', '40');
   });
 
   it('tracks scrollTop from the engine scroll event', () => {
@@ -377,8 +403,8 @@ describe('ScheduleAriaOverlay row virtualization', () => {
     );
     host.scrollTop = 1000;
     act(() => emitScroll(0));
-    expect(screen.queryByRole('gridcell', { name: /Task 0,/ })).not.toBeInTheDocument();
-    expect(screen.getByRole('gridcell', { name: /Task 39,/ })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /Task 0,/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /Task 39,/ })).toBeInTheDocument();
   });
 
   it('survives a null scroll container — engine scroll events are ignored', () => {
@@ -389,7 +415,7 @@ describe('ScheduleAriaOverlay row virtualization', () => {
     );
     act(() => emitScroll(120));
     // viewportHeight stays 0, so only the overscan window renders — and nothing throws.
-    expect(screen.getAllByRole('gridcell').length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('option').length).toBeGreaterThan(0);
   });
 });
 
@@ -510,34 +536,34 @@ describe('ScheduleAriaOverlay far-jump scroll-into-view', () => {
 
   it('scrolls down to reveal the last row on End, then focuses it once it mounts', () => {
     const { host } = mount({ tasks: MANY, clientHeight: 300 });
-    fireEvent.keyDown(screen.getByRole('gridcell', { name: /Task 0,/ }), { key: 'End' });
+    fireEvent.keyDown(screen.getByRole('option', { name: /Task 0,/ }), { key: 'End' });
 
     // rowTop(39) + ROW_HEIGHT exceeds the viewport bottom, so the container is
     // scrolled just far enough to expose it.
     expect(host.scrollTop).toBe(39 * ROW_HEIGHT + ROW_HEIGHT - (300 - HEADER_HEIGHT));
     // The row only mounts once the container's scroll event re-derives the window.
     fireEvent.scroll(host);
-    const last = screen.getByRole('gridcell', { name: /Task 39,/ });
+    const last = screen.getByRole('option', { name: /Task 39,/ });
     expect(last).toHaveFocus();
     expect(last).toHaveAttribute('tabindex', '0');
   });
 
   it('scrolls back up to the first row on Home', () => {
     const { host } = mount({ tasks: MANY, clientHeight: 300 });
-    fireEvent.keyDown(screen.getByRole('gridcell', { name: /Task 0,/ }), { key: 'End' });
+    fireEvent.keyDown(screen.getByRole('option', { name: /Task 0,/ }), { key: 'End' });
     fireEvent.scroll(host);
     expect(host.scrollTop).toBeGreaterThan(0);
 
-    fireEvent.keyDown(screen.getByRole('gridcell', { name: /Task 39,/ }), { key: 'Home' });
+    fireEvent.keyDown(screen.getByRole('option', { name: /Task 39,/ }), { key: 'Home' });
     expect(host.scrollTop).toBe(0);
     fireEvent.scroll(host);
-    expect(screen.getByRole('gridcell', { name: /Task 0,/ })).toHaveFocus();
+    expect(screen.getByRole('option', { name: /Task 0,/ })).toHaveFocus();
   });
 
   it('leaves the vertical scroll alone for a move already inside the window', () => {
     const { host } = mount({ tasks: MANY, clientHeight: 300 });
-    fireEvent.keyDown(screen.getByRole('gridcell', { name: /Task 0,/ }), { key: 'ArrowDown' });
+    fireEvent.keyDown(screen.getByRole('option', { name: /Task 0,/ }), { key: 'ArrowDown' });
     expect(host.scrollTop).toBe(0);
-    expect(screen.getByRole('gridcell', { name: /Task 1,/ })).toHaveFocus();
+    expect(screen.getByRole('option', { name: /Task 1,/ })).toHaveFocus();
   });
 });

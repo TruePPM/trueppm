@@ -1,15 +1,32 @@
 /**
- * Transparent DOM overlay providing WCAG 2.1 grid structure over the canvas.
+ * Transparent DOM overlay providing WCAG 2.1 accessible structure over the
+ * canvas.
  *
  * The canvas elements are aria-hidden. This overlay provides the accessible
- * tree: role="grid" > role="row" > role="gridcell" with roving tabindex.
+ * tree: role="listbox" > role="option" per bar, with roving tabindex (#2727,
+ * ADR-0776 — was role="grid" > role="row" > role="gridcell", but every row
+ * has exactly one interactive cell: there is no horizontal cell-to-cell
+ * navigation, so `grid`'s 2D contract never applied.
+ *
+ * `list`/`listitem` (the issue's literal ask) was tried first and reverted:
+ * both axe-core (`aria-allowed-attr` — `listitem` does not permit
+ * `aria-selected`) and eslint-plugin-jsx-a11y (`no-noninteractive-tabindex` /
+ * `-element-interactions` — `listitem` is a non-interactive role) flag it,
+ * because `list`/`listitem` is defined for static content grouping, not a
+ * keyboard-navigable, selectable widget. `listbox`/`option` is ARIA's actual
+ * role pairing for that — same "one interactive item per row, not a grid"
+ * shape the issue was really asking for, plus first-class support for
+ * `aria-selected` and roving tabindex. Each option's aria-label is the
+ * canonical per-task description (name, duration, dates, critical path); the
+ * row wrapper is decorative (role="presentation") and exists only for
+ * absolute-position layout.
  *
  * Virtualised to match the canvas render window (same overscan = 5 rows).
  * Tracks scrollTop from engine.on('scroll') and updates focus ring position.
  *
  * Design rules enforced:
  * - Rule 67: ScheduleAriaOverlay is mandatory; canvas aria-hidden="true"
- * - Rule 68: ARIA grid uses roving tabindex; keyboard nav in overlay
+ * - Rule 68: ARIA listbox uses roving tabindex; keyboard nav in overlay
  * - Rule 69: buildTaskAriaLabel canonical format
  */
 
@@ -22,7 +39,7 @@ import {
   type KeyboardEvent,
   type RefObject,
 } from 'react';
-import type { Task, TaskLink } from '@/types';
+import type { DeliveryMode, Task, TaskLink } from '@/types';
 import { useDragStore } from '@/stores/dragStore';
 import type { GanttEngine } from './engine';
 import { dateToLeft, dateToRight } from './engine';
@@ -44,16 +61,30 @@ function formatAriaDate(isoDate: string): string {
   }).format(new Date(isoDate + 'T00:00:00Z'));
 }
 
+const DELIVERY_MODE_LABEL: Record<DeliveryMode, string> = {
+  waterfall: 'Waterfall',
+  scrum: 'Scrum',
+  kanban: 'Kanban',
+  milestone: 'Milestone',
+};
+
 /**
  * Canonical aria-label format (rule 69):
- * "{name}, {durationDays} days, starts {start}, finishes {finish}{cp}"
+ * "{name}, {durationDays} days, starts {start}, finishes {finish}{cp}{mode}"
+ *
+ * The delivery-mode suffix (#2727) is the only place this bar's execution
+ * mode reaches a screen reader — the visual encoding (gutter/chip/texture,
+ * #2727 pt.7) is sighted-only. Omitted when the task carries no mode (the
+ * field is optional; a task fetched before the server always resolved a
+ * default could still be missing it).
  */
 export function buildTaskAriaLabel(task: Task): string {
   const cp = task.isCritical ? ', on the critical path' : '';
+  const mode = task.deliveryMode ? `, ${DELIVERY_MODE_LABEL[task.deliveryMode]} delivery` : '';
   if (!task.start || !task.finish) {
-    return `${task.name}, ${task.duration} days, unscheduled`;
+    return `${task.name}, ${task.duration} days, unscheduled${mode}`;
   }
-  return `${task.name}, ${task.duration} days, starts ${formatAriaDate(task.start)}, finishes ${formatAriaDate(task.finish)}${cp}`;
+  return `${task.name}, ${task.duration} days, starts ${formatAriaDate(task.start)}, finishes ${formatAriaDate(task.finish)}${cp}${mode}`;
 }
 
 /**
@@ -148,7 +179,7 @@ export function ScheduleAriaOverlay({
   const [viewportHeight, setViewportHeight] = useState(0);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
   const [liveMessage, setLiveMessage] = useState('');
-  // Mirror of the engine's selection so each gridcell's aria-selected re-renders
+  // Mirror of the engine's selection so each option's aria-selected re-renders
   // when selection changes. Reading engine.selectedTaskIds directly (a mutable
   // Set) never re-renders on canvas-click or the overlay's own Enter/Space, so
   // aria-selected went stale until an unrelated scroll/resize (WCAG 4.1.2, #2185).
@@ -156,7 +187,7 @@ export function ScheduleAriaOverlay({
     () => engine?.selectedTaskIds ?? new Set<string>(),
   );
   const gridRef = useRef<HTMLDivElement>(null);
-  // Task id whose gridcell should receive DOM focus once it is rendered.
+  // Task id whose option should receive DOM focus once it is rendered.
   const pendingFocusRef = useRef<string | null>(null);
 
   // Track scroll from engine events (rule 55: always unsubscribe)
@@ -223,7 +254,7 @@ export function ScheduleAriaOverlay({
     const id = pendingFocusRef.current;
     if (!id) return;
     const cell = gridRef.current?.querySelector<HTMLElement>(
-      `[role="gridcell"][data-task-id="${id}"]`,
+      `[role="option"][data-task-id="${id}"]`,
     );
     if (cell) {
       pendingFocusRef.current = null;
@@ -232,7 +263,7 @@ export function ScheduleAriaOverlay({
   });
 
   // Roving tabindex keyboard handler (rule 68). Row navigation is vertical
-  // only: each row exposes a single gridcell (the bar), so ArrowLeft/Right
+  // only: each row exposes a single option (the bar), so ArrowLeft/Right
   // have no sibling cell to move to and are deliberately left unhandled —
   // they are the nudge keys once a keyboard reschedule is active
   // (useKeyboardReschedule, document-level).
@@ -273,9 +304,8 @@ export function ScheduleAriaOverlay({
           e.preventDefault();
           moveTo(tasks[idx - 1]);
           break;
-        // role="grid" keyboard contract (#1776): Home/End jump to the first/
-        // last row (single-cell rows, so "row start/end" and "grid start/end"
-        // coincide).
+        // Home/End jump to the first/last task (#1776): single-cell rows, so
+        // "row start/end" and "listbox start/end" coincide.
         case 'Home':
           e.preventDefault();
           moveTo(tasks[0]);
@@ -326,8 +356,7 @@ export function ScheduleAriaOverlay({
   return (
     <div
       ref={gridRef}
-      role="grid"
-      aria-rowcount={tasks.length}
+      role="listbox"
       aria-label="Schedule chart"
       aria-describedby="schedule-grid-help"
       style={{
@@ -337,7 +366,7 @@ export function ScheduleAriaOverlay({
         overflow: 'hidden',
       }}
     >
-      {/* Static keyboard help announced when the grid is entered (#1031).
+      {/* Static keyboard help announced when the list is entered (#1031).
           Wording must match the real key map (#1776): Left/Right are the nudge
           keys inside a reschedule; Up/Down navigate rows. */}
       <span id="schedule-grid-help" className="sr-only">
@@ -355,9 +384,9 @@ export function ScheduleAriaOverlay({
         const rowIndex = firstRow + sliceIdx;
         const rowTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT - scrollTop;
         // Roving tabindex: until the user has focused a row, the first task is the
-        // tab stop so the grid is reachable by Tab on initial load. Without the
-        // `?? tasks[0]?.id` fallback every cell was tabIndex=-1 and keyboard/AT
-        // users could not enter the grid at all (#779).
+        // tab stop so the listbox is reachable by Tab on initial load. Without the
+        // `?? tasks[0]?.id` fallback every option was tabIndex=-1 and keyboard/AT
+        // users could not enter it at all (#779).
         const isFocused = task.id === (focusedTaskId ?? tasks[0]?.id);
 
         // Bar geometry for focus ring positioning (rule 68)
@@ -380,8 +409,7 @@ export function ScheduleAriaOverlay({
         return (
           <div
             key={task.id}
-            role="row"
-            aria-rowindex={rowIndex + 1}
+            role="presentation"
             style={{
               position: 'absolute',
               top: rowTop,
@@ -392,12 +420,14 @@ export function ScheduleAriaOverlay({
             }}
           >
             <div
-              role="gridcell"
+              role="option"
               data-task-id={task.id}
               tabIndex={isFocused ? 0 : -1}
               aria-label={buildTaskAriaLabel(task)}
               aria-describedby={depDescId}
               aria-selected={selectedTaskIds.has(task.id)}
+              aria-setsize={tasks.length}
+              aria-posinset={rowIndex + 1}
               className="focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface rounded-control outline-none"
               style={{
                 position: 'absolute',

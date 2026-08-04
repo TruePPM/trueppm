@@ -142,7 +142,7 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
 test.describe('Schedule bar — ARIA accessibility (#212)', () => {
   test.beforeEach(async ({ page }) => {
     await gotoSchedule(page);
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
   });
 
   test('task names are accessible via ARIA grid cells', async ({ page }) => {
@@ -158,7 +158,7 @@ test.describe('Schedule bar — ARIA accessibility (#212)', () => {
 
   test('complete task is accessible in task list', async ({ page }) => {
     // "Discovery" is 100% complete — verifiable via the task list panel
-    const grid = page.getByRole('grid', { name: 'Task list' });
+    const grid = page.getByRole('treegrid', { name: 'Task list' });
     await expect(grid.getByText('Discovery')).toBeVisible();
   });
 });
@@ -170,7 +170,7 @@ test.describe('Schedule bar — ARIA accessibility (#212)', () => {
 test.describe('Schedule bar — canvas structure (#212)', () => {
   test.beforeEach(async ({ page }) => {
     await gotoSchedule(page);
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
   });
 
   test('canvas-bars layer is present in the DOM', async ({ page }) => {

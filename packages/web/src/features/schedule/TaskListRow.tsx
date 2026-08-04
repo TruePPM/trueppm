@@ -80,6 +80,7 @@ import {
   type PredecessorCandidate,
   type RowMenuItem,
 } from './buildMode';
+import { wbsParentPath } from './buildMode/insertBelow';
 
 interface Props {
   task: Task;
@@ -136,6 +137,11 @@ interface Props {
    * Includes this task's own id.
    */
   siblingIds?: string[];
+  /**
+   * Every visible row id, top to bottom (#2727 multi-select). Shift+↑/↓
+   * selection-extend and ⌘A's "whole tree" expansion are no-ops without it.
+   */
+  visibleTaskIds?: string[];
   /** Task name suggestions for the inline autocomplete dropdown (#343). */
   nameSuggestions?: string[];
   /**
@@ -229,12 +235,6 @@ export function truncateWbsPath(path: string, maxChars: number): string {
   return `${parts[0]}.…${parts[parts.length - 1]}`;
 }
 
-/** Derive WBS parent path for reorder API (ltree format). Root tasks return "". */
-function wbsParentPath(wbs: string): string {
-  const parts = wbs.split('.');
-  return parts.slice(0, -1).join('.');
-}
-
 /** Add n calendar days to an ISO date string. */
 function addDaysISO(iso: string, n: number): string {
   const d = new Date(iso + 'T00:00:00Z');
@@ -266,29 +266,166 @@ interface BuildKeyDownCtx {
   task: Task;
   prevTaskId: string | null;
   nextTaskId: string | null;
+  /**
+   * Every visible row id, top to bottom (#2727 multi-select) — the flattened
+   * order `EXTEND_SELECTION` and ⌘A's "whole tree" set are computed against.
+   * Optional so a row rendered outside `TaskListPanel` (tests) still works;
+   * Shift+↑/↓ and the ⌘A tree-expand step are no-ops without it.
+   */
+  visibleTaskIds: string[] | undefined;
   reorderTasks: ReturnType<typeof useReorderTasks>;
   focusRowDom: (id: string) => void;
 }
 
 /**
- * Option/Alt+↑/↓ sibling reorder (#347). Returns `true` when the event is an
- * Alt+Arrow reorder (and has been consumed, even if it resolves to a no-op such
- * as an out-of-range move), so the caller stops dispatching. Split from
- * handleBuildModeKeyDown (#2245); branch semantics verbatim.
+ * Find the contiguous run of `selectedIds` within `siblingIds`, in sibling
+ * order. Returns null when any selected id is not one of these siblings
+ * (selection spans more than one parent) or the selected ids are not
+ * consecutive in sibling order (#2727, ADR-0776 §1: "Alt+↑/↓ is scoped to a
+ * contiguous, same-parent selection... a no-op outside that case").
+ */
+function contiguousSameParentBlock(
+  selectedIds: Set<string>,
+  siblingIds: string[],
+): string[] | null {
+  const indices: number[] = [];
+  for (const id of selectedIds) {
+    const idx = siblingIds.indexOf(id);
+    if (idx === -1) return null;
+    indices.push(idx);
+  }
+  indices.sort((a, b) => a - b);
+  for (let i = 1; i < indices.length; i++) {
+    if (indices[i] !== indices[i - 1] + 1) return null;
+  }
+  return indices.map((idx) => siblingIds[idx]);
+}
+
+/**
+ * Move a contiguous block of siblings one slot up/down by swapping it with
+ * the single adjacent sibling outside the block. Returns null when the block
+ * is already at that edge of `siblingIds` (out-of-range move, matches the
+ * existing single-row no-op-at-the-edge behavior below).
+ */
+function moveContiguousBlock(
+  siblingIds: string[],
+  blockIds: string[],
+  delta: 1 | -1,
+): string[] | null {
+  const startIdx = siblingIds.indexOf(blockIds[0]);
+  const blockLen = blockIds.length;
+  if (delta === 1) {
+    const afterIdx = startIdx + blockLen;
+    if (afterIdx >= siblingIds.length) return null;
+    const neighbor = siblingIds[afterIdx];
+    const newOrder = [...siblingIds];
+    newOrder.splice(startIdx, blockLen + 1, neighbor, ...blockIds);
+    return newOrder;
+  }
+  const beforeIdx = startIdx - 1;
+  if (beforeIdx < 0) return null;
+  const neighbor = siblingIds[beforeIdx];
+  const newOrder = [...siblingIds];
+  newOrder.splice(beforeIdx, blockLen + 1, ...blockIds, neighbor);
+  return newOrder;
+}
+
+/**
+ * Option/Alt+↑/↓ sibling reorder (#347; extended #2727 for multi-select).
+ * Returns `true` when the event is an Alt+Arrow reorder (and has been
+ * consumed, even if it resolves to a no-op such as an out-of-range move), so
+ * the caller stops dispatching. Split from handleBuildModeKeyDown (#2245);
+ * single-row branch semantics verbatim.
  */
 function tryBuildModeReorder(e: React.KeyboardEvent, ctx: BuildKeyDownCtx): boolean {
-  const { siblingIds, task, reorderTasks } = ctx;
+  const { buildMode, siblingIds, task, reorderTasks } = ctx;
   if (!(e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && siblingIds)) return false;
   e.preventDefault();
+  const delta = e.key === 'ArrowDown' ? 1 : -1;
+  const selectedIds = buildMode?.focus.state.selectedIds;
+  if (selectedIds && selectedIds.size > 1) {
+    const block = contiguousSameParentBlock(selectedIds, siblingIds);
+    if (!block) return true;
+    const newOrder = moveContiguousBlock(siblingIds, block, delta);
+    if (!newOrder) return true;
+    reorderTasks.mutate({ parent_path: wbsParentPath(task.wbs), ordered_ids: newOrder });
+    return true;
+  }
   const currentIdx = siblingIds.indexOf(task.id);
   if (currentIdx === -1) return true;
-  const delta = e.key === 'ArrowDown' ? 1 : -1;
   const newIdx = currentIdx + delta;
   if (newIdx < 0 || newIdx >= siblingIds.length) return true;
   const newOrder = [...siblingIds];
   newOrder.splice(currentIdx, 1);
   newOrder.splice(newIdx, 0, task.id);
   reorderTasks.mutate({ parent_path: wbsParentPath(task.wbs), ordered_ids: newOrder });
+  return true;
+}
+
+/**
+ * Alt+→/← indent/outdent (#2727, ADR-0776 §6). NOT bound to Tab/Shift-Tab —
+ * that was the original v1 binding, but it reproduces the exact WCAG 2.1.2
+ * keyboard trap `packages/web/src/features/grid/OutlineMode.tsx` already hit
+ * and fixed once (#2192): intercepting every Tab keydown means a keyboard
+ * user can never leave the grid, and every escape attempt fires a mutation.
+ * Alt+→/← mirrors that fix and frees plain Tab to fall through to native
+ * focus traversal, same as everywhere else on the page.
+ */
+function tryBuildModeIndent(e: React.KeyboardEvent, ctx: BuildKeyDownCtx): boolean {
+  const { buildMode, task, visibleTaskIds } = ctx;
+  if (!e.altKey || (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') || !buildMode) return false;
+  e.preventDefault();
+  // Structural keys apply to every selected row when a multi-row selection is
+  // active (#2727, ADR-0776 §1), sorted into top-to-bottom visible order so a
+  // batch indent/outdent reads as one predictable sweep rather than Set
+  // iteration order.
+  const selectedIds = buildMode.focus.state.selectedIds;
+  const targets =
+    selectedIds && selectedIds.size > 1
+      ? (visibleTaskIds ?? [...selectedIds]).filter((id) => selectedIds.has(id))
+      : [task.id];
+  if (e.key === 'ArrowRight') targets.forEach((id) => buildMode.indent(id));
+  else targets.forEach((id) => buildMode.outdent(id));
+  return true;
+}
+
+/**
+ * Shift+↑/↓ (#2727, ADR-0776 §1): extend or shrink a contiguous multi-row
+ * selection from the anchor through the adjacent visible row. A no-op at
+ * either edge of the visible list (still consumes the event — Shift+↑ at the
+ * top of the grid shouldn't fall through to anything else).
+ */
+function tryBuildModeSelectExtend(e: React.KeyboardEvent, ctx: BuildKeyDownCtx): boolean {
+  const { buildMode, prevTaskId, nextTaskId, visibleTaskIds, focusRowDom } = ctx;
+  if (!buildMode || !e.shiftKey || e.altKey || e.metaKey || e.ctrlKey) return false;
+  if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return false;
+  if (!visibleTaskIds) return false;
+  e.preventDefault();
+  const toRowId = e.key === 'ArrowDown' ? nextTaskId : prevTaskId;
+  if (!toRowId) return true;
+  buildMode.focus.extendSelection(toRowId, visibleTaskIds);
+  focusRowDom(toRowId);
+  return true;
+}
+
+/**
+ * ⌘A/Ctrl+A (#2727, ADR-0776 §1): first press selects every sibling of the
+ * focused row; a second press while that exact "all siblings" set is already
+ * selected expands to the whole visible tree.
+ */
+function tryBuildModeSelectAll(e: React.KeyboardEvent, ctx: BuildKeyDownCtx): boolean {
+  const { buildMode, siblingIds, visibleTaskIds } = ctx;
+  if (!buildMode || !(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'a') return false;
+  e.preventDefault();
+  if (!siblingIds) return true;
+  const current = buildMode.focus.state.selectedIds;
+  const alreadyAllSiblings =
+    !!current && current.size === siblingIds.length && siblingIds.every((id) => current.has(id));
+  if (alreadyAllSiblings && visibleTaskIds) {
+    buildMode.focus.selectIds(visibleTaskIds);
+  } else {
+    buildMode.focus.selectIds(siblingIds);
+  }
   return true;
 }
 
@@ -318,8 +455,10 @@ function tryBuildModeFocusMove(e: React.KeyboardEvent, ctx: BuildKeyDownCtx): bo
 
 /**
  * Build-mode keyboard reducer for a task row. Handles Option/Alt+↑/↓ sibling
- * reorder (#347), arrow-key row focus traversal, Tab/Shift-Tab indent/outdent,
- * single-letter Name cell-edit entry, Delete/Backspace, and Esc. Returns early
+ * reorder (#347), Option/Alt+→/← indent/outdent (#2727), arrow-key row focus
+ * traversal, single-letter Name cell-edit entry, Delete/Backspace, and Esc.
+ * Plain Tab/Shift-Tab is deliberately left alone (see `tryBuildModeIndent`).
+ * Returns early
  * (no-op) when build mode is inactive or a cell is being edited. The caller
  * inspects `e.defaultPrevented` afterward to decide whether to run the flag-off
  * shortcuts, so this function's preventDefault contract is load-bearing.
@@ -328,15 +467,13 @@ function handleBuildModeKeyDown(e: React.KeyboardEvent, ctx: BuildKeyDownCtx): v
   const { buildMode, anyCellInEdit, task } = ctx;
   if (!buildMode || anyCellInEdit) return;
   if (tryBuildModeReorder(e, ctx)) return;
+  if (tryBuildModeIndent(e, ctx)) return;
+  if (tryBuildModeSelectAll(e, ctx)) return;
+  if (tryBuildModeSelectExtend(e, ctx)) return;
   if (tryBuildModeFocusMove(e, ctx)) return;
-  // Tab on a focused row → indent (Shift-Tab → outdent). The focus reducer
-  // ignores Tab in RowFocused — caller (this) handles the structural action.
-  if (e.key === 'Tab') {
-    e.preventDefault();
-    if (e.shiftKey) buildMode.outdent(task.id);
-    else buildMode.indent(task.id);
-    return;
-  }
+  // Plain Tab/Shift-Tab is deliberately NOT intercepted here — see
+  // tryBuildModeIndent's doc comment. It falls through to native browser
+  // focus traversal, same as everywhere else on the page.
   // Letter key (single printable, not modified) opens Name cell-edit
   // pre-filled with the typed letter — but we keep it simple in v1 and
   // just enter cell-edit; the user re-types if they want to overwrite.
@@ -351,7 +488,14 @@ function handleBuildModeKeyDown(e: React.KeyboardEvent, ctx: BuildKeyDownCtx): v
   // task from a pre-delete snapshot. The same path backs the ⋮ menu's Delete.
   if (e.key === 'Delete' || e.key === 'Backspace') {
     e.preventDefault();
-    buildMode.deleteTask(task.id);
+    // Structural keys apply to every selected row when a multi-row selection
+    // is active (#2727, ADR-0776 §1).
+    const selectedIds = buildMode.focus.state.selectedIds;
+    if (selectedIds && selectedIds.size > 1) {
+      selectedIds.forEach((id) => buildMode.deleteTask(id));
+    } else {
+      buildMode.deleteTask(task.id);
+    }
     return;
   }
   // Esc clears focus.
@@ -409,16 +553,24 @@ function tryRowArrowSelect(e: React.KeyboardEvent, ctx: RowKeyDownCtx): boolean 
 }
 
 /**
- * Enter on a focused row. In build mode it inserts a new sibling below (same
- * parent / depth) and drops the cursor into its Name cell (#1666); otherwise it
- * toggles row selection. F2 remains the "edit this row's name" affordance. One
- * mental model: Enter always ends with the cursor in an editable Name cell.
- * Split from handleRowKeyDown (#2245); semantics verbatim.
+ * Enter on a focused row. In build mode it inserts a new row and drops the
+ * cursor into its Name cell — sibling below (same parent/depth) by default
+ * (#1666), sibling above on Shift, child (one level deeper) on ⌘/Ctrl
+ * (#2727); otherwise it toggles row selection. F2 remains the "edit this
+ * row's name" affordance. One mental model: Enter always ends with the
+ * cursor in an editable Name cell. Split from handleRowKeyDown (#2245).
  */
-function handleRowEnter(ctx: RowKeyDownCtx): void {
+function handleRowEnter(
+  e: Pick<React.KeyboardEvent, 'shiftKey' | 'metaKey' | 'ctrlKey'>,
+  ctx: RowKeyDownCtx,
+): void {
   const { buildMode, task, isSelected, setSelectedTaskId } = ctx;
   if (buildMode) {
-    buildMode.insertBelow(task.id);
+    // Shift+Enter = sibling above, ⌘/Ctrl+Enter = child, plain Enter = sibling
+    // below (#2727).
+    if (e.metaKey || e.ctrlKey) buildMode.insertChild(task.id);
+    else if (e.shiftKey) buildMode.insertAbove(task.id);
+    else buildMode.insertBelow(task.id);
   } else {
     setSelectedTaskId(isSelected ? null : task.id);
   }
@@ -463,7 +615,7 @@ function handleRowShortcuts(e: React.KeyboardEvent, ctx: RowKeyDownCtx): void {
   }
   if (e.key === 'Enter') {
     e.preventDefault();
-    handleRowEnter(ctx);
+    handleRowEnter(e, ctx);
     return;
   }
   if (e.key === 'F2') {
@@ -554,7 +706,7 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
       key: 'indent',
       label: 'Indent',
       icon: <IndentIcon className="h-4 w-4" aria-hidden="true" />,
-      hint: 'Tab',
+      hint: '⌥→',
       startsGroup: true,
       disabled: level <= 1,
       onSelect: () => buildMode.indent(task.id),
@@ -563,7 +715,7 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
       key: 'outdent',
       label: 'Outdent',
       icon: <OutdentIcon className="h-4 w-4" aria-hidden="true" />,
-      hint: '⇧+Tab',
+      hint: '⌥←',
       // Disable outdent at root level (level 1).
       disabled: level <= 1,
       onSelect: () => buildMode.outdent(task.id),
@@ -840,7 +992,7 @@ function useRowInlineEdit(ctx: {
  * BuildModeProvider is not mounted.
  */
 function useBuildCellState(buildMode: BuildMode | null, taskId: string) {
-  const isBuildSelected = buildMode?.focus.isRowFocused(taskId) ?? false;
+  const isBuildSelected = buildMode?.focus.isRowSelected(taskId) ?? false;
   const editingColumnName = buildMode?.focus.isCellInEdit(taskId, 'name') ?? false;
   const editingColumnDuration = buildMode?.focus.isCellInEdit(taskId, 'duration') ?? false;
   const editingColumnProgress = buildMode?.focus.isCellInEdit(taskId, 'progress') ?? false;
@@ -933,6 +1085,7 @@ function useRowReorderHandle(ctx: {
 function useRowActions(ctx: {
   projectId: string;
   task: Task;
+  buildMode: BuildMode | null;
   toggleComplete: ReturnType<typeof useToggleComplete>;
   duplicateTask: ReturnType<typeof useDuplicateTask>;
   updateTask: UpdateTaskMutation;
@@ -944,6 +1097,7 @@ function useRowActions(ctx: {
   const {
     projectId,
     task,
+    buildMode,
     toggleComplete,
     duplicateTask,
     updateTask,
@@ -985,6 +1139,14 @@ function useRowActions(ctx: {
 
   const handleDuplicate = useCallback(() => {
     if (!projectId) return;
+    // Build mode owns the subtree-aware duplicate (#2727, ADR-0776 §2) — it
+    // needs the full task tree, which only ScheduleView has. The flag-off
+    // path below (no BuildModeProvider mounted) keeps the original
+    // single-row-only duplicate exactly as it shipped (ADR-0066 §Q1).
+    if (buildMode) {
+      buildMode.duplicateSubtree(task.id);
+      return;
+    }
     duplicateTask.mutate(
       {
         projectId,
@@ -1020,6 +1182,8 @@ function useRowActions(ctx: {
     );
   }, [
     projectId,
+    buildMode,
+    task.id,
     task.name,
     task.duration,
     task.parentId,
@@ -1284,6 +1448,7 @@ function TaskListRowInner({
   dimmed = false,
   depChips,
   siblingIds,
+  visibleTaskIds,
   nameSuggestions,
   resourcePool,
   authoringCandidates,
@@ -1392,6 +1557,7 @@ function TaskListRowInner({
       buildMode,
       anyCellInEdit,
       siblingIds,
+      visibleTaskIds,
       task,
       prevTaskId,
       nextTaskId,
@@ -1404,6 +1570,7 @@ function TaskListRowInner({
   const { handleToggleComplete, handleDuplicate } = useRowActions({
     projectId,
     task,
+    buildMode,
     toggleComplete,
     duplicateTask,
     updateTask,
@@ -1473,6 +1640,13 @@ function TaskListRowInner({
       role="row"
       data-row-id={task.id}
       aria-rowindex={ariaRowIndex}
+      // Treegrid semantics (#2727): level is the row's WBS depth (1-based,
+      // matching aria-level's convention directly); aria-expanded is present
+      // only on rows that actually have children — a leaf row must omit it
+      // entirely rather than carry aria-expanded="false", which would
+      // incorrectly claim it's expandable.
+      aria-level={level}
+      aria-expanded={hasChildren ? isExpanded : undefined}
       aria-selected={buildMode ? isBuildSelected : isSelected}
       tabIndex={rovingRowTabIndex}
       style={{ height: ROW_HEIGHT }}
@@ -1910,6 +2084,8 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
   // (#2682 follow-up).
   const isPristine = buildMode.isPristineNewRow?.(task.id) ?? false;
   const clearPristine = () => buildMode.clearPristineNewRow?.(task.id);
+  const isCaretAtEnd = buildMode.isCaretAtEndRow(task.id);
+  const clearCaretAtEnd = () => buildMode.clearCaretAtEndRow(task.id);
   return (
     <div className="relative flex-1 min-w-0">
       <EditableCell
@@ -1919,11 +2095,14 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
         inputType="text"
         ariaLabel={`Rename task ${task.name}`}
         className="flex-1 min-w-0 w-full"
+        caretPosition={isCaretAtEnd ? 'end' : 'select-all'}
+        onEmptyBackspace={() => buildMode.mergeIntoPreviousRow(task.id)}
         onStartEdit={() => {
           /* already editing */
         }}
         onCommit={(parsed) => {
           clearPristine();
+          clearCaretAtEnd();
           if (typeof parsed === 'string' && projectId) {
             // Split the draft into name + owners. A token that matches no roster member
             // is left in the name verbatim and the row still commits (ADR-0774 §6) —
@@ -1968,20 +2147,41 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
           buildMode.focus.commitToRow();
         }}
         onRollback={() => {
-          clearPristine();
+          // Esc on a still-pristine row discards it rather than rolling back
+          // (#2727, ADR-0776 §4) — there is no "last committed value" to
+          // revert to, since it was never committed in the first place. A
+          // row that has ever been committed, rolled back once, or had a
+          // real value typed is no longer pristine and gets the ordinary
+          // revert-to-last-committed-value behavior below.
+          if (isPristine) {
+            setAutocompleteQuery('');
+            buildMode.deleteTask(task.id);
+            buildMode.focus.clear();
+            return;
+          }
+          clearCaretAtEnd();
           setAutocompleteQuery('');
           buildMode.focus.rollbackToRow();
         }}
         onTabForward={() => buildMode.focus.tabForward()}
         onTabBackward={() => buildMode.focus.tabBackward()}
         onQueryChange={(q) => {
-          if (q !== '') clearPristine();
+          if (q !== '') {
+            clearPristine();
+            clearCaretAtEnd();
+          }
           setAutocompleteQuery(q);
         }}
-        // Commit-and-continue (#1666): Enter in the Name cell commits, then
-        // inserts a new sibling below and drops into its Name cell. A blank
-        // Name (emptyIsNoop) makes the second Enter a calm no-op.
-        onEnterCommit={() => buildMode.insertBelow(task.id)}
+        // Commit-and-continue (#1666, extended #2727): Enter in the Name cell
+        // commits, then inserts a new row and drops into its Name cell —
+        // sibling below by default, sibling above (Shift) or child (⌘/Ctrl)
+        // per modifier. A blank Name (emptyIsNoop) makes the second Enter a
+        // calm no-op.
+        onEnterCommit={(mods) => {
+          if (mods.metaKey || mods.ctrlKey) buildMode.insertChild(task.id);
+          else if (mods.shiftKey) buildMode.insertAbove(task.id);
+          else buildMode.insertBelow(task.id);
+        }}
         emptyIsNoop
         draftOverride={draftOverride}
         onInputKeyDown={(e) => {

@@ -36,11 +36,13 @@ export interface EditableCellProps {
   onQueryChange?: (query: string) => void;
   /**
    * Called after a SUCCESSFUL Enter-commit (not blur, not Tab, not Esc). Used by
-   * the Name cell for commit-and-continue (#1666): after committing the edit,
-   * insert a new sibling row below and move into its Name cell. Not fired when
+   * the Name cell for commit-and-continue (#1666, extended #2727): after
+   * committing the edit, insert a new row and move into its Name cell — plain
+   * Enter below, Shift+Enter above, ⌘/Ctrl+Enter as a child. `mods` carries the
+   * modifier keys held on the Enter that triggered the commit. Not fired when
    * the commit is rejected (see `emptyIsNoop`).
    */
-  onEnterCommit?: () => void;
+  onEnterCommit?: (mods: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) => void;
   /**
    * When true, an Enter on an empty/whitespace value is a calm no-op — no error
    * flash, no `onCommit`, no `onEnterCommit`. Used by the Name cell so the
@@ -48,6 +50,21 @@ export interface EditableCellProps {
    * error. Only meaningful for text cells.
    */
   emptyIsNoop?: boolean;
+  /**
+   * Fired when Backspace is pressed on an already-empty text draft (#2727) —
+   * the outliner "merge into the row above" convention. Used by the Name
+   * cell; not fired for duration/percent cells. When set, this cell should
+   * also pass `caretPosition="end"` on the NEXT row it renders as the
+   * merge target, so the caret lands correctly rather than re-selecting all.
+   */
+  onEmptyBackspace?: () => void;
+  /**
+   * How the input focuses on entering edit mode: `'select-all'` (default —
+   * the existing "type over the placeholder" UX) or `'end'` (caret placed
+   * after the last character, no selection — used when this cell is the
+   * merge target of a `mergeIntoPreviousRow`, #2727).
+   */
+  caretPosition?: 'select-all' | 'end';
   /**
    * An externally-authored replacement for the live draft, applied whenever the
    * object identity changes (#2722).
@@ -127,6 +144,8 @@ export function EditableCell({
   onQueryChange,
   onEnterCommit,
   emptyIsNoop = false,
+  onEmptyBackspace,
+  caretPosition = 'select-all',
   draftOverride = null,
   onInputKeyDown,
 }: EditableCellProps) {
@@ -154,14 +173,22 @@ export function EditableCell({
     }
   }, [draftOverride]);
 
-  // Focus input + select all on entering edit mode.
+  // Focus input on entering edit mode — select all by default (the "type
+  // over the placeholder" UX), or just place the caret at the end when this
+  // cell is a `mergeIntoPreviousRow` target (#2727) so Backspace-merge lands
+  // exactly where a human would expect, not with the whole line re-selected.
   useEffect(() => {
     if (isEditing && !prevEditingRef.current && inputRef.current) {
       inputRef.current.focus();
-      inputRef.current.select();
+      if (caretPosition === 'end') {
+        const len = inputRef.current.value.length;
+        inputRef.current.setSelectionRange(len, len);
+      } else {
+        inputRef.current.select();
+      }
     }
     prevEditingRef.current = isEditing;
-  }, [isEditing]);
+  }, [isEditing, caretPosition]);
 
   // Auto-clear flash after the brief animation window.
   useEffect(() => {
@@ -267,10 +294,11 @@ export function EditableCell({
             e.preventDefault();
             if (tryCommit(draft)) {
               // Commit succeeded (onCommit already ran + caller transitioned to
-              // RowFocused). Commit-and-continue: insert a new sibling below and
-              // move into its Name cell (#1666). No-op commits (blank guard)
+              // RowFocused). Commit-and-continue: insert a new row and move into
+              // its Name cell — sibling below by default, above/child per
+              // modifier (#1666, extended #2727). No-op commits (blank guard)
               // return false above, so this never spawns a second blank row.
-              onEnterCommit?.();
+              onEnterCommit?.({ shiftKey: e.shiftKey, metaKey: e.metaKey, ctrlKey: e.ctrlKey });
             }
           } else if (e.key === 'Escape') {
             e.preventDefault();
@@ -282,6 +310,17 @@ export function EditableCell({
             tryCommit(draft);
             if (e.shiftKey) onTabBackward();
             else onTabForward();
+          } else if (
+            e.key === 'Backspace' &&
+            inputType === 'text' &&
+            draft === '' &&
+            onEmptyBackspace
+          ) {
+            // Backspace on an already-empty draft (#2727) — merge into the
+            // row above, outliner-style. Nothing left in this field to
+            // delete a character from, so re-purposing the keypress is safe.
+            e.preventDefault();
+            onEmptyBackspace();
           }
         }}
         className="w-full h-full bg-neutral-surface text-neutral-text-primary text-xs px-1

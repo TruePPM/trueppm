@@ -1,7 +1,7 @@
 /**
  * E2E coverage for #1371 — Schedule ARIA overlay announces dependency edges.
  *
- * The canvas ARIA overlay (role="grid" aria-label="Schedule chart") exposes
+ * The canvas ARIA overlay (role="listbox" aria-label="Schedule chart") exposes
  * dependency relationships through per-bar aria-describedby spans so screen-reader
  * users hear "Depends on: Design Phase (FS)" when focused on a successor's bar.
  *
@@ -79,16 +79,16 @@ test.describe('Schedule ARIA overlay dep edges (#1371)', () => {
     });
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
     // Wait for the task-list grid — confirms tasks are fetched and the schedule view rendered.
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
   });
 
   test('successor bar has aria-describedby that names its predecessor', async ({ page }) => {
-    // The canvas ARIA overlay renders role="grid" aria-label="Schedule chart"
-    // with per-task role="gridcell" children. A successor cell carries aria-describedby
+    // The canvas ARIA overlay renders role="listbox" aria-label="Schedule chart"
+    // with per-task role="option" children. A successor cell carries aria-describedby
     // pointing at a sr-only span that announces the predecessors (#1371).
 
-    const scheduleGrid = page.locator('[role="grid"][aria-label="Schedule chart"]');
-    const buildCell = scheduleGrid.locator('[role="gridcell"][aria-label*="Build Phase"]');
+    const scheduleGrid = page.locator('[role="listbox"][aria-label="Schedule chart"]');
+    const buildCell = scheduleGrid.locator('[role="option"][aria-label*="Build Phase"]');
 
     await expect(buildCell).toBeAttached({ timeout: 8_000 });
 
@@ -105,8 +105,8 @@ test.describe('Schedule ARIA overlay dep edges (#1371)', () => {
   });
 
   test('predecessor bar has aria-describedby that names its successor', async ({ page }) => {
-    const scheduleGrid = page.locator('[role="grid"][aria-label="Schedule chart"]');
-    const designCell = scheduleGrid.locator('[role="gridcell"][aria-label*="Design Phase"]');
+    const scheduleGrid = page.locator('[role="listbox"][aria-label="Schedule chart"]');
+    const designCell = scheduleGrid.locator('[role="option"][aria-label*="Design Phase"]');
 
     await expect(designCell).toBeAttached({ timeout: 8_000 });
 

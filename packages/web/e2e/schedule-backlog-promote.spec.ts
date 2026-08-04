@@ -412,7 +412,7 @@ async function setupRoutes(page: import('@playwright/test').Page) {
 async function gotoSchedule(page: import('@playwright/test').Page) {
   await setupRoutes(page);
   await page.goto(`/projects/${FIXTURE_PROJECT_ID}/schedule`);
-  await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
 }
 
 // ---------------------------------------------------------------------------

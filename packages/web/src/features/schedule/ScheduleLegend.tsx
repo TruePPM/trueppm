@@ -98,7 +98,19 @@ export function ScheduleLegend({ taskListWidth }: ScheduleLegendProps) {
           <LegendRow label="Today">
             <TodaySwatch />
           </LegendRow>
-          {/* Row 3 — lines &amp; arrows.
+          {/* Row 3 — delivery mode (#2727 pt.7, WCAG 1.4.1): gutter + texture,
+              never color alone. Waterfall (the default) draws neither, so it
+              has no swatch here — the same "omission is the baseline" reading
+              GanttRenderer.ts's drawDeliveryModeMark uses. Milestone-mode-on-
+              a-bar is a rare edge case, deliberately left out of the legend to
+              keep this list to the two methodologies a user actually chooses. */}
+          <LegendRow label="Scrum">
+            <ScrumSwatch />
+          </LegendRow>
+          <LegendRow label="Kanban">
+            <KanbanSwatch />
+          </LegendRow>
+          {/* Row 4 — lines &amp; arrows.
               No "Planned baseline" entry: ADR-0376 defers the baseline ghost-bar
               overlay to 0.5, so the canvas draws nothing from baseline dates. A
               legend names marks that are drawn — reinstate this row with the
@@ -201,6 +213,49 @@ function TodaySwatch() {
   // Vertical sage line — matches the canvas today-line (sage-600 light /
   // sage-400 dark) in GanttRenderer.ts. brand-primary reverses itself by mode.
   return <span className="block h-full w-[2px] mx-auto bg-brand-primary" />;
+}
+
+function ScrumSwatch() {
+  // Matches GanttRenderer.ts's drawDeliveryModeMark: a left-edge gutter (here,
+  // the left third of the swatch) plus a diagonal-stripe texture across the
+  // body — the redundant non-color cue, not just the violet hue. Uses the
+  // existing --violet/--agile token (globals.css) — already this codebase's
+  // agile-methodology accent (BurnChart's "Completed" line).
+  return (
+    <span className="relative block w-full h-2 border border-neutral-border bg-neutral-surface rounded-[2px] overflow-hidden">
+      <span
+        className="absolute inset-y-0 left-0 w-1/3"
+        style={{ backgroundColor: 'var(--violet)' }}
+      />
+      <svg className="absolute inset-0 w-full h-full" aria-hidden="true">
+        <pattern id="scrum-swatch-stripes" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <line x1="0" y1="0" x2="0" y2="4" stroke="currentColor" strokeWidth="1" className="text-neutral-text-secondary" />
+        </pattern>
+        <rect width="100%" height="100%" fill="url(#scrum-swatch-stripes)" opacity="0.4" />
+      </svg>
+    </span>
+  );
+}
+
+function KanbanSwatch() {
+  // Same gutter+texture composition as ScrumSwatch. Uses the new --teal/
+  // --kanban token (globals.css) — added alongside this branch specifically
+  // so this swatch and GanttRenderer.ts's COLOR.deliveryKanban share one
+  // source of truth instead of "kept in sync by eye".
+  return (
+    <span className="relative block w-full h-2 border border-neutral-border bg-neutral-surface rounded-[2px] overflow-hidden">
+      <span
+        className="absolute inset-y-0 left-0 w-1/3"
+        style={{ backgroundColor: 'var(--kanban)' }}
+      />
+      <svg className="absolute inset-0 w-full h-full" aria-hidden="true">
+        <pattern id="kanban-swatch-dots" width="4" height="4" patternUnits="userSpaceOnUse">
+          <circle cx="2" cy="2" r="0.75" fill="currentColor" className="text-neutral-text-secondary" />
+        </pattern>
+        <rect width="100%" height="100%" fill="url(#kanban-swatch-dots)" opacity="0.4" />
+      </svg>
+    </span>
+  );
 }
 
 function ArrowFsSwatch() {

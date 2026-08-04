@@ -9,7 +9,7 @@ describe('ScheduleLegend', () => {
     localStorage.clear();
   });
 
-  it('renders expanded by default with all eight entries', () => {
+  it('renders expanded by default with all ten entries', () => {
     render(<ScheduleLegend taskListWidth={240} />);
     expect(screen.getByTestId('schedule-legend-body')).toBeInTheDocument();
     // Row 1 — bar variants
@@ -20,7 +20,10 @@ describe('ScheduleLegend', () => {
     expect(screen.getByText('Critical path')).toBeInTheDocument();
     expect(screen.getByText('Milestone')).toBeInTheDocument();
     expect(screen.getByText('Today')).toBeInTheDocument();
-    // Row 3 — lines & arrows
+    // Row 3 — delivery mode (#2727 pt.7)
+    expect(screen.getByText('Scrum')).toBeInTheDocument();
+    expect(screen.getByText('Kanban')).toBeInTheDocument();
+    // Row 4 — lines & arrows
     expect(screen.getByText('Finish-to-start')).toBeInTheDocument();
     expect(screen.getByText('Merged trunk')).toBeInTheDocument();
   });

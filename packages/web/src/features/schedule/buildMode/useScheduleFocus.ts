@@ -4,15 +4,17 @@ import { useReducer, useCallback } from 'react';
  * The three legal focus states for the Schedule list when build-mode is on.
  *
  * - NoSelection: nothing focused. Tab/Shift-Tab fall through to browser default.
- * - RowFocused: a row is selected. Tab=indent, Shift-Tab=outdent, Enter/F2=enter
- *   cell-edit, letter-key=enter Name cell, ArrowUp/Down=move row, Esc=NoSelection.
+ * - RowFocused: a row is selected. Alt+→=indent, Alt+←=outdent (#2727, ADR-0776
+ *   §6 — NOT Tab/Shift-Tab, which would reproduce the WCAG 2.1.2 keyboard trap
+ *   #2192 already fixed once in OutlineMode.tsx), Enter/F2=enter cell-edit,
+ *   letter-key=enter Name cell, ArrowUp/Down=move row, Esc=NoSelection.
  * - CellEdit: an editable cell input is focused. Tab=commit + next field,
  *   Shift-Tab=commit + previous field, Enter=commit + back to RowFocused,
  *   Esc=rollback + back to RowFocused.
  *
  * The reducer is the single source of truth for keyboard disambiguation —
- * Tab on a row indents, Tab in cell-edit moves to the next field. Without this
- * machine those two semantics collide.
+ * Tab falls through to native focus traversal outside cell-edit, and moves to
+ * the next field inside it. Without this machine those two contexts collide.
  */
 export type FocusMode = 'NoSelection' | 'RowFocused' | 'CellEdit';
 
@@ -22,16 +24,36 @@ export type EditableColumn = (typeof EDITABLE_COLUMNS)[number];
 
 export interface ScheduleFocusState {
   mode: FocusMode;
-  /** UUID of the focused task, when mode !== NoSelection. */
+  /**
+   * UUID of the focused task, when mode !== NoSelection. During an active
+   * multi-row selection this tracks the *moving edge* — the row that last
+   * received DOM focus — not the anchor (see `selectionAnchorId`).
+   */
   rowId: string | null;
   /** Editable column key, when mode === CellEdit. */
   column: EditableColumn | null;
+  /**
+   * The full set of selected row ids (#2727, ADR-0776 §1) — null when no
+   * multi-row selection is active (the single `rowId` is "the selection" in
+   * that case). Populated by `EXTEND_SELECTION` (Shift+↑/↓) and `SELECT_IDS`
+   * (⌘A). Structural keys (indent/outdent, Backspace/Delete) act on every id
+   * in this set when it is non-null.
+   */
+  selectedIds: Set<string> | null;
+  /**
+   * The row a multi-row selection started from — fixed for the lifetime of
+   * the selection, unlike `rowId` which moves with Shift+↑/↓. Null whenever
+   * `selectedIds` is null.
+   */
+  selectionAnchorId: string | null;
 }
 
 export const INITIAL_FOCUS_STATE: ScheduleFocusState = {
   mode: 'NoSelection',
   rowId: null,
   column: null,
+  selectedIds: null,
+  selectionAnchorId: null,
 };
 
 export type FocusAction =
@@ -41,7 +63,22 @@ export type FocusAction =
   | { type: 'COMMIT_TO_ROW' }
   | { type: 'ROLLBACK_TO_ROW' }
   | { type: 'TAB_FORWARD' }
-  | { type: 'TAB_BACKWARD' };
+  | { type: 'TAB_BACKWARD' }
+  /**
+   * Shift+↑/↓ (#2727): extend/shrink a contiguous selection from the anchor
+   * (state.selectionAnchorId, or state.rowId the first time) through
+   * `toRowId`, computed against `visibleOrder` (the current flattened,
+   * visible row order — the caller supplies it since the reducer has no
+   * access to the task tree).
+   */
+  | { type: 'EXTEND_SELECTION'; toRowId: string; visibleOrder: string[] }
+  /**
+   * ⌘A (#2727): replace the selection outright with the given id list —
+   * "every sibling" on the first press, "the whole visible tree" on the
+   * second (TaskListRow decides which set to pass; the reducer just stores
+   * it). The currently focused row becomes the anchor.
+   */
+  | { type: 'SELECT_IDS'; ids: string[] };
 
 function nextEditableColumn(current: EditableColumn): EditableColumn | null {
   const idx = EDITABLE_COLUMNS.indexOf(current);
@@ -70,8 +107,8 @@ function stepEditColumn(
   if (state.mode !== 'CellEdit' || !state.column || !state.rowId) return state;
   const target = step(state.column);
   return target
-    ? { mode: 'CellEdit', rowId: state.rowId, column: target }
-    : { mode: 'RowFocused', rowId: state.rowId, column: null };
+    ? { mode: 'CellEdit', rowId: state.rowId, column: target, selectedIds: null, selectionAnchorId: null }
+    : { mode: 'RowFocused', rowId: state.rowId, column: null, selectedIds: null, selectionAnchorId: null };
 }
 
 export function scheduleFocusReducer(
@@ -83,7 +120,17 @@ export function scheduleFocusReducer(
       return INITIAL_FOCUS_STATE;
 
     case 'FOCUS_ROW':
-      return { mode: 'RowFocused', rowId: action.rowId, column: null };
+      // A plain row focus (click, unmodified arrow move) always collapses
+      // any active multi-row selection back to this single row — standard
+      // list/grid selection UX, and how a user "escapes" a selection short
+      // of Esc.
+      return {
+        mode: 'RowFocused',
+        rowId: action.rowId,
+        column: null,
+        selectedIds: null,
+        selectionAnchorId: null,
+      };
 
     case 'ENTER_CELL_EDIT':
       // Illegal to jump to CellEdit without first having a focused row.
@@ -97,6 +144,8 @@ export function scheduleFocusReducer(
         mode: 'CellEdit',
         rowId: action.rowId,
         column: action.column,
+        selectedIds: null,
+        selectionAnchorId: null,
       };
 
     case 'COMMIT_TO_ROW':
@@ -105,7 +154,43 @@ export function scheduleFocusReducer(
       // semantic difference (saved vs reverted) matters to the cell, not to
       // the focus machine itself.
       if (state.mode !== 'CellEdit' || !state.rowId) return state;
-      return { mode: 'RowFocused', rowId: state.rowId, column: null };
+      return {
+        mode: 'RowFocused',
+        rowId: state.rowId,
+        column: null,
+        selectedIds: null,
+        selectionAnchorId: null,
+      };
+
+    case 'EXTEND_SELECTION': {
+      // Only meaningful from an already-focused row; a NoSelection Shift+↑/↓
+      // has nothing to extend from.
+      if (state.mode === 'NoSelection' || !state.rowId) return state;
+      const { toRowId, visibleOrder } = action;
+      const anchorId = state.selectionAnchorId ?? state.rowId;
+      const anchorIdx = visibleOrder.indexOf(anchorId);
+      const toIdx = visibleOrder.indexOf(toRowId);
+      if (anchorIdx === -1 || toIdx === -1) return state;
+      const [lo, hi] = anchorIdx <= toIdx ? [anchorIdx, toIdx] : [toIdx, anchorIdx];
+      return {
+        mode: 'RowFocused',
+        rowId: toRowId,
+        column: null,
+        selectedIds: new Set(visibleOrder.slice(lo, hi + 1)),
+        selectionAnchorId: anchorId,
+      };
+    }
+
+    case 'SELECT_IDS': {
+      if (state.mode === 'NoSelection' || !state.rowId) return state;
+      return {
+        mode: 'RowFocused',
+        rowId: state.rowId,
+        column: null,
+        selectedIds: new Set(action.ids),
+        selectionAnchorId: state.rowId,
+      };
+    }
 
     // Both Tab directions are the same transition with a different step
     // function. RowFocused.Tab and NoSelection.Tab are not internal
@@ -133,6 +218,17 @@ export interface UseScheduleFocusReturn {
   clear: () => void;
   isCellInEdit: (rowId: string, column: EditableColumn) => boolean;
   isRowFocused: (rowId: string) => boolean;
+  /** Shift+↑/↓ (#2727): extend/shrink the selection to `toRowId`. */
+  extendSelection: (toRowId: string, visibleOrder: string[]) => void;
+  /** ⌘A (#2727): replace the selection with exactly `ids`. */
+  selectIds: (ids: string[]) => void;
+  /**
+   * True when `rowId` is part of the current selection — every id in
+   * `selectedIds` when a multi-row selection is active, otherwise just the
+   * single focused row (same as `isRowFocused`). The single predicate a row
+   * component needs for its "am I highlighted" styling.
+   */
+  isRowSelected: (rowId: string) => boolean;
 }
 
 /**
@@ -184,6 +280,19 @@ export function useScheduleFocus(): UseScheduleFocusReturn {
     [state],
   );
 
+  const extendSelection = useCallback((toRowId: string, visibleOrder: string[]) => {
+    dispatch({ type: 'EXTEND_SELECTION', toRowId, visibleOrder });
+  }, []);
+
+  const selectIds = useCallback((ids: string[]) => {
+    dispatch({ type: 'SELECT_IDS', ids });
+  }, []);
+
+  const isRowSelected = useCallback(
+    (rowId: string) => (state.selectedIds ? state.selectedIds.has(rowId) : isRowFocused(rowId)),
+    [state, isRowFocused],
+  );
+
   return {
     state,
     focusRow,
@@ -195,5 +304,8 @@ export function useScheduleFocus(): UseScheduleFocusReturn {
     clear,
     isCellInEdit,
     isRowFocused,
+    extendSelection,
+    selectIds,
+    isRowSelected,
   };
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildWbsTree, flattenVisible, collectAllIds } from './buildWbsTree';
+import { buildWbsTree, flattenVisible, collectAllIds, collectSubtree } from './buildWbsTree';
 import type { Task } from '@/types';
 
 function makeTask(overrides: Partial<Task> & Pick<Task, 'id' | 'wbs'>): Task {
@@ -144,6 +144,41 @@ describe('buildWbsTree — parentWbs branch', () => {
     // '1' < '1.2' — 'a' should come first
     expect(tree[0].task.id).toBe('a');
     expect(tree[1].task.id).toBe('b');
+  });
+});
+
+describe('collectSubtree (#2727, ADR-0776 §2 — ⌘D subtree duplicate)', () => {
+  it('returns the root first, then every descendant, pre-order', () => {
+    const tree = buildWbsTree(FLAT_TASKS);
+    const subtree = collectSubtree(tree, 't1');
+    expect(subtree.map((n) => n.task.id)).toEqual(['t1', 't2', 't5', 't3']);
+  });
+
+  it('a parent always appears before its own children (valid creation order)', () => {
+    const tree = buildWbsTree(FLAT_TASKS);
+    const subtree = collectSubtree(tree, 't1');
+    const indexOf = (id: string) => subtree.findIndex((n) => n.task.id === id);
+    expect(indexOf('t2')).toBeLessThan(indexOf('t5'));
+    expect(indexOf('t1')).toBeLessThan(indexOf('t2'));
+  });
+
+  it('returns just the node itself for a leaf', () => {
+    const tree = buildWbsTree(FLAT_TASKS);
+    expect(collectSubtree(tree, 't3').map((n) => n.task.id)).toEqual(['t3']);
+  });
+
+  it('finds a root nested several levels deep, not just top-level roots', () => {
+    const tree = buildWbsTree(FLAT_TASKS);
+    expect(collectSubtree(tree, 't5').map((n) => n.task.id)).toEqual(['t5']);
+  });
+
+  it('returns an empty array when the id is not in the tree', () => {
+    const tree = buildWbsTree(FLAT_TASKS);
+    expect(collectSubtree(tree, 'not-there')).toEqual([]);
+  });
+
+  it('returns an empty array for an empty tree', () => {
+    expect(collectSubtree([], 't1')).toEqual([]);
   });
 });
 

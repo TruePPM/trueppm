@@ -104,7 +104,7 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
 }
 
 async function openDrawer(page: import('@playwright/test').Page, taskName: string) {
-  const grid = page.getByRole('grid', { name: 'Task list' });
+  const grid = page.getByRole('treegrid', { name: 'Task list' });
   await grid.getByRole('button', { name: `Open properties for ${taskName}` }).click();
   const drawer = page.getByRole('dialog', { name: new RegExp(taskName) }).first();
   await expect(drawer).toBeVisible({ timeout: 5_000 });
@@ -118,7 +118,7 @@ async function openDrawer(page: import('@playwright/test').Page, taskName: strin
 test.describe('Dep-type picker plain-English labels (#249)', () => {
   test.beforeEach(async ({ page }) => {
     await gotoSchedule(page);
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
   });
 
   test('dep type select shows "Finish → Start" not bare "FS"', async ({ page }) => {
@@ -194,7 +194,7 @@ test.describe('Per-row cycle error on dep-type PATCH (#249)', () => {
       return route.continue();
     });
 
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
   });
 
   test('cycle on dep-type change shows inline row alert with task names', async ({ page }) => {
@@ -239,7 +239,7 @@ test.describe('Per-row cycle error on dep-type PATCH (#249)', () => {
 test.describe('Milestone drawer field suppression (#253)', () => {
   test.beforeEach(async ({ page }) => {
     await gotoSchedule(page);
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
   });
 
   test('schedule strip shows "Date" cell (not "Start") for a milestone', async ({ page }) => {

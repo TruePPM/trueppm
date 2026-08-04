@@ -99,7 +99,7 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
     // list renders (Columns section only appears in Grid mode).
     await page.setViewportSize({ width: 1440, height: 900 });
     await gotoSchedule(page);
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
   });
 
   test('exposes WBS + Owner column toggles and the Grid-scoped Chart section', async ({ page }) => {

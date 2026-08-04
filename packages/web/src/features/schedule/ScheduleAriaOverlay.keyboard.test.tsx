@@ -122,7 +122,7 @@ function Harness({ engine, tasks }: { engine: GanttEngine; tasks: Task[] }) {
 }
 
 function cellFor(name: string): HTMLElement {
-  return screen.getByRole('gridcell', { name: new RegExp(name) });
+  return screen.getByRole('option', { name: new RegExp(name) });
 }
 
 beforeEach(() => {
@@ -187,7 +187,7 @@ describe('ScheduleAriaOverlay keyboard contract (#1776)', () => {
     expect(cellFor('Build')).toHaveFocus();
   });
 
-  it('Home and End jump to the first and last row (role="grid" contract)', () => {
+  it('Home and End jump to the first and last row (#1776)', () => {
     const engine = makeEngine();
     render(<Harness engine={engine} tasks={TASKS} />);
     fireEvent.keyDown(cellFor('Design'), { key: 'End' });

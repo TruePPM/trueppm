@@ -71,7 +71,7 @@ async function gotoSchedule(page: Page, fiscalMonth: number) {
     }),
   );
   await page.goto(`/projects/${FIXTURE_PROJECT_ID}/schedule`);
-  await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 15_000 });
 }
 
 // Continuous zoom (#351) replaced the segmented tier buttons with a −/+ stepper
@@ -116,7 +116,7 @@ test.describe('Schedule fiscal quarter toggle (#755)', () => {
 
     // Choice persists across a reload (localStorage-backed view pref).
     await page.reload();
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 15_000 });
     await zoomToQuarter(page);
     await expect(page.getByRole('button', { name: /quarters: calendar/i })).toBeVisible();
   });

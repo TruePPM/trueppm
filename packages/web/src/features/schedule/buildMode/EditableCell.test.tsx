@@ -222,6 +222,21 @@ describe('EditableCell — commit-and-continue / blank guard (#1666)', () => {
     expect(onEnterCommit).toHaveBeenCalledOnce();
   });
 
+  it('passes the Enter keydown modifiers to onEnterCommit (#2727)', () => {
+    const onEnterCommit = vi.fn();
+    render(
+      <EditableCell {...baseProps} isEditing={true} onEnterCommit={onEnterCommit} />,
+    );
+    const input = screen.getByLabelText('Task name');
+    fireEvent.change(input, { target: { value: 'Design' } });
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
+    expect(onEnterCommit).toHaveBeenCalledWith({
+      shiftKey: true,
+      metaKey: false,
+      ctrlKey: false,
+    });
+  });
+
   it('fires onEnterCommit even when the name is unchanged (Enter always continues)', () => {
     const onEnterCommit = vi.fn();
     render(
@@ -252,6 +267,60 @@ describe('EditableCell — commit-and-continue / blank guard (#1666)', () => {
     expect(onCommit).not.toHaveBeenCalled();
     expect(onEnterCommit).not.toHaveBeenCalled();
     expect(input.closest('[data-editing="true"]')).toBeTruthy();
+  });
+});
+
+describe('EditableCell — empty-Backspace merge and caret positioning (#2727)', () => {
+  it('fires onEmptyBackspace when Backspace is pressed on an already-empty draft', () => {
+    const onEmptyBackspace = vi.fn();
+    render(
+      <EditableCell {...baseProps} value="" isEditing={true} onEmptyBackspace={onEmptyBackspace} />,
+    );
+    fireEvent.keyDown(screen.getByLabelText('Task name'), { key: 'Backspace' });
+    expect(onEmptyBackspace).toHaveBeenCalledOnce();
+  });
+
+  it('does NOT fire onEmptyBackspace when the draft still has text', () => {
+    const onEmptyBackspace = vi.fn();
+    render(
+      <EditableCell
+        {...baseProps}
+        value="Something"
+        isEditing={true}
+        onEmptyBackspace={onEmptyBackspace}
+      />,
+    );
+    fireEvent.keyDown(screen.getByLabelText('Task name'), { key: 'Backspace' });
+    expect(onEmptyBackspace).not.toHaveBeenCalled();
+  });
+
+  it('does NOT fire onEmptyBackspace for a duration/number cell (text-only)', () => {
+    const onEmptyBackspace = vi.fn();
+    render(
+      <EditableCell
+        {...baseProps}
+        inputType="duration"
+        value=""
+        isEditing={true}
+        onEmptyBackspace={onEmptyBackspace}
+      />,
+    );
+    fireEvent.keyDown(screen.getByLabelText('Task name'), { key: 'Backspace' });
+    expect(onEmptyBackspace).not.toHaveBeenCalled();
+  });
+
+  it('caretPosition="end" places the caret after the last character instead of selecting all', () => {
+    render(<EditableCell {...baseProps} value="Design Phase" isEditing={true} caretPosition="end" />);
+    const input = screen.getByLabelText<HTMLInputElement>('Task name');
+    expect(input.selectionStart).toBe('Design Phase'.length);
+    expect(input.selectionEnd).toBe('Design Phase'.length);
+  });
+
+  it('caretPosition="select-all" (the default) selects the whole value', () => {
+    render(<EditableCell {...baseProps} value="Design Phase" isEditing={true} />);
+    const input = screen.getByLabelText<HTMLInputElement>('Task name');
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe('Design Phase'.length);
   });
 });
 

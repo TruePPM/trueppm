@@ -48,6 +48,7 @@ function makeCtxSpy() {
     lineTo: record('lineTo'),
     rect: record('rect'),
     roundRect: record('roundRect'),
+    arc: record('arc'),
     fill: record('fill'),
     stroke: record('stroke'),
     fillRect: record('fillRect'),
@@ -530,6 +531,122 @@ describe('drawTaskBar — critical path as a red border frame (#1699)', () => {
     const strokes = styles(calls, 'strokeStyle');
     expect(strokes).toContain(COLOR.barCritical); // red frame
     expect(strokes).toContain(COLOR.selectionRing); // navy ring nested inside
+  });
+});
+
+// ---------------------------------------------------------------------------
+// drawTaskBar — delivery-mode gutter/texture/chip, never color alone (#2727 pt.7)
+// ---------------------------------------------------------------------------
+
+describe('drawTaskBar — delivery-mode encoding (#2727 pt.7, WCAG 1.4.1)', () => {
+  const scales = buildScaleData('week', '2026-04-01', '2026-05-01');
+  const VIEWPORT_W = 800;
+
+  const styles = (calls: Array<{ name: string; args: unknown[] }>, kind: string): unknown[] =>
+    calls.filter((c) => c.name === kind).map((c) => c.args[0]);
+
+  it('draws no gutter fill and no texture strokes for waterfall (the baseline mode)', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const t = makeBarTask({ deliveryMode: 'waterfall' });
+    drawTaskBar(ctx, t, 0, scales, 0, false, VIEWPORT_W);
+    expect(styles(calls, 'fillStyle')).not.toContain(COLOR.deliveryScrum);
+    expect(styles(calls, 'fillStyle')).not.toContain(COLOR.deliveryKanban);
+    expect(styles(calls, 'strokeStyle')).not.toContain(COLOR.deliveryTexture);
+  });
+
+  it('draws no gutter/texture when the task carries no delivery mode at all', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const t = makeBarTask({ deliveryMode: undefined });
+    drawTaskBar(ctx, t, 0, scales, 0, false, VIEWPORT_W);
+    expect(styles(calls, 'fillStyle')).not.toContain(COLOR.deliveryScrum);
+    expect(styles(calls, 'fillStyle')).not.toContain(COLOR.deliveryKanban);
+  });
+
+  it('draws the scrum gutter fill and a diagonal-stripe texture', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const t = makeBarTask({ deliveryMode: 'scrum' });
+    drawTaskBar(ctx, t, 0, scales, 0, false, VIEWPORT_W);
+    expect(styles(calls, 'fillStyle')).toContain(COLOR.deliveryScrum);
+    // Diagonal stripes are moveTo/lineTo/stroke pairs, not arcs or fillRect dots.
+    expect(styles(calls, 'strokeStyle')).toContain(COLOR.deliveryTexture);
+    expect(calls.some((c) => c.name === 'moveTo')).toBe(true);
+    expect(calls.some((c) => c.name === 'arc')).toBe(false);
+  });
+
+  it('draws the kanban gutter fill and a dot-grid texture', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const t = makeBarTask({ deliveryMode: 'kanban' });
+    drawTaskBar(ctx, t, 0, scales, 0, false, VIEWPORT_W);
+    expect(styles(calls, 'fillStyle')).toContain(COLOR.deliveryKanban);
+    expect(styles(calls, 'fillStyle')).toContain(COLOR.deliveryTexture);
+    expect(calls.some((c) => c.name === 'arc')).toBe(true);
+  });
+
+  it('draws a cross-hatch texture for the rare "milestone" delivery mode on an actual bar', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const t = makeBarTask({ deliveryMode: 'milestone' });
+    drawTaskBar(ctx, t, 0, scales, 0, false, VIEWPORT_W);
+    // Reuses the milestone hue for the gutter rather than a 3rd new color.
+    expect(styles(calls, 'fillStyle')).toContain(COLOR.milestone);
+    const moveToCount = calls.filter((c) => c.name === 'moveTo').length;
+    // Cross-hatch draws two passes of diagonal lines — strictly more moveTo
+    // calls than the single-pass scrum stripe over the same bar width.
+    const { ctx: scrumCtx, calls: scrumCalls } = makeCtxSpy();
+    drawTaskBar(scrumCtx, makeBarTask({ deliveryMode: 'scrum' }), 0, scales, 0, false, VIEWPORT_W);
+    const scrumMoveToCount = scrumCalls.filter((c) => c.name === 'moveTo').length;
+    expect(moveToCount).toBeGreaterThan(scrumMoveToCount);
+  });
+
+  it('skips the gutter/texture on an external-redacted bar (its hatch already means "not yours")', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const t = makeBarTask({ deliveryMode: 'scrum', isExternal: true });
+    drawTaskBar(ctx, t, 0, scales, 0, false, VIEWPORT_W);
+    expect(styles(calls, 'fillStyle')).not.toContain(COLOR.deliveryScrum);
+  });
+
+  it('prefixes the % chip with the mode letter for scrum/kanban', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const t = makeBarTask({ deliveryMode: 'scrum', progress: 40, status: 'IN_PROGRESS' as Task['status'] });
+    drawTaskBar(ctx, t, 0, scales, 0, false, VIEWPORT_W);
+    const textCalls = calls.filter((c) => c.name === 'fillText').map((c) => c.args[0]);
+    expect(textCalls).toContain('S 40%');
+  });
+
+  it('shows a mode-only chip for a 0% NOT_STARTED task instead of suppressing it entirely', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const t = makeBarTask({
+      deliveryMode: 'kanban',
+      progress: 0,
+      status: 'NOT_STARTED' as Task['status'],
+    });
+    drawTaskBar(ctx, t, 0, scales, 0, false, VIEWPORT_W);
+    const textCalls = calls.filter((c) => c.name === 'fillText').map((c) => c.args[0]);
+    expect(textCalls).toContain('K');
+  });
+
+  it('still suppresses the chip entirely for a 0% NOT_STARTED waterfall task', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const t = makeBarTask({
+      deliveryMode: 'waterfall',
+      progress: 0,
+      status: 'NOT_STARTED' as Task['status'],
+    });
+    drawTaskBar(ctx, t, 0, scales, 0, false, VIEWPORT_W);
+    const chipFill = calls.find(
+      (c) =>
+        c.name === 'fillStyle' &&
+        (c.args[0] === 'rgba(255,255,255,0.22)' || c.args[0] === 'rgba(0,0,0,0.18)'),
+    );
+    expect(chipFill).toBeUndefined();
+  });
+
+  it('draws no chip letter for a task with no delivery mode', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const t = makeBarTask({ deliveryMode: undefined, progress: 40, status: 'IN_PROGRESS' as Task['status'] });
+    drawTaskBar(ctx, t, 0, scales, 0, false, VIEWPORT_W);
+    const textCalls = calls.filter((c) => c.name === 'fillText').map((c) => c.args[0]);
+    expect(textCalls).toContain('40%');
+    expect(textCalls).not.toContain('S 40%');
   });
 });
 

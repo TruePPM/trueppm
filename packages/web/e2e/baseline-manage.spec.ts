@@ -173,7 +173,7 @@ async function gotoSchedule(page: Page, { role, baselines }: GotoOpts) {
     /* accept and hold open */
   });
   await page.goto(`/projects/${PROJECT_ID}/schedule`);
-  await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
 }
 
 async function openManager(page: Page) {

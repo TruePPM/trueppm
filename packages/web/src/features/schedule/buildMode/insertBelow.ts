@@ -15,3 +15,17 @@ export function siblingParentId(tasks: Task[], focusedTaskId: string): string | 
   const focused = tasks.find((t) => t.id === focusedTaskId);
   return focused?.parentId ?? null;
 }
+
+/**
+ * Derive the WBS parent path for the `/tasks/reorder/` API (ltree format,
+ * e.g. "1.2" for a task at "1.2.3"). Root tasks return "".
+ */
+export function wbsParentPath(wbs: string): string {
+  const parts = wbs.split('.');
+  return parts.slice(0, -1).join('.');
+}
+
+/** Ids of every task sharing `parentId`, in their current (WBS) order. */
+export function siblingIdsOf(tasks: Task[], parentId: string | null): string[] {
+  return tasks.filter((t) => t.parentId === parentId).map((t) => t.id);
+}

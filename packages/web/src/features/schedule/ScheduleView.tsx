@@ -27,7 +27,12 @@ import { useKeyboardReschedule } from '@/hooks/useKeyboardReschedule';
 import { useDragStore } from '@/stores/dragStore';
 import { useColumnWidths } from '@/hooks/useColumnWidths';
 import { useScheduleChartPrefs, hiddenChartCountForView } from '@/hooks/useScheduleChartPrefs';
-import { buildWbsTree, flattenVisible, collectAllIds } from '@/features/grid/buildWbsTree';
+import {
+  buildWbsTree,
+  flattenVisible,
+  collectAllIds,
+  collectSubtree,
+} from '@/features/grid/buildWbsTree';
 import { formatToggleAnnouncement } from './wbsAnnouncement';
 import { TaskListPanel, type TaskDepChips } from './TaskListPanel';
 import { CanvasScheduleTimeline } from './CanvasScheduleTimeline';
@@ -99,8 +104,11 @@ import {
   BuildModeCheatsheet,
   BuildModeEmptyState,
   BuildModePill,
+  AuthorModePill,
+  findUnresolvedOwnerRow,
   type BuildModeApi,
 } from './buildMode';
+import { useScheduleAuthorMode, type ScheduleAuthorMode } from '@/hooks/useScheduleAuthorMode';
 import {
   useIndentTask,
   useOutdentTask,
@@ -108,11 +116,13 @@ import {
   useDeleteTask,
   useRestoreTask,
   useCreateTask,
+  useReorderTasks,
   useAddDependency,
   parseCyclicDependencyError,
+  buildCopyName,
 } from '@/hooks/useTaskMutations';
 import { toast } from '@/components/Toast';
-import { siblingParentId } from './buildMode/insertBelow';
+import { wbsParentPath, siblingIdsOf } from './buildMode/insertBelow';
 import { isPhaseTask } from '@/lib/isPhaseTask';
 
 // ---------------------------------------------------------------------------
@@ -350,6 +360,24 @@ type AddDependencyMutation = ReturnType<typeof useAddDependency>;
  */
 function schedulePanelWidth(effectiveViewMode: 'grid' | 'timeline', totalWidth: number): number {
   return effectiveViewMode === 'timeline' ? 0 : totalWidth;
+}
+
+/**
+ * Focus a row by id once it mounts, retrying across animation frames — F8 /
+ * Shift+F8 (#2727, ADR-0776 §3) can jump to a row far outside the
+ * virtualized window, so a single `querySelector` right after triggering the
+ * scroll usually misses (the row hasn't rendered yet). Bounded to ~10 frames
+ * (~160ms at 60fps) so a stale/removed id can't spin forever.
+ */
+function focusRowByIdSoon(id: string, attemptsLeft = 10): void {
+  requestAnimationFrame(() => {
+    const el = document.querySelector<HTMLElement>(`[data-row-id="${id}"]`);
+    if (el) {
+      el.focus();
+      return;
+    }
+    if (attemptsLeft > 0) focusRowByIdSoon(id, attemptsLeft - 1);
+  });
 }
 
 /**
@@ -1204,7 +1232,12 @@ export function ScheduleView() {
   // the role resolves — matching the pessimistic `canImport`/`canShare`/
   // `canCaptureBaseline` gates below rather than flashing enabled for the
   // non-member majority. The server is authoritative; this is the UX gate.
-  const readOnly = !canEditTask(currentRole);
+  // Alt+A Author/Read toggle (#2727, ADR-0776 §5) — a client-only, per-user
+  // per-project preference layered on top of the server role gate below, not
+  // a replacement for it. "Read" mode forces readOnly regardless of role.
+  const authorMode = useScheduleAuthorMode(projectIdUndef);
+  const { toggle: toggleAuthorMode } = authorMode;
+  const readOnly = !canEditTask(currentRole) || authorMode.mode === 'read';
   // Per-project leaf-surface visibility (ADR-0193, issue 956): the in-Schedule
   // Monte-Carlo sub-surface reads the server-resolved values. Hide-only
   // (ADR-0041) — a false value hides the chrome; the underlying data is still computed
@@ -1218,6 +1251,7 @@ export function ScheduleView() {
   const deleteTaskMut = useDeleteTask(projectId);
   const restoreTaskMut = useRestoreTask(projectId);
   const createTaskMut = useCreateTask(projectId);
+  const reorderTaskMut = useReorderTasks(projectId);
   // Drag-to-link (#1666): the canvas `create-link` gesture lands here as an
   // FS/0-lag dependency create. Server enforces cycle detection (400
   // cyclic_dependency) and self-link rejection (ADR-0055); the arrow appears
@@ -1394,7 +1428,7 @@ export function ScheduleView() {
   // Undo itself is a faithful server restore (#2078), so the recovery copy is a
   // plain "Restored" whether or not a subtree was involved.
   const performBuildModeDelete = useCallback(
-    (taskId: string, descendantCount: number) => {
+    (taskId: string, descendantCount: number, onDeleted?: () => void) => {
       if (!projectId) {
         deleteTaskMut.mutate(taskId);
         return;
@@ -1402,6 +1436,7 @@ export function ScheduleView() {
       const snapshot = allTasks.find((t) => t.id === taskId);
       deleteTaskMut.mutate(taskId, {
         onSuccess: () => {
+          onDeleted?.();
           if (!snapshot) return;
           const label = snapshot.name || 'Untitled task';
           const subtaskSuffix =
@@ -1421,9 +1456,54 @@ export function ScheduleView() {
     [projectId, allTasks, deleteTaskMut, undoBuildModeDelete, setScheduleActionToast],
   );
 
-  // The one task, if any, that `insertBelow` just created and whose Name cell
-  // hasn't been touched yet — see `isPristineNewRow` on BuildModeApi.
+  // The one task, if any, that `insertBelow`/`insertAbove`/`insertChild` just
+  // created and whose Name cell hasn't been touched yet — see
+  // `isPristineNewRow` on BuildModeApi.
   const [pristineNewRowId, setPristineNewRowId] = useState<string | null>(null);
+
+  // The one task, if any, whose Name cell should focus with the caret at the
+  // END of its text rather than the usual select-all — set right after
+  // `mergeIntoPreviousRow` deletes an empty row and lands here (#2727).
+  const [caretAtEndRowId, setCaretAtEndRowId] = useState<string | null>(null);
+
+  // Shared create step for the three Enter variants (#2727). Non-blank
+  // placeholder name (mirrors handleAddFirstTask / handleAddPhaseFirstChild):
+  // the API rejects a blank name at create (Task.name has no blank=True) —
+  // a blank-name payload made Enter silently create nothing against a real
+  // backend (#2682 follow-up finding). Inherits the source row's delivery
+  // mode so the new row doesn't silently fall back to the server default; a
+  // per-task calendar override doesn't exist on the wire today, so there is
+  // nothing to inherit there (ADR-0776).
+  const createNewTask = useCallback(
+    (
+      parentId: string | null,
+      sourceTask: Task | undefined,
+      onCreated?: (created: { id: string }) => void,
+    ) => {
+      createTaskMut.mutate(
+        {
+          name: 'New task',
+          duration: 1,
+          parent_id: parentId,
+          ...(sourceTask?.deliveryMode ? { delivery_mode: sourceTask.deliveryMode } : {}),
+        },
+        {
+          // Drop straight into the new row's Name cell in edit mode so Enter
+          // always ends with the cursor in an editable Name cell. The row
+          // mounts after the tasks cache invalidates; the focus reducer state
+          // is applied when TaskListRow renders and reads it.
+          onSuccess: (created) => {
+            focus.focusRow(created.id);
+            focus.enterCellEdit(created.id, 'name');
+            setPristineNewRowId(created.id);
+            onCreated?.(created);
+          },
+          onError: () => toast.error("Couldn't add a new task — try again."),
+        },
+      );
+    },
+    [createTaskMut, focus],
+  );
 
   const buildModeApi = useMemo<BuildModeApi>(
     () => ({
@@ -1435,29 +1515,45 @@ export function ScheduleView() {
         // (#1666). The previous behavior ignored the arg and created at the WBS
         // root, which was the "broken Enter binding" this fixes. Position within
         // the parent is append-only for v1: the server appends the new row at the
-        // end of the parent's children (no `after_id` positioning yet).
+        // end of the parent's children (no `after_id` positioning yet) — which is
+        // where a plain "below" sibling belongs anyway, no reorder needed.
         if (!projectId) return;
-        const parentId = siblingParentId(allTasks, taskId);
-        // Non-blank placeholder name (mirrors handleAddFirstTask /
-        // handleAddPhaseFirstChild): the API rejects a blank name at create
-        // (Task.name has no blank=True), and there was no onError handler
-        // here to surface that — a blank-name payload made Enter silently
-        // create nothing against a real backend (#2682 follow-up finding).
-        createTaskMut.mutate(
-          { name: 'New task', duration: 1, parent_id: parentId },
-          {
-            // On create, drop straight into the new row's Name cell in edit mode
-            // so Enter always ends with the cursor in an editable Name cell. The
-            // row mounts after the tasks cache invalidates; the focus reducer
-            // state is applied when TaskListRow renders and reads it.
-            onSuccess: (created) => {
-              focus.focusRow(created.id);
-              focus.enterCellEdit(created.id, 'name');
-              setPristineNewRowId(created.id);
-            },
-            onError: () => toast.error("Couldn't add a new task — try again."),
-          },
-        );
+        const focused = allTasks.find((t) => t.id === taskId);
+        const parentId = focused?.parentId ?? null;
+        createNewTask(parentId, focused);
+      },
+      insertAbove: (taskId) => {
+        // Shift+Enter (#2727): same depth as insertBelow, but the new row must
+        // land immediately BEFORE the focused row. The create endpoint only
+        // appends at the end of the parent's children (v1, no `after_id`), so
+        // this composes create + the existing reorder endpoint — same pattern
+        // Alt+↑/↓ already uses for moving a row among its siblings.
+        if (!projectId) return;
+        const focused = allTasks.find((t) => t.id === taskId);
+        if (!focused) return;
+        const parentId = focused.parentId ?? null;
+        const siblingIdsBeforeCreate = siblingIdsOf(allTasks, parentId);
+        createNewTask(parentId, focused, (created) => {
+          const idx = siblingIdsBeforeCreate.indexOf(taskId);
+          const ordered =
+            idx === -1
+              ? [...siblingIdsBeforeCreate, created.id]
+              : [
+                  ...siblingIdsBeforeCreate.slice(0, idx),
+                  created.id,
+                  ...siblingIdsBeforeCreate.slice(idx),
+                ];
+          reorderTaskMut.mutate({ parent_path: wbsParentPath(focused.wbs), ordered_ids: ordered });
+        });
+      },
+      insertChild: (taskId) => {
+        // ⌘/Ctrl+Enter (#2727): one level deeper than the focused row, which
+        // becomes that child's parent. The focused row becomes a summary as a
+        // side effect of gaining a child — `isSummary` is server-derived from
+        // having children, not a settable flag, so nothing else to toggle.
+        if (!projectId) return;
+        const focused = allTasks.find((t) => t.id === taskId);
+        createNewTask(taskId, focused);
       },
       isPristineNewRow: (taskId) => taskId === pristineNewRowId,
       clearPristineNewRow: (taskId) =>
@@ -1465,6 +1561,91 @@ export function ScheduleView() {
       convertToMilestone: (taskId) => {
         if (!projectId) return;
         updateTaskMut.mutate({ id: taskId, projectId, duration: 0 });
+      },
+      duplicateSubtree: (taskId) => {
+        // ⌘D / Ctrl+D / row menu Duplicate (#2727, ADR-0776 §2, amending
+        // ADR-0066 §Q1). Multi-select: duplicate every top-level selected
+        // node as its own subtree root — a selected node whose ancestor is
+        // also selected is skipped, since it's already covered by that
+        // ancestor's walk.
+        if (!projectId) return;
+        const tree = buildWbsTree(allTasks);
+        const taskById = new Map(allTasks.map((t) => [t.id, t]));
+        const selected = focus.state.selectedIds;
+        const hasAncestorSelected = (id: string): boolean => {
+          let cur = taskById.get(id)?.parentId ?? null;
+          while (cur) {
+            if (selected?.has(cur)) return true;
+            cur = taskById.get(cur)?.parentId ?? null;
+          }
+          return false;
+        };
+        const rootIds =
+          selected && selected.size > 1 && selected.has(taskId)
+            ? [...selected].filter((id) => !hasAncestorSelected(id))
+            : [taskId];
+
+        void (async () => {
+          for (const rootId of rootIds) {
+            const subtree = collectSubtree(tree, rootId);
+            if (subtree.length === 0) continue;
+            const [rootNode, ...descendants] = subtree;
+            const rootSiblingNames = allTasks
+              .filter((t) => t.parentId === rootNode.task.parentId)
+              .map((t) => t.name);
+            // Dependencies are never cloned — extended uniformly to every
+            // duplicated node, including edges internal to the duplicated
+            // subtree (ADR-0066 §Q1, amended here rather than special-cased
+            // away). Only the root's name gets the "(copy)" suffix;
+            // descendants move with the subtree unchanged.
+            const idMap = new Map<string, string>();
+            try {
+              const rootCreated = await createTaskMut.mutateAsync({
+                name: buildCopyName(rootNode.task.name, rootSiblingNames),
+                duration: rootNode.task.duration,
+                parent_id: rootNode.task.parentId,
+                sprint: rootNode.task.sprintId ?? null,
+                is_milestone: rootNode.task.isMilestone,
+                ...(rootNode.task.deliveryMode
+                  ? { delivery_mode: rootNode.task.deliveryMode }
+                  : {}),
+              });
+              idMap.set(rootNode.task.id, rootCreated.id);
+              const rootSprint = rootNode.task.sprintId
+                ? sprintsById.get(rootNode.task.sprintId)
+                : undefined;
+              if (rootSprint && rootSprint.state === 'ACTIVE') {
+                setScheduleActionToast({
+                  message: `Added to ${rootSprint.name}`,
+                  action: {
+                    label: 'Undo',
+                    onClick: () => {
+                      updateTaskMut.mutate({ id: rootCreated.id, projectId, sprint: null });
+                      setScheduleActionToast({ message: 'Moved to backlog', durationMs: 2000 });
+                    },
+                  },
+                });
+              }
+              for (const node of descendants) {
+                if (!node.task.parentId) continue; // unreachable — every descendant has a parent within the subtree
+                const newParentId = idMap.get(node.task.parentId);
+                if (!newParentId) continue;
+                const created = await createTaskMut.mutateAsync({
+                  name: node.task.name,
+                  duration: node.task.duration,
+                  parent_id: newParentId,
+                  sprint: node.task.sprintId ?? null,
+                  is_milestone: node.task.isMilestone,
+                  ...(node.task.deliveryMode ? { delivery_mode: node.task.deliveryMode } : {}),
+                });
+                idMap.set(node.task.id, created.id);
+              }
+            } catch {
+              toast.error("Couldn't duplicate the task — try again.");
+              return;
+            }
+          }
+        })();
       },
       deleteTask: (taskId) => {
         // Leaf rows delete immediately with the Undo safety net (#1762) — the
@@ -1483,6 +1664,35 @@ export function ScheduleView() {
         }
         performBuildModeDelete(taskId, 0);
       },
+      mergeIntoPreviousRow: (taskId) => {
+        // Backspace on an empty row (#2727): delete it and land the caret at
+        // the end of the previous VISIBLE row's Name cell — the outliner
+        // "backspace merges into the line above" convention. No-op if this is
+        // already the first visible row (nothing above to merge into). A
+        // blank-named row that still carries a subtree falls back to the
+        // ordinary subtree-confirm gate (the merge is skipped, not the
+        // delete) — the same safe default `deleteTask` already uses.
+        const idx = visibleTasks.findIndex((t) => t.id === taskId);
+        if (idx <= 0) return;
+        const prevTask = visibleTasks[idx - 1];
+        const summary = childCountById.get(taskId);
+        if (summary && summary.count > 0) {
+          setPendingSubtreeDelete({
+            id: taskId,
+            name: summary.name || 'Untitled task',
+            count: summary.count,
+          });
+          return;
+        }
+        performBuildModeDelete(taskId, 0, () => {
+          focus.focusRow(prevTask.id);
+          focus.enterCellEdit(prevTask.id, 'name');
+          setCaretAtEndRowId(prevTask.id);
+        });
+      },
+      isCaretAtEndRow: (taskId) => taskId === caretAtEndRowId,
+      clearCaretAtEndRow: (taskId) =>
+        setCaretAtEndRowId((cur) => (cur === taskId ? null : cur)),
       // #806: include deleteTask so the row gets the "in-flight" treatment during
       // delete and downstream guards (context-menu suppression, auto-close of an
       // already-open menu) fire. Without delete here, the row unmounts on cache
@@ -1500,12 +1710,18 @@ export function ScheduleView() {
       outdentTask,
       updateTaskMut,
       deleteTaskMut,
-      createTaskMut,
+      createNewTask,
+      reorderTaskMut,
       projectId,
       allTasks,
+      visibleTasks,
       childCountById,
       performBuildModeDelete,
       pristineNewRowId,
+      caretAtEndRowId,
+      createTaskMut,
+      sprintsById,
+      setScheduleActionToast,
     ],
   );
 
@@ -1798,6 +2014,40 @@ export function ScheduleView() {
         e.preventDefault();
         setCheatsheetOpen((open) => !open);
       };
+      // Alt+A Author/Read toggle (#2727, ADR-0776 §5).
+      out['alt+a'] = (e) => {
+        e.preventDefault();
+        toggleAuthorMode();
+      };
+      // F8 / Shift+F8 (#2727, ADR-0776 §3): jump to the next/previous visible
+      // row carrying an unresolved @owner token, wrapping around. No-op when
+      // nothing is unresolved. Non-destructive — this only moves focus.
+      out['f8'] = (e) => {
+        e.preventDefault();
+        const target = findUnresolvedOwnerRow(
+          visibleTasks,
+          resourcePool ?? [],
+          focus.state.rowId,
+          'forward',
+        );
+        if (!target) return;
+        focus.focusRow(target.id);
+        useScheduleStore.getState().scrollToTask(target.id);
+        focusRowByIdSoon(target.id);
+      };
+      out['shift+f8'] = (e) => {
+        e.preventDefault();
+        const target = findUnresolvedOwnerRow(
+          visibleTasks,
+          resourcePool ?? [],
+          focus.state.rowId,
+          'backward',
+        );
+        if (!target) return;
+        focus.focusRow(target.id);
+        useScheduleStore.getState().scrollToTask(target.id);
+        focusRowByIdSoon(target.id);
+      };
     }
     // Continuous zoom shortcuts (#351). ⌘=/⌘- step geometrically through the
     // store (→ engine.setPxPerDay with viewport-center anchor, rule 80); ⌘0
@@ -1825,6 +2075,10 @@ export function ScheduleView() {
     handleAddMilestone,
     handleAddPhase,
     buildModeActive,
+    toggleAuthorMode,
+    focus,
+    visibleTasks,
+    resourcePool,
     engine,
     setSelectedTaskId,
   ]);
@@ -1928,6 +2182,8 @@ export function ScheduleView() {
         handleAddPhase={handleAddPhase}
         createPending={createTaskMut.isPending}
         buildModeActive={buildModeActive}
+        authorMode={authorMode.mode}
+        onToggleAuthorMode={authorMode.toggle}
         setCheatsheetOpen={setCheatsheetOpen}
         pendingCount={pendingTaskIds.size}
         projectDetail={projectDetail}
@@ -2637,6 +2893,8 @@ interface ScheduleToolbarProps {
   handleAddPhase: () => void;
   createPending: boolean;
   buildModeActive: boolean;
+  authorMode: ScheduleAuthorMode;
+  onToggleAuthorMode: () => void;
   setCheatsheetOpen: Dispatch<SetStateAction<boolean>>;
   pendingCount: number;
   projectDetail: ReturnType<typeof useProject>['data'];
@@ -2687,6 +2945,8 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
     handleAddPhase,
     createPending,
     buildModeActive,
+    authorMode,
+    onToggleAuthorMode,
     setCheatsheetOpen,
     pendingCount,
     projectDetail,
@@ -2773,6 +3033,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
         />
       )}
       {buildModeActive && <BuildModePill onShowCheatsheet={() => setCheatsheetOpen(true)} />}
+      {buildModeActive && <AuthorModePill mode={authorMode} onToggle={onToggleAuthorMode} />}
       {/* Show the badge for in-flight optimistic edits, and also while a
           freshly-imported sample's first post-import CPM pass is still pending
           (recalculated_at null) so the demo never reads as broken (#1053). */}

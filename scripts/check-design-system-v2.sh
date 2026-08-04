@@ -60,7 +60,17 @@ SHELL_SRC="packages/web/src/features/shell"
 #    121 →  118  the all-decimal branch gained a closing delimiter (#2651), dropping
 #                the three refs that sat right after a colon. (129 → 121 in between
 #                is genuine debt paid down by tokenizing colors.)
-BASELINE_HEX=118
+#    118 →  122  (#2727 pt.7) GanttRenderer.ts's deliveryScrum/deliveryKanban
+#                entries — 2 new hues x {COLOR, COLOR_DARK} — for the delivery-
+#                mode gutter/texture. Same accepted pattern as the file's
+#                existing SAGE_600/SAGE_700/SAGE_400 palette constants: this is
+#                a canvas ctx.fillStyle palette, not CSS-in-JS, so it cannot
+#                consume a CSS custom property directly. deliveryScrum's hex
+#                mirrors --violet/--agile (globals.css) exactly; deliveryKanban's
+#                hex mirrors the new --teal/--kanban token added alongside it,
+#                which ScheduleLegend.tsx's KanbanSwatch consumes directly (so
+#                the arbitrary-color count below did NOT need a bump).
+BASELINE_HEX=122
 BASELINE_ARBITRARY=4
 BASELINE_SHADOW=0
 # Inline `rgba(0,0,0,α)` color VALUES in component/style source. These bypass the
@@ -78,7 +88,11 @@ BASELINE_SHADOW=0
 # Rose 5 → 6 for the synced row-hover wash `rowHover` (#2096): a light-only COLOR
 # value with its COLOR_DARK / forced-colors counterparts, same accepted pattern as
 # its palette siblings (rowBandAlt / weekend / gridLine).
-BASELINE_BLACK=6
+# Rose 6 → 7 for `deliveryTexture` (#2727 pt.7, delivery-mode gutter/texture): a
+# light-only COLOR value (low-alpha black ink for the stripe/dot pattern) with a
+# COLOR_DARK counterpart (rgba(255,255,255,0.14)) and a COLOR_FORCED counterpart
+# (CanvasText) — same accepted pattern as rowHover above.
+BASELINE_BLACK=7
 # Sub-floor type outside the sanctioned settings tree (check 4b). The two survivors
 # are both DECORATIVE text inside an `aria-hidden` element, where the accessible
 # name is carried by a sibling — so neither is a literal WCAG 1.4.3 failure, but

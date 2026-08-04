@@ -80,10 +80,10 @@ const FIXTURE_TASKS = [
 
 const FIXTURE_LINKS = [{ id: 'dep1', predecessor: 'bm1', successor: 'bm2', dep_type: 'FS', lag: 0 }];
 
-/** Read the on-screen rect of a bar from its aria-overlay gridcell (rule 67). */
+/** Read the on-screen rect of a bar from its aria-overlay option (rule 67). */
 async function barRect(page: import('@playwright/test').Page, namePrefix: string) {
   const cell = page.locator(
-    `[role="grid"][aria-label="Schedule chart"] [role="gridcell"][aria-label^="${namePrefix},"]`,
+    `[role="listbox"][aria-label="Schedule chart"] [role="option"][aria-label^="${namePrefix},"]`,
   );
   await expect(cell).toBeVisible({ timeout: 10_000 });
   const box = await cell.boundingBox();

@@ -23,11 +23,11 @@ export function WorkspaceSchedulePage() {
       <div className="px-6 pb-8 max-w-[920px]">
         <FieldRow
           label="Build mode"
-          hint="Keyboard-first plan entry on the Schedule list — type, Tab to indent, Enter to open a task. Desktop-only."
+          hint="Keyboard-first plan entry on the Schedule list — type, Alt+→ to indent, Enter for a new row. Desktop-only."
           help={
             <FieldHelp
               label="Build mode"
-              body="Build mode is a keyboard-first way to enter a plan on the Schedule list — type a task name, Tab to indent it under its parent, and Enter to open it. It's desktop-only and on by default."
+              body="Build mode is a keyboard-first way to enter a plan on the Schedule list — type a task name, Alt+→ to indent it under its parent, and Enter to add the next row. It's desktop-only and on by default."
               docHref="features/schedule-build-mode/"
             />
           }

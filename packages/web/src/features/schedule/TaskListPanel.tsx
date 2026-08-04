@@ -90,6 +90,9 @@ function PendingTaskRow({ name }: { name: string }) {
   return (
     <div
       role="row"
+      // Pending rows aren't placed in the WBS tree yet — level 1 (top of the
+      // treegrid) until the scheduler assigns them a real position.
+      aria-level={1}
       aria-label={`${name}, pending scheduling`}
       className="flex items-center h-[28px] px-2 gap-1 border-b border-neutral-800/50
         bg-white/5 border-l-2 border-brand-primary/40"
@@ -229,6 +232,10 @@ export function TaskListPanel({
   // Derived maps computed once per tasks change — passed to each row for #343/#345/#347
   const siblingIdsMap = useMemo(() => buildSiblingIdsMap(tasks), [tasks]);
 
+  // Full visible row order (#2727 multi-select) — Shift+↑/↓ selection-extend
+  // and ⌘A's "whole tree" expansion are computed against this.
+  const visibleTaskIds = useMemo(() => tasks.map((t) => t.id), [tasks]);
+
   // Per-task sibling NAMES (not just ids) — used by the Duplicate action to
   // suffix "(copy)" uniquely without collisions. Cached once per tasks change.
   const siblingNamesMap = useMemo(() => {
@@ -330,7 +337,10 @@ export function TaskListPanel({
     <div
       style={{ width: totalWidth }}
       className="flex flex-col flex-shrink-0 border-r border-neutral-border h-full bg-neutral-surface"
-      role="grid"
+      // treegrid, not grid (#2727, ADR-0776 §"Treegrid ARIA"): rows carry a
+      // real aria-level (WBS depth) and aria-expanded (summary rows only) —
+      // the semantics `grid` doesn't define but `treegrid` does.
+      role="treegrid"
       aria-label="Task list"
       // Header row (row 1) + one row per task, so the count and the 1-based
       // aria-rowindex on each data row (which starts at 2) stay consistent (#2204).
@@ -393,6 +403,7 @@ export function TaskListPanel({
                   }
                   depChips={depChipsById?.get(task.id)}
                   siblingIds={siblingIdsMap.get(task.id)}
+                  visibleTaskIds={visibleTaskIds}
                   siblingNames={siblingNamesMap.get(task.id)}
                   nameSuggestions={nameSuggestions}
                   resourcePool={resourcePool}

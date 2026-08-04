@@ -205,7 +205,7 @@ test.describe('View switching', () => {
     // Start on Schedule — path-based routing (ADR-0030)
     await page.goto(`${BASE_URL}/schedule`);
     // Wait for the Schedule view to be ready before switching views.
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
   });
 
   test('Schedule tab is active when on /schedule URL and URL reflects it', async ({ page }) => {
@@ -254,7 +254,7 @@ test.describe('View switching', () => {
 
     await nav.getByRole('link', { name: 'Schedule' }).click();
     await expect(page).toHaveURL(/\/schedule$/);
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible();
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible();
   });
 
   test('legacy /wbs URL redirects to /grid (issue #334 redirect)', async ({ page }) => {

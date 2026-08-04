@@ -13,6 +13,7 @@ export { BuildModeHintStrip } from './BuildModeHintStrip';
 export { BuildModeCheatsheet } from './BuildModeCheatsheet';
 export { BuildModeEmptyState } from './BuildModeEmptyState';
 export { BuildModePill } from './BuildModePill';
+export { AuthorModePill } from './AuthorModePill';
 export {
   BuildModeProvider,
   useBuildMode,
@@ -28,11 +29,13 @@ export {
   parseOwnerDraft,
   parseOwnerTokens,
   segmentUnresolvedOwners,
+  hasUnresolvedOwnerToken,
   DEFAULT_OWNER_PERCENT,
   type OwnerToken,
   type OwnerTokenParse,
   type ResolvedOwner,
 } from './ownerToken';
+export { findUnresolvedOwnerRow } from './unresolvedOwnerNav';
 export { TokenAutocomplete, type TokenSuggestion } from './TokenAutocomplete';
 export {
   activeTokenFragment,
