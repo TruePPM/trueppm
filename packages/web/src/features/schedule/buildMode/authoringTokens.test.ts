@@ -364,6 +364,20 @@ describe('activeTokenFragment', () => {
   it('respects an explicit caret position rather than assuming end of string', () => {
     expect(activeTokenFragment('Survey @an more', 10)).toMatchObject({ query: 'an' });
   });
+
+  it('offers the name without an in-progress `:percent` modifier', () => {
+    expect(activeTokenFragment('Survey @ana:2')).toMatchObject({ kind: 'owner', query: 'ana' });
+  });
+
+  it('strips the modifier from a bracketed parent fragment carrying a newline', () => {
+    // `[…]` is the one kind that survives whitespace, so it is the only fragment that can
+    // reach here with a line break in it — the `/:.*$/` form this replaced left the
+    // modifier in place on exactly that input.
+    expect(activeTokenFragment('X [Design: Phase\n2')).toMatchObject({
+      kind: 'parent',
+      query: 'Design',
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
