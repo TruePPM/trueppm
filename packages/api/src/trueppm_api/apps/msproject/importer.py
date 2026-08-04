@@ -19,6 +19,9 @@ def import_project(
     data: ProjectData,
     tracker: Any = None,
     wipe_existing: bool = False,
+    *,
+    source_kind: str | None = None,
+    source_id: Any = None,
 ) -> dict[str, Any]:
     """Import parsed MS Project data into a TruePPM project.
 
@@ -33,6 +36,12 @@ def import_project(
             project's existing tasks before bulk-create so an orphan-drain
             re-dispatch converges instead of duplicating. The default (False)
             keeps the import-into-existing-project path additive.
+        source_kind: Seed provenance stamped on every created row (ADR-0786,
+            #2730). Defaults to ``TaskSource.MSPROJECT_IMPORT``; the CSV/Excel
+            wizard reuses this whole path (``csvimport/tasks.py``) and passes
+            ``TaskSource.CSV_IMPORT`` so the two are distinguishable afterwards.
+        source_id: Id of the import job that wrote these rows, for the divergence
+            digest. ``None`` for a path with no persisted job row.
 
     Returns:
         Summary dict for result_summary. ``task_count`` and ``project_start_date``
@@ -76,7 +85,14 @@ def import_project(
 
     # --- Step 2: Create tasks ---
     _update(30, f"Creating {len(data.tasks)} tasks...")
-    task_objects = _create_tasks(project_id, data, summary, batch_size=batch_size)
+    task_objects = _create_tasks(
+        project_id,
+        data,
+        summary,
+        batch_size=batch_size,
+        source_kind=source_kind,
+        source_id=source_id,
+    )
     task_uid_to_pk = {td.uid: str(task_objects[i].pk) for i, td in enumerate(data.tasks)}
 
     # --- Step 3: Create dependencies ---
@@ -303,7 +319,13 @@ def _map_created_resource_pks(data: ProjectData, resource_uid_to_pk: dict[int, s
 
 
 def _create_tasks(
-    project_id: str, data: ProjectData, summary: dict[str, Any], *, batch_size: int
+    project_id: str,
+    data: ProjectData,
+    summary: dict[str, Any],
+    *,
+    batch_size: int,
+    source_kind: str | None = None,
+    source_id: Any = None,
 ) -> list[Any]:
     """Bulk-create Task rows for the parsed tasks and return them in file order.
 
@@ -313,8 +335,9 @@ def _create_tasks(
     can map file UIDs to persisted PKs.
     """
     from django.db.models import F
+    from django.utils import timezone
 
-    from trueppm_api.apps.projects.models import Project, Task
+    from trueppm_api.apps.projects.models import Project, Task, TaskSource
 
     # Allocate a batch of short_ids: increment object_sequence by len(tasks)
     # in one UPDATE, then assign sequential hex IDs.
@@ -346,8 +369,17 @@ def _create_tasks(
     # never reach an offline client. One value for the whole import is right: the
     # rows are created together, and the delta is `> since` (ADR-0686).
     seq = allocate_for_projects([project_id])
+    # Seed provenance (ADR-0786, #2730). Stamped on the instances rather than
+    # after the fact because bulk_create never reaches Task.save() — which is also
+    # why edited_at stays null here: a machine wrote these rows and no person has
+    # touched them, which is precisely what makes them sweepable for seven days.
+    seeded_at = timezone.now()
+    kind = source_kind or TaskSource.MSPROJECT_IMPORT
     for task in task_objects:
         task.sync_seq = seq
+        task.source_kind = kind
+        task.source_id = source_id
+        task.seeded_at = seeded_at
 
     Task.objects.bulk_create(task_objects, batch_size=batch_size)
     summary["tasks_created"] = len(task_objects)

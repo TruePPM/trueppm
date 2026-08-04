@@ -23,6 +23,20 @@ export type ZoomLevel = 'day' | 'week' | 'month' | 'quarter' | 'year';
 
 export type TaskReadiness = 'idea' | 'estimated' | 'ready' | 'baselined';
 
+/**
+ * What wrote a task row (ADR-0786, #2730). Mirrors the API's `TaskSource`
+ * choices — only bulk row-writing origins get a value of their own; anything a
+ * person typed a row at a time is `'hand'`.
+ */
+export type TaskSourceKind =
+  | 'hand'
+  | 'template'
+  | 'seed_import'
+  | 'csv_import'
+  | 'msproject_import'
+  | 'jira_import'
+  | 'paste';
+
 /** Work-item taxonomy (ADR-0105 / #363; tech_debt added ADR-0178 / #1076). */
 export type TaskType = 'epic' | 'story' | 'task' | 'bug' | 'spike' | 'tech_debt';
 
@@ -206,6 +220,25 @@ export interface Task {
    * predate the field (older WS rows / optimistic local creates).
    */
   labels?: TaskLabel[];
+  /**
+   * What wrote this row (ADR-0786, #2730) — a template, an import, a paste, or a
+   * person. `'hand'` on everything typed one row at a time, which is also the
+   * value every row created before the field shipped reports.
+   */
+  sourceKind?: TaskSourceKind;
+  /** ISO date-time a machine wrote this row; absent on hand-authored rows. */
+  seededAt?: string;
+  /** ISO date-time of the last human-caused write; absent if nobody has touched it. */
+  editedAt?: string;
+  /**
+   * The server's verdict: machine-written and never touched by a person since.
+   * Drives the seeded-row tick in the outline margin and the "Delete untouched
+   * rows (N)" offer. Read this rather than re-deriving it from `seededAt` /
+   * `editedAt` — that predicate decides what gets deleted and lives server-side
+   * on purpose. Note it carries no time window; the seven-day offer applies the
+   * window itself.
+   */
+  isUntouchedSeed?: boolean;
   /**
    * ISO date-time when the task entered its current status column.
    * Used to compute the board card's dwell line ("3d in this column · 72% done").

@@ -126,6 +126,7 @@ def import_jira(
             broadcast_import_project_record_change,
             import_project,
         )
+        from trueppm_api.apps.projects.models import TaskSource
 
         # Make the additive Jira import idempotent under re-dispatch (#1673).
         # import_project defaults to wipe_existing=False, so a second delivery
@@ -146,7 +147,15 @@ def import_jira(
                     import_request_id,
                 )
                 return {"skipped": True, "tasks_created": 0}
-            summary = import_project(project_id, project_data, tracker=tracker)
+            # Explicit source_kind: this path shares import_project with the MS
+            # Project importer, whose default would mislabel Jira rows (ADR-0786).
+            summary = import_project(
+                project_id,
+                project_data,
+                tracker=tracker,
+                source_kind=TaskSource.JIRA_IMPORT,
+                source_id=import_request_id or None,
+            )
 
         tracker.set_result(summary)
 
