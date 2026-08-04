@@ -6,7 +6,7 @@ import contextlib
 import os
 import re
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, cast
 
@@ -32,6 +32,7 @@ from trueppm_api.apps.projects.models import (
     _VALID_PRIORITY_BANDS,
     _VALID_SORT_KEYS,
     API_TOKEN_SCOPES,
+    MCP_READ_TOKEN_MAX_EXPIRY_DAYS,
     PROJECT_CUSTOM_FIELD_MAX,
     RESERVED_SCRUM_CEREMONY_NAMES,
     SCOPE_LEGACY_FULL,
@@ -8433,6 +8434,36 @@ class ProjectApiTokenSerializer(serializers.ModelSerializer[ProjectApiToken]):
         return obj.revoked_at is not None
 
 
+def _validate_mcp_read_expiry(scopes: list[str], expires_at: Any) -> None:
+    """Enforce the mcp:read blast-radius bound (#1713, #2764).
+
+    Shared by ``ProjectApiTokenCreateSerializer`` and
+    ``MyApiTokenCreateSerializer``: any token carrying the ``mcp:read`` scope
+    must have a non-null ``expires_at`` (#1713) that is also no further out
+    than ``MCP_READ_TOKEN_MAX_EXPIRY_DAYS`` (#2764) — without the ceiling a
+    caller could mint an effectively non-expiring token (e.g.
+    ``expires_at=9999-01-01``) and defeat the "leaked read credential is
+    self-limiting" intent the null check exists for. ``legacy:full`` tokens
+    are unaffected by either check.
+    """
+    if SCOPE_MCP_READ not in scopes:
+        return
+    if expires_at is None:
+        raise serializers.ValidationError(
+            {"expires_at": "expires_at is required for an mcp:read token."}
+        )
+    max_expires_at = timezone.now() + timedelta(days=MCP_READ_TOKEN_MAX_EXPIRY_DAYS)
+    if expires_at > max_expires_at:
+        raise serializers.ValidationError(
+            {
+                "expires_at": (
+                    f"expires_at must be within {MCP_READ_TOKEN_MAX_EXPIRY_DAYS} "
+                    "days for an mcp:read token."
+                )
+            }
+        )
+
+
 class ProjectApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToken]):
     """Write serializer for minting a new token.
 
@@ -8454,8 +8485,9 @@ class ProjectApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToke
     expires_at = serializers.DateTimeField(
         required=False,
         allow_null=True,
-        help_text="Optional expiry. Required (non-null, in the future) for any "
-        "token carrying the 'mcp:read' scope so a leaked read token cannot live "
+        help_text="Optional expiry. Required (non-null, in the future, and no "
+        f"more than {MCP_READ_TOKEN_MAX_EXPIRY_DAYS} days out) for any token "
+        "carrying the 'mcp:read' scope so a leaked read token cannot live "
         "forever; optional for legacy:full sync tokens (backward-compatible).",
     )
 
@@ -8488,16 +8520,14 @@ class ProjectApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToke
         return value
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        # Blast-radius bound (#1713): a token that can read via the MCP surface must
-        # expire, so a leaked mcp:read credential is self-limiting. Enforced at mint
-        # time (here) rather than as a DB constraint so legacy:full sync tokens —
-        # which legitimately never expire — are unaffected. ``scopes`` may be absent
+        # Blast-radius bound (#1713, #2764): a token that can read via the MCP
+        # surface must expire, and within a bounded horizon, so a leaked
+        # mcp:read credential is self-limiting. Enforced at mint time (here)
+        # rather than as a DB constraint so legacy:full sync tokens — which
+        # legitimately never expire — are unaffected. ``scopes`` may be absent
         # (defaults to legacy:full) so read it defensively.
         scopes = attrs.get("scopes") or [SCOPE_LEGACY_FULL]
-        if SCOPE_MCP_READ in scopes and attrs.get("expires_at") is None:
-            raise serializers.ValidationError(
-                {"expires_at": "expires_at is required for an mcp:read token."}
-            )
+        _validate_mcp_read_expiry(scopes, attrs.get("expires_at"))
         return attrs
 
     def validate_status_map(self, value: dict[str, str]) -> dict[str, str]:
@@ -8558,8 +8588,9 @@ class MyApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToken]):
     acts as the user — the historical behavior), but the MCP read server needs a
     read-only personal token, so ``['mcp:read']`` is accepted here (#1712/#1713):
     the MCP read surface admits only owner-scoped tokens, and mcp:read cannot
-    write. Any ``mcp:read`` token must carry a non-null ``expires_at`` so a leaked
-    read credential is self-limiting. The raw token is generated in the viewset and
+    write. Any ``mcp:read`` token must carry a non-null ``expires_at`` no more than
+    ``MCP_READ_TOKEN_MAX_EXPIRY_DAYS`` days out (#2764), so a leaked read
+    credential is self-limiting. The raw token is generated in the viewset and
     returned once via a separate response shape.
     """
 
@@ -8601,14 +8632,12 @@ class MyApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToken]):
         return value
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        # Blast-radius bound (#1713): an mcp:read personal token must expire so a
-        # leaked read credential is self-limiting. Legacy:full PATs keep the
-        # optional-expiry behavior (backward-safe).
+        # Blast-radius bound (#1713, #2764): an mcp:read personal token must
+        # expire, and within a bounded horizon, so a leaked read credential is
+        # self-limiting. Legacy:full PATs keep the optional-expiry behavior
+        # (backward-safe).
         scopes = attrs.get("scopes") or [SCOPE_LEGACY_FULL]
-        if SCOPE_MCP_READ in scopes and attrs.get("expires_at") is None:
-            raise serializers.ValidationError(
-                {"expires_at": "expires_at is required for an mcp:read token."}
-            )
+        _validate_mcp_read_expiry(scopes, attrs.get("expires_at"))
         return attrs
 
 
