@@ -221,7 +221,7 @@ export const COLOR = {
   // sage complete/today, critical red, slate summary, amber milestone, navy
   // selection ring).
   deliveryScrum: '#6D4AC4', // same hue as --violet/--agile (globals.css) — already the codebase's agile-methodology accent (BurnChart)
-  deliveryKanban: '#0D9488', // teal-600
+  deliveryKanban: '#0D9488', // teal-600 — same hue as --teal/--kanban (globals.css), shared with ScheduleLegend's KanbanSwatch
   // Texture stroke/dot color — low alpha so the pattern reads as a secondary
   // cue and never fights the progress overlay's own 30%-alpha black tint.
   deliveryTexture: 'rgba(0,0,0,0.12)',
@@ -276,7 +276,7 @@ export const COLOR_DARK: ColorPalette = {
   linkPreview: SAGE_400, // sage-400 — brand-primary (dark)
   filterMarker: SAGE_400,
   deliveryScrum: '#A78BFA', // same hue as --violet/--agile dark (globals.css) — readable on the dark navy surface
-  deliveryKanban: '#2DD4BF', // teal-400
+  deliveryKanban: '#2DD4BF', // teal-400 — same hue as --teal/--kanban dark (globals.css)
   deliveryTexture: 'rgba(255,255,255,0.14)',
 };
 

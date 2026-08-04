@@ -238,13 +238,16 @@ function ScrumSwatch() {
 }
 
 function KanbanSwatch() {
-  // Same gutter+texture composition as ScrumSwatch, teal hue (no existing
-  // shared token for this one — GanttRenderer.ts's COLOR.deliveryKanban is
-  // the source of truth; kept in sync by eye, same as MilestoneSwatch/
-  // brand-accent below).
+  // Same gutter+texture composition as ScrumSwatch. Uses the new --teal/
+  // --kanban token (globals.css) — added alongside this branch specifically
+  // so this swatch and GanttRenderer.ts's COLOR.deliveryKanban share one
+  // source of truth instead of "kept in sync by eye".
   return (
     <span className="relative block w-full h-2 border border-neutral-border bg-neutral-surface rounded-[2px] overflow-hidden">
-      <span className="absolute inset-y-0 left-0 w-1/3 bg-[#0D9488] dark:bg-[#2DD4BF]" />
+      <span
+        className="absolute inset-y-0 left-0 w-1/3"
+        style={{ backgroundColor: 'var(--kanban)' }}
+      />
       <svg className="absolute inset-0 w-full h-full" aria-hidden="true">
         <pattern id="kanban-swatch-dots" width="4" height="4" patternUnits="userSpaceOnUse">
           <circle cx="2" cy="2" r="0.75" fill="currentColor" className="text-neutral-text-secondary" />
