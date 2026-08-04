@@ -50,7 +50,7 @@ from drf_spectacular.utils import (
 )
 from rest_framework import filters, generics, mixins, pagination, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, NotAuthenticated, PermissionDenied
+from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, PermissionDenied
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
@@ -200,6 +200,8 @@ from trueppm_api.apps.projects.serializers import (
     SprintSerializer,
     TaskAttachmentSerializer,
     TaskBulkSerializer,
+    TaskClassificationResponseSerializer,
+    TaskClassificationSerializer,
     TaskCommentSerializer,
     TaskDurationChangeEventSerializer,
     TaskLabelChipSerializer,
@@ -7777,6 +7779,147 @@ class TaskBulkView(IdempotencyMixin, APIView):
             },
             status=status.HTTP_207_MULTI_STATUS,
         )
+
+
+@extend_schema_view(
+    patch=extend_schema(
+        summary="Classify a task subtree on the governance and delivery axes",
+        request=TaskClassificationSerializer,
+        responses={200: TaskClassificationResponseSerializer},
+    )
+)
+class TaskClassificationView(APIView):
+    """Apply the two hybrid classification axes across a subtree (ADR-0790, #2735).
+
+    PATCH /api/v1/projects/{pk}/tasks/classification/
+
+    Body::
+
+        {
+            "subtree": "<task uuid>",
+            "cascade": true,
+            "governance_class": "gated",
+            "delivery_mode": "scrum",
+            "preserve_governance_overrides": true,
+            "skip_milestones": true
+        }
+
+    A separate route from ``tasks/bulk/`` rather than a bucket on it. That endpoint is
+    a per-row 207 keyed by the caller's ``index`` in ``operations`` (ADR-0772 §2); here
+    the caller names **one** thing and the server resolves the row set from
+    ``wbs_path``, so cascade-touched rows have no index to correlate by. PATCH, not
+    POST: this mutates existing rows only, creates nothing, and re-sending the same
+    body converges on the same state.
+
+    **200, not 207.** Every outcome reported — a kept governance override, a skipped
+    milestone — is a documented semantic of a *successful* cascade, not a per-row
+    failure. There are no partial failures left to report because permission is
+    all-or-nothing (ADR-0790 §6): if the caller cannot edit every resolved row, the
+    whole request is 403 rather than classifying the fraction they happen to own and
+    leaving the plan asserting a split that is not true.
+
+    The response reports each axis separately, and ``overrides_kept`` is ``null`` on
+    ``delivery_mode`` — only ``governance_class`` carries an inherit bit, so only it
+    can have an override. See ``task_classification._axis_report`` for why ``null``
+    rather than ``0``.
+    """
+
+    permission_classes = [
+        IsAuthenticated,
+        IsProjectMemberWrite,
+        # ADR-0773, matching TaskBulkView: excludes the resource-management band from
+        # plan authoring. Additive defense-in-depth per ADR-0184 — the load-bearing
+        # gate on this `projects/<pk>/…` route is the explicit
+        # check_object_permissions call below (#2745).
+        IsProjectPlanAuthor,
+        IsProjectNotArchived,
+    ]
+
+    def patch(self, request: Request, pk: str) -> Response:
+        from trueppm_scheduler import InvalidScheduleInput
+
+        from trueppm_api.apps.projects.task_classification import (
+            ClassificationSpec,
+            SubtreeNotAuthorable,
+            SubtreeTooLarge,
+            cascade_task_classification,
+        )
+        from trueppm_api.apps.scheduling.graph_guard import InfeasibleGraphError
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        # Load-bearing role check on this route — see the permission_classes comment.
+        self.check_object_permissions(request, project)
+
+        serializer = TaskClassificationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        body = serializer.validated_data
+        # Named explicitly rather than **-splatted: the wire field is `subtree` (the
+        # thing the caller points at) and the spec field is `subtree_id` (a uuid), and
+        # a splat would couple the two names silently.
+        spec = ClassificationSpec(
+            subtree_id=body["subtree"],
+            cascade=body["cascade"],
+            governance_class=body["governance_class"],
+            delivery_mode=body["delivery_mode"],
+            preserve_governance_overrides=body["preserve_governance_overrides"],
+            skip_milestones=body["skip_milestones"],
+        )
+
+        project_id = str(project.pk)
+        try:
+            with transaction.atomic():
+                report, written = cascade_task_classification(project, request, spec)
+
+                # Only when something actually changed. A repeated identical cascade
+                # writes nothing (ADR-0790 §7), so it must not enqueue a recalculation
+                # or wake every collaborator's client either.
+                if written:
+                    written_ids = [str(pk_) for pk_ in written]
+
+                    def _broadcast(ids: list[str] = written_ids) -> None:
+                        # Reuses the existing bulk-mutation event so clients that
+                        # already target their refetch by task id (#1009) need no
+                        # change to react to a cascade.
+                        broadcast_board_event(project_id, "tasks_bulk_mutated", {"task_ids": ids})
+
+                    # delivery_mode feeds the rollup engine's percent_complete
+                    # interpretation and the agile-aware Monte Carlo, so a cascade
+                    # invalidates the schedule even though it moved no dates.
+                    transaction.on_commit(lambda: _enqueue_recalculate(project_id))
+                    transaction.on_commit(_broadcast)
+        except Task.DoesNotExist as exc:
+            # 404 rather than a 400 naming the id: the subtree root is either a live
+            # task in this project or it is nothing this caller may learn about.
+            raise NotFound("No task with that id in this project.") from exc
+        except SubtreeTooLarge as exc:
+            raise DRFValidationError(
+                {
+                    "code": "subtree_too_large",
+                    "detail": str(exc),
+                    # Strings, not ints: DRF renders a ValidationError detail through
+                    # ErrorDetail, which is a str subclass, so an int member is a type
+                    # error rather than a JSON number. Both values are also in
+                    # ``detail`` as prose — these are for a client that wants to
+                    # branch without parsing the sentence.
+                    "matched": str(exc.matched),
+                    "max": str(exc.cap),
+                }
+            ) from exc
+        except SubtreeNotAuthorable as exc:
+            raise PermissionDenied(str(exc)) from exc
+        except InfeasibleGraphError as exc:
+            # ADR-0259: the cascade writes no edges, but it enqueues a recalculation,
+            # and a project seeded through the still-unguarded seed importer (#2589)
+            # can hold a cyclic graph. Surface it as an actionable 400 instead of
+            # letting the CPM worker crash on it.
+            raise DRFValidationError(
+                {"code": exc.reason, "detail": str(exc), "offending": exc.offending}
+            ) from exc
+        except InvalidScheduleInput as exc:
+            raise DRFValidationError({"code": "invalid_graph_input", "detail": str(exc)}) from exc
+
+        return Response(report, status=status.HTTP_200_OK)
 
 
 def _lock_bulk_targets(

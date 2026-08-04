@@ -98,6 +98,7 @@ from trueppm_api.apps.projects.views import (
     TaskAttachmentViewSet,
     TaskBaselineDetailView,
     TaskBulkView,
+    TaskClassificationView,
     TaskCommentViewSet,
     TaskCustomFieldValueView,
     TaskHistoryView,
@@ -158,6 +159,11 @@ urlpatterns = [
         "projects/<pk>/tasks/bulk/",
         TaskBulkView.as_view(),
         name="project-tasks-bulk",
+    ),
+    path(
+        "projects/<pk>/tasks/classification/",
+        TaskClassificationView.as_view(),
+        name="project-tasks-classification",
     ),
     path(
         "projects/<pk>/tasks/<task_id>/indent/",
