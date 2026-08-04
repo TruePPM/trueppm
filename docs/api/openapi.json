@@ -53583,7 +53583,7 @@
                     "source_kind": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/ProjectTemplateSourceKindEnum"
+                                "$ref": "#/components/schemas/TemplateSourceEnum"
                             }
                         ],
                         "readOnly": true,
@@ -53636,15 +53636,6 @@
                     "task_count",
                     "version"
                 ]
-            },
-            "ProjectTemplateSourceKindEnum": {
-                "enum": [
-                    "workspace",
-                    "community",
-                    "personal"
-                ],
-                "type": "string",
-                "description": "* `workspace` - Workspace\n* `community` - Community\n* `personal` - Yours"
             },
             "ProjectVisitResponse": {
                 "type": "object",
@@ -55533,6 +55524,19 @@
                 "type": "string",
                 "description": "* `none` - No action\n* `warn` - Warn only\n* `block` - Block & escalate"
             },
+            "SourceKindEnum": {
+                "enum": [
+                    "hand",
+                    "template",
+                    "seed_import",
+                    "csv_import",
+                    "msproject_import",
+                    "jira_import",
+                    "paste"
+                ],
+                "type": "string",
+                "description": "* `hand` - Hand-authored\n* `template` - Project template\n* `seed_import` - Native seed import\n* `csv_import` - CSV/Excel import\n* `msproject_import` - MS Project import\n* `jira_import` - Jira import\n* `paste` - Pasted rows"
+            },
             "Sprint": {
                 "type": "object",
                 "description": "Read/write serializer for sprints.\n\nState, committed_*, completed_*, activated_at, closed_at are read-only —\nthey are written by the dedicated activate/close actions, not by PATCH.\n\ncompletion_ratio_* are computed from snapshotted committed/completed\nfields and only become non-null after sprint close.",
@@ -57252,7 +57256,7 @@
                     "source_kind": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/TaskSourceKindEnum"
+                                "$ref": "#/components/schemas/SourceKindEnum"
                             }
                         ],
                         "readOnly": true,
@@ -59110,19 +59114,6 @@
                     "task"
                 ]
             },
-            "TaskSourceKindEnum": {
-                "enum": [
-                    "hand",
-                    "template",
-                    "seed_import",
-                    "csv_import",
-                    "msproject_import",
-                    "jira_import",
-                    "paste"
-                ],
-                "type": "string",
-                "description": "* `hand` - Hand-authored\n* `template` - Project template\n* `seed_import` - Native seed import\n* `csv_import` - CSV/Excel import\n* `msproject_import` - MS Project import\n* `jira_import` - Jira import\n* `paste` - Pasted rows"
-            },
             "TaskStatusEnum": {
                 "enum": [
                     "BACKLOG",
@@ -59487,6 +59478,15 @@
                 ],
                 "type": "string",
                 "description": "* `pending` - Pending\n* `running` - Running\n* `success` - Success\n* `failed` - Failed\n* `undone` - Undone"
+            },
+            "TemplateSourceEnum": {
+                "enum": [
+                    "workspace",
+                    "community",
+                    "personal"
+                ],
+                "type": "string",
+                "description": "* `workspace` - Workspace\n* `community` - Community\n* `personal` - Yours"
             },
             "TermOverridePolicyEnum": {
                 "enum": [

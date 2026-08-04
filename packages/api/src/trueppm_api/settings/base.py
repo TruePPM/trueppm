@@ -1969,6 +1969,15 @@ SPECTACULAR_SETTINGS = {
         # components (a schema-drift regression — project memory
         # project_drf_enum_name_collision). Pin ours to a stable name.
         "ScopeChangeStatusEnum": "trueppm_api.apps.projects.models.ScopeChangeStatus",
+        # ADR-0789 (#2729): ProjectTemplate.source_kind introduces a SECOND
+        # "source_kind" choice set alongside Task.source_kind (ADR-0786). Without
+        # a pin drf-spectacular disambiguates both by model prefix, which renames
+        # the already-published `SourceKindEnum` to `TaskSourceKindEnum` — a
+        # removed component, and exactly the schema-drift regression the two pins
+        # above exist to prevent. Pin Task's to its existing stable name; the
+        # template's own set is then free to take the model-prefixed name.
+        "SourceKindEnum": "trueppm_api.apps.projects.models.TaskSource",
+        "TemplateSourceEnum": "trueppm_api.apps.projects.models.TemplateSource",
         # ADR-0116: Workspace.iteration_label_override_policy adds an
         # INHERIT/SUGGEST/ENFORCE choice set. Pin it so drf-spectacular does not
         # rename existing stable enums (the same schema-drift regression class as
