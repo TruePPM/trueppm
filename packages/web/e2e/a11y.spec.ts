@@ -423,7 +423,7 @@ test.describe('accessibility @a11y — routes', () => {
   });
 
   // The Schedule chart `role="listbox"` holds a `role="status"` sr-only live region
-  // as a direct child, which a grid may not have (`aria-required-children`).
+  // as a direct child, which a listbox may not have (`aria-required-children`).
   // Excluded so the scan runs live for every OTHER rule (contrast now enforced —
   // #2265 landed). SUPPRESSED-UNTIL(#2618) — verified still failing, not stale.
   const SCHEDULE_EXCLUDED_RULES = ['aria-required-children'];

@@ -706,7 +706,7 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
       key: 'indent',
       label: 'Indent',
       icon: <IndentIcon className="h-4 w-4" aria-hidden="true" />,
-      hint: 'Tab',
+      hint: '⌥→',
       startsGroup: true,
       disabled: level <= 1,
       onSelect: () => buildMode.indent(task.id),
@@ -715,7 +715,7 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
       key: 'outdent',
       label: 'Outdent',
       icon: <OutdentIcon className="h-4 w-4" aria-hidden="true" />,
-      hint: '⇧+Tab',
+      hint: '⌥←',
       // Disable outdent at root level (level 1).
       disabled: level <= 1,
       onSelect: () => buildMode.outdent(task.id),
