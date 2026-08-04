@@ -47,6 +47,10 @@ from trueppm_api.apps.projects.signal_privacy_views import (
     SignalPrivacyRatchetDownView,
 )
 from trueppm_api.apps.projects.standup_views import StandupView
+from trueppm_api.apps.projects.template_views import (
+    ProjectTemplateViewSet,
+    TemplateApplicationViewSet,
+)
 from trueppm_api.apps.projects.views import (
     AcceptanceCriterionViewSet,
     AcceptanceResultIngestView,
@@ -115,6 +119,13 @@ router.register(r"projects", ProjectViewSet, basename="project")
 router.register(r"programs", ProgramViewSet, basename="program")
 router.register(r"tasks", TaskViewSet, basename="task")
 router.register(r"dependencies", DependencyViewSet, basename="dependency")
+# Project templates (ADR-0789, #2729). A flat collection rather than nested under
+# a project: a template is not owned by the project it was published from — that
+# project can be archived or deleted without taking the template with it.
+router.register(r"project-templates", ProjectTemplateViewSet, basename="project-template")
+router.register(
+    r"template-applications", TemplateApplicationViewSet, basename="template-application"
+)
 router.register(r"task-relations", TaskRelationViewSet, basename="task-relation")
 router.register(r"slip-conflicts", CrossProjectSlipConflictViewSet, basename="slip-conflict")
 router.register(r"recurrence-rules", TaskRecurrenceRuleViewSet, basename="recurrence-rule")

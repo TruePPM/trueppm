@@ -497,6 +497,15 @@ CELERY_BEAT_SCHEDULE = {
         "task": "csv.drain_import_queue",
         "schedule": 30.0,
     },
+    # Template-apply drain (ADR-0789, #2729): dispatches pending
+    # TemplateApplication rows every 30 s and recovers ones whose worker died
+    # mid-apply. This is what makes enqueue_template_apply's best-effort
+    # .delay() durable — without it, a broker outage at dispatch time would
+    # leave an application pending forever and the Start sheet polling nothing.
+    "drain-template-apply-queue": {
+        "task": "templates.drain_apply_queue",
+        "schedule": 30.0,
+    },
     # Sprint close drain: dispatches pending SprintCloseRequest rows every 30 s.
     # Also recovers IN_FLIGHT rows orphaned past the 5-minute window.
     "drain-sprint-close-requests": {
@@ -1960,6 +1969,15 @@ SPECTACULAR_SETTINGS = {
         # components (a schema-drift regression — project memory
         # project_drf_enum_name_collision). Pin ours to a stable name.
         "ScopeChangeStatusEnum": "trueppm_api.apps.projects.models.ScopeChangeStatus",
+        # ADR-0789 (#2729): ProjectTemplate.source_kind introduces a SECOND
+        # "source_kind" choice set alongside Task.source_kind (ADR-0786). Without
+        # a pin drf-spectacular disambiguates both by model prefix, which renames
+        # the already-published `SourceKindEnum` to `TaskSourceKindEnum` — a
+        # removed component, and exactly the schema-drift regression the two pins
+        # above exist to prevent. Pin Task's to its existing stable name; the
+        # template's own set is then free to take the model-prefixed name.
+        "SourceKindEnum": "trueppm_api.apps.projects.models.TaskSource",
+        "TemplateSourceEnum": "trueppm_api.apps.projects.models.TemplateSource",
         # ADR-0116: Workspace.iteration_label_override_policy adds an
         # INHERIT/SUGGEST/ENFORCE choice set. Pin it so drf-spectacular does not
         # rename existing stable enums (the same schema-drift regression class as

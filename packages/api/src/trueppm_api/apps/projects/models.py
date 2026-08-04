@@ -7234,3 +7234,199 @@ class ProgramImportJob(models.Model):
 
     def __str__(self) -> str:
         return f"ProgramImportJob({self.id}, {self.program_id}, {self.status})"
+
+
+# ---------------------------------------------------------------------------
+# Project templates (ADR-0789, #2729)
+# ---------------------------------------------------------------------------
+
+
+class TemplateSource(models.TextChoices):
+    """Who published a skeleton — the gallery's provenance chip (ADR-0789 §2).
+
+    Stored at publish rather than derived at read time. A chip computed from
+    ``owner_id == request.user.id`` would make the same template read "Yours" to
+    one person and "Workspace" to another, which is right for ``PERSONAL`` and
+    wrong for the other two. ``PERSONAL`` is the one value additionally narrowed
+    by ownership when the gallery is read.
+    """
+
+    WORKSPACE = "workspace", "Workspace"
+    COMMUNITY = "community", "Community"
+    PERSONAL = "personal", "Yours"
+
+
+class TemplateApplicationStatus(models.TextChoices):
+    """Lifecycle of one template application (ADR-0789 §Durable Execution).
+
+    A separate enum from ``ImportJobStatus`` on purpose — it carries ``UNDONE``,
+    which has no meaning for an import, and reusing an import enum here would be
+    a wart every future reader has to re-reason about.
+    """
+
+    PENDING = "pending", "Pending"
+    RUNNING = "running", "Running"
+    SUCCESS = "success", "Success"
+    FAILED = "failed", "Failed"
+    UNDONE = "undone", "Undone"
+
+
+class ProjectTemplate(models.Model):
+    """A reusable project *shape* — phases, gates, dependencies, durations.
+
+    Carries structure and strips moment and person (ADR-0789 §1). Owners, dates,
+    baselines, comments, files and time entries are never serialized into a
+    template: a user id from the publisher's workspace is unresolvable or, worse,
+    resolvable to the wrong person in the adopter's, and a template applied in
+    November must not schedule to the publisher's March.
+
+    ``structure`` is a **frozen document**, not a live pointer at the project it
+    was published from. The source gets edited, archived and deleted; a template
+    whose content moved after two teams adopted it is unexplainable, and
+    "delete this project" must not silently mutate everybody's template. This is
+    the same copy-at-create-not-live-binding decision ADR-0242 made for settings,
+    for the same reason.
+
+    Plain (non-synced) model: a template is workspace-level authoring furniture,
+    never a mobile-offline entity, so it has no ``server_version``.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True, default="")
+    source_kind = models.CharField(
+        max_length=10,
+        choices=TemplateSource.choices,
+        default=TemplateSource.WORKSPACE,
+        db_index=True,
+        help_text="Provenance chip shown in the gallery before adoption (ADR-0789).",
+    )
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="published_templates",
+    )
+    # Null means workspace-wide. A program-scoped template is offered only inside
+    # that program, which is what "templates available to this program" means in
+    # the Start sheet.
+    program = models.ForeignKey(
+        _PROGRAM_MODEL,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="project_templates",
+    )
+    # Increments on each republish. An application records the version it adopted,
+    # so "this project came from Delivery Skeleton v3" survives the template moving
+    # to v4 (ADR-0789 §1).
+    version = models.PositiveIntegerField(default=1)
+    # What this publish carried, recorded at publish time so a reader can see the
+    # answer without re-deriving it from the structure document (issue §1).
+    carries = models.JSONField(default=list, blank=True)
+    # The frozen shape. JSONB rather than normalized TemplateTask/TemplateDependency
+    # tables because it is only ever written whole and read whole — no query asks
+    # "which templates contain a task named X" (ADR-0789 Alternatives).
+    structure = models.JSONField(default=dict, blank=True)
+    is_published = models.BooleanField(default=True, db_index=True)
+    published_at = models.DateTimeField(auto_now_add=True)
+    published_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="template_publishes",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "projects_project_template"
+        ordering = ["name"]
+        indexes = [
+            # The gallery read: published templates for this program (or workspace
+            # wide, program IS NULL), ordered by name.
+            models.Index(
+                fields=["program", "is_published", "name"],
+                name="projtmpl_prog_pub_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"ProjectTemplate({self.name} v{self.version})"
+
+
+class TemplateApplication(models.Model):
+    """One application of a template to a project — the adoption record and the undo target.
+
+    Two jobs in one row, and they are the same fact seen twice:
+
+    * the **versioned adoption link** the issue asks for (§1) — which template, at
+      which version, applied to which project, by whom;
+    * the **undo target** — ``created_task_ids`` is exactly what this application
+      wrote, so "undo" has a precise set rather than a heuristic.
+
+    Self-sufficient by design (ADR-0789 §4). #2730 adds per-row provenance columns
+    that answer a *different* question ("what wrote this row", for the outline
+    margin tick and the divergence digest); this row answers "which application
+    wrote this batch". Both earn their place — one is not a substitute for the other.
+
+    Also the **idempotency token** for the seeding job: the task claims the row
+    ``pending -> running`` under ``select_for_update`` and returns immediately if the
+    claim fails, so a redelivery finds nothing to claim and skips.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    template = models.ForeignKey(
+        ProjectTemplate,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="applications",
+    )
+    # Denormalized so the adoption record survives the template being deleted —
+    # "this project came from Delivery Skeleton v3" must outlive v3 being unpublished.
+    template_name = models.CharField(max_length=200, blank=True, default="")
+    template_version = models.PositiveIntegerField(default=1)
+    project = models.ForeignKey(
+        "projects.Project",
+        on_delete=models.CASCADE,
+        related_name="template_applications",
+    )
+    applied_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="template_applications",
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=TemplateApplicationStatus.choices,
+        default=TemplateApplicationStatus.PENDING,
+        db_index=True,
+    )
+    celery_task_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    # Exactly the rows this application wrote — the undo set. A plain UUID array
+    # rather than an FK table: it must survive the tasks being hard-deleted by the
+    # tombstone reap, and it is only ever read whole.
+    created_task_ids = ArrayField(models.UUIDField(), default=list, blank=True)
+    result_summary = models.JSONField(default=dict, blank=True)
+    error_detail = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    undone_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "projects_template_application"
+        ordering = ["-created_at"]
+        indexes = [
+            # The drain's scan: pending rows older than the orphan window. No
+            # project predicate — the drain is global.
+            models.Index(fields=["status", "created_at"], name="tmplapply_status_idx"),
+            models.Index(fields=["project", "created_at"], name="tmplapply_proj_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"TemplateApplication({self.id}, {self.project_id}, {self.status})"

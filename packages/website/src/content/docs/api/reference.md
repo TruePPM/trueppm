@@ -482,6 +482,43 @@ A recalculation never counts as an edit: the scheduling engine persists CPM outp
 through a path that does not touch `edited_at`, so a freshly seeded project still
 reports its rows as untouched after the first schedule pass.
 
+### Project templates
+
+:::note[Ships in 0.4]
+These endpoints ship in **TruePPM 0.4**. `v0.3.0-alpha.3` (the latest release) has
+no template system — the collection does not exist.
+:::
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/project-templates/` | Gallery (filter: `?program=`) |
+| POST | `/api/v1/project-templates/publish/` | Freeze a project's shape as a template |
+| POST | `/api/v1/project-templates/{id}/apply/` | Apply to a project — returns `202` |
+| GET | `/api/v1/template-applications/` | Adoption records (filter: `?project=`) |
+| POST | `/api/v1/template-applications/{id}/undo/` | Reverse one application |
+
+`apply` returns **`202 {"queued": true, "application": "<uuid>"}`** — not a task id.
+Dispatch is best-effort behind a transactional outbox, so there may be no Celery id
+yet (or ever, for a delivery the drain re-dispatches). The **application id** is the
+durable handle: it exists the moment the request commits, and `GET
+/api/v1/template-applications/{id}/` reports `pending` → `running` → `success` /
+`failed`.
+
+The gallery does **not** publish the `structure` document. A gallery reader is a
+wider audience than the source project's members, so a whole project's shape
+(task names included) must not ride a list endpoint. `task_count` is the server's
+count off the frozen document, so it cannot disagree with what apply will write.
+
+`provenance` is the display chip. `source_kind` is stored, so every reader agrees
+on `workspace` and `community`; **Yours** is resolved per reader, because it is the
+only tier that depends on who is asking.
+
+Publishing and applying both require **Project Manager (Admin)** or above on the
+project in question (ADR-0773). Reading the gallery requires only authentication.
+
+Apply is rate-limited on the shared `seed_import` throttle scope — the same bound
+the seed and spreadsheet import paths carry.
+
 #### Phase rollup locks
 
 A **phase** is a non-subtask task with at least one *structural* (non-subtask)

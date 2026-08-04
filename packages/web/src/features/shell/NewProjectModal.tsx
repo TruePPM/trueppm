@@ -5,6 +5,8 @@ import { useProjects } from '@/hooks/useProjects';
 import { usePrograms } from '@/hooks/usePrograms';
 import { RolePicker } from '@/features/settings/members/RolePicker';
 import { toast } from '@/components/Toast';
+import { TemplateGallery } from './TemplateGallery';
+import { useApplyTemplate, type ProjectTemplate } from '@/hooks/useProjectTemplates';
 import { ROLE_ADMIN, ROLE_MEMBER } from '@/lib/roles';
 import type { Methodology } from '@/types';
 
@@ -120,6 +122,10 @@ export function NewProjectModal({
   // (ADR-0363, #157). Defaults to Team Member; the picker offers Viewer..Project
   // Manager (Owner is never a sensible blanket default).
   const [defaultMemberRole, setDefaultMemberRole] = useState<number>(ROLE_MEMBER);
+  // Template chosen in the Start-sheet gallery (#2729, ADR-0789). null = blank
+  // project, which is the default and a first-class choice — the design's own
+  // working assumption is that teams delete most of what a template writes.
+  const [template, setTemplate] = useState<ProjectTemplate | null>(null);
 
   const nameRef = useRef<HTMLInputElement>(null);
   const startRef = useRef<HTMLInputElement>(null);
@@ -128,6 +134,7 @@ export function NewProjectModal({
 
   const queryClient = useQueryClient();
   const createProject = useCreateProject();
+  const applyTemplate = useApplyTemplate();
   // Membership-scoped project list drives the "Copy settings from" options; the
   // field's queryset is IDOR-safe server-side, so we simply offer every readable
   // project as a source (ADR-0242).
@@ -268,6 +275,25 @@ export function NewProjectModal({
           // the modal closes on navigation, so without this the user's first
           // commitment lands silently on an empty Overview.
           toast.success(`Created ${name.trim()}`);
+          if (template) {
+            // Fire-and-navigate (#2729, ADR-0789 §4): the sheet never blocks on
+            // seeding. The server returns 202 and the rows arrive over the board
+            // WebSocket as the job completes, so the user lands on their project
+            // and watches it fill rather than waiting on a modal spinner.
+            applyTemplate.mutate(
+              { templateId: template.id, projectId: data.id },
+              {
+                // A failed *dispatch* still leaves a real, empty project — say so
+                // rather than letting the skeleton silently not appear. The apply
+                // itself is durable once queued (outbox + drain); this only
+                // catches the request never landing.
+                onError: () =>
+                  toast.error(
+                    `Created ${name.trim()}, but couldn't start "${template.name}". Apply it from the project.`,
+                  ),
+              },
+            );
+          }
           onCreated(data.id, submitIntentRef.current);
         },
       },
@@ -432,6 +458,16 @@ export function NewProjectModal({
             {/* Step 3: Methodology (ADR-0041) */}
             {step === 3 && (
               <>
+                <h2 className="text-base font-semibold text-neutral-text-primary">Start from</h2>
+                <p className="text-xs text-neutral-text-secondary -mt-2">
+                  A template seeds phases, gates and dependencies — never owners, dates,
+                  or anyone else&rsquo;s progress. You can delete what you don&rsquo;t want.
+                </p>
+                <TemplateGallery
+                  programId={selectedProgramId}
+                  selectedId={template?.id ?? null}
+                  onSelect={setTemplate}
+                />
                 <h2 className="text-base font-semibold text-neutral-text-primary">Planning model</h2>
                 <p className="text-xs text-neutral-text-secondary -mt-2">
                   Sets which views your team sees by default. You can change it later in project settings.
