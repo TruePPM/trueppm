@@ -81,7 +81,8 @@ A personal token is minted with one of two scopes:
   [MCP server](/features/mcp-server) accepts: the MCP read surface admits **only**
   owner-scoped personal tokens, so this is the token you mint to point Claude
   Desktop, Cursor, or Zed at your instance. A read-only AI token **must** carry an
-  expiry so a leaked read credential is self-limiting.
+  expiry no more than 365 days out, so a leaked read credential is self-limiting
+  and cannot be minted as effectively non-expiring.
 
 When you create a read-only AI token, the one-time reveal also shows a
 ready-to-paste `claude_desktop_config.json` snippet built from it — copy that
@@ -101,7 +102,9 @@ account is ever compromised and keeps your token list navigable.
 An optional expiration date lets a token retire itself. Once a token is past its
 `expires_at`, TruePPM rejects it exactly as if it had been revoked — the request
 fails authentication with a generic `401`. Tokens without an expiry never expire
-on their own; revoke them when you no longer need them.
+on their own; revoke them when you no longer need them. A read-only AI
+(`mcp:read`) token is the exception: its expiry is required and capped at 365
+days out, so it cannot be minted as effectively non-expiring.
 
 ## Revoking a token
 
