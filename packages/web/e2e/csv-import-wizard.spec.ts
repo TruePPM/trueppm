@@ -52,7 +52,10 @@ const DONE_STATUS = {
   requested_at: '2026-07-27T00:00:00Z',
 };
 
-async function gotoSchedule(page: Page) {
+async function gotoSchedule(
+  page: Page,
+  opts: { search?: string; role?: number } = {},
+) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -122,7 +125,11 @@ async function gotoSchedule(page: Page) {
   // Scheduler (200) — the CSV wizard's own server floor, one rung below the
   // Admin gate the MS Project import uses.
   await page.route('**/api/v1/projects/*/members/**', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj([{ role: 200 }]) }),
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj([{ role: opts.role ?? 200 }]),
+    }),
   );
   await page.route('**/api/v1/projects/*/presence/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
@@ -174,7 +181,7 @@ async function gotoSchedule(page: Page) {
   await page.routeWebSocket('**/ws/v1/projects/**', () => {
     /* accept and hold open */
   });
-  await page.goto(`/projects/${PROJECT_ID}/schedule`);
+  await page.goto(`/projects/${PROJECT_ID}/schedule${opts.search ?? ''}`);
 }
 
 /**
@@ -353,5 +360,39 @@ test.describe('CSV/Excel import wizard (#746)', () => {
     await dialog.getByRole('button', { name: 'Next' }).click();
 
     await expect(dialog.getByRole('alert')).toContainText('No readable header row.');
+  });
+
+  // ------------------------------------------------------------------
+  // `?import=csv` deep link (#2710)
+  // ------------------------------------------------------------------
+
+  test('?import=csv opens the wizard on arrival', async ({ page }) => {
+    // This is the landing half of "Create & import spreadsheet": the new-project
+    // flow creates the project, then navigates here. Before #2710 the wizard had
+    // one mount site reachable only through an overflow menu inside an existing
+    // project, so an evaluator with a spreadsheet met the wall before the import.
+    await gotoSchedule(page, { search: '?import=csv' });
+    await routeImport(page, { preview: { status: 200, body: PREVIEW_BODY } });
+
+    await expect(page.getByRole('dialog', { name: 'Import from a spreadsheet' })).toBeVisible({
+      timeout: 10_000,
+    });
+    // The param is consumed, so a refresh or a back-navigation after the import
+    // finishes does not reopen the wizard.
+    await expect(page).toHaveURL(/\/schedule(?!.*import=csv)/);
+  });
+
+  test('?import=csv does not let a Viewer past the Scheduler gate', async ({ page }) => {
+    // The deep link is a shortcut through the navigation, never through the
+    // authorization — a pasted link must not open a wizard the toolbar would not
+    // offer, and whose server (IsProjectScheduler, ADR-0632) would reject anyway.
+    await gotoSchedule(page, { search: '?import=csv', role: 1 });
+
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(
+      page.getByRole('dialog', { name: 'Import from a spreadsheet' }),
+    ).toBeHidden();
   });
 });

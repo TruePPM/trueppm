@@ -1323,6 +1323,32 @@ export function ScheduleView() {
   // gating the wizard at Admin would hide it from Schedulers the API accepts.
   const [csvImportOpen, setCsvImportOpen] = useState(false);
   const canImportCsv = currentRole !== null && currentRole >= ROLE_SCHEDULER;
+  // `?import=csv` deep link (#2710) — how "Create & import spreadsheet" in the
+  // new-project flow lands the user in the wizard instead of on an empty project.
+  //
+  // An effect rather than a useState initializer, because the permission gate is
+  // the point: `currentRole` is null on first render, so an initializer would
+  // either open the wizard before the role is known or need the same gate anyway.
+  // Waiting for the role means a pasted link cannot get a Viewer past
+  // `canImportCsv` — the deep link is a shortcut through the *navigation*, never
+  // through the authorization (the server gate at IsProjectScheduler is the real
+  // boundary; this keeps the UI from disagreeing with it).
+  //
+  // The ref makes it one-shot: without it, closing the wizard while the param is
+  // still in the URL for a commit would immediately reopen it — the same trap
+  // `?task=` documents just below.
+  const importParamConsumedRef = useRef(false);
+  useEffect(() => {
+    if (importParamConsumedRef.current) return;
+    if (searchParams.get('import') !== 'csv') return;
+    if (currentRole === null) return; // role still resolving — decide, don't guess
+    importParamConsumedRef.current = true;
+    if (canImportCsv) setCsvImportOpen(true);
+    // Strip the param either way, so a refresh (or a back-navigation after the
+    // import finishes) does not reopen the wizard, and a denied link does not
+    // sit in the URL looking like it might still work.
+    setSearchParam(setSearchParams, 'import', null);
+  }, [searchParams, currentRole, canImportCsv, setSearchParams]);
   // Public share links (#1486): mint/manage is Admin+ (mirrors board sharing). The
   // instance/workspace kill switch is enforced server-side — the dialog surfaces the
   // verbatim 403 detail if sharing is off, so the button never silently no-ops.

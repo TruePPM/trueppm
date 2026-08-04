@@ -374,7 +374,66 @@ describe('NewProjectModal', () => {
     opts.onSuccess({ id: 'new-proj-1' });
 
     expect(toastSuccess).toHaveBeenCalledWith('Created Alpha');
-    expect(onCreated).toHaveBeenCalledWith('new-proj-1');
+    // Plain "Create project" reports an empty intent (#2710) — the caller reads it
+    // to decide between the Overview and the CSV wizard, so "no intent" has to be
+    // an explicit `{}` rather than an absent argument.
+    expect(onCreated).toHaveBeenCalledWith('new-proj-1', {});
+  });
+
+  // ------------------------------------------------------------------
+  // "Create & import spreadsheet" (#2710)
+  // ------------------------------------------------------------------
+
+  it('offers "Create & import spreadsheet" only on the final step', async () => {
+    renderModal();
+    // Step 1: a second create action here would read as "skip the rest of the form".
+    expect(
+      screen.queryByRole('button', { name: /create & import spreadsheet/i }),
+    ).not.toBeInTheDocument();
+    await goToStep3();
+    expect(
+      screen.getByRole('button', { name: /create & import spreadsheet/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('reports importCsv intent so the caller can land in the wizard', async () => {
+    renderModal();
+    await goToStep3('Alpha');
+    await userEvent.click(screen.getByRole('button', { name: /create & import spreadsheet/i }));
+
+    const opts = mutateMock.mock.calls[0][1] as { onSuccess: (d: { id: string }) => void };
+    opts.onSuccess({ id: 'new-proj-1' });
+
+    expect(onCreated).toHaveBeenCalledWith('new-proj-1', { importCsv: true });
+  });
+
+  it('clears a stale import intent when the user then clicks plain Create', async () => {
+    // The intent lives in a ref that survives a failed submit. Without an explicit
+    // reset, a user who clicked "Create & import", hit a validation error, then
+    // clicked "Create project" would still be sent to the wizard they abandoned.
+    renderModal();
+    await goToStep3('Alpha');
+    await userEvent.click(screen.getByRole('button', { name: /create & import spreadsheet/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^create project$/i }));
+
+    const opts = mutateMock.mock.calls[1][1] as { onSuccess: (d: { id: string }) => void };
+    opts.onSuccess({ id: 'new-proj-1' });
+
+    expect(onCreated).toHaveBeenLastCalledWith('new-proj-1', {});
+  });
+
+  it('importFirst promotes the import action to primary without changing behaviour', async () => {
+    renderWithProviders(
+      <NewProjectModal onClose={onClose} onCreated={onCreated} importFirst />,
+    );
+    await goToStep3('Alpha');
+    // Both actions are still present — importFirst only decides which is visually
+    // primary, so a user who opened this from "Import a spreadsheet" can still
+    // change their mind and create a blank project.
+    expect(
+      screen.getByRole('button', { name: /create & import spreadsheet/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^create project$/i })).toBeInTheDocument();
   });
 
   it('shows error message on step 3 when mutation fails', async () => {

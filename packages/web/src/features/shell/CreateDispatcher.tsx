@@ -39,9 +39,19 @@ export function CreateDispatcher() {
         programId={intent.programId}
         programName={intent.programName}
         onClose={close}
-        onCreated={(projectId) => {
+        onCreated={(projectId, intent) => {
           close();
-          void navigate(`/projects/${projectId}/overview`);
+          // "Create & import spreadsheet" (#2710) lands in the Schedule with the
+          // CSV wizard already open, rather than on an empty Overview the user
+          // would then have to find an overflow menu inside. The wizard needs a
+          // project id, so the project is created first and the deep link hands
+          // it in — `?import=csv` follows the same `useSearchParams` convention
+          // ScheduleView already uses for `?task=`, `?focus=`, `?cp=`.
+          void navigate(
+            intent?.importCsv
+              ? `/projects/${projectId}/schedule?import=csv`
+              : `/projects/${projectId}/overview`,
+          );
         }}
       />
     );
