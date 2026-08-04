@@ -104,8 +104,10 @@ import {
   BuildModeCheatsheet,
   BuildModeEmptyState,
   BuildModePill,
+  AuthorModePill,
   type BuildModeApi,
 } from './buildMode';
+import { useScheduleAuthorMode, type ScheduleAuthorMode } from '@/hooks/useScheduleAuthorMode';
 import {
   useIndentTask,
   useOutdentTask,
@@ -1211,7 +1213,12 @@ export function ScheduleView() {
   // the role resolves — matching the pessimistic `canImport`/`canShare`/
   // `canCaptureBaseline` gates below rather than flashing enabled for the
   // non-member majority. The server is authoritative; this is the UX gate.
-  const readOnly = !canEditTask(currentRole);
+  // Alt+A Author/Read toggle (#2727, ADR-0776 §5) — a client-only, per-user
+  // per-project preference layered on top of the server role gate below, not
+  // a replacement for it. "Read" mode forces readOnly regardless of role.
+  const authorMode = useScheduleAuthorMode(projectIdUndef);
+  const { toggle: toggleAuthorMode } = authorMode;
+  const readOnly = !canEditTask(currentRole) || authorMode.mode === 'read';
   // Per-project leaf-surface visibility (ADR-0193, issue 956): the in-Schedule
   // Monte-Carlo sub-surface reads the server-resolved values. Hide-only
   // (ADR-0041) — a false value hides the chrome; the underlying data is still computed
@@ -1988,6 +1995,11 @@ export function ScheduleView() {
         e.preventDefault();
         setCheatsheetOpen((open) => !open);
       };
+      // Alt+A Author/Read toggle (#2727, ADR-0776 §5).
+      out['alt+a'] = (e) => {
+        e.preventDefault();
+        toggleAuthorMode();
+      };
     }
     // Continuous zoom shortcuts (#351). ⌘=/⌘- step geometrically through the
     // store (→ engine.setPxPerDay with viewport-center anchor, rule 80); ⌘0
@@ -2015,6 +2027,7 @@ export function ScheduleView() {
     handleAddMilestone,
     handleAddPhase,
     buildModeActive,
+    toggleAuthorMode,
     engine,
     setSelectedTaskId,
   ]);
@@ -2118,6 +2131,8 @@ export function ScheduleView() {
         handleAddPhase={handleAddPhase}
         createPending={createTaskMut.isPending}
         buildModeActive={buildModeActive}
+        authorMode={authorMode.mode}
+        onToggleAuthorMode={authorMode.toggle}
         setCheatsheetOpen={setCheatsheetOpen}
         pendingCount={pendingTaskIds.size}
         projectDetail={projectDetail}
@@ -2827,6 +2842,8 @@ interface ScheduleToolbarProps {
   handleAddPhase: () => void;
   createPending: boolean;
   buildModeActive: boolean;
+  authorMode: ScheduleAuthorMode;
+  onToggleAuthorMode: () => void;
   setCheatsheetOpen: Dispatch<SetStateAction<boolean>>;
   pendingCount: number;
   projectDetail: ReturnType<typeof useProject>['data'];
@@ -2877,6 +2894,8 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
     handleAddPhase,
     createPending,
     buildModeActive,
+    authorMode,
+    onToggleAuthorMode,
     setCheatsheetOpen,
     pendingCount,
     projectDetail,
@@ -2963,6 +2982,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
         />
       )}
       {buildModeActive && <BuildModePill onShowCheatsheet={() => setCheatsheetOpen(true)} />}
+      {buildModeActive && <AuthorModePill mode={authorMode} onToggle={onToggleAuthorMode} />}
       {/* Show the badge for in-flight optimistic edits, and also while a
           freshly-imported sample's first post-import CPM pass is still pending
           (recalculated_at null) so the demo never reads as broken (#1053). */}

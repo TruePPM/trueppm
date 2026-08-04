@@ -49,6 +49,7 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ['⌘', 'D'], label: 'Duplicate row and its subtree' },
       { keys: ['Enter'], label: 'Open task drawer' },
       { keys: ['⌫'], label: 'Delete row' },
+      { keys: ['⌥', 'A'], label: 'Toggle Author / Read mode' },
     ],
   },
   {

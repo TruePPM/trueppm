@@ -136,7 +136,10 @@ vi.mock('@/hooks/useProject', () => ({
   }),
 }));
 vi.mock('@/hooks/useCurrentUser', () => ({
-  useCurrentUser: () => ({ user: { display_name: 'Test User' }, isLoading: false }),
+  useCurrentUser: () => ({
+    user: { id: 'test-user-1', display_name: 'Test User' },
+    isLoading: false,
+  }),
 }));
 vi.mock('@/hooks/useCurrentUserRole', () => ({
   useCurrentUserRole: () => ({ role: mockRole, isLoading: false }),
@@ -1137,6 +1140,63 @@ describe('ScheduleView — build mode (default on desktop, #2682)', () => {
     expect(createTaskMutate).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'New task', duration: 1 }),
       expect.anything(),
+    );
+  });
+});
+
+describe('ScheduleView — Alt+A Author/Read toggle (#2727, ADR-0776 §5)', () => {
+  // The hook persists to localStorage keyed by user+project — clear it so
+  // one test's toggle doesn't leak into the next test's "fresh mount" default.
+  beforeEach(() => {
+    window.localStorage.removeItem('trueppm.schedule.authorMode.test-user-1.project-1');
+  });
+
+  it('defaults to Author mode: pill reads "Author" and create controls stay enabled', () => {
+    renderSchedule();
+    const pill = screen.getByTestId('author-mode-pill');
+    expect(pill).toHaveTextContent('Author');
+    expect(screen.getByRole('button', { name: '+ Milestone' })).toBeEnabled();
+  });
+
+  it('clicking the pill switches to Read mode and disables create controls', async () => {
+    const user = userEvent.setup();
+    renderSchedule();
+    await user.click(screen.getByTestId('author-mode-pill'));
+    expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Read');
+    expect(screen.getByRole('button', { name: '+ Milestone' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '+ Phase' })).toBeDisabled();
+  });
+
+  it('Alt+A toggles the same as clicking the pill', () => {
+    renderSchedule();
+    expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Author');
+    const preventDefault = vi.fn();
+    const e = { preventDefault } as unknown as KeyboardEvent;
+    act(() => capturedKeyBindings['alt+a']?.(e));
+    expect(preventDefault).toHaveBeenCalled();
+    expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Read');
+    act(() => capturedKeyBindings['alt+a']?.(e));
+    expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Author');
+  });
+
+  it('is not a permission change — the server role gate still applies independently', () => {
+    mockRole = ROLE_VIEWER;
+    renderSchedule();
+    // A Viewer is already readOnly via the role gate, before Read mode is
+    // ever touched — Author/Read layers on top, it doesn't replace this.
+    expect(screen.getByRole('button', { name: '+ Milestone' })).toBeDisabled();
+    expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Author');
+  });
+
+  it('persists the preference per-user per-project across a remount', async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderSchedule();
+    await user.click(screen.getByTestId('author-mode-pill'));
+    expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Read');
+    unmount();
+    renderSchedule();
+    await waitFor(() =>
+      expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Read'),
     );
   });
 });

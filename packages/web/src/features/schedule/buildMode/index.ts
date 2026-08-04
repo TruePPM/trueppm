@@ -13,6 +13,7 @@ export { BuildModeHintStrip } from './BuildModeHintStrip';
 export { BuildModeCheatsheet } from './BuildModeCheatsheet';
 export { BuildModeEmptyState } from './BuildModeEmptyState';
 export { BuildModePill } from './BuildModePill';
+export { AuthorModePill } from './AuthorModePill';
 export {
   BuildModeProvider,
   useBuildMode,
