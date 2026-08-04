@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import type { EditableColumn } from './useScheduleFocus';
 
 export type EditableCellInputType = 'text' | 'number' | 'duration';
@@ -65,6 +65,29 @@ export interface EditableCellProps {
    * merge target of a `mergeIntoPreviousRow`, #2727).
    */
   caretPosition?: 'select-all' | 'end';
+  /**
+   * An externally-authored replacement for the live draft, applied whenever the
+   * object identity changes (#2722).
+   *
+   * Accepting a token suggestion has to REWRITE the draft — `@an` becomes
+   * `@"Ana Rivera"` and the author keeps typing — rather than commit the row, because
+   * focus never leaves the row and more tokens may follow. The draft otherwise lives
+   * inside this component, so a picker sitting outside it has no other way in.
+   *
+   * Keyed on identity rather than value so that re-applying the *same* text (picking
+   * the same suggestion twice) still takes.
+   */
+  draftOverride?: { value: string } | null;
+  /**
+   * Extra key handling for the input, run **before** this component's own
+   * Enter/Escape/Tab handling; call `preventDefault()` to claim the key (#2722).
+   *
+   * Lives here rather than on a wrapper element because the interaction belongs to
+   * the focusable input — a keydown handler on a plain wrapper div is both an
+   * accessibility smell (`jsx-a11y/no-static-element-interactions`) and a lie about
+   * where focus is.
+   */
+  onInputKeyDown?: (e: KeyboardEvent<HTMLInputElement>) => void;
 }
 
 /**
@@ -123,6 +146,8 @@ export function EditableCell({
   emptyIsNoop = false,
   onEmptyBackspace,
   caretPosition = 'select-all',
+  draftOverride = null,
+  onInputKeyDown,
 }: EditableCellProps) {
   const [draft, setDraft] = useState(value);
   const [flash, setFlash] = useState<FlashKind>(null);
@@ -133,6 +158,20 @@ export function EditableCell({
   useEffect(() => {
     if (!isEditing) setDraft(value);
   }, [value, isEditing]);
+
+  // Apply an externally-authored draft edit (a token picker completing a token) and
+  // put the caret at the end, so the author keeps typing where the token finished.
+  useEffect(() => {
+    if (!draftOverride) return;
+    setDraft(draftOverride.value);
+    const input = inputRef.current;
+    if (input) {
+      input.focus();
+      requestAnimationFrame(() => {
+        input.setSelectionRange(draftOverride.value.length, draftOverride.value.length);
+      });
+    }
+  }, [draftOverride]);
 
   // Focus input on entering edit mode — select all by default (the "type
   // over the placeholder" UX), or just place the caret at the end when this
@@ -247,6 +286,10 @@ export function EditableCell({
           if (draft !== value) tryCommit(draft);
         }}
         onKeyDown={(e) => {
+          // Caller-supplied bindings get first refusal; a handler that calls
+          // preventDefault() has claimed the key.
+          onInputKeyDown?.(e);
+          if (e.defaultPrevented) return;
           if (e.key === 'Enter') {
             e.preventDefault();
             if (tryCommit(draft)) {

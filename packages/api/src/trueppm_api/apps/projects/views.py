@@ -73,6 +73,7 @@ from trueppm_api.apps.access.permissions import (
     IsProjectMemberWriteOrOwn,
     IsProjectNotArchived,
     IsProjectOwner,
+    IsProjectPlanAuthor,
     IsProjectScheduler,
     IsProjectScopeManager,
     IsTaskScopeManager,
@@ -475,12 +476,83 @@ class TaskRestructureResponseSerializer(serializers.Serializer[Any]):
     )
 
 
-class TaskBulkResponseSerializer(serializers.Serializer[Any]):
-    """Response for the atomic task bulk-mutation endpoint."""
+class TaskBulkAppliedEntrySerializer(serializers.Serializer[Any]):
+    """One row the batch applied."""
 
-    created = TaskSerializer(many=True)
-    updated = TaskSerializer(many=True)
-    deleted = serializers.ListField(child=serializers.UUIDField())
+    index = serializers.IntegerField(
+        help_text="Zero-based position of this op in the request's `operations` array."
+    )
+    id = serializers.UUIDField()
+    op = serializers.ChoiceField(choices=("create", "update", "delete"))
+    outcome = serializers.ChoiceField(
+        choices=("created", "updated", "unchanged", "deleted"),
+        help_text=(
+            "`updated` on a create means the client-minted id already existed here, so "
+            "the row was applied as an in-place edit rather than a second task."
+        ),
+    )
+    task = TaskSerializer(
+        required=False,
+        help_text="The persisted row. Absent on a `delete`, which has nothing to return.",
+    )
+
+
+class TaskBulkProblemEntrySerializer(serializers.Serializer[Any]):
+    """One row the batch refused (`rejected`) or deliberately did not apply (`skipped`)."""
+
+    index = serializers.IntegerField(
+        help_text=(
+            "Zero-based position of this op in the request's `operations` array. This — "
+            "not `id` — is the correlation handle: a row rejected because its id could "
+            "not be parsed has no usable id to echo back."
+        )
+    )
+    id = serializers.UUIDField(
+        allow_null=True, help_text="Null when the row was refused before an id could be resolved."
+    )
+    code = serializers.CharField(
+        help_text=(
+            "Stable machine code. `id_unavailable` is deliberately non-asserting — it "
+            "does not reveal whether the id exists in a project the caller cannot see."
+        )
+    )
+    message = serializers.CharField()
+
+
+class TaskBulkDependencyAppliedSerializer(serializers.Serializer[Any]):
+    """One dependency edge the batch wrote."""
+
+    index = serializers.IntegerField()
+    id = serializers.UUIDField()
+    predecessor = serializers.UUIDField()
+    successor = serializers.UUIDField()
+    pending_acceptance = serializers.BooleanField()
+
+
+class TaskBulkDependencyResultSerializer(serializers.Serializer[Any]):
+    """Outcome of the batch's `dependencies` bucket."""
+
+    applied = TaskBulkDependencyAppliedSerializer(many=True)
+    rejected = TaskBulkProblemEntrySerializer(many=True)
+
+
+class TaskBulkResponseSerializer(serializers.Serializer[Any]):
+    """207 response for the per-row task bulk-mutation endpoint (#2723, ADR-0772).
+
+    Replaces the pre-#2723 `{created, updated, deleted}` 200. Rows apply
+    independently, so a single response can carry all three buckets at once.
+    """
+
+    applied = TaskBulkAppliedEntrySerializer(many=True)
+    rejected = TaskBulkProblemEntrySerializer(many=True)
+    skipped = TaskBulkProblemEntrySerializer(
+        many=True,
+        help_text=(
+            "Documented no-ops, never failures — a create against a tombstoned id, or a "
+            "classification that crossed a milestone gate."
+        ),
+    )
+    dependencies = TaskBulkDependencyResultSerializer()
 
 
 class PhaseReorderResponseSerializer(serializers.Serializer[Any]):
@@ -7521,54 +7593,97 @@ class TaskReparentView(IdempotencyMixin, APIView):
 
 @extend_schema_view(
     post=extend_schema(
-        summary="Atomically create, update, and delete tasks in one request",
+        summary="Create, update, and delete tasks per row in one request",
         request=TaskBulkSerializer,
-        responses={200: TaskBulkResponseSerializer},
+        # 207, not 200 — rows apply independently, so the response reports a mix of
+        # applied, rejected and skipped rather than one verdict for the whole batch.
+        responses={207: TaskBulkResponseSerializer},
     )
 )
 class TaskBulkView(IdempotencyMixin, APIView):
-    """Atomically create, update, and delete tasks in a single request.
+    """Create, update, and delete tasks per row in a single request (ADR-0772, #2723).
 
     POST /api/v1/projects/{pk}/tasks/bulk/
 
-    Body:
+    Body::
+
         {
             "operations": [
-                { "op": "create", "data": { "name": "Sprint 1", "duration": 5, ... } },
+                { "op": "create", "id": "<client-uuid>", "data": { "name": "Survey" } },
                 { "op": "update", "id": "<uuid>", "data": { "percent_complete": 0.5 } },
                 { "op": "delete", "id": "<uuid>" }
-            ]
+            ],
+            "dependencies": {
+                "created": [ { "predecessor": "<uuid>", "successor": "<uuid>",
+                               "dep_type": "FS", "lag": 0 } ]
+            }
         }
 
-    All operations execute inside a single transaction.atomic() block.
-    The scheduling engine is triggered once after commit regardless of how
-    many tasks were mutated.
+    **Rows apply independently.** One unparseable row out of 38 must not discard the
+    other 37 — that is the difference between paste-many being usable and being a
+    coin flip. Every op is applied inside its own savepoint and reported in exactly
+    one of three buckets, correlated by its zero-based ``index`` in ``operations``:
 
-    Returns:
-        200 {
-            "created": [{ "id": "<uuid>", ...task fields... }, ...],
-            "updated": [{ "id": "<uuid>", ...task fields... }, ...],
-            "deleted": ["<uuid>", ...]
+        207 {
+            "applied":  [{ index, id, op, outcome, task }],
+            "rejected": [{ index, id, code, message }],
+            "skipped":  [{ index, id, code, message }],
+            "dependencies": { "applied": [...], "rejected": [...] }
         }
+
+    ``index`` rather than ``id`` is the correlation handle: a row rejected because
+    its id is unparseable has no usable id to echo back.
+
+    ``id`` on a ``create`` is the client-minted primary key (ADR-0772) — accepted
+    verbatim, never remapped, and guarded by the four checks in
+    ``projects.row_identity``. A create whose id already exists here is an in-place
+    edit under the **stricter** edit bar, never a second row.
+
+    Apply is two phases inside one ``transaction.atomic()``: phase 1 materializes
+    every task row, phase 2 applies dependency edges once every node exists (so an
+    edge may forward-reference a task created later in the same batch). The ADR-0259
+    graph guard runs in phase 2 over existing ∪ batch edges, before any edge is
+    written.
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMemberWrite, IsProjectNotArchived]
+    permission_classes = [
+        IsAuthenticated,
+        IsProjectMemberWrite,
+        # ADR-0773: excludes the resource-management band from plan authoring. On main
+        # today a Scheduler can create a task and then cannot edit or delete it, which
+        # in a keyboard-fast row grid means the rows commit and every subsequent
+        # keystroke 403s. Additive to IsProjectMemberWrite per ADR-0184 — see the
+        # class docstring for why it is defense-in-depth rather than the load-bearing
+        # gate on this route (#2745).
+        IsProjectPlanAuthor,
+        IsProjectNotArchived,
+    ]
 
     def post(self, request: Request, pk: str) -> Response:
+        from trueppm_api.apps.projects.task_bulk import (
+            BulkContext,
+            BulkOutcome,
+            InvalidGraphInput,
+            apply_dependency_edges,
+            apply_task_operations,
+        )
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        # The load-bearing role check on this route: IsProjectMemberWrite and
+        # IsProjectPlanAuthor both no-op in has_permission here, because
+        # _project_pk_from_view reads only `project_pk` and this route is
+        # `projects/<pk>/...` (#2745). Do not refactor this call away.
         self.check_object_permissions(request, project)
 
         serializer = TaskBulkSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         operations: list[dict[str, Any]] = serializer.validated_data["operations"]
-        # Collect update/delete IDs up front so the rows are locked in one
-        # select_for_update() call — avoids repeated individual lookups.
-        locked_tasks = _lock_bulk_targets(pk, operations)
+        edge_rows: list[dict[str, Any]] = (serializer.validated_data.get("dependencies") or {}).get(
+            "created"
+        ) or []
 
-        # Fetch the caller's role once for the per-op permission checks below.
         from django.contrib.auth.models import User as _User
 
         _caller = cast(_User, request.user)
@@ -7578,277 +7693,141 @@ class TaskBulkView(IdempotencyMixin, APIView):
             .first()
             or -1
         )
-        ctx = _BulkOpContext(
+
+        locked_by_id, foreign_ids = _lock_bulk_targets(project, operations)
+        ctx = BulkContext(
             project=project,
-            locked_tasks=locked_tasks,
             request=request,
             caller_role=caller_role,
             caller=_caller,
+            locked_by_id=locked_by_id,
+            foreign_ids=foreign_ids,
         )
-        op_batch = _BulkOpBatch()
+        out = BulkOutcome()
+        project_id = str(project.pk)
 
         with transaction.atomic():
-            error = _apply_bulk_operations(operations, ctx, op_batch)
-            if error is not None:
-                return error
+            apply_task_operations(operations, ctx, out)
+            try:
+                dep_recalc_ids = apply_dependency_edges(edge_rows, ctx, out)
+            except InvalidGraphInput as exc:
+                # Malformed graph input is not a cycle: there is no identified cycle
+                # path, so there is no principled subset of edges to reject. 400 on
+                # the batch as a whole (ADR-0772 §4). Raising rather than returning
+                # rolls the whole atomic block back, unlike the old control flow.
+                raise DRFValidationError(
+                    {"code": "invalid_graph_input", "detail": str(exc)}
+                ) from exc
 
-            project_id = str(project.pk)
-            # #1009: carry the ids of the tasks this bulk op touched (created,
-            # updated, and deleted) so the payload matches close_sprint's
-            # tasks_bulk_mutated shape ({"task_ids": [...]}) instead of an empty {} —
-            # clients that key off task_ids can target the refetch instead of
-            # blind-refetching the whole board. Bound via a default arg so closure
-            # late-binding can't swap the list.
-            mutated_task_ids: list[str] = [
-                str(tid) for tid in op_batch.created_ids + op_batch.updated_ids
-            ] + list(op_batch.deleted_ids)
+            # Recalculation and the broadcast fire for WHATEVER COMMITTED, not only
+            # for a fully-clean batch (#2746). Under 207, 35 applied rows out of 38
+            # still mutated 35 rows; skipping the recompute would leave every
+            # collaborator on a silently stale schedule.
+            if out.touched_anything:
+                mutated_task_ids = out.mutated_task_ids
 
-            def _broadcast_bulk_mutated(ids: list[str] = mutated_task_ids) -> None:
-                broadcast_board_event(project_id, "tasks_bulk_mutated", {"task_ids": ids})
+                def _broadcast_bulk_mutated(ids: list[str] = mutated_task_ids) -> None:
+                    # #1009: carry the ids this batch actually touched so clients can
+                    # target the refetch instead of blind-refetching the whole board.
+                    broadcast_board_event(project_id, "tasks_bulk_mutated", {"task_ids": ids})
 
-            transaction.on_commit(lambda: _enqueue_recalculate(project_id))
-            transaction.on_commit(_broadcast_bulk_mutated)
-            # #867: a bulk op pulled the project start earlier — collaborators
-            # must re-fetch the boundary, which tasks_bulk_mutated doesn't carry.
-            if op_batch.project_start_shifted:
-                transaction.on_commit(
-                    lambda: broadcast_board_event(project_id, "project_updated", {"id": project_id})
-                )
+                for recalc_id in {project_id} | dep_recalc_ids:
+                    transaction.on_commit(
+                        lambda rid=recalc_id: _enqueue_recalculate(rid)  # type: ignore[misc]
+                    )
+                transaction.on_commit(_broadcast_bulk_mutated)
+                for dep in out.dep_applied:
+                    transaction.on_commit(
+                        lambda d=dep: broadcast_board_event(  # type: ignore[misc]
+                            project_id, "dependency_created", {"id": d["id"]}
+                        )
+                    )
+                # #867: a row pulled the project start earlier — collaborators must
+                # re-fetch the boundary, which tasks_bulk_mutated does not carry.
+                if out.project_start_shifted:
+                    transaction.on_commit(
+                        lambda: broadcast_board_event(
+                            project_id, "project_updated", {"id": project_id}
+                        )
+                    )
 
-        created_ids = op_batch.created_ids
-        updated_ids = op_batch.updated_ids
-        result: dict[str, Any] = {
-            "created": [],
-            "updated": [],
-            "deleted": list(op_batch.deleted_ids),
-        }
-
-        # #998: one annotated batch fetch for every created/updated task, instead
-        # of serializing bare instances inside the loop. Runs after the atomic
-        # block commits so the re-fetch sees the final persisted state. Milestone
-        # rollups are batched too (#999) so a bulk milestone mutation does not fan
-        # out per-row on read. Order is preserved per bucket via the id lists.
-        all_ids = created_ids + updated_ids
-        if all_ids:
+        # #998: one annotated batch fetch for every applied task, rather than
+        # serializing bare instances inside the loop — a bare locked Task degrades
+        # every annotation-backed serializer field to a per-row query. Runs after the
+        # atomic block commits so the re-fetch sees final persisted state; milestone
+        # rollups are batched too (#999).
+        applied_ids = [uuid.UUID(e["id"]) for e in out.applied if e["op"] != "delete"]
+        if applied_ids:
             annotated = annotate_tasks_queryset(
-                Task.objects.filter(pk__in=all_ids, is_deleted=False), request, str(project.pk)
+                Task.objects.filter(pk__in=applied_ids, is_deleted=False), request, project_id
             )
             by_id = {t.pk: t for t in annotated}
             _attach_milestone_rollups(list(by_id.values()))
-            result["created"] = [
-                TaskSerializer(by_id[tid]).data for tid in created_ids if tid in by_id
-            ]
-            result["updated"] = [
-                TaskSerializer(by_id[tid]).data for tid in updated_ids if tid in by_id
-            ]
+            for entry in out.applied:
+                task = by_id.get(uuid.UUID(entry["id"]))
+                if task is not None:
+                    entry["task"] = TaskSerializer(task).data
 
-        return Response(result, status=status.HTTP_200_OK)
-
-
-# ---------------------------------------------------------------------------
-# Risk register
-# ---------------------------------------------------------------------------
-
-
-def _bulk_error_response(message: str, http_status: int) -> Response:
-    """The shared `{"operations": [...]}` error body for a failed bulk op."""
-    return Response({"operations": [message]}, status=http_status)
-
-
-def _progress_anchor_response(task_id: str | None = None) -> Response:
-    body: dict[str, Any] = {
-        "code": "progress_requires_anchor",
-        "detail": ("Cannot record progress without a planned start date or sprint assignment."),
-        "suggested_action": "set_planned_start",
-    }
-    if task_id is not None:
-        body["task_id"] = task_id
-    return Response(body, status=status.HTTP_400_BAD_REQUEST)
-
-
-def _milestone_rollup_locked_response(task_id: str) -> Response:
-    return Response(
-        {
-            "code": "milestone_rollup_locked",
-            "detail": (
-                "This milestone's progress is rolled up from its linked sprint(s) and "
-                "cannot be edited manually. Close or unlink the sprint to edit."
-            ),
-            "suggested_action": "unlink_or_close_sprint",
-            "task_id": task_id,
-        },
-        status=status.HTTP_400_BAD_REQUEST,
-    )
-
-
-def _bulk_create_task(
-    project: Project, data: dict[str, Any], request: Request, caller_role: int
-) -> Task | Response:
-    """Create one task from a bulk `create` op, or the Response that aborts the batch."""
-    serializer = TaskSerializer(
-        data={**data, "project": str(project.pk)},
-        context={"request": request, "caller_role": caller_role},
-    )
-    try:
-        serializer.is_valid(raise_exception=True)
-    except ProgressAnchorError:
-        return _progress_anchor_response()
-    return serializer.save()
-
-
-def _bulk_update_task(
-    task: Task, data: dict[str, Any], request: Request, caller_role: int
-) -> Task | Response:
-    """Apply one bulk `update` op, or return the Response that aborts the batch.
-
-    Enforces the SAME per-task ownership rule the single-task ``TaskViewSet.update``
-    path applies via ``IsProjectMemberWriteOrOwn`` (ADR-0133 ``can_user_edit_task``):
-    Admin+ edit any task, a Member only their own assigned task, PO the EPIC/STORY
-    items. Without this a plain Member could bulk-edit tasks assigned to others,
-    bypassing the check enforced everywhere else (#1548). A non-editable task 403s the
-    whole request, mirroring the delete branch so both bulk ops behave consistently.
-    """
-    if not can_user_edit_task(request, task, method="PATCH"):
-        return _bulk_error_response(
-            "You do not have permission to edit one or more tasks in this batch.",
-            status.HTTP_403_FORBIDDEN,
+        return Response(
+            {
+                "applied": out.applied,
+                "rejected": out.rejected,
+                "skipped": out.skipped,
+                "dependencies": {"applied": out.dep_applied, "rejected": out.dep_rejected},
+            },
+            status=status.HTTP_207_MULTI_STATUS,
         )
-    serializer = TaskSerializer(
-        task, data=data, partial=True, context={"request": request, "caller_role": caller_role}
-    )
-    try:
-        serializer.is_valid(raise_exception=True)
-    except ProgressAnchorError:
-        return _progress_anchor_response(str(task.pk))
-    except MilestoneRollupLockedError:
-        return _milestone_rollup_locked_response(str(task.pk))
-    return serializer.save()
 
 
-def _bulk_delete_task(task: Task, caller_role: int, caller: Any) -> Response | None:
-    """Soft-delete one task, or return the Response that aborts the batch.
+def _lock_bulk_targets(
+    project: Project, operations: list[dict[str, Any]]
+) -> tuple[dict[str, Task], set[str]]:
+    """Lock every project-scoped row the batch references, in one query.
 
-    Mirrors ``IsProjectMemberWriteOrOwn``: Admin+ or the task assignee may delete.
-    """
-    if caller_role < Role.ADMIN and not task.assignments.filter(resource__user=caller).exists():
-        return _bulk_error_response(
-            "Only Project Managers and task assignees may delete tasks.",
-            status.HTTP_403_FORBIDDEN,
-        )
-    task.soft_delete()
-    return None
+    Returns ``(locked_by_id, foreign_ids)``:
 
+    - ``locked_by_id`` maps ``str(pk)`` → the locked row, and **includes tombstones**
+      so the create branch can tell "this id belongs to a deleted row here" (a skip)
+      from "this id is fresh" (a create). The update/delete branches re-check
+      ``is_deleted`` themselves.
+    - ``foreign_ids`` are ids that resolve to a task in **another** project — the
+      IDOR guard (#887). Reported per row as a non-asserting ``id_unavailable``.
 
-@dataclass(frozen=True)
-class _BulkOpContext:
-    """Per-request inputs every operation in a bulk task write shares."""
+    Every referenced id is locked, **including create-op ids**, because under the
+    client-minted-id upsert branch a create id may resolve to an existing row: if it
+    were not locked, the existence check and the write would be a TOCTOU window and
+    two concurrent batches minting the same id could interleave (ADR-0772).
 
-    project: Project
-    locked_tasks: dict[uuid.UUID, Task]
-    request: Request
-    caller_role: int
-    caller: Any
-
-
-@dataclass
-class _BulkOpBatch:
-    """Mutable accumulator for one bulk request's outcomes.
-
-    IDs are collected rather than serialized inline so the whole batch can be
-    re-fetched in one annotated query after commit (#998) — serializing a bare
-    locked Task degrades every annotation-backed serializer field to a per-row
-    query.
-    """
-
-    created_ids: list[uuid.UUID] = dataclasses.field(default_factory=list)
-    updated_ids: list[uuid.UUID] = dataclasses.field(default_factory=list)
-    deleted_ids: list[str] = dataclasses.field(default_factory=list)
-    project_start_shifted: bool = False
-
-
-def _apply_one_bulk_op(
-    op: dict[str, Any], ctx: _BulkOpContext, batch: _BulkOpBatch
-) -> Response | None:
-    """Apply one operation to ``batch``.
-
-    Returns the 4xx ``Response`` that aborts the batch, or ``None`` on success.
-    An unrecognized ``op`` is skipped rather than rejected — the serializer has
-    already constrained the vocabulary, so this is defense in depth.
-    """
-    op_type: str = op["op"]
-    data: dict[str, Any] = op.get("data", {})
-
-    if op_type == "delete":
-        error = _bulk_delete_task(ctx.locked_tasks[op["id"]], ctx.caller_role, ctx.caller)
-        if error is not None:
-            return error
-        batch.deleted_ids.append(str(op["id"]))
-        return None
-
-    if op_type == "create":
-        outcome = _bulk_create_task(ctx.project, data, ctx.request, ctx.caller_role)
-    elif op_type == "update":
-        outcome = _bulk_update_task(ctx.locked_tasks[op["id"]], data, ctx.request, ctx.caller_role)
-    else:
-        return None
-
-    if isinstance(outcome, Response):
-        return outcome
-
-    (batch.created_ids if op_type == "create" else batch.updated_ids).append(outcome.pk)
-    # #867: a create/update that pulled the project start earlier must also
-    # broadcast the new boundary, which tasks_bulk_mutated does not carry.
-    if getattr(outcome, "_project_start_shifted_from", None) is not None:
-        batch.project_start_shifted = True
-    return None
-
-
-def _apply_bulk_operations(
-    operations: list[dict[str, Any]], ctx: _BulkOpContext, batch: _BulkOpBatch
-) -> Response | None:
-    """Apply every operation in request order, stopping at the first rejection.
-
-    A rejected op fails the whole batch. The caller returns the Response from
-    inside its ``transaction.atomic()`` block, which leaves the block normally —
-    so everything applied before the rejection still commits, matching the
-    pre-extraction control flow.
-    """
-    for op in operations:
-        error = _apply_one_bulk_op(op, ctx, batch)
-        if error is not None:
-            return error
-    return None
-
-
-def _lock_bulk_targets(project_pk: str, operations: list[dict[str, Any]]) -> dict[uuid.UUID, Task]:
-    """Lock every task an update/delete op references, in one query.
+    Unlike the pre-#2723 version this raises nothing for an unknown id — a missing
+    row is a per-row ``not_found`` rejection, not a 400 that discards the batch.
 
     ``of=("self",)`` restricts the row lock to the Task table — without it, the
     ``select_related`` on the nullable Sprint FK creates an outer join Postgres rejects
     ("FOR UPDATE cannot be applied to the nullable side of an outer join"). Sprint is
     needed read-only by the progress-gate serializer; only Task rows need a write lock.
-
-    Raises:
-        DRFValidationError: one or more referenced tasks are missing from this project.
     """
-    from rest_framework.exceptions import ValidationError as DRFValidationError
+    from trueppm_api.apps.projects.row_identity import foreign_task_ids, parse_row_uuid
 
-    mutated_ids = [op["id"] for op in operations if op["op"] in ("update", "delete")]
-    if not mutated_ids:
-        return {}
+    referenced: set[str] = set()
+    for op in operations:
+        parsed = parse_row_uuid(op.get("id"))
+        if parsed is not None:
+            referenced.add(str(parsed))
+    if not referenced:
+        return {}, set()
 
     qs = (
         Task.objects.select_for_update(of=("self",))
         .select_related("sprint", "project")
-        .filter(pk__in=mutated_ids, project_id=project_pk, is_deleted=False)
+        .filter(pk__in=referenced, project=project)
     )
-    locked = {t.pk: t for t in qs}
-    missing = [str(uid) for uid in mutated_ids if uid not in locked]
-    if missing:
-        raise DRFValidationError(
-            {"operations": [f"Task(s) not found in project: {', '.join(missing)}"]}
-        )
-    return locked
+    locked = {str(t.pk): t for t in qs}
+    return locked, foreign_task_ids(referenced, locked, project)
+
+
+# ---------------------------------------------------------------------------
+# Risk register
+# ---------------------------------------------------------------------------
 
 
 def _record_risk_link_events(

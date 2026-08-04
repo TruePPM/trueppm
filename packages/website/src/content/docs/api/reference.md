@@ -445,6 +445,7 @@ implementation is not yet available.
 | GET | `/api/v1/tasks/{id}/` | Retrieve |
 | PUT / PATCH | `/api/v1/tasks/{id}/` | Update |
 | DELETE | `/api/v1/tasks/{id}/` | Soft-delete (cascades to edges) |
+| POST | `/api/v1/projects/{id}/tasks/bulk/` | Apply many task writes, and optionally dependency edges, in one request — returns `207`, see [Batch task writes](#batch-task-writes) |
 
 CPM fields (`early_start`, `early_finish`, `late_start`, `late_finish`, `total_float`, `is_critical`) are read-only — set by the auto-scheduler. `early_start`/`early_finish` name the **remaining-work window** for an in-progress task, not its span — a 4-day task at 83% carries a one-day `early_start`..`early_finish` (ADR-0132). `scheduled_start` (paired with `early_finish` as `scheduled_finish` for symmetry — not a separate stored field, always identical to `early_finish`) and `remaining_duration` (also read-only) instead name the task's **span** and the working days of work left on it, so a consumer never has to branch on task state to know which quantity a date field means (ADR-0752). Any client that assumes `finish − start ≈ duration` should read `scheduled_start`/`scheduled_finish`, not `early_start`/`early_finish`.
 
@@ -480,6 +481,101 @@ succeeds.
 
 Phase → phase dependencies, baselines, and Monte Carlo are **not** restricted —
 those are derived/aggregate, not direct writes of leaf-owned values.
+
+#### Batch task writes
+
+`POST /api/v1/projects/{id}/tasks/bulk/` applies many task writes in one request.
+It is the endpoint behind paste-many, import, and agent-authored drafting.
+
+:::note[Ships in 0.4]
+The `207` contract described in this section — per-row `applied` / `rejected` /
+`skipped`, client-minted `id` on a `create`, the `dependencies` bucket, and the
+500-operation cap — ships in **TruePPM 0.4**. In `v0.3.0-alpha.3` (the latest
+release) this endpoint returns **`200`** with `{created, updated, deleted}`,
+applies the whole batch or none of it, mints every task id server-side, accepts no
+dependency edges, and enforces no size limit.
+:::
+
+**Rows apply independently, and the response is `207`** — not `200`. One
+unparseable row out of 38 does not discard the other 37. Every operation is
+reported in exactly one of three buckets:
+
+```json
+{
+  "applied":  [{ "index": 0, "id": "…", "op": "create", "outcome": "created", "task": { } }],
+  "rejected": [{ "index": 7, "id": null, "code": "malformed_id", "message": "…" }],
+  "skipped":  [{ "index": 9, "id": "…", "code": "tombstoned", "message": "…" }],
+  "dependencies": { "applied": [], "rejected": [] }
+}
+```
+
+`index` — the zero-based position of the operation in the request's `operations`
+array — is the correlation handle, **not** `id`. A row rejected because its id
+could not be parsed has no usable id to echo back, and a `create` may legitimately
+omit one.
+
+`skipped` is a documented no-op, never a failure: a `create` whose id matches a
+deleted row, or a classification that crossed a milestone gate.
+
+| `code` | Meaning |
+|---|---|
+| `malformed_id` | `id` was not a UUID. Reported before any database query runs |
+| `id_unavailable` | The id cannot be used. Deliberately non-asserting — it does **not** reveal whether the id exists in a project you cannot see |
+| `not_found` | No such task in this project |
+| `forbidden` | Your role does not permit this row's operation |
+| `invalid` | The row body failed validation |
+| `conflict` | A database constraint rejected the row |
+| `cyclic_dependency` / `self_reference` | The edge would make the schedule infeasible |
+| `unresolved_endpoint` | An edge endpoint is not a live task in scope |
+
+##### Client-minted ids
+
+A `create` may carry its own `id`, and the server takes that UUID as the primary
+key verbatim — it is never remapped. This matches the offline sync push, so a row
+authored in the planner, pulled to a phone, edited offline, and pushed back travels
+under one id the whole way. Omit `id` and the server mints one.
+
+A `create` whose `id` already exists in this project is **not** a duplicate and not
+an error: it applies as an in-place edit (`"outcome": "updated"`) under the stricter
+edit permission, and never creates a second row.
+
+##### Dependencies
+
+An optional `dependencies.created` bucket writes edges after every task row exists,
+so an edge may name a task whose `create` appears **later** in `operations`:
+
+```json
+{
+  "operations": [
+    { "op": "create", "id": "3f1c…a1", "data": { "name": "Survey", "duration": 3 } },
+    { "op": "create", "id": "9b40…c7", "data": { "name": "Design", "duration": 5 } }
+  ],
+  "dependencies": {
+    "created": [{ "predecessor": "3f1c…a1", "successor": "9b40…c7", "dep_type": "FS", "lag": 0 }]
+  }
+}
+```
+
+Edges name plain task UUIDs — there is no positional or by-name reference syntax.
+Creating an edge requires Resource Manager or above, checked per edge, so a Team
+Member's task rows still apply while only their edge rows are refused. Every edge
+is checked against the dependency-graph guard before any of them is written; a
+detected cycle refuses the edges on the cycle path and leaves the task rows applied.
+
+##### Limits and replay
+
+- At most **500 operations** and **500 dependency edges** per request.
+- Send an `Idempotency-Key` header. A byte-identical replay returns the stored
+  `207` with `Idempotent-Replay: true` and performs no writes at all — see
+  [Idempotency](/api/idempotency/).
+- Whenever any row commits, the schedule is recalculated and a
+  `tasks_bulk_mutated` event is broadcast carrying only the ids that actually
+  changed.
+
+Authoring the plan requires Team Member or above. The **Resource Manager** role is
+excluded: it sits above Team Member in the role order but cannot edit task content,
+so it could otherwise create rows it was then unable to change. Read
+`can_author` on the project resource rather than comparing role ordinals yourself.
 
 ### Task attachments
 
@@ -1198,6 +1294,7 @@ consumes no additional quota but continues to return `429`.
 | 201 | Created |
 | 202 | Accepted — the work was queued and runs asynchronously (e.g. MS Project / Jira / CSV import, workspace/program/project export, invite-email (re)queueing, a task-run cancellation request). The response carries a job/status resource to poll, or a bare `{"queued": true}`, not the final result |
 | 204 | No content (delete) |
+| 207 | Multi-status — the rows of a batch were applied independently, so the body reports `applied`, `rejected`, and `skipped` together rather than one verdict for the whole request ([batch task writes](#batch-task-writes)). A `207` does **not** mean every row succeeded: always read `rejected` |
 | 304 | Not modified — the caller's `If-None-Match` matched the current `ETag` (public share-link resolution; bundled-sample file download); the body is empty, refetch is unnecessary |
 | 400 | Validation error |
 | 401 | Missing or invalid token |

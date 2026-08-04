@@ -97,6 +97,10 @@ from trueppm_api.apps.projects.schema_migrations import (
     SURFACE_BOARD_SAVED_VIEW,
     migrate_payload,
 )
+from trueppm_api.apps.projects.task_bulk import (
+    TASK_BULK_MAX_DEPENDENCIES,
+    TASK_BULK_MAX_OPERATIONS,
+)
 from trueppm_api.apps.resources.models import Resource, TaskResource
 from trueppm_api.apps.resources.services import (
     MAX_ASSIGNMENT_UNITS,
@@ -438,6 +442,13 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # Mirrors ``ProgramSerializer.my_role`` / ``my_role_label``.
     my_role = serializers.SerializerMethodField()
     my_role_label = serializers.SerializerMethodField()
+    # Server-derived "may the requesting user enter Author mode" verdict (ADR-0773 §(d)).
+    # The Project Designer gates its Read/Author toggle off this rather than comparing
+    # ordinals client-side: a client-side ``role >= ROLE_MEMBER`` reproduces the
+    # Scheduler trap (ordinally above Member, but refused task content) in a place
+    # where no test would catch it. Calls the SAME predicate IsProjectPlanAuthor
+    # enforces — one rule, called twice (ADR-0133).
+    can_author = serializers.SerializerMethodField()
     # Human label for ``default_member_role`` (ADR-0363, #157) so the settings UI
     # renders "Team Member" without duplicating the ordinal→label map client-side.
     default_member_role_label = serializers.SerializerMethodField()
@@ -694,6 +705,8 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             # annotation-backed — drives the MCP ``caller_role`` enrichment.
             "my_role",
             "my_role_label",
+            # Whether the caller may enter the Designer's Author mode (ADR-0773 §(d)).
+            "can_author",
             # Lifecycle (#530) — read-only; flipped via /archive/ and /unarchive/.
             "is_archived",
             "archived_at",
@@ -705,6 +718,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "lead_detail",
             "my_role",
             "my_role_label",
+            "can_author",
             "default_member_role_label",
             "effective_calendar",
             "calendar_source",
@@ -868,6 +882,31 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         queryset (defensive only). Mirrors ``ProgramSerializer.get_my_role``.
         """
         return getattr(obj, "_my_role", None)
+
+    def get_can_author(self, obj: Project) -> bool:
+        """Whether the caller may author this project's plan (ADR-0773 §2).
+
+        Prefers the viewset's ``_my_role`` annotation so a project list costs no
+        extra query per row, and falls back to the request-scoped predicate when the
+        annotation is absent (a freshly-created instance, or a detail route that does
+        not annotate). Both paths end in ``role_can_author_plan``, so the field can
+        never disagree with ``IsProjectPlanAuthor``.
+
+        Fails closed to ``False`` without a request.
+        """
+        from trueppm_api.apps.access.permissions import (
+            can_user_author_plan,
+            role_can_author_plan,
+        )
+
+        annotated_role = getattr(obj, "_my_role", None)
+        if annotated_role is not None:
+            return role_can_author_plan(annotated_role)
+
+        request = self.context.get("request")
+        if request is None:
+            return False
+        return can_user_author_plan(request, obj)
 
     def get_my_role_label(self, obj: Project) -> str | None:
         """Human-readable label for the caller's role (e.g. "Project Manager").
@@ -5199,36 +5238,84 @@ class TaskBulkItemSerializer(serializers.Serializer[Any]):
     OP_CHOICES = ("create", "update", "delete")
 
     op = serializers.ChoiceField(choices=OP_CHOICES)
-    id = serializers.UUIDField(required=False, allow_null=True)
+    # Deliberately NOT a UUIDField, and deliberately not required on `create`.
+    #
+    # Not required: task row ids are client-minted UUIDs (ADR-0772), so a create may
+    # carry its own primary key. Absent, the server mints one — which keeps today's
+    # callers working.
+    #
+    # Not a UUIDField: a `UUIDField` fails the whole *request* on one malformed id,
+    # because a child-serializer error inside a `ListField` aborts the list. Under the
+    # 207 contract a malformed id must be a per-row `malformed_id` rejection correlated
+    # by `index`, so parsing moves into the apply loop (`row_identity.parse_row_uuid`),
+    # which also keeps it ahead of any ORM query — an unparseable id reaching
+    # `filter(pk__in=…)` is a Django-core error DRF does not catch, i.e. a 500 (#1730).
+    id = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     data = serializers.DictField(required=False, default=dict)  # type: ignore[assignment]
 
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        op = attrs["op"]
-        if op in ("update", "delete") and not attrs.get("id"):
-            raise serializers.ValidationError({"id": f"'id' is required for op='{op}'."})
-        return attrs
+
+class TaskBulkDependencySerializer(serializers.Serializer[Any]):
+    """One proposed dependency edge inside a bulk task request (ADR-0772 §3).
+
+    Endpoints are plain task UUIDs — never positional (``predecessor_index``) and
+    never by name. Both were rejected as design options rather than left
+    unimplemented: under per-row 207 partial application a positional reference may
+    point at an op that was not applied, and names are not unique. Because a row's
+    UUID is real before the row has reached the server, an edge inside the same batch
+    needs no reference syntax at all, and forward references (naming a task whose
+    ``create`` appears later in ``operations``) are legal.
+    """
+
+    # CharField for the same per-row-rejection reason as TaskBulkItemSerializer.id.
+    predecessor = serializers.CharField()
+    successor = serializers.CharField()
+    dep_type = serializers.CharField(required=False, default="FS")
+    lag = serializers.IntegerField(required=False, default=0)
+    # Present only so a caller-supplied edge id can be REJECTED rather than silently
+    # ignored: client-minted ids are scoped to Task alone (ADR-0772 §3).
+    id = serializers.CharField(required=False, allow_null=True)
+
+
+class TaskBulkDependencyBucketSerializer(serializers.Serializer[Any]):
+    """The ``dependencies`` bucket. Only ``created`` is accepted in 0.4."""
+
+    created = serializers.ListField(
+        child=TaskBulkDependencySerializer(),
+        required=False,
+        default=list,
+        max_length=TASK_BULK_MAX_DEPENDENCIES,
+    )
 
 
 class TaskBulkSerializer(serializers.Serializer[Any]):
     """Validate the body for POST /api/v1/projects/{pk}/tasks/bulk/.
 
-    Accepts a list of create/update/delete operations and executes them in a
-    single atomic transaction.  Returns separate lists of affected task IDs so
-    the client can invalidate the correct cache keys.
+    Accepts a list of create/update/delete operations plus an optional
+    ``dependencies`` bucket, and applies them per row inside a single transaction.
+    Returns 207 with ``applied`` / ``rejected`` / ``skipped`` (see ``task_bulk``).
     """
 
     operations = serializers.ListField(
         child=TaskBulkItemSerializer(),
         min_length=1,
+        # ADR-0772 requires a cap; the endpoint had none, so a batch was bounded only
+        # by DATA_UPLOAD_MAX_MEMORY_SIZE and the global per-user throttle. Enforced
+        # here rather than only documented — the absence of an enforced cap is exactly
+        # how the ADR came to assert one that did not exist.
+        max_length=TASK_BULK_MAX_OPERATIONS,
     )
+    dependencies = TaskBulkDependencyBucketSerializer(required=False)
 
     def validate_operations(self, ops: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        # Catch duplicate IDs within a single bulk request — the ordering of
-        # concurrent updates to the same row is undefined so we reject it early.
-        ids_seen: set[uuid.UUID] = set()
+        # Catch duplicate IDs within a single bulk request. This stays a whole-request
+        # 400 rather than becoming a per-row rejection: a batch that both updates and
+        # deletes the same row has no defensible per-row answer — the ordering of
+        # concurrent operations on one row is undefined, so the request itself is the
+        # thing that is malformed, not either row.
+        ids_seen: set[str] = set()
         for op in ops:
             task_id = op.get("id")
-            if task_id is not None:
+            if task_id:
                 if task_id in ids_seen:
                     raise serializers.ValidationError(f"Duplicate id {task_id} in operations list.")
                 ids_seen.add(task_id)

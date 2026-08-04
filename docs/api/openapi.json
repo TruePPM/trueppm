@@ -18545,8 +18545,8 @@
         "/api/v1/projects/{id}/tasks/bulk/": {
             "post": {
                 "operationId": "v1_projects_tasks_bulk_create",
-                "description": "Atomically create, update, and delete tasks in a single request.\n\nPOST /api/v1/projects/{pk}/tasks/bulk/\n\nBody:\n    {\n        \"operations\": [\n            { \"op\": \"create\", \"data\": { \"name\": \"Sprint 1\", \"duration\": 5, ... } },\n            { \"op\": \"update\", \"id\": \"<uuid>\", \"data\": { \"percent_complete\": 0.5 } },\n            { \"op\": \"delete\", \"id\": \"<uuid>\" }\n        ]\n    }\n\nAll operations execute inside a single transaction.atomic() block.\nThe scheduling engine is triggered once after commit regardless of how\nmany tasks were mutated.\n\nReturns:\n    200 {\n        \"created\": [{ \"id\": \"<uuid>\", ...task fields... }, ...],\n        \"updated\": [{ \"id\": \"<uuid>\", ...task fields... }, ...],\n        \"deleted\": [\"<uuid>\", ...]\n    }",
-                "summary": "Atomically create, update, and delete tasks in one request",
+                "description": "Create, update, and delete tasks per row in a single request (ADR-0772, #2723).\n\nPOST /api/v1/projects/{pk}/tasks/bulk/\n\nBody::\n\n    {\n        \"operations\": [\n            { \"op\": \"create\", \"id\": \"<client-uuid>\", \"data\": { \"name\": \"Survey\" } },\n            { \"op\": \"update\", \"id\": \"<uuid>\", \"data\": { \"percent_complete\": 0.5 } },\n            { \"op\": \"delete\", \"id\": \"<uuid>\" }\n        ],\n        \"dependencies\": {\n            \"created\": [ { \"predecessor\": \"<uuid>\", \"successor\": \"<uuid>\",\n                           \"dep_type\": \"FS\", \"lag\": 0 } ]\n        }\n    }\n\n**Rows apply independently.** One unparseable row out of 38 must not discard the\nother 37 — that is the difference between paste-many being usable and being a\ncoin flip. Every op is applied inside its own savepoint and reported in exactly\none of three buckets, correlated by its zero-based ``index`` in ``operations``:\n\n    207 {\n        \"applied\":  [{ index, id, op, outcome, task }],\n        \"rejected\": [{ index, id, code, message }],\n        \"skipped\":  [{ index, id, code, message }],\n        \"dependencies\": { \"applied\": [...], \"rejected\": [...] }\n    }\n\n``index`` rather than ``id`` is the correlation handle: a row rejected because\nits id is unparseable has no usable id to echo back.\n\n``id`` on a ``create`` is the client-minted primary key (ADR-0772) — accepted\nverbatim, never remapped, and guarded by the four checks in\n``projects.row_identity``. A create whose id already exists here is an in-place\nedit under the **stricter** edit bar, never a second row.\n\nApply is two phases inside one ``transaction.atomic()``: phase 1 materializes\nevery task row, phase 2 applies dependency edges once every node exists (so an\nedge may forward-reference a task created later in the same batch). The ADR-0259\ngraph guard runs in phase 2 over existing ∪ batch edges, before any edge is\nwritten.",
+                "summary": "Create, update, and delete tasks per row in one request",
                 "parameters": [
                     {
                         "in": "path",
@@ -18592,7 +18592,7 @@
                     }
                 ],
                 "responses": {
-                    "200": {
+                    "207": {
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -51562,6 +51562,11 @@
                         "description": "Human-readable label for the caller's role (e.g. \"Project Manager\").\n\n``None`` when the caller has no annotated role. Mirrors\n``ProgramSerializer.get_my_role_label``.",
                         "readOnly": true
                     },
+                    "can_author": {
+                        "type": "boolean",
+                        "description": "Whether the caller may author this project's plan (ADR-0773 §2).\n\nPrefers the viewset's ``_my_role`` annotation so a project list costs no\nextra query per row, and falls back to the request-scoped predicate when the\nannotation is absent (a freshly-created instance, or a detail route that does\nnot annotate). Both paths end in ``role_can_author_plan``, so the field can\nnever disagree with ``IsProjectPlanAuthor``.\n\nFails closed to ``False`` without a request.",
+                        "readOnly": true
+                    },
                     "is_archived": {
                         "type": "boolean",
                         "readOnly": true
@@ -51584,6 +51589,7 @@
                     "archived_by",
                     "at_risk_count",
                     "calendar_source",
+                    "can_author",
                     "default_member_role_label",
                     "effective_allow_guests",
                     "effective_allowed_attachment_types",
@@ -52228,6 +52234,11 @@
                         "description": "Human-readable label for the caller's role (e.g. \"Project Manager\").\n\n``None`` when the caller has no annotated role. Mirrors\n``ProgramSerializer.get_my_role_label``.",
                         "readOnly": true
                     },
+                    "can_author": {
+                        "type": "boolean",
+                        "description": "Whether the caller may author this project's plan (ADR-0773 §2).\n\nPrefers the viewset's ``_my_role`` annotation so a project list costs no\nextra query per row, and falls back to the request-scoped predicate when the\nannotation is absent (a freshly-created instance, or a detail route that does\nnot annotate). Both paths end in ``role_can_author_plan``, so the field can\nnever disagree with ``IsProjectPlanAuthor``.\n\nFails closed to ``False`` without a request.",
+                        "readOnly": true
+                    },
                     "is_archived": {
                         "type": "boolean",
                         "readOnly": true
@@ -52286,6 +52297,7 @@
                     "archived_by",
                     "at_risk_count",
                     "calendar_source",
+                    "can_author",
                     "default_member_role_label",
                     "effective_allow_guests",
                     "effective_allowed_attachment_types",
@@ -56871,6 +56883,153 @@
                     }
                 }
             },
+            "TaskBulkAppliedEntry": {
+                "type": "object",
+                "description": "One row the batch applied.",
+                "properties": {
+                    "index": {
+                        "type": "integer",
+                        "description": "Zero-based position of this op in the request's `operations` array."
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "op": {
+                        "$ref": "#/components/schemas/OpEnum"
+                    },
+                    "outcome": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/TaskBulkAppliedEntryOutcomeEnum"
+                            }
+                        ],
+                        "description": "`updated` on a create means the client-minted id already existed here, so the row was applied as an in-place edit rather than a second task.\n\n* `created` - created\n* `updated` - updated\n* `unchanged` - unchanged\n* `deleted` - deleted"
+                    },
+                    "task": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/Task"
+                            }
+                        ],
+                        "description": "The persisted row. Absent on a `delete`, which has nothing to return."
+                    }
+                },
+                "required": [
+                    "id",
+                    "index",
+                    "op",
+                    "outcome"
+                ]
+            },
+            "TaskBulkAppliedEntryOutcomeEnum": {
+                "enum": [
+                    "created",
+                    "updated",
+                    "unchanged",
+                    "deleted"
+                ],
+                "type": "string",
+                "description": "* `created` - created\n* `updated` - updated\n* `unchanged` - unchanged\n* `deleted` - deleted"
+            },
+            "TaskBulkDependencyApplied": {
+                "type": "object",
+                "description": "One dependency edge the batch wrote.",
+                "properties": {
+                    "index": {
+                        "type": "integer"
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "predecessor": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "successor": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "pending_acceptance": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "id",
+                    "index",
+                    "pending_acceptance",
+                    "predecessor",
+                    "successor"
+                ]
+            },
+            "TaskBulkDependencyBucketRequest": {
+                "type": "object",
+                "description": "The ``dependencies`` bucket. Only ``created`` is accepted in 0.4.",
+                "properties": {
+                    "created": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskBulkDependencyRequest"
+                        },
+                        "maxItems": 500
+                    }
+                }
+            },
+            "TaskBulkDependencyRequest": {
+                "type": "object",
+                "description": "One proposed dependency edge inside a bulk task request (ADR-0772 §3).\n\nEndpoints are plain task UUIDs — never positional (``predecessor_index``) and\nnever by name. Both were rejected as design options rather than left\nunimplemented: under per-row 207 partial application a positional reference may\npoint at an op that was not applied, and names are not unique. Because a row's\nUUID is real before the row has reached the server, an edge inside the same batch\nneeds no reference syntax at all, and forward references (naming a task whose\n``create`` appears later in ``operations``) are legal.",
+                "properties": {
+                    "predecessor": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "successor": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "dep_type": {
+                        "type": "string",
+                        "minLength": 1,
+                        "default": "FS"
+                    },
+                    "lag": {
+                        "type": "integer",
+                        "default": 0
+                    },
+                    "id": {
+                        "type": "string",
+                        "nullable": true,
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "predecessor",
+                    "successor"
+                ]
+            },
+            "TaskBulkDependencyResult": {
+                "type": "object",
+                "description": "Outcome of the batch's `dependencies` bucket.",
+                "properties": {
+                    "applied": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskBulkDependencyApplied"
+                        }
+                    },
+                    "rejected": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskBulkProblemEntry"
+                        }
+                    }
+                },
+                "required": [
+                    "applied",
+                    "rejected"
+                ]
+            },
             "TaskBulkItemRequest": {
                 "type": "object",
                 "description": "A single operation within a bulk task request.\n\nop: \"create\" | \"update\" | \"delete\"\nid: required for update/delete; omitted (or null) for create.\ndata: task fields — all optional for update, required fields apply for create.",
@@ -56880,7 +57039,6 @@
                     },
                     "id": {
                         "type": "string",
-                        "format": "uuid",
                         "nullable": true
                     },
                     "data": {
@@ -56892,16 +57050,49 @@
                     "op"
                 ]
             },
+            "TaskBulkProblemEntry": {
+                "type": "object",
+                "description": "One row the batch refused (`rejected`) or deliberately did not apply (`skipped`).",
+                "properties": {
+                    "index": {
+                        "type": "integer",
+                        "description": "Zero-based position of this op in the request's `operations` array. This — not `id` — is the correlation handle: a row rejected because its id could not be parsed has no usable id to echo back."
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true,
+                        "description": "Null when the row was refused before an id could be resolved."
+                    },
+                    "code": {
+                        "type": "string",
+                        "description": "Stable machine code. `id_unavailable` is deliberately non-asserting — it does not reveal whether the id exists in a project the caller cannot see."
+                    },
+                    "message": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "code",
+                    "id",
+                    "index",
+                    "message"
+                ]
+            },
             "TaskBulkRequest": {
                 "type": "object",
-                "description": "Validate the body for POST /api/v1/projects/{pk}/tasks/bulk/.\n\nAccepts a list of create/update/delete operations and executes them in a\nsingle atomic transaction.  Returns separate lists of affected task IDs so\nthe client can invalidate the correct cache keys.",
+                "description": "Validate the body for POST /api/v1/projects/{pk}/tasks/bulk/.\n\nAccepts a list of create/update/delete operations plus an optional\n``dependencies`` bucket, and applies them per row inside a single transaction.\nReturns 207 with ``applied`` / ``rejected`` / ``skipped`` (see ``task_bulk``).",
                 "properties": {
                     "operations": {
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/TaskBulkItemRequest"
                         },
+                        "maxItems": 500,
                         "minItems": 1
+                    },
+                    "dependencies": {
+                        "$ref": "#/components/schemas/TaskBulkDependencyBucketRequest"
                     }
                 },
                 "required": [
@@ -56910,32 +57101,36 @@
             },
             "TaskBulkResponse": {
                 "type": "object",
-                "description": "Response for the atomic task bulk-mutation endpoint.",
+                "description": "207 response for the per-row task bulk-mutation endpoint (#2723, ADR-0772).\n\nReplaces the pre-#2723 `{created, updated, deleted}` 200. Rows apply\nindependently, so a single response can carry all three buckets at once.",
                 "properties": {
-                    "created": {
+                    "applied": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/Task"
+                            "$ref": "#/components/schemas/TaskBulkAppliedEntry"
                         }
                     },
-                    "updated": {
+                    "rejected": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/Task"
+                            "$ref": "#/components/schemas/TaskBulkProblemEntry"
                         }
                     },
-                    "deleted": {
+                    "skipped": {
                         "type": "array",
                         "items": {
-                            "type": "string",
-                            "format": "uuid"
-                        }
+                            "$ref": "#/components/schemas/TaskBulkProblemEntry"
+                        },
+                        "description": "Documented no-ops, never failures — a create against a tombstoned id, or a classification that crossed a milestone gate."
+                    },
+                    "dependencies": {
+                        "$ref": "#/components/schemas/TaskBulkDependencyResult"
                     }
                 },
                 "required": [
-                    "created",
-                    "deleted",
-                    "updated"
+                    "applied",
+                    "dependencies",
+                    "rejected",
+                    "skipped"
                 ]
             },
             "TaskComment": {

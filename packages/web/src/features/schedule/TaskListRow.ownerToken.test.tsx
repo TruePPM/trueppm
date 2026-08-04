@@ -11,7 +11,7 @@
  * the contract this issue exists to pin down.
  */
 import { useMemo } from 'react';
-import { screen, render, fireEvent, act } from '@testing-library/react';
+import { screen, render, fireEvent, act, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { MemoryRouter, Routes, Route } from 'react-router';
@@ -253,7 +253,10 @@ describe('@owner token — picker', () => {
     expect(screen.getByRole('option', { name: /Ana Rivera/ })).toBeInTheDocument();
   });
 
-  it('picking a person PATCHes owners and drops the token from the name', async () => {
+  it('picking a person completes the token in place, then commit PATCHes owners', async () => {
+    // Since #2722 a pick REWRITES the draft rather than committing the row: focus
+    // never leaves the row and more tokens may follow, so completing `@an` must not
+    // end the edit.
     const user = userEvent.setup();
     const { focus } = renderBuild({ resourcePool: POOL });
     const input = startEditing(focus);
@@ -261,15 +264,23 @@ describe('@owner token — picker', () => {
     await user.type(input, 'Draft plan @an');
 
     fireEvent.mouseDown(await screen.findByRole('option', { name: /Ana Rivera/ }));
-    expect(mocks.updateMutate).toHaveBeenCalledWith({
-      id: 't1',
-      projectId: 'p1',
-      name: 'Draft plan',
-      owners: [{ resource: 'r-ana', units: 1 }],
-    });
+    await waitFor(() => expect(input).toHaveValue('Draft plan @"Ana Rivera"'));
+    expect(mocks.updateMutate).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(mocks.updateMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 't1',
+        projectId: 'p1',
+        name: 'Draft plan',
+        owners: [{ resource: 'r-ana', units: 1 }],
+      }),
+    );
   });
 
   it('honors a percent already typed before the pick', async () => {
+    // Picking from the list must not silently reset an allocation the author already
+    // typed — the completed token keeps the `:25` suffix (ADR-0774).
     const user = userEvent.setup();
     const { focus } = renderBuild({ resourcePool: POOL });
     const input = startEditing(focus);
@@ -277,6 +288,9 @@ describe('@owner token — picker', () => {
     await user.type(input, 'Draft @ana:25');
 
     fireEvent.mouseDown(await screen.findByRole('option', { name: /Ana Rivera/ }));
+    await waitFor(() => expect(input).toHaveValue('Draft @"Ana Rivera":25'));
+
+    fireEvent.keyDown(input, { key: 'Enter' });
     expect(mocks.updateMutate).toHaveBeenCalledWith(
       expect.objectContaining({ owners: [{ resource: 'r-ana', units: 0.25 }] }),
     );
