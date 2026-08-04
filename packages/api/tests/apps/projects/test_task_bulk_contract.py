@@ -401,6 +401,9 @@ def test_a_self_referential_edge_is_rejected(owner_client: APIClient, project: P
         )
     assert r.status_code == 207, r.data
     assert [e["code"] for e in r.data["dependencies"]["rejected"]] == ["self_reference"]
+    # Dependency ids are server-assigned, so a rejection never has one to echo back —
+    # but the key itself is required by TaskBulkProblemEntry (#2757).
+    assert r.data["dependencies"]["rejected"][0]["id"] is None
     assert not Dependency.objects.filter(predecessor_id=a).exists()
 
 
@@ -428,6 +431,7 @@ def test_a_member_may_paste_rows_but_not_author_edges(project: Project) -> None:
     assert r.status_code == 207, r.data
     assert len(r.data["applied"]) == 2
     assert [e["code"] for e in r.data["dependencies"]["rejected"]] == ["forbidden"]
+    assert r.data["dependencies"]["rejected"][0]["id"] is None
     assert not Dependency.objects.filter(predecessor_id=a).exists()
 
 
@@ -453,6 +457,7 @@ def test_a_caller_supplied_dependency_id_is_rejected(
         )
     assert r.status_code == 207, r.data
     assert [e["code"] for e in r.data["dependencies"]["rejected"]] == ["invalid"]
+    assert r.data["dependencies"]["rejected"][0]["id"] is None
 
 
 @pytest.mark.django_db
@@ -651,7 +656,12 @@ def test_the_207_body_matches_the_schema_it_publishes(
     It proves the committed document matches the current code's *declarations*, not
     that a response body satisfies them — so a wrong `responses={...}` passes CI and
     breaks a generated SDK instead. This asserts the actual body, with all three
-    buckets non-trivially populated, against the committed schema.
+    buckets — and both `dependencies` buckets — non-trivially populated, against the
+    committed schema.
+
+    The pre-#2757 gap: this test populated `dependencies.applied` but never
+    `dependencies.rejected`, so a dep-edge rejection missing the schema's required
+    `id` key (#2757) passed this exact conformance check untouched.
     """
     from tests.test_openapi_response_conformance import (
         assert_response_matches_schema,
@@ -672,13 +682,19 @@ def test_the_207_body_matches_the_schema_it_publishes(
                     {"op": "create", "data": {"duration": 1}},  # rejected: no name
                     {"op": "create", "id": str(dead.pk), "data": {"name": "Z"}},  # skipped
                 ],
-                "dependencies": {"created": [{"predecessor": a, "successor": b}]},
+                "dependencies": {
+                    "created": [
+                        {"predecessor": a, "successor": b},
+                        {"predecessor": a, "successor": a},  # rejected: self-reference
+                    ]
+                },
             },
             format="json",
         )
 
     assert r.data["applied"] and r.data["rejected"] and r.data["skipped"]
     assert r.data["dependencies"]["applied"]
+    assert r.data["dependencies"]["rejected"]
     assert_response_matches_schema(
         load_committed_schema(),
         r,

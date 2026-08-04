@@ -146,6 +146,20 @@ class BulkOutcome:
             }
         )
 
+    def dep_reject(self, index: int, code: str, message: str, **extra: Any) -> None:
+        """Reject one dependency-edge row.
+
+        ``id`` is always ``null`` — dependency ids are server-assigned (ADR-0772), so
+        there is never a client-resolvable id to echo back. Still required in the
+        dict: ``TaskBulkProblemEntrySerializer`` (reused for both ``rejected`` and
+        ``dependencies.rejected``) declares ``id`` as a required, nullable field, and
+        the view returns this dict directly rather than through the serializer, so an
+        omitted key reaches the client as a schema violation instead of being caught.
+        """
+        self.dep_rejected.append(
+            {"index": index, "id": None, "code": code, "message": message, **extra}
+        )
+
     @property
     def mutated_task_ids(self) -> list[str]:
         """Every task id this batch actually changed."""
@@ -534,37 +548,21 @@ def _resolve_edges(
         # IsProjectMemberWrite floor. Accepting edges under the view's own gate
         # would silently hand dependency authoring to Member.
         if ctx.caller_role < Role.SCHEDULER:
-            out.dep_rejected.append(
-                {
-                    "index": index,
-                    "code": CODE_FORBIDDEN,
-                    "message": "Your role cannot create dependencies on this project.",
-                }
+            out.dep_reject(
+                index, CODE_FORBIDDEN, "Your role cannot create dependencies on this project."
             )
             continue
         if row.get("id") is not None:
             # Client-minted ids are scoped to Task only. All four guards are written
             # about task ids and none would cover a caller-supplied Dependency.id, so
             # a supplied edge id is rejected rather than ignored.
-            out.dep_rejected.append(
-                {
-                    "index": index,
-                    "code": CODE_INVALID,
-                    "message": "Dependency ids are server-assigned.",
-                }
-            )
+            out.dep_reject(index, CODE_INVALID, "Dependency ids are server-assigned.")
             continue
 
         pred = parse_row_uuid(row.get("predecessor"))
         succ = parse_row_uuid(row.get("successor"))
         if pred is None or succ is None:
-            out.dep_rejected.append(
-                {
-                    "index": index,
-                    "code": CODE_MALFORMED_ID,
-                    "message": "Edge endpoints must be task UUIDs.",
-                }
-            )
+            out.dep_reject(index, CODE_MALFORMED_ID, "Edge endpoints must be task UUIDs.")
             continue
         # Forward references are legal: an edge may name a task whose create op
         # appears LATER in `operations`, because phase 1 has already materialized
@@ -573,12 +571,8 @@ def _resolve_edges(
             Task.objects.filter(pk__in=[pred, succ], is_deleted=False).values_list("pk", flat=True)
         )
         if pred not in live or succ not in live:
-            out.dep_rejected.append(
-                {
-                    "index": index,
-                    "code": CODE_UNRESOLVED_ENDPOINT,
-                    "message": "Edge endpoint does not resolve to a live task.",
-                }
+            out.dep_reject(
+                index, CODE_UNRESOLVED_ENDPOINT, "Edge endpoint does not resolve to a live task."
             )
             continue
         survivors.append((index, row, str(pred), str(succ)))
@@ -632,13 +626,11 @@ def _guard_edge_graph(
                 for entry in remaining:
                     _idx, _row, pred, succ = entry
                     if pred == succ and pred in offending:
-                        out.dep_rejected.append(
-                            {
-                                "index": _idx,
-                                "code": CODE_SELF_REFERENCE,
-                                "message": "A task cannot depend on itself.",
-                                "offending": exc.offending,
-                            }
+                        out.dep_reject(
+                            _idx,
+                            CODE_SELF_REFERENCE,
+                            "A task cannot depend on itself.",
+                            offending=exc.offending,
                         )
                     else:
                         kept.append(entry)
@@ -652,13 +644,11 @@ def _guard_edge_graph(
             for entry in remaining:
                 _idx, _row, pred, succ = entry
                 if (pred, succ) in on_cycle:
-                    out.dep_rejected.append(
-                        {
-                            "index": _idx,
-                            "code": CODE_CYCLIC_DEPENDENCY,
-                            "message": "This dependency would create a cycle.",
-                            "offending": exc.offending,
-                        }
+                    out.dep_reject(
+                        _idx,
+                        CODE_CYCLIC_DEPENDENCY,
+                        "This dependency would create a cycle.",
+                        offending=exc.offending,
                     )
                 else:
                     kept.append(entry)
@@ -732,16 +722,12 @@ def apply_dependency_edges(
                 )
         except PermissionDenied as exc:
             del out.dep_applied[before[0] :]
-            out.dep_rejected.append(
-                {"index": index, "code": CODE_FORBIDDEN, "message": str(exc.detail)}
-            )
+            out.dep_reject(index, CODE_FORBIDDEN, str(exc.detail))
         except DRFValidationError as exc:
             del out.dep_applied[before[0] :]
-            out.dep_rejected.append(
-                {"index": index, "code": CODE_INVALID, "message": _first_error_message(exc)}
-            )
+            out.dep_reject(index, CODE_INVALID, _first_error_message(exc))
         except DatabaseError as exc:
             del out.dep_applied[before[0] :]
-            out.dep_rejected.append({"index": index, "code": CODE_CONFLICT, "message": str(exc)})
+            out.dep_reject(index, CODE_CONFLICT, str(exc))
 
     return recalc_project_ids
