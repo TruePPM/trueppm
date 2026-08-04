@@ -163,6 +163,47 @@ parity for Enter-creates-a-row is folded into the same follow-up issue as the de
 do "open drawer" and "reschedule" go on the Timeline once Enter is reassigned?) that
 deserves its own resolution rather than an ADR-in-passing.
 
+### 8. Timeline ARIA: `role="listbox"`/`option`, not the issue's literal `role="list"`/`listitem`
+
+The issue's accessibility section asks for `role="list"` with one `listitem` per bar. That
+was implemented first and reverted after two independent, automated checks rejected it:
+axe-core's `aria-allowed-attr` rule (critical severity) — `aria-selected` is not a
+permitted attribute on `listitem` — and eslint-plugin-jsx-a11y's
+`no-noninteractive-tabindex` / `no-noninteractive-element-interactions` — `listitem` is a
+non-interactive role, and every bar needs `tabIndex`, `onFocus`, and `onKeyDown` for the
+roving-tabindex keyboard contract (`ArrowUp/Down`, `Home`/`End`, `Enter`, `Shift+Enter`,
+`r`, `Space`) that already ships and is under test
+(`ScheduleAriaOverlay.keyboard.test.tsx`). `list`/`listitem` is defined for static content
+grouping, not a keyboard-navigable, selectable widget — it was never going to pass either
+check regardless of implementation care.
+
+`role="listbox"` / `role="option"` is ARIA's actual pairing for "a keyboard-navigable,
+selectable set of items" — the same "one interactive target per row, not a 2D grid" shape
+the issue was asking for (every row already has exactly one interactive cell; there is no
+horizontal cell-to-cell navigation, so `grid`'s 2D contract never fit either), with
+first-class, spec-legal support for `aria-selected` and roving tabindex. `aria-rowcount` /
+`aria-rowindex` (grid-only properties) are replaced with `aria-setsize` / `aria-posinset`,
+the listbox/option equivalents for describing a virtualized item's position without every
+sibling present in the DOM.
+
+### 9. Delivery-mode visual encoding: gutter + texture + chip, via a dedicated `ux-design` pass
+
+The issue names the requirement ("delivery mode never color alone") but not the pixel-
+level design — no gutter width/position, texture pattern, or chip placement was specified,
+and delivery mode was not rendered on the Gantt bars *at all* before this issue (this is
+net-new rendering work, not a fix to an existing color-only encoding). Per this project's
+own gate table, new visual language on an existing surface goes through `ux-design` before
+implementation; that pass (grounded in a full read of `GanttRenderer.ts`'s existing bar
+draw order, z-order, and dimming/selection/critical-path visual language) produced the
+concrete spec that shipped: a 3px left-edge gutter (always visible even on a 2px-clamped
+bar), a low-alpha texture across the bar body (diagonal stripes for Scrum, a dot grid for
+Kanban, cross-hatch for the rare `'milestone'` delivery-mode value landing on an actual
+bar rather than a diamond), and a mode-letter prefix folded into the existing progress
+chip rather than a second chip competing for the same left-anchored space. Waterfall (the
+default/baseline mode) and external-redacted bars draw none of it — omission is the
+"nothing special" signal, consistent with how the existing chip already treats a fresh
+`NOT_STARTED` task. Full spec reasoning lives in the implementing MR's description.
+
 ## Alternatives Considered
 
 | Option | Pros | Cons |
@@ -180,6 +221,10 @@ deserves its own resolution rather than an ADR-in-passing.
 | Keep Tab/Shift+Tab as specced | Matches the design handoff literally | Ships a known keyboard-trap class into a second surface under an issue that carries the `accessibility` label |
 | **Enter-to-create scoped to Grid, Timeline deferred** (chosen) | Zero regression risk to #2205's tested drawer-open/reschedule bindings | Timeline doesn't get Enter-to-create in this branch, despite the issue asking for it |
 | Relocate Timeline's Enter/Shift+Enter to make room | Matches the issue literally | Reworks a tested, shipped surface's keyboard contract as a side effect of an unrelated issue — real regression risk for no user-requested benefit today |
+| **Timeline `role="listbox"`/`option`** (chosen) | Passes axe-core `aria-allowed-attr` and eslint-plugin-jsx-a11y's non-interactive-role rules; spec-legal `aria-selected` + roving tabindex | Deviates from the issue's literal `role="list"`/`listitem` |
+| Timeline `role="list"`/`listitem` as specced | Matches the issue literally | Fails a critical-severity axe-core rule (`aria-selected` not allowed on `listitem`) and two eslint-plugin-jsx-a11y rules (non-interactive role with keyboard handlers) — not shippable as specified |
+| **Delivery-mode gutter+texture+chip via `ux-design`** (chosen) | Concrete spec grounded in the renderer's actual z-order/dimming/selection language, so it composes instead of conflicting | One more design-then-implement round trip before code |
+| Guess a reasonable encoding without a design pass | Faster | No existing rendering to anchor against (delivery mode wasn't drawn at all before); real risk of colliding with the existing chip's left-anchor or the critical-path frame's outer-edge claim |
 
 ## Consequences
 
@@ -203,12 +248,21 @@ deserves its own resolution rather than an ADR-in-passing.
   genuine gap: `insertBelow` never sent `delivery_mode`, so a new row silently
   defaulted server-side (`waterfall`) instead of matching its sibling. Fixed as part
   of this ADR's Enter-variant work, not scoped out.
+- The Timeline's `role="listbox"`/`option` rename is a locator-breaking change for
+  every test (vitest and Playwright) that targets the overlay by role — every
+  affected spec was updated in the same commit and re-run against the real build,
+  same discipline as the Tab→Alt+Arrow rebind above.
+- Delivery-mode gutter/texture/chip is the first Gantt-bar rendering that reads
+  `task.deliveryMode` at all — a future methodology value beyond `waterfall` /
+  `scrum` / `kanban` / `milestone` needs its own texture pattern and palette
+  entries in `GanttRenderer.ts` (`COLOR`/`COLOR_DARK`/`COLOR_FORCED` all three,
+  enforced by the `ColorPalette` type), not just a `DeliveryMode` union update.
 
 ## Implementation Notes
 - P3M layer: Programs and Projects (single-project task authoring)
 - Affected packages: web only
 - Migration required: no
-- API changes: no — all six points are client-side; ⌘D's subtree duplicate composes
+- API changes: no — all nine points are client-side; ⌘D's subtree duplicate composes
   the existing `POST /tasks/` endpoint multiple times (already how single-row duplicate
   and `insertBelow` work), no new server surface
 - OSS or Enterprise: OSS (single-project authoring, no cross-program surface)

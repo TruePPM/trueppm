@@ -33,7 +33,16 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ['letter'], label: 'Start typing in Name cell' },
       { keys: ['Tab'], label: 'Save and move to next field' },
       { keys: ['Shift', 'Tab'], label: 'Save and move to previous field' },
-      { keys: ['Esc'], label: 'Cancel and revert' },
+      { keys: ['⌫'], label: 'On an empty Name cell: merge into the row above' },
+      { keys: ['Esc'], label: 'Cancel and revert (discards an untouched new row)' },
+    ],
+  },
+  {
+    title: 'Creating rows',
+    entries: [
+      { keys: ['⏎'], label: 'New row below, same level' },
+      { keys: ['Shift', '⏎'], label: 'New row above, same level' },
+      { keys: ['⌘', '⏎'], label: 'New child row (one level deeper)' },
     ],
   },
   {
@@ -41,6 +50,8 @@ const SECTIONS: ShortcutSection[] = [
     entries: [
       { keys: ['⌥', '→'], label: 'Indent under previous row' },
       { keys: ['⌥', '←'], label: 'Outdent one level' },
+      { keys: ['⌥', '↑'], label: 'Move row (and its subtree) up' },
+      { keys: ['⌥', '↓'], label: 'Move row (and its subtree) down' },
       { keys: ['Right-click'], label: 'Open row menu' },
     ],
   },
@@ -49,8 +60,7 @@ const SECTIONS: ShortcutSection[] = [
     entries: [
       { keys: ['Space'], label: 'Mark complete / un-complete focused row' },
       { keys: ['⌘', 'D'], label: 'Duplicate row and its subtree' },
-      { keys: ['Enter'], label: 'Open task drawer' },
-      { keys: ['⌫'], label: 'Delete row' },
+      { keys: ['⌫'], label: 'Delete row (no selection: focused row; with a selection: every selected row)' },
       { keys: ['⌥', 'A'], label: 'Toggle Author / Read mode' },
     ],
   },
