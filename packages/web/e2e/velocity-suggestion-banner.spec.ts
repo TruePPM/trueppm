@@ -272,7 +272,7 @@ async function setupScheduleWithPendingSuggestion(
 }
 
 async function openEstimates(page: Page) {
-  const grid = page.getByRole('grid', { name: 'Task list' });
+  const grid = page.getByRole('treegrid', { name: 'Task list' });
   await expect(grid).toBeVisible({ timeout: 10_000 });
   await grid.getByRole('button', { name: `Open properties for ${TASK.name}` }).click();
   const drawer = page.getByRole('dialog', { name: new RegExp(TASK.name) }).first();

@@ -187,7 +187,7 @@ describe('TaskListPanel — grid + row wiring', () => {
     expect(screen.getByTestId('row-b')).toHaveTextContent('Beta');
     // Header row (1) + one row per task (2) = 3 (#2204: aria-rowindex on the
     // header is 1 and on data rows is 2-based, so the count includes the header).
-    expect(screen.getByRole('grid', { name: 'Task list' })).toHaveAttribute('aria-rowcount', '3');
+    expect(screen.getByRole('treegrid', { name: 'Task list' })).toHaveAttribute('aria-rowcount', '3');
   });
 
   it('assigns 2-based aria-rowindex to data rows (header is row 1) (#2204)', () => {
@@ -213,7 +213,7 @@ describe('TaskListPanel — grid + row wiring', () => {
     const { container } = renderPanel({ tasks: [task({ id: 'a', name: 'Alpha' })] });
     // No bare unroled div may sit between role="grid" and the rows; the scroll
     // wrapper, sizer, and per-row wrapper are all role="presentation".
-    const grid = screen.getByRole('grid', { name: 'Task list' });
+    const grid = screen.getByRole('treegrid', { name: 'Task list' });
     const presentationWrappers = container.querySelectorAll('[role="presentation"]');
     expect(presentationWrappers.length).toBeGreaterThanOrEqual(3);
     // The active row still lives inside the grid subtree.

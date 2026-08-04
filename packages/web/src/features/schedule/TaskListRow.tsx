@@ -1623,6 +1623,13 @@ function TaskListRowInner({
       role="row"
       data-row-id={task.id}
       aria-rowindex={ariaRowIndex}
+      // Treegrid semantics (#2727): level is the row's WBS depth (1-based,
+      // matching aria-level's convention directly); aria-expanded is present
+      // only on rows that actually have children — a leaf row must omit it
+      // entirely rather than carry aria-expanded="false", which would
+      // incorrectly claim it's expandable.
+      aria-level={level}
+      aria-expanded={hasChildren ? isExpanded : undefined}
       aria-selected={buildMode ? isBuildSelected : isSelected}
       tabIndex={rovingRowTabIndex}
       style={{ height: ROW_HEIGHT }}

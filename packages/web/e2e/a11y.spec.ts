@@ -430,7 +430,7 @@ test.describe('accessibility @a11y — routes', () => {
 
   test('project Schedule has no critical/serious WCAG violations', async ({ page }, testInfo) => {
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
 
     await expectNoA11yViolations(page, testInfo, {
       gateModerate: true,
@@ -446,7 +446,7 @@ test.describe('accessibility @a11y — routes', () => {
     // which is the Schedule view (New Task / New Milestone). It therefore shares
     // the Schedule route's excluded rules. SUPPRESSED-UNTIL(#2618)
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
     await page.getByRole('button', { name: 'Create new' }).click();
     await expect(page.getByRole('menu', { name: 'Create new' })).toBeVisible();
 
@@ -492,7 +492,7 @@ test.describe('accessibility @a11y — routes', () => {
 
   test('task drawer (open) has no critical/serious WCAG violations', async ({ page }, testInfo) => {
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
-    const grid = page.getByRole('grid', { name: 'Task list' });
+    const grid = page.getByRole('treegrid', { name: 'Task list' });
     await expect(grid).toBeVisible({ timeout: 10_000 });
     await grid.getByRole('button', { name: 'Open properties for Technical Design' }).click();
     const drawer = page.getByRole('dialog', { name: /Technical Design/ }).first();

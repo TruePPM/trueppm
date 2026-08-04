@@ -159,7 +159,7 @@ async function setup(page: Page, { role, rule }: SetupOptions) {
 }
 
 async function openRecurrence(page: Page) {
-  const grid = page.getByRole('grid', { name: 'Task list' });
+  const grid = page.getByRole('treegrid', { name: 'Task list' });
   await expect(grid).toBeVisible({ timeout: 10_000 });
   await grid.getByRole('button', { name: 'Open properties for Weekly Safety Walk' }).click();
   const drawer = page.getByRole('dialog', { name: /Weekly Safety Walk/ }).first();

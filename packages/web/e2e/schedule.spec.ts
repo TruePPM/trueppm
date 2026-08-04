@@ -175,7 +175,7 @@ test.describe('Schedule toolbar', () => {
     await gotoSchedule(page);
     // Wait for the Schedule view to finish loading (task list should be visible)
     await expect(
-      page.getByRole('grid', { name: 'Task list' }),
+      page.getByRole('treegrid', { name: 'Task list' }),
     ).toBeVisible({ timeout: 10_000 });
   });
 
@@ -229,7 +229,7 @@ test.describe('Schedule toolbar — Today & Fit interactions (#1512)', () => {
   async function parkFarRight(page: import('@playwright/test').Page): Promise<number> {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await gotoSchedule(page);
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
     const scroll = page.getByTestId('schedule-canvas-scroll');
     await expect(scroll).toBeVisible();
     // Wait until the canvas is actually wider than its viewport, then scroll to
@@ -270,7 +270,7 @@ test.describe('Schedule task list', () => {
   test.beforeEach(async ({ page }) => {
     await gotoSchedule(page);
     await expect(
-      page.getByRole('grid', { name: 'Task list' }),
+      page.getByRole('treegrid', { name: 'Task list' }),
     ).toBeVisible({ timeout: 10_000 });
   });
 
@@ -591,7 +591,7 @@ test.describe('Schedule task edit — failed rename rolls back (#1518)', () => {
       return route.fallback();
     });
 
-    const grid = page.getByRole('grid', { name: 'Task list' });
+    const grid = page.getByRole('treegrid', { name: 'Task list' });
     await expect(grid).toBeVisible({ timeout: 10_000 });
 
     // Open the detail drawer for the task and rename it via the editable title.

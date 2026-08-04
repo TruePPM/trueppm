@@ -141,7 +141,7 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
     });
 
     await page.goto(BASE_URL);
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
   });
 
   test('+ Phase button is a visible peer to + Task and + Milestone, brand-primary (not gold)', async ({ page }) => {
@@ -162,7 +162,7 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
     await nameInput.press('Enter');
 
     // Renamed row shows in the task list.
-    const grid = page.getByRole('grid', { name: 'Task list' });
+    const grid = page.getByRole('treegrid', { name: 'Task list' });
     await expect(grid.getByText('Design Phase')).toBeVisible();
   });
 
@@ -189,7 +189,7 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
 
     // Once the phase has a structural child, is_phase flips true and the
     // hint retires from the (now real) phase row.
-    const grid = page.getByRole('grid', { name: 'Task list' });
+    const grid = page.getByRole('treegrid', { name: 'Task list' });
     await expect(grid.getByText('Wireframes')).toBeVisible();
     await expect(page.getByTestId('phase-in-waiting-hint')).toHaveCount(0);
   });

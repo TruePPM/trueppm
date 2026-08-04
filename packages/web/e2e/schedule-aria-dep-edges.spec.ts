@@ -79,7 +79,7 @@ test.describe('Schedule ARIA overlay dep edges (#1371)', () => {
     });
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
     // Wait for the task-list grid — confirms tasks are fetched and the schedule view rendered.
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
   });
 
   test('successor bar has aria-describedby that names its predecessor', async ({ page }) => {

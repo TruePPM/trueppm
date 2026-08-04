@@ -252,7 +252,7 @@ async function seedAndNavigate(page: import('@playwright/test').Page) {
   // Gate on the schedule's Task list grid rendering (the page's core reads have
   // resolved) rather than `networkidle`, which never settles cleanly while the
   // app-wide hooks poll and the WebSocket handshake runs.
-  await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
 }
 
 // 401-guard safety net, registered before each test so it is the EARLIEST route
@@ -283,7 +283,7 @@ test('Skill-fit groups appear in the assignment picker when task has requirement
   // Open task detail drawer via the row's Properties button — a plain row
   // click just focuses the cell for inline editing under build mode (ADR-0054).
   await page
-    .getByRole('grid', { name: 'Task list' })
+    .getByRole('treegrid', { name: 'Task list' })
     .getByRole('row', { name: /Build API/i })
     .getByRole('button', { name: /Open properties for/i })
     .click();
@@ -310,7 +310,7 @@ test('Missing skill badge shown for no-match resources', async ({ page }) => {
   await seedAndNavigate(page);
 
   await page
-    .getByRole('grid', { name: 'Task list' })
+    .getByRole('treegrid', { name: 'Task list' })
     .getByRole('row', { name: /Build API/i })
     .getByRole('button', { name: /Open properties for/i })
     .click();
