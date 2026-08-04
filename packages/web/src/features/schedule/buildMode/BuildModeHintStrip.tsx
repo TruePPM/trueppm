@@ -14,9 +14,9 @@ const HINTS_BY_MODE: Record<FocusMode, HintEntry[]> = {
     { key: '?', label: 'All shortcuts' },
   ],
   RowFocused: [
-    { key: 'Enter', label: 'Edit' },
-    { key: 'Tab', label: 'Indent' },
     { key: '⏎', label: 'New row below' },
+    { key: '⌥→', label: 'Indent' },
+    { key: 'F2', label: 'Edit' },
   ],
   CellEdit: [
     { key: '⏎', label: 'Save' },

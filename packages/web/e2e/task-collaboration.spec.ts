@@ -611,7 +611,7 @@ async function bootProjectPage(page: Page, opts: BootOpts = {}): Promise<void> {
 
 async function openDrawer(page: Page): Promise<ReturnType<Page['locator']>> {
   await page.goto(`/projects/${PROJECT_ID}/schedule`);
-  const grid = page.getByRole('grid', { name: 'Task list' });
+  const grid = page.getByRole('treegrid', { name: 'Task list' });
   await expect(grid).toBeVisible({ timeout: 10_000 });
   await grid.getByRole('button', { name: `Open properties for ${FIXTURE_TASK.name}` }).click();
   const drawer = page.getByRole('dialog', { name: new RegExp(FIXTURE_TASK.name) }).first();
@@ -1120,7 +1120,7 @@ test.describe('Task collaboration — notification panel (#311)', () => {
       unreadCount: 1,
     });
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
 
     const bell = page.getByRole('button', { name: /Notifications, 1 unread/ });
     await bell.click();
@@ -1137,7 +1137,7 @@ test.describe('Task collaboration — notification panel (#311)', () => {
       unreadCount: 1,
     });
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
 
     const bell = page.getByRole('button', { name: /Notifications, 1 unread/ });
     await bell.click();
@@ -1173,7 +1173,7 @@ test.describe('Task collaboration — notification panel (#311)', () => {
       unreadCount: 1,
     });
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
 
     await page.getByRole('button', { name: /Notifications, 1 unread/ }).click();
     const panel = page.getByRole('dialog', { name: 'Notifications' });
@@ -1192,7 +1192,7 @@ test.describe('Task collaboration — notification panel (#311)', () => {
   test('empty state shows "Caught up!" when no unread mentions exist', async ({ page }) => {
     await bootProjectPage(page, { notifications: [], unreadCount: 0 });
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
 
     await page.getByRole('button', { name: /^Notifications$/ }).click();
     const panel = page.getByRole('dialog', { name: 'Notifications' });
@@ -1207,7 +1207,7 @@ test.describe('Task collaboration — notification panel (#311)', () => {
       unreadCount: 2,
     });
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
 
     await page.getByRole('button', { name: /Notifications, 2 unread/ }).click();
     const panel = page.getByRole('dialog', { name: 'Notifications' });
@@ -1234,7 +1234,7 @@ test.describe('Task collaboration — notification panel (#311)', () => {
       unreadCount: 1,
     });
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
 
     await page.getByRole('button', { name: /Notifications, 1 unread/ }).click();
     const panel = page.getByRole('dialog', { name: 'Notifications' });

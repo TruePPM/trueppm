@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { render, screen, cleanup, waitFor, act, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
@@ -50,12 +50,22 @@ let mockExportError: string | null = null;
 let mockEffectiveMethodology: string | undefined;
 
 const exportProjectMock = vi.fn();
+let createTaskCounter = 0;
 const createTaskMutate = vi.fn(
   (vars: Record<string, unknown>, opts?: { onSuccess?: (created: { id: string }) => void }) => {
     opts?.onSuccess?.({ id: 'new-task-1', ...(vars as object) });
   },
 );
+// duplicateSubtree (#2727, ADR-0776 §2) awaits mutateAsync sequentially to
+// remap each clone's parent_id — the sync-only `mutate` mock above can't
+// drive that. Each call gets a distinct id so a subtree walk's `idMap`
+// resolves correctly.
+const createTaskMutateAsync = vi.fn((vars: Record<string, unknown>) => {
+  createTaskCounter += 1;
+  return Promise.resolve({ id: `dup-task-${createTaskCounter}`, ...(vars as object) });
+});
 const deleteTaskMutate = vi.fn();
+const reorderTaskMutate = vi.fn();
 const createBaselineMutate = vi.fn();
 // Drag-to-link create (#1666). Capturable so create-link tests can assert the
 // FS/0-lag payload and drive the onSuccess / onError branches.
@@ -126,7 +136,10 @@ vi.mock('@/hooks/useProject', () => ({
   }),
 }));
 vi.mock('@/hooks/useCurrentUser', () => ({
-  useCurrentUser: () => ({ user: { display_name: 'Test User' }, isLoading: false }),
+  useCurrentUser: () => ({
+    user: { id: 'test-user-1', display_name: 'Test User' },
+    isLoading: false,
+  }),
 }));
 vi.mock('@/hooks/useCurrentUserRole', () => ({
   useCurrentUserRole: () => ({ role: mockRole, isLoading: false }),
@@ -155,17 +168,51 @@ vi.mock('@/hooks/useGlobalShortcut', () => ({
 }));
 vi.mock('@/hooks/useDragCpm', () => ({ useDragCpm: () => undefined }));
 vi.mock('@/hooks/useKeyboardReschedule', () => ({ useKeyboardReschedule: () => undefined }));
-vi.mock('@/hooks/useTaskMutations', () => ({
-  useIndentTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
-  useOutdentTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
-  useUpdateTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
-  useDeleteTask: () => ({ mutate: deleteTaskMutate, isPending: false, variables: undefined }),
-  useRestoreTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
-  useCreateTask: () => ({ mutate: createTaskMutate, isPending: false, variables: undefined }),
-  useAddDependency: () => ({ mutate: addDepMutate, isPending: false, variables: undefined }),
-  parseCyclicDependencyError: (err: unknown) =>
-    (err as { cyclic?: boolean } | null)?.cyclic ? { path: ['a', 'b'] } : null,
-}));
+vi.mock('@/hooks/useTaskMutations', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useTaskMutations')>();
+  return {
+    ...actual,
+    useIndentTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
+    useOutdentTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
+    useUpdateTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
+    useDeleteTask: () => ({ mutate: deleteTaskMutate, isPending: false, variables: undefined }),
+    useRestoreTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
+    useCreateTask: () => ({
+      mutate: createTaskMutate,
+      mutateAsync: createTaskMutateAsync,
+      isPending: false,
+      variables: undefined,
+    }),
+    useReorderTasks: () => ({ mutate: reorderTaskMutate, isPending: false, variables: undefined }),
+    useAddDependency: () => ({ mutate: addDepMutate, isPending: false, variables: undefined }),
+    parseCyclicDependencyError: (err: unknown) =>
+      (err as { cyclic?: boolean } | null)?.cyclic ? { path: ['a', 'b'] } : null,
+  };
+});
+
+// Captures the real, fully-wired BuildModeApi that ScheduleView hands to
+// <BuildModeProvider> — same capture-into-module-var pattern as
+// capturedKeyBindings below. TaskListPanel is stubbed out (it has its own
+// tests), so this is the only way to exercise duplicateSubtree's actual
+// orchestration (#2727, ADR-0776 §2: subtree walk, id remapping, top-level-
+// selected-node filtering) rather than just asserting a row delegates to it.
+let capturedBuildMode: import('./buildMode').BuildModeApi | null = null;
+vi.mock('./buildMode', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./buildMode')>();
+  return {
+    ...actual,
+    BuildModeProvider: ({
+      api,
+      children,
+    }: {
+      api: import('./buildMode').BuildModeApi;
+      children: ReactNode;
+    }) => {
+      capturedBuildMode = api;
+      return <actual.BuildModeProvider api={api}>{children}</actual.BuildModeProvider>;
+    },
+  };
+});
 
 // Schedule-local hooks
 vi.mock('./useScheduleKeyboard', () => ({
@@ -439,8 +486,11 @@ beforeEach(() => {
   mockExportError = null;
   mockEffectiveMethodology = undefined;
   capturedKeyBindings = {};
+  capturedBuildMode = null;
   exportProjectMock.mockReset();
   createTaskMutate.mockClear();
+  createTaskMutateAsync.mockClear();
+  createTaskCounter = 0;
   deleteTaskMutate.mockReset();
   createBaselineMutate.mockReset();
   addDepMutate.mockReset();
@@ -1094,6 +1144,63 @@ describe('ScheduleView — build mode (default on desktop, #2682)', () => {
   });
 });
 
+describe('ScheduleView — Alt+A Author/Read toggle (#2727, ADR-0776 §5)', () => {
+  // The hook persists to localStorage keyed by user+project — clear it so
+  // one test's toggle doesn't leak into the next test's "fresh mount" default.
+  beforeEach(() => {
+    window.localStorage.removeItem('trueppm.schedule.authorMode.test-user-1.project-1');
+  });
+
+  it('defaults to Author mode: pill reads "Author" and create controls stay enabled', () => {
+    renderSchedule();
+    const pill = screen.getByTestId('author-mode-pill');
+    expect(pill).toHaveTextContent('Author');
+    expect(screen.getByRole('button', { name: '+ Milestone' })).toBeEnabled();
+  });
+
+  it('clicking the pill switches to Read mode and disables create controls', async () => {
+    const user = userEvent.setup();
+    renderSchedule();
+    await user.click(screen.getByTestId('author-mode-pill'));
+    expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Read');
+    expect(screen.getByRole('button', { name: '+ Milestone' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '+ Phase' })).toBeDisabled();
+  });
+
+  it('Alt+A toggles the same as clicking the pill', () => {
+    renderSchedule();
+    expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Author');
+    const preventDefault = vi.fn();
+    const e = { preventDefault } as unknown as KeyboardEvent;
+    act(() => capturedKeyBindings['alt+a']?.(e));
+    expect(preventDefault).toHaveBeenCalled();
+    expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Read');
+    act(() => capturedKeyBindings['alt+a']?.(e));
+    expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Author');
+  });
+
+  it('is not a permission change — the server role gate still applies independently', () => {
+    mockRole = ROLE_VIEWER;
+    renderSchedule();
+    // A Viewer is already readOnly via the role gate, before Read mode is
+    // ever touched — Author/Read layers on top, it doesn't replace this.
+    expect(screen.getByRole('button', { name: '+ Milestone' })).toBeDisabled();
+    expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Author');
+  });
+
+  it('persists the preference per-user per-project across a remount', async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderSchedule();
+    await user.click(screen.getByTestId('author-mode-pill'));
+    expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Read');
+    unmount();
+    renderSchedule();
+    await waitFor(() =>
+      expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Read'),
+    );
+  });
+});
+
 describe('ScheduleView — role still loading (pessimistic gating)', () => {
   it('hides admin-only Import but keeps the forecast surface while role is null', () => {
     mockRole = null;
@@ -1123,5 +1230,148 @@ describe('ScheduleView — forecast surface is not role-gated (#2492)', () => {
     renderSchedule();
     expect(screen.getByTestId('forecast-bar')).toBeInTheDocument();
     expect(screen.getByTestId('mobile-mc')).toBeInTheDocument();
+  });
+});
+
+describe('ScheduleView — buildModeApi.duplicateSubtree (#2727, ADR-0776 §2)', () => {
+  // FIXTURE_TASKS: t1 "Alpha Platform Upgrade" (root, wbs 1) has children
+  // t2 "Discovery & Design" (leaf), t3, t4, t5, t6 (all wbs 1.x); t7
+  // "Documentation" (root, wbs 2) is a separate, unrelated leaf.
+
+  it('duplicates a leaf as a single row with the "(copy)" suffix', async () => {
+    renderSchedule();
+    act(() => {
+      capturedBuildMode!.duplicateSubtree('t2');
+    });
+    await waitFor(() => expect(createTaskMutateAsync).toHaveBeenCalledTimes(1));
+    expect(createTaskMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Discovery & Design (copy)',
+        parent_id: 't1',
+        duration: 10,
+      }),
+    );
+  });
+
+  it('duplicates a summary and its full subtree, remapping parent_id top-down', async () => {
+    renderSchedule();
+    act(() => {
+      capturedBuildMode!.duplicateSubtree('t1');
+    });
+    // t1 + its 5 children (t2..t6) = 6 sequential creates.
+    await waitFor(() => expect(createTaskMutateAsync).toHaveBeenCalledTimes(6));
+    const [rootPayload] = createTaskMutateAsync.mock.calls[0];
+    expect(rootPayload).toMatchObject({ name: 'Alpha Platform Upgrade (copy)', parent_id: null });
+    // The mock hands out ids "dup-task-N" in call order — the root's clone is dup-task-1.
+    const childPayloads = createTaskMutateAsync.mock.calls.slice(1).map(([p]) => p);
+    for (const payload of childPayloads) {
+      expect(payload.parent_id).toBe('dup-task-1');
+      expect(payload.name).not.toMatch(/\(copy\)/); // descendants keep their source name
+    }
+  });
+
+  it('is a no-op when the task is not found in the tree', () => {
+    renderSchedule();
+    act(() => {
+      capturedBuildMode!.duplicateSubtree('does-not-exist');
+    });
+    expect(createTaskMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('multi-select: duplicates only top-level selected nodes as subtree roots', async () => {
+    renderSchedule();
+    // t2 is a child of t1; selecting both means t2 is already covered by
+    // t1's own subtree walk and must not be duplicated a second time. t7 is
+    // an unrelated root and gets its own subtree walk. Each dispatch runs in
+    // its own act() so `capturedBuildMode` (re-captured on every render) sees
+    // the updated focus.state before the next call reads it — combining them
+    // in one act() would still read the pre-select state, since dispatch
+    // batching doesn't flush mid-callback.
+    act(() => {
+      capturedBuildMode!.focus.focusRow('t1');
+    });
+    act(() => {
+      capturedBuildMode!.focus.selectIds(['t1', 't2', 't7']);
+    });
+    act(() => {
+      capturedBuildMode!.duplicateSubtree('t1');
+    });
+    // t1's subtree (t1..t6 = 6) + t7's subtree (t7 = 1) = 7. If t2 were
+    // wrongly duplicated a second time as its own root, this would be 8.
+    await waitFor(() => expect(createTaskMutateAsync).toHaveBeenCalledTimes(7));
+    const names = createTaskMutateAsync.mock.calls.map(([p]) => p.name as string);
+    expect(names.filter((n) => n.includes('Discovery & Design'))).toHaveLength(1);
+  });
+});
+
+describe('ScheduleView — F8/Shift+F8 unresolved-owner-token navigation (#2727, ADR-0776 §3)', () => {
+  // useProjectResourcePool is not mocked in this file — the real hook runs
+  // against no network client in jsdom and `.data` stays undefined, which
+  // the F8 binding treats as an empty roster. An empty roster can never
+  // resolve an @token, so every @mention below reads as "unresolved" —
+  // exactly the fixture this predicate needs, with no extra mocking.
+  const UNRESOLVED_TASKS: Task[] = [
+    { ...FIXTURE_TASKS[0], id: 'u1', wbs: '1', name: 'Plan', parentId: null },
+    { ...FIXTURE_TASKS[0], id: 'u2', wbs: '2', name: 'Build @nobody', parentId: null },
+    { ...FIXTURE_TASKS[0], id: 'u3', wbs: '3', name: 'Ship it', parentId: null },
+    { ...FIXTURE_TASKS[0], id: 'u4', wbs: '4', name: 'Review @ghost', parentId: null },
+    { ...FIXTURE_TASKS[0], id: 'u5', wbs: '5', name: 'Done', parentId: null },
+  ];
+
+  beforeEach(() => {
+    mockTasks = UNRESOLVED_TASKS;
+    mockLinks = [];
+  });
+
+  it('F8 with nothing focused jumps to the first unresolved row', () => {
+    renderSchedule();
+    const preventDefault = vi.fn();
+    act(() => capturedKeyBindings['f8']?.({ preventDefault } as unknown as KeyboardEvent));
+    expect(preventDefault).toHaveBeenCalled();
+    expect(capturedBuildMode!.focus.state.rowId).toBe('u2');
+  });
+
+  it('a second F8 advances to the next unresolved row', () => {
+    renderSchedule();
+    const e = { preventDefault: vi.fn() } as unknown as KeyboardEvent;
+    act(() => capturedKeyBindings['f8']?.(e));
+    act(() => capturedKeyBindings['f8']?.(e));
+    expect(capturedBuildMode!.focus.state.rowId).toBe('u4');
+  });
+
+  it('F8 wraps around past the last unresolved row', () => {
+    renderSchedule();
+    const e = { preventDefault: vi.fn() } as unknown as KeyboardEvent;
+    act(() => capturedKeyBindings['f8']?.(e)); // -> u2
+    act(() => capturedKeyBindings['f8']?.(e)); // -> u4
+    act(() => capturedKeyBindings['f8']?.(e)); // wraps -> u2
+    expect(capturedBuildMode!.focus.state.rowId).toBe('u2');
+  });
+
+  it('Shift+F8 with nothing focused jumps to the last unresolved row', () => {
+    renderSchedule();
+    const preventDefault = vi.fn();
+    act(() =>
+      capturedKeyBindings['shift+f8']?.({ preventDefault } as unknown as KeyboardEvent),
+    );
+    expect(preventDefault).toHaveBeenCalled();
+    expect(capturedBuildMode!.focus.state.rowId).toBe('u4');
+  });
+
+  it('Shift+F8 after F8 moves back to the previous unresolved row', () => {
+    renderSchedule();
+    const e = { preventDefault: vi.fn() } as unknown as KeyboardEvent;
+    act(() => capturedKeyBindings['f8']?.(e)); // -> u2
+    act(() => capturedKeyBindings['f8']?.(e)); // -> u4
+    act(() => capturedKeyBindings['shift+f8']?.(e)); // back -> u2
+    expect(capturedBuildMode!.focus.state.rowId).toBe('u2');
+  });
+
+  it('is a no-op when no row has an unresolved owner token', () => {
+    mockTasks = [{ ...FIXTURE_TASKS[0], id: 'r1', wbs: '1', name: 'Plan', parentId: null }];
+    renderSchedule();
+    const e = { preventDefault: vi.fn() } as unknown as KeyboardEvent;
+    act(() => capturedKeyBindings['f8']?.(e));
+    expect(capturedBuildMode!.focus.state.rowId).toBeNull();
   });
 });

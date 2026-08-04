@@ -475,6 +475,17 @@ test.describe('Schedule build-mode — Enter inserts a sibling row (#1666)', () 
       planned_start: '2026-04-05',
       duration: 5, percent_complete: 0, is_critical: false,
       is_milestone: false, is_summary: false, parent_id: 'phase',
+      delivery_mode: 'scrum',
+      status: 'NOT_STARTED', assignees: [], total_float: null,
+      predecessor_count: 0, is_blocked: false,
+      linked_risks_count: 0, linked_risks_max_severity: null,
+    },
+    {
+      id: 'task-b', wbs_path: '1.2', name: 'Mockups',
+      early_start: '2026-04-05', early_finish: '2026-04-09',
+      planned_start: '2026-04-05',
+      duration: 5, percent_complete: 0, is_critical: false,
+      is_milestone: false, is_summary: false, parent_id: 'phase',
       status: 'NOT_STARTED', assignees: [], total_float: null,
       predecessor_count: 0, is_blocked: false,
       linked_risks_count: 0, linked_risks_max_severity: null,
@@ -482,7 +493,8 @@ test.describe('Schedule build-mode — Enter inserts a sibling row (#1666)', () 
   ];
 
   let currentTasks: Array<Record<string, unknown>>;
-  let postBodies: Array<{ parent_id?: string | null; name?: string }>;
+  let postBodies: Array<{ parent_id?: string | null; name?: string; delivery_mode?: string }>;
+  let reorderBodies: Array<{ parent_path?: string; ordered_ids?: string[] }>;
   let createdCount: number;
   let deleteCount: number;
 
@@ -491,12 +503,20 @@ test.describe('Schedule build-mode — Enter inserts a sibling row (#1666)', () 
     await setupCatchAll(page);
     currentTasks = NESTED_TASKS.map((t) => ({ ...t }));
     postBodies = [];
+    reorderBodies = [];
     createdCount = 0;
     deleteCount = 0;
     await setupApiMocks(page, {
       projects: FIXTURE_PROJECTS,
       projectId: FIXTURE_PROJECT_ID,
       tasks: currentTasks,
+    });
+
+    // Reorder endpoint — used by insertAbove (#2727) to move the newly
+    // created row before the focused one (the create endpoint only appends).
+    await page.route('**/api/v1/projects/**/tasks/reorder/', (route) => {
+      reorderBodies.push(route.request().postDataJSON() as { parent_path?: string; ordered_ids?: string[] });
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
     });
 
     // Stateful tasks endpoint (registered AFTER setupApiMocks so it wins, LIFO).
@@ -506,8 +526,13 @@ test.describe('Schedule build-mode — Enter inserts a sibling row (#1666)', () 
       const req = route.request();
       const method = req.method();
       if (method === 'POST') {
-        const body = req.postDataJSON() as { name?: string; duration?: number; parent_id?: string | null };
-        postBodies.push({ parent_id: body.parent_id, name: body.name });
+        const body = req.postDataJSON() as {
+          name?: string;
+          duration?: number;
+          parent_id?: string | null;
+          delivery_mode?: string;
+        };
+        postBodies.push({ parent_id: body.parent_id, name: body.name, delivery_mode: body.delivery_mode });
         createdCount += 1;
         const id = `new-${createdCount}`;
         const parentId = body.parent_id ?? null;
@@ -550,6 +575,9 @@ test.describe('Schedule build-mode — Enter inserts a sibling row (#1666)', () 
       }
       if (method === 'DELETE') {
         deleteCount += 1;
+        const deleteIdMatch = req.url().match(/tasks\/([^/]+)\//);
+        const idx = currentTasks.findIndex((t) => t.id === deleteIdMatch?.[1]);
+        if (idx >= 0) currentTasks.splice(idx, 1);
         return route.fulfill({ status: 204, body: '' });
       }
       // GET
@@ -563,6 +591,51 @@ test.describe('Schedule build-mode — Enter inserts a sibling row (#1666)', () 
 
   const nameInput = (page: import('@playwright/test').Page) =>
     page.locator('input[aria-label^="Rename task"]');
+
+  test('Enter inherits the focused row\'s delivery mode (#2727)', async ({ page }) => {
+    await page.goto(BASE_URL);
+    const row = page.locator('[data-row-id="task-a"]');
+    await expect(row).toBeVisible();
+    await row.focus();
+    await page.keyboard.press('Enter');
+
+    await expect.poll(() => postBodies.length).toBe(1);
+    // task-a is delivery_mode: 'scrum' — the new sibling must inherit it
+    // rather than silently falling back to the server default (ADR-0776).
+    expect(postBodies[0].delivery_mode).toBe('scrum');
+  });
+
+  test('Shift+Enter inserts a sibling above the focused row (#2727)', async ({ page }) => {
+    await page.goto(BASE_URL);
+    const row = page.locator('[data-row-id="task-b"]');
+    await expect(row).toBeVisible();
+    await row.focus();
+    await page.keyboard.press('Shift+Enter');
+
+    await expect.poll(() => postBodies.length).toBe(1);
+    expect(postBodies[0].parent_id).toBe('phase');
+
+    // The create endpoint only appends — insertAbove composes a reorder call
+    // to move the new row immediately before task-b (its original siblings
+    // were task-a, task-b; the new row must land between them).
+    await expect.poll(() => reorderBodies.length).toBe(1);
+    expect(reorderBodies[0].ordered_ids).toEqual(['task-a', 'new-1', 'task-b']);
+
+    await expect(nameInput(page)).toBeVisible();
+  });
+
+  test('⌘+Enter inserts a child of the focused row (#2727)', async ({ page }) => {
+    await page.goto(BASE_URL);
+    const row = page.locator('[data-row-id="task-a"]');
+    await expect(row).toBeVisible();
+    await row.focus();
+    await page.keyboard.press('Meta+Enter');
+
+    await expect.poll(() => postBodies.length).toBe(1);
+    // parent_id is task-a's OWN id — a level deeper, not a sibling.
+    expect(postBodies[0].parent_id).toBe('task-a');
+    await expect(nameInput(page)).toBeVisible();
+  });
 
   test('Enter on a focused child row inserts a sibling under the same parent and opens its Name cell', async ({
     page,
@@ -614,7 +687,7 @@ test.describe('Schedule build-mode — Enter inserts a sibling row (#1666)', () 
     await expect(nameInput(page)).toBeVisible();
   });
 
-  test('Escape in the new row Name cell reverts to the row without deleting it', async ({
+  test('Escape in a still-pristine new row Name cell discards the row (#2727)', async ({
     page,
   }) => {
     await page.goto(BASE_URL);
@@ -625,14 +698,62 @@ test.describe('Schedule build-mode — Enter inserts a sibling row (#1666)', () 
 
     const input = nameInput(page);
     await expect(input).toBeVisible();
-    await expect.poll(() => currentTasks.length).toBe(3); // phase + task-a + new-1
+    await expect.poll(() => currentTasks.length).toBe(4); // phase + task-a + task-b + new-1
 
-    // Escape reverts the edit and drops to RowFocused — it does NOT delete the
-    // just-created row.
+    // Escape on the still-pristine row (never typed into) discards it — there
+    // is no "last committed value" to revert to (ADR-0776 §4). This flips the
+    // pre-#2727 behavior on purpose: ADR-0776 documents the reversal.
+    await input.press('Escape');
+    await expect(nameInput(page)).toHaveCount(0);
+    await expect.poll(() => deleteCount).toBe(1);
+    await expect.poll(() => currentTasks.length).toBe(3);
+  });
+
+  test('Escape after typing into a new row reverts to the last committed value, no delete (#2727)', async ({
+    page,
+  }) => {
+    await page.goto(BASE_URL);
+    const row = page.locator('[data-row-id="task-a"]');
+    await expect(row).toBeVisible();
+    await row.focus();
+    await page.keyboard.press('Enter');
+
+    const input = nameInput(page);
+    await expect(input).toBeVisible();
+    await expect.poll(() => currentTasks.length).toBe(4);
+
+    // The row is no longer pristine once the user types into it — Escape now
+    // reverts to the last committed value (the server placeholder name) and
+    // does NOT discard the row.
+    await input.fill('Homepage draft');
     await input.press('Escape');
     await expect(nameInput(page)).toHaveCount(0);
     await page.waitForTimeout(200);
     expect(deleteCount).toBe(0);
-    expect(currentTasks.length).toBe(3);
+    expect(currentTasks.length).toBe(4);
+  });
+
+  test('Backspace on an emptied row merges it into the previous row, caret at the end (#2727)', async ({
+    page,
+  }) => {
+    await page.goto(BASE_URL);
+    const rowB = page.locator('[data-row-id="task-b"]');
+    await expect(rowB).toBeVisible();
+    await rowB.dblclick();
+
+    const input = nameInput(page);
+    await expect(input).toBeVisible();
+    await input.fill('');
+    await page.keyboard.press('Backspace');
+
+    // task-b is deleted and the caret lands in task-a's Name cell.
+    await expect.poll(() => deleteCount).toBe(1);
+    await expect(page.locator('[data-row-id="task-b"]')).toHaveCount(0);
+    const mergedInput = page.locator('input[aria-label="Rename task Wireframes"]');
+    await expect(mergedInput).toBeVisible();
+
+    // Caret at the END (not select-all): typing appends rather than replaces.
+    await page.keyboard.type('!');
+    await expect(mergedInput).toHaveValue('Wireframes!');
   });
 });

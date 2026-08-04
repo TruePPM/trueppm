@@ -160,6 +160,51 @@ describe('TaskListRow — grid ARIA structure & roving tabindex (#2204)', () => 
     expect(onFocusEdge).toHaveBeenNthCalledWith(1, 'first');
     expect(onFocusEdge).toHaveBeenNthCalledWith(2, 'last');
   });
+
+  // #2727: real treegrid semantics, not just role="grid" > role="row".
+  it('exposes aria-level from the WBS depth (1-based, matching the level prop directly)', () => {
+    renderWithRouter(
+      <TaskListRow task={base} level={3} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />,
+    );
+    expect(screen.getByRole('row')).toHaveAttribute('aria-level', '3');
+  });
+
+  it('omits aria-expanded entirely on a leaf row (no children)', () => {
+    renderWithRouter(
+      <TaskListRow task={base} level={2} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />,
+    );
+    expect(screen.getByRole('row')).not.toHaveAttribute('aria-expanded');
+  });
+
+  it('exposes aria-expanded="true" on an expanded summary row', () => {
+    renderWithRouter(
+      <TaskListRow
+        task={base}
+        level={1}
+        widths={defaultWidths}
+        visible={defaultVisible}
+        hasChildren
+        isExpanded
+        onToggleId={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('row')).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('exposes aria-expanded="false" on a collapsed summary row', () => {
+    renderWithRouter(
+      <TaskListRow
+        task={base}
+        level={1}
+        widths={defaultWidths}
+        visible={defaultVisible}
+        hasChildren
+        isExpanded={false}
+        onToggleId={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('row')).toHaveAttribute('aria-expanded', 'false');
+  });
 });
 
 describe('TaskListRow', () => {

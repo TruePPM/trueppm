@@ -30,6 +30,34 @@ describe('formatKey', () => {
   it('includes alt when present', () => {
     expect(formatKey(new KeyboardEvent('keydown', { key: 'a', altKey: true }))).toBe('alt+a');
   });
+
+  // #2727 (found by ux-review): every browser composes Option+letter on
+  // macOS into an accented character — Option+A really does deliver
+  // `key: 'å'`, not `'a'`. A binding keyed on `e.key` alone would silently
+  // never fire there; this proves formatKey resolves through the
+  // layout-independent `e.code` for an Alt+letter combo instead.
+  it('resolves an Alt+letter combo via e.code, not the macOS-composed e.key (#2727)', () => {
+    const macComposedOptionA = new KeyboardEvent('keydown', {
+      key: 'å',
+      code: 'KeyA',
+      altKey: true,
+    });
+    expect(formatKey(macComposedOptionA)).toBe('alt+a');
+  });
+
+  it('still resolves via e.code on non-Mac, where key and code already agree', () => {
+    const e = new KeyboardEvent('keydown', { key: 'a', code: 'KeyA', altKey: true });
+    expect(formatKey(e)).toBe('alt+a');
+  });
+
+  it('leaves non-letter Alt combos (arrows, function keys) on e.key, unaffected by composition', () => {
+    expect(
+      formatKey(new KeyboardEvent('keydown', { key: 'ArrowRight', code: 'ArrowRight', altKey: true })),
+    ).toBe('alt+arrowright');
+    expect(
+      formatKey(new KeyboardEvent('keydown', { key: 'F8', code: 'F8', altKey: false, shiftKey: true })),
+    ).toBe('shift+f8');
+  });
 });
 
 describe('useScheduleKeyboard', () => {

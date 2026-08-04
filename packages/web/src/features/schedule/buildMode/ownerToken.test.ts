@@ -7,6 +7,7 @@ import {
   parseOwnerDraft,
   parseOwnerTokens,
   segmentUnresolvedOwners,
+  hasUnresolvedOwnerToken,
 } from './ownerToken';
 
 function member(id: string, name: string): ProjectResource {
@@ -192,5 +193,23 @@ describe('segmentUnresolvedOwners', () => {
     expect(segmentUnresolvedOwners('Plan @ana', POOL)).toEqual([
       { text: 'Plan @ana', unresolved: false },
     ]);
+  });
+});
+
+describe('hasUnresolvedOwnerToken (#2727, ADR-0776 §3 — F8 predicate)', () => {
+  it('is false for a name with no @ tokens', () => {
+    expect(hasUnresolvedOwnerToken('Draft plan', POOL)).toBe(false);
+  });
+
+  it('is false when every @ token resolves against the roster', () => {
+    expect(hasUnresolvedOwnerToken('Plan @ana and @ben', POOL)).toBe(false);
+  });
+
+  it('is true when any @ token matches no roster member', () => {
+    expect(hasUnresolvedOwnerToken('Plan @nobody', POOL)).toBe(true);
+  });
+
+  it('is true when only one of several tokens is unresolved', () => {
+    expect(hasUnresolvedOwnerToken('Plan @ana and @nobody', POOL)).toBe(true);
   });
 });

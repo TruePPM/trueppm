@@ -56,7 +56,7 @@ Define working calendars with weekend rules and holiday exceptions. All duration
 
 ## Building a schedule
 
-TruePPM's schedule build mode is keyboard-first: type a task name, press Tab to indent (create a summary task), Enter to add a sibling, and the schedule fills in as you go. Dependencies are added by linking predecessor/successor IDs. The Gantt updates live.
+TruePPM's schedule build mode is keyboard-first: type a task name, press Alt + → to indent (create a summary task), Enter to add a sibling, and the schedule fills in as you go. Dependencies are added by linking predecessor/successor IDs. The Gantt updates live.
 
 → See [Schedule Build Mode](/features/schedule-build-mode/), [Summary tasks](/features/summary-tasks/)
 

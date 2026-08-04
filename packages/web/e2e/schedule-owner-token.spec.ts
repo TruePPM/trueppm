@@ -11,9 +11,14 @@
  * actually sent: if the client wrote `assignee` instead of `owners`, the roster row the
  * heat map is built from never appears, and the last test fails. A static heat-map
  * fixture would pass either way and prove nothing.
+ *
+ * Every task read here goes through `setupTaskStore`, not the stateless default list
+ * mock. The tests that assert on the row *after* the commit would otherwise be racing
+ * the `['tasks']` invalidation `useUpdateTask` fires on success (#2752).
  */
 import { test, expect } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import { setupAuth, setupApiMocks, setupCatchAll, setupTaskStore } from './fixtures';
+import type { TaskStoreHandle } from './fixtures';
 
 type Page = import('@playwright/test').Page;
 
@@ -95,20 +100,15 @@ const ROSTER = [
   },
 ];
 
-/** PATCH bodies the app sent, in order — the contract these tests assert against. */
-interface Recorder {
-  patches: Record<string, unknown>[];
-}
-
-async function setup(page: Page): Promise<Recorder> {
-  const recorder: Recorder = { patches: [] };
-
+async function setup(page: Page): Promise<TaskStoreHandle> {
   await setupAuth(page);
   await setupCatchAll(page);
+  // No `tasks:` — setupTaskStore below owns every /tasks/ read, and leaving the
+  // stateless default registered as well would put two sources of truth for the same
+  // list one route-precedence change apart.
   await setupApiMocks(page, {
     projects: FIXTURE_PROJECTS,
     projectId: PROJECT_ID,
-    tasks: FIXTURE_TASKS,
   });
 
   // Registered after setupApiMocks so it wins over the default empty roster.
@@ -120,29 +120,35 @@ async function setup(page: Page): Promise<Recorder> {
     }),
   );
 
-  await page.route('**/api/v1/tasks/ot1/', async (route) => {
-    if (route.request().method() !== 'PATCH') return route.continue();
-    const body = route.request().postDataJSON() as Record<string, unknown>;
-    recorder.patches.push(body);
-    // Echo the write back the way the server would: `owners` is write-only and the
-    // read projection is `assignments`.
-    const owners = (body.owners ?? []) as { resource: string; units: number }[];
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        ...FIXTURE_TASKS[0],
-        name: (body.name as string) ?? FIXTURE_TASKS[0].name,
-        assignments: owners.map((o) => ({
-          resource_id: o.resource,
-          resource_name: o.resource === ANA_ID ? 'Ana Rivera' : 'Ben Okafor',
-          units: String(o.units),
-        })),
-      }),
-    });
+  // A STATEFUL task store, not a per-request echo: the commit assertions below read the
+  // DOM *after* the write, and `useUpdateTask` invalidates `['tasks', projectId]` in
+  // `onSuccess`. Against the stateless default list mock that refetch re-serves
+  // `Foundation` and erases the committed name within tens of milliseconds, which is the
+  // race that failed `web:e2e` on main (#2752). The store makes the refetch return what
+  // was written, so the assertion has a stable end state to see.
+  return setupTaskStore(page, {
+    tasks: FIXTURE_TASKS,
+    // `owners` is write-only on TaskSerializer; the read projection is `assignments`.
+    // A shallow merge would echo back a field the real API never returns.
+    applyPatch: (body, current) => {
+      const { owners, ...rest } = body as {
+        owners?: { resource: string; units: number }[];
+      } & Record<string, unknown>;
+      return {
+        ...current,
+        ...rest,
+        ...(owners
+          ? {
+              assignments: owners.map((o) => ({
+                resource_id: o.resource,
+                resource_name: o.resource === ANA_ID ? 'Ana Rivera' : 'Ben Okafor',
+                units: String(o.units),
+              })),
+            }
+          : {}),
+      };
+    },
   });
-
-  return recorder;
 }
 
 /** Put the Foundation row's Name cell into build-mode edit. */
@@ -156,7 +162,7 @@ test.describe('@owner token — build-mode row entry', () => {
   test('typing @ opens the roster picker and picking a person writes owners', async ({
     page,
   }) => {
-    const recorder = await setup(page);
+    const store = await setup(page);
     await page.goto(SCHEDULE_URL);
 
     const input = await editName(page);
@@ -171,8 +177,8 @@ test.describe('@owner token — build-mode row entry', () => {
     await expect(input).toHaveValue('Draft migration plan @"Ana Rivera"');
     await input.press('Enter');
 
-    await expect.poll(() => recorder.patches.length).toBeGreaterThan(0);
-    const body = recorder.patches[recorder.patches.length - 1];
+    await expect.poll(() => store.patches.length).toBeGreaterThan(0);
+    const body = store.patches[store.patches.length - 1];
     // The assignment lands on TaskResource (via `owners`), never on `assignee`.
     expect(body.owners).toEqual([{ resource: ANA_ID, units: 1 }]);
     expect(body).not.toHaveProperty('assignee');
@@ -181,15 +187,15 @@ test.describe('@owner token — build-mode row entry', () => {
   });
 
   test('@ana:50 commits a half allocation as the API fraction', async ({ page }) => {
-    const recorder = await setup(page);
+    const store = await setup(page);
     await page.goto(SCHEDULE_URL);
 
     const input = await editName(page);
     await input.fill('Review the estimates @"Ana Rivera":50');
     await input.press('Enter');
 
-    await expect.poll(() => recorder.patches.length).toBeGreaterThan(0);
-    const body = recorder.patches[recorder.patches.length - 1];
+    await expect.poll(() => store.patches.length).toBeGreaterThan(0);
+    const body = store.patches[store.patches.length - 1];
     expect(body.owners).toEqual([{ resource: ANA_ID, units: 0.5 }]);
     expect(body.name).toBe('Review the estimates');
   });
@@ -197,15 +203,15 @@ test.describe('@owner token — build-mode row entry', () => {
   test('an unmatched name still commits the row and is underlined, not dropped', async ({
     page,
   }) => {
-    const recorder = await setup(page);
+    const store = await setup(page);
     await page.goto(SCHEDULE_URL);
 
     const input = await editName(page);
     await input.fill('Draft plan @nobody');
     await input.press('Enter');
 
-    await expect.poll(() => recorder.patches.length).toBeGreaterThan(0);
-    const body = recorder.patches[recorder.patches.length - 1];
+    await expect.poll(() => store.patches.length).toBeGreaterThan(0);
+    const body = store.patches[store.patches.length - 1];
     // The row commits with the literal text intact and no owners — never a silent drop.
     expect(body.name).toBe('Draft plan @nobody');
     expect(body).not.toHaveProperty('owners');
@@ -224,13 +230,13 @@ test.describe('@owner token — build-mode row entry', () => {
 
 test.describe('@owner token — the assignment reaches the heat map', () => {
   test('a person assigned by token shows on the resource heat map', async ({ page }) => {
-    const recorder = await setup(page);
+    const store = await setup(page);
 
     // The heat map is built from what the PATCH actually carried. Writing `assignee`
     // instead of `owners` yields an empty grid here — which is precisely the silent
     // zero-capacity failure this issue exists to prevent.
     await page.route(`**/api/v1/projects/${PROJECT_ID}/resources/heatmap/**`, (route) => {
-      const assigned = recorder.patches.flatMap(
+      const assigned = store.patches.flatMap(
         (p) => (p.owners ?? []) as { resource: string; units: number }[],
       );
       return route.fulfill({
@@ -275,7 +281,7 @@ test.describe('@owner token — the assignment reaches the heat map', () => {
       .click();
     // The pick completes the token; Enter is what commits the row (#2722).
     await input.press('Enter');
-    await expect.poll(() => recorder.patches.length).toBeGreaterThan(0);
+    await expect.poll(() => store.patches.length).toBeGreaterThan(0);
 
     await page.goto(`/projects/${PROJECT_ID}/resources/heatmap`);
     const grid = page.getByRole('grid', { name: 'Resource utilization heatmap' });

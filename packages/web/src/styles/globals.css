@@ -317,6 +317,7 @@
     --amber:    #DE9326;  --amber-d:  #9C6614;  --amber-l:  #FBF0DC;
     --crit:     #CF4438;  --crit-d:   #A8352B;  --crit-l:   #FBE6E4;
     --info:     #2F6FD1;  --info-l:   #E5EEFB;  --violet:   #6D4AC4;  --agile: #6D4AC4;
+    --teal:     #0D9488;  --kanban:   #0D9488;
 
     /* radius · elevation · motion (golden) */
     --r-card: 12px;  --r-control: 8px;  --r-chip: 6px;  --r-pill: 9999px;
@@ -343,6 +344,7 @@
        surface; violet-400 is ~6:1 on #0E1626 so BurnChart's "Completed" line
        clears WCAG 1.4.11 in dark mode too. */
     --violet:   #A78BFA;  --agile:    #A78BFA;
+    --teal:     #2DD4BF;  --kanban:   #2DD4BF;
     --shadow-card: 0 1px 0 rgba(0,0,0,.25), 0 1px 2px rgba(0,0,0,.35);
     --shadow-pop:  0 1px 2px rgba(0,0,0,.4),  0 14px 36px -12px rgba(0,0,0,.6);
   }

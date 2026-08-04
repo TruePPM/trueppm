@@ -25,6 +25,24 @@ const isMac =
   typeof navigator !== 'undefined' &&
   /Mac|iPod|iPhone|iPad/.test(navigator.platform);
 
+/**
+ * The key token itself. Holding Alt/Option while pressing a letter on macOS
+ * composes `KeyboardEvent.key` into an accented/special character (Option+A
+ * → `'å'`, not `'a'`) — every browser does this, it's platform IME behavior,
+ * not a bug in any one of them. A binding keyed on `e.key.toLowerCase()`
+ * therefore silently never matches an Alt+letter combo on Mac (#2727, found
+ * by ux-review). `e.code` is the *physical* key — layout- and OS-independent
+ * — so an Alt+letter combo resolves through it instead; every other key
+ * (arrows, function keys, `?`, etc.) is unaffected by Option composition and
+ * keeps using `e.key`.
+ */
+function resolveKeyToken(e: KeyboardEvent): string {
+  if (e.altKey && /^Key[A-Z]$/.test(e.code)) {
+    return e.code.slice(3).toLowerCase();
+  }
+  return e.key.toLowerCase();
+}
+
 export function formatKey(e: KeyboardEvent): string {
   const parts: string[] = [];
   // Use `mod` as the platform-neutral name so `mod+m` resolves on either OS.
@@ -32,7 +50,7 @@ export function formatKey(e: KeyboardEvent): string {
   if (e.shiftKey && e.key !== '?') parts.push('shift');
   if (e.altKey) parts.push('alt');
   // `e.key` is "?" already on shift+/ in most layouts; avoid double-shift below.
-  parts.push(e.key.toLowerCase());
+  parts.push(resolveKeyToken(e));
   return parts.join('+');
 }
 

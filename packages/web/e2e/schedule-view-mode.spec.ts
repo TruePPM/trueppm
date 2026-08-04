@@ -97,14 +97,14 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
 test.describe('Schedule Grid ↔ Timeline toggle (#1221)', () => {
   test.beforeEach(async ({ page }) => {
     await gotoSchedule(page);
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
   });
 
   test('defaults to Grid with the WBS task list visible', async ({ page }) => {
     const group = page.getByRole('radiogroup', { name: 'Schedule layout' });
     await expect(group).toBeVisible();
     await expect(group.getByRole('radio', { name: 'Grid' })).toHaveAttribute('aria-checked', 'true');
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible();
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible();
   });
 
   test('switching to Timeline hides the WBS task list; switching back restores it', async ({
@@ -117,10 +117,10 @@ test.describe('Schedule Grid ↔ Timeline toggle (#1221)', () => {
       'aria-checked',
       'true',
     );
-    await expect(page.getByRole('grid', { name: 'Task list' })).toHaveCount(0);
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toHaveCount(0);
 
     await group.getByRole('radio', { name: 'Grid' }).click();
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible();
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible();
   });
 
   test('Timeline choice is written to localStorage for cross-session persistence', async ({
@@ -135,7 +135,7 @@ test.describe('Schedule Grid ↔ Timeline toggle (#1221)', () => {
       .getByRole('radiogroup', { name: 'Schedule layout' })
       .getByRole('radio', { name: 'Timeline' })
       .click();
-    await expect(page.getByRole('grid', { name: 'Task list' })).toHaveCount(0);
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toHaveCount(0);
     await expect
       .poll(() => page.evaluate(() => localStorage.getItem('schedule.viewMode')))
       .toBe('timeline');

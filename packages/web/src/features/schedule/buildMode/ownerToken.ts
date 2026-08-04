@@ -207,6 +207,15 @@ export function activeOwnerQuery(
 }
 
 /**
+ * True when `name` contains at least one `@owner` token that matched no roster member.
+ * The predicate F8/Shift+F8 jump between (#2727, ADR-0776 §3) — the only concept the
+ * codebase itself calls "unresolved" inside the Schedule surface.
+ */
+export function hasUnresolvedOwnerToken(name: string, pool: ProjectResource[]): boolean {
+  return parseOwnerTokens(name).some((t) => matchRosterMember(t.query, pool) === null);
+}
+
+/**
  * Segment a committed task name into plain text and unresolved `@` tokens, so the row
  * can render the amber underline without the renderer re-implementing the grammar.
  */

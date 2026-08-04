@@ -13,10 +13,11 @@ describe('BuildModeCheatsheet — visibility', () => {
     expect(screen.getByRole('dialog', { name: 'Schedule shortcuts' })).toBeInTheDocument();
   });
 
-  it('renders every section (#475+#477 added "Quick actions" and "Dependencies")', () => {
+  it('renders every section (#475+#477 added "Quick actions" and "Dependencies"; #2727 added "Creating rows")', () => {
     render(<BuildModeCheatsheet open={true} onClose={vi.fn()} />);
     expect(screen.getByText('Selecting rows')).toBeInTheDocument();
     expect(screen.getByText('Editing cells')).toBeInTheDocument();
+    expect(screen.getByText('Creating rows')).toBeInTheDocument();
     expect(screen.getByText('Structuring (the WBS tree)')).toBeInTheDocument();
     expect(screen.getByText('Quick actions')).toBeInTheDocument();
     expect(screen.getByText('Dependencies')).toBeInTheDocument();
@@ -26,7 +27,23 @@ describe('BuildModeCheatsheet — visibility', () => {
   it('shows Space → Mark complete and ⌘D → Duplicate in Quick actions (#477)', () => {
     render(<BuildModeCheatsheet open={true} onClose={vi.fn()} />);
     expect(screen.getByText('Mark complete / un-complete focused row')).toBeInTheDocument();
-    expect(screen.getByText('Duplicate focused row')).toBeInTheDocument();
+    expect(screen.getByText('Duplicate row and its subtree')).toBeInTheDocument();
+  });
+
+  // #2727: Enter no longer opens the task drawer in build mode — it creates a
+  // row. The cheatsheet previously still said "Open task drawer" (stale).
+  it('documents the three Enter row-creation variants, not "Open task drawer"', () => {
+    render(<BuildModeCheatsheet open={true} onClose={vi.fn()} />);
+    expect(screen.getByText('New row below, same level')).toBeInTheDocument();
+    expect(screen.getByText('New row above, same level')).toBeInTheDocument();
+    expect(screen.getByText('New child row (one level deeper)')).toBeInTheDocument();
+    expect(screen.queryByText('Open task drawer')).not.toBeInTheDocument();
+  });
+
+  it('documents Alt+Up/Down row move alongside indent/outdent', () => {
+    render(<BuildModeCheatsheet open={true} onClose={vi.fn()} />);
+    expect(screen.getByText('Move row (and its subtree) up')).toBeInTheDocument();
+    expect(screen.getByText('Move row (and its subtree) down')).toBeInTheDocument();
   });
 
   it('describes hover chain reveal in the Dependencies section (#475)', () => {

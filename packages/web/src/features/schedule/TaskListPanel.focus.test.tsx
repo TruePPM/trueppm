@@ -144,7 +144,7 @@ describe('TaskListPanel — empty task list', () => {
     expect(screen.getByTestId('task-list-header')).toBeInTheDocument();
     expect(container.querySelectorAll('[data-row-id]')).toHaveLength(0);
     // Header row only — no data rows to count.
-    expect(screen.getByRole('grid', { name: 'Task list' })).toHaveAttribute('aria-rowcount', '1');
+    expect(screen.getByRole('treegrid', { name: 'Task list' })).toHaveAttribute('aria-rowcount', '1');
   });
 });
 

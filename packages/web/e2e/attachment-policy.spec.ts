@@ -247,7 +247,7 @@ test.describe('Attachment policy — disabled drawer state', () => {
     );
 
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
-    const grid = page.getByRole('grid', { name: 'Task list' });
+    const grid = page.getByRole('treegrid', { name: 'Task list' });
     await expect(grid).toBeVisible({ timeout: 10_000 });
     await grid.getByRole('button', { name: `Open properties for ${FIXTURE_TASK.name}` }).click();
 
