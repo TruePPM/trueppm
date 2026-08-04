@@ -299,11 +299,26 @@ vi.mock('./CanvasScheduleTimeline', () => ({
   },
 }));
 vi.mock('./TaskListPanel', () => ({
-  TaskListPanel: ({ tasks }: { tasks: Task[] }) => (
+  // The real draft row lives in TaskListPanel (and has its own spec); this stub
+  // surfaces `onCommitDraftRow` so ScheduleView's half of the wiring — that the
+  // callback reaches the outline and creates the typed task — is still covered
+  // here (#2733).
+  TaskListPanel: ({
+    tasks,
+    onCommitDraftRow,
+  }: {
+    tasks: Task[];
+    onCommitDraftRow?: (name: string) => void;
+  }) => (
     <div data-testid="task-list-panel">
       {tasks.map((t) => (
         <div key={t.id}>{t.name}</div>
       ))}
+      {onCommitDraftRow && (
+        <button type="button" onClick={() => onCommitDraftRow('Pour foundations')}>
+          commit-draft
+        </button>
+      )}
     </div>
   ),
 }));
@@ -567,30 +582,34 @@ describe('ScheduleView — top-level states', () => {
 });
 
 describe('ScheduleView — empty state', () => {
-  it('shows the create CTA for a member and creates a task directly (build mode default)', async () => {
+  it('opens with a live draft row and creates the typed task (#2733)', async () => {
+    // #2733 deleted the "No tasks yet / Add first task" card. A card is a thing
+    // you must dismiss before you can work; the outline now opens with the caret
+    // already in row 1, so the first keystroke is the first task.
     const user = userEvent.setup();
     mockTasks = [];
     mockLinks = [];
     renderSchedule();
-    expect(screen.getByText(/no tasks yet/i)).toBeInTheDocument();
-    const cta = screen.getByRole('button', { name: /add first task/i });
-    await user.click(cta);
+
+    await user.click(screen.getByRole('button', { name: 'commit-draft' }));
+
     expect(createTaskMutate).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'New task', duration: 1 }),
-      expect.anything(),
+      expect.objectContaining({ name: 'Pour foundations', duration: 1 }),
     );
   });
 
-  // #2682: build mode's empty state is reachable by every desktop role now
-  // (previously gated behind the opt-in flag), so a Viewer must not see an
-  // actionable-looking create CTA it has no permission to use.
-  it('omits the build-mode empty-state CTA for a read-only viewer', () => {
+  // #2682/#2733: the blank canvas is reachable by every desktop role, so a Viewer
+  // must not get a caret in a field that cannot save, nor fill options that all
+  // write. They get a static line and the read-only facts instead.
+  it('gives a read-only viewer no draft input and no fill options', () => {
     mockTasks = [];
     mockLinks = [];
     mockRole = ROLE_VIEWER;
     renderSchedule();
-    expect(screen.getByText(/no tasks yet/i)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /add first task/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'commit-draft' })).toBeNull();
+    expect(screen.queryByText(/other ways to fill it/i)).not.toBeInTheDocument();
+    // ...but the facts still render — a Viewer should still see what this project is.
+    expect(screen.getByText(/this project/i)).toBeInTheDocument();
   });
 
   // #2619: AGILE hides this route's nav entry, but it stays reachable by direct
@@ -606,12 +625,14 @@ describe('ScheduleView — empty state', () => {
     expect(screen.getByRole('button', { name: 'Change methodology' })).toBeInTheDocument();
   });
 
-  it('keeps the generic empty state on a non-AGILE project', () => {
+  it('draws the blank canvas on a non-AGILE project (#2733)', () => {
     mockTasks = [];
     mockLinks = [];
     mockEffectiveMethodology = 'HYBRID';
     renderSchedule();
-    expect(screen.getByText(/no tasks yet/i)).toBeInTheDocument();
+    // The horizon and the project's own facts, not a card.
+    expect(screen.getByRole('button', { name: 'commit-draft' })).toBeInTheDocument();
+    expect(screen.getByText(/this project/i)).toBeInTheDocument();
     expect(
       screen.queryByText("Schedule isn't part of this project's workflow"),
     ).not.toBeInTheDocument();
@@ -1144,18 +1165,17 @@ describe('ScheduleView — build mode (default on desktop, #2682)', () => {
     expect(screen.queryByRole('dialog', { name: /schedule shortcuts/i })).toBeNull();
   });
 
-  it('renders the build-mode empty state and creates the first task', async () => {
+  it('renders the blank canvas and creates the first task from the draft row', async () => {
     const user = userEvent.setup();
     mockTasks = [];
     mockLinks = [];
     renderSchedule();
-    // Build-mode empty state (region) — distinct from the read-only ScheduleEmptyState.
-    expect(screen.getByRole('region', { name: 'No tasks yet' })).toBeInTheDocument();
+    // The blank canvas: a live outline row plus the quiet fill panel (#2733).
+    expect(screen.getByRole('complementary', { name: /ways to fill this project/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '+ Add task' })).toBeNull();
-    await user.click(screen.getByRole('button', { name: /add first task/i }));
+    await user.click(screen.getByRole('button', { name: 'commit-draft' }));
     expect(createTaskMutate).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'New task', duration: 1 }),
-      expect.anything(),
+      expect.objectContaining({ name: 'Pour foundations', duration: 1 }),
     );
   });
 });

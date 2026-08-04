@@ -1125,10 +1125,9 @@ describe('methodology-adaptive widget gating (#1765)', () => {
   });
 });
 
-describe('first-run handoff — zero-task Overview (#2048)', () => {
-  /** Mock every Overview endpoint with a zero-task overview and the given
-   *  methodology + self role. */
-  function setupFirstRun(opts: { effective_methodology?: string; role?: number }) {
+describe('zero-task Overview — no empty card (#2733)', () => {
+  /** Mock every Overview endpoint with a zero-task overview and the given self role. */
+  function setupZeroTask(opts: { effective_methodology?: string; role?: number } = {}) {
     const { effective_methodology = 'HYBRID', role = 100 } = opts;
     mockedGet.mockImplementation((url: string) => {
       if (url === '/projects/proj-1/')
@@ -1144,45 +1143,31 @@ describe('first-run handoff — zero-task Overview (#2048)', () => {
     });
   }
 
-  it('replaces the KPI dashboard with a first-task CTA and hides the zero-value widgets', async () => {
-    setupFirstRun({});
+  it('renders no "add your first task" card at all (#2733)', async () => {
+    // The card is DELETED, not restyled. #2048 swapped the whole Overview body for
+    // a CTA on a zero-task project; #2733 moves the blank-project moment onto the
+    // Schedule, where the outline opens with a live row and the caret already in
+    // it. A card that says "add your first task" on a surface that cannot add one
+    // is a detour, so no shared empty card survives here.
+    setupZeroTask();
     renderPage();
+
+    await screen.findByRole('heading', { name: /overview/i });
     expect(
-      await screen.findByRole('heading', { name: /add your first task/i }),
-    ).toBeInTheDocument();
-    // The noisy zero-KPI dashboard is gone.
-    expect(screen.queryByRole('region', { name: /needs attention/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: /burn-up chart/i })).not.toBeInTheDocument();
-  });
-
-  it('lands authoring on Schedule for a schedule-visible project (HYBRID)', async () => {
-    setupFirstRun({ effective_methodology: 'HYBRID' });
-    renderPage();
-    fireEvent.click(await screen.findByRole('button', { name: /add your first task/i }));
-    expect(await screen.findByText('schedule-route')).toBeInTheDocument();
-  });
-
-  it('lands authoring on Board for an agile-only project (schedule hidden)', async () => {
-    setupFirstRun({ effective_methodology: 'AGILE' });
-    renderPage();
-    fireEvent.click(await screen.findByRole('button', { name: /add your first task/i }));
-    expect(await screen.findByText('board-route')).toBeInTheDocument();
-  });
-
-  it('shows the Invite teammates CTA for an Owner and routes to settings (#2048)', async () => {
-    // The invite form on settings#access is Owner-only, so the CTA gates on OWNER.
-    setupFirstRun({ role: 400 });
-    renderPage();
-    await screen.findByRole('heading', { name: /add your first task/i });
-    fireEvent.click(screen.getByRole('button', { name: /invite teammates/i }));
-    expect(await screen.findByText('settings-route')).toBeInTheDocument();
-  });
-
-  it('hides the Invite teammates CTA for a non-owner admin (invite form is Owner-only)', async () => {
-    setupFirstRun({ role: 300 });
-    renderPage();
-    await screen.findByRole('heading', { name: /add your first task/i });
+      screen.queryByRole('heading', { name: /add your first task/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /add your first task/i }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /invite teammates/i })).not.toBeInTheDocument();
+  });
+
+  it('renders the ordinary Overview body on a zero-task project', async () => {
+    // The KPI dashboard is no longer swapped out — a project with no work reads as
+    // a plan surface waiting for work, not as a failure state.
+    setupZeroTask();
+    renderPage();
+    expect(await screen.findByRole('heading', { name: /overview/i })).toBeInTheDocument();
   });
 });
 

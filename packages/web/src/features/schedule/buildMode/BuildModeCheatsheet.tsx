@@ -27,6 +27,8 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ['⌘', 'A'], label: 'Select siblings, then the whole tree' },
       { keys: ['F8'], label: 'Jump to next unresolved @owner or missing duration' },
       { keys: ['Shift', 'F8'], label: 'Jump to previous unresolved @owner or missing duration' },
+      { keys: ['F7'], label: 'Jump to next row that needs dates' },
+      { keys: ['Shift', 'F7'], label: 'Jump to previous row that needs dates' },
       { keys: ['Esc'], label: 'Clear selection' },
     ],
   },

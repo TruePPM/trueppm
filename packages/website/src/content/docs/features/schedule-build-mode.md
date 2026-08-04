@@ -74,12 +74,35 @@ The Schedule list is in one of three focus states at any time. The same keys do 
 | ⌘ Z / Ctrl + Z | Undo the most recent paste, while its receipt strip is still showing |
 | F8 | Jump to the next row that needs attention — an unresolved `@owner` mention, or a row a recent paste couldn't infer a duration for |
 | Shift + F8 | Jump to the previous such row |
+| F7 | Jump to the next row that still **needs dates** — no committed start yet |
+| Shift + F7 | Jump to the previous such row |
 | Alt + A | Toggle **Author** / **Read** mode for the whole Schedule (see below) — persists per project, per browser |
 | Space | Mark the focused row complete / un-complete |
 | ⌘ D / Ctrl + D | Duplicate the row **and its subtree**, appended below with "(copy)" on the duplicated root only — internal dependencies inside the subtree are not cloned, matching single-row duplicate's existing "dependencies are never cloned" rule. With a multi-row selection, duplicates every top-level selected row as its own subtree |
 | Right-click | Open the row context menu (Edit / Indent / Outdent / Convert to milestone / Delete) |
 | Delete / Backspace | Delete the focused row — or, with a multi-row selection active, every selected row (no confirm; undo via re-adding, or the delete toast's Undo action) |
 | Esc | Clear the current selection or row focus |
+
+### A blank project is a canvas
+
+A project with no tasks opens as a working surface, not an empty card:
+
+- **The outline starts with a live row and the caret already in it.** Type a name,
+  press Enter, and it becomes a task — then the caret stays put so the next row is
+  the next thing you type. Nothing is saved until there is a name to save, so
+  opening a project and backing out leaves nothing behind.
+- **The timeline draws a horizon** against the project's chosen calendar. An empty
+  grid says "nothing is planned yet"; a blank panel would say "something is broken".
+- **A quiet side panel** offers the other ways to fill it — import a file, and the
+  project's own stated facts (starts, calendar, default mode, views) so the ruler
+  beside it is legible.
+
+### Rows without dates are legal
+
+A row with no committed start is not an error. It renders with em-dashes and joins
+the **needs dates** count, which `F7` / `Shift + F7` walk. Getting the shape down
+first and dating it afterwards is a normal way to plan, so the outline never refuses
+a row for want of a date.
 
 ### Schedule-wide shortcuts (always on)
 

@@ -1,5 +1,6 @@
 import { useRef, type ComponentProps } from 'react';
 import { render, screen, act } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Task } from '@/types';
 import { useScheduleStore } from '@/stores/scheduleStore';
@@ -458,5 +459,30 @@ describe('TaskListPanel — scroll-to-task effect (issue #32)', () => {
     expect(virtual.scrollToIndex).not.toHaveBeenCalled();
     // The request is still consumed so it does not fire again on the next render.
     expect(useScheduleStore.getState().scrollToTaskId).toBeNull();
+  });
+});
+
+describe('TaskListPanel — blank project draft row (#2733)', () => {
+  it('renders a live draft row when the outline is empty', async () => {
+    // The "No tasks yet" card is gone: an empty outline opens with the caret in
+    // row 1, so the first keystroke is the first task rather than the third click.
+    const onCommitDraftRow = vi.fn();
+    renderPanel({ tasks: [], onCommitDraftRow });
+
+    const draft = await screen.findByRole('textbox', { name: /first task name/i });
+    await userEvent.type(draft, 'Survey the site{Enter}');
+
+    expect(onCommitDraftRow).toHaveBeenCalledExactlyOnceWith('Survey the site');
+  });
+
+  it('does not render the draft row once the outline has tasks', () => {
+    renderPanel({ tasks: [task()], onCommitDraftRow: vi.fn() });
+    expect(screen.queryByRole('textbox', { name: /first task name/i })).toBeNull();
+  });
+
+  it('renders a static line, not an input, without a commit handler', () => {
+    // Read-only roles: a caret in a field that cannot save is worse than no caret.
+    renderPanel({ tasks: [] });
+    expect(screen.queryByRole('textbox', { name: /first task name/i })).toBeNull();
   });
 });
