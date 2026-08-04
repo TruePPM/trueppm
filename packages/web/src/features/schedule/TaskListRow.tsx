@@ -1069,6 +1069,7 @@ function useRowReorderHandle(ctx: {
 function useRowActions(ctx: {
   projectId: string;
   task: Task;
+  buildMode: BuildMode | null;
   toggleComplete: ReturnType<typeof useToggleComplete>;
   duplicateTask: ReturnType<typeof useDuplicateTask>;
   updateTask: UpdateTaskMutation;
@@ -1080,6 +1081,7 @@ function useRowActions(ctx: {
   const {
     projectId,
     task,
+    buildMode,
     toggleComplete,
     duplicateTask,
     updateTask,
@@ -1121,6 +1123,14 @@ function useRowActions(ctx: {
 
   const handleDuplicate = useCallback(() => {
     if (!projectId) return;
+    // Build mode owns the subtree-aware duplicate (#2727, ADR-0776 §2) — it
+    // needs the full task tree, which only ScheduleView has. The flag-off
+    // path below (no BuildModeProvider mounted) keeps the original
+    // single-row-only duplicate exactly as it shipped (ADR-0066 §Q1).
+    if (buildMode) {
+      buildMode.duplicateSubtree(task.id);
+      return;
+    }
     duplicateTask.mutate(
       {
         projectId,
@@ -1156,6 +1166,8 @@ function useRowActions(ctx: {
     );
   }, [
     projectId,
+    buildMode,
+    task.id,
     task.name,
     task.duration,
     task.parentId,
@@ -1541,6 +1553,7 @@ function TaskListRowInner({
   const { handleToggleComplete, handleDuplicate } = useRowActions({
     projectId,
     task,
+    buildMode,
     toggleComplete,
     duplicateTask,
     updateTask,

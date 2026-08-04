@@ -129,6 +129,7 @@ const spies = {
   isCaretAtEndRow: () => false,
   clearCaretAtEndRow: vi.fn(),
   convertToMilestone: vi.fn(),
+  duplicateSubtree: vi.fn(),
   deleteTask: vi.fn(),
 };
 
@@ -163,6 +164,7 @@ function Harness({
       isCaretAtEndRow: spies.isCaretAtEndRow,
       clearCaretAtEndRow: spies.clearCaretAtEndRow,
       convertToMilestone: spies.convertToMilestone,
+      duplicateSubtree: spies.duplicateSubtree,
       deleteTask: spies.deleteTask,
       isMutationPending: () => false,
     }),

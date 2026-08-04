@@ -46,7 +46,7 @@ const SECTIONS: ShortcutSection[] = [
     title: 'Quick actions',
     entries: [
       { keys: ['Space'], label: 'Mark complete / un-complete focused row' },
-      { keys: ['⌘', 'D'], label: 'Duplicate focused row' },
+      { keys: ['⌘', 'D'], label: 'Duplicate row and its subtree' },
       { keys: ['Enter'], label: 'Open task drawer' },
       { keys: ['⌫'], label: 'Delete row' },
     ],

@@ -83,3 +83,32 @@ export function collectAllIds(nodes: WbsNode[]): string[] {
   }
   return ids;
 }
+
+function findNode(nodes: WbsNode[], id: string): WbsNode | null {
+  for (const node of nodes) {
+    if (node.task.id === id) return node;
+    const found = findNode(node.children, id);
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * Collect the subtree rooted at `rootId` as a flat, top-down list — the root
+ * first, then every descendant, each always appearing before its own
+ * children (pre-order). Used by ⌘D's subtree duplicate (#2727, ADR-0776 §2):
+ * that order is a valid *creation* order too, since a child's clone can only
+ * be created once its parent's clone already exists. Returns `[]` when
+ * `rootId` isn't found anywhere in `nodes`.
+ */
+export function collectSubtree(nodes: WbsNode[], rootId: string): WbsNode[] {
+  const root = findNode(nodes, rootId);
+  if (!root) return [];
+  const result: WbsNode[] = [];
+  const walk = (node: WbsNode) => {
+    result.push(node);
+    for (const child of node.children) walk(child);
+  };
+  walk(root);
+  return result;
+}

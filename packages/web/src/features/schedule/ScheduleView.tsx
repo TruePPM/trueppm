@@ -27,7 +27,12 @@ import { useKeyboardReschedule } from '@/hooks/useKeyboardReschedule';
 import { useDragStore } from '@/stores/dragStore';
 import { useColumnWidths } from '@/hooks/useColumnWidths';
 import { useScheduleChartPrefs, hiddenChartCountForView } from '@/hooks/useScheduleChartPrefs';
-import { buildWbsTree, flattenVisible, collectAllIds } from '@/features/grid/buildWbsTree';
+import {
+  buildWbsTree,
+  flattenVisible,
+  collectAllIds,
+  collectSubtree,
+} from '@/features/grid/buildWbsTree';
 import { formatToggleAnnouncement } from './wbsAnnouncement';
 import { TaskListPanel, type TaskDepChips } from './TaskListPanel';
 import { CanvasScheduleTimeline } from './CanvasScheduleTimeline';
@@ -111,6 +116,7 @@ import {
   useReorderTasks,
   useAddDependency,
   parseCyclicDependencyError,
+  buildCopyName,
 } from '@/hooks/useTaskMutations';
 import { toast } from '@/components/Toast';
 import { wbsParentPath, siblingIdsOf } from './buildMode/insertBelow';
@@ -1530,6 +1536,91 @@ export function ScheduleView() {
         if (!projectId) return;
         updateTaskMut.mutate({ id: taskId, projectId, duration: 0 });
       },
+      duplicateSubtree: (taskId) => {
+        // ⌘D / Ctrl+D / row menu Duplicate (#2727, ADR-0776 §2, amending
+        // ADR-0066 §Q1). Multi-select: duplicate every top-level selected
+        // node as its own subtree root — a selected node whose ancestor is
+        // also selected is skipped, since it's already covered by that
+        // ancestor's walk.
+        if (!projectId) return;
+        const tree = buildWbsTree(allTasks);
+        const taskById = new Map(allTasks.map((t) => [t.id, t]));
+        const selected = focus.state.selectedIds;
+        const hasAncestorSelected = (id: string): boolean => {
+          let cur = taskById.get(id)?.parentId ?? null;
+          while (cur) {
+            if (selected?.has(cur)) return true;
+            cur = taskById.get(cur)?.parentId ?? null;
+          }
+          return false;
+        };
+        const rootIds =
+          selected && selected.size > 1 && selected.has(taskId)
+            ? [...selected].filter((id) => !hasAncestorSelected(id))
+            : [taskId];
+
+        void (async () => {
+          for (const rootId of rootIds) {
+            const subtree = collectSubtree(tree, rootId);
+            if (subtree.length === 0) continue;
+            const [rootNode, ...descendants] = subtree;
+            const rootSiblingNames = allTasks
+              .filter((t) => t.parentId === rootNode.task.parentId)
+              .map((t) => t.name);
+            // Dependencies are never cloned — extended uniformly to every
+            // duplicated node, including edges internal to the duplicated
+            // subtree (ADR-0066 §Q1, amended here rather than special-cased
+            // away). Only the root's name gets the "(copy)" suffix;
+            // descendants move with the subtree unchanged.
+            const idMap = new Map<string, string>();
+            try {
+              const rootCreated = await createTaskMut.mutateAsync({
+                name: buildCopyName(rootNode.task.name, rootSiblingNames),
+                duration: rootNode.task.duration,
+                parent_id: rootNode.task.parentId,
+                sprint: rootNode.task.sprintId ?? null,
+                is_milestone: rootNode.task.isMilestone,
+                ...(rootNode.task.deliveryMode
+                  ? { delivery_mode: rootNode.task.deliveryMode }
+                  : {}),
+              });
+              idMap.set(rootNode.task.id, rootCreated.id);
+              const rootSprint = rootNode.task.sprintId
+                ? sprintsById.get(rootNode.task.sprintId)
+                : undefined;
+              if (rootSprint && rootSprint.state === 'ACTIVE') {
+                setScheduleActionToast({
+                  message: `Added to ${rootSprint.name}`,
+                  action: {
+                    label: 'Undo',
+                    onClick: () => {
+                      updateTaskMut.mutate({ id: rootCreated.id, projectId, sprint: null });
+                      setScheduleActionToast({ message: 'Moved to backlog', durationMs: 2000 });
+                    },
+                  },
+                });
+              }
+              for (const node of descendants) {
+                if (!node.task.parentId) continue; // unreachable — every descendant has a parent within the subtree
+                const newParentId = idMap.get(node.task.parentId);
+                if (!newParentId) continue;
+                const created = await createTaskMut.mutateAsync({
+                  name: node.task.name,
+                  duration: node.task.duration,
+                  parent_id: newParentId,
+                  sprint: node.task.sprintId ?? null,
+                  is_milestone: node.task.isMilestone,
+                  ...(node.task.deliveryMode ? { delivery_mode: node.task.deliveryMode } : {}),
+                });
+                idMap.set(node.task.id, created.id);
+              }
+            } catch {
+              toast.error("Couldn't duplicate the task — try again.");
+              return;
+            }
+          }
+        })();
+      },
       deleteTask: (taskId) => {
         // Leaf rows delete immediately with the Undo safety net (#1762) — the
         // fast daily build path. But a summary/phase row carries a WBS subtree
@@ -1602,6 +1693,9 @@ export function ScheduleView() {
       performBuildModeDelete,
       pristineNewRowId,
       caretAtEndRowId,
+      createTaskMut,
+      sprintsById,
+      setScheduleActionToast,
     ],
   );
 

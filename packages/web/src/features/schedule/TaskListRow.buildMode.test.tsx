@@ -47,6 +47,7 @@ interface Captured {
   isCaretAtEndRow: ReturnType<typeof vi.fn>;
   clearCaretAtEndRow: ReturnType<typeof vi.fn>;
   convertToMilestone: ReturnType<typeof vi.fn>;
+  duplicateSubtree: ReturnType<typeof vi.fn>;
   deleteTask: ReturnType<typeof vi.fn>;
 }
 
@@ -65,6 +66,7 @@ const stableSpies = {
   isCaretAtEndRow: vi.fn(() => false),
   clearCaretAtEndRow: vi.fn(),
   convertToMilestone: vi.fn(),
+  duplicateSubtree: vi.fn(),
   deleteTask: vi.fn(),
 };
 
@@ -91,6 +93,7 @@ function Harness({
       isCaretAtEndRow: stableSpies.isCaretAtEndRow,
       clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
       convertToMilestone: stableSpies.convertToMilestone,
+      duplicateSubtree: stableSpies.duplicateSubtree,
       deleteTask: stableSpies.deleteTask,
       isMutationPending: () => false,
     }),
@@ -109,6 +112,7 @@ function Harness({
     isCaretAtEndRow: stableSpies.isCaretAtEndRow,
     clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
     convertToMilestone: stableSpies.convertToMilestone,
+    duplicateSubtree: stableSpies.duplicateSubtree,
     deleteTask: stableSpies.deleteTask,
   };
   return (
@@ -305,6 +309,7 @@ describe('TaskListRow — build-mode keyboard', () => {
           isCaretAtEndRow: stableSpies.isCaretAtEndRow,
           clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
           convertToMilestone: stableSpies.convertToMilestone,
+          duplicateSubtree: stableSpies.duplicateSubtree,
           deleteTask: stableSpies.deleteTask,
           isMutationPending: () => false,
         }),
@@ -322,6 +327,7 @@ describe('TaskListRow — build-mode keyboard', () => {
         isCaretAtEndRow: stableSpies.isCaretAtEndRow,
         clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
         convertToMilestone: stableSpies.convertToMilestone,
+        duplicateSubtree: stableSpies.duplicateSubtree,
         deleteTask: stableSpies.deleteTask,
       };
       const second: Task = { ...baseTask, id: 't-build-2', wbs: '1.3', name: 'Roof' };
@@ -363,6 +369,7 @@ describe('TaskListRow — build-mode keyboard', () => {
           isCaretAtEndRow: stableSpies.isCaretAtEndRow,
           clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
           convertToMilestone: stableSpies.convertToMilestone,
+          duplicateSubtree: stableSpies.duplicateSubtree,
           deleteTask: stableSpies.deleteTask,
           isMutationPending: () => false,
         }),
@@ -380,6 +387,7 @@ describe('TaskListRow — build-mode keyboard', () => {
         isCaretAtEndRow: stableSpies.isCaretAtEndRow,
         clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
         convertToMilestone: stableSpies.convertToMilestone,
+        duplicateSubtree: stableSpies.duplicateSubtree,
         deleteTask: stableSpies.deleteTask,
       };
       const first: Task = { ...baseTask, id: 't-build-0', wbs: '1.1', name: 'Site prep' };
@@ -534,6 +542,7 @@ describe('TaskListRow — pending-mutation guards (#806)', () => {
           isCaretAtEndRow: stableSpies.isCaretAtEndRow,
           clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
           convertToMilestone: stableSpies.convertToMilestone,
+          duplicateSubtree: stableSpies.duplicateSubtree,
           deleteTask: stableSpies.deleteTask,
           isMutationPending: (id: string) => ids.has(id),
         }),
@@ -603,6 +612,7 @@ function PendingHarness({ pending }: { pending: boolean }) {
       isCaretAtEndRow: stableSpies.isCaretAtEndRow,
       clearCaretAtEndRow: stableSpies.clearCaretAtEndRow,
       convertToMilestone: stableSpies.convertToMilestone,
+      duplicateSubtree: stableSpies.duplicateSubtree,
       deleteTask: stableSpies.deleteTask,
       isMutationPending: (id: string) => pending && id === 't-build-1',
     }),

@@ -19,6 +19,12 @@ P3M layer: **Programs/Projects** (single-project Schedule canvas). OSS.
 ## Decision
 
 ### Q1 — Duplicate via existing `POST /api/v1/tasks/`, no new endpoint
+
+> **Amended by ADR-0776 §2 (#2727).** Duplicate now walks the source row's
+> full subtree instead of cloning a single row — the "no new endpoint,
+> dependencies never cloned" reasoning below is extended uniformly to every
+> duplicated node, including edges internal to the duplicated subtree.
+
 The existing `TaskViewSet.create()` already accepts `parent_id` from the request body and computes WBS path placement under `select_for_update()` with `_renumber_siblings()`. The frontend reads the source task, POSTs name + duration + assignee + `parent_id` (and optionally `sprint=null` per Q2). Server handles WBS placement, server_version bump, and `broadcast_board_event("task_created")` via `transaction.on_commit()`. No migration, no new permission gate, no new serializer field.
 
 ### Q2 — Duplicate inherits sprint membership; toast with Undo when sprint is ACTIVE

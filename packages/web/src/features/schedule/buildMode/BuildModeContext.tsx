@@ -19,6 +19,19 @@ export interface BuildModeApi {
   insertChild: (taskId: string) => void;
   /** Convert a task to a milestone (set duration=0). Used by the row menu. */
   convertToMilestone: (taskId: string) => void;
+  /**
+   * ⌘D / Ctrl+D / the row menu's Duplicate item (#2727, ADR-0776 §2, amending
+   * ADR-0066 §Q1): duplicates `taskId` and its full subtree, top-down,
+   * remapping each clone's `parent_id` to its newly-created parent's id as it
+   * goes. Only the root clone's name gets the "(copy)" suffix; descendants
+   * keep their source names. Dependencies are never cloned — including edges
+   * *internal* to the duplicated subtree — extending ADR-0066's existing rule
+   * uniformly rather than special-casing it away for this richer case. When a
+   * multi-row selection is active and includes `taskId`, every top-level
+   * selected node (one whose ancestor isn't also selected) is duplicated as
+   * its own subtree root in the same operation.
+   */
+  duplicateSubtree: (taskId: string) => void;
   /** Delete a task. Used by the row menu and the Delete key. */
   deleteTask: (taskId: string) => void;
   /**

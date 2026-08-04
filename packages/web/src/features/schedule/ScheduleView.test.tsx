@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { render, screen, cleanup, waitFor, act, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
@@ -50,11 +50,20 @@ let mockExportError: string | null = null;
 let mockEffectiveMethodology: string | undefined;
 
 const exportProjectMock = vi.fn();
+let createTaskCounter = 0;
 const createTaskMutate = vi.fn(
   (vars: Record<string, unknown>, opts?: { onSuccess?: (created: { id: string }) => void }) => {
     opts?.onSuccess?.({ id: 'new-task-1', ...(vars as object) });
   },
 );
+// duplicateSubtree (#2727, ADR-0776 §2) awaits mutateAsync sequentially to
+// remap each clone's parent_id — the sync-only `mutate` mock above can't
+// drive that. Each call gets a distinct id so a subtree walk's `idMap`
+// resolves correctly.
+const createTaskMutateAsync = vi.fn((vars: Record<string, unknown>) => {
+  createTaskCounter += 1;
+  return Promise.resolve({ id: `dup-task-${createTaskCounter}`, ...(vars as object) });
+});
 const deleteTaskMutate = vi.fn();
 const reorderTaskMutate = vi.fn();
 const createBaselineMutate = vi.fn();
@@ -156,18 +165,51 @@ vi.mock('@/hooks/useGlobalShortcut', () => ({
 }));
 vi.mock('@/hooks/useDragCpm', () => ({ useDragCpm: () => undefined }));
 vi.mock('@/hooks/useKeyboardReschedule', () => ({ useKeyboardReschedule: () => undefined }));
-vi.mock('@/hooks/useTaskMutations', () => ({
-  useIndentTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
-  useOutdentTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
-  useUpdateTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
-  useDeleteTask: () => ({ mutate: deleteTaskMutate, isPending: false, variables: undefined }),
-  useRestoreTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
-  useCreateTask: () => ({ mutate: createTaskMutate, isPending: false, variables: undefined }),
-  useReorderTasks: () => ({ mutate: reorderTaskMutate, isPending: false, variables: undefined }),
-  useAddDependency: () => ({ mutate: addDepMutate, isPending: false, variables: undefined }),
-  parseCyclicDependencyError: (err: unknown) =>
-    (err as { cyclic?: boolean } | null)?.cyclic ? { path: ['a', 'b'] } : null,
-}));
+vi.mock('@/hooks/useTaskMutations', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useTaskMutations')>();
+  return {
+    ...actual,
+    useIndentTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
+    useOutdentTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
+    useUpdateTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
+    useDeleteTask: () => ({ mutate: deleteTaskMutate, isPending: false, variables: undefined }),
+    useRestoreTask: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
+    useCreateTask: () => ({
+      mutate: createTaskMutate,
+      mutateAsync: createTaskMutateAsync,
+      isPending: false,
+      variables: undefined,
+    }),
+    useReorderTasks: () => ({ mutate: reorderTaskMutate, isPending: false, variables: undefined }),
+    useAddDependency: () => ({ mutate: addDepMutate, isPending: false, variables: undefined }),
+    parseCyclicDependencyError: (err: unknown) =>
+      (err as { cyclic?: boolean } | null)?.cyclic ? { path: ['a', 'b'] } : null,
+  };
+});
+
+// Captures the real, fully-wired BuildModeApi that ScheduleView hands to
+// <BuildModeProvider> — same capture-into-module-var pattern as
+// capturedKeyBindings below. TaskListPanel is stubbed out (it has its own
+// tests), so this is the only way to exercise duplicateSubtree's actual
+// orchestration (#2727, ADR-0776 §2: subtree walk, id remapping, top-level-
+// selected-node filtering) rather than just asserting a row delegates to it.
+let capturedBuildMode: import('./buildMode').BuildModeApi | null = null;
+vi.mock('./buildMode', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./buildMode')>();
+  return {
+    ...actual,
+    BuildModeProvider: ({
+      api,
+      children,
+    }: {
+      api: import('./buildMode').BuildModeApi;
+      children: ReactNode;
+    }) => {
+      capturedBuildMode = api;
+      return <actual.BuildModeProvider api={api}>{children}</actual.BuildModeProvider>;
+    },
+  };
+});
 
 // Schedule-local hooks
 vi.mock('./useScheduleKeyboard', () => ({
@@ -441,8 +483,11 @@ beforeEach(() => {
   mockExportError = null;
   mockEffectiveMethodology = undefined;
   capturedKeyBindings = {};
+  capturedBuildMode = null;
   exportProjectMock.mockReset();
   createTaskMutate.mockClear();
+  createTaskMutateAsync.mockClear();
+  createTaskCounter = 0;
   deleteTaskMutate.mockReset();
   createBaselineMutate.mockReset();
   addDepMutate.mockReset();
@@ -1125,5 +1170,76 @@ describe('ScheduleView — forecast surface is not role-gated (#2492)', () => {
     renderSchedule();
     expect(screen.getByTestId('forecast-bar')).toBeInTheDocument();
     expect(screen.getByTestId('mobile-mc')).toBeInTheDocument();
+  });
+});
+
+describe('ScheduleView — buildModeApi.duplicateSubtree (#2727, ADR-0776 §2)', () => {
+  // FIXTURE_TASKS: t1 "Alpha Platform Upgrade" (root, wbs 1) has children
+  // t2 "Discovery & Design" (leaf), t3, t4, t5, t6 (all wbs 1.x); t7
+  // "Documentation" (root, wbs 2) is a separate, unrelated leaf.
+
+  it('duplicates a leaf as a single row with the "(copy)" suffix', async () => {
+    renderSchedule();
+    act(() => {
+      capturedBuildMode!.duplicateSubtree('t2');
+    });
+    await waitFor(() => expect(createTaskMutateAsync).toHaveBeenCalledTimes(1));
+    expect(createTaskMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Discovery & Design (copy)',
+        parent_id: 't1',
+        duration: 10,
+      }),
+    );
+  });
+
+  it('duplicates a summary and its full subtree, remapping parent_id top-down', async () => {
+    renderSchedule();
+    act(() => {
+      capturedBuildMode!.duplicateSubtree('t1');
+    });
+    // t1 + its 5 children (t2..t6) = 6 sequential creates.
+    await waitFor(() => expect(createTaskMutateAsync).toHaveBeenCalledTimes(6));
+    const [rootPayload] = createTaskMutateAsync.mock.calls[0];
+    expect(rootPayload).toMatchObject({ name: 'Alpha Platform Upgrade (copy)', parent_id: null });
+    // The mock hands out ids "dup-task-N" in call order — the root's clone is dup-task-1.
+    const childPayloads = createTaskMutateAsync.mock.calls.slice(1).map(([p]) => p);
+    for (const payload of childPayloads) {
+      expect(payload.parent_id).toBe('dup-task-1');
+      expect(payload.name).not.toMatch(/\(copy\)/); // descendants keep their source name
+    }
+  });
+
+  it('is a no-op when the task is not found in the tree', () => {
+    renderSchedule();
+    act(() => {
+      capturedBuildMode!.duplicateSubtree('does-not-exist');
+    });
+    expect(createTaskMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('multi-select: duplicates only top-level selected nodes as subtree roots', async () => {
+    renderSchedule();
+    // t2 is a child of t1; selecting both means t2 is already covered by
+    // t1's own subtree walk and must not be duplicated a second time. t7 is
+    // an unrelated root and gets its own subtree walk. Each dispatch runs in
+    // its own act() so `capturedBuildMode` (re-captured on every render) sees
+    // the updated focus.state before the next call reads it — combining them
+    // in one act() would still read the pre-select state, since dispatch
+    // batching doesn't flush mid-callback.
+    act(() => {
+      capturedBuildMode!.focus.focusRow('t1');
+    });
+    act(() => {
+      capturedBuildMode!.focus.selectIds(['t1', 't2', 't7']);
+    });
+    act(() => {
+      capturedBuildMode!.duplicateSubtree('t1');
+    });
+    // t1's subtree (t1..t6 = 6) + t7's subtree (t7 = 1) = 7. If t2 were
+    // wrongly duplicated a second time as its own root, this would be 8.
+    await waitFor(() => expect(createTaskMutateAsync).toHaveBeenCalledTimes(7));
+    const names = createTaskMutateAsync.mock.calls.map(([p]) => p.name as string);
+    expect(names.filter((n) => n.includes('Discovery & Design'))).toHaveLength(1);
   });
 });

@@ -26,7 +26,7 @@ describe('BuildModeCheatsheet — visibility', () => {
   it('shows Space → Mark complete and ⌘D → Duplicate in Quick actions (#477)', () => {
     render(<BuildModeCheatsheet open={true} onClose={vi.fn()} />);
     expect(screen.getByText('Mark complete / un-complete focused row')).toBeInTheDocument();
-    expect(screen.getByText('Duplicate focused row')).toBeInTheDocument();
+    expect(screen.getByText('Duplicate row and its subtree')).toBeInTheDocument();
   });
 
   it('describes hover chain reveal in the Dependencies section (#475)', () => {

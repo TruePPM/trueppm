@@ -68,6 +68,7 @@ describe('TaskListRow — Option/Alt+↑/↓ sibling reorder (#347)', () => {
         isCaretAtEndRow: () => false,
         clearCaretAtEndRow: vi.fn(),
         convertToMilestone: vi.fn(),
+        duplicateSubtree: vi.fn(),
         deleteTask: vi.fn(),
         isMutationPending: () => false,
       }),

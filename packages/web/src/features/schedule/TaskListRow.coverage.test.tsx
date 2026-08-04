@@ -533,6 +533,7 @@ function BuildHarness({
       isCaretAtEndRow: () => false,
       clearCaretAtEndRow: vi.fn(),
       convertToMilestone: vi.fn(),
+      duplicateSubtree: vi.fn(),
       deleteTask: vi.fn(),
       isMutationPending: () => false,
     }),
