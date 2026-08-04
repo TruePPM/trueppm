@@ -1221,4 +1221,4 @@ from trueppm_api.apps.projects.template_tasks import (  # noqa: E402
     drain_template_apply_queue,
 )
 
-__all__ = [*globals().get("__all__", []), "apply_template", "drain_template_apply_queue"]
+__all__ = ["apply_template", "drain_template_apply_queue"]
