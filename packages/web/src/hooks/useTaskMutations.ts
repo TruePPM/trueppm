@@ -1,6 +1,13 @@
+import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { handleSyncConflict, isSyncConflict } from '@/api/conflict';
+import {
+  extractRejectReason,
+  recordSchedulePreview,
+  rejectSchedulePreview,
+  scheduleDatesFromUpdatePayload,
+} from '@/features/schedule/reconcile/fromMutation';
 import type { Task, TaskType, GovernanceClass, DeliveryMode } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -203,8 +210,10 @@ function optimisticTaskPatch(vars: UpdateTaskPayload): Partial<Task> {
  */
 export function useUpdateTask() {
   const queryClient = useQueryClient();
+  // Retry for a refused date edit (ADR-0784) — `mutate` is stable in v5.
+  const mutateRef = useRef<((p: UpdateTaskPayload) => void) | null>(null);
 
-  return useMutation({
+  const mutation = useMutation({
     mutationFn: async ({
       id,
       projectId: _projectId,
@@ -232,12 +241,24 @@ export function useUpdateTask() {
       queryClient.setQueryData<Task[]>(['tasks', projectId], (old) =>
         old ? old.map((t) => (t.id === id ? { ...t, ...patch } : t)) : old,
       );
+      // ADR-0784: the milestone date popover and build-mode date edits write
+      // through here, not through useRescheduleTask. Register from the AUTHORED
+      // planned_start — `patch` carries `plannedStart` (the SNET constraint) and
+      // never `start`, the value the row renders.
+      recordSchedulePreview(snapshot, id, scheduleDatesFromUpdatePayload(variables));
       return { snapshot };
     },
     onError: (err, variables, context) => {
       if (context?.snapshot) {
         queryClient.setQueryData(['tasks', variables.projectId], context.snapshot);
       }
+      // ADR-0784: surface the refusal instead of reverting the row in silence.
+      rejectSchedulePreview(
+        variables.id,
+        scheduleDatesFromUpdatePayload(variables),
+        extractRejectReason(err),
+        () => mutateRef.current?.(variables),
+      );
       // A caller with its own inline conflict UI (TaskFormModal's banner, #2036)
       // opts out of the toast so the two don't stack; rollback above still runs.
       if (variables.suppressConflictToast && isSyncConflict(err)) return;
@@ -255,6 +276,12 @@ export function useUpdateTask() {
       });
     },
   });
+
+  useEffect(() => {
+    mutateRef.current = mutation.mutate;
+  }, [mutation.mutate]);
+
+  return mutation;
 }
 
 // ---------------------------------------------------------------------------
@@ -289,12 +316,16 @@ export interface RescheduleTaskPayload {
  */
 export function useRescheduleTask() {
   const queryClient = useQueryClient();
+  // Lets a rejected write offer a Retry that re-issues the exact same payload
+  // (ADR-0784). `mutate` is stable in React Query v5, so this settles once.
+  const mutateRef = useRef<((p: RescheduleTaskPayload) => void) | null>(null);
 
-  return useMutation({
+  const mutation = useMutation({
     mutationFn: async ({ id, projectId: _p, optimistic: _o, ...data }: RescheduleTaskPayload) => {
       await apiClient.patch(`/tasks/${id}/`, data);
     },
-    onMutate: async ({ id, projectId, planned_start, optimistic }) => {
+    onMutate: async (payload) => {
+      const { id, projectId, planned_start, optimistic } = payload;
       // Cancel any in-flight fetches so they don't overwrite our optimistic data
       await queryClient.cancelQueries({ queryKey: ['tasks', projectId] });
       const snapshot = queryClient.getQueryData<Task[]>(['tasks', projectId]);
@@ -319,13 +350,26 @@ export function useRescheduleTask() {
             })
           : old,
       );
+      // ADR-0784: register the optimistic dates so the polled/pushed
+      // authoritative values can be compared against what the planner authored.
+      // Done HERE rather than at each call site so drag, resize, the
+      // snap-to-project-start prompt and the milestone popover are all covered
+      // without touching them. A future write path that bypasses this hook
+      // silently opts out of reconciliation — there is no gate for that.
+      recordSchedulePreview(snapshot, id, optimistic);
       return { snapshot };
     },
-    onError: (_err, { projectId }, context) => {
+    onError: (err, payload, context) => {
+      const { id, projectId } = payload;
       // Roll back on API error
       if (context?.snapshot) {
         queryClient.setQueryData(['tasks', projectId], context.snapshot);
       }
+      // ADR-0784: a silent revert is the defect. Surface the server's reason on
+      // a persistent strip with a Retry that re-issues this exact mutation.
+      rejectSchedulePreview(id, payload.optimistic, extractRejectReason(err), () =>
+        mutateRef.current?.(payload),
+      );
     },
     onSuccess: (_data, { id, projectId }) => {
       // Deliberately no ['tasks'] invalidation — useScheduleTasks' refetchInterval
@@ -335,6 +379,12 @@ export function useRescheduleTask() {
       void queryClient.invalidateQueries({ queryKey: ['task-history', projectId, id] });
     },
   });
+
+  useEffect(() => {
+    mutateRef.current = mutation.mutate;
+  }, [mutation.mutate]);
+
+  return mutation;
 }
 
 // ---------------------------------------------------------------------------

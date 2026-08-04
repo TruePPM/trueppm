@@ -31,7 +31,9 @@ import {
 import { useCreateDependency } from '@/hooks/useDependencyMutations';
 import { formatRelative } from '@/lib/formatRelative';
 import { milestoneVarianceAnnotation, varianceToneTextClass } from '@/lib/milestoneVariance';
-import { fmtUtcShort } from '@/lib/formatUtcDate';
+import { DateCellValue } from './reconcile/DateCellValue';
+import { cellAriaLabel, describeDivergence } from './reconcile/reconcileCopy';
+import { useReconcileEntry, useWorkingDaysMask } from './reconcile/useReconcileEntry';
 import { GuardrailNotice } from './sections/GuardrailNotice';
 import { GuardrailBlock } from './sections/GuardrailBlock';
 import { useDragStore } from '@/stores/dragStore';
@@ -209,17 +211,6 @@ interface Props {
 const REORDER_KEY =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? 'Option' : 'Alt';
 
-// Route row start/finish dates through the shared cached UTC formatter
-// (lib/formatUtcDate). WHY: building a fresh Intl.DateTimeFormat per row per
-// scroll frame is wasteful (issue 1521), and pinning UTC keeps the list in
-// agreement with the timeline / MC surfaces on the displayed day (ADR-0144).
-// fmtUtcShort returns the raw input when unparseable; collapse that to an em
-// dash to preserve the row's prior empty/invalid rendering.
-function formatDate(iso: string): string {
-  if (!iso) return '—';
-  const formatted = fmtUtcShort(iso);
-  return formatted === iso ? '—' : formatted;
-}
 
 /**
  * Truncate a long WBS path with a middle ellipsis so the leaf number (most
@@ -2616,6 +2607,8 @@ function TaskStartCell({
   projectId,
   updateTask,
 }: TaskStartCellProps) {
+  const startEntry = useReconcileEntry(task.id, 'start');
+  const workingDaysMask = useWorkingDaysMask();
   // A build-mode milestone's Start cell is the click/keyboard target for the
   // date popover; every other row renders a static, non-interactive cell.
   // Hoisted once so the five call sites below stay flat (#2245).
@@ -2630,7 +2623,12 @@ function TaskStartCell({
       ].join(' ')}
       style={{ width: widthPx }}
       role="gridcell"
-      aria-label={task.start ? `starts ${formatDate(task.start)}` : 'unscheduled'}
+      // The visible cell is ~74px and cannot carry the full `old → new` claim,
+      // so the accessible name is the only place a screen-reader user gets it
+      // (ADR-0784). Italic — the sighted preview signal — is likewise invisible
+      // to assistive tech, hence "pending confirmation" here.
+      aria-label={cellAriaLabel('start', task.start, startEntry)}
+      title={startEntry?.status === 'diverged' ? describeDivergence(startEntry, workingDaysMask) : undefined}
       tabIndex={isMilestoneEditable ? 0 : undefined}
       onClick={
         isMilestoneEditable
@@ -2651,7 +2649,7 @@ function TaskStartCell({
           : undefined
       }
     >
-      {task.isMilestone ? formatDate(task.start) : task.start ? formatDate(task.start) : '—'}
+      <DateCellValue value={task.start} entry={startEntry} widthPx={widthPx} />
       {isMilestoneEditable && (
         <MilestoneDatePopover
           open={showMilestonePicker}
@@ -2674,6 +2672,11 @@ function TaskStartCell({
  * is shown in the Start column). Extracted from TaskListRowInner verbatim (#2081).
  */
 function TaskFinishCell({ task, widthPx }: { task: Task; widthPx: number }) {
+  const finishEntry = useReconcileEntry(task.id, 'finish');
+  const workingDaysMask = useWorkingDaysMask();
+  // A milestone has no finish cell content to reconcile — the marker would have
+  // nowhere to render and the date it describes lives in the Start column.
+  const entry = task.isMilestone ? undefined : finishEntry;
   return (
     <div
       className="flex items-center justify-end shrink-0 border-r border-neutral-border/20
@@ -2683,15 +2686,18 @@ function TaskFinishCell({ task, widthPx }: { task: Task; widthPx: number }) {
       aria-label={
         task.isMilestone
           ? 'milestone — single date in Start column'
-          : task.finish
-            ? `finishes ${formatDate(task.finish)}`
-            : 'unscheduled'
+          : cellAriaLabel('finish', task.finish, entry)
       }
+      title={entry?.status === 'diverged' ? describeDivergence(entry, workingDaysMask) : undefined}
     >
       {/* Milestones are single-point gates: render an em-dash so the row
           never displays a date range that contradicts the diamond marker.
           The single date is shown in the Start column. */}
-      {task.isMilestone ? '—' : task.finish ? formatDate(task.finish) : '—'}
+      {task.isMilestone ? (
+        '—'
+      ) : (
+        <DateCellValue value={task.finish} entry={entry} widthPx={widthPx} />
+      )}
     </div>
   );
 }

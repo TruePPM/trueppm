@@ -57,6 +57,11 @@ import { TaskTrashDialog } from '@/features/project/TaskTrashDialog';
 import { CaptureBaselineConfirmDialog } from './CaptureBaselineConfirmDialog';
 import { SubtreeDeleteConfirmDialog } from './SubtreeDeleteConfirmDialog';
 import { ScheduleForecastBar } from './ScheduleForecastBar';
+import { ScheduleReconcileStrip } from './reconcile/ScheduleReconcileStrip';
+import { useScheduleReconciliation } from './reconcile/useScheduleReconciliation';
+import { reviewableTaskIds } from './reconcile/reconcileState';
+import { MON_FRI_MASK } from './reconcile/reconcileCopy';
+import { useReconcileStore } from '@/stores/reconcileStore';
 import { MonteCarloGanttMarkers } from './MonteCarloGanttMarkers';
 import { MobileMonteCarloCard } from './MobileMonteCarloCard';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
@@ -650,6 +655,14 @@ export function ScheduleView() {
   // aria-live (assertive) — keyboard nudge announcements; must interrupt immediately (rule 53)
   const ariaAssertiveRef = useRef<HTMLDivElement>(null);
 
+  // Server-reconciliation markers (ADR-0784, #2725). The hook feeds the
+  // full-snapshot path; the WebSocket delta path is wired in useProjectWebSocket.
+  useScheduleReconciliation(projectId, allTasks);
+  const reviewFilterActive = useReconcileStore((s) => s.reviewFilterActive);
+  const reconcileEntries = useReconcileStore((s) => s.entries);
+  const setWorkingDaysMask = useReconcileStore((s) => s.setWorkingDaysMask);
+  const reviewTaskIds = useMemo(() => reviewableTaskIds(reconcileEntries), [reconcileEntries]);
+
   // Build tree and compute visible tasks for collapse/expand
   const { visibleTasks, summaryIds, childCountById } = useMemo(() => {
     if (allTasks.length === 0)
@@ -684,8 +697,21 @@ export function ScheduleView() {
         return false;
       });
     }
+    // "Show N changes" (ADR-0784 §D8) — narrow to rows the server moved or
+    // refused. Applied AFTER the render filters and, like them, keeping
+    // summaries so the WBS hierarchy a reviewed row sits in stays legible.
+    if (reviewFilterActive && reviewTaskIds.size > 0) {
+      filtered = filtered.filter((t) => t.isSummary || reviewTaskIds.has(t.id));
+    }
     return { visibleTasks: filtered, summaryIds: sIds, childCountById: counts };
-  }, [allTasks, expandedIds, showCriticalOnly, showMilestonesOnly]);
+  }, [
+    allTasks,
+    expandedIds,
+    showCriticalOnly,
+    showMilestonesOnly,
+    reviewFilterActive,
+    reviewTaskIds,
+  ]);
 
   // Wrap toggle to announce the new state to the polite aria-live region.
   // Written via DOM ref (rule 30) — avoids a state-driven re-render on every toggle.
@@ -1140,6 +1166,14 @@ export function ScheduleView() {
   // (methodologyTabs.ts), but the route stays reachable by direct URL on purpose
   // (issue #2619). Drives the explanatory empty state below.
   const effectiveMethodology = projectDetail?.effective_methodology ?? 'HYBRID';
+
+  // Publish the project's weekday mask to the reconciliation store so the two
+  // leaf date cells can reach it without a prop chain through TaskListRow. It is
+  // the only cause the client can actually prove (ADR-0784 §D5).
+  const reconcileMask = projectDetail?.effective_calendar?.working_days ?? MON_FRI_MASK;
+  useEffect(() => {
+    setWorkingDaysMask(reconcileMask);
+  }, [reconcileMask, setWorkingDaysMask]);
 
   const scheduleCommit = useScheduleCommit({
     engine,
@@ -2330,6 +2364,14 @@ export function ScheduleView() {
           for, while a phone showed it. Scheduler+ still governs *writing* the
           attributed MonteCarloRun history row (#1502) — that is enforced server-
           side and is not a surface gate. */}
+      {/* Reconciliation review strip (ADR-0784, #2725). Deliberately its own
+          strip and deliberately UNGATED: the forecast bar below is behind
+          `surfaces.monte_carlo`, renders an empty state when no simulation has
+          run, and is `hidden md:flex`. Folding the "N dates changed"
+          announcement into it would mean a project with Monte Carlo off — or
+          simply never run — never learns the server moved its dates. */}
+      <ScheduleReconcileStrip workingDaysMask={reconcileMask} projectFinish={cpmFinish} />
+
       {surfaces.monte_carlo && (
         <ScheduleForecastBar
           projectId={projectIdUndef}
