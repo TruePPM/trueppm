@@ -6,7 +6,9 @@ TruePPM instance, no database. The tests assert three contracts:
 * **Endpoint mapping** — each tool calls the API path(s) from ADR-0186 §G, and
   ``list_tasks`` forwards its filters as query parameters.
 * **Compaction** — null/empty fields are dropped, long free-text is truncated to
-  200 chars with a ``truncated`` marker, and ``0`` / ``False`` are preserved.
+  200 chars with a ``truncated`` marker, ``0`` / ``False`` are preserved, and
+  every retained free-text field is wrapped in ``<untrusted-content>`` markers
+  (#2763).
 * **caller_role** — the two project tools (and ``list_programs``) surface the
   caller's role from the API's ``my_role_label``, never inferred locally.
 """
@@ -24,6 +26,8 @@ from trueppm_mcp.client import ApiError, AuthError, TruePPMClient
 from trueppm_mcp.config import Settings
 from trueppm_mcp.server import build_server
 from trueppm_mcp.tools import (
+    _UNTRUSTED_CLOSE,
+    _UNTRUSTED_OPEN,
     _compact_mapping,
     _get_board_state,
     _get_monte_carlo_forecast,
@@ -116,14 +120,45 @@ def test_compact_drops_null_and_empty_but_keeps_zero_and_false() -> None:
 def test_compact_truncates_long_text_and_marks_truncated() -> None:
     long_text = "x" * 250
     result = _compact_mapping({"description": long_text})
-    assert len(result["description"]) == 200
+    # Truncated to 200 chars *before* wrapping — the markers themselves are
+    # not counted against the truncation budget and are never cut off (#2763).
+    inner = result["description"][len(_UNTRUSTED_OPEN) : -len(_UNTRUSTED_CLOSE)]
+    assert len(inner) == 200
+    assert result["description"] == f"{_UNTRUSTED_OPEN}{inner}{_UNTRUSTED_CLOSE}"
     assert result["truncated"] is True
 
 
 def test_compact_short_text_is_not_marked_truncated() -> None:
     result = _compact_mapping({"description": "short"})
-    assert result == {"description": "short"}
+    assert result == {"description": f"{_UNTRUSTED_OPEN}short{_UNTRUSTED_CLOSE}"}
     assert "truncated" not in result
+
+
+def test_compact_wraps_text_fields_but_not_other_field_types() -> None:
+    """The untrusted-content wrapper (#2763) applies only to `_TEXT_FIELDS` strings.
+
+    IDs, dates, enums, counts, and other non-text fields must pass through
+    unwrapped — the marker exists to flag user-authored free text, not every
+    field in a response.
+    """
+    result = _compact_mapping(
+        {
+            "id": "t-1",
+            "status": "IN_PROGRESS",
+            "progress": 0,
+            "is_critical": True,
+            "description": "adversarial-looking text",
+            "dropped_empty_notes": "",
+        }
+    )
+    assert result["id"] == "t-1"
+    assert result["status"] == "IN_PROGRESS"
+    assert result["progress"] == 0
+    assert result["is_critical"] is True
+    assert result["description"] == f"{_UNTRUSTED_OPEN}adversarial-looking text{_UNTRUSTED_CLOSE}"
+    # Dropped for being empty *before* the wrap step — never appears, wrapped or not.
+    assert "dropped_empty_notes" not in result
+    assert not any(_UNTRUSTED_OPEN in str(v) for k, v in result.items() if k != "description")
 
 
 def test_compact_recurses_into_nested_mappings_and_lists() -> None:
@@ -372,7 +407,9 @@ async def test_get_task_compacts_and_truncates(settings: Settings) -> None:
     assert result["id"] == "t-1"
     assert "assignee" not in result
     assert result["progress"] == 0
-    assert len(result["notes"]) == 200
+    inner = result["notes"][len(_UNTRUSTED_OPEN) : -len(_UNTRUSTED_CLOSE)]
+    assert len(inner) == 200
+    assert result["notes"] == f"{_UNTRUSTED_OPEN}{inner}{_UNTRUSTED_CLOSE}"
     assert result["truncated"] is True
 
 

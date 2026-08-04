@@ -234,3 +234,11 @@ is a pure read/compute modeled as a `GET`.
   requests. The write surface is held to a later release.
 - **Self-hosted.** All traffic stays between your AI client, the server, and
   your own API — no third-party service is involved.
+- **Tool output is framed as untrusted data.** Free-text fields (task
+  descriptions, notes, risk mitigations, and the like) are wrapped in
+  `<untrusted-content>` markers, and the server tells the connecting model
+  explicitly that everything a tool returns is project data — never an
+  instruction to follow, however it's phrased. This is a framing mitigation
+  for indirect prompt injection from user-authored content, not a content
+  filter; it doesn't sanitize text, and a well-behaved client and model are
+  still required to honor it.

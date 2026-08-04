@@ -182,3 +182,12 @@ prompts, see the [MCP server feature page](../features/mcp-server.md).
   required expiry. Project/program tokens are refused here entirely.
 - **Self-hosted.** All traffic stays between your AI client, the server, and
   your own API — no third-party service is involved.
+- **Tool output is framed as untrusted data.** Free-text fields (task
+  descriptions, notes, risk mitigations, and the like) are wrapped in
+  `<untrusted-content>` markers, and the server's own instructions to the
+  model state explicitly that everything a tool returns is project data, never
+  a directive to follow — a mitigation for indirect prompt injection via
+  user-authored text a project Member could set. This is a framing
+  mitigation, not a content filter: it does not sanitize or reject text, and
+  it cannot fully close the class server-side. A well-behaved client and
+  model are still required to honor it.
