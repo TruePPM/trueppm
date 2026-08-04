@@ -13604,6 +13604,248 @@
                 "summary": "Delete project resource"
             }
         },
+        "/api/v1/project-templates/": {
+            "get": {
+                "operationId": "v1_project_templates_list",
+                "description": "Templates available to the caller, plus publish and apply.\n\n**ReadOnly** on purpose, not for lack of ambition. A ``ModelViewSet`` here would\ninherit create / update / destroy under this class's ``IsAuthenticated``, which\nis the wrong gate for all three: any authenticated user could mint an empty\ntemplate, or rename and delete somebody else's. Publishing has exactly one door\n(``publish``, Admin+ on the source project) and it is the door that runs the\nextraction. Editing and unpublishing are deliberately not in this issue —\nabsent is safer than present-and-ungated.\n\nApply is throttled on the existing ``seed_import`` scope rather than a new one\n(ADR-0789 §Context 3). Template apply is a third background seeding path\nalongside seed import and CSV/MS Project import; #2615 remains the issue that\nbounds per-user concurrency for all three. Reusing the scope inherits exactly\nthe bound the other paths have today and keeps that fix in one place, instead\nof adding a fourth unbounded path.",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "project-templates"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedProjectTemplateList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "List project templates"
+            }
+        },
+        "/api/v1/project-templates/{id}/": {
+            "get": {
+                "operationId": "v1_project_templates_retrieve",
+                "description": "Templates available to the caller, plus publish and apply.\n\n**ReadOnly** on purpose, not for lack of ambition. A ``ModelViewSet`` here would\ninherit create / update / destroy under this class's ``IsAuthenticated``, which\nis the wrong gate for all three: any authenticated user could mint an empty\ntemplate, or rename and delete somebody else's. Publishing has exactly one door\n(``publish``, Admin+ on the source project) and it is the door that runs the\nextraction. Editing and unpublishing are deliberately not in this issue —\nabsent is safer than present-and-ungated.\n\nApply is throttled on the existing ``seed_import`` scope rather than a new one\n(ADR-0789 §Context 3). Template apply is a third background seeding path\nalongside seed import and CSV/MS Project import; #2615 remains the issue that\nbounds per-user concurrency for all three. Reusing the scope inherits exactly\nthe bound the other paths have today and keeps that fix in one place, instead\nof adding a fourth unbounded path.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project template.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "project-templates"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectTemplate"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve project template"
+            }
+        },
+        "/api/v1/project-templates/{id}/apply/": {
+            "post": {
+                "operationId": "v1_project_templates_apply_create",
+                "description": "Apply this template to a project. Returns 202; seeding runs async.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project template.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "project-templates"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "{\"queued\": true, \"application\": \"<uuid>\"}"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Apply project template"
+            }
+        },
+        "/api/v1/project-templates/publish/": {
+            "post": {
+                "operationId": "v1_project_templates_publish_create",
+                "description": "Publish a project's shape as a reusable template.",
+                "tags": [
+                    "project-templates"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectTemplate"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Publish project templates"
+            }
+        },
         "/api/v1/projects/": {
             "get": {
                 "operationId": "v1_projects_list",
@@ -38596,6 +38838,202 @@
                 "summary": "Partially update member"
             }
         },
+        "/api/v1/template-applications/": {
+            "get": {
+                "operationId": "v1_template_applications_list",
+                "description": "Poll an application's progress, and undo it.\n\nRead is scoped to projects the caller is a member of — an application row names\na project and a person, so an unscoped list would leak both.",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "template-applications"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedTemplateApplicationList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "List template applications"
+            }
+        },
+        "/api/v1/template-applications/{id}/": {
+            "get": {
+                "operationId": "v1_template_applications_retrieve",
+                "description": "Poll an application's progress, and undo it.\n\nRead is scoped to projects the caller is a member of — an application row names\na project and a person, so an unscoped list would leak both.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "template-applications"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TemplateApplication"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve template application"
+            }
+        },
+        "/api/v1/template-applications/{id}/undo/": {
+            "post": {
+                "operationId": "v1_template_applications_undo_create",
+                "description": "Undo this application — removes the rows it wrote that nobody has edited.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "template-applications"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TemplateApplication"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Undo template application"
+            }
+        },
         "/api/v1/users/search/": {
             "get": {
                 "operationId": "v1_users_search_list",
@@ -47156,6 +47594,37 @@
                     }
                 }
             },
+            "PaginatedProjectTemplateList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProjectTemplate"
+                        }
+                    }
+                }
+            },
             "PaginatedResourceAssignmentList": {
                 "type": "object",
                 "required": [
@@ -47741,6 +48210,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/TeamMembershipRead"
+                        }
+                    }
+                }
+            },
+            "PaginatedTemplateApplicationList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TemplateApplication"
                         }
                     }
                 }
@@ -53064,6 +53564,79 @@
                     "resource"
                 ]
             },
+            "ProjectTemplate": {
+                "type": "object",
+                "description": "Gallery row. ``structure`` is deliberately **not** exposed.\n\nThe gallery renders a name, a description, a provenance chip and what the\ntemplate carries — never the document itself. Publishing the structure on a\nlist endpoint would put a whole project's shape (task names included) in front\nof anyone who can read the gallery, which is a wider audience than the source\nproject's members.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "maxLength": 200
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "source_kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SourceKindEnum"
+                            }
+                        ],
+                        "readOnly": true,
+                        "description": "Provenance chip shown in the gallery before adoption (ADR-0789).\n\n* `workspace` - Workspace\n* `community` - Community\n* `personal` - Yours"
+                    },
+                    "provenance": {
+                        "type": "string",
+                        "description": "The chip label — \"Workspace\" / \"Community\" / \"Yours\".\n\n``source_kind`` is stored, so two readers agree on Workspace and Community.\n*Yours* is the one label additionally narrowed at read time, because it is\nthe only one that is genuinely relative to who is asking (ADR-0789 §2).",
+                        "readOnly": true
+                    },
+                    "carries": {
+                        "readOnly": true
+                    },
+                    "task_count": {
+                        "type": "integer",
+                        "description": "How many rows adopting this would write — the one number that decides adoption.\n\nRead off the stored document rather than counted in SQL: the structure is\nfrozen at publish, so there is nothing to join against and no count that\ncould disagree with what apply will actually write.",
+                        "readOnly": true
+                    },
+                    "version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "program": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "is_published": {
+                        "type": "boolean"
+                    },
+                    "published_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "published_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "carries",
+                    "id",
+                    "name",
+                    "provenance",
+                    "published_at",
+                    "published_by",
+                    "source_kind",
+                    "task_count",
+                    "version"
+                ]
+            },
             "ProjectVisitResponse": {
                 "type": "object",
                 "properties": {
@@ -54950,6 +55523,15 @@
                 ],
                 "type": "string",
                 "description": "* `none` - No action\n* `warn` - Warn only\n* `block` - Block & escalate"
+            },
+            "SourceKindEnum": {
+                "enum": [
+                    "workspace",
+                    "community",
+                    "personal"
+                ],
+                "type": "string",
+                "description": "* `workspace` - Workspace\n* `community` - Community\n* `personal` - Yours"
             },
             "Sprint": {
                 "type": "object",
@@ -58758,6 +59340,98 @@
                     "outcome",
                     "protocol"
                 ]
+            },
+            "TemplateApplication": {
+                "type": "object",
+                "description": "The adoption record — also what the Start sheet polls while seeding runs.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "template": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "template_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "template_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "applied_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/TemplateApplicationStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "result_summary": {
+                        "readOnly": true
+                    },
+                    "error_detail": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "completed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "undone_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "applied_by",
+                    "completed_at",
+                    "created_at",
+                    "error_detail",
+                    "id",
+                    "project",
+                    "result_summary",
+                    "status",
+                    "template",
+                    "template_name",
+                    "template_version",
+                    "undone_at"
+                ]
+            },
+            "TemplateApplicationStatusEnum": {
+                "enum": [
+                    "pending",
+                    "running",
+                    "success",
+                    "failed",
+                    "undone"
+                ],
+                "type": "string",
+                "description": "* `pending` - Pending\n* `running` - Running\n* `success` - Success\n* `failed` - Failed\n* `undone` - Undone"
             },
             "TermOverridePolicyEnum": {
                 "enum": [

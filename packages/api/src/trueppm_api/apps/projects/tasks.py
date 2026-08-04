@@ -1206,3 +1206,19 @@ def _do_purge_expired_program_imports() -> None:
         count += 1
     if count:
         logger.info("purge_expired_program_imports: deleted %d expired import(s)", count)
+
+
+# ---------------------------------------------------------------------------
+# Template application (ADR-0789, #2729)
+# ---------------------------------------------------------------------------
+# Celery's autodiscover_tasks() only imports ``<app>/tasks.py``, so a task defined
+# in a sibling module never registers and its Beat entry silently resolves to
+# nothing — the drain would appear scheduled and never run. Re-exported here so
+# the two template tasks are discovered, while their implementation stays in
+# ``template_tasks.py`` next to the rest of the template code.
+from trueppm_api.apps.projects.template_tasks import (  # noqa: E402
+    apply_template,
+    drain_template_apply_queue,
+)
+
+__all__ = [*globals().get("__all__", []), "apply_template", "drain_template_apply_queue"]

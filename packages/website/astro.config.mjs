@@ -399,6 +399,7 @@ export default defineConfig({
                 { slug: "features/mcp-server" },
                 { slug: "features/mcp-connect" },
                 { slug: "features/agent-oversight" },
+                { slug: "features/project-templates" },
                 { slug: "features/msproject-import-export" },
                 { slug: "features/csv-import-export" },
                 { slug: "features/jira-import" },

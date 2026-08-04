@@ -451,6 +451,43 @@ CPM fields (`early_start`, `early_finish`, `late_start`, `late_finish`, `total_f
 
 Assigning a **phase** (a task that rolls up one or more real child tasks) to a sprint is rejected unconditionally with `400` and a standard field error on `sprint` carrying the stable code `phase_in_sprint_forbidden`. This is a hard invariant — it is *not* affected by the project's guardrail policy and cannot be escalated or relaxed by an Owner (assigning a phase to a sprint double-counts velocity). Assign the child tasks inside the phase instead. Other sprint-composition guardrails (`summary_in_sprint`, `task_outside_sprint_window`, `recurring_in_sprint`) remain Warn-by-default and are configurable via the guardrail policy.
 
+### Project templates
+
+:::note[Ships in 0.4]
+These endpoints ship in **TruePPM 0.4**. `v0.3.0-alpha.3` (the latest release) has
+no template system — the collection does not exist.
+:::
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/project-templates/` | Gallery (filter: `?program=`) |
+| POST | `/api/v1/project-templates/publish/` | Freeze a project's shape as a template |
+| POST | `/api/v1/project-templates/{id}/apply/` | Apply to a project — returns `202` |
+| GET | `/api/v1/template-applications/` | Adoption records (filter: `?project=`) |
+| POST | `/api/v1/template-applications/{id}/undo/` | Reverse one application |
+
+`apply` returns **`202 {"queued": true, "application": "<uuid>"}`** — not a task id.
+Dispatch is best-effort behind a transactional outbox, so there may be no Celery id
+yet (or ever, for a delivery the drain re-dispatches). The **application id** is the
+durable handle: it exists the moment the request commits, and `GET
+/api/v1/template-applications/{id}/` reports `pending` → `running` → `success` /
+`failed`.
+
+The gallery does **not** publish the `structure` document. A gallery reader is a
+wider audience than the source project's members, so a whole project's shape
+(task names included) must not ride a list endpoint. `task_count` is the server's
+count off the frozen document, so it cannot disagree with what apply will write.
+
+`provenance` is the display chip. `source_kind` is stored, so every reader agrees
+on `workspace` and `community`; **Yours** is resolved per reader, because it is the
+only tier that depends on who is asking.
+
+Publishing and applying both require **Project Manager (Admin)** or above on the
+project in question (ADR-0773). Reading the gallery requires only authentication.
+
+Apply is rate-limited on the shared `seed_import` throttle scope — the same bound
+the seed and spreadsheet import paths carry.
+
 #### Phase rollup locks
 
 A **phase** is a non-subtask task with at least one *structural* (non-subtask)

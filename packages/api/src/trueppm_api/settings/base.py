@@ -497,6 +497,15 @@ CELERY_BEAT_SCHEDULE = {
         "task": "csv.drain_import_queue",
         "schedule": 30.0,
     },
+    # Template-apply drain (ADR-0789, #2729): dispatches pending
+    # TemplateApplication rows every 30 s and recovers ones whose worker died
+    # mid-apply. This is what makes enqueue_template_apply's best-effort
+    # .delay() durable — without it, a broker outage at dispatch time would
+    # leave an application pending forever and the Start sheet polling nothing.
+    "drain-template-apply-queue": {
+        "task": "templates.drain_apply_queue",
+        "schedule": 30.0,
+    },
     # Sprint close drain: dispatches pending SprintCloseRequest rows every 30 s.
     # Also recovers IN_FLIGHT rows orphaned past the 5-minute window.
     "drain-sprint-close-requests": {
