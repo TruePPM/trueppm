@@ -22,6 +22,7 @@ from rest_framework.response import Response
 
 from trueppm_api.apps.access.models import Role
 from trueppm_api.apps.access.permissions import _membership_role
+from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import (
     Project,
     ProjectTemplate,
@@ -133,7 +134,7 @@ class TemplateApplicationSerializer(serializers.ModelSerializer[TemplateApplicat
         read_only_fields = fields
 
 
-class ProjectTemplateViewSet(viewsets.ReadOnlyModelViewSet[ProjectTemplate]):
+class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[ProjectTemplate]):
     """Templates available to the caller, plus publish and apply.
 
     **ReadOnly** on purpose, not for lack of ambition. A ``ModelViewSet`` here would
@@ -270,7 +271,9 @@ class ProjectTemplateViewSet(viewsets.ReadOnlyModelViewSet[ProjectTemplate]):
         )
 
 
-class TemplateApplicationViewSet(viewsets.ReadOnlyModelViewSet[TemplateApplication]):
+class TemplateApplicationViewSet(
+    IdempotencyMixin, viewsets.ReadOnlyModelViewSet[TemplateApplication]
+):
     """Poll an application's progress, and undo it.
 
     Read is scoped to projects the caller is a member of — an application row names

@@ -13638,7 +13638,7 @@
                     }
                 ],
                 "tags": [
-                    "project-templates"
+                    "projects"
                 ],
                 "security": [
                     {
@@ -13699,7 +13699,7 @@
                     }
                 ],
                 "tags": [
-                    "project-templates"
+                    "projects"
                 ],
                 "security": [
                     {
@@ -13760,7 +13760,7 @@
                     }
                 ],
                 "tags": [
-                    "project-templates"
+                    "projects"
                 ],
                 "security": [
                     {
@@ -13802,7 +13802,7 @@
                 "operationId": "v1_project_templates_publish_create",
                 "description": "Publish a project's shape as a reusable template.",
                 "tags": [
-                    "project-templates"
+                    "projects"
                 ],
                 "security": [
                     {
@@ -38872,7 +38872,7 @@
                     }
                 ],
                 "tags": [
-                    "template-applications"
+                    "projects"
                 ],
                 "security": [
                     {
@@ -38931,7 +38931,7 @@
                     }
                 ],
                 "tags": [
-                    "template-applications"
+                    "projects"
                 ],
                 "security": [
                     {
@@ -38990,7 +38990,7 @@
                     }
                 ],
                 "tags": [
-                    "template-applications"
+                    "projects"
                 ],
                 "security": [
                     {
