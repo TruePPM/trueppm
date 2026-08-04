@@ -16,10 +16,34 @@ import type { Methodology } from '@/types';
 const SELECT_CHEVRON =
   "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 16 16'><path d='M4 6l4 4 4-4' stroke='%23667085' stroke-width='2' stroke-linecap='round' fill='none' /></svg>\")";
 
+/** Where the user asked to land after the project exists (#2710). */
+export interface CreatedProjectIntent {
+  /**
+   * Open the CSV/Excel import wizard on arrival instead of landing on an empty
+   * project. The wizard needs a project id, so the project is created first and
+   * handed in — the flow is one path from the user's side, two steps from the
+   * server's.
+   */
+  importCsv?: boolean;
+}
+
 interface Props {
   onClose: () => void;
-  /** Called after the project is created so the caller can navigate to it. */
-  onCreated: (projectId: string) => void;
+  /**
+   * Called after the project is created so the caller can navigate to it.
+   *
+   * `intent` carries what the user asked for at the moment of commitment (#2710).
+   * Callers that only ever create blank projects can ignore it — it is optional
+   * precisely so the four existing call sites did not have to change.
+   */
+  onCreated: (projectId: string, intent?: CreatedProjectIntent) => void;
+  /**
+   * Make "Create & import spreadsheet" the primary action rather than the
+   * secondary one (#2710). Set by the entry points a user reaches *because* they
+   * have a spreadsheet — the zero-project sidebar and the My Work empty state —
+   * so the button they came for is the one they land on.
+   */
+  importFirst?: boolean;
   /**
    * Optional route-inferred program to preselect in the step-1 picker (ADR-0070,
    * ADR-0764). This only SEEDS the modal's own `selectedProgramId` state — once the
@@ -69,7 +93,13 @@ function getFocusable(container: HTMLElement): HTMLElement[] {
  * Step 2: Schedule dates. Step 3: Template.
  * Focus is trapped within the dialog and restored to the trigger element on close.
  */
-export function NewProjectModal({ onClose, onCreated, programId, programName }: Props) {
+export function NewProjectModal({
+  onClose,
+  onCreated,
+  programId,
+  programName,
+  importFirst = false,
+}: Props) {
   const [step, setStep] = useState<Step>(1);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -188,6 +218,26 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
   }
 
   // Form submit handles both Enter-to-advance (steps 1–2) and final create (step 3).
+  /**
+   * What the user asked for on the click that submitted (#2710).
+   *
+   * Held in a ref rather than state because it is read inside the mutation's
+   * `onSuccess`, which closes over the render that fired it — a state update in
+   * the same click would not be visible there, and the user would silently land
+   * on an empty project instead of the wizard they asked for.
+   */
+  const submitIntentRef = useRef<CreatedProjectIntent>({});
+  /**
+   * Mirror of the ref for rendering (#2710). The ref is the source of truth the
+   * mutation callback reads; this is what decides which of the two buttons wears
+   * the "Creating…" label. Both are needed: a ref is invisible to render, and
+   * state is invisible to the closure `onSuccess` runs in.
+   *
+   * Only the clicked button changes label — two buttons both reading "Creating…"
+   * is ambiguous to anyone navigating by accessible name.
+   */
+  const [pendingImport, setPendingImport] = useState(false);
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (step < TOTAL_STEPS) { advance(); return; }
@@ -244,7 +294,7 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
               },
             );
           }
-          onCreated(data.id);
+          onCreated(data.id, submitIntentRef.current);
         },
       },
     );
@@ -554,7 +604,11 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
               outside the <form> DOM subtree but still participates in it via the
               `form` attribute (HTML form association), so Enter-to-advance and
               the final create submit both keep working. */}
-          <div className="flex items-center justify-between px-6 pb-6 pt-2">
+          {/* flex-wrap + justify-end (#2710): step 3 carries four controls
+              (Back / Cancel / Create & import spreadsheet / Create project) and they
+              no longer fit one nowrap row inside a max-w-lg dialog on a narrow
+              viewport — without wrapping, the create action slides out of reach. */}
+          <div className="flex flex-wrap items-center justify-between gap-2 px-6 pb-6 pt-2">
             <div>
               {step > 1 && (
                 <button
@@ -580,20 +634,77 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
               >
                 Cancel
               </button>
+              {/* "Create & import spreadsheet" (#2710). Before this, reaching the
+                  CSV/Excel wizard required creating an empty project, navigating
+                  into its Schedule, and finding an overflow menu — the import wall
+                  was still in front of the import. Offering it at the moment of
+                  commitment collapses that to one path.
+
+                  Rendered only on the final step, where the create actually fires;
+                  on steps 1–2 the single button is "Next" and a second action would
+                  imply it skips the rest of the form. Which of the two is primary is
+                  the caller's call via `importFirst` — an entry point the user
+                  reached *because* they have a spreadsheet should not make them pick
+                  the secondary button. */}
+              {step === TOTAL_STEPS && (
+                <button
+                  type="submit"
+                  form="new-project-form"
+                  onClick={() => {
+                    submitIntentRef.current = { importCsv: true };
+                    setPendingImport(true);
+                  }}
+                  disabled={createProject.isPending}
+                  className={
+                    importFirst
+                      ? `h-9 px-4 rounded-control text-sm font-medium bg-brand-primary text-neutral-text-inverse
+                         disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
+                         focus:outline-none focus:ring-2 focus:ring-white
+                         focus:ring-offset-2 focus:ring-offset-brand-primary`
+                      : `h-9 px-4 rounded-control text-sm font-medium border border-neutral-border
+                         text-neutral-text-secondary hover:text-neutral-text-primary
+                         disabled:opacity-50 disabled:cursor-not-allowed
+                         focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1`
+                  }
+                >
+                  {createProject.isPending && pendingImport
+                    ? 'Creating…'
+                    : 'Create & import spreadsheet'}
+                </button>
+              )}
               <button
                 type="submit"
                 form="new-project-form"
+                onClick={() => {
+                  // Reset explicitly: the ref survives a failed submit, so without
+                  // this a user who clicked "Create & import", hit a validation
+                  // error, then clicked plain "Create project" would still be sent
+                  // to the wizard.
+                  submitIntentRef.current = {};
+                  setPendingImport(false);
+                }}
                 disabled={
                   (step === 1 && !canAdvanceStep1) ||
                   (step === 2 && !canAdvanceStep2) ||
                   (step === TOTAL_STEPS && createProject.isPending)
                 }
-                className="h-9 px-4 rounded-control text-sm font-medium bg-brand-primary text-neutral-text-inverse
-                  disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
-                  focus:outline-none focus:ring-2 focus:ring-white
-                  focus:ring-offset-2 focus:ring-offset-brand-primary"
+                className={
+                  step === TOTAL_STEPS && importFirst
+                    ? `h-9 px-4 rounded-control text-sm font-medium border border-neutral-border
+                       text-neutral-text-secondary hover:text-neutral-text-primary
+                       disabled:opacity-50 disabled:cursor-not-allowed
+                       focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1`
+                    : `h-9 px-4 rounded-control text-sm font-medium bg-brand-primary text-neutral-text-inverse
+                       disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
+                       focus:outline-none focus:ring-2 focus:ring-white
+                       focus:ring-offset-2 focus:ring-offset-brand-primary`
+                }
               >
-                {step < TOTAL_STEPS ? 'Next' : createProject.isPending ? 'Creating…' : 'Create project'}
+                {step < TOTAL_STEPS
+                  ? 'Next'
+                  : createProject.isPending && !pendingImport
+                    ? 'Creating…'
+                    : 'Create project'}
               </button>
             </div>
           </div>

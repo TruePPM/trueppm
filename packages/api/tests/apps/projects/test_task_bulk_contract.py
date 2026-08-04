@@ -846,3 +846,288 @@ def test_the_207_body_matches_the_schema_it_publishes(
         method="post",
         status_code="207",
     )
+
+
+# ---------------------------------------------------------------------------
+# Hierarchy placement on create (#2724 — paste-many needs a real tree, not a
+# batch of root-level rows). Mirrors TaskViewSet.perform_create's parent_id
+# handling, which _apply_create did not call before this.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_create_under_an_existing_parent_gets_a_child_wbs_path(
+    owner_client: APIClient, project: Project
+) -> None:
+    phase = Task.objects.create(project=project, name="Phase 1", duration=1, wbs_path="1")
+
+    with _no_side_effects():
+        r = owner_client.post(
+            url(project),
+            {
+                "operations": [
+                    {
+                        "op": "create",
+                        "data": {"name": "Child", "duration": 2, "parent_id": str(phase.pk)},
+                    }
+                ]
+            },
+            format="json",
+        )
+
+    assert r.status_code == 207, r.data
+    assert len(r.data["applied"]) == 1
+    child = Task.objects.get(pk=r.data["applied"][0]["id"])
+    assert child.wbs_path == "1.1"
+
+
+@pytest.mark.django_db
+def test_batch_creates_a_whole_subtree_via_intra_batch_parent_references(
+    owner_client: APIClient, project: Project
+) -> None:
+    """The paste-many case: a fresh phase and its children in one request.
+
+    The children name the phase's CLIENT-MINTED id (ADR-0772) — a forward reference
+    that only resolves because phase 1 (apply_task_operations) materializes rows in
+    ``operations`` order, so a later row's parent already exists in this same
+    transaction by the time it is processed.
+    """
+    phase_id = str(uuid.uuid4())
+    operations = [
+        {"op": "create", "id": phase_id, "data": {"name": "Design", "duration": 1}},
+        {"op": "create", "data": {"name": "Wireframes", "duration": 3, "parent_id": phase_id}},
+        {"op": "create", "data": {"name": "Review", "duration": 1, "parent_id": phase_id}},
+    ]
+
+    with _no_side_effects():
+        r = owner_client.post(url(project), {"operations": operations}, format="json")
+
+    assert r.status_code == 207, r.data
+    assert len(r.data["applied"]) == 3
+    phase = Task.objects.get(pk=phase_id)
+    assert phase.wbs_path == "1"
+    children = list(Task.objects.filter(project=project).exclude(pk=phase_id).order_by("wbs_path"))
+    assert [c.wbs_path for c in children] == ["1.1", "1.2"]
+    assert [c.name for c in children] == ["Wireframes", "Review"]
+
+
+@pytest.mark.django_db
+def test_root_level_creates_in_one_batch_get_sequential_wbs_paths(
+    owner_client: APIClient, project: Project
+) -> None:
+    operations = [{"op": "create", "data": {"name": f"Row {i}", "duration": 1}} for i in range(3)]
+
+    with _no_side_effects():
+        r = owner_client.post(url(project), {"operations": operations}, format="json")
+
+    assert r.status_code == 207, r.data
+    created = Task.objects.filter(project=project).order_by("wbs_path")
+    assert [t.wbs_path for t in created] == ["1", "2", "3"]
+
+
+@pytest.mark.django_db
+def test_create_under_a_milestone_parent_is_rejected_without_discarding_siblings(
+    owner_client: APIClient, project: Project
+) -> None:
+    """The depth/milestone placement guards apply per row — one bad parent must not
+    fail the rest of the batch (#2723 §1 extended to placement, not just validation).
+    """
+    milestone = Task.objects.create(
+        project=project, name="Ship", duration=0, wbs_path="1", is_milestone=True
+    )
+    operations = [
+        {
+            "op": "create",
+            "data": {"name": "Bad child", "duration": 1, "parent_id": str(milestone.pk)},
+        },
+        {"op": "create", "data": {"name": "Fine at root", "duration": 1}},
+    ]
+
+    with _no_side_effects():
+        r = owner_client.post(url(project), {"operations": operations}, format="json")
+
+    assert r.status_code == 207, r.data
+    assert [e["index"] for e in r.data["rejected"]] == [0]
+    assert r.data["rejected"][0]["code"] == "invalid"
+    assert [e["index"] for e in r.data["applied"]] == [1]
+    assert Task.objects.filter(project=project, name="Bad child").exists() is False
+
+
+@pytest.mark.django_db
+def test_create_with_a_parent_id_from_another_project_is_rejected(
+    owner_client: APIClient, project: Project, other_project: Project
+) -> None:
+    foreign_parent = Task.objects.create(
+        project=other_project, name="Theirs", duration=1, wbs_path="1"
+    )
+
+    with _no_side_effects():
+        r = owner_client.post(
+            url(project),
+            {
+                "operations": [
+                    {
+                        "op": "create",
+                        "data": {
+                            "name": "Orphan",
+                            "duration": 1,
+                            "parent_id": str(foreign_parent.pk),
+                        },
+                    }
+                ]
+            },
+            format="json",
+        )
+
+    assert r.status_code == 207, r.data
+    assert len(r.data["rejected"]) == 1
+    assert r.data["rejected"][0]["code"] == "invalid"
+
+
+@pytest.mark.django_db
+def test_update_op_ignores_a_parent_id_in_its_data(
+    owner_client: APIClient, project: Project
+) -> None:
+    """PATCH-shaped update never re-parents through this path (matches perform_update,
+    which does not touch wbs_path) — parent_id is popped unconditionally in
+    _apply_create, not only on the create branch.
+    """
+    phase = Task.objects.create(project=project, name="Phase", duration=1, wbs_path="1")
+    task = Task.objects.create(project=project, name="Loose", duration=1, wbs_path="2")
+
+    with _no_side_effects():
+        r = owner_client.post(
+            url(project),
+            {
+                "operations": [
+                    {
+                        "op": "update",
+                        "id": str(task.pk),
+                        "data": {"parent_id": str(phase.pk), "duration": 5},
+                    }
+                ]
+            },
+            format="json",
+        )
+
+    assert r.status_code == 207, r.data
+    assert len(r.data["applied"]) == 1
+    task.refresh_from_db()
+    assert task.wbs_path == "2"
+    assert task.duration == 5
+
+
+@pytest.mark.django_db
+def test_a_malformed_parent_id_rejects_only_its_own_row(
+    owner_client: APIClient, project: Project
+) -> None:
+    """A non-UUID `parent_id` must not 500 the whole batch (#2724).
+
+    `parent_id` reaches `_resolve_create_parent` straight from the raw `data` dict,
+    unlike `id`, which is parsed with `row_identity.parse_row_uuid` first. Passing an
+    unparseable value to `Task.objects.get(pk=...)` raises Django's core
+    `ValidationError` — not caught by `apply_task_operations`'s per-row handler — which
+    would roll back the whole request's `transaction.atomic()` and discard every row
+    already applied, exactly the "one bad row" failure #2723 exists to prevent.
+    """
+    operations = [
+        {"op": "create", "data": {"name": "Fine", "duration": 1}},
+        {"op": "create", "data": {"name": "Bad parent", "duration": 1, "parent_id": "not-a-uuid"}},
+        {"op": "create", "data": {"name": "Also fine", "duration": 1}},
+    ]
+
+    with _no_side_effects():
+        r = owner_client.post(url(project), {"operations": operations}, format="json")
+
+    assert r.status_code == 207, r.data
+    assert [e["index"] for e in r.data["applied"]] == [0, 2]
+    assert [e["index"] for e in r.data["rejected"]] == [1]
+    assert r.data["rejected"][0]["code"] == "malformed_id"
+    assert Task.objects.filter(project=project).count() == 2
+
+
+@pytest.mark.django_db
+def test_placement_query_count_grows_linearly_not_quadratically(
+    owner_client: APIClient, project: Project
+) -> None:
+    """Placement is resolved and guard-checked once per DISTINCT parent per batch, not
+    once per row (#2724 perf). Without that cache, a paste of N children under one
+    parent re-queries the parent's sibling count N times against a linearly GROWING
+    result set — an O(n^2) cost. Pinning an absolute query count would be fragile
+    against unrelated future serializer-validation changes, so this instead compares
+    two batch sizes: quadrupling the child count (5 -> 20) must not come anywhere near
+    quadrupling (let alone 16x-ing) the query count.
+    """
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    def paste_children(n: int) -> int:
+        phase = Task.objects.create(
+            project=project, name=f"Phase {n}", duration=1, wbs_path=str(n + 100)
+        )
+        operations = [
+            {
+                "op": "create",
+                "data": {"name": f"Child {i}", "duration": 1, "parent_id": str(phase.pk)},
+            }
+            for i in range(n)
+        ]
+        with _no_side_effects(), CaptureQueriesContext(connection) as queries:
+            r = owner_client.post(url(project), {"operations": operations}, format="json")
+        assert r.status_code == 207, r.data
+        assert len(r.data["applied"]) == n
+        children = Task.objects.filter(project=project, wbs_path__startswith=f"{phase.wbs_path}.")
+        # `.wbs_path` ordering here is lexicographic, not numeric ("120.10" < "120.2"),
+        # so this checks the SET of assigned paths rather than a sorted list.
+        assert {c.wbs_path for c in children} == {f"{phase.wbs_path}.{i + 1}" for i in range(n)}
+        return len(queries.captured_queries)
+
+    small = paste_children(5)
+    large = paste_children(20)
+
+    assert large < small * 5
+
+
+@pytest.mark.django_db
+def test_subtask_spawn_bumps_the_parents_server_version_and_reports_it_mutated(
+    owner_client: APIClient, project: Project, django_capture_on_commit_callbacks: object
+) -> None:
+    """A subtask create's parent mutation must reach `mutated_task_ids` (#2724), or the
+    `tasks_bulk_mutated` broadcast silently omits a row this batch actually changed —
+    `BulkOutcome.mutated_task_ids`'s own contract ("every task id this batch changed").
+    """
+    phase = Task.objects.create(project=project, name="Phase", duration=1, wbs_path="1")
+    before_version = phase.server_version
+
+    with (
+        patch("trueppm_api.apps.projects.views._enqueue_recalculate"),
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_bcast,
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        r = owner_client.post(
+            url(project),
+            {
+                "operations": [
+                    {
+                        "op": "create",
+                        "data": {
+                            "name": "Subtask",
+                            "duration": 1,
+                            "parent_id": str(phase.pk),
+                            "is_subtask": True,
+                        },
+                    }
+                ]
+            },
+            format="json",
+        )
+
+    assert r.status_code == 207, r.data
+    assert len(r.data["applied"]) == 1
+    phase.refresh_from_db()
+    assert phase.server_version > before_version
+
+    payload = next(
+        c.args[2] for c in mock_bcast.call_args_list if c.args[1] == "tasks_bulk_mutated"
+    )
+    assert str(phase.pk) in payload["task_ids"]

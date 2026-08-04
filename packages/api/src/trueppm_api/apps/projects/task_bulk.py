@@ -171,6 +171,34 @@ class BulkOutcome:
         return bool(self.created_ids or self.updated_ids or self.deleted_ids or self.dep_applied)
 
 
+@dataclasses.dataclass
+class _CachedParent:
+    """A placement-cache entry (#2724 perf): a parent resolved and guard-checked once."""
+
+    task: Task
+    #: 1-based WBS position the NEXT child placed under this parent should get.
+    next_child_index: int
+
+
+@dataclasses.dataclass
+class _PlacementCache:
+    """Batch-local memo for :func:`_resolve_bulk_create_placement` (#2724).
+
+    Without this, a paste of N children under one new phase re-queries that phase's
+    sibling count on every row via ``_get_siblings`` — a query whose result set grows
+    each time, so N rows cost O(N) queries scanning O(N) cumulative locked rows. Each
+    distinct parent is resolved and guard-checked (milestone/depth/phase) exactly ONCE
+    per batch; every later row targeting the same parent reuses the cached, already-
+    validated parent and increments an in-memory counter instead. Root-level rows get
+    the same treatment via a single counter, replacing N calls to
+    ``_next_root_wbs_path``'s locked ``.count()`` with one.
+    """
+
+    parents: dict[str, _CachedParent] = dataclasses.field(default_factory=dict)
+    #: Next root-level WBS position, or ``None`` until the first root row asks.
+    next_root_index: int | None = None
+
+
 @dataclasses.dataclass(frozen=True)
 class BulkContext:
     """Per-request inputs every row in a batch shares."""
@@ -186,6 +214,9 @@ class BulkContext:
     locked_by_id: dict[str, Task]
     #: Ids that resolve to a task in another project (guard 2).
     foreign_ids: set[str]
+    #: Mutated in place across rows (#2724) — frozen only blocks reassigning the
+    #: attribute itself, not mutating what it points to.
+    placement_cache: _PlacementCache = dataclasses.field(default_factory=_PlacementCache)
 
 
 def _row_serializer_context(ctx: BulkContext) -> dict[str, Any]:
@@ -229,6 +260,83 @@ def _milestone_gate_applies(task: Task, data: dict[str, Any]) -> bool:
     return bool(task.is_milestone)
 
 
+def _resolve_bulk_create_placement(
+    index: int,
+    row_id: uuid.UUID | None,
+    parent_id_raw: Any,
+    is_subtask: bool,
+    ctx: BulkContext,
+    out: BulkOutcome,
+) -> tuple[Task | None, str] | None:
+    """Resolve a bulk create's WBS placement, or record its rejection and return ``None``.
+
+    Mirrors ``TaskViewSet.perform_create`` rather than duplicating its guards, and
+    caches per parent for the batch's duration (``ctx.placement_cache`` — see
+    ``_PlacementCache``) so an N-child paste costs O(distinct parents), not O(N),
+    in placement queries. Imported locally — ``views`` imports ``task_bulk`` at
+    call time (``TaskBulkView.post``), so a module-level import here would be
+    circular.
+    """
+    from trueppm_api.apps.projects.views import (
+        _build_wbs_path,
+        _next_root_wbs_path,
+        _resolve_create_parent,
+    )
+
+    cache = ctx.placement_cache
+
+    if not parent_id_raw:
+        if cache.next_root_index is None:
+            cache.next_root_index = int(_next_root_wbs_path(ctx.project))
+        wbs_path = str(cache.next_root_index)
+        cache.next_root_index += 1
+        return None, wbs_path
+
+    # Unlike `id`, `parent_id` reaches here straight from a raw, unvalidated
+    # `DictField` (`data`) — a non-UUID value passed to `.get(pk=...)` raises
+    # Django's core `ValidationError`, not DRF's. That type is NOT one of the
+    # exceptions `apply_task_operations`'s per-row savepoint catches, so an
+    # unparseable `parent_id` would 500 the WHOLE request and roll back every row
+    # already applied in this batch — exactly the "one bad row" failure #2723 was
+    # written to prevent. Parsed the same way `id` already is (row_identity).
+    parent_id = parse_row_uuid(parent_id_raw)
+    if parent_id is None:
+        out.reject(index, row_id, CODE_MALFORMED_ID, "'parent_id' is not a valid UUID.")
+        return None
+
+    cache_key = str(parent_id)
+    cached = cache.parents.get(cache_key)
+    if cached is not None:
+        wbs_path = _build_wbs_path(str(cached.task.wbs_path), cached.next_child_index)
+        cached.next_child_index += 1
+        return cached.task, wbs_path
+
+    try:
+        parent, wbs_path = _resolve_create_parent(ctx.project, parent_id, is_subtask=is_subtask)
+    except DRFValidationError as exc:
+        out.reject(index, row_id, CODE_INVALID, _first_error_message(exc))
+        return None
+    next_child_index = int(wbs_path.rsplit(".", 1)[-1]) + 1
+    cache.parents[cache_key] = _CachedParent(task=parent, next_child_index=next_child_index)
+    return parent, wbs_path
+
+
+def _spawn_subtask_under(parent_task: Task, task: Task, ctx: BulkContext, out: BulkOutcome) -> None:
+    """Record a subtask's spawn and fold the parent's mutation into the batch outcome.
+
+    ``_record_subtask_spawn`` bumps the parent's ``server_version`` — a real mutation
+    ``mutated_task_ids`` must carry, or the ``tasks_bulk_mutated`` broadcast silently
+    omits it (its own docstring promises "every task id this batch actually changed").
+    Skipped when the parent was itself created earlier in this same batch (already in
+    ``created_ids``), so the payload never carries a duplicate id.
+    """
+    from trueppm_api.apps.projects.views import _record_subtask_spawn
+
+    _record_subtask_spawn(parent_task, task, ctx.request.user)
+    if parent_task.pk not in out.created_ids and parent_task.pk not in out.updated_ids:
+        out.updated_ids.append(parent_task.pk)
+
+
 def _apply_create(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOutcome) -> None:
     """Apply one ``create`` op, honoring the four client-minted-id guards."""
     from trueppm_api.apps.projects.serializers import (
@@ -265,6 +373,11 @@ def _apply_create(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOut
     data.pop("project", None)
     data.pop("wbs_path", None)
     data.pop("id", None)
+    # Popped here (not just on the create branch below) so a re-create-as-edit never
+    # re-parents an existing row through this path — same as perform_update, which
+    # never touches wbs_path on PATCH.
+    parent_id_raw = data.pop("parent_id", None)
+    is_subtask = str(data.pop("is_subtask", "") or "").lower() in ("true", "1")
 
     if existing is not None:
         # Idempotent re-create: the row already landed in a prior batch. Apply it as
@@ -304,6 +417,16 @@ def _apply_create(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOut
         _note_project_start_shift(task, out)
         return
 
+    # Hierarchy placement (#2724). A batch's rows apply in `operations` order
+    # (apply_task_operations), so a child row naming a parent created earlier IN
+    # THIS SAME BATCH resolves: the parent's INSERT already committed to this
+    # transaction, just not to the outer request's response yet — client-minted
+    # ids (ADR-0772) make that forward reference possible without a round trip.
+    placement = _resolve_bulk_create_placement(index, row_id, parent_id_raw, is_subtask, ctx, out)
+    if placement is None:
+        return
+    parent_task, wbs_path = placement
+
     ser = TaskSerializer(
         data={**data, "project": str(ctx.project.pk)}, context=_row_serializer_context(ctx)
     )
@@ -325,7 +448,12 @@ def _apply_create(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOut
     # passed as an explicit save() kwarg rather than made writable on TaskSerializer,
     # which is shared by the plain REST create and the sync upload: making the field
     # writable would silently hand a caller-supplied PK to every one of them.
-    task = ser.save(id=row_id) if row_id is not None else ser.save()
+    save_kwargs: dict[str, Any] = {"wbs_path": wbs_path, "is_subtask": is_subtask}
+    if row_id is not None:
+        save_kwargs["id"] = row_id
+    task = ser.save(**save_kwargs)
+    if is_subtask and parent_task is not None:
+        _spawn_subtask_under(parent_task, task, ctx, out)
     maybe_record_scope_injection(task, None, ctx.request.user)
     out.created_ids.append(task.pk)
     out.applied.append({"index": index, "id": str(task.pk), "op": "create", "outcome": "created"})

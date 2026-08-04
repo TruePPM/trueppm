@@ -1,5 +1,6 @@
 import type { ProjectResource, Task } from '@/types';
 import { hasUnresolvedOwnerToken } from './ownerToken';
+import { findRowByPredicate } from './rowWalk';
 
 /**
  * Find the next (or previous) visible row whose name carries an unresolved
@@ -18,15 +19,7 @@ export function findUnresolvedOwnerRow(
   currentId: string | null,
   direction: 'forward' | 'backward',
 ): Task | null {
-  const n = visibleTasks.length;
-  if (n === 0) return null;
-  const startIdx = currentId ? visibleTasks.findIndex((t) => t.id === currentId) : -1;
-  const base = startIdx === -1 ? (direction === 'forward' ? -1 : 0) : startIdx;
-  const step = direction === 'forward' ? 1 : -1;
-  for (let i = 1; i <= n; i++) {
-    const idx = (((base + step * i) % n) + n) % n;
-    const task = visibleTasks[idx];
-    if (hasUnresolvedOwnerToken(task.name, resourcePool)) return task;
-  }
-  return null;
+  return findRowByPredicate(visibleTasks, currentId, direction, (task) =>
+    hasUnresolvedOwnerToken(task.name, resourcePool),
+  );
 }

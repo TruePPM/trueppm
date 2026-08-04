@@ -5711,6 +5711,14 @@ SCOPE_MCP_READ = "mcp:read"
 API_TOKEN_SCOPES: tuple[str, ...] = (SCOPE_LEGACY_FULL, SCOPE_MCP_READ)
 API_TOKEN_SCOPE_CHOICES = [(scope, scope) for scope in API_TOKEN_SCOPES]
 
+# Upper bound (days) on ``expires_at`` for a token carrying the ``mcp:read``
+# scope (#2764). The blast-radius rule (#1713) only rejects a *null* expiry —
+# nothing stopped a caller from minting a functionally non-expiring token
+# (e.g. ``expires_at=9999-01-01``), which defeats the "leaked read credential
+# is self-limiting" intent the null check exists for. `legacy:full` tokens are
+# intentionally unaffected: they predate scopes and legitimately never expire.
+MCP_READ_TOKEN_MAX_EXPIRY_DAYS = 365
+
 # Default cap on the number of *active* personal access tokens (PATs) a single
 # user may hold at once (ADR-0214, issue #648). "Active" = owner-scoped, not
 # revoked, not soft-deleted, not past expiry. Bounds the blast radius of a leaked

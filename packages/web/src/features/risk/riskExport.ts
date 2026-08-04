@@ -1,10 +1,18 @@
 import type { Risk } from '@/api/types';
 import { localTodayIso } from '@/lib/localDate';
 
+// A leading `=`, `+`, `-`, `@`, tab, or CR is how Excel/Sheets/LibreOffice decide a cell
+// is a formula rather than literal text. Several of these columns (owner, trigger,
+// contingency, description) are free-text and user-supplied, so an unneutralized value
+// would execute as a formula on open (OWASP CSV injection).
+const FORMULA_PREFIX_CHARS = new Set(['=', '+', '-', '@', '\t', '\r']);
+
 // RFC 4180 quoting: wrap in double-quotes if the value contains commas, double-quotes, or newlines.
-// Embedded double-quotes are doubled.
+// Embedded double-quotes are doubled. A leading formula-trigger character is neutralized with a
+// leading `'` before quoting is decided, so the two protections compose correctly.
 function csvCell(value: string | number | null | undefined): string {
-  const s = value == null ? '' : String(value);
+  const raw = value == null ? '' : String(value);
+  const s = raw.length > 0 && FORMULA_PREFIX_CHARS.has(raw[0]) ? `'${raw}` : raw;
   if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
     return `"${s.replaceAll('"', '""')}"`;
   }
