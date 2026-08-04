@@ -56,6 +56,8 @@ import { useAuthStore } from '@/stores/authStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { useSchedulerStore } from '@/stores/schedulerStore';
 import { useTaskRunStore } from '@/stores/taskRunStore';
+import { useReconcileStore } from '@/stores/reconcileStore';
+import type { ReconcileObservation } from '@/features/schedule/reconcile/reconcileState';
 import { useWsConnectionStore } from '@/stores/wsConnectionStore';
 import { applyTaskDatesDelta, type TaskDatesDelta } from '@/hooks/useScheduleTasks';
 import { fetchWsTicket } from '@/api/wsTicket';
@@ -293,12 +295,29 @@ function registerPresenceAndCpmHandlers(on: OnFn, deps: WsHandlerDeps): void {
       const deltas = payload.tasks as unknown as TaskDatesDelta[];
       if (deltas.length > 0) {
         const byId = new Map(deltas.map((d) => [d.id, d]));
+        const observations: ReconcileObservation[] = [];
         queryClient.setQueryData<Task[]>(['tasks', projectIdRef.current], (old) =>
           old?.map((t) => {
             const delta = byId.get(t.id);
-            return delta ? applyTaskDatesDelta(t, delta) : t;
+            if (!delta) return t;
+            const next = applyTaskDatesDelta(t, delta);
+            // ADR-0784 §D3: this is the LIVE reconciliation path — the moment a
+            // CPM result overwrites a local preview. Observe the spliced values
+            // (not the raw delta) so what we compare is exactly what the row
+            // will render; `deriveBarGeometry` can pick planned_start over
+            // early_start, and comparing the wrong one would report a phantom
+            // divergence on every drag.
+            observations.push(
+              { taskId: t.id, field: 'start', value: next.start || null },
+              { taskId: t.id, field: 'finish', value: next.finish || null },
+            );
+            return next;
           }),
         );
+        // Deliberately outside `applyTaskDatesDelta`: that function is pure and
+        // shared with mapTask's geometry rules, and giving it a store write
+        // would make every bar-geometry unit test a store test.
+        if (observations.length > 0) useReconcileStore.getState().observe(observations);
       }
     }
   });

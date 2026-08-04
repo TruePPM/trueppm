@@ -460,6 +460,22 @@ vi.mock('./SubtreeDeleteConfirmDialog', () => ({ SubtreeDeleteConfirmDialog: () 
 // Import AFTER mocks so the mocked modules resolve.
 import { ScheduleView } from './ScheduleView';
 
+/**
+ * The Schedule's transient status surface (toast / export progress).
+ *
+ * ScheduleView legitimately holds more than one `role="status"` node since
+ * ADR-0784 added the always-mounted reconciliation live region, so a bare
+ * `getByRole('status')` is ambiguous. Exclude the reconciliation region rather
+ * than loosening the assertion.
+ */
+function getScheduleStatus(): HTMLElement {
+  const regions = screen
+    .getAllByRole('status')
+    .filter((n) => n.getAttribute('data-testid') !== 'reconcile-live');
+  expect(regions).toHaveLength(1);
+  return regions[0];
+}
+
 function renderSchedule(initialEntries: string[] = ['/']) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -836,7 +852,7 @@ describe('ScheduleView — action toast renderer', () => {
         action: { label: 'Undo', onClick },
       });
     });
-    const status = screen.getByRole('status');
+    const status = getScheduleStatus();
     expect(status).toHaveTextContent('Deleted “Alpha”');
     await user.click(screen.getByRole('button', { name: 'Undo' }));
     expect(onClick).toHaveBeenCalledTimes(1);
@@ -849,7 +865,7 @@ describe('ScheduleView — action toast renderer', () => {
     act(() => {
       useScheduleStore.getState().setScheduleActionToast({ message: 'Saved' });
     });
-    expect(screen.getByRole('status')).toHaveTextContent('Saved');
+    expect(getScheduleStatus()).toHaveTextContent('Saved');
     act(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     });
@@ -879,7 +895,7 @@ describe('ScheduleView — transient status surfaces', () => {
   it('shows the export "preparing" status while exporting', () => {
     mockIsExporting = true;
     renderSchedule();
-    expect(screen.getByRole('status')).toHaveTextContent(/preparing your export/i);
+    expect(getScheduleStatus()).toHaveTextContent(/preparing your export/i);
   });
 
   it('shows the export error alert when export fails', () => {
@@ -1056,7 +1072,7 @@ describe('ScheduleView — canvas engine events', () => {
     const { container } = renderSchedule();
     await waitFor(() => expect(handlers['create-link']).toBeDefined());
     act(() => handlers['create-link']({ sourceId: 't2', targetId: 't3' }));
-    const polite = container.querySelector('[aria-live="polite"]');
+    const polite = container.querySelector('[aria-live="polite"][aria-atomic="true"]');
     expect(polite?.textContent).toBe('Linked Discovery & Design → Backend Implementation.');
   });
 
@@ -1101,7 +1117,7 @@ describe('ScheduleView — milestone created side effect', () => {
     const { container } = renderSchedule();
     await user.click(screen.getByRole('button', { name: '+ Milestone' }));
     await user.click(screen.getByRole('button', { name: 'simulate created' }));
-    const polite = container.querySelector('[aria-live="polite"]');
+    const polite = container.querySelector('[aria-live="polite"][aria-atomic="true"]');
     expect(polite?.textContent).toBe('Milestone Go-Live inserted at 2026-11-14');
   });
 });

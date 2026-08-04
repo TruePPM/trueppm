@@ -380,6 +380,47 @@ When a teammate edits a dependency or reschedules a task, the recalculation prop
 
 When a confirmed reschedule moves a task's planned start, the people it affects also get a targeted inbox notification — not just a silent bar shift. The task's **assignee** is told their committed date moved (with the old and new dates, deep-linked to the task), and if the task is in an **active sprint**, the rest of the sprint team is notified that a sprint task was rescheduled. You are never notified about your own edit.
 
+## When the server changes your date
+
+:::note[Ships in 0.4]
+Reconciliation markers ship in 0.4. Before then, a date the scheduling engine
+changes replaces your value in place with nothing marking the move.
+:::
+
+The server owns every scheduled date. When you drag a bar or pick a milestone
+date, the view shows your value immediately so the plan keeps up with you — but
+the authoritative date comes back from the **CPM pass**, and it can differ. The
+engine applies the project's real working calendar, including holiday
+exceptions the browser never receives; a span you drop next to a shutdown week
+will land somewhere you did not predict.
+
+That difference is always shown, never applied silently:
+
+- **A date you have just authored renders in *italic*** until the server
+  confirms it.
+- **If the server lands on a different date**, the row keeps a `→ new date`
+  marker and the value it replaced. The marker **stays until you acknowledge
+  it** — you are never asked to spot the change yourself. Widen the Start or
+  Finish column and the marker also shows the old date struck through.
+- **A strip above the forecast bar reports "N dates changed"** and announces the
+  recomputation to screen readers. **Show N changes** filters the outline down
+  to just the changed rows; **Acknowledge all** clears the markers.
+- **A change the server refuses** — permission, a lock, a validation error —
+  is listed with the reason it gave and a **Retry**. It is never reverted
+  without explanation.
+
+The marker states the change as a fact — *"Finish moved Oct 13 → Oct 16"* — and
+adds a reason only where one can be proven from the project's work week (*"Oct
+13 is not a working day"*). When the move came from a holiday, a dependency
+cascade, or a constraint, the strip says what changed but not why: the browser
+is not told the cause, and a plausible-sounding guess would be worse than
+silence. To see why a specific date moved, open the task's
+[change history](/features/change-history/).
+
+Only dates **you** authored are marked. A teammate's edit arriving over the
+live channel updates the plan as it always has — see
+[Real-time collaboration](/features/real-time/).
+
 ## Forecast & sensitivity
 
 Below the timeline, a collapsible **Forecast & sensitivity** bar surfaces the Monte Carlo result inline. Collapsed, it shows a one-line summary (P50 · P80 · P95 · the top driver). Expanded, it has two columns:
