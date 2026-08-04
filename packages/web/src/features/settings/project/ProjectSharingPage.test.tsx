@@ -91,6 +91,11 @@ describe('ProjectSharingPage (#283 / #1486)', () => {
   });
 
   it('groups active links by kind with a count and expiry clause', () => {
+    // Derived from now, never a pinned calendar date: `expiryClause` rounds
+    // (expiresAt - Date.now()) to whole days, so a fixed date silently decays —
+    // once now drifts within half a day of it the clause flips to "expires today"
+    // and this assertion fails permanently rather than flakily (#2758).
+    const inThirtyDays = new Date(Date.now() + 30 * 86_400_000).toISOString();
     sharedLinksResult = {
       data: [
         link({ id: 'b1', contentKind: 'board', label: 'Vendor board' }),
@@ -98,7 +103,7 @@ describe('ProjectSharingPage (#283 / #1486)', () => {
           id: 's1',
           contentKind: 'schedule',
           label: 'Client review',
-          expiresAt: '2026-08-05T00:00:00Z',
+          expiresAt: inThirtyDays,
         }),
       ],
       isLoading: false,
@@ -109,8 +114,42 @@ describe('ProjectSharingPage (#283 / #1486)', () => {
     expect(screen.getByText('Vendor board')).toBeInTheDocument();
     expect(screen.getByText('Client review')).toBeInTheDocument();
     // The schedule link carries an expiry clause, the board link does not.
-    expect(screen.getByText(/expires in/)).toBeInTheDocument();
+    expect(screen.getByText(/expires in 30d/)).toBeInTheDocument();
     expect(screen.getByText(/never expires/)).toBeInTheDocument();
+  });
+
+  // The three arms of `expiryClause` are a rounding boundary, not three unrelated
+  // strings — "expires in Nd" gives way to "expires today" at half a day out, which
+  // is what made #2758 look like a flake. Pin each arm against a derived instant.
+  it('says "expires today" inside the final half-day, not "expires in 0d" (#2758)', () => {
+    sharedLinksResult = {
+      data: [
+        link({
+          id: 's1',
+          contentKind: 'schedule',
+          expiresAt: new Date(Date.now() + 2 * 3_600_000).toISOString(),
+        }),
+      ],
+      isLoading: false,
+    };
+    render(<ProjectSharingPage />);
+    expect(screen.getByText(/expires today/)).toBeInTheDocument();
+    expect(screen.queryByText(/expires in/)).not.toBeInTheDocument();
+  });
+
+  it('says "expired" once the instant has passed (#2758)', () => {
+    sharedLinksResult = {
+      data: [
+        link({
+          id: 's1',
+          contentKind: 'schedule',
+          expiresAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+        }),
+      ],
+      isLoading: false,
+    };
+    render(<ProjectSharingPage />);
+    expect(screen.getByText(/expired/)).toBeInTheDocument();
   });
 
   it('states the milestone reveal on a schedule row only (#2532)', () => {
