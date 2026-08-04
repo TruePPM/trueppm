@@ -88,12 +88,10 @@ def undo_template_application(application: TemplateApplication) -> dict[str, int
     not recoverable. Whoever undoes a template five minutes after a teammate
     started filling it in must not take the teammate's work with it.
 
-    The "has a person touched this" test is ``server_version > 1`` while #2730 is
-    unmerged: ``materialize_structure`` writes each row exactly once at version 1,
-    so a higher version means something saved it again. When #2730 lands this
-    becomes ``edited_at IS NULL``, which is the predicate actually meant — the
-    proxy is conservative in the safe direction (a CPM recompute does not bump
-    ``server_version`` either, per ADR-0091, so it does not falsely protect rows).
+    "Has a person touched this" is ``edited_at IS NOT NULL`` (ADR-0786, merged in
+    !1900). That column is stamped by ``Task.save()`` and deliberately NOT by the
+    CPM ``bulk_update`` path (ADR-0091), so a recalculation between apply and undo
+    does not falsely protect every row and turn undo into a no-op.
     """
     from trueppm_api.apps.projects.models import Task, TemplateApplicationStatus
 
@@ -125,13 +123,5 @@ def undo_template_application(application: TemplateApplication) -> dict[str, int
 
 
 def _has_been_touched(task: Any) -> bool:
-    """Has a person saved this row since the template wrote it?
-
-    Prefers ``edited_at`` (ADR-0786) when the column exists and falls back to the
-    ``server_version`` proxy when it does not — see
-    :func:`undo_template_application` for why both are correct answers to the same
-    question and why the fallback errs safe.
-    """
-    if hasattr(task, "edited_at"):
-        return task.edited_at is not None
-    return bool(task.server_version and task.server_version > 1)
+    """Has a person saved this row since the template wrote it? (ADR-0786)"""
+    return task.edited_at is not None

@@ -62,20 +62,22 @@ the bound the other seeding paths have today, and #2615 remains the issue that
 closes the concurrency gap for all three at once. This buys no new safety; it avoids
 adding a *fourth* unbounded path and keeps the fix in one place.
 
-### 4. Undo needs a record of what was written, and it cannot wait for #2730
+### 4. Undo needs a record of what was written
 
 "Apply is a single undo step" needs to know exactly which rows an application
 created. #2730 adds per-row provenance (`source_kind='template'`, `source_id`,
-`source_version`) which answers this — but #2730 is on its own branch and this one
-is cut from `main`, so building on it would couple two MRs that are otherwise
-independent.
+`source_version`), which answers a related question — but it was on its own branch
+when this was designed, so `TemplateApplication` was made self-sufficient rather
+than coupling two otherwise independent MRs.
 
-`TemplateApplication` (below) is therefore self-sufficient: it is the adoption record
-the issue asks for (§1, "adoption records a versioned link") *and* the undo target,
-and it does not need provenance columns to exist. When #2730 lands, its per-row
-columns become a denormalization of the same fact, useful for the outline margin
-tick and the divergence digest — two different questions ("which application wrote
-this batch" vs "what wrote this row"), so both records earn their place.
+`TemplateApplication` (below) is therefore: it is the adoption record
+the issue asks for (§1, "adoption records a versioned link") *and* the undo target.
+#2730 has since merged (!1900), so both records now exist and both earn their place —
+they answer different questions. `TemplateApplication.created_task_ids` answers
+"which application wrote this batch", which is what undo needs; the per-row columns
+answer "what wrote this row", which is what the outline margin tick and the
+divergence digest need. Neither is a substitute for the other, and the seeding job
+writes both.
 
 ## Decision
 
@@ -130,11 +132,11 @@ It deliberately does **not** delete rows a person has since edited. An undo that
 discards typed work to reverse a machine's write is the same unrecoverable failure
 #2730's ADR-0786 §4 is organized around, and the same asymmetry applies: leaving a
 row behind is disappointing, deleting a sentence somebody wrote is not recoverable.
-Until #2730's `edited_at` lands, the conservative proxy is `server_version` — a
-seeded row is written once, so `server_version > 1` means something saved it again.
-The proxy is replaced by `edited_at IS NULL` when #2730 merges; both answer "has a
-person touched this", and the ADR names the swap so the proxy is not mistaken for
-the intended predicate.
+The "has a person touched this" test is `edited_at IS NULL` (ADR-0786, merged as
+!1900). That column is stamped by `Task.save()` and deliberately **not** by the CPM
+`bulk_update` path (ADR-0091) — which matters here: if a recalculation counted as
+an edit, every row would be protected within seconds of seeding and undo would
+silently become a no-op.
 
 ### 6. RBAC follows ADR-0773, which already decided this
 

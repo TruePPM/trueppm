@@ -451,6 +451,37 @@ CPM fields (`early_start`, `early_finish`, `late_start`, `late_finish`, `total_f
 
 Assigning a **phase** (a task that rolls up one or more real child tasks) to a sprint is rejected unconditionally with `400` and a standard field error on `sprint` carrying the stable code `phase_in_sprint_forbidden`. This is a hard invariant — it is *not* affected by the project's guardrail policy and cannot be escalated or relaxed by an Owner (assigning a phase to a sprint double-counts velocity). Assign the child tasks inside the phase instead. Other sprint-composition guardrails (`summary_in_sprint`, `task_outside_sprint_window`, `recurring_in_sprint`) remain Warn-by-default and are configurable via the guardrail policy.
 
+#### Seed provenance
+
+:::note[Ships in 0.4]
+The six fields in this section ship in **TruePPM 0.4**. In `v0.3.0-alpha.3` (the
+latest release) the task payload carries none of them, and there is no way to tell
+a row a template or an import wrote from a row somebody typed.
+:::
+
+Every task records where it came from and whether a person has touched it since.
+All six fields are **read-only** — a client cannot assert its own provenance, and
+cannot clear the edited stamp on a row it edited.
+
+| Field | Meaning |
+|---|---|
+| `source_kind` | What wrote the row: `hand`, `template`, `seed_import`, `csv_import`, `msproject_import`, `jira_import`, `paste`. Defaults to `hand`, which is also what every row created before 0.4 reports |
+| `source_id` | Id of the template or import job that wrote it; `null` for hand-authored rows |
+| `source_version` | Template version the row was seeded from; empty string for every other source |
+| `seeded_at` | When a machine wrote the row; `null` on hand-authored rows |
+| `edited_at` | Last human-caused write; `null` means nobody has ever touched the row |
+| `is_untouched_seed` | The server's verdict: `seeded_at` is set **and** `edited_at` is not |
+
+Read `is_untouched_seed` rather than re-deriving it from the two timestamps. It is
+the predicate behind the seeded-project landing's "Delete untouched rows (N)"
+offer, so a client copy that drifts by one clause would disagree with the server
+about what a sweep is going to delete. It carries **no time window** — the
+seven-day offer applies the window itself.
+
+A recalculation never counts as an edit: the scheduling engine persists CPM output
+through a path that does not touch `edited_at`, so a freshly seeded project still
+reports its rows as untouched after the first schedule pass.
+
 ### Project templates
 
 :::note[Ships in 0.4]

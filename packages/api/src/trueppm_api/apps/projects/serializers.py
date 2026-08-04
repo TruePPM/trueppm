@@ -2969,6 +2969,22 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # Prefetched (with the field def + user) in annotate_tasks_queryset — no N+1.
     custom_fields = serializers.SerializerMethodField()
 
+    # "A machine wrote this row and nobody has touched it since" (ADR-0786 §5a),
+    # published as a positive boolean rather than left for the client to derive
+    # from ``seeded_at``/``edited_at``.
+    #
+    # It exists because the fact is otherwise carried by a NULL, and the one
+    # consumer that matters most strips nulls: the MCP server compacts every
+    # payload through ``_compact_mapping`` (packages/mcp/.../tools.py), which drops
+    # keys whose value is None or "". An agent reading a seeded, untouched task
+    # would therefore receive no ``edited_at`` key at all and could not tell "never
+    # edited" — the entire signal — from "this MCP version does not publish the
+    # field". Encoding a load-bearing fact in the absence of a key is unreadable to
+    # a consumer that removes absent keys.
+    #
+    # Reads two already-loaded columns; no query, no annotation needed.
+    is_untouched_seed = serializers.SerializerMethodField()
+
     # Computed readiness state for board cards (issue #179).  Derived from
     # assignee_id, baseline_start annotation, and has_predecessors annotation
     # added by TaskViewSet.get_queryset().
@@ -3209,6 +3225,13 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "can_log_time",
             # Per-task custom-field values (#2143) — flat {field_id: value} map.
             "custom_fields",
+            # Seed provenance (ADR-0786, #2730). All read-only and server-owned.
+            "source_kind",
+            "source_id",
+            "source_version",
+            "seeded_at",
+            "edited_at",
+            "is_untouched_seed",
         ]
         read_only_fields = [
             "id",
@@ -3278,6 +3301,20 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "external_link_summary",
             "status_changed_at",
             "assignee_is_overallocated",
+            # Seed provenance (ADR-0786 §5) — server-owned, and read-only for a
+            # sharper reason than "the server writes it". A client that could set
+            # ``edited_at`` could make a row it never touched survive B4's sweep;
+            # one that could *clear* it could make the sweep delete a row it had
+            # edited. ``seeded_at`` / ``source_*`` are equally server-owned:
+            # provenance a caller asserts about itself is not provenance. This
+            # serializer is reused by the offline sync upload (sync/upload.py), so
+            # declaring it here closes the REST path and the sync path together.
+            "source_kind",
+            "source_id",
+            "source_version",
+            "seeded_at",
+            "edited_at",
+            "is_untouched_seed",
             # ADR-0102: only the accept/reject services may change this — never a
             # client PATCH (so a contributor cannot self-accept by writing it).
             "sprint_pending",
@@ -4611,6 +4648,17 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         from trueppm_api.apps.projects.custom_field_values import build_custom_fields_map
 
         return build_custom_fields_map(obj)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_untouched_seed(self, obj: Task) -> bool:
+        """Was this row machine-written and never touched by a person since?
+
+        Mirrors ``Task.objects.untouched_seeded()``'s two clauses, minus the window
+        — the window is a caller policy (7 days for B4's sweep, 14 for the retention
+        measurement), and folding either into a field would make the other read as a
+        lie (ADR-0786 §5a).
+        """
+        return obj.seeded_at is not None and obj.edited_at is None
 
     def get_sprint_scope_changes(self, obj: Task) -> list[dict[str, Any]]:
         """Return scope-change audit rows for the sprint-scope indicator chip."""

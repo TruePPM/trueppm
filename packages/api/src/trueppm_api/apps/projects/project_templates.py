@@ -222,8 +222,7 @@ def materialize_structure(
     """
     from django.db.models import F
 
-    from trueppm_api.apps.projects import models as project_models
-    from trueppm_api.apps.projects.models import Dependency, Task
+    from trueppm_api.apps.projects.models import Dependency, Task, TaskSource
     from trueppm_api.apps.projects.models import (
         Project as ProjectModel,
     )
@@ -262,17 +261,14 @@ def materialize_structure(
                 setattr(row, field, value)
         if node.get("is_subtask"):
             row.is_subtask = True
-        # Seed provenance (ADR-0786, #2730) when the columns exist. A soft lookup
-        # rather than a hard import: this branch is cut from main and #2730 is a
-        # separate MR, so the columns may or may not be present depending on merge
-        # order. A hard reference would make the merge order load-bearing, which is
-        # worse than a guard. Once #2730 lands this collapses to plain assignments.
-        task_source = getattr(project_models, "TaskSource", None)
-        if task_source is not None and hasattr(row, "source_kind"):
-            setattr(row, "source_kind", task_source.TEMPLATE)  # noqa: B010
-            setattr(row, "source_id", template.id)  # noqa: B010
-            setattr(row, "source_version", str(template.version))  # noqa: B010
-            setattr(row, "seeded_at", seeded_at)  # noqa: B010
+        # Seed provenance (ADR-0786, #2730). edited_at is deliberately left null:
+        # a machine wrote this row and nobody has touched it, which is exactly what
+        # makes it eligible for the "Delete untouched rows (N)" sweep — and what
+        # lets undo below tell a seeded row from one somebody has since typed into.
+        row.source_kind = TaskSource.TEMPLATE
+        row.source_id = template.id
+        row.source_version = str(template.version)
+        row.seeded_at = seeded_at
         rows.append(row)
         ref_to_task[str(node["ref"])] = row
 

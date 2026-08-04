@@ -10,7 +10,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0133_project_status_date_floor_armed_at"),
+        ("projects", "0134_task_edited_at_task_seeded_at_task_source_id_and_more"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
