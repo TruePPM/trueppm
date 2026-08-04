@@ -132,6 +132,10 @@ export function MyWorkEmptyState({ hasProjects, hasConnectedExternalSource = fal
   const showConnectJira = !hasConnectedExternalSource;
   const navigate = useNavigate();
   const [showNewProject, setShowNewProject] = useState(false);
+  // Which of the modal's two create actions is primary — set by whichever button
+  // opened it, so a user who clicked "Import from a spreadsheet" is not asked to
+  // pick the secondary button once the modal is up (#2710).
+  const [importFirst, setImportFirst] = useState(false);
 
   if (offline) {
     return (
@@ -166,8 +170,31 @@ export function MyWorkEmptyState({ hasProjects, hasConnectedExternalSource = fal
         </p>
         {/* Highest-intent evaluators are here to do real work — lead with create,
             keep the demo as the low-commitment secondary path (#2034). */}
-        <Button variant="primary" size="lg" onClick={() => setShowNewProject(true)}>
+        <Button
+          variant="primary"
+          size="lg"
+          onClick={() => {
+            setImportFirst(false);
+            setShowNewProject(true);
+          }}
+        >
           Create your first project
+        </Button>
+        {/* An evaluator who already has a plan in a spreadsheet is the case the
+            roadmap calls the "I cannot get my own data in" wall (#2710). Before
+            this, the CSV/Excel wizard had exactly one mount site and it required a
+            project that already existed — so the wall was still in front of the
+            import. Offering it here creates the project and opens the wizard in
+            one path. */}
+        <Button
+          variant="secondary"
+          size="lg"
+          onClick={() => {
+            setImportFirst(true);
+            setShowNewProject(true);
+          }}
+        >
+          Import from a spreadsheet
         </Button>
         <ExploreDemoButton variant="secondary" />
         <div className="flex items-center gap-4">
@@ -176,10 +203,15 @@ export function MyWorkEmptyState({ hasProjects, hasConnectedExternalSource = fal
         </div>
         {showNewProject && (
           <NewProjectModal
+            importFirst={importFirst}
             onClose={() => setShowNewProject(false)}
-            onCreated={(projectId) => {
+            onCreated={(projectId, intent) => {
               setShowNewProject(false);
-              void navigate(`/projects/${projectId}/overview`);
+              void navigate(
+                intent?.importCsv
+                  ? `/projects/${projectId}/schedule?import=csv`
+                  : `/projects/${projectId}/overview`,
+              );
             }}
           />
         )}

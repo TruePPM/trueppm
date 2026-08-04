@@ -292,6 +292,10 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   const settingsLabel = isWorkspaceAdmin ? 'Workspace settings' : 'Personal settings';
 
   const [showNewProject, setShowNewProject] = useState(false);
+  // Which of NewProjectModal's two create actions is primary (#2710). Set by
+  // whichever affordance opened it, so a user who clicked "Import a spreadsheet"
+  // is not then asked to pick the modal's secondary button.
+  const [newProjectImportFirst, setNewProjectImportFirst] = useState(false);
   const [showNewProgram, setShowNewProgram] = useState(false);
   const [showImport, setShowImport] = useState(false);
   // Tier 3 "Browse" switcher disclosure (desktop only; the drawer renders the
@@ -483,6 +487,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                 <ProgramViewsTier programId={programId} isDrawer={isDrawer} onClose={onClose} />
               ) : (
                 <PinnedTier
+                  setNewProjectImportFirst={setNewProjectImportFirst}
                   hasPins={hasPins}
                   isLoading={pinsLoading}
                   isError={pinsError}
@@ -525,6 +530,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
 
       <SidebarModals
         showNewProject={showNewProject}
+        newProjectImportFirst={newProjectImportFirst}
         showNewProgram={showNewProgram}
         showImport={showImport}
         isDrawer={isDrawer}
@@ -748,6 +754,7 @@ function PinnedTier({
   loadingDemo,
   go,
   setShowNewProject,
+  setNewProjectImportFirst,
   loadDemo,
 }: {
   hasPins: boolean;
@@ -760,6 +767,7 @@ function PinnedTier({
   loadingDemo: boolean;
   go: (to: string) => void;
   setShowNewProject: Dispatch<SetStateAction<boolean>>;
+  setNewProjectImportFirst: Dispatch<SetStateAction<boolean>>;
   loadDemo: () => void;
 }) {
   return (
@@ -825,10 +833,28 @@ function PinnedTier({
           </p>
           <button
             type="button"
-            onClick={() => setShowNewProject(true)}
+            onClick={() => {
+              setNewProjectImportFirst(false);
+              setShowNewProject(true);
+            }}
             className="text-xs font-medium text-brand-primary hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary rounded-control"
           >
             + New project
+          </button>
+          {/* The third thing a zero-project user can actually do (#2710): arrive
+              with a spreadsheet. The CSV/Excel wizard used to have a single mount
+              site that required an existing project, so this surface could only
+              offer "create" and "demo" — an evaluator holding their own plan had
+              to build an empty project and go hunting through an overflow menu. */}
+          <button
+            type="button"
+            onClick={() => {
+              setNewProjectImportFirst(true);
+              setShowNewProject(true);
+            }}
+            className="text-xs font-medium text-brand-primary hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary rounded-control"
+          >
+            Import from a spreadsheet
           </button>
           <button
             type="button"
@@ -983,6 +1009,7 @@ function SidebarFooter({
  *  so their overlays escape the `overflow-hidden` aside. */
 function SidebarModals({
   showNewProject,
+  newProjectImportFirst,
   showNewProgram,
   showImport,
   isDrawer,
@@ -993,6 +1020,7 @@ function SidebarModals({
   onClose,
 }: {
   showNewProject: boolean;
+  newProjectImportFirst: boolean;
   showNewProgram: boolean;
   showImport: boolean;
   isDrawer: boolean;
@@ -1006,11 +1034,18 @@ function SidebarModals({
     <>
       {showNewProject && (
         <NewProjectModal
+          importFirst={newProjectImportFirst}
           onClose={() => setShowNewProject(false)}
-          onCreated={(projectId) => {
+          onCreated={(projectId, intent) => {
             setShowNewProject(false);
             if (isDrawer) onClose?.();
-            void navigate(`/projects/${projectId}/overview`);
+            // "Create & import spreadsheet" (#2710) — land in the Schedule with
+            // the wizard open rather than on an empty Overview.
+            void navigate(
+              intent?.importCsv
+                ? `/projects/${projectId}/schedule?import=csv`
+                : `/projects/${projectId}/overview`,
+            );
           }}
         />
       )}
