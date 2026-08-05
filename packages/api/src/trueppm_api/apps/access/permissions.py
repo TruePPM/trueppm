@@ -317,6 +317,31 @@ def can_user_log_time(request: Request, task: Any) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _mark_policy_refusal(request: Request, constraint: str) -> None:
+    """Record why an MCP guard is about to deny, for the response body (#2689).
+
+    The guards keep returning ``False`` rather than raising: they are fail-closed
+    by construction and that is not worth trading for a richer body. Marking is
+    advisory — an unmarked denial still denies, just with DRF's generic detail,
+    which is the pre-existing behavior. The envelope is attached centrally in
+    :mod:`trueppm_api.core.exception_handlers`.
+    """
+
+    from trueppm_api.apps.agents.models import AgentActionRefusalReason
+    from trueppm_api.apps.agents.refusal import mark_refusal
+
+    mark_refusal(request, AgentActionRefusalReason.POLICY, constraint)
+
+
+def _mark_identity_refusal(request: Request, constraint: str) -> None:
+    """As :func:`_mark_policy_refusal`, for a refusal about the credential itself."""
+
+    from trueppm_api.apps.agents.models import AgentActionRefusalReason
+    from trueppm_api.apps.agents.refusal import mark_refusal
+
+    mark_refusal(request, AgentActionRefusalReason.IDENTITY, constraint)
+
+
 def _project_pk_from_view(view: APIView) -> Any | None:
     """Extract project_pk from a view's URL kwargs (for nested routes).
 
@@ -1355,6 +1380,7 @@ class McpInstanceEnabled(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
         from django.conf import settings
 
+        from trueppm_api.apps.agents.models import RefusalConstraint
         from trueppm_api.apps.projects.models import ApiToken
 
         token = getattr(request, "auth", None)
@@ -1364,7 +1390,10 @@ class McpInstanceEnabled(BasePermission):
         # token still exists (and may carry mcp:read), but it must not grant agent
         # access. Denying here — before the scope/owner guards — fails closed for
         # the agent path only, leaving human auth on the same viewset untouched.
-        return bool(getattr(settings, "TRUEPPM_MCP_ENABLED", True))
+        if not bool(getattr(settings, "TRUEPPM_MCP_ENABLED", True)):
+            _mark_policy_refusal(request, RefusalConstraint.CAPABILITY_SCOPE)
+            return False
+        return True
 
 
 class TokenIsOwnerScoped(BasePermission):
@@ -1397,6 +1426,7 @@ class TokenIsOwnerScoped(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
         from rest_framework.exceptions import AuthenticationFailed
 
+        from trueppm_api.apps.agents.models import RefusalConstraint
         from trueppm_api.apps.projects.models import ApiToken
 
         token = getattr(request, "auth", None)
@@ -1404,6 +1434,11 @@ class TokenIsOwnerScoped(BasePermission):
             return True  # Non-token auth path; RBAC classes handle it.
         if token.owner_id is not None:
             return True
+        # A project/program token on the read surface is refused for *what the
+        # token is*, not for what it asked — token_identity, not capability_scope
+        # (#2689). Both are disclosable: they describe the credential the caller
+        # already holds.
+        _mark_identity_refusal(request, RefusalConstraint.TOKEN_IDENTITY)
         raise AuthenticationFailed("Token is not authorized for the MCP read surface.")
 
 
@@ -1466,6 +1501,7 @@ class McpProjectEnabled(BasePermission):
     """
 
     def has_permission(self, request: Request, view: APIView) -> bool:
+        from trueppm_api.apps.agents.models import RefusalConstraint
         from trueppm_api.apps.projects.mcp_settings import (
             mcp_reads_globally_disabled,
             resolve_mcp_enabled,
@@ -1477,12 +1513,14 @@ class McpProjectEnabled(BasePermission):
             return True  # Human JWT/Session path is never gated by MCP consent.
 
         if mcp_reads_globally_disabled():
+            _mark_policy_refusal(request, RefusalConstraint.CAPABILITY_SCOPE)
             return False
 
         scope = getattr(view, "mcp_scope", None)
         if scope is None:
             # Declare-or-deny: an MCP-readable view that never declared how it is
             # project-scoped is denied outright. A forgotten view fails closed.
+            _mark_policy_refusal(request, RefusalConstraint.CAPABILITY_SCOPE)
             return False
         if scope != McpScope.PATH:
             # Row-level (QUERYSET) or view-explicit (AGGREGATE) enforcement; a
@@ -1504,6 +1542,7 @@ class McpProjectEnabled(BasePermission):
         if project_id is None:
             # A PATH view whose project could not be resolved is a declaration bug,
             # not a public read. Fail closed rather than admit an unscoped token.
+            _mark_policy_refusal(request, RefusalConstraint.CAPABILITY_SCOPE)
             return False
 
         project = Project.objects.filter(pk=project_id).only("mcp_enabled", "program_id").first()
@@ -1511,7 +1550,10 @@ class McpProjectEnabled(BasePermission):
             # Nonexistent/soft-deleted project — let the view's own 404 path answer;
             # there is no project data to protect.
             return True
-        return resolve_mcp_enabled(project)
+        if not resolve_mcp_enabled(project):
+            _mark_policy_refusal(request, RefusalConstraint.CAPABILITY_SCOPE)
+            return False
+        return True
 
 
 if TYPE_CHECKING:
@@ -1769,6 +1811,19 @@ class McpReadableViewMixin(_McpViewBase):
         # projected impact, so its side-car impact stays empty.
         refusal_reason = "" if allowed else AgentActionRefusalReason.POLICY
         refusal_constraint = "" if allowed else RefusalConstraint.CAPABILITY_SCOPE
+        if not allowed:
+            # Prefer what the guard that actually denied recorded (#2689). The
+            # response body is built from the same marks, so the wire and the
+            # audit row can never disagree about why a call was refused — which
+            # they would if this kept assuming capability_scope while the caller
+            # was told token_identity.
+            from trueppm_api.apps.agents.refusal import refusal_marks
+
+            marks = refusal_marks(request)
+            if marks is not None:
+                marked_reason, marked_constraint = marks
+                refusal_reason = marked_reason or refusal_reason
+                refusal_constraint = marked_constraint or refusal_constraint
 
         action, object_type, object_id, project_id = self._mcp_audit_target(request)
         summary = f"MCP {request.method} {action}"

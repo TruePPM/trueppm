@@ -230,6 +230,15 @@ is a pure read/compute modeled as a `GET`.
   and is not a second copy of the permission model.
 - **No secret in logs.** The token is never logged, never echoed in an error,
   and never included in a stack trace.
+- **A refusal says why.** When the API refuses a call, the 401/403 carries a
+  structured `refusal` — a verdict, a coarse reason (`identity` if the credential
+  was rejected, `policy` if a guard denied the call), and, when it is safe to
+  name, the specific constraint that fired. The server surfaces it on the error
+  it raises, so the reason reaches your AI client instead of a bare HTTP status.
+  Two constraints are disclosed today, `token_identity` and `capability_scope`;
+  both describe **your own token** and reveal nothing about the plan. Constraints
+  that would name a resource you are not allowed to read are deliberately
+  withheld — you still get the reason, just not the detail that would leak.
 - **Read-only.** The server defines only read tools and issues only `GET`
   requests. The write surface is held to a later release.
 - **Self-hosted.** All traffic stays between your AI client, the server, and

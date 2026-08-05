@@ -99,9 +99,51 @@ def _path_has_malformed_uuid(context: dict[str, Any]) -> bool:
     return False
 
 
+def _attach_refusal(response: Response | None, context: dict[str, Any]) -> Response | None:
+    """Add the refusal taxonomy to a 401/403 answered to an API-token caller (#2689).
+
+    The taxonomy exists, is recorded, and is hash-chained — and never reached the
+    caller that triggered it, who saw DRF's constant ``PermissionDenied``
+    detail and had to make a second call to ``GET /agent-actions/?constraint=…``
+    to learn why. This is the one place it goes on the wire.
+
+    Centralised here rather than at each guard for two reasons: the guards stay
+    fail-closed ``return False`` (a richer body is not worth restructuring them
+    for), and a guard that forgets to mark still refuses — it just refuses with
+    the generic detail, exactly as before.
+
+    Deliberately scoped to token callers. A human JWT/session 403 is untouched, so
+    this adds no contract change for the web client; the envelope exists for the
+    agent surface, which has no other channel.
+    """
+
+    if response is None or response.status_code not in (401, 403):
+        return response
+    request = context.get("request")
+    if request is None:
+        return response
+
+    from trueppm_api.apps.agents.refusal import build_refusal_payload, refusal_marks
+
+    # The mark IS the token-caller signal, and it has to be: an identity refusal
+    # is raised by the authenticator, so `request.auth` is still None at that
+    # point and testing it would silently drop the envelope on exactly the case
+    # the issue was filed about. Only token-path code calls `mark_refusal`, so an
+    # unmarked failure — a human with an expired JWT, an anonymous 401 — falls
+    # through with its body untouched.
+    marks = refusal_marks(request)
+    if marks is None:
+        return response
+
+    if isinstance(response.data, dict):
+        response.data["refusal"] = build_refusal_payload(*marks)
+    return response
+
+
 def trueppm_exception_handler(exc: Exception, context: dict[str, Any]) -> Response | None:
     """Map malformed-UUID failures to 404/400 and PROTECT-ed deletes to 409.
 
+    Also attaches the agent refusal taxonomy to a token caller's 401/403 (#2689).
     Delegates everything else to DRF's default handler unchanged.
     """
     if _is_malformed_uuid_error(exc):
@@ -112,4 +154,4 @@ def trueppm_exception_handler(exc: Exception, context: dict[str, Any]) -> Respon
             detail=_PROTECTED_DELETE_DETAIL,
             code="protected_reference",
         )
-    return drf_exception_handler(exc, context)
+    return _attach_refusal(drf_exception_handler(exc, context), context)
