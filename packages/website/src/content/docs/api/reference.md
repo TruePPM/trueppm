@@ -446,6 +446,7 @@ implementation is not yet available.
 | PUT / PATCH | `/api/v1/tasks/{id}/` | Update |
 | DELETE | `/api/v1/tasks/{id}/` | Soft-delete (cascades to edges) |
 | POST | `/api/v1/projects/{id}/tasks/bulk/` | Apply many task writes, and optionally dependency edges, in one request — returns `207`, see [Batch task writes](#batch-task-writes) |
+| PATCH | `/api/v1/projects/{id}/tasks/classification/` | Classify a subtree on the governance and delivery axes — see [Subtree classification](#subtree-classification) |
 
 CPM fields (`early_start`, `early_finish`, `late_start`, `late_finish`, `total_float`, `is_critical`) are read-only — set by the auto-scheduler. `early_start`/`early_finish` name the **remaining-work window** for an in-progress task, not its span — a 4-day task at 83% carries a one-day `early_start`..`early_finish` (ADR-0132). `scheduled_start` (paired with `early_finish` as `scheduled_finish` for symmetry — not a separate stored field, always identical to `early_finish`) and `remaining_duration` (also read-only) instead name the task's **span** and the working days of work left on it, so a consumer never has to branch on task state to know which quantity a date field means (ADR-0752). Any client that assumes `finish − start ≈ duration` should read `scheduled_start`/`scheduled_finish`, not `early_start`/`early_finish`.
 
@@ -644,6 +645,107 @@ Authoring the plan requires Team Member or above. The **Resource Manager** role 
 excluded: it sits above Team Member in the role order but cannot edit task content,
 so it could otherwise create rows it was then unable to change. Read
 `can_author` on the project resource rather than comparing role ordinals yourself.
+
+#### Subtree classification
+
+`PATCH /api/v1/projects/{id}/tasks/classification/` declares how a subtree is
+governed and how it is delivered, in one call.
+
+:::note[Ships in 0.4]
+This endpoint ships in **TruePPM 0.4**. In `v0.3.0-alpha.3` (the latest release)
+`governance_class` and `delivery_mode` exist on the task resource but can only be
+set one row at a time through `PATCH /api/v1/tasks/{id}/`, and
+`parent_governance_inherited` cannot be set at all.
+:::
+
+**These are two orthogonal fields, not one choice.**
+
+| Field | Values | Means | Inherit bit |
+|---|---|---|---|
+| `governance_class` | `gated` · `flow` · `hybrid` | which overlay governs the subtree | **yes** (`parent_governance_inherited`) |
+| `delivery_mode` | `waterfall` · `scrum` · `kanban` · `milestone` | how work is executed, estimated, rolled up | no |
+
+`scrum` and `kanban` are not interchangeable: a `scrum` node rolls up from
+story-point burndown and samples the team velocity distribution in Monte Carlo, a
+`kanban` node rolls up from item throughput. Send whichever the team actually runs.
+
+```json
+{
+  "subtree": "3f1c…a1",
+  "cascade": true,
+  "governance_class": "gated",
+  "delivery_mode": "scrum",
+  "preserve_governance_overrides": true,
+  "skip_milestones": true
+}
+```
+
+`subtree` is **required** — the generated OpenAPI schema marks every `PATCH` body
+field optional, which under-declares it. Supply `governance_class`,
+`delivery_mode`, or both — a request naming neither is a `400`. `cascade: false` classifies the named task alone; otherwise the server
+resolves the subtree from the WBS and the caller sends no row list. A cascade
+cannot set `delivery_mode` to `milestone` — converting a task into a gate also has
+to zero its duration, so that stays a single `PATCH` on the task.
+
+The response is `200`, and it reports each axis separately:
+
+```json
+{
+  "subtree": "3f1c…a1",
+  "matched": 24,
+  "governance":    { "requested": "gated", "applied": 21, "unchanged": 0,
+                     "overrides_kept": 1,    "has_inherit_bit": true },
+  "delivery_mode": { "requested": "scrum", "applied": 21, "unchanged": 0,
+                     "overrides_kept": null, "has_inherit_bit": false },
+  "skipped": [
+    { "id": "9b40…c7", "code": "milestone_gate",
+      "axes": ["governance_class", "delivery_mode"], "message": "…" }
+  ]
+}
+```
+
+`overrides_kept` is `null` on `delivery_mode` — **not `0`**. Only
+`governance_class` carries an inherit bit, so only it can have an override; zero
+would claim the data had none, where the truth is that the axis cannot have one.
+An axis you did not send is absent from the response entirely.
+
+##### What survives a cascade
+
+- **Explicit governance overrides.** A descendant that declared its own governance
+  (`parent_governance_inherited: false`) keeps it, and is counted in
+  `overrides_kept`. Send `preserve_governance_overrides: false` to overwrite it.
+  The override is governance-only: that row still receives the cascaded
+  `delivery_mode`.
+- **Milestones.** A milestone's `delivery_mode` is **never** rewritten, under any
+  request. `is_milestone`, `delivery_mode: "milestone"` and `duration: 0` are three
+  encodings of one fact, and a cascade that broke them would dissolve every gate in
+  the phase. `skip_milestones` governs the *governance* axis on those rows only:
+  leave it `true` and a milestone is untouched; send `false` and it takes the
+  governance class but still keeps its delivery mode. Either way it appears in
+  `skipped` with the axes that were withheld.
+
+The subtree root itself is written with `parent_governance_inherited: false` —
+declaring a subtree's governance is what breaking inheritance means — and its
+cascaded descendants with `true`.
+
+##### Limits and errors
+
+- At most **2000** resolved tasks. A larger subtree is a `400` with code
+  `subtree_too_large` and the matched count; it is never truncated.
+- **Permission is all-or-nothing.** If you cannot edit every row in the subtree the
+  whole request is `403` and nothing is written. Unlike batch task writes, a
+  partially applied cascade would leave the plan asserting a split that is not
+  true.
+- A project whose dependency graph is already cyclic is a `400` (`cyclic_dependency`)
+  — the cascade triggers a recalculation, and an infeasible graph is refused before
+  the schedule engine sees it.
+- Re-sending an identical request writes nothing: rows already at the requested
+  values report under `unchanged`, and no recalculation or broadcast is triggered.
+- When something does change, the schedule is recalculated and a
+  `tasks_bulk_mutated` event carries the ids that changed.
+
+Authoring requires Team Member or above, with the same Resource Manager exclusion
+as batch task writes.
 
 ### Task attachments
 

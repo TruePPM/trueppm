@@ -18863,6 +18863,84 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/tasks/classification/": {
+            "patch": {
+                "operationId": "v1_projects_tasks_classification_partial_update",
+                "description": "Apply the two hybrid classification axes across a subtree (ADR-0790, #2735).\n\nPATCH /api/v1/projects/{pk}/tasks/classification/\n\nBody::\n\n    {\n        \"subtree\": \"<task uuid>\",\n        \"cascade\": true,\n        \"governance_class\": \"gated\",\n        \"delivery_mode\": \"scrum\",\n        \"preserve_governance_overrides\": true,\n        \"skip_milestones\": true\n    }\n\nA separate route from ``tasks/bulk/`` rather than a bucket on it. That endpoint is\na per-row 207 keyed by the caller's ``index`` in ``operations`` (ADR-0772 §2); here\nthe caller names **one** thing and the server resolves the row set from\n``wbs_path``, so cascade-touched rows have no index to correlate by. PATCH, not\nPOST: this mutates existing rows only, creates nothing, and re-sending the same\nbody converges on the same state.\n\n**200, not 207.** Every outcome reported — a kept governance override, a skipped\nmilestone — is a documented semantic of a *successful* cascade, not a per-row\nfailure. There are no partial failures left to report because permission is\nall-or-nothing (ADR-0790 §6): if the caller cannot edit every resolved row, the\nwhole request is 403 rather than classifying the fraction they happen to own and\nleaving the plan asserting a split that is not true.\n\nThe response reports each axis separately, and ``overrides_kept`` is ``null`` on\n``delivery_mode`` — only ``governance_class`` carries an inherit bit, so only it\ncan have an override. See ``task_classification._axis_report`` for why ``null``\nrather than ``0``.\n\nCarries ``IdempotencyMixin`` (ADR-0170) even though the cascade is *already*\nstate-idempotent: rows at the requested value are not written, so a replay bumps no\nversion and enqueues nothing. It opts in rather than claiming\n``idempotency_exempt`` for the same reason ``ProjectShareLinkRevokeView`` does —\nnatural idempotence is a property of today's implementation, whereas the header\ncontract is a promise to the caller, and the mixin also makes a replay cost zero\nqueries instead of a subtree lock plus a scan.",
+                "summary": "Classify a task subtree on the governance and delivery axes",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskClassificationRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskClassificationRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskClassificationRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskClassificationResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/tasks/reorder/": {
             "post": {
                 "operationId": "v1_projects_tasks_reorder_create",
@@ -49480,6 +49558,50 @@
                     }
                 }
             },
+            "PatchedTaskClassificationRequest": {
+                "type": "object",
+                "description": "Validate the body for PATCH /api/v1/projects/{pk}/tasks/classification/.\n\nOne declaration about a subtree, on two orthogonal axes (ADR-0790, #2735). The\nserver resolves the row set from ``wbs_path`` — the caller names only the root.",
+                "properties": {
+                    "subtree": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "cascade": {
+                        "type": "boolean",
+                        "default": true
+                    },
+                    "governance_class": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/GovernanceClassEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "delivery_mode": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/DeliveryModeEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "preserve_governance_overrides": {
+                        "type": "boolean",
+                        "default": true
+                    },
+                    "skip_milestones": {
+                        "type": "boolean",
+                        "default": true
+                    }
+                }
+            },
             "PatchedTaskCommentRequest": {
                 "type": "object",
                 "description": "Append-only task comment with single-level reply nesting.\n\n`body` is required + length-capped. `parent` must be a top-level comment\non the same task. Edits are limited to a 15-min window after creation.",
@@ -57759,6 +57881,93 @@
                     "dependencies",
                     "rejected",
                     "skipped"
+                ]
+            },
+            "TaskClassificationAxis": {
+                "type": "object",
+                "description": "One axis's outcome block. Response-shape only — never used to parse input.",
+                "properties": {
+                    "requested": {
+                        "type": "string"
+                    },
+                    "applied": {
+                        "type": "integer"
+                    },
+                    "unchanged": {
+                        "type": "integer"
+                    },
+                    "overrides_kept": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "has_inherit_bit": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "applied",
+                    "has_inherit_bit",
+                    "overrides_kept",
+                    "requested",
+                    "unchanged"
+                ]
+            },
+            "TaskClassificationResponse": {
+                "type": "object",
+                "description": "200 response for the subtree classification cascade (ADR-0790 §5).\n\nAn axis the request omitted is absent from the response entirely, rather than\npresent with zeroed counters that read as \"nothing matched\".",
+                "properties": {
+                    "subtree": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "matched": {
+                        "type": "integer"
+                    },
+                    "governance": {
+                        "$ref": "#/components/schemas/TaskClassificationAxis"
+                    },
+                    "delivery_mode": {
+                        "$ref": "#/components/schemas/TaskClassificationAxis"
+                    },
+                    "skipped": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskClassificationSkip"
+                        }
+                    }
+                },
+                "required": [
+                    "matched",
+                    "skipped",
+                    "subtree"
+                ]
+            },
+            "TaskClassificationSkip": {
+                "type": "object",
+                "description": "A row left unclassified on at least one axis.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "code": {
+                        "type": "string"
+                    },
+                    "axes": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "message": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "axes",
+                    "code",
+                    "id",
+                    "message"
                 ]
             },
             "TaskComment": {

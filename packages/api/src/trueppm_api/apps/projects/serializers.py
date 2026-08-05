@@ -61,6 +61,7 @@ from trueppm_api.apps.projects.models import (
     EstimationMode,
     ExportJobStatus,
     ForecastSnapshot,
+    GovernanceClass,
     InboundTaskLink,
     Label,
     PhaseGateConfig,
@@ -5369,6 +5370,100 @@ class TaskBulkSerializer(serializers.Serializer[Any]):
                     raise serializers.ValidationError(f"Duplicate id {task_id} in operations list.")
                 ids_seen.add(task_id)
         return ops
+
+
+class TaskClassificationSerializer(serializers.Serializer[Any]):
+    """Validate the body for PATCH /api/v1/projects/{pk}/tasks/classification/.
+
+    One declaration about a subtree, on two orthogonal axes (ADR-0790, #2735). The
+    server resolves the row set from ``wbs_path`` — the caller names only the root.
+    """
+
+    subtree = serializers.UUIDField()
+    #: False classifies the root alone. The popover previews "this task" against "this
+    #: task and its N descendants", so the distinction is a caller choice, not a mode.
+    cascade = serializers.BooleanField(required=False, default=True)
+    governance_class = serializers.ChoiceField(
+        choices=GovernanceClass.choices, required=False, allow_null=True, default=None
+    )
+    delivery_mode = serializers.ChoiceField(
+        choices=DeliveryMode.choices, required=False, allow_null=True, default=None
+    )
+    #: Defaults true, and that default is what makes cascading safe to try: explicit
+    #: per-task governance (``parent_governance_inherited=False``) survives a cascade.
+    preserve_governance_overrides = serializers.BooleanField(required=False, default=True)
+    #: Governs the GOVERNANCE axis on a milestone row only. ``delivery_mode`` is never
+    #: written to a milestone under any value — see ``task_classification._classify_row``.
+    skip_milestones = serializers.BooleanField(required=False, default=True)
+
+    def validate_delivery_mode(self, value: str | None) -> str | None:
+        """Reject ``milestone`` as a cascade target.
+
+        A cascade that converts a phase into a gate is not a classification — it is a
+        structural edit that also has to zero every row's duration to keep
+        ``is_milestone ⟺ delivery_mode ⟺ duration=0`` true. Setting one row to a
+        milestone stays a single PATCH through ``TaskSerializer``, which reconciles all
+        three signals together.
+        """
+        if value == DeliveryMode.MILESTONE:
+            raise serializers.ValidationError(
+                "A cascade cannot convert tasks into milestones — set is_milestone on "
+                "the individual task instead."
+            )
+        return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """At least one axis must be named.
+
+        A whole-request 400 rather than a 200 reporting nothing: a call that declares
+        neither axis cannot be anything but a client bug, and answering it with a
+        successful-looking empty report hides that.
+        """
+        if attrs.get("governance_class") is None and attrs.get("delivery_mode") is None:
+            raise serializers.ValidationError(
+                "Provide governance_class, delivery_mode, or both — the two axes are "
+                "independent and a cascade must name at least one."
+            )
+        return attrs
+
+
+class TaskClassificationAxisSerializer(serializers.Serializer[Any]):
+    """One axis's outcome block. Response-shape only — never used to parse input."""
+
+    requested = serializers.CharField()
+    applied = serializers.IntegerField()
+    unchanged = serializers.IntegerField()
+    #: ``null`` on an axis with no inherit bit — NOT ``0``. Zero would assert "there
+    #: were no overrides" (a claim about the data) where the truth is "this axis cannot
+    #: have one" (a claim about the model). Only ``governance_class`` carries the bit.
+    overrides_kept = serializers.IntegerField(allow_null=True)
+    has_inherit_bit = serializers.BooleanField()
+
+
+class TaskClassificationSkipSerializer(serializers.Serializer[Any]):
+    """A row left unclassified on at least one axis."""
+
+    id = serializers.UUIDField()
+    code = serializers.CharField()
+    #: Which axes were withheld from this row — a milestone under
+    #: ``skip_milestones=false`` still takes its governance, so the skip is
+    #: axis-specific rather than whole-row.
+    axes = serializers.ListField(child=serializers.CharField())
+    message = serializers.CharField()
+
+
+class TaskClassificationResponseSerializer(serializers.Serializer[Any]):
+    """200 response for the subtree classification cascade (ADR-0790 §5).
+
+    An axis the request omitted is absent from the response entirely, rather than
+    present with zeroed counters that read as "nothing matched".
+    """
+
+    subtree = serializers.UUIDField()
+    matched = serializers.IntegerField()
+    governance = TaskClassificationAxisSerializer(required=False)
+    delivery_mode = TaskClassificationAxisSerializer(required=False)
+    skipped = TaskClassificationSkipSerializer(many=True)
 
 
 class BaselineTaskSerializer(serializers.ModelSerializer[BaselineTask]):
