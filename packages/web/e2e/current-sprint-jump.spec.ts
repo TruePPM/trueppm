@@ -11,7 +11,7 @@
  * All API calls are route-mocked; no server required.
  */
 import { test, expect, type Page } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import { paletteSearch, setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-cs-00000000-0000-0000-0000-000000001594';
 const SPRINT_ID = 'sprint-atlas-4';
@@ -97,7 +97,7 @@ test.describe('jump to current sprint (#1594, #1680)', () => {
     // Cold (no query) the sprint jump leads — it is the first option, so Enter runs it.
     const option = dialog.getByRole('option', { name: /Current sprint — Atlas 4/ });
     await expect(option).toBeVisible();
-    await page.getByRole('combobox').press('Enter');
+    await paletteSearch(page).press('Enter');
 
     await expect(page.getByRole('dialog', { name: 'Command palette' })).toHaveCount(0);
     await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/board\\?sprint=${SPRINT_ID}`));
