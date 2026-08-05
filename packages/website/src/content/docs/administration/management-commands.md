@@ -97,6 +97,26 @@ ones would silently change the public URL on every upgrade, so the chart refuses
 render without them.
 :::
 
+### It turns public sharing on for the demo project
+
+Minting a link and *serving* it are two different gates. A link resolves only when the
+["Public sharing" policy](/features/board-sharing/) is on for the project, and the
+workspace default is **off** — so the command enables it on the demo project as part of
+minting, or it would print URLs that answer `410 Gone`.
+
+The override is written on the **demo project only**, never on the workspace. Every other
+project on the instance keeps inheriting the workspace default, so seeding the sample onto
+a real install does not loosen your sharing posture. The command picks its project by the
+seeder's internal `is_sample` flag, so it cannot touch a real project of the same name.
+
+Two things still outrank it, and the command reports either one instead of printing a URL
+it knows will not work:
+
+- `TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED=false` — the instance-wide kill switch. Share URLs
+  return `404`. Set it to `true` to run a public demo.
+- A workspace **Enforce** sharing policy with public sharing off (Enterprise). Share URLs
+  return `410` until a workspace admin turns it on or relaxes the override policy.
+
 ## `seed_ga_launch_program`
 
 Builds the **"1.0 GA Launch"** hybrid sample *program* — one OSS program of four
