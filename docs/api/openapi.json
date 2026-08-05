@@ -38517,6 +38517,71 @@
                 "summary": "Time entries task"
             }
         },
+        "/api/v1/tasks/delete-untouched-seeded/": {
+            "post": {
+                "operationId": "v1_tasks_delete_untouched_seeded_create",
+                "description": "\"Delete untouched rows (N)\" from the seed banner (#2731, ADR-0799 §3).\n\n**The server computes the set — never a client-supplied ID list**\n(ADR-0773 §4): accepting one would make this an arbitrary bulk-delete\nwearing a friendly label, since the affordance's entire safety story is\n\"these rows were never touched,\" and only the server can assert that.\nThe request therefore carries a project id and nothing else;\n``Task.objects.untouched_seeded(project)`` — the single reused predicate\nfrom ADR-0786 §3 — decides which rows qualify.\n\nAdmin+ only, checked explicitly rather than through ``IsProjectAdmin`` in\n``permission_classes``: this viewset is registered top-level\n(``router.register(r\"tasks\", ...)``, no ``project_pk`` URL kwarg), so\n``IsProjectAdmin.has_permission`` would find no ``project_pk`` in\n``view.kwargs`` for this ``detail=False`` action and silently permit any\nauthenticated caller — the same gap ``trash`` works around by\nre-deriving ``can_restore`` per row instead of trusting the class.\n\nThe archived-project check is explicit for the identical reason:\n``IsProjectNotArchived.has_permission`` also resolves ``project_pk`` from\n``view.kwargs`` and, finding none, returns ``True`` unconditionally —\na route-shape gap, not something specific to this action, but this is a\ndestructive sweep so it is checked here rather than trusted to a class\nthat cannot see the project this request names.\n\nNo explicit subtree cascade (contrast ``restore``, which must cascade\nbecause ``trash`` collapses subtrees to their roots for display only).\nEvery row ``untouched_seeded`` returns is independently eligible — a\nchild a person has since edited is excluded by its own ``edited_at``,\nthe same partial-subtree outcome ``undo_template_application`` already\nproduces and ADR-0786 §4 already accepts.",
+                "summary": "Bulk soft-delete every untouched-seeded task in a project",
+                "tags": [
+                    "tasks"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeleteUntouchedSeededRequestRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeleteUntouchedSeededRequestRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeleteUntouchedSeededRequestRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "{\"deleted\": N}"
+                    },
+                    "400": {
+                        "description": "`project` is missing or not a UUID."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/tasks/search/": {
             "get": {
                 "operationId": "v1_tasks_search_list",
@@ -44349,6 +44414,18 @@
                 ],
                 "type": "string",
                 "description": "* `SCHEDULE` - Schedule\n* `BOARD` - Board\n* `TABLE` - Table\n* `OVERVIEW` - Overview"
+            },
+            "DeleteUntouchedSeededRequestRequest": {
+                "type": "object",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                },
+                "required": [
+                    "project"
+                ]
             },
             "DeliveryModeEnum": {
                 "enum": [

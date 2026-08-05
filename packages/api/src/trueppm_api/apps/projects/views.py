@@ -5140,6 +5140,95 @@ class TaskViewSet(
         serializer = self.get_serializer(restored)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        summary="Bulk soft-delete every untouched-seeded task in a project",
+        request=inline_serializer(
+            name="DeleteUntouchedSeededRequest",
+            fields={"project": serializers.UUIDField()},
+        ),
+        responses={
+            200: OpenApiResponse(description='{"deleted": N}'),
+            400: OpenApiResponse(description="`project` is missing or not a UUID."),
+        },
+    )
+    @action(detail=False, methods=["post"], url_path="delete-untouched-seeded")
+    def delete_untouched_seeded(self, request: Request) -> Response:
+        """ "Delete untouched rows (N)" from the seed banner (#2731, ADR-0799 §3).
+
+        **The server computes the set — never a client-supplied ID list**
+        (ADR-0773 §4): accepting one would make this an arbitrary bulk-delete
+        wearing a friendly label, since the affordance's entire safety story is
+        "these rows were never touched," and only the server can assert that.
+        The request therefore carries a project id and nothing else;
+        ``Task.objects.untouched_seeded(project)`` — the single reused predicate
+        from ADR-0786 §3 — decides which rows qualify.
+
+        Admin+ only, checked explicitly rather than through ``IsProjectAdmin`` in
+        ``permission_classes``: this viewset is registered top-level
+        (``router.register(r"tasks", ...)``, no ``project_pk`` URL kwarg), so
+        ``IsProjectAdmin.has_permission`` would find no ``project_pk`` in
+        ``view.kwargs`` for this ``detail=False`` action and silently permit any
+        authenticated caller — the same gap ``trash`` works around by
+        re-deriving ``can_restore`` per row instead of trusting the class.
+
+        The archived-project check is explicit for the identical reason:
+        ``IsProjectNotArchived.has_permission`` also resolves ``project_pk`` from
+        ``view.kwargs`` and, finding none, returns ``True`` unconditionally —
+        a route-shape gap, not something specific to this action, but this is a
+        destructive sweep so it is checked here rather than trusted to a class
+        that cannot see the project this request names.
+
+        No explicit subtree cascade (contrast ``restore``, which must cascade
+        because ``trash`` collapses subtrees to their roots for display only).
+        Every row ``untouched_seeded`` returns is independently eligible — a
+        child a person has since edited is excluded by its own ``edited_at``,
+        the same partial-subtree outcome ``undo_template_application`` already
+        produces and ADR-0786 §4 already accepts.
+        """
+        from trueppm_api.apps.access.permissions import _membership_role
+        from trueppm_api.apps.projects.models import Task as TaskModel
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project_id = (request.data.get("project") or "").strip()
+        if not project_id:
+            return Response(
+                {"detail": "The `project` field is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            uuid.UUID(project_id)
+        except ValueError:
+            return Response(
+                {"detail": "`project` must be a UUID."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        project = get_object_or_404(Project, pk=project_id, is_deleted=False)
+
+        role = _membership_role(request, project.pk)
+        if role is None or role < Role.ADMIN:
+            raise PermissionDenied(
+                "You need at least Project Manager role to delete untouched seeded rows."
+            )
+        if project.is_archived:
+            raise PermissionDenied(
+                "This project is archived and cannot be modified. Unarchive it first."
+            )
+
+        rows = list(TaskModel.objects.untouched_seeded(project))
+        deleted = 0
+        with transaction.atomic():
+            for row in rows:
+                row.soft_delete()
+                deleted += 1
+
+        if deleted:
+            project_id_str = str(project.pk)
+            transaction.on_commit(lambda: _enqueue_recalculate(project_id_str))
+            transaction.on_commit(
+                lambda: broadcast_board_event(project_id_str, "tasks_restructured", {})
+            )
+
+        return Response({"deleted": deleted}, status=status.HTTP_200_OK)
+
     @extend_schema(responses=TaskScopeRollupSerializer)
     @action(detail=True, methods=["get"], url_path="scope")
     def scope(self, request: Request, **kwargs: Any) -> Response:

@@ -30,16 +30,26 @@ export interface CreatedProjectIntent {
   importCsv?: boolean;
   /**
    * The methodology this project was derived with (ADR-0791) and whether a template
-   * application was just fired for it (#2734, ADR-0800). Set only on the `template`
+   * application was just fired for it (ADR-0800). Set only on the `template`
    * way — lets the caller route straight to the surface that matches how the project
-   * will actually be worked (the agile backlog for AGILE) instead of always landing on
-   * Overview regardless of methodology, and to skip that surface's default empty state
-   * while the fire-and-forget apply is still streaming rows in over the board
-   * WebSocket (ADR-0789 §4 — the sheet never blocks on seeding, so the destination may
-   * still be genuinely empty for a moment after navigation).
+   * will actually be worked (the agile backlog for AGILE, the schedule for
+   * WATERFALL/HYBRID) instead of always landing on Overview regardless of
+   * methodology, and to skip that surface's default empty state while the
+   * fire-and-forget apply is still streaming rows in over the board WebSocket
+   * (ADR-0789 §4 — the sheet never blocks on seeding, so the destination may still
+   * be genuinely empty for a moment after navigation).
    */
   methodology?: Methodology;
   templateApplied?: boolean;
+  /**
+   * The template application to show progress for on arrival (ADR-0799 §1).
+   * Set only for the template way, once `useApplyTemplate`'s `202` response
+   * resolves — the seed banner polls this id and reads its `result_summary` for
+   * the counts. Absent on a failed dispatch, which is why it is distinct from
+   * `templateApplied`: the caller still lands on the seeded surface, just without
+   * an application to poll.
+   */
+  templateApplicationId?: string;
 }
 
 interface Props {
@@ -270,22 +280,35 @@ export function NewProjectModal({
           toast.success(`Created ${name.trim()}`);
           if (way === 'template' && template) {
             // Fire-and-navigate (#2729, ADR-0789 §4): the sheet never blocks on
-            // seeding. The server returns 202 and the rows arrive over the board
-            // WebSocket as the job completes, so the user lands on their project
-            // and watches it fill rather than waiting on a modal spinner.
+            // *seeding* — the server returns 202 and the rows arrive over the
+            // board WebSocket as the job completes. It does wait on the 202
+            // *dispatch* response itself (a same-request round trip, not the
+            // Celery job) so the application id can travel in `intent` and the
+            // seeded landing (#2731, ADR-0799 §1) has something to poll the
+            // moment it mounts, rather than a landing that races its own banner.
             applyTemplate.mutate(
               { templateId: template.id, projectId: data.id },
               {
+                onSuccess: (applyData) => {
+                  onCreated(data.id, {
+                    ...intent,
+                    templateApplicationId: applyData.application,
+                    methodology: derived.methodology,
+                  });
+                },
                 // A failed *dispatch* still leaves a real, empty project — say so
-                // rather than letting the skeleton silently not appear. The apply
-                // itself is durable once queued (outbox + drain); this only
-                // catches the request never landing.
-                onError: () =>
+                // rather than letting the skeleton silently not appear, and land
+                // without an application id: the seeded landing has nothing to
+                // poll, so the schedule renders its normal first-run state.
+                onError: () => {
                   toast.error(
                     `Created ${name.trim()}, but couldn't start "${template.name}". Apply it from the project.`,
-                  ),
+                  );
+                  onCreated(data.id, intent);
+                },
               },
             );
+            return;
           }
           onCreated(data.id, intent);
         },
