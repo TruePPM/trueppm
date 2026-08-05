@@ -53,6 +53,8 @@ export interface TaskStoreHandle {
   patches: Record<string, unknown>[];
   /** The store's current rows: exactly what the next refetch will return. */
   rows: () => TaskRow[];
+  /** Classification-cascade bodies the app sent, in order (#2736). */
+  classifications: Record<string, unknown>[];
 }
 
 /** `/api/v1/tasks/<id>/` and nothing deeper — a nested path is not this store's. */
@@ -64,6 +66,7 @@ export async function setupTaskStore(
 ): Promise<TaskStoreHandle> {
   const rows: TaskRow[] = opts.tasks.map((t) => ({ ...t }));
   const patches: Record<string, unknown>[] = [];
+  const classifications: Record<string, unknown>[] = [];
   const applyPatch =
     opts.applyPatch ?? ((body: Record<string, unknown>, current: TaskRow) => ({ ...current, ...body }));
 
@@ -139,5 +142,108 @@ export async function setupTaskStore(
     return route.fulfill(json({ applied, rejected, skipped: [] }, 207));
   });
 
-  return { patches, rows: () => rows.map((r) => ({ ...r })) };
+  // `projects/{pk}/tasks/classification/` (#2735/#2736) — the two-axis subtree
+  // cascade. Same reason as `tasks/bulk/` above: a different path, the same
+  // `rows` closure, because the popover invalidates `['tasks', projectId]` on
+  // success and the refetch has to show what the cascade wrote. A stateless
+  // mock here would make the mode chip appear and then vanish.
+  //
+  // Faithful to `task_classification._classify_row` in the three ways a spec can
+  // actually observe: milestones keep their delivery mode, explicit governance
+  // overrides survive, and the root breaks inheritance while descendants assert it.
+  await page.route(/\/api\/v1\/projects\/[^/]+\/tasks\/classification\/$/, async (route: Route) => {
+    const request = route.request();
+    if (request.method() !== 'PATCH') return route.fallback();
+    const body = (request.postDataJSON() ?? {}) as {
+      subtree?: string;
+      cascade?: boolean;
+      governance_class?: string | null;
+      delivery_mode?: string | null;
+      preserve_governance_overrides?: boolean;
+      skip_milestones?: boolean;
+    };
+    classifications.push(body);
+
+    const subtreeIds = new Set<string>(body.subtree ? [body.subtree] : []);
+    if (body.cascade !== false) {
+      // Repeat to depth: a child can appear before its parent in the array.
+      for (let pass = 0; pass < rows.length; pass++) {
+        for (const row of rows) {
+          const parent = row.parent_id as string | null | undefined;
+          if (parent && subtreeIds.has(parent)) subtreeIds.add(row.id as string);
+        }
+      }
+    }
+
+    const matched = rows.filter((r) => subtreeIds.has(r.id as string));
+    const skipped: Record<string, unknown>[] = [];
+    let govApplied = 0;
+    let govKept = 0;
+    let deliveryApplied = 0;
+
+    for (const row of matched) {
+      const isRoot = row.id === body.subtree;
+      const isMilestone = Boolean(row.is_milestone);
+      const withheld: string[] = [];
+
+      if (body.governance_class != null) {
+        const inherited = (row.parent_governance_inherited as boolean | undefined) ?? true;
+        if (isMilestone && body.skip_milestones !== false) {
+          withheld.push('governance_class');
+        } else if (!isRoot && body.preserve_governance_overrides !== false && !inherited) {
+          govKept += 1;
+        } else {
+          row.governance_class = body.governance_class;
+          row.parent_governance_inherited = !isRoot;
+          govApplied += 1;
+        }
+      }
+
+      if (body.delivery_mode != null) {
+        if (isMilestone) {
+          withheld.push('delivery_mode');
+        } else {
+          row.delivery_mode = body.delivery_mode;
+          deliveryApplied += 1;
+        }
+      }
+
+      if (withheld.length) {
+        skipped.push({
+          id: row.id,
+          code: 'milestone_gate',
+          axes: withheld,
+          message: `Milestone left unclassified on ${withheld.join(' and ')}.`,
+        });
+      }
+    }
+
+    const report: Record<string, unknown> = {
+      subtree: body.subtree,
+      matched: matched.length,
+      skipped,
+    };
+    if (body.governance_class != null) {
+      report.governance = {
+        requested: body.governance_class,
+        applied: govApplied,
+        unchanged: matched.length - govApplied - govKept - skipped.length,
+        overrides_kept: govKept,
+        has_inherit_bit: true,
+      };
+    }
+    if (body.delivery_mode != null) {
+      report.delivery_mode = {
+        requested: body.delivery_mode,
+        applied: deliveryApplied,
+        unchanged: matched.length - deliveryApplied,
+        // null, not 0 — this axis carries no inherit bit.
+        overrides_kept: null,
+        has_inherit_bit: false,
+      };
+    }
+    return route.fulfill(json(report));
+  });
+
+  return { patches, classifications, rows: () => rows.map((r) => ({ ...r })) };
 }

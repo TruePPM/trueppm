@@ -72,6 +72,9 @@ test.describe('Schedule legend overlay (#474)', () => {
     await expect(body.getByText('Critical path')).toBeVisible();
     await expect(body.getByText('Today')).toBeVisible();
     await expect(body.getByText('Finish-to-start')).toBeVisible();
+    // Delivery-mode rows (#2727 pt.7) plus MIXED (#2737).
+    await expect(body.getByText('Scrum')).toBeVisible();
+    await expect(body.getByText('Mixed subtree')).toBeVisible();
   });
 
   test('clicking the chip collapses the body; chip stays visible', async ({ page }) => {

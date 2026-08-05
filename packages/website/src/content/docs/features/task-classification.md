@@ -76,6 +76,79 @@ The picker still lists every governance class and every delivery mode on every m
 
 The default is resolved **server-side**, in the task-create request, so web, mobile, and the MCP server agree — none of them re-implements the rule. It is a *create-time* default only: switching a project's methodology later never rewrites the stored `governance_class` / `delivery_mode` on its existing tasks, and editing an existing task always shows what is actually stored, never a re-derived value.
 
+## Declaring a whole subtree at once
+
+:::note[Ships in 0.4]
+Through **0.3**, the only way to classify work was one row at a time in the task
+editor — so declaring that phase 4 runs as sprints meant opening every task under it.
+**0.4** adds the classification popover and the subtree cascade described below. On the
+current release, use the per-task editor above.
+:::
+
+A hybrid plan is usually declared a **branch** at a time, not a row at a time. On the
+Schedule, focus a row and press `⌘⇧M` (`Ctrl+Shift+M` on Windows and Linux) — or
+right-click the row and choose **Classification…** — to open a popover that sets both
+axes for that task and, optionally, everything beneath it.
+
+The popover has three rows:
+
+- **Preset** — *Gated*, *Scrum*, or *Flow*. Each writes **both** fields, which covers the
+  common case in one click.
+- **Governed by** — the `governance_class` values above.
+- **Progress from** — the `delivery_mode` values above.
+
+The two axis rows stay visible under the presets, so a blended team can say
+*flow + kanban* without being routed through Scrum vocabulary. Either axis can be left
+on **No change** — the cascade writes only what you name.
+
+### The footer says what will happen before it happens
+
+Before you apply anything, the popover's footer states the outcome: how many tasks
+change, how many milestones are left alone, and how many explicit governance overrides
+are preserved. Three of those numbers are worth understanding:
+
+- **Milestones are never re-typed.** `is_milestone`, `delivery_mode = milestone`, and
+  `duration = 0` are three encodings of one fact. Cascading an agile delivery mode across
+  a phase skips every gate inside it and says so — a gate is not a delivery mode.
+- **Your per-task edits survive by default.** A task whose governance class was set
+  explicitly (rather than inherited from its parent) keeps it, and the footer counts how
+  many were kept. Clear **Keep explicit governance overrides** to cascade over them.
+- **"Overrides kept" is a governance-only number.** Only `governance_class` records
+  whether a task inherited its value; `delivery_mode` carries no such flag, so no override
+  count exists for it. The popover says that rather than showing a zero that would read as
+  "there were none".
+
+After the cascade lands, a receipt names what the **server** actually wrote — not what the
+preview predicted — including any rows it skipped.
+
+## Seeing the split without auditing it
+
+:::note[Ships in 0.4]
+The outline gutter and mode chip described here ship in **0.4**. The Gantt's delivery-mode
+bar gutter and texture already shipped.
+:::
+
+A declared split is only useful if you can see it. On the Schedule outline, a task whose
+delivery mode is not the waterfall baseline carries two marks:
+
+- a **3px gutter** at the left edge of the row, and
+- a **mode chip** beside the task name — `SCRUM`, `KANBAN`, or `MIXED`.
+
+A summary row reads from its **descendants**, not from its own stored field, so a phase
+whose branches disagree reads `MIXED` and gets a gutter split between the modes actually
+present. Milestones inside it do not count toward the mix — otherwise nearly every phase
+in every plan would read mixed.
+
+Waterfall draws neither mark. That is the same convention the Gantt already uses: the
+baseline is silent, so what stands out is the work that departs from it, and a fully gated
+plan stays visually calm. On the timeline, the same tasks carry a colored bar gutter and a
+fill texture (diagonal hatching for scrum, dots for kanban), with a legend entry naming
+each. Color is never the only signal — the chip states the mode in text, and the textures
+survive a monochrome print.
+
+**Nothing forks.** Dependencies cross the boundary freely: a gated 4.1 still drives a
+sprint 4.2, on one plan and one timeline.
+
 ## Why this matters
 
 The three fields are the seam that lets one task hierarchy serve Waterfall, Agile, and Hybrid teams at once without translation. A program manager can mark a compliance subtree `gated` / `waterfall` while the team next to it runs `flow` / `kanban`, and both roll up into the same program view. Before the editor, that taxonomy could only be set through the seed data or the API; 0.3 puts it in front of the user.

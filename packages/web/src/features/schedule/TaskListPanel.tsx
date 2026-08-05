@@ -8,6 +8,7 @@ import { TaskListHeader } from './TaskListHeader';
 import { TaskListRow } from './TaskListRow';
 import { BlankOutlineDraftRow } from './buildMode/BlankOutlineDraftRow';
 import type { PhasePlannedBadge } from './plannedByPhase';
+import type { RowMode } from './deliveryModePresentation';
 
 /** Derive WBS nesting level from the dot-separated wbs string (e.g. '1.2.3' → level 3) */
 function wbsLevel(wbs: string): number {
@@ -206,6 +207,18 @@ interface Props {
    * queries; this panel stays presentational so it is renderable without a query client.
    */
   resourcePool?: ProjectResource[];
+  /**
+   * Resolved delivery mode per task (#2737), keyed by task id. Computed by
+   * ScheduleView with `computeRowModes` over the **whole** task list rather
+   * than per row: a phase's mode is a function of its descendants, so a row
+   * cannot answer the question from its own fields.
+   */
+  rowModes?: Map<string, RowMode>;
+  /**
+   * Open the classification popover on a row (#2736). Omitted outside Author
+   * mode / for read-only roles, which removes the row-menu entry entirely.
+   */
+  onClassifyRequest?: (taskId: string) => void;
 }
 
 export function TaskListPanel({
@@ -232,6 +245,8 @@ export function TaskListPanel({
   plannedByPhase,
   resourcePool,
   onCommitDraftRow,
+  rowModes,
+  onClassifyRequest,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollToTaskId = useScheduleStore((s) => s.scrollToTaskId);
@@ -435,6 +450,8 @@ export function TaskListPanel({
                   startInlineEditOnMount={autoEditTaskId === task.id}
                   onAutoEditConsumed={onAutoEditConsumed}
                   plannedBadge={plannedByPhase?.get(task.id)}
+                  rowMode={rowModes?.get(task.id)}
+                  onClassifyRequest={onClassifyRequest}
                 />
               </div>
             );

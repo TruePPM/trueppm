@@ -74,6 +74,10 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ['⌘', 'D'], label: 'Duplicate row and its subtree' },
       { keys: ['⌫'], label: 'Delete row (no selection: focused row; with a selection: every selected row)' },
       { keys: ['⌥', 'A'], label: 'Toggle Author / Read mode' },
+      {
+        keys: ['⌘', '⇧', 'M'],
+        label: 'Classify this subtree — governance and delivery mode, with a preview',
+      },
     ],
   },
   {
