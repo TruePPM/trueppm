@@ -35,6 +35,12 @@ function taggedParams(endpoint) {
   return { headers: PARAMS.headers, tags: { endpoint } };
 }
 
+// A threshold expression that exists only to make k6 record a tagged submetric,
+// never to gate it. True of every sample, so it can never breach. `handleSummary`
+// treats an endpoint whose only threshold is this one as `untracked` rather than
+// reporting a meaningless budget of 0.
+const UNTRACKED_EXPR = "p(95)>=0";
+
 export const options = {
   scenarios: {
     hot_reads: {
@@ -55,6 +61,15 @@ export const options = {
     "http_req_duration{endpoint:project_list}": ["p(95)<1500"],
     "http_req_duration{endpoint:task_list}": ["p(95)<2000"],
     "http_req_duration{endpoint:program_list}": ["p(95)<1500"],
+    // Not a budget. k6 only materializes a tagged submetric when a threshold
+    // references the tag, so without this line `sync_delta` is requested on every
+    // iteration and reported nowhere: it never reaches `data.metrics`, never
+    // reaches perf-summary.json, and cannot be printed. `p(95)>=0` is true of any
+    // sample, so it buys the submetric — and the trend line the digest prints —
+    // without inventing an SLA for an endpoint we have never actually measured.
+    // Replace with a real budget once a few nightlies establish its range; the
+    // digest labels it `untracked` until then (see UNTRACKED_EXPR).
+    "http_req_duration{endpoint:sync_delta}": [UNTRACKED_EXPR],
   },
 };
 
@@ -102,9 +117,104 @@ export default function (data) {
   sleep(1);
 }
 
+// Matches the tagged submetric k6 records per endpoint, e.g.
+// `http_req_duration{endpoint:task_list}` → `task_list`.
+const ENDPOINT_METRIC_RE = /^http_req_duration\{endpoint:([^}]+)\}$/;
+
+// Pulls the budget out of a `p(95)<2000`-style threshold expression.
+const P95_BUDGET_RE = /p\(95\)\s*<\s*(\d+(?:\.\d+)?)/;
+
+// goja + k6's pinned Babel is an old target; hand-rolled rather than relying on
+// String.prototype.padStart/padEnd being present.
+function padRight(value, width) {
+  let out = String(value);
+  while (out.length < width) out += " ";
+  return out;
+}
+
+function padLeft(value, width) {
+  let out = String(value);
+  while (out.length < width) out = " " + out;
+  return out;
+}
+
+/**
+ * One digest row per endpoint k6 recorded a tagged submetric for.
+ *
+ * Derived from `data.metrics` rather than from a second hard-coded endpoint list:
+ * a submetric exists if and only if `options.thresholds` references its tag, so
+ * walking the metrics *is* walking the thresholds, and a threshold added later
+ * cannot be silently missing from the digest.
+ */
+function endpointRows(metrics) {
+  const rows = [];
+  const names = Object.keys(metrics)
+    .filter((name) => ENDPOINT_METRIC_RE.test(name))
+    .sort();
+
+  for (let i = 0; i < names.length; i++) {
+    const name = names[i];
+    const metric = metrics[name] || {};
+    const values = metric.values || {};
+    const thresholds = metric.thresholds || {};
+    const exprs = Object.keys(thresholds);
+
+    let budget = null;
+    let breached = false;
+    for (let j = 0; j < exprs.length; j++) {
+      const expr = exprs[j];
+      if (expr === UNTRACKED_EXPR) continue;
+      const match = P95_BUDGET_RE.exec(expr);
+      if (match) budget = Number(match[1]);
+      // k6 reports the verdict itself — never re-derive it from the value, or the
+      // digest can disagree with the exit code that actually gates the job.
+      if (thresholds[expr] && thresholds[expr].ok === false) breached = true;
+    }
+
+    rows.push({
+      endpoint: ENDPOINT_METRIC_RE.exec(name)[1],
+      p95: typeof values["p(95)"] === "number" ? values["p(95)"] : null,
+      budget: budget,
+      breached: breached,
+    });
+  }
+  return rows;
+}
+
+function formatRows(rows) {
+  let width = 0;
+  for (let i = 0; i < rows.length; i++) {
+    width = Math.max(width, rows[i].endpoint.length);
+  }
+
+  return rows.map((row) => {
+    const measured = row.p95 === null ? "n/a" : String(Math.round(row.p95));
+    const label =
+      "  " + padRight(row.endpoint, width) + "  " + padLeft(measured, 6);
+
+    if (row.budget === null) {
+      return label + "  /     --  untracked";
+    }
+    let verdict = "ok";
+    if (row.breached) {
+      const over = Math.round(((row.p95 - row.budget) / row.budget) * 100);
+      verdict = "BREACH (+" + over + "%)";
+    }
+    return label + "  / " + padLeft(row.budget, 6) + "  " + verdict;
+  });
+}
+
 // Self-contained summary — no jslib import (CI has no outbound network budget for
 // it). Writes the full k6 metrics blob as an artifact and prints a compact digest
 // to the job log.
+//
+// The digest reports p95 **per endpoint against its own budget**, because that is
+// what `options.thresholds` gates on. It previously printed only the untagged
+// `http_req_duration` p95 — an average across all endpoints that no threshold
+// uses — so a breach showed a number that was neither the one that failed nor
+// comparable to the budget it failed against, and triaging a regression meant
+// downloading perf-summary.json from every pipeline and parsing it by hand
+// (#2769).
 export function handleSummary(data) {
   const m = data.metrics;
   const p95 = (name) =>
@@ -116,15 +226,28 @@ export function handleSummary(data) {
   const iterations =
     m.iterations && m.iterations.values ? m.iterations.values.count : "n/a";
 
+  const rows = endpointRows(m);
+  const breaches = rows.filter((row) => row.breached);
+
   const digest = [
     "",
     "=== TruePPM perf/load digest ===",
-    `iterations:        ${iterations}`,
-    `http_req_failed:   ${failRate}%`,
-    `http_req p95 (ms): ${p95("http_req_duration")}`,
-    "================================",
+    `iterations:            ${iterations}`,
+    `http_req_failed:       ${failRate}%`,
+    `p95 all endpoints:     ${p95("http_req_duration")} ms  (aggregate — not gated)`,
     "",
-  ].join("\n");
+    "p95 by endpoint (ms):",
+  ]
+    .concat(formatRows(rows))
+    .concat([
+      "",
+      breaches.length
+        ? `RESULT: ${breaches.length} threshold breach(es) — see above`
+        : "RESULT: all endpoint thresholds within budget",
+      "================================",
+      "",
+    ])
+    .join("\n");
 
   return {
     "perf-summary.json": JSON.stringify(data, null, 2),
