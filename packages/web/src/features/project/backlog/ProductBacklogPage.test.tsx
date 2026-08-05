@@ -1,5 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
@@ -324,13 +324,13 @@ function setData(data: ProductBacklog | undefined) {
   h.backlog = { isLoading: false, isError: false, data };
 }
 
-function renderPage() {
+function renderPage(initialEntries: string[] = ['/']) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={initialEntries}>
         <ProductBacklogPage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -446,6 +446,145 @@ describe('DesktopGroomingView data gates', () => {
     expect(
       screen.queryByText("Backlog isn't part of this project's workflow"),
     ).not.toBeInTheDocument();
+  });
+});
+
+// ── Seeding state (#2734, ADR-0800) ─────────────────────────────────────────
+describe('backlog seeding state', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('shows the seeding skeleton instead of the empty-backlog CTA while ?seeding=1 and empty', () => {
+    setData(makeBacklog({ epics: [], ungrouped: [] }));
+    renderPage(['/?seeding=1']);
+    expect(screen.getByRole('status', { name: 'Setting up your backlog' })).toBeInTheDocument();
+    expect(screen.queryByText('No stories yet')).not.toBeInTheDocument();
+  });
+
+  it('never shows the seeding skeleton without the query param', () => {
+    setData(makeBacklog({ epics: [], ungrouped: [] }));
+    renderPage(['/']);
+    expect(
+      screen.queryByRole('status', { name: 'Setting up your backlog' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText('No stories yet')).toBeInTheDocument();
+  });
+
+  it('falls back to the ordinary empty state on a WATERFALL project even with ?seeding=1', () => {
+    h.effectiveMethodology = 'WATERFALL';
+    setData(makeBacklog({ epics: [], ungrouped: [] }));
+    renderPage(['/?seeding=1']);
+    expect(
+      screen.queryByRole('status', { name: 'Setting up your backlog' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Backlog isn't part of this project's workflow")).toBeInTheDocument();
+  });
+
+  it('stops seeding once rows arrive, showing the populated backlog', () => {
+    setData(makeBacklog({ epics: [], ungrouped: [] }));
+    const { rerender } = renderPage(['/?seeding=1']);
+    expect(screen.getByRole('status', { name: 'Setting up your backlog' })).toBeInTheDocument();
+
+    setData(makeBacklog());
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    rerender(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={['/?seeding=1']}>
+          <ProductBacklogPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(
+      screen.queryByRole('status', { name: 'Setting up your backlog' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText('Product backlog')).toBeInTheDocument();
+  });
+
+  it('falls back to the ordinary empty state after the seeding timeout elapses', () => {
+    setData(makeBacklog({ epics: [], ungrouped: [] }));
+    renderPage(['/?seeding=1']);
+    expect(screen.getByRole('status', { name: 'Setting up your backlog' })).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+
+    expect(
+      screen.queryByRole('status', { name: 'Setting up your backlog' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText('No stories yet')).toBeInTheDocument();
+  });
+});
+
+// ── Not-in-a-sprint strip (#2734, ADR-0800) ─────────────────────────────────
+describe('NotInSprintStrip integration', () => {
+  it('counts stories with no sprint and the unestimated subset among them', () => {
+    // Default fixture: s1 (sprintId sp1, 3pts), s2 (no sprint, 2pts), s3
+    // (sprintId sp1, unestimated) — only s2 is "not in a sprint".
+    setData(makeBacklog());
+    renderPage();
+    expect(screen.getByRole('region', { name: 'Not sprint-assigned' })).toBeInTheDocument();
+    expect(screen.getByText('(1)')).toBeInTheDocument();
+    expect(screen.getByText('0 unestimated')).toBeInTheDocument();
+  });
+
+  it('opens the story detail drawer when a not-in-a-sprint row is clicked', async () => {
+    const user = userEvent.setup();
+    setData(makeBacklog());
+    renderPage();
+    const strip = screen.getByRole('region', { name: 'Not sprint-assigned' });
+    await user.click(within(strip).getByRole('button', { name: /Signup form/ }));
+    expect(screen.getByTestId('story-drawer')).toBeInTheDocument();
+  });
+
+  it('is not rendered on the true empty state', () => {
+    setData(makeBacklog({ epics: [], ungrouped: [] }));
+    renderPage();
+    expect(screen.queryByRole('region', { name: 'Not sprint-assigned' })).not.toBeInTheDocument();
+  });
+
+  it('reads a fully-committed backlog as reassurance, not an empty section', () => {
+    setData(
+      makeBacklog({
+        epics: [
+          {
+            epic: epicTask,
+            stories: [{ ...s1, id: 's1b' }],
+            rollup: { storyCount: 1, pointsTotal: 3, pointsDone: 0 },
+          },
+        ],
+        ungrouped: [],
+      }),
+    );
+    renderPage();
+    expect(screen.getByText('(0)')).toBeInTheDocument();
+  });
+});
+
+// ── Waterfall-vocabulary absence (#2734) ────────────────────────────────────
+describe('agile landing vocabulary absence', () => {
+  it('never renders waterfall creation vocabulary on a populated agile backlog', () => {
+    setData(makeBacklog());
+    renderPage();
+    const body = document.body.textContent ?? '';
+    expect(body).not.toMatch(/\bProgram\b/);
+    expect(body).not.toMatch(/\bSchedule\b/);
+    expect(body).not.toMatch(/Planning model/);
+  });
+
+  it('never renders waterfall creation vocabulary while the backlog is seeding', () => {
+    setData(makeBacklog({ epics: [], ungrouped: [] }));
+    renderPage(['/?seeding=1']);
+    const body = document.body.textContent ?? '';
+    expect(body).not.toMatch(/\bProgram\b/);
+    expect(body).not.toMatch(/\bSchedule\b/);
+    expect(body).not.toMatch(/Planning model/);
   });
 });
 

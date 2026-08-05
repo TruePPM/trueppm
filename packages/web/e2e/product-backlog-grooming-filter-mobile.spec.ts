@@ -156,17 +156,21 @@ test.describe('Grooming filter bar — desktop (issue 1044)', () => {
       timeout: 10_000,
     });
 
-    // All three stories render initially.
-    await expect(page.getByText('Failover handling')).toBeVisible();
-    await expect(page.getByText('Signal smoothing')).toBeVisible();
-    await expect(page.getByText('Loose investigation')).toBeVisible();
+    // All three stories render initially. Scoped to the "Open story …" row button
+    // rather than a bare getByText: #2734's NotInSprintStrip (ADR-0800) lists the
+    // same unscheduled titles again in its own summary row, unaffected by this
+    // filter, so a plain text match now resolves to two elements (strict-mode
+    // violation) once that strip has anything to show.
+    await expect(page.getByRole('button', { name: 'Open story Failover handling' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open story Signal smoothing' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open story Loose investigation' })).toBeVisible();
 
     await page.getByRole('searchbox', { name: 'Search stories' }).fill('signal');
 
     // Only the matching story survives; the "N of M" readout settles to 1 of 3.
-    await expect(page.getByText('Signal smoothing')).toBeVisible();
-    await expect(page.getByText('Failover handling')).toHaveCount(0);
-    await expect(page.getByText('Loose investigation')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Open story Signal smoothing' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open story Failover handling' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Open story Loose investigation' })).toHaveCount(0);
     await expect(page.getByText('1 of 3').first()).toBeVisible();
   });
 
@@ -179,14 +183,16 @@ test.describe('Grooming filter bar — desktop (issue 1044)', () => {
 
     await page.getByRole('checkbox', { name: 'Show only unestimated stories' }).check();
 
-    // S1 is pointed (5) → hidden; S2 + S3 are unestimated → shown.
-    await expect(page.getByText('Failover handling')).toHaveCount(0);
-    await expect(page.getByText('Signal smoothing')).toBeVisible();
-    await expect(page.getByText('Loose investigation')).toBeVisible();
+    // S1 is pointed (5) → hidden; S2 + S3 are unestimated → shown. Row-button scoped
+    // per the note above — NotInSprintStrip renders every unscheduled title regardless
+    // of this toggle.
+    await expect(page.getByRole('button', { name: 'Open story Failover handling' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Open story Signal smoothing' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open story Loose investigation' })).toBeVisible();
 
     // Clear restores the full list.
     await page.getByRole('button', { name: 'Clear' }).click();
-    await expect(page.getByText('Failover handling')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open story Failover handling' })).toBeVisible();
   });
 
   test('a readiness chip filters by DoR state', async ({ page }) => {
@@ -202,9 +208,10 @@ test.describe('Grooming filter bar — desktop (issue 1044)', () => {
       .getByRole('button', { name: 'Ready' })
       .click();
 
-    await expect(page.getByText('Failover handling')).toBeVisible(); // dor=ready
-    await expect(page.getByText('Signal smoothing')).toHaveCount(0); // dor=refine
-    await expect(page.getByText('Loose investigation')).toHaveCount(0); // dor=idea
+    // Row-button scoped per the note above.
+    await expect(page.getByRole('button', { name: 'Open story Failover handling' })).toBeVisible(); // dor=ready
+    await expect(page.getByRole('button', { name: 'Open story Signal smoothing' })).toHaveCount(0); // dor=refine
+    await expect(page.getByRole('button', { name: 'Open story Loose investigation' })).toHaveCount(0); // dor=idea
   });
 });
 

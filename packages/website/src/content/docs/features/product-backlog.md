@@ -1,6 +1,7 @@
 ---
 title: Product backlog & scoring
 description: The Product Owner's priority-ordered backlog — epics and stories, acceptance criteria, Definition of Ready, and WSJF/RICE prioritization.
+documentedFor: "0.4"
 ---
 
 :::note[Added in 0.3]
@@ -12,6 +13,27 @@ The product backlog is the **Product Owner's** home surface: a single, priority-
 list of the work a team will deliver, expressed in agile vocabulary — epics, stories,
 acceptance criteria — with no WBS or critical-path jargon required. It lives at
 **Projects → (a project) → Product backlog**.
+
+## Landing here after creation
+
+:::note[Ships in 0.4]
+This section describes the 0.4 beta. Before 0.4, a new agile project's first task
+still lands on this page's plain "No stories yet" state — the Start sheet does not
+yet route a just-templated agile project here directly.
+:::
+
+Applying an agile template from the Start sheet lands the new project directly on
+this page, its backlog already standing — epics, stories, and points in place, not an
+empty "add your first task" card. Template rows arrive over the board's live
+connection a moment after creation; while they're still arriving, the page shows a
+brief "Setting up your backlog…" skeleton instead of the ordinary empty state, so a
+genuinely empty backlog and a not-yet-arrived one never read the same.
+
+A **Not [iteration]-assigned** strip (the label follows the project's configured
+iteration term — Sprint by default) summarizes stories with no sprint commitment yet
+and how many of those are still unestimated. It is the same "committed vs. not"
+concept the Schedule view's Unscheduled gutter shows for waterfall work, read here in
+backlog terms.
 
 ## Where this lives in the story
 

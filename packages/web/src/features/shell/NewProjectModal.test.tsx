@@ -333,6 +333,22 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
     );
   });
 
+  it('reports methodology + templateApplied intent when Template way is active (#2734)', async () => {
+    templatesResult.data = [makeTemplate({ id: 'tmpl-a', name: 'Agile skeleton', methodology: 'AGILE' })];
+    renderModal();
+    await fillName('Templated Agile');
+    await userEvent.click(screen.getByRole('radio', { name: /^template/i }));
+    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
+
+    const opts = mutateMock.mock.calls[0][1] as { onSuccess: (d: { id: string }) => void };
+    opts.onSuccess({ id: 'new-proj-1' });
+
+    expect(onCreated).toHaveBeenCalledWith('new-proj-1', {
+      methodology: 'AGILE',
+      templateApplied: true,
+    });
+  });
+
   it('does not fire applyTemplate for Blank or Import', async () => {
     renderModal();
     await fillName('Blank one');
