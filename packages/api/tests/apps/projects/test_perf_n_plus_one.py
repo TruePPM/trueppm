@@ -6,11 +6,16 @@ Covers:
 - #999 — milestone rollup is batched once per task-list / sprint-list request
   instead of O(milestones × sprints) per-row, and the batched path is
   behavior-identical to the per-milestone compute it replaces.
+- #1482 — the project list is query-count invariant to page size.
+- #2770 — the task list is query-count invariant to the number of *tasks*. The
+  #999 guards above scale milestones, so they cannot see a per-row read on the
+  task's own relations (labels, custom fields, assignments, blockers).
 """
 
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
@@ -22,12 +27,17 @@ from rest_framework.test import APIClient
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
     Calendar,
+    Label,
+    LabelColor,
     Methodology,
     Program,
     Project,
+    ProjectCustomField,
     Sprint,
     SprintState,
     Task,
+    TaskCustomFieldValue,
+    TaskLabel,
     TaskStatus,
 )
 from trueppm_api.apps.projects.serializers import TaskSerializer
@@ -36,6 +46,7 @@ from trueppm_api.apps.projects.services import (
     compute_milestone_rollup_payload,
 )
 from trueppm_api.apps.projects.views import annotate_tasks_queryset
+from trueppm_api.apps.resources.models import Resource, TaskResource
 
 User = get_user_model()
 
@@ -700,4 +711,109 @@ def test_ungrouped_project_list_query_count_invariant_to_page_size() -> None:
 
     assert scaled == baseline, (
         f"Ungrouped project list not invariant: 1 -> {baseline}, 8 -> {scaled}."
+    )
+
+
+# ---------------------------------------------------------------------------
+# #2770 — the task list is query-count invariant to the number of tasks
+# ---------------------------------------------------------------------------
+
+
+def _seed_fanned_out_project(
+    user: object, calendar: Calendar, name: str, task_count: int
+) -> Project:
+    """A project whose every task carries one of each per-row relation.
+
+    The relations here are exactly the ones ``annotate_tasks_queryset`` buys with a
+    ``select_related``/``Prefetch``: sprint, blocking_task (the soft link) and
+    blocked_by (the actor, a User — ADR-0124), assignments -> resource, labels, and
+    custom_field_values -> field + value_user. Seeding *every* task with
+    each of them is what makes the invariant meaningful — a project whose tasks have
+    no labels cannot detect a dropped label prefetch, because there is no second row
+    for the N+1 to fan out over.
+
+    Both projects built by this helper differ **only** in row count, never in the
+    variety of relations present, so a prefetch that is issued conditionally (only
+    when at least one row has an X) still contributes the same fixed number of
+    queries to each side.
+    """
+    project = Project.objects.create(name=name, start_date=date(2026, 4, 1), calendar=calendar)
+    ProjectMembership.objects.create(project=project, user=user, role=Role.OWNER)
+
+    milestone = _make_milestone(project, f"{name}-M")
+    sprint = _make_sprint(project, target_milestone=milestone, name=f"{name}-S")
+    field = ProjectCustomField.objects.create(
+        project=project, name="Vendor", field_type="TEXT", order=1, server_version=1
+    )
+
+    for i in range(task_count):
+        blocker = Task.objects.create(
+            project=project,
+            name=f"{name}-blocker-{i}",
+            duration=1,
+            status=TaskStatus.IN_PROGRESS,
+        )
+        task = Task.objects.create(
+            project=project,
+            name=f"{name}-T{i}",
+            duration=2,
+            sprint=sprint,
+            blocking_task=blocker,
+            blocked_by=user,
+        )
+        label = Label.objects.create(project=project, name=f"{name}-L{i}", color=LabelColor.TEAL)
+        TaskLabel.objects.create(task=task, label=label)
+        TaskCustomFieldValue.objects.create(
+            task=task, field=field, value_text=f"vendor-{i}", value_user=user
+        )
+        resource = Resource.objects.create(
+            name=f"{name}-R{i}",
+            email=f"{name.lower()}-r{i}@example.test",
+            max_units=Decimal("1.00"),
+        )
+        TaskResource.objects.create(task=task, resource=resource, units=Decimal("1.00"))
+
+    return project
+
+
+@pytest.mark.django_db
+def test_task_list_query_count_invariant_to_task_count(calendar: Calendar, user: object) -> None:
+    """Two tasks vs six must issue the same number of queries (#2770).
+
+    ``GET /api/v1/tasks/?project=`` is the hot Gantt fetch and ``TaskSerializer`` is
+    the widest serializer in the codebase, but nothing guarded it against row-count
+    growth: the existing task-list guards scale *milestones*, not tasks, so a new
+    per-row query on any of the relations above was invisible until a nightly
+    ``perf:load`` p95 moved (#2767).
+
+    Strict equality, deliberately not a ceiling — a ceiling drifts upward one commit
+    at a time and stops being a guard.
+    """
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    small = _seed_fanned_out_project(user, calendar, "Small2770", 2)
+    large = _seed_fanned_out_project(user, calendar, "Large2770", 6)
+
+    def list_count(p: Project) -> int:
+        with CaptureQueriesContext(connection) as ctx:
+            resp = client.get(f"/api/v1/tasks/?project={p.pk}")
+            assert resp.status_code == 200, resp.data
+        return len(ctx.captured_queries)
+
+    # Warm one-time per-process caches (permission/edition lookups) before measuring
+    # either side, exactly as test_task_list_rollup_query_count_constant_in_milestones
+    # does — otherwise the first request measured carries them and the two differ for
+    # a reason that has nothing to do with row count.
+    list_count(small)
+
+    baseline = list_count(small)
+    scaled = list_count(large)
+
+    assert scaled == baseline, (
+        f"GET /tasks/ is not query-count invariant to task count: 2 tasks -> "
+        f"{baseline} queries, 6 tasks -> {scaled}. Something serializes per row — "
+        f"check for a relation read outside annotate_tasks_queryset's "
+        f"select_related/prefetch_related set, or a SerializerMethodField that "
+        f"queries."
     )
