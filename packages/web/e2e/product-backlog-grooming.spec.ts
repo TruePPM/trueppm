@@ -172,11 +172,15 @@ test.describe('Product backlog grooming (#494/#921/#922)', () => {
     await expect(page.getByRole('heading', { name: 'Product backlog' })).toBeVisible({
       timeout: 10_000,
     });
-    // Epic group + its stories.
+    // Epic group + its stories. Story rows are scoped to the "Open story …" row
+    // button rather than a bare getByText: #2734's NotInSprintStrip (ADR-0800)
+    // lists the same unscheduled titles again in its own summary row, so a plain
+    // text match resolves to two elements (strict-mode violation) once that strip
+    // has anything to show.
     await expect(page.getByText('Telemetry')).toBeVisible();
-    await expect(page.getByText('Failover handling')).toBeVisible();
-    await expect(page.getByText('Signal smoothing')).toBeVisible();
-    await expect(page.getByText('Loose investigation')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open story Failover handling' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open story Signal smoothing' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open story Loose investigation' })).toBeVisible();
 
     // #922 score column: the model name appears (header badge + column header) and rows
     // show the computed score. "WSJF" renders in both the badge and the column header, so
