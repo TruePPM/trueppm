@@ -184,6 +184,8 @@ export interface ApiTask {
   type?: TaskType;
   governance_class?: GovernanceClass;
   delivery_mode?: DeliveryMode;
+  /** Read-only inherit bit for `governance_class` (#2736). */
+  parent_governance_inherited?: boolean;
   parent_epic?: string | null;
   dor?: DorState;
   sprint_rank?: number | null;
@@ -447,6 +449,7 @@ export function mapTask(t: ApiTask): Task {
     taskType: t.type ?? undefined,
     governanceClass: t.governance_class ?? undefined,
     deliveryMode: t.delivery_mode ?? undefined,
+    parentGovernanceInherited: t.parent_governance_inherited ?? undefined,
     parentEpic: t.parent_epic ?? null,
     dor: t.dor ?? undefined,
     sprintRank: t.sprint_rank ?? null,

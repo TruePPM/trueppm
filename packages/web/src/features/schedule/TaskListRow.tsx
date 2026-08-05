@@ -12,6 +12,8 @@ import {
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { ProjectResource, Task } from '@/types';
 import { ROW_HEIGHT, WBS_INDENT } from './scheduleConstants';
+import type { RowMode } from './deliveryModePresentation';
+import { ModeChip, ModeGutter } from './RowModeIndicators';
 import { ScopeChangedChip } from '@/features/sprints/ScopeChangedChip';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
 import { useScheduleStore, type ScheduleActionToast } from '@/stores/scheduleStore';
@@ -50,6 +52,7 @@ import {
   NoteIcon,
   OutdentIcon,
   PencilIcon,
+  SlidersIcon,
   TrashIcon,
   UndoIcon,
 } from '@/components/Icons';
@@ -205,6 +208,18 @@ interface Props {
    * click reveals that work in the Unscheduled tray (never a task action).
    */
   plannedBadge?: PhasePlannedBadge;
+  /**
+   * Resolved delivery mode for this row (#2737) — `undefined`, or a `gated`
+   * kind, renders nothing. Computed once for the whole tree by
+   * `computeRowModes`, because a parent's value depends on its descendants.
+   */
+  rowMode?: RowMode;
+  /**
+   * Open the classification popover on this row (#2736). Omitted outside
+   * Author mode and for roles that cannot edit the plan, which is what removes
+   * the row-menu entry rather than rendering it disabled with no explanation.
+   */
+  onClassifyRequest?: (taskId: string) => void;
 }
 
 // On macOS the modifier is labelled "Option"; everywhere else it's "Alt".
@@ -660,6 +675,7 @@ interface RowMenuCtx {
   onAddDependencyRequest: ((taskId: string, mode: 'predecessor' | 'successor') => void) | undefined;
   handleToggleComplete: () => void;
   handleDuplicate: () => void;
+  onClassifyRequest: Props['onClassifyRequest'];
 }
 
 /**
@@ -668,8 +684,16 @@ interface RowMenuCtx {
  * the previous inline `menuItems` array (#2081).
  */
 function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
-  const { buildMode, task, level, isComplete, onAddDependencyRequest, handleToggleComplete, handleDuplicate } =
-    ctx;
+  const {
+    buildMode,
+    task,
+    level,
+    isComplete,
+    onAddDependencyRequest,
+    handleToggleComplete,
+    handleDuplicate,
+    onClassifyRequest,
+  } = ctx;
   return [
     {
       key: 'edit',
@@ -733,6 +757,18 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
       hint: '⌘D',
       startsGroup: true,
       onSelect: handleDuplicate,
+    },
+    {
+      // #2736. Reachable from the row menu as well as ⌘⇧M so the act is
+      // discoverable without already knowing the shortcut — a classification
+      // nobody can find is the same as one that does not exist.
+      key: 'classify',
+      label: 'Classification…',
+      icon: <SlidersIcon className="h-4 w-4" aria-hidden="true" />,
+      hint: '⌘⇧M',
+      startsGroup: true,
+      disabled: !onClassifyRequest,
+      onSelect: () => onClassifyRequest?.(task.id),
     },
     {
       key: 'milestone',
@@ -1454,6 +1490,8 @@ function TaskListRowInner({
   startInlineEditOnMount = false,
   onAutoEditConsumed,
   plannedBadge,
+  rowMode,
+  onClassifyRequest,
 }: Props) {
   const projectId = useProjectId() ?? '';
   const itl = useIterationLabel(projectId);
@@ -1579,6 +1617,7 @@ function TaskListRowInner({
     onAddDependencyRequest,
     handleToggleComplete,
     handleDuplicate,
+    onClassifyRequest,
   });
 
   const { isCriticalStyle, isSummaryStyle } = taskNameStyles(task);
@@ -1684,6 +1723,12 @@ function TaskListRowInner({
         })
       }
     >
+      {/* ── Delivery-mode gutter (#2737) ─────────────────────────────────────
+          Rendered first so it sits under every cell's own background; it is
+          absolutely positioned and pointer-events-none, so it never intercepts
+          a row click or a cell edit. */}
+      <ModeGutter mode={rowMode} />
+
       {/* ── ⋮⋮ reorder handle — build mode only, visible on row hover (#347) ── */}
       {buildMode && siblingIds && <RowReorderHandle handlers={reorderHandlers} />}
 
@@ -1742,6 +1787,7 @@ function TaskListRowInner({
           isCriticalStyle={isCriticalStyle}
           isSummaryStyle={isSummaryStyle}
           taskNameWidth={taskNameWidth}
+          rowMode={rowMode}
           plannedBadge={plannedBadge}
           requestRevealGutterSprint={requestRevealGutterSprint}
           itl={itl}
@@ -1999,6 +2045,7 @@ interface TaskNameContentProps {
   isCriticalStyle: string;
   isSummaryStyle: string;
   taskNameWidth: number;
+  rowMode: Props['rowMode'];
   plannedBadge: Props['plannedBadge'];
   requestRevealGutterSprint: (sprintId: string | null) => void;
   itl: IterationLabel;
@@ -2356,6 +2403,7 @@ function ExternalLinkChip({ task }: { task: Task }) {
 function TaskNameBadges(props: TaskNameContentProps) {
   const {
     task,
+    rowMode,
     plannedBadge,
     itl,
     requestRevealGutterSprint,
@@ -2368,6 +2416,10 @@ function TaskNameBadges(props: TaskNameContentProps) {
   } = props;
   return (
     <>
+      {/* Delivery-mode chip (#2737) — first badge, because it classifies the
+          row while the badges after it describe its state. Passive text; the
+          gutter carries the same fact non-textually. */}
+      <ModeChip mode={rowMode} />
       {/* "N planned" badge (#1798): a phase row whose subtree holds sprint-
           assigned backlog. Muted + dashed neutral (never a semantic/critical
           token) — planned work is a read-state, not a risk. It is a

@@ -1,6 +1,7 @@
 import { useId, type ReactNode } from 'react';
 import { useScheduleLegendCollapsed } from '@/hooks/useScheduleLegendCollapsed';
 import { RadioDotIcon } from '@/components/Icons';
+import { gutterBackground } from './deliveryModePresentation';
 
 interface ScheduleLegendProps {
   /**
@@ -109,6 +110,13 @@ export function ScheduleLegend({ taskListWidth }: ScheduleLegendProps) {
           </LegendRow>
           <LegendRow label="Kanban">
             <KanbanSwatch />
+          </LegendRow>
+          {/* MIXED (#2737): a phase whose subtree holds more than one delivery
+              mode. Outline-only — the canvas draws no summary-bar mark, so this
+              names what the split gutter beside a phase row means rather than
+              a texture on the chart. */}
+          <LegendRow label="Mixed subtree">
+            <MixedSwatch />
           </LegendRow>
           {/* Row 4 — lines &amp; arrows.
               No "Planned baseline" entry: ADR-0376 defers the baseline ghost-bar
@@ -254,6 +262,25 @@ function KanbanSwatch() {
         </pattern>
         <rect width="100%" height="100%" fill="url(#kanban-swatch-dots)" opacity="0.4" />
       </svg>
+    </span>
+  );
+}
+
+function MixedSwatch() {
+  // The outline gutter as it renders on a phase whose descendants disagree: a
+  // vertical 3px strip split evenly between the modes present, beside a muted
+  // row standing in for the task line. Drawn from the same `gutterBackground`
+  // recipe RowModeIndicators uses, so the legend and the row cannot diverge — a
+  // two-part gated+scrum split is the canonical example. Graphical only: the
+  // `MIXED` token is the row's own label, and repeating it here at a size below
+  // the rule-50 floor would be both redundant and a WCAG 1.4.3 failure.
+  return (
+    <span className="relative block w-full h-3">
+      <span
+        className="absolute left-0 top-0 bottom-0 w-[3px]"
+        style={{ background: gutterBackground(['var(--ink-2)', 'var(--agile)']) }}
+      />
+      <span className="absolute left-[6px] right-0 top-1/2 -translate-y-1/2 h-[3px] bg-neutral-border" />
     </span>
   );
 }

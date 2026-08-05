@@ -123,6 +123,8 @@ test.describe('Schedule build-mode — default on desktop (#2682)', () => {
     await expect(menu.getByRole('menuitem', { name: /Add predecessor/ })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: /Add successor/ })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: /Duplicate/ })).toBeVisible();
+    // Added in #2736 — the discoverable twin of ⌘⇧M.
+    await expect(menu.getByRole('menuitem', { name: /Classification/ })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: /Delete/ })).toBeVisible();
     // Esc dismisses.
     await page.keyboard.press('Escape');

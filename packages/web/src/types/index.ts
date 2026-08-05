@@ -413,6 +413,18 @@ export interface Task {
   governanceClass?: GovernanceClass;
   /** Execution / rollup mode for this task. Absent on legacy payloads → 'waterfall'. */
   deliveryMode?: DeliveryMode;
+  /**
+   * Whether this task took its `governanceClass` from its parent rather than
+   * declaring its own (#2736). Read-only and server-derived — a client value
+   * can contradict `governanceClass`, so the serializer never accepts it.
+   *
+   * `false` means an explicit override, which is what the classification
+   * cascade preserves by default and counts in its "N overrides kept" line.
+   * Absent on legacy payloads → `true` (the model default). Only this axis
+   * carries the bit; `deliveryMode` has no equivalent, which is why an
+   * override count is computable for one axis and not the other.
+   */
+  parentGovernanceInherited?: boolean;
   /** Parent epic id (grouping parallel to the WBS), or null when ungrouped. */
   parentEpic?: string | null;
   /** Definition-of-Ready signal set by the PO; field is `dor` to avoid the

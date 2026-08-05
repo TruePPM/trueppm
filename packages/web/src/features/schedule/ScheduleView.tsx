@@ -75,6 +75,9 @@ import { UnscheduledGutter } from './UnscheduledGutter';
 import { MobileSchedule } from './mobile/MobileSchedule';
 import { useUnscheduledTasks } from '@/hooks/useUnscheduledTasks';
 import { computePlannedByPhase, type PhasePlannedBadge } from './plannedByPhase';
+import { computeRowModes, type RowMode } from './deliveryModePresentation';
+import { ClassificationPopover } from './classification/ClassificationPopover';
+import { useClassifySubtree, type ClassificationApply } from '@/hooks/useTaskClassification';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import {
   ToolbarOverflowMenu,
@@ -772,6 +775,12 @@ export function ScheduleView() {
     return out;
   }, [unscheduledTasks, allTasks, sprints, sprintsById]);
 
+  // Delivery-mode gutters and chips (#2737). Computed over `allTasks`, not the
+  // visible slice: a phase's mode is the union of its descendants' modes, so a
+  // collapsed subtree still has to be walked or the parent would read as the
+  // mode of whatever happens to be expanded.
+  const rowModes = useMemo(() => computeRowModes(allTasks), [allTasks]);
+
   const zoomLevel = useScheduleStore((s) => s.zoomLevel);
   const selectedTaskId = useScheduleStore((s) => s.selectedTaskId);
   const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
@@ -1283,6 +1292,16 @@ export function ScheduleView() {
   const surfaces = useSurfaceVisibility(projectIdUndef);
   const focus = useScheduleFocus();
   const setScheduleActionToast = useScheduleStore((s) => s.setScheduleActionToast);
+  // Classification popover (#2736). `anchor` is captured from the row's own
+  // rect at open time rather than tracked live: the popover is modalless but
+  // short-lived, and re-anchoring it on every scroll tick would make it chase
+  // the row out from under the cursor mid-choice.
+  const [classifyState, setClassifyState] = useState<{
+    taskId: string;
+    anchor: { x: number; y: number };
+  } | null>(null);
+  const classifyMut = useClassifySubtree();
+  const { reset: resetClassifyMut } = classifyMut;
   const indentTask = useIndentTask(projectId);
   const outdentTask = useOutdentTask(projectId);
   const updateTaskMut = useUpdateTask();
@@ -2043,6 +2062,72 @@ export function ScheduleView() {
     setSearchParam(setSearchParams, 'task', selectedTaskId);
   }, [selectedTaskId, setSearchParams]);
 
+  // #2736. Anchored to the row's own DOM rect so the popover opens beside what
+  // it is about to classify; falls back to the viewport's top-left quadrant
+  // when the row is virtualized out (⌘⇧M can fire on a row scrolled off-screen).
+  const handleClassifyRequest = useCallback(
+    (taskId: string) => {
+      if (readOnly) return;
+      resetClassifyMut();
+      const row = document.querySelector<HTMLElement>(`[data-row-id="${taskId}"]`);
+      const rect = row?.getBoundingClientRect();
+      setClassifyState({
+        taskId,
+        anchor: rect ? { x: rect.left + 24, y: rect.bottom + 4 } : { x: 120, y: 160 },
+      });
+    },
+    [readOnly, resetClassifyMut],
+  );
+
+  const closeClassify = useCallback(() => setClassifyState(null), []);
+
+  const classifyTarget = useMemo(
+    () => (classifyState ? (allTasks.find((t) => t.id === classifyState.taskId) ?? null) : null),
+    [classifyState, allTasks],
+  );
+
+  /**
+   * Render the server's own report, not the client's preview.
+   *
+   * The preview predicted what would happen; this states what did. They agree
+   * in every case the mirror is correct, and when they don't, the receipt is
+   * the one that is true — which is why the toast is built from `report` and
+   * never from the popover's state.
+   */
+  const handleClassifyApply = useCallback(
+    (spec: ClassificationApply) => {
+      if (!projectId) return;
+      classifyMut.mutate(
+        { projectId, ...spec },
+        {
+          onSuccess: (report) => {
+            setClassifyState(null);
+            const parts: string[] = [];
+            if (report.governance) parts.push(`governance → ${report.governance.requested}`);
+            if (report.delivery_mode) parts.push(`delivery → ${report.delivery_mode.requested}`);
+            const written =
+              (report.governance?.applied ?? 0) + (report.delivery_mode?.applied ?? 0);
+            const kept = report.governance?.overrides_kept ?? 0;
+            const detail = [
+              `${written} field${written === 1 ? '' : 's'} written across ${report.matched} row${report.matched === 1 ? '' : 's'}`,
+              kept > 0 ? `${kept} governance override${kept === 1 ? '' : 's'} kept` : null,
+              report.skipped.length > 0
+                ? `${report.skipped.length} milestone${report.skipped.length === 1 ? '' : 's'} left alone`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(' · ');
+            setScheduleActionToast({
+              message: `Classified: ${parts.join(', ')} — ${detail}.`,
+              durationMs: 8000,
+            });
+          },
+        },
+      );
+    },
+    [projectId, classifyMut, setScheduleActionToast],
+  );
+
   const keyBindings = useMemo<Record<string, (e: KeyboardEvent) => void>>(() => {
     const out: Record<string, (e: KeyboardEvent) => void> = {};
     out['mod+m'] = (e) => {
@@ -2091,6 +2176,18 @@ export function ScheduleView() {
       out['alt+a'] = (e) => {
         e.preventDefault();
         toggleAuthorMode();
+      };
+      // ⌘⇧M / Ctrl+Shift+M (#2736): declare the hybrid split for the focused
+      // row's subtree. Targets the FOCUSED row, not the multi-row selection:
+      // the cascade endpoint takes one subtree root and resolves descendants
+      // itself, so an arbitrary selection has no single root to name. The
+      // popover's own "Cascade to descendants" toggle is the scope control.
+      out['mod+shift+m'] = (e) => {
+        if (readOnly) return;
+        const rowId = focus.state.rowId;
+        if (!rowId) return;
+        e.preventDefault();
+        handleClassifyRequest(rowId);
       };
       // F8 / Shift+F8 (#2727, ADR-0776 §3; extended by #2724): jump to the
       // next/previous visible row that needs attention — an unresolved
@@ -2195,6 +2292,7 @@ export function ScheduleView() {
     engine,
     setSelectedTaskId,
     pasteMany,
+    handleClassifyRequest,
   ]);
   useScheduleKeyboard(keyBindings);
 
@@ -2444,6 +2542,8 @@ export function ScheduleView() {
         unscheduledTasks={unscheduledTasks}
         sprints={sprints}
         effectiveMethodology={effectiveMethodology}
+        rowModes={rowModes}
+        onClassifyRequest={readOnly ? undefined : handleClassifyRequest}
       />
 
       {/* Contextual hint strip (#1250, web rule 194): render only while the user
@@ -2540,6 +2640,12 @@ export function ScheduleView() {
         setCheatsheetOpen={setCheatsheetOpen}
         scheduleExport={scheduleExport}
         pasteMany={pasteMany}
+        classifyState={classifyState}
+        classifyTarget={classifyTarget}
+        classifyPending={classifyMut.isPending}
+        classifyFailed={classifyMut.error !== null}
+        onClassifyApply={handleClassifyApply}
+        onClassifyClose={closeClassify}
       />
     </div>
   );
@@ -2615,6 +2721,13 @@ interface ScheduleOverlayLayerProps {
   setCheatsheetOpen: (v: boolean) => void;
   scheduleExport: ReturnType<typeof useScheduleExport>;
   pasteMany: ReturnType<typeof usePasteMany>;
+  /** Classification popover (#2736) — null when closed. */
+  classifyState: { taskId: string; anchor: { x: number; y: number } } | null;
+  classifyTarget: Task | null;
+  classifyPending: boolean;
+  classifyFailed: boolean;
+  onClassifyApply: (spec: ClassificationApply) => void;
+  onClassifyClose: () => void;
 }
 
 function ScheduleOverlayLayer({
@@ -2667,6 +2780,12 @@ function ScheduleOverlayLayer({
   setCheatsheetOpen,
   scheduleExport,
   pasteMany,
+  classifyState,
+  classifyTarget,
+  classifyPending,
+  classifyFailed,
+  onClassifyApply,
+  onClassifyClose,
 }: ScheduleOverlayLayerProps) {
   const selectedTask = selectedTaskId
     ? (allTasks.find((t) => t.id === selectedTaskId) ?? null)
@@ -2715,6 +2834,21 @@ function ScheduleOverlayLayer({
           onConfirm={scheduleCommit.handleConfirm}
           onCancel={scheduleCommit.handleCancel}
           onDismissByOutsideClick={scheduleCommit.handleDismissByOutsideClick}
+        />
+      )}
+
+      {/* Classification popover (#2736) — ⌘⇧M or the row menu. Declares the
+          hybrid split for a subtree on both axes, with a footer that names
+          exactly what the cascade will and will not touch. */}
+      {classifyState && classifyTarget && (
+        <ClassificationPopover
+          anchor={classifyState.anchor}
+          target={classifyTarget}
+          tasks={allTasks}
+          isPending={classifyPending}
+          error={classifyFailed ? 'Could not apply the classification.' : null}
+          onApply={onClassifyApply}
+          onClose={onClassifyClose}
         />
       )}
 
@@ -3388,6 +3522,10 @@ interface ScheduleMainAreaProps {
   unscheduledTasks: Task[];
   sprints: ComponentProps<typeof UnscheduledGutter>['sprints'];
   effectiveMethodology: Methodology;
+  /** Resolved delivery mode per task id (#2737). */
+  rowModes: Map<string, RowMode>;
+  /** Opens the classification popover on a row (#2736); omitted when read-only. */
+  onClassifyRequest?: (taskId: string) => void;
 }
 
 function ScheduleMainArea(props: ScheduleMainAreaProps) {
@@ -3439,6 +3577,8 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
     unscheduledTasks,
     sprints,
     effectiveMethodology,
+    rowModes,
+    onClassifyRequest,
   } = props;
 
   const itl = useIterationLabel(projectId ?? undefined);
@@ -3494,6 +3634,8 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
               plannedByPhase={plannedByPhase}
               resourcePool={resourcePool}
               onCommitDraftRow={readOnly ? undefined : handleCommitDraftRow}
+              rowModes={rowModes}
+              onClassifyRequest={onClassifyRequest}
             />
             {/* Panel splitter — drag to resize task list width */}
             <PanelSplitter currentTaskWidth={widths.task} setWidth={setWidth} />
