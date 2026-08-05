@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/utils';
 import { TemplateGallery } from './TemplateGallery';
@@ -16,6 +16,10 @@ vi.mock('@/hooks/useProjectTemplates', async (importOriginal) => ({
   useProjectTemplates: () => mockQuery,
 }));
 
+vi.mock('@/hooks/useCurrentUser', () => ({
+  useCurrentUser: () => ({ user: { display_name: 'Artemis' }, isLoading: false }),
+}));
+
 function makeTemplate(over: Partial<ProjectTemplate> = {}): ProjectTemplate {
   return {
     id: 't1',
@@ -24,6 +28,7 @@ function makeTemplate(over: Partial<ProjectTemplate> = {}): ProjectTemplate {
     source_kind: 'workspace',
     provenance: 'Workspace',
     carries: ['structure', 'dependencies'],
+    methodology: 'HYBRID',
     task_count: 12,
     version: 1,
     program: null,
@@ -32,21 +37,16 @@ function makeTemplate(over: Partial<ProjectTemplate> = {}): ProjectTemplate {
   };
 }
 
-describe('TemplateGallery (#2729)', () => {
+describe('TemplateGallery (#2728, superseding #2729)', () => {
   beforeEach(() => {
     mockQuery.data = [];
     mockQuery.isLoading = false;
     mockQuery.isError = false;
   });
 
-  it('offers "Blank project" as a first-class choice, selected by default', () => {
-    // A gallery that only offers templates makes starting from nothing read as a
-    // mistake — and the design's own assumption is that teams delete most of what
-    // a template writes, so the blank path has to stay obviously legitimate.
+  it('titles the list "Templates available to {reader}" — the detail-list pattern', () => {
     renderWithProviders(<TemplateGallery selectedId={null} onSelect={vi.fn()} />);
-    const blank = screen.getByRole('radio', { name: /blank project/i });
-    expect(blank).toBeInTheDocument();
-    expect(blank).toBeChecked();
+    expect(screen.getByText(/templates available to artemis/i)).toBeInTheDocument();
   });
 
   it('shows the provenance chip before adoption', () => {
@@ -71,19 +71,50 @@ describe('TemplateGallery (#2729)', () => {
     expect(screen.getByText('12 rows')).toBeInTheDocument();
   });
 
-  it('selects a template', async () => {
+  it('selects a template, carrying its methodology (ADR-0791)', async () => {
     const onSelect = vi.fn();
-    mockQuery.data = [makeTemplate()];
+    mockQuery.data = [makeTemplate({ methodology: 'WATERFALL' })];
     renderWithProviders(<TemplateGallery selectedId={null} onSelect={onSelect} />);
     await userEvent.click(screen.getByRole('radio', { name: /delivery skeleton/i }));
-    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }));
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 't1', methodology: 'WATERFALL' }),
+    );
   });
 
-  it('degrades to the blank path when the gallery fetch fails', () => {
-    // A failed gallery must not block creating a project — the user is mid-flow on
-    // their most important commitment, and blank is always available.
+  it('navigates the list with the down/up arrows (roving tabindex, focus-only)', async () => {
+    mockQuery.data = [
+      makeTemplate({ id: 't1', name: 'Alpha skeleton' }),
+      makeTemplate({ id: 't2', name: 'Beta skeleton' }),
+    ];
+    renderWithProviders(<TemplateGallery selectedId="t1" onSelect={vi.fn()} />);
+    const radiogroup = screen.getByRole('radiogroup', { name: /start from a template/i });
+    const first = within(radiogroup).getByRole('radio', { name: /alpha skeleton/i });
+    const second = within(radiogroup).getByRole('radio', { name: /beta skeleton/i });
+    first.focus();
+    expect(first).toHaveFocus();
+
+    await userEvent.keyboard('{ArrowDown}');
+    expect(second).toHaveFocus();
+    // Focus-only: arrowing to the second row must not itself commit a selection.
+    expect(second).toHaveAttribute('aria-checked', 'false');
+
+    await userEvent.keyboard('{ArrowUp}');
+    expect(first).toHaveFocus();
+  });
+
+  it('degrades to "try Blank or Import instead" when the gallery fetch fails', () => {
+    // A failed gallery must not block creating a project — Blank and Import stay
+    // available as sibling way-in cards on the Start sheet.
     mockQuery.isError = true;
     renderWithProviders(<TemplateGallery selectedId={null} onSelect={vi.fn()} />);
-    expect(screen.getByRole('status')).toHaveTextContent(/still start from a blank project/i);
+    expect(screen.getByRole('status')).toHaveTextContent(/try blank or import instead/i);
+  });
+
+  it('shows a publish-or-pick-another-way empty state with no "Blank project" row', () => {
+    // #2728: Blank is a peer way-in card at the sheet's top level now, not folded
+    // into this list as a fallback selection.
+    renderWithProviders(<TemplateGallery selectedId={null} onSelect={vi.fn()} />);
+    expect(screen.queryByRole('radio', { name: /blank project/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/no templates yet/i)).toBeInTheDocument();
   });
 });

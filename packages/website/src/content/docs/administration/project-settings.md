@@ -17,17 +17,23 @@ circled **ⓘ** contextual-help affordance that explains the setting and deep-li
 the relevant guide. See [In-product help](/administration/workspace-settings/#in-product-help)
 for how it behaves.
 
-## Copy settings from an existing project
+## What the Start sheet sets at creation
 
-When you create a project, the **New project** dialog has an optional **Copy settings
-from** picker listing the projects you can already read. Choose one to seed the new
-project with that project's calendar, default view, board cadence, visibility, its
+The **New project** Start sheet — one screen, no step navigation — collects only
+what changes what happens next: name, program, start date, and working calendar,
+plus one choice among three peer ways in (Template, Blank, or Import). Planning
+model is derived from that choice and shown read-only, never asked for directly.
+See [Creating a project under a program](/features/programs/#creating-a-project-under-a-program)
+for the full field list and [Project methodology preset](/features/methodology-preset/)
+for how the derived line resolves.
+
+Everything else on this page — default view, board cadence, visibility, the
 [default role for new members](/features/settings/project-members/#default-role-for-new-members),
-and its sharing, attachment, and Monte Carlo policies. Leave it on **None** to start with blank
-defaults. Anything you set in the dialog itself — the name, dates, and planning model —
-always takes precedence over the copied values. The settings are copied once at creation
-time; the two projects are not linked afterward, so later changes to the source do not
-flow through.
+and the sharing, attachment, and Monte Carlo policies — starts on the program or
+workspace default (inherited, not copied) and is set here, in project settings,
+immediately after creation. There is no create-time "copy settings from another
+project" step: a new project always starts on live inheritance from its program
+or workspace, which you can override per setting whenever you choose.
 
 ## General
 

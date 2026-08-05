@@ -440,10 +440,13 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
     await expect(page.getByRole('heading', { name: /get you started/i })).toBeVisible();
     await expect(page.getByRole('link', { name: /Browse programs/i })).toBeVisible();
 
-    // The primary CTA opens the multi-step create modal in place (#2034).
+    // The primary CTA opens the Start sheet in place (#2034, #2728).
     await page.getByRole('button', { name: 'Create your first project' }).click();
-    await expect(page.getByRole('dialog', { name: /New project/i })).toBeVisible();
-    await expect(page.getByRole('heading', { name: /Project details/i })).toBeVisible();
+    const dialog = page.getByRole('dialog', { name: /New project/i });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('textbox', { name: /^name/i })).toBeVisible();
+    // The three peer ways in, same row — Blank selected by default from this CTA.
+    await expect(dialog.getByRole('radio', { name: /^blank/i })).toHaveAttribute('aria-checked', 'true');
   });
 
   test('empty state — loading the demo lands the contributor on a board (#1054)', async ({

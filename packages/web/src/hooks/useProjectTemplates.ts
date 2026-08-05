@@ -1,6 +1,6 @@
 import { useMutation, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import type { PaginatedResponse } from '@/api/types';
+import type { PaginatedResponse, ProgramMethodology } from '@/api/types';
 
 /**
  * A template as the gallery sees it (ADR-0789, #2729).
@@ -9,7 +9,11 @@ import type { PaginatedResponse } from '@/api/types';
  * the gallery endpoint — a gallery reader is a wider audience than the source
  * project's members, so a whole project's shape (task names included) must not
  * ride the list. `taskCount` is the server's own count off the frozen document,
- * which is why it can never disagree with what apply will write.
+ * which is why it can never disagree with what apply will write. `methodology`
+ * (ADR-0791, #2728) is likewise read off the frozen document server-side — a
+ * three-value enum, never the document itself — so the Start sheet can derive its
+ * "this project will carry these views" line for a chosen template without a
+ * second request.
  */
 export interface ProjectTemplate {
   id: string;
@@ -26,6 +30,12 @@ export interface ProjectTemplate {
   provenance: string;
   /** What this template carries — `structure`, `dependencies`, `durations`, … */
   carries: string[];
+  /**
+   * The source project's methodology at publish time (ADR-0791). Never null —
+   * the server falls back to `HYBRID` for a structure written before this field
+   * existed, the same lossless default the rest of the methodology chain uses.
+   */
+  methodology: ProgramMethodology;
   task_count: number;
   version: number;
   program: string | null;

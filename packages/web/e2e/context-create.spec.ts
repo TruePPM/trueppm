@@ -198,12 +198,8 @@ test.describe('#1179 context-aware "+ New" (desktop)', () => {
     await programPicker.selectOption('');
     await expect(programPicker).toHaveValue('');
 
+    // One screen (#2728) — name, then straight to Create, no step navigation.
     await dialog.getByRole('textbox', { name: /name/i }).fill('Now Standalone');
-    await dialog.getByRole('button', { name: /next/i }).click();
-    await dialog.getByRole('button', { name: /next/i }).click();
-    // Standalone selection means no program: the "Use program defaults" affordance
-    // must not be offered on step 3.
-    await expect(dialog.getByRole('checkbox', { name: /use .*defaults/i })).toHaveCount(0);
     await dialog.getByRole('button', { name: /create project/i }).click();
 
     await expect(page).toHaveURL(`/projects/${NEW_PROJECT_ID}/overview`);
@@ -238,8 +234,6 @@ test.describe('#1179 context-aware "+ New" (desktop)', () => {
     // inferred-program create flow.
     await dialog.getByRole('combobox', { name: /^program$/i }).selectOption('');
     await dialog.getByRole('textbox', { name: /name/i }).fill('Will Fail');
-    await dialog.getByRole('button', { name: /next/i }).click();
-    await dialog.getByRole('button', { name: /next/i }).click();
     await dialog.getByRole('button', { name: /create project/i }).click();
 
     await expect(dialog.getByRole('alert')).toHaveText(/failed to create project/i);

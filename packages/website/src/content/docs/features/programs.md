@@ -105,49 +105,52 @@ the right one before you commit.
 
 ## Creating a project under a program
 
-From a program's **Projects** tab, **New project** opens the create wizard with
-the project pre-selected to the program you were browsing.
+From a program's **Projects** tab, **New project** opens the Start sheet — one
+screen, no step navigation — with the project pre-selected to the program you were
+browsing.
 
 :::note[Ships in 0.4]
-That pre-selection is a starting point, not a fixed fact: step 1 of the wizard has
-a **Program** picker listing "None — standalone project" plus every open program
+That pre-selection is a starting point, not a fixed fact: the sheet has a
+**Program** picker listing "None — standalone project" plus every open program
 you administer, so you can attach the new project to a different program or clear
-it back to standalone before you create it. The wizard also opens this picker from
+it back to standalone before you create it. The sheet also opens this picker from
 anywhere — not only from inside a program — so you can deliberately attach a new
 project to a program you administer even when you didn't navigate from one.
 :::
 
-On the last step, a **Use program defaults** option appears (only when the
-project is attached to a program). Enable it to seed the new project from that
-program's:
-
-- **Planning model** (methodology — Waterfall / Agile / Hybrid), and
-- **Visibility** (Workspace or Private listing scope).
-
-This is a **one-time copy at creation**, not locked inheritance: the copied values
-become the new project's own settings and stay fully editable afterward in project
-settings. Enabling it dims the manual planning-model picker and the "Copy settings
-from" project source — the two settings sources are mutually exclusive, so you pick
-one. Anything you set explicitly in the wizard still wins over the copied value.
-
 :::note[Ships in 0.4]
-"Use program defaults" follows whichever program is selected in the step-1
-picker, not necessarily the one you were browsing when you opened the wizard —
-changing the picker always resets the option off first, so it never silently
-applies to a program you haven't reviewed it against.
+The sheet collects only what changes what happens next: name, program, start
+date, and working calendar, then one choice among three peer ways in —
+**Template**, **Blank**, or **Import** — same size, same row. Selecting a way
+swaps the panel beneath it. Everything else the old multi-step wizard asked for
+up front (description, a manual planning-model picker, "copy settings from
+another project", "use program defaults", and the default role for new members)
+moved to project settings, reachable immediately after creation.
+
+**Planning model is derived, not asked.** The sheet states, as a read-only line,
+which views the new project will carry as a consequence of the way you chose — a
+template's own methodology when you pick one, otherwise the selected program's
+methodology (or the workspace default when standalone). It never enforces
+anything and stays changeable afterward in project settings — see
+[Project methodology preset](/features/methodology-preset/).
+
+**Working calendar moves onto the sheet itself**, shown as the resolved inherited
+default (the program's calendar, or the workspace default) with the option to
+override it before the project exists — it governs every computed date from the
+first schedule pass onward.
 :::
 
 Settings that a project already **inherits live** from its program — the iteration
 label, sharing and guest access, Monte Carlo history, attachment policy, and the
-task-duration-change policy — are deliberately **not** copied. A new project leaves
-them on "inherit", so they continue to track the program's value automatically; the
-copy would only pin them and break that live inheritance.
+task-duration-change policy — are **not** set at creation. A new project leaves
+them on "inherit", so they continue to track the program's value automatically
+until you deliberately override one in project settings.
 
 You need at least **Project Manager** role on the program to create a project under
-it (and therefore to use its defaults) — the same gate that governs assigning a
-project to a program. From 0.4, it's also the gate that decides which programs the
-step-1 picker will offer: it will only ever list open programs where you hold that
-role or higher, so you can't pick one that would be rejected when you submit.
+it — the same gate that governs assigning a project to a program. From 0.4, it's
+also the gate that decides which programs the picker will offer: it will only ever
+list open programs where you hold that role or higher, so you can't pick one that
+would be rejected when you submit.
 
 ## The program shell
 
