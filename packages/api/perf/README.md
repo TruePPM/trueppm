@@ -27,6 +27,42 @@ Mirrors QA plan §9: project list (#1482 N+1 path), task list, program list, and
 the sync delta. The task/sync reads are data-driven off the first project the seed
 created — no hard-coded UUIDs.
 
+## Reading the output
+
+The run prints a digest to the job log and writes the full k6 metrics blob to
+`perf-summary.json` (kept as a CI artifact for 30 days):
+
+```
+=== TruePPM perf/load digest ===
+iterations:            259
+http_req_failed:       0.00%
+p95 all endpoints:     1812 ms  (aggregate — not gated)
+
+p95 by endpoint (ms):
+  program_list     527  /   1500  ok
+  project_list     651  /   1500  ok
+  sync_delta       911  /     --  untracked
+  task_list       2225  /   2000  BREACH (+11%)
+
+RESULT: 1 threshold breach(es) — see above
+================================
+```
+
+Each row is `p95 / budget`, where the budget is the endpoint's `p(95)<…`
+threshold. **`p95 all endpoints` is an average across every endpoint and no
+threshold gates it** — it is printed for continuity only. Read the per-endpoint
+rows; those are what k6 exits non-zero on.
+
+`ok` / `BREACH` come from k6's own threshold verdict rather than being re-derived
+from the value, so the digest can never disagree with the exit code.
+
+`untracked` means the endpoint is measured but has no budget. k6 only records a
+tagged submetric when a threshold references the tag, so an endpoint with no
+threshold is invisible — it produces no row, no artifact entry, and no trend.
+`sync_delta` is therefore given an always-true `p(95)>=0` threshold purely to
+materialize the submetric; give it a real budget once a few nightlies establish
+its range.
+
 ## Run it locally
 
 ```bash
