@@ -1,6 +1,7 @@
 ---
 title: Computed, not guessed
 description: Every date and forecast in TruePPM is calculated by a deterministic engine, with the derivation to show for it. One capability with four parts — compute, cite, refuse, reproduce — that a language model can query but never corrupt.
+documentedFor: "0.4"
 ---
 
 > Every date and forecast is calculated by the engine, with the derivation to show for it; a
@@ -44,13 +45,47 @@ not a scattered feature list:
 - **Refuse** — the engine rejects any change that would violate the plan's own rules — an
   impossible dependency, a cycle, a broken rollup — and it refuses **identically for a human
   and an agent**. There is one rulebook, not a softer one for automation.
-- **Reproduce** — every answer and every refusal is **attributable and re-derivable**: the
-  agent-action record captures the actor, the verdict, and the engine version behind each
-  decision in a hash-chained, tamper-evident log you can replay.
+- **Reproduce** — what an agent read, and the refusals it was handed, are **attributable and
+  re-derivable**: each one appends a row to a hash-chained agent-action log recording the
+  acting token, the accountable human behind it, the capability used and the verdict — and
+  `manage.py audit_verify` re-derives the whole chain on your own instance. What that chain
+  covers today is stated precisely [below](#what-the-reproduce-chain-records-today); it is
+  narrower than "everything that happens in TruePPM", deliberately.
 
 The arc is the whole point. An agent that can only *compute*, *cite*, *be refused*, and
 *reproduce* cannot quietly corrupt the record — it never supplies a number the engine did not
-compute, and never commits a change the engine did not allow.
+compute, and never commits a change the engine did not allow. The 0.4 beta will close that arc
+the strongest way available: the agent surface ships **read-only**, so there is no agent write
+to corrupt anything with. The gated write path (0.5 – 0.6) is where the arc has to hold under
+mutation, and it is being built against the same rulebook.
+
+### What the reproduce chain records today
+
+Precision here matters more than a bigger claim, because this is the sentence a governance
+buyer will test in a demo.
+
+**Recorded.** Every request made with an `mcp:read`-scoped API token — the read the
+[MCP server](/features/mcp-server/) performs — appends one row, whether it was allowed or
+refused, and so does every rejection of a revoked, expired or deleted token. Each row is
+hash-chained to its predecessor, so a removed or altered row breaks the chain that
+`audit_verify` recomputes.
+
+**Not recorded.** A human working in the UI is not an agent and is not in this log — that is
+[deliberate](/features/agent-oversight/), not a gap. Neither are calls made with a
+broadly-scoped legacy token, which is why an agent integration should be given an
+`mcp:read`-scoped token and not a general one. Engine feasibility refusals — the cycle and
+infeasible-dependency rejections under *Refuse* above — are enforced for every caller but
+leave no agent-action row; they join the chain with the gated write surface, when there is a
+proposed change worth recording the refusal of.
+
+**Inside the hash, and outside it.** The verdict, the refusal reason, the actor, the
+capability, the payload fingerprint and the timestamp are all inside the hashed body. The
+finer *constraint code* and the *projected impact* of a refusal ride alongside as a
+non-hashed side-car — an
+[explicit, documented trade-off](/architecture/decisions/) (ADR-0421) that keeps the chain
+format stable while the write-side producers are still being built, and one we would rather
+state than let you discover. A signed engine-version and input-hash stamp on each answer is
+a separate piece of work and follows at 0.9.
 
 ## Why it holds
 
@@ -69,32 +104,35 @@ choices TruePPM already makes:
 The human stays in the loop: the engine computes, the AI translates and explains, and the
 human decides.
 
-:::note[Version status]
-The deterministic engine behind all four verbs is **shipped today**. The AI-facing surface
-arrives across releases; where an item below is already merged to `main` ahead of the 0.4 tag,
-this page says so explicitly. That is not a special claim about these items — most of 0.4's
-feature list is at the same "built, not yet tagged" stage at this point in the cycle; this page
-just states it for the AI-contract items it covers. The [roadmap](/overview/roadmap/) is the
-authoritative shipped-vs-planned status for everything else:
+:::note[Ships in 0.4]
+The deterministic engine behind all four verbs is **shipped today** — CPM, Monte Carlo, and the
+feasibility refusal that applies to every caller are all in the current release. The
+**AI-facing** surface this page describes is not: on the latest tagged release there is no MCP
+server, no agent-action log and no Agents tab, so none of the *reproduce* behavior above is
+something you can exercise on it yet. Those parts are merged to `main` and ship with the 0.4
+beta. The [roadmap](/overview/roadmap/) is the authoritative shipped-vs-planned status.
 
 - **Compute / cite** — the read-only [MCP server](/features/mcp-server/) and the provenance
-  graph (the *cite* derivation) **land with the 0.4 beta**; both are already merged to `main`.
+  graph (the *cite* derivation) **ship with the 0.4 beta**; both are already merged to `main`.
 - **Reproduce** — the Phase-0 agent-action audit foundation (hash-chained record, chain
-  verification, an `identity`/`policy` refusal taxonomy) also **lands with the 0.4 beta** and
-  is already in `main`; its governing decision, [ADR-0112](/architecture/decisions/), is
-  Accepted. A signed engine-version + input-hash *answer stamp* follows at 0.9.
+  verification, an `identity`/`policy` refusal taxonomy) also **ships with the 0.4 beta** and is
+  already in `main`; its governing decision, [ADR-0112](/architecture/decisions/), is Accepted.
+  Its scope on arrival is the one described above — `mcp:read` calls and identity refusals. A
+  signed engine-version + input-hash *answer stamp* follows at 0.9.
 - **Refuse** — feasibility refusal is in the engine today and applies to every caller; it
   reaches the agent **write** path in two steps: plan mode at 0.5 (`dry_run` proposals —
-  verdict + impact, committing nothing) and the committing write surface at 0.6.
+  verdict + impact, committing nothing) and the committing write surface at 0.6. Recording
+  those engine refusals in the agent-action chain arrives with them.
 - The natural-language query layer and local-model adapter are planned for 0.5.
 :::
 
 ## Where the line falls — OSS vs Enterprise
 
-**The engine's ability to refuse is never Enterprise-gated.** The feasibility checks, RBAC,
-the read-only guards, and the agent-action audit chain are all Apache-2.0 and apply identically
-to every caller — a self-hosted team gets the full compute / cite / refuse / reproduce contract
-with no paid tier. The Enterprise overlay is **governance at scale**: signed
+**The engine's ability to refuse is never Enterprise-gated.** The feasibility checks, RBAC, the
+read-only guards, and the agent-action audit chain are all Apache-2.0: the first three apply
+identically to every caller, and the chain records agent calls for every self-hoster on the
+same terms — a self-hosted team gets the full compute / cite / refuse / reproduce contract with
+no paid tier and nothing withheld behind a licence check. The Enterprise overlay is **governance at scale**: signed
 compliance-evidence bundles, retention and legal hold, cross-team approval chains, and org
 policy — the things an organization adds *on top of* an already-grounded practice, never the
 grounding itself.
