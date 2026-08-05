@@ -303,6 +303,54 @@ def test_gallery_does_not_expose_the_structure_document(
 
 
 @pytest.mark.django_db
+def test_gallery_exposes_methodology_without_the_structure_document(
+    admin_client: APIClient, source_project: Project
+) -> None:
+    """ADR-0791: the Start sheet derives its methodology line from this field.
+
+    The gallery must carry the enum value the source project had at publish
+    time — not the whole ``structure`` document ``carries`` already refuses to
+    expose, and not the *current* value on the (possibly since-edited) source
+    project.
+    """
+    source_project.methodology = "WATERFALL"
+    source_project.save(update_fields=["methodology"])
+    _shape(source_project)
+    ProjectTemplate.objects.create(name="Skeleton", structure=extract_structure(source_project))
+
+    resp = admin_client.get("/api/v1/project-templates/")
+    assert resp.status_code == 200
+    row = resp.data["results"][0]
+    assert row["methodology"] == "WATERFALL"
+    assert "structure" not in row
+
+    # The source project changing later must not retroactively change what an
+    # already-published template reports — the structure was frozen at publish.
+    source_project.methodology = "AGILE"
+    source_project.save(update_fields=["methodology"])
+    resp = admin_client.get("/api/v1/project-templates/")
+    assert resp.data["results"][0]["methodology"] == "WATERFALL"
+
+
+@pytest.mark.django_db
+def test_gallery_methodology_falls_back_to_hybrid_for_a_structure_missing_the_key(
+    admin_client: APIClient, source_project: Project
+) -> None:
+    """A structure written before ADR-0791 (or edited outside ``publish``) has no
+    ``methodology`` key — the gallery must degrade to the same lossless default
+    ``methodology.DEFAULT_METHODOLOGY`` uses everywhere else, not error.
+    """
+    _shape(source_project)
+    structure = extract_structure(source_project)
+    del structure["methodology"]
+    ProjectTemplate.objects.create(name="Skeleton", structure=structure)
+
+    resp = admin_client.get("/api/v1/project-templates/")
+    assert resp.status_code == 200
+    assert resp.data["results"][0]["methodology"] == "HYBRID"
+
+
+@pytest.mark.django_db
 def test_personal_provenance_reads_yours_only_to_its_owner(
     admin_client: APIClient, owner: Any, source_project: Project, calendar: Calendar
 ) -> None:

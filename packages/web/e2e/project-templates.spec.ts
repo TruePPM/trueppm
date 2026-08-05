@@ -2,13 +2,15 @@ import { test, expect } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
- * #2729 / ADR-0789 — the template gallery in the Start sheet.
+ * #2729 / ADR-0789, superseded layout per #2728 — the template list as the Start
+ * sheet's Template-way detail panel (no longer a nested gallery that also folds in
+ * "Blank project"; Blank is now its own peer way-in card).
  *
  * Golden path: pick a template, create the project, and confirm the apply is fired
  * with the new project's id (the wizard needs a project to seed *into*, so the flow
- * creates one and hands it in). Plus the two states that decide whether the gallery
- * is trustworthy — the provenance chip being legible **before** adoption, and a
- * failed gallery fetch still leaving the blank path open.
+ * creates one and hands it in). Plus the states that decide whether the list is
+ * trustworthy — the provenance chip being legible **before** adoption, and a failed
+ * fetch still leaving Blank/Import open.
  */
 
 const NEW_PID = 'e2e-2729-0000-0000-0000-000000000042';
@@ -23,6 +25,7 @@ const TEMPLATE = {
   source_kind: 'workspace',
   provenance: 'Workspace',
   carries: ['structure', 'dependencies'],
+  methodology: 'HYBRID',
   task_count: 12,
   version: 1,
   program: null,
@@ -102,8 +105,8 @@ async function setup(
   await page.goto('/me/work');
 }
 
-/** Drive the 3-step Start sheet to its final step, where the gallery lives. */
-async function openStartSheetAtStep3(page: import('@playwright/test').Page) {
+/** Open the one-screen Start sheet and fill the required Name field (#2728). */
+async function openStartSheet(page: import('@playwright/test').Page) {
   // Gate on the empty state having rendered before touching its CTA — clicking
   // before the reads resolve races the bootstrap (the #1190 detach flake class).
   await expect(page.getByRole('heading', { name: /get you started/i })).toBeVisible({
@@ -113,17 +116,16 @@ async function openStartSheetAtStep3(page: import('@playwright/test').Page) {
   const dialog = page.getByRole('dialog', { name: /new project/i });
   await expect(dialog).toBeVisible();
   await dialog.getByRole('textbox', { name: /name/i }).fill('From template');
-  await dialog.getByRole('button', { name: /^next$/i }).click();
-  await dialog.getByRole('button', { name: /^next$/i }).click();
   return dialog;
 }
 
-test.describe('Project template gallery (#2729)', () => {
+test.describe('Project template list — the Start sheet Template way (#2729, #2728)', () => {
   test('the provenance chip and row count are legible before adoption', async ({ page }) => {
     // Who published a skeleton is the first thing a delivery lead judges it by, so
     // it has to be readable *before* committing, not discovered after seeding.
     await setup(page);
-    const dialog = await openStartSheetAtStep3(page);
+    const dialog = await openStartSheet(page);
+    await dialog.getByRole('radio', { name: /^template/i }).click();
 
     const option = dialog.getByRole('radio', { name: /Delivery skeleton/i });
     await expect(option).toBeVisible();
@@ -134,7 +136,8 @@ test.describe('Project template gallery (#2729)', () => {
 
   test('picking a template applies it to the project that was just created', async ({ page }) => {
     await setup(page);
-    const dialog = await openStartSheetAtStep3(page);
+    const dialog = await openStartSheet(page);
+    await dialog.getByRole('radio', { name: /^template/i }).click();
 
     const applyRequest = page.waitForRequest(
       (req) => req.url().includes(`/project-templates/${TEMPLATE.id}/apply/`) && req.method() === 'POST',
@@ -150,11 +153,12 @@ test.describe('Project template gallery (#2729)', () => {
     expect(req.postDataJSON()).toEqual({ project: NEW_PID });
   });
 
-  test('blank project is selected by default and fires no apply', async ({ page }) => {
-    // Starting from nothing must stay a first-class choice, not an escape hatch.
+  test('Blank is the default way and fires no apply', async ({ page }) => {
+    // Starting from nothing must stay a first-class choice, not an escape hatch —
+    // #2728 promoted it to a peer way-in card, same size and row as Template.
     await setup(page);
-    const dialog = await openStartSheetAtStep3(page);
-    await expect(dialog.getByRole('radio', { name: /blank project/i })).toBeChecked();
+    const dialog = await openStartSheet(page);
+    await expect(dialog.getByRole('radio', { name: /^blank/i })).toHaveAttribute('aria-checked', 'true');
 
     let applyCalled = false;
     await page.route('**/api/v1/project-templates/*/apply/', (r) => {
@@ -166,13 +170,17 @@ test.describe('Project template gallery (#2729)', () => {
     expect(applyCalled).toBe(false);
   });
 
-  test('a failed gallery fetch still leaves the blank path open', async ({ page }) => {
-    // The user is mid-flow on their most important commitment; a gallery error must
-    // degrade to "you can still start", never strand them.
+  test('a failed template fetch still leaves Blank/Import open', async ({ page }) => {
+    // The user is mid-flow on their most important commitment; a fetch error must
+    // degrade to "pick another way", never strand them.
     await setup(page, { templatesStatus: 500 });
-    const dialog = await openStartSheetAtStep3(page);
+    const dialog = await openStartSheet(page);
+    await dialog.getByRole('radio', { name: /^template/i }).click();
 
-    await expect(dialog.getByText(/still start from a blank project/i)).toBeVisible();
+    await expect(dialog.getByText(/try blank or import instead/i)).toBeVisible();
+    // Create is disabled on Template with nothing to select — but the user can
+    // still pick a sibling way and proceed.
+    await dialog.getByRole('radio', { name: /^blank/i }).click();
     await expect(dialog.getByRole('button', { name: /create project/i })).toBeEnabled();
   });
 });

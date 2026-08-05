@@ -1,8 +1,10 @@
+import type { ComponentProps } from 'react';
 import { screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
 import { NewProjectModal } from './NewProjectModal';
+import type { ProjectTemplate } from '@/hooks/useProjectTemplates';
 
 const mutateMock = vi.fn();
 const mockMutation = {
@@ -10,39 +12,35 @@ const mockMutation = {
   isPending: false,
   isError: false,
 };
-
 vi.mock('@/hooks/useProjectMutations', () => ({
   useCreateProject: () => mockMutation,
 }));
 
-// Source projects offered by the "Copy settings from" picker (#1659). Mocked so
-// the option list is deterministic without a live /projects/ fetch.
-const projectsResult = {
-  data: [
-    { id: 'proj-alpha', name: 'Alpha' },
-    { id: 'proj-beta', name: 'Beta' },
-  ] as Array<{ id: string; name: string }>,
-  isLoading: false,
-  error: null,
-};
-vi.mock('@/hooks/useProjects', () => ({
-  useProjects: () => projectsResult,
+const applyTemplateMutateMock = vi.fn();
+vi.mock('@/hooks/useProjectTemplates', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  useProjectTemplates: () => templatesResult,
+  useApplyTemplate: () => ({ mutate: applyTemplateMutateMock }),
 }));
 
-// Programs offered by the step-1 program picker (#2673). Mocked so RBAC filtering
-// is deterministic without a live /programs/ fetch. Mirrors the fields the picker
-// actually reads: `id`, `name`, `code`, `my_role`, `is_closed`.
+// Programs offered by the picker (#2673). Every row already carries
+// effective_methodology / effective_calendar / calendar_source (ADR-0107,
+// ADR-0441) — the Start sheet reads these directly rather than issuing a second
+// request.
 interface MockProgram {
   id: string;
   name: string;
   code: string;
   my_role: number | null;
   is_closed: boolean;
+  effective_methodology?: string;
+  effective_calendar?: { id: string; name: string; working_days: number; hours_per_day: number; holiday_count: number } | null;
+  calendar_source?: string;
 }
 const programsResult = {
   data: [
-    { id: 'program-uuid-123', name: 'Apollo', code: '', my_role: 300, is_closed: false },
-    { id: 'program-uuid-456', name: 'Zephyr', code: 'ZPH', my_role: 300, is_closed: false },
+    { id: 'program-uuid-123', name: 'Apollo', code: '', my_role: 300, is_closed: false, effective_methodology: 'AGILE', effective_calendar: { id: 'cal-apollo', name: 'Apollo Cal', working_days: 31, hours_per_day: 8, holiday_count: 0 }, calendar_source: 'program' },
+    { id: 'program-uuid-456', name: 'Zephyr', code: 'ZPH', my_role: 300, is_closed: false, effective_methodology: 'WATERFALL' },
     // Below ADMIN (Member=100) — must never be offered (would 400 at submit, ADR-0070).
     { id: 'program-viewer', name: 'Viewer Only Program', code: '', my_role: 100, is_closed: false },
     // ADMIN but closed — MoveToProgramModal's precedent excludes closed programs too.
@@ -55,16 +53,62 @@ vi.mock('@/hooks/usePrograms', () => ({
   usePrograms: () => programsResult,
 }));
 
+const workspaceResult = {
+  data: { methodology: 'HYBRID', calendar: null } as { methodology: string; calendar: string | null } | undefined,
+  isLoading: false,
+};
+vi.mock('@/features/settings/hooks/useWorkspaceSettings', () => ({
+  useWorkspaceSettings: () => workspaceResult,
+}));
+
+const libraryResult = {
+  data: [] as Array<{ id: string; name: string; working_days: number; hours_per_day: number; timezone: string; exceptions: unknown[] }>,
+  isLoading: false,
+};
+vi.mock('@/hooks/useProjectCalendars', () => ({
+  useCalendarLibrary: () => libraryResult,
+}));
+
+vi.mock('@/hooks/useCurrentUser', () => ({
+  useCurrentUser: () => ({ user: { display_name: 'Artemis' }, isLoading: false }),
+}));
+
+function makeTemplate(over: Partial<ProjectTemplate> = {}): ProjectTemplate {
+  return {
+    id: 'tmpl-1',
+    name: 'Delivery skeleton',
+    description: 'Phases and gates',
+    source_kind: 'workspace',
+    provenance: 'Workspace',
+    carries: ['structure'],
+    methodology: 'WATERFALL',
+    task_count: 5,
+    version: 1,
+    program: null,
+    published_at: '2026-08-01T00:00:00Z',
+    ...over,
+  };
+}
+const templatesResult = {
+  data: [] as ProjectTemplate[],
+  isLoading: false,
+  isError: false,
+};
+
 const toastSuccess = vi.fn();
+const toastError = vi.fn();
 vi.mock('@/components/Toast', () => ({
   toast: {
     success: (msg: string) => {
       toastSuccess(msg);
     },
+    error: (msg: string) => {
+      toastError(msg);
+    },
   },
 }));
 
-describe('NewProjectModal', () => {
+describe('NewProjectModal — the Start sheet (#2728)', () => {
   const onClose = vi.fn();
   const onCreated = vi.fn();
 
@@ -74,147 +118,72 @@ describe('NewProjectModal', () => {
     mockMutation.isPending = false;
     mockMutation.isError = false;
     programsResult.data = [
-      { id: 'program-uuid-123', name: 'Apollo', code: '', my_role: 300, is_closed: false },
-      { id: 'program-uuid-456', name: 'Zephyr', code: 'ZPH', my_role: 300, is_closed: false },
+      { id: 'program-uuid-123', name: 'Apollo', code: '', my_role: 300, is_closed: false, effective_methodology: 'AGILE', effective_calendar: { id: 'cal-apollo', name: 'Apollo Cal', working_days: 31, hours_per_day: 8, holiday_count: 0 }, calendar_source: 'program' },
+      { id: 'program-uuid-456', name: 'Zephyr', code: 'ZPH', my_role: 300, is_closed: false, effective_methodology: 'WATERFALL' },
       { id: 'program-viewer', name: 'Viewer Only Program', code: '', my_role: 100, is_closed: false },
       { id: 'program-closed', name: 'Closed Program', code: '', my_role: 300, is_closed: true },
     ];
     programsResult.isLoading = false;
+    workspaceResult.data = { methodology: 'HYBRID', calendar: null };
+    workspaceResult.isLoading = false;
+    libraryResult.data = [];
+    templatesResult.data = [];
+    templatesResult.isLoading = false;
+    templatesResult.isError = false;
   });
 
-  function renderModal() {
-    return renderWithProviders(<NewProjectModal onClose={onClose} onCreated={onCreated} />);
+  function renderModal(props: Partial<ComponentProps<typeof NewProjectModal>> = {}) {
+    return renderWithProviders(
+      <NewProjectModal onClose={onClose} onCreated={onCreated} {...props} />,
+    );
   }
 
-  // Helpers to navigate the wizard steps.
-  async function goToStep2(name = 'My Project') {
-    await userEvent.type(screen.getByRole('textbox', { name: /name/i }), name);
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
-  }
-
-  async function goToStep3(name = 'My Project') {
-    await goToStep2(name);
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
+  async function fillName(name = 'My Project') {
+    await userEvent.type(screen.getByRole('textbox', { name: /^name/i }), name);
   }
 
   // ---------------------------------------------------------------------------
-  // Step 1 — Project details
+  // One screen — every field present at once, no step navigation
   // ---------------------------------------------------------------------------
 
-  it('renders a dialog with step 1 fields on open', () => {
+  it('renders every field on one screen: name, program, start date, calendar, ways', () => {
     renderModal();
     expect(screen.getByRole('dialog', { name: /new project/i })).toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: /name/i })).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/optional/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /next/i })).toBeInTheDocument();
-    expect(screen.queryByText(/start date/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /^name/i })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: /^program$/i })).toBeInTheDocument();
+    expect(screen.getByText(/start date/i)).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: /working calendar/i })).toBeInTheDocument();
+    expect(screen.getByRole('radiogroup', { name: /start from/i })).toBeInTheDocument();
+    // No step indicator, no Next/Back — collecting everything at once.
+    expect(screen.queryByRole('button', { name: /^next$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^back$/i })).not.toBeInTheDocument();
+  });
+
+  it('cut fields (description, copy-settings-from, use-program-defaults, default member role) are not on this screen', () => {
+    renderModal();
+    expect(screen.queryByPlaceholderText(/optional/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: /copy settings from/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /use .*defaults/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: /default role for new members/i })).not.toBeInTheDocument();
   });
 
   it('focuses the name input on mount', () => {
     renderModal();
-    expect(screen.getByRole('textbox', { name: /name/i })).toHaveFocus();
+    expect(screen.getByRole('textbox', { name: /^name/i })).toHaveFocus();
   });
 
-  it('Next button is disabled when name is empty', () => {
+  it('Create is disabled until a name is entered', () => {
     renderModal();
-    expect(screen.getByRole('button', { name: /next/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /create project/i })).toBeDisabled();
   });
 
-  it('Next button is disabled when name is whitespace only', async () => {
+  it('Create is disabled when name is whitespace only', async () => {
     renderModal();
-    await userEvent.type(screen.getByRole('textbox', { name: /name/i }), '   ');
-    expect(screen.getByRole('button', { name: /next/i })).toBeDisabled();
+    await userEvent.type(screen.getByRole('textbox', { name: /^name/i }), '   ');
+    expect(screen.getByRole('button', { name: /create project/i })).toBeDisabled();
   });
 
-  it('Next button is enabled once a name is entered', async () => {
-    renderModal();
-    await userEvent.type(screen.getByRole('textbox', { name: /name/i }), 'Alpha');
-    expect(screen.getByRole('button', { name: /next/i })).not.toBeDisabled();
-  });
-
-  it('advances to step 2 when Next is clicked', async () => {
-    renderModal();
-    await goToStep2();
-    expect(screen.getByText(/start date/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /back/i })).toBeInTheDocument();
-  });
-
-  // ---------------------------------------------------------------------------
-  // #2666 / #2673 — program picker on step 1
-  // ---------------------------------------------------------------------------
-
-  it('shows the Program picker on step 1 even with no route-inferred program, defaulted to standalone', () => {
-    renderModal();
-    const picker = screen.getByRole('combobox', { name: /^program$/i });
-    expect(picker).toBeInTheDocument();
-    expect(picker).toHaveValue('');
-    expect(within(picker).getByRole('option', { name: /none.*standalone/i })).toBeInTheDocument();
-  });
-
-  it('preselects the resolved program in the picker when creating under a program', () => {
-    renderWithProviders(
-      <NewProjectModal
-        onClose={onClose}
-        onCreated={onCreated}
-        programId="program-uuid-123"
-        programName="Apollo"
-      />,
-    );
-    const picker = screen.getByRole('combobox', { name: /^program$/i });
-    expect(picker).toHaveValue('program-uuid-123');
-    expect(within(picker).getByRole('option', { name: 'Apollo', selected: true })).toBeInTheDocument();
-  });
-
-  it('disables the picker and shows a loading placeholder for the seeded program while usePrograms() resolves', () => {
-    // Simulate a genuine first fetch — data hasn't arrived yet, matching TanStack
-    // Query's real `data: undefined` while `isLoading` is true.
-    programsResult.isLoading = true;
-    programsResult.data = [];
-    renderWithProviders(
-      <NewProjectModal onClose={onClose} onCreated={onCreated} programId="program-uuid-123" />,
-    );
-    const picker = screen.getByRole('combobox', { name: /^program$/i });
-    expect(picker).toBeDisabled();
-    expect(picker).toHaveValue('program-uuid-123');
-    expect(within(picker).getByRole('option', { name: /loading/i, selected: true })).toBeInTheDocument();
-  });
-
-  it('falls back to "Unnamed program" when the seeded program is absent from the resolved eligible list', () => {
-    renderWithProviders(
-      <NewProjectModal onClose={onClose} onCreated={onCreated} programId="program-not-in-list" />,
-    );
-    const picker = screen.getByRole('combobox', { name: /^program$/i });
-    expect(picker).toHaveValue('program-not-in-list');
-    expect(
-      within(picker).getByRole('option', { name: /unnamed program/i, selected: true }),
-    ).toBeInTheDocument();
-  });
-
-  it('offers only open programs where the user holds ADMIN+ — excludes sub-admin and closed programs', () => {
-    renderModal();
-    const picker = screen.getByRole('combobox', { name: /^program$/i });
-    expect(within(picker).getByRole('option', { name: 'Apollo' })).toBeInTheDocument();
-    // Code appended in parens when present.
-    expect(within(picker).getByRole('option', { name: 'Zephyr (ZPH)' })).toBeInTheDocument();
-    expect(within(picker).queryByRole('option', { name: /viewer only program/i })).not.toBeInTheDocument();
-    expect(within(picker).queryByRole('option', { name: /closed program/i })).not.toBeInTheDocument();
-  });
-
-  it('degrades to "None — standalone project" only, without crashing, when usePrograms() resolves with no data (e.g. a fetch error)', () => {
-    // Mirrors TanStack Query's real shape on a failed/undispatched query:
-    // `data: undefined`, `isLoading: false`. The component never reads `error`/
-    // `isError` for this field — a failed programs fetch degrades gracefully to
-    // "only standalone is selectable" rather than blocking modal creation.
-    programsResult.data = undefined as unknown as MockProgram[];
-    programsResult.isLoading = false;
-    renderModal();
-    const picker = screen.getByRole('combobox', { name: /^program$/i });
-    expect(picker).not.toBeDisabled();
-    expect(within(picker).getAllByRole('option')).toHaveLength(1);
-    expect(within(picker).getByRole('option', { name: /none.*standalone/i })).toBeInTheDocument();
-  });
-
-  it('calls onClose when Cancel is clicked on step 1', async () => {
+  it('calls onClose when Cancel is clicked', async () => {
     renderModal();
     await userEvent.click(screen.getByRole('button', { name: /cancel/i }));
     expect(onClose).toHaveBeenCalledOnce();
@@ -226,179 +195,210 @@ describe('NewProjectModal', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it('calls onClose when backdrop is clicked', async () => {
+  it('calls onClose when the backdrop is clicked', async () => {
     renderModal();
     await userEvent.click(screen.getByRole('button', { name: /close dialog/i }));
     expect(onClose).toHaveBeenCalledOnce();
   });
 
   // ---------------------------------------------------------------------------
-  // Scroll container (#2665) — the panel caps its height and only the step
-  // body scrolls, so the step indicator and the Back/Cancel/Create footer
-  // stay pinned and reachable even when step 3's content exceeds the viewport.
+  // Program picker (#2666, #2673, ADR-0070/ADR-0764) — unchanged RBAC behavior
   // ---------------------------------------------------------------------------
 
-  it('caps the panel height and isolates it from step-content overflow', () => {
+  it('defaults to standalone with no route-inferred program', () => {
     renderModal();
-    const dialog = screen.getByRole('dialog', { name: /new project/i });
-    expect(dialog.className).toMatch(/max-h-\[90vh\]/);
-    expect(dialog.className).toMatch(/overflow-hidden/);
-    expect(dialog.className).toMatch(/flex-col/);
+    const picker = screen.getByRole('combobox', { name: /^program$/i });
+    expect(picker).toHaveValue('');
+    expect(within(picker).getByRole('option', { name: /none.*standalone/i })).toBeInTheDocument();
   });
 
-  it('scrolls only the step body — the form sits inside a flex-1 overflow-y-auto region', () => {
-    renderModal();
-    const nameInput = screen.getByRole('textbox', { name: /name/i });
-    const scroller = nameInput.closest('form')?.parentElement;
-    expect(scroller?.className).toMatch(/flex-1/);
-    expect(scroller?.className).toMatch(/overflow-y-auto/);
+  it('preselects the resolved program when creating under one', () => {
+    renderModal({ programId: 'program-uuid-123', programName: 'Apollo' });
+    const picker = screen.getByRole('combobox', { name: /^program$/i });
+    expect(picker).toHaveValue('program-uuid-123');
+    expect(within(picker).getByRole('option', { name: 'Apollo', selected: true })).toBeInTheDocument();
   });
 
-  it('keeps the footer outside the scroller while the Create button still submits the form', async () => {
+  it('offers only open programs where the user holds ADMIN+', () => {
     renderModal();
-    await goToStep3();
-    const createBtn = screen.getByRole('button', { name: /create project/i });
-    const form = document.getElementById('new-project-form');
-    const scroller = form?.parentElement;
-    // Footer button is outside the scrollable form region...
-    expect(scroller?.contains(createBtn)).toBe(false);
-    // ...but is still wired to it via the `form` attribute (HTML form association),
-    // so clicking it still submits/creates (regression guard for the #2665 refactor).
-    expect(createBtn).toHaveAttribute('form', 'new-project-form');
-    await userEvent.click(createBtn);
-    expect(mutateMock).toHaveBeenCalledOnce();
+    const picker = screen.getByRole('combobox', { name: /^program$/i });
+    expect(within(picker).getByRole('option', { name: 'Apollo' })).toBeInTheDocument();
+    expect(within(picker).getByRole('option', { name: 'Zephyr (ZPH)' })).toBeInTheDocument();
+    expect(within(picker).queryByRole('option', { name: /viewer only program/i })).not.toBeInTheDocument();
+    expect(within(picker).queryByRole('option', { name: /closed program/i })).not.toBeInTheDocument();
   });
 
-  // ---------------------------------------------------------------------------
-  // Step 2 — Schedule
-  // ---------------------------------------------------------------------------
-
-  it('shows Back button on step 2 that returns to step 1', async () => {
+  it('omits program from the payload when left standalone', async () => {
     renderModal();
-    await goToStep2();
-    await userEvent.click(screen.getByRole('button', { name: /back/i }));
-    expect(screen.getByRole('textbox', { name: /name/i })).toBeInTheDocument();
-  });
-
-  it('Next on step 2 advances to step 3', async () => {
-    renderModal();
-    await goToStep3();
-    expect(screen.getByRole('radiogroup', { name: /project methodology/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /create project/i })).toBeInTheDocument();
-  });
-
-  // ---------------------------------------------------------------------------
-  // Step 3 — Methodology (ADR-0041)
-  // ---------------------------------------------------------------------------
-
-  it('Hybrid methodology is pre-selected by default', async () => {
-    renderModal();
-    await goToStep3();
-    const radiogroup = screen.getByRole('radiogroup', { name: /project methodology/i });
-    const hybrid = within(radiogroup).getByRole('radio', { name: /hybrid/i });
-    expect(hybrid).toHaveAttribute('aria-checked', 'true');
-    // Waterfall and Agile remain selectable.
-    const waterfall = within(radiogroup).getByRole('radio', { name: /waterfall/i });
-    const agile = within(radiogroup).getByRole('radio', { name: /agile/i });
-    expect(waterfall).not.toBeDisabled();
-    expect(agile).not.toBeDisabled();
-  });
-
-  it('Selecting Agile changes the aria-checked state', async () => {
-    renderModal();
-    await goToStep3();
-    const radiogroup = screen.getByRole('radiogroup', { name: /project methodology/i });
-    const agile = within(radiogroup).getByRole('radio', { name: /agile/i });
-    await userEvent.click(agile);
-    expect(agile).toHaveAttribute('aria-checked', 'true');
-  });
-
-  it('submits selected methodology in the create payload', async () => {
-    renderModal();
-    await userEvent.type(screen.getByRole('textbox', { name: /name/i }), 'Waterfall Project');
-    await userEvent.click(screen.getByRole('button', { name: /next/i })); // step 1 → 2
-    await userEvent.click(screen.getByRole('button', { name: /next/i })); // step 2 → 3
-    const radiogroup = screen.getByRole('radiogroup', { name: /project methodology/i });
-    await userEvent.click(within(radiogroup).getByRole('radio', { name: /waterfall/i }));
+    await fillName('Standalone');
     await userEvent.click(screen.getByRole('button', { name: /create project/i }));
-
-    expect(mutateMock).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'Waterfall Project', methodology: 'WATERFALL' }),
-      expect.anything(),
-    );
-  });
-
-  it('Create project button is enabled by default on step 3', async () => {
-    renderModal();
-    await goToStep3();
-    expect(screen.getByRole('button', { name: /create project/i })).not.toBeDisabled();
-  });
-
-  it('submits with trimmed name and start date', async () => {
-    renderModal();
-    await userEvent.type(screen.getByRole('textbox', { name: /name/i }), '  Alpha  ');
-    await userEvent.click(screen.getByRole('button', { name: /next/i })); // step 1 → 2
-    await userEvent.click(screen.getByRole('button', { name: /next/i })); // step 2 → 3
-    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
-
-    expect(mutateMock).toHaveBeenCalledOnce();
     const payload = mutateMock.mock.calls[0][0] as Record<string, unknown>;
-    expect(payload.name).toBe('Alpha');
-    expect(payload.start_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(payload.description).toBeUndefined();
+    expect(payload).not.toHaveProperty('program');
   });
 
-  it('submits description when provided', async () => {
-    renderModal();
-    await userEvent.type(screen.getByRole('textbox', { name: /name/i }), 'Beta');
-    await userEvent.type(screen.getByPlaceholderText(/optional/i), 'A description');
-    await userEvent.click(screen.getByRole('button', { name: /next/i })); // step 1 → 2
-    await userEvent.click(screen.getByRole('button', { name: /next/i })); // step 2 → 3
+  it('includes the selected program in the payload', async () => {
+    renderModal({ programId: 'program-uuid-123' });
+    await fillName('In-Program');
     await userEvent.click(screen.getByRole('button', { name: /create project/i }));
-
     expect(mutateMock).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'Beta', description: 'A description' }),
+      expect.objectContaining({ program: 'program-uuid-123' }),
       expect.anything(),
     );
   });
 
-  it('confirms creation with a success toast and calls onCreated (#2048)', async () => {
+  // ---------------------------------------------------------------------------
+  // Methodology is derived, not asked (ADR-0041, ADR-0107, ADR-0791)
+  // ---------------------------------------------------------------------------
+
+  it('shows the derived methodology line for the Blank way with no program (workspace default)', () => {
     renderModal();
-    await userEvent.type(screen.getByRole('textbox', { name: /name/i }), '  Alpha  ');
-    await userEvent.click(screen.getByRole('button', { name: /next/i })); // step 1 → 2
-    await userEvent.click(screen.getByRole('button', { name: /next/i })); // step 2 → 3
+    expect(screen.getByText(/hybrid — every scheduling and delivery view/i)).toBeInTheDocument();
+  });
+
+  it('derives from the selected program’s effective_methodology once one is picked', async () => {
+    renderModal();
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: /^program$/i }), 'program-uuid-456');
+    expect(screen.getByText(/waterfall — gantt, wbs, and critical path/i)).toBeInTheDocument();
+  });
+
+  it('sends the derived methodology explicitly in the create payload', async () => {
+    renderModal();
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: /^program$/i }), 'program-uuid-456');
+    await fillName('Waterfall Project');
+    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
+    expect(mutateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ methodology: 'WATERFALL' }),
+      expect.anything(),
+    );
+  });
+
+  it('derives from the chosen template’s methodology when the Template way is active', async () => {
+    templatesResult.data = [makeTemplate({ methodology: 'WATERFALL' })];
+    renderModal();
+    await userEvent.click(screen.getByRole('radio', { name: /^template/i }));
+    expect(screen.getByText(/waterfall — gantt, wbs, and critical path/i)).toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Three peer ways in — Template / Blank / Import (#2728)
+  // ---------------------------------------------------------------------------
+
+  it('defaults to Blank', () => {
+    renderModal();
+    expect(screen.getByRole('radio', { name: /^blank/i })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('importFirst preselects Import instead of Blank', () => {
+    renderModal({ importFirst: true });
+    expect(screen.getByRole('radio', { name: /^import/i })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('button', { name: /create & import spreadsheet/i })).toBeInTheDocument();
+  });
+
+  it('selecting Template shows the template list and lands on a template already chosen', async () => {
+    templatesResult.data = [makeTemplate({ id: 'tmpl-a', name: 'Alpha skeleton' })];
+    renderModal();
+    await userEvent.click(screen.getByRole('radio', { name: /^template/i }));
+    expect(screen.getByRole('radiogroup', { name: /start from a template/i })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /alpha skeleton/i })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('Create is disabled on the Template way until a template exists to select', async () => {
+    templatesResult.data = [];
+    renderModal();
+    await fillName('No templates yet');
+    await userEvent.click(screen.getByRole('radio', { name: /^template/i }));
+    expect(screen.getByRole('button', { name: /create project/i })).toBeDisabled();
+  });
+
+  it('selecting Blank/Import shows static detail copy, not a list', async () => {
+    renderModal();
+    await userEvent.click(screen.getByRole('radio', { name: /^import/i }));
+    expect(screen.getByText(/opens the import wizard/i)).toBeInTheDocument();
+    expect(screen.queryByRole('radiogroup', { name: /start from a template/i })).not.toBeInTheDocument();
+  });
+
+  it('fires applyTemplate after create when Template way is active', async () => {
+    templatesResult.data = [makeTemplate({ id: 'tmpl-a', name: 'Alpha skeleton' })];
+    renderModal();
+    await fillName('Templated');
+    await userEvent.click(screen.getByRole('radio', { name: /^template/i }));
     await userEvent.click(screen.getByRole('button', { name: /create project/i }));
 
-    // Fire the mutation's onSuccess as the real hook would.
+    const opts = mutateMock.mock.calls[0][1] as { onSuccess: (d: { id: string }) => void };
+    opts.onSuccess({ id: 'new-proj-1' });
+
+    expect(applyTemplateMutateMock).toHaveBeenCalledWith(
+      { templateId: 'tmpl-a', projectId: 'new-proj-1' },
+      expect.anything(),
+    );
+  });
+
+  it('does not fire applyTemplate for Blank or Import', async () => {
+    renderModal();
+    await fillName('Blank one');
+    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
+    const opts = mutateMock.mock.calls[0][1] as { onSuccess: (d: { id: string }) => void };
+    opts.onSuccess({ id: 'new-proj-2' });
+    expect(applyTemplateMutateMock).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Working calendar (#2728, ADR-0441) — inherited by default, overridable
+  // ---------------------------------------------------------------------------
+
+  it('shows the inherited default calendar and omits `calendar` from the payload when left alone', async () => {
+    workspaceResult.data = { methodology: 'HYBRID', calendar: 'cal-ws' };
+    libraryResult.data = [{ id: 'cal-ws', name: 'Standard 40h', working_days: 31, hours_per_day: 8, timezone: 'UTC', exceptions: [] }];
+    renderModal();
+    const picker = screen.getByRole('combobox', { name: /working calendar/i });
+    expect(within(picker).getByRole('option', { name: /standard 40h \(inherited\)/i })).toBeInTheDocument();
+
+    await fillName('Inherits calendar');
+    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
+    const payload = mutateMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty('calendar');
+  });
+
+  it('sends an explicit `calendar` in the payload when the picker is overridden', async () => {
+    libraryResult.data = [
+      { id: 'cal-1', name: 'Compressed 4x10', working_days: 30, hours_per_day: 10, timezone: 'UTC', exceptions: [] },
+    ];
+    renderModal();
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: /working calendar/i }), 'cal-1');
+    await fillName('Overrides calendar');
+    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
+    expect(mutateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ calendar: 'cal-1' }),
+      expect.anything(),
+    );
+  });
+
+  it('shows the selected program’s effective_calendar as the inherited default', async () => {
+    renderModal();
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: /^program$/i }), 'program-uuid-123');
+    const picker = screen.getByRole('combobox', { name: /working calendar/i });
+    expect(within(picker).getByRole('option', { name: /apollo cal \(inherited\)/i })).toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------------
+  // onCreated intent contract (#2710) — preserved
+  // ---------------------------------------------------------------------------
+
+  it('confirms creation with a success toast and reports an empty intent for Blank', async () => {
+    renderModal();
+    await fillName('  Alpha  ');
+    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
     const opts = mutateMock.mock.calls[0][1] as { onSuccess: (d: { id: string }) => void };
     opts.onSuccess({ id: 'new-proj-1' });
 
     expect(toastSuccess).toHaveBeenCalledWith('Created Alpha');
-    // Plain "Create project" reports an empty intent (#2710) — the caller reads it
-    // to decide between the Overview and the CSV wizard, so "no intent" has to be
-    // an explicit `{}` rather than an absent argument.
     expect(onCreated).toHaveBeenCalledWith('new-proj-1', {});
   });
 
-  // ------------------------------------------------------------------
-  // "Create & import spreadsheet" (#2710)
-  // ------------------------------------------------------------------
-
-  it('offers "Create & import spreadsheet" only on the final step', async () => {
+  it('reports importCsv intent when Import is the active way', async () => {
     renderModal();
-    // Step 1: a second create action here would read as "skip the rest of the form".
-    expect(
-      screen.queryByRole('button', { name: /create & import spreadsheet/i }),
-    ).not.toBeInTheDocument();
-    await goToStep3();
-    expect(
-      screen.getByRole('button', { name: /create & import spreadsheet/i }),
-    ).toBeInTheDocument();
-  });
-
-  it('reports importCsv intent so the caller can land in the wizard', async () => {
-    renderModal();
-    await goToStep3('Alpha');
+    await fillName('Alpha');
+    await userEvent.click(screen.getByRole('radio', { name: /^import/i }));
     await userEvent.click(screen.getByRole('button', { name: /create & import spreadsheet/i }));
 
     const opts = mutateMock.mock.calls[0][1] as { onSuccess: (d: { id: string }) => void };
@@ -407,394 +407,72 @@ describe('NewProjectModal', () => {
     expect(onCreated).toHaveBeenCalledWith('new-proj-1', { importCsv: true });
   });
 
-  it('clears a stale import intent when the user then clicks plain Create', async () => {
-    // The intent lives in a ref that survives a failed submit. Without an explicit
-    // reset, a user who clicked "Create & import", hit a validation error, then
-    // clicked "Create project" would still be sent to the wizard they abandoned.
+  it('submits with trimmed name', async () => {
     renderModal();
-    await goToStep3('Alpha');
-    await userEvent.click(screen.getByRole('button', { name: /create & import spreadsheet/i }));
-    await userEvent.click(screen.getByRole('button', { name: /^create project$/i }));
-
-    const opts = mutateMock.mock.calls[1][1] as { onSuccess: (d: { id: string }) => void };
-    opts.onSuccess({ id: 'new-proj-1' });
-
-    expect(onCreated).toHaveBeenLastCalledWith('new-proj-1', {});
+    await fillName('  Alpha  ');
+    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
+    const payload = mutateMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload.name).toBe('Alpha');
+    expect(payload.start_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
-  it('importFirst promotes the import action to primary without changing behaviour', async () => {
-    renderWithProviders(
-      <NewProjectModal onClose={onClose} onCreated={onCreated} importFirst />,
-    );
-    await goToStep3('Alpha');
-    // Both actions are still present — importFirst only decides which is visually
-    // primary, so a user who opened this from "Import a spreadsheet" can still
-    // change their mind and create a blank project.
-    expect(
-      screen.getByRole('button', { name: /create & import spreadsheet/i }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^create project$/i })).toBeInTheDocument();
-  });
-
-  it('shows error message on step 3 when mutation fails', async () => {
+  it('shows error message when the mutation fails', () => {
     mockMutation.isError = true;
     renderModal();
-    await goToStep3();
     expect(screen.getByRole('alert')).toHaveTextContent(/failed to create project/i);
   });
 
-  it('shows creating state when mutation is pending', async () => {
+  it('shows the Creating… state while the mutation is pending', () => {
     mockMutation.isPending = true;
     renderModal();
-    await goToStep3();
     expect(screen.getByRole('button', { name: /creating/i })).toBeInTheDocument();
   });
 
-  it('Back on step 3 returns to step 2', async () => {
-    renderModal();
-    await goToStep3();
-    await userEvent.click(screen.getByRole('button', { name: /back/i }));
-    expect(screen.getByText(/start date/i)).toBeInTheDocument();
-  });
-
   // ---------------------------------------------------------------------------
-  // Copy settings from another project (#1659, ADR-0242)
+  // Keyboard model (#2728): ways row ←/→ + letter jump, Enter submits
   // ---------------------------------------------------------------------------
 
-  it('renders the copy-settings picker on step 3 with a None option and the readable projects', async () => {
+  it('a letter key jumps to and commits a way while focus is inside the way-cards row', async () => {
     renderModal();
-    await goToStep3();
-    const picker = screen.getByRole('combobox', { name: /copy settings from/i });
-    expect(picker).toBeInTheDocument();
-    expect(within(picker).getByRole('option', { name: /none/i })).toBeInTheDocument();
-    expect(within(picker).getByRole('option', { name: 'Alpha' })).toBeInTheDocument();
-    expect(within(picker).getByRole('option', { name: 'Beta' })).toBeInTheDocument();
+    const templateCard = screen.getByRole('radio', { name: /^template/i });
+    screen.getByRole('radio', { name: /^blank/i }).focus();
+    await userEvent.keyboard('t');
+    expect(templateCard).toHaveFocus();
+    expect(templateCard).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('omits copy_settings_from from the payload when no source project is picked', async () => {
+  it('traps focus with Tab cycling within the dialog', async () => {
     renderModal();
-    await goToStep3();
-    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
-
-    const payload = mutateMock.mock.calls[0][0] as Record<string, unknown>;
-    expect(payload).not.toHaveProperty('copy_settings_from');
-  });
-
-  it('includes copy_settings_from in the payload when a source project is picked', async () => {
-    renderModal();
-    await goToStep3();
-    await userEvent.selectOptions(
-      screen.getByRole('combobox', { name: /copy settings from/i }),
-      'proj-beta',
-    );
-    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
-
-    expect(mutateMock).toHaveBeenCalledWith(
-      expect.objectContaining({ copy_settings_from: 'proj-beta' }),
-      expect.anything(),
-    );
-  });
-
-  // ---------------------------------------------------------------------------
-  // Default role for new members (ADR-0363, #157)
-  // ---------------------------------------------------------------------------
-
-  it('sends default_member_role = Team Member (100) by default', async () => {
-    renderModal();
-    await goToStep3();
-    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
-
-    expect(mutateMock).toHaveBeenCalledWith(
-      expect.objectContaining({ default_member_role: 100 }),
-      expect.anything(),
-    );
-  });
-
-  it('sends the chosen default_member_role when changed', async () => {
-    renderModal();
-    await goToStep3();
-    await userEvent.selectOptions(
-      screen.getByRole('combobox', { name: /default role for new members/i }),
-      'Project Manager',
-    );
-    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
-
-    expect(mutateMock).toHaveBeenCalledWith(
-      expect.objectContaining({ default_member_role: 300 }),
-      expect.anything(),
-    );
-  });
-
-  // ---------------------------------------------------------------------------
-  // Focus trap
-  // ---------------------------------------------------------------------------
-
-  it('traps focus with Tab cycling — last to first on step 1', async () => {
-    renderModal();
-    await userEvent.type(screen.getByRole('textbox', { name: /name/i }), 'Test');
-    const nextBtn = screen.getByRole('button', { name: /next/i });
-    nextBtn.focus();
-
+    await fillName('Test');
+    const createBtn = screen.getByRole('button', { name: /create project/i });
+    createBtn.focus();
     await userEvent.tab();
-    // After Tab from last focusable, focus wraps to first focusable (close backdrop or name input).
-    // getFocusable includes the backdrop button first, then dialog focusables.
-    // The name input is first inside the dialog; backdrop close button is the overall first.
-    expect(document.activeElement).not.toBe(nextBtn);
+    expect(document.activeElement).not.toBe(createBtn);
   });
 
-  it('traps focus with Shift+Tab cycling — first to last on step 1', async () => {
+  it('traps focus with Shift+Tab — first to last', async () => {
     renderModal();
-    await userEvent.type(screen.getByRole('textbox', { name: /name/i }), 'Test');
-    // We can only trap focus within the dialog (dialogRef). The backdrop is outside.
-    // The Program picker (#2673) is now the first focusable element in the dialog,
-    // ahead of the Name input.
-    const programPicker = screen.getByRole('combobox', { name: /^program$/i });
-    programPicker.focus();
-
+    // Create must be enabled (a disabled button is not a Tab stop) to be the
+    // dialog's last focusable element for this assertion to be meaningful.
+    await fillName('Test');
+    const nameInput = screen.getByRole('textbox', { name: /^name/i });
+    nameInput.focus();
     await userEvent.tab({ shift: true });
-    // Focus should cycle to the last element in the dialog (Next button).
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: /next/i }));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /create project/i }));
   });
 
   // ---------------------------------------------------------------------------
-  // Enter-key navigation
+  // Compact / full-screen presentation below 900px (#2728) — component-level
+  // smoke test; the media-query threshold itself is covered by
+  // useStartSheetCompact.test.ts.
   // ---------------------------------------------------------------------------
 
-  it('pressing Enter in name field advances to step 2', async () => {
+  it('still renders every field and the same way-card set regardless of viewport tier', () => {
+    // useStartSheetCompact defaults to `false` (desktop) under jsdom's stubbed
+    // matchMedia, matching every other test above — this test exists to record
+    // that the compact branch shares the same field set, not to re-derive the
+    // breakpoint logic itself.
     renderModal();
-    await userEvent.type(screen.getByRole('textbox', { name: /name/i }), 'Gamma');
-    await userEvent.keyboard('{Enter}');
-    expect(screen.getByText(/start date/i)).toBeInTheDocument();
-  });
-
-  // ---------------------------------------------------------------------------
-  // ADR-0070 — Program prefill on create
-  // ---------------------------------------------------------------------------
-
-  it('omits program from the create payload when programId is not provided', async () => {
-    renderModal();
-    await userEvent.type(screen.getByRole('textbox', { name: /name/i }), 'Standalone');
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
-    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
-
-    const payload = mutateMock.mock.calls[0][0] as Record<string, unknown>;
-    expect(payload).not.toHaveProperty('program');
-  });
-
-  it('passes program in the create payload when programId is provided', async () => {
-    renderWithProviders(
-      <NewProjectModal
-        onClose={onClose}
-        onCreated={onCreated}
-        programId="program-uuid-123"
-      />,
-    );
-    await userEvent.type(screen.getByRole('textbox', { name: /name/i }), 'In-Program');
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
-    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
-
-    expect(mutateMock).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'In-Program', program: 'program-uuid-123' }),
-      expect.anything(),
-    );
-  });
-
-  // ---------------------------------------------------------------------------
-  // #2673 — changing the picker's selection
-  // ---------------------------------------------------------------------------
-
-  it('omits program from the payload when the picker is changed to "None — standalone project"', async () => {
-    renderWithProviders(
-      <NewProjectModal
-        onClose={onClose}
-        onCreated={onCreated}
-        programId="program-uuid-123"
-        programName="Apollo"
-      />,
-    );
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: /^program$/i }), '');
-    await userEvent.type(screen.getByRole('textbox', { name: /name/i }), 'Now Standalone');
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
-    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
-
-    const payload = mutateMock.mock.calls[0][0] as Record<string, unknown>;
-    expect(payload).not.toHaveProperty('program');
-  });
-
-  it('sends the newly picked program, not the route-inferred one, when the picker is changed', async () => {
-    renderWithProviders(
-      <NewProjectModal
-        onClose={onClose}
-        onCreated={onCreated}
-        programId="program-uuid-123"
-        programName="Apollo"
-      />,
-    );
-    await userEvent.selectOptions(
-      screen.getByRole('combobox', { name: /^program$/i }),
-      'program-uuid-456',
-    );
-    await userEvent.type(screen.getByRole('textbox', { name: /name/i }), 'Switched Program');
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
-    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
-
-    expect(mutateMock).toHaveBeenCalledWith(
-      expect.objectContaining({ program: 'program-uuid-456' }),
-      expect.anything(),
-    );
-  });
-
-  it('lets a project created with no route-inferred program still pick an administered program', async () => {
-    renderModal();
-    await userEvent.selectOptions(
-      screen.getByRole('combobox', { name: /^program$/i }),
-      'program-uuid-123',
-    );
-    await userEvent.type(screen.getByRole('textbox', { name: /name/i }), 'Deliberately Attached');
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
-    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
-
-    expect(mutateMock).toHaveBeenCalledWith(
-      expect.objectContaining({ program: 'program-uuid-123' }),
-      expect.anything(),
-    );
-  });
-
-  // ---------------------------------------------------------------------------
-  // "Use program defaults" copy-at-create (#1909)
-  // ---------------------------------------------------------------------------
-
-  async function goToStep3InProgram(name = 'In-Program') {
-    renderWithProviders(
-      <NewProjectModal
-        onClose={onClose}
-        onCreated={onCreated}
-        programId="program-uuid-123"
-        programName="Apollo"
-      />,
-    );
-    await userEvent.type(screen.getByRole('textbox', { name: /name/i }), name);
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
-  }
-
-  it('does not show the "Use program defaults" toggle for a standalone project', async () => {
-    renderModal();
-    await goToStep3();
-    expect(
-      screen.queryByRole('checkbox', { name: /use .*defaults/i }),
-    ).not.toBeInTheDocument();
-  });
-
-  it('shows the "Use program defaults" toggle (labeled with the program name) under a program', async () => {
-    await goToStep3InProgram();
-    expect(
-      screen.getByRole('checkbox', { name: /use apollo.?s defaults/i }),
-    ).toBeInTheDocument();
-  });
-
-  it('sends inherit_program_defaults and omits methodology when the toggle is on', async () => {
-    await goToStep3InProgram();
-    await userEvent.click(screen.getByRole('checkbox', { name: /use apollo.?s defaults/i }));
-    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
-
-    const payload = mutateMock.mock.calls[0][0] as Record<string, unknown>;
-    expect(payload.inherit_program_defaults).toBe(true);
-    // Omitted so the program's methodology is copied server-side (explicit would win).
-    expect(payload).not.toHaveProperty('methodology');
-    expect(payload).not.toHaveProperty('copy_settings_from');
-  });
-
-  it('disables the methodology picker and copy-settings source while the toggle is on', async () => {
-    await goToStep3InProgram();
-    await userEvent.click(screen.getByRole('checkbox', { name: /use apollo.?s defaults/i }));
-
-    const radiogroup = screen.getByRole('radiogroup', { name: /project methodology/i });
-    expect(within(radiogroup).getByRole('radio', { name: /waterfall/i })).toBeDisabled();
-    expect(screen.getByRole('combobox', { name: /copy settings from/i })).toBeDisabled();
-  });
-
-  it('sends methodology and no inherit flag when the toggle is left off under a program', async () => {
-    await goToStep3InProgram();
-    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
-
-    const payload = mutateMock.mock.calls[0][0] as Record<string, unknown>;
-    expect(payload).not.toHaveProperty('inherit_program_defaults');
-    expect(payload.methodology).toBe('HYBRID');
-    expect(payload.program).toBe('program-uuid-123');
-  });
-
-  // ---------------------------------------------------------------------------
-  // #2673, ADR-0764 §3 — "Use program defaults" follows the picked program
-  // ---------------------------------------------------------------------------
-
-  it('relabels "Use program defaults" to the newly picked program after changing the picker', async () => {
-    await goToStep3InProgram();
-    expect(screen.getByRole('checkbox', { name: /use apollo.?s defaults/i })).toBeInTheDocument();
-
-    // Back to step 1, change the program, forward to step 3 again.
-    await userEvent.click(screen.getByRole('button', { name: /back/i }));
-    await userEvent.click(screen.getByRole('button', { name: /back/i }));
-    await userEvent.selectOptions(
-      screen.getByRole('combobox', { name: /^program$/i }),
-      'program-uuid-456',
-    );
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
-
-    expect(screen.queryByRole('checkbox', { name: /use apollo.?s defaults/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: /use zephyr.?s defaults/i })).toBeInTheDocument();
-  });
-
-  it('resets "Use program defaults" to unchecked when the picker changes, even after it was checked', async () => {
-    await goToStep3InProgram();
-    await userEvent.click(screen.getByRole('checkbox', { name: /use apollo.?s defaults/i }));
-    expect(screen.getByRole('checkbox', { name: /use apollo.?s defaults/i })).toBeChecked();
-
-    await userEvent.click(screen.getByRole('button', { name: /back/i }));
-    await userEvent.click(screen.getByRole('button', { name: /back/i }));
-    await userEvent.selectOptions(
-      screen.getByRole('combobox', { name: /^program$/i }),
-      'program-uuid-456',
-    );
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
-
-    expect(screen.getByRole('checkbox', { name: /use zephyr.?s defaults/i })).not.toBeChecked();
-  });
-
-  it('sends inherit_program_defaults for the newly picked program, not the route-inferred one', async () => {
-    await goToStep3InProgram();
-    await userEvent.click(screen.getByRole('button', { name: /back/i }));
-    await userEvent.click(screen.getByRole('button', { name: /back/i }));
-    await userEvent.selectOptions(
-      screen.getByRole('combobox', { name: /^program$/i }),
-      'program-uuid-456',
-    );
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
-    await userEvent.click(screen.getByRole('checkbox', { name: /use zephyr.?s defaults/i }));
-    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
-
-    expect(mutateMock).toHaveBeenCalledWith(
-      expect.objectContaining({ program: 'program-uuid-456', inherit_program_defaults: true }),
-      expect.anything(),
-    );
-  });
-
-  it('hides "Use program defaults" after the picker is changed to standalone', async () => {
-    await goToStep3InProgram();
-    await userEvent.click(screen.getByRole('button', { name: /back/i }));
-    await userEvent.click(screen.getByRole('button', { name: /back/i }));
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: /^program$/i }), '');
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
-    await userEvent.click(screen.getByRole('button', { name: /next/i }));
-
-    expect(screen.queryByRole('checkbox', { name: /use .*defaults/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('radiogroup', { name: /start from$/i }).querySelectorAll('[role="radio"]')).toHaveLength(3);
   });
 });

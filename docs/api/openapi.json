@@ -53688,7 +53688,7 @@
             },
             "ProjectTemplate": {
                 "type": "object",
-                "description": "Gallery row. ``structure`` is deliberately **not** exposed.\n\nThe gallery renders a name, a description, a provenance chip and what the\ntemplate carries — never the document itself. Publishing the structure on a\nlist endpoint would put a whole project's shape (task names included) in front\nof anyone who can read the gallery, which is a wider audience than the source\nproject's members.",
+                "description": "Gallery row. ``structure`` is deliberately **not** exposed.\n\nThe gallery renders a name, a description, a provenance chip, a methodology,\nand what the template carries — never the document itself. Publishing the\nstructure on a list endpoint would put a whole project's shape (task names\nincluded) in front of anyone who can read the gallery, which is a wider\naudience than the source project's members.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -53717,6 +53717,11 @@
                         "readOnly": true
                     },
                     "carries": {
+                        "readOnly": true
+                    },
+                    "methodology": {
+                        "type": "string",
+                        "description": "The methodology the source project carried at publish time (ADR-0791).\n\nRead off the frozen ``structure`` document, mirroring ``get_task_count`` —\nnever re-queries the (possibly since-edited/archived/deleted) source\nproject, and can never disagree with what ``apply`` will actually seed.\nFalls back to ``Methodology.HYBRID`` (never null) for a structure written\nbefore this key existed, or one edited outside the publish path — Hybrid is\nthe lossless default everywhere else in the methodology chain\n(``methodology.DEFAULT_METHODOLOGY``), so an unresolved template under-hides\nrather than over-hides tabs.",
                         "readOnly": true
                     },
                     "task_count": {
@@ -53750,6 +53755,7 @@
                 "required": [
                     "carries",
                     "id",
+                    "methodology",
                     "name",
                     "provenance",
                     "published_at",

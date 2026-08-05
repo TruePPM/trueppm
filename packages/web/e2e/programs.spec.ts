@@ -241,24 +241,42 @@ test.describe('Programs — creation error paths (#1365)', () => {
   });
 });
 
-test.describe('Programs — "Use program defaults" on project create (#1909)', () => {
-  // Golden path: create a project under a program with the "Use program defaults"
-  // opt-in on, and assert the create POST carries inherit_program_defaults (and
-  // omits an explicit methodology so the program's value is copied server-side).
-  test('creating a project with the toggle on sends inherit_program_defaults', async ({ page }) => {
+test.describe('Programs — New project derives methodology from the program (#2728)', () => {
+  // #2728 replaced the old 3-step modal's step-3 "Use program defaults" opt-in
+  // (#1909) and manual methodology picker with a single derived, read-only line:
+  // creating under a program always carries that program's effective_methodology,
+  // with no toggle to turn on or off. Golden path: assert the create POST carries
+  // the program's methodology with no explicit opt-in needed.
+  test('creating a project under a program sends that program’s derived methodology', async ({ page }) => {
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
 
-    // Holder object rather than a `let` — see the note in board.spec.ts.
+    // Distinct from FIXTURE_PROGRAM's own stored `methodology` (HYBRID) so a pass
+    // can only come from actually reading `effective_methodology`, not from
+    // coincidentally landing on the same fallback default.
+    await page.route('**/api/v1/programs/', (r) => {
+      // Non-GET (program creation) is not exercised by this test — hand it back
+      // to setup()'s earlier-registered handler rather than hitting the network.
+      if (r.request().method() !== 'GET') return r.fallback();
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          results: [{ ...FIXTURE_PROGRAM, effective_methodology: 'AGILE', calendar_source: 'workspace' }],
+          count: 1,
+          next: null,
+          previous: null,
+        }),
+      });
+    });
+
     const captures: { post?: Record<string, unknown> } = {};
-    // Registered after setup() → wins. Captures the POST body; GET still lists
-    // the (empty) readable projects the copy-settings picker reads.
     await page.route('**/api/v1/projects/', (r) => {
       if (r.request().method() === 'POST') {
         captures.post = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>;
         return r.fulfill({
           status: 201,
           contentType: 'application/json',
-          body: JSON.stringify({ id: 'e2e-new-project-1909', name: 'Seeded Project' }),
+          body: JSON.stringify({ id: 'e2e-new-project-2728', name: 'Seeded Project' }),
         });
       }
       return r.fulfill({
@@ -270,52 +288,23 @@ test.describe('Programs — "Use program defaults" on project create (#1909)', (
 
     await page.goto(`/programs/${PROGRAM_ID}/projects`);
     // Gate on the page-loaded signal (the "New project" admin control) before driving
-    // the modal, per the data-driven-route rule (avoids the #1190 detach flake).
+    // the sheet, per the data-driven-route rule (avoids the #1190 detach flake).
     const newProjectBtn = page.getByRole('button', { name: 'New project', exact: true });
     await expect(newProjectBtn).toBeVisible();
     await newProjectBtn.click();
 
     const dialog = page.getByRole('dialog', { name: /new project/i });
     await dialog.getByLabel(/^name/i).fill('Seeded Project');
-    await dialog.getByRole('button', { name: /^next$/i }).click(); // step 1 → 2
-    await dialog.getByRole('button', { name: /^next$/i }).click(); // step 2 → 3
-
-    // The toggle is labeled with the program name and appears only under a program.
-    const toggle = dialog.getByRole('checkbox', { name: /use .*defaults/i });
-    await expect(toggle).toBeVisible();
-    await toggle.check();
-
+    // The programs/ override above resolves this program's effective_methodology
+    // to AGILE (distinct from its own stored HYBRID) — the derived line states it
+    // without any toggle or picker.
+    await expect(dialog.getByText(/agile —/i)).toBeVisible();
     await dialog.getByRole('button', { name: /create project/i }).click();
 
-    await expect.poll(() => captures.post?.inherit_program_defaults).toBe(true);
-    expect(captures.post).not.toHaveProperty('methodology');
+    await expect.poll(() => captures.post?.methodology).toBe('AGILE');
+    expect(captures.post).not.toHaveProperty('inherit_program_defaults');
     expect(captures.post).not.toHaveProperty('copy_settings_from');
     expect(captures.post?.program).toBe(PROGRAM_ID);
-  });
-
-  // Empty / no-program state: the standalone create modal (opened from the global
-  // sidebar with no program context) must NOT offer the program-defaults affordance.
-  test('the toggle is absent when creating a standalone project (no program)', async ({ page }) => {
-    await setup(page);
-    // /me/work renders the global shell + Sidebar. The standalone (programId-less)
-    // "+ New project" affordance lives in the "Browse projects and programs" popover,
-    // which we open first — the reliable no-program entry point.
-    await page.goto('/me/work');
-    await expect(page.getByRole('heading', { name: /good morning|good afternoon|good evening/i })).toBeVisible();
-    await page.getByRole('button', { name: /Browse projects and programs/i }).click();
-
-    // Scope to the browse popover: a zero-project sidebar now also renders a
-    // "+ New project" fallback action (#2034), so the bare role+name matches two
-    // buttons. We want the popover's entry point, per this test's intent.
-    await page.locator('#rail-browse-panel').getByRole('button', { name: /\+ New project/i }).click();
-    const dialog = page.getByRole('dialog', { name: /new project/i });
-    await dialog.getByLabel(/^name/i).fill('Standalone Project');
-    await dialog.getByRole('button', { name: /^next$/i }).click(); // step 1 → 2
-    await dialog.getByRole('button', { name: /^next$/i }).click(); // step 2 → 3
-
-    // Planning model picker is present, but no "Use program defaults" toggle.
-    await expect(dialog.getByRole('radiogroup', { name: /project methodology/i })).toBeVisible();
-    await expect(dialog.getByRole('checkbox', { name: /use .*defaults/i })).toHaveCount(0);
   });
 });
 
@@ -533,30 +522,43 @@ test.describe('Programs — shell nav', () => {
       .getByRole('button', { name: /^New project$/i })
       .click();
     await page.getByLabel(/^name/i).fill('Tower A Buildout');
-    await page.getByRole('button', { name: /next/i }).click(); // step 1 → 2
-    await page.getByRole('button', { name: /next/i }).click(); // step 2 → 3
+    // One screen (#2728) — no step navigation between name and Create.
     await page.getByRole('button', { name: /create project/i }).click();
 
     await expect(page).toHaveURL(`/projects/${NEW_PROJECT_ID}/overview`);
     expect(capturedBody).not.toBeNull();
     expect(capturedBody!.program).toBe(PROGRAM_ID);
     expect(capturedBody!.name).toBe('Tower A Buildout');
-    // No source project picked (the projects list is empty) → copy_settings_from
-    // is omitted so the new project starts with blank defaults (#1659, ADR-0242).
-    expect(capturedBody).not.toHaveProperty('copy_settings_from');
   });
 
-  test('New project "Copy settings from" picker sends copy_settings_from (#1659)', async ({
+  test('New project working-calendar picker sends an explicit override (#2728, ADR-0441)', async ({
     page,
   }) => {
+    // #2728 moved the working calendar up onto the Start sheet itself, replacing
+    // the old step-3 "Copy settings from" picker's calendar-copying side effect
+    // (#1659, ADR-0242) with a direct, single-select field. This is the closest
+    // reachable equivalent of that picker's old create-time calendar behavior.
     const NEW_PROJECT_ID = 'e2e-new-project-uuid-0002';
-    const SOURCE_PROJECT_ID = 'e2e-source-project-uuid-0001';
+    const CALENDAR_ID = 'e2e-calendar-uuid-0001';
     let capturedBody: Record<string, unknown> | null = null;
 
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
 
-    // GET returns a readable source project so the picker has an option; POST
-    // records the create body. (Overrides the empty-list default from setup.)
+    await page.route('**/api/v1/calendars/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          results: [
+            { id: CALENDAR_ID, server_version: 1, name: 'Compressed 4x10', working_days: 30, hours_per_day: 10, timezone: 'UTC', exceptions: [] },
+          ],
+          count: 1,
+          next: null,
+          previous: null,
+        }),
+      }),
+    );
+
     await page.route('**/api/v1/projects/', (r) => {
       if (r.request().method() === 'POST') {
         capturedBody = r.request().postDataJSON() as Record<string, unknown>;
@@ -569,7 +571,7 @@ test.describe('Programs — shell nav', () => {
             name: capturedBody.name,
             description: '',
             start_date: capturedBody.start_date,
-            calendar: null,
+            calendar: capturedBody.calendar ?? null,
             methodology: capturedBody.methodology ?? 'HYBRID',
             program: capturedBody.program ?? null,
           }),
@@ -578,22 +580,7 @@ test.describe('Programs — shell nav', () => {
       return r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          results: [
-            {
-              id: SOURCE_PROJECT_ID,
-              name: 'Reference Waterfall',
-              description: '',
-              start_date: '2026-01-01',
-              calendar: null,
-              methodology: 'WATERFALL',
-              program: null,
-            },
-          ],
-          count: 1,
-          next: null,
-          previous: null,
-        }),
+        body: JSON.stringify({ results: [], count: 0, next: null, previous: null }),
       });
     });
 
@@ -618,17 +605,14 @@ test.describe('Programs — shell nav', () => {
       .getByRole('toolbar', { name: /program projects actions/i })
       .getByRole('button', { name: /^New project$/i })
       .click();
-    await page.getByLabel(/^name/i).fill('Seeded Project');
-    await page.getByRole('button', { name: /next/i }).click(); // step 1 → 2
-    await page.getByRole('button', { name: /next/i }).click(); // step 2 → 3
-    await page
-      .getByRole('combobox', { name: /copy settings from/i })
-      .selectOption(SOURCE_PROJECT_ID);
-    await page.getByRole('button', { name: /create project/i }).click();
+    const dialog = page.getByRole('dialog', { name: /new project/i });
+    await dialog.getByLabel(/^name/i).fill('Seeded Project');
+    await dialog.getByRole('combobox', { name: /working calendar/i }).selectOption(CALENDAR_ID);
+    await dialog.getByRole('button', { name: /create project/i }).click();
 
     await expect(page).toHaveURL(`/projects/${NEW_PROJECT_ID}/overview`);
     expect(capturedBody).not.toBeNull();
-    expect(capturedBody!.copy_settings_from).toBe(SOURCE_PROJECT_ID);
+    expect(capturedBody!.calendar).toBe(CALENDAR_ID);
     expect(capturedBody!.name).toBe('Seeded Project');
   });
 

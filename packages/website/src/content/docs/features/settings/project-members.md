@@ -30,7 +30,7 @@ For privacy, the search returns username, display name, and initials only — ne
 
 Every project has a **default role for new members** — the role a person receives when they are added without one chosen. The invite form's role picker starts on this default (Team Member unless you change it), so adding a contributor is a two-click action instead of re-selecting the same role each time. Any role you pick explicitly on the invite form still wins over the default.
 
-Set it when you create the project, or change it any time on **Settings → Members** (a Project Manager, i.e. Admin, or above can edit it). "[Copy settings from…](/administration/project-settings/#copy-settings-from-an-existing-project)" carries the default role along with the project's other settings when you seed a new project from an existing one.
+It starts on Team Member for every new project; change it any time on **Settings → Members** (a Project Manager, i.e. Admin, or above can edit it) — see [What the Start sheet sets at creation](/administration/project-settings/#what-the-start-sheet-sets-at-creation) for what is and isn't decided when the project is first created.
 
 This is a convenience default only — there are **no locks, no enforcement, and no audit trail**. It never grants Project Admin (Owner) by default, and it does not change the roles of members who are already on the project.
 

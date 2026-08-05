@@ -24,6 +24,7 @@ from trueppm_api.apps.access.models import Role
 from trueppm_api.apps.access.permissions import _membership_role
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import (
+    Methodology,
     Project,
     ProjectTemplate,
     TemplateApplication,
@@ -45,15 +46,16 @@ from trueppm_api.apps.projects.template_services import (
 class ProjectTemplateSerializer(serializers.ModelSerializer[ProjectTemplate]):
     """Gallery row. ``structure`` is deliberately **not** exposed.
 
-    The gallery renders a name, a description, a provenance chip and what the
-    template carries — never the document itself. Publishing the structure on a
-    list endpoint would put a whole project's shape (task names included) in front
-    of anyone who can read the gallery, which is a wider audience than the source
-    project's members.
+    The gallery renders a name, a description, a provenance chip, a methodology,
+    and what the template carries — never the document itself. Publishing the
+    structure on a list endpoint would put a whole project's shape (task names
+    included) in front of anyone who can read the gallery, which is a wider
+    audience than the source project's members.
     """
 
     task_count = serializers.SerializerMethodField()
     provenance = serializers.SerializerMethodField()
+    methodology = serializers.SerializerMethodField()
 
     class Meta:
         model = ProjectTemplate
@@ -64,6 +66,7 @@ class ProjectTemplateSerializer(serializers.ModelSerializer[ProjectTemplate]):
             "source_kind",
             "provenance",
             "carries",
+            "methodology",
             "task_count",
             "version",
             "program",
@@ -76,6 +79,7 @@ class ProjectTemplateSerializer(serializers.ModelSerializer[ProjectTemplate]):
             "source_kind",
             "provenance",
             "carries",
+            "methodology",
             "task_count",
             "version",
             "published_at",
@@ -92,6 +96,22 @@ class ProjectTemplateSerializer(serializers.ModelSerializer[ProjectTemplate]):
         structure = obj.structure or {}
         tasks = structure.get("tasks")
         return len(tasks) if isinstance(tasks, list) else 0
+
+    def get_methodology(self, obj: ProjectTemplate) -> str:
+        """The methodology the source project carried at publish time (ADR-0791).
+
+        Read off the frozen ``structure`` document, mirroring ``get_task_count`` —
+        never re-queries the (possibly since-edited/archived/deleted) source
+        project, and can never disagree with what ``apply`` will actually seed.
+        Falls back to ``Methodology.HYBRID`` (never null) for a structure written
+        before this key existed, or one edited outside the publish path — Hybrid is
+        the lossless default everywhere else in the methodology chain
+        (``methodology.DEFAULT_METHODOLOGY``), so an unresolved template under-hides
+        rather than over-hides tabs.
+        """
+        structure = obj.structure or {}
+        methodology = structure.get("methodology")
+        return methodology if methodology in Methodology.values else Methodology.HYBRID
 
     def get_provenance(self, obj: ProjectTemplate) -> str:
         """The chip label — "Workspace" / "Community" / "Yours".

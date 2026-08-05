@@ -35,6 +35,16 @@ Leaving a scope's `calendar` unset (`null`) means "inherit" — it is not the sa
 "no calendar." A project, program, or workspace that sets no calendar of its own always
 resolves to *something*, down to the system default described below.
 
+:::note[Ships in 0.4]
+The **New project** Start sheet shows the project's inherited default calendar
+(resolved the same way as here — program, then workspace, then the system default)
+at creation time, with the option to override it before the project exists. Leaving
+the picker on its default sends no explicit `calendar` at all, so the newly created
+project still resolves the same way any other unset scope does; picking a different
+calendar there is equivalent to setting the project's own override on day one. See
+[Creating a project under a program](/features/programs/#creating-a-project-under-a-program).
+:::
+
 ## The inheritance model
 
 The **effective calendar** — the one CPM actually schedules against — is **resolved on

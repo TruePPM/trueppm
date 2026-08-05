@@ -56,7 +56,7 @@ Customize views is **per-user and cosmetic** — it changes only your own naviga
 
 ## Where to find it
 
-- **Project creation wizard** — step 3 prompts for the methodology with one-line descriptions per choice
+- **Start sheet** — the one-screen "New project" flow derives and states the methodology as a read-only line, based on the way you start (a template's own methodology, or the program/workspace default for Blank and Import) — it is never asked for directly at creation
 - **Project settings** — the same selector, editable post-creation; takes effect immediately
 
 ## Methodology inheritance
