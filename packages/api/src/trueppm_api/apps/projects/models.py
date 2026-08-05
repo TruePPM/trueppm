@@ -228,6 +228,15 @@ _HISTORY_EXCLUDED_DEPENDENCY = [*_HISTORY_EXCLUDED_BASE, "deleted_at", "is_drivi
 #: ADR-0686) that ran moments earlier in the same call.
 _SERVER_OWNED_FIELDS = frozenset({"server_version", "last_sync_version"})
 
+#: Django app-label reference for the Project model.
+#:
+#: Used both as the lazy ``ForeignKey`` target and as the ``_meta.label`` compared
+#: in ``VersionedModel._allocate_sequence`` — the sequence-seeding branch turns on
+#: "is this row a Project?", so the comparison string and the FK target must name
+#: the same model. A drifted copy would silently route Project inserts down the
+#: ``allocate()`` path, where there is no row to UPDATE yet.
+PROJECT_MODEL_LABEL = "projects.Project"
+
 
 class ImmutableModelError(Exception):
     """Raised when code attempts to UPDATE an immutable model row.
@@ -374,7 +383,7 @@ class VersionedModel(models.Model):
         """
         from trueppm_api.apps.sync.sequence import allocate, seed_project_sequence
 
-        if is_insert and self._meta.label == "projects.Project":
+        if is_insert and self._meta.label == PROJECT_MODEL_LABEL:
             seed_project_sequence(self)
             return
         allocate(self)
@@ -7022,7 +7031,7 @@ class ProjectExportJob(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     project = models.ForeignKey(
-        "projects.Project",
+        PROJECT_MODEL_LABEL,
         on_delete=models.CASCADE,
         related_name="export_jobs",
     )
@@ -7389,7 +7398,7 @@ class TemplateApplication(models.Model):
     template_name = models.CharField(max_length=200, blank=True, default="")
     template_version = models.PositiveIntegerField(default=1)
     project = models.ForeignKey(
-        "projects.Project",
+        PROJECT_MODEL_LABEL,
         on_delete=models.CASCADE,
         related_name="template_applications",
     )
