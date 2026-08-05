@@ -71,13 +71,56 @@ carries.
 Pick a template in the new-project flow. **Blank project** is the default and a
 first-class choice, not an escape hatch.
 
-Seeding runs in the background: the create sheet never blocks on it. You land on
-your project and the rows arrive as the job completes, then TruePPM schedules them
-against *your* calendar and start date — the dates never come from the template.
+Seeding runs in the background: the create sheet never blocks on it. TruePPM
+schedules the new rows against *your* calendar and start date as soon as they
+land — the dates never come from the template.
 
 Applying a template requires the **Project Manager** role or above on the target
 project. Publishing one requires the same on the source project. Anyone can *see*
 the gallery.
+
+## Landing on a seeded schedule
+
+For a waterfall or hybrid template, applying it lands you straight on the
+**Schedule** with the skeleton already scheduled, not on an empty Overview you
+have to leave to find it. An agile template still lands on Overview today — its
+own backlog landing is separate, later work.
+
+A banner across the top states what just happened and gives you the fastest way
+to disagree with it:
+
+- **What was written** — the template's name, and how many rows, milestones and
+  dependencies it created, plus which calendar they were scheduled against.
+- **Delete untouched rows (N)** — a one-click sweep that removes every row the
+  template wrote that nobody has looked at since. It only ever touches rows a
+  machine wrote and a person hasn't edited; the moment you rename, reschedule, or
+  otherwise touch a row, it drops out of the count and is safe from the sweep.
+  Requires Project Manager or above, and asks you to confirm before it runs.
+- **Undo apply (⌘Z)** — reverses the whole application in one step, same as
+  described below.
+
+Every seeded-and-untouched row also carries a small tick mark in the outline
+margin, so you can see at a glance which rows are still exactly as the template
+wrote them.
+
+None of this is a commitment you have to act on. Dismiss the banner and keep
+working — the tick marks and the delete offer stay available for **seven days**
+after a row is seeded, whether or not you ever open the banner again.
+
+### The Next strip
+
+Below the schedule, a second strip — separate from the banner — surfaces a few
+things worth doing, in plain language, derived from the plan itself rather than a
+fixed checklist:
+
+- rows nobody has assigned an owner to,
+- milestones nobody has confirmed since the template wrote them,
+- and phases that are not yet connected to the rest of the plan by any
+  dependency.
+
+Like the banner, none of this is required — it states so plainly — and it
+disappears entirely once there is nothing left worth flagging, rather than
+nagging about rows you have already looked at.
 
 ## Undo is one step — and it keeps what you have typed
 

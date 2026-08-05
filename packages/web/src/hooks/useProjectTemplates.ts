@@ -49,7 +49,19 @@ export interface TemplateApplication {
   template_version: number;
   project: string;
   status: 'pending' | 'running' | 'success' | 'failed' | 'undone';
-  result_summary: { tasks_created?: number; undo?: { deleted: number; kept: number } };
+  /**
+   * `tasks_created`/`milestones_created`/`dependencies_created` are read off what
+   * `materialize_structure` already built in memory at apply time (ADR-0799 §2) —
+   * the seed banner (#2731) reads these rather than re-deriving them client-side
+   * from the full task list, which would be a second, driftable definition of the
+   * same counts. Absent on an application applied before #2731 shipped.
+   */
+  result_summary: {
+    tasks_created?: number;
+    milestones_created?: number;
+    dependencies_created?: number;
+    undo?: { deleted: number; kept: number };
+  };
   error_detail: string;
   created_at: string;
   completed_at: string | null;
@@ -136,6 +148,26 @@ export function useTemplateApplication(
       const res = await apiClient.get<TemplateApplication>(
         `/template-applications/${applicationId}/`,
       );
+      return res.data;
+    },
+  });
+}
+
+/**
+ * POST /api/v1/tasks/delete-untouched-seeded/ — "Delete untouched rows (N)" (#2731,
+ * ADR-0799 §3).
+ *
+ * Carries only the project id. The server recomputes the untouched-seeded set from
+ * provenance (`seeded_at`/`edited_at`, #2730) rather than accepting an id list —
+ * ADR-0773 §4 forbids the client-supplied-list shape outright, since the
+ * affordance's safety is entirely "the server asserts these were never touched."
+ */
+export function useDeleteUntouchedSeededTasks() {
+  return useMutation({
+    mutationFn: async (projectId: string) => {
+      const res = await apiClient.post<{ deleted: number }>('/tasks/delete-untouched-seeded/', {
+        project: projectId,
+      });
       return res.data;
     },
   });

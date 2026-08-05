@@ -343,8 +343,40 @@ describe('NewProjectModal — the Start sheet (#2728)', () => {
     const opts = mutateMock.mock.calls[0][1] as { onSuccess: (d: { id: string }) => void };
     opts.onSuccess({ id: 'new-proj-1' });
 
+    // On the template way `onCreated` is deferred until the apply *dispatch*
+    // answers (#2731, ADR-0799 §1), so the application id can travel in `intent`
+    // and the seeded landing has something to poll on mount. Nothing is reported
+    // until that 202 resolves.
+    expect(onCreated).not.toHaveBeenCalled();
+    const applyOpts = applyTemplateMutateMock.mock.calls[0][1] as {
+      onSuccess: (d: { application: string }) => void;
+    };
+    applyOpts.onSuccess({ application: 'app-1' });
+
     expect(onCreated).toHaveBeenCalledWith('new-proj-1', {
       methodology: 'AGILE',
+      templateApplied: true,
+      templateApplicationId: 'app-1',
+    });
+  });
+
+  it('still reports the intent when the apply dispatch fails, minus the id (#2731)', async () => {
+    templatesResult.data = [makeTemplate({ id: 'tmpl-a', name: 'Alpha skeleton' })];
+    renderModal();
+    await fillName('Templated');
+    await userEvent.click(screen.getByRole('radio', { name: /^template/i }));
+    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
+
+    const opts = mutateMock.mock.calls[0][1] as { onSuccess: (d: { id: string }) => void };
+    opts.onSuccess({ id: 'new-proj-1' });
+
+    // A failed dispatch still leaves a real project; landing must proceed without
+    // an application id rather than stranding the user on the sheet.
+    const applyOpts = applyTemplateMutateMock.mock.calls[0][1] as { onError: () => void };
+    applyOpts.onError();
+
+    expect(onCreated).toHaveBeenCalledWith('new-proj-1', {
+      methodology: 'WATERFALL',
       templateApplied: true,
     });
   });

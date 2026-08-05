@@ -1040,8 +1040,9 @@ function SidebarModals({
           onCreated={(projectId, intent) => {
             setShowNewProject(false);
             if (isDrawer) onClose?.();
-            // Centralized in `createdProjectDestination` (#2710, #2734) — see
-            // that module for the CSV-import and agile-backlog-landing rationale.
+            // Centralized in `createdProjectDestination` (#2710, #2731, #2734) —
+            // see that module for the CSV-import, seeded-schedule and
+            // agile-backlog landing rationale.
             void navigate(createdProjectDestination(projectId, intent));
           }}
         />

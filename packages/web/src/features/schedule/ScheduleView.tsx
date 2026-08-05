@@ -96,6 +96,8 @@ import type { Methodology, Task } from '@/types';
 import { useDependencyHover } from './useDependencyHover';
 import { ScheduleDependencyPicker } from './ScheduleDependencyPicker';
 import { PendingCrossProjectReview } from './PendingCrossProjectReview';
+import { SeedBanner } from './SeedBanner';
+import { NextStrip } from './NextStrip';
 import { ScheduleCommitPopover } from './ScheduleCommitPopover';
 import { BeforeProjectStartDialog } from './BeforeProjectStartDialog';
 import { useScheduleCommit } from './useScheduleCommit';
@@ -1369,6 +1371,23 @@ export function ScheduleView() {
     // sit in the URL looking like it might still work.
     setSearchParam(setSearchParams, 'import', null);
   }, [searchParams, currentRole, canImportCsv, setSearchParams]);
+
+  // `?templateApplication=` deep link (#2731, ADR-0799 §1) — how a waterfall/
+  // hybrid template apply lands the user on the Schedule with the seed banner
+  // already polling, instead of the CSV wizard's Overview fallback. One-shot,
+  // same reasoning as the `?import=csv` param above: consumed into local state
+  // once, then stripped so a refresh does not reopen a banner for an apply the
+  // user may have already dismissed or undone.
+  const [seedApplicationId, setSeedApplicationId] = useState<string | null>(null);
+  const seedParamConsumedRef = useRef(false);
+  useEffect(() => {
+    if (seedParamConsumedRef.current) return;
+    const applicationId = searchParams.get('templateApplication');
+    if (!applicationId) return;
+    seedParamConsumedRef.current = true;
+    setSeedApplicationId(applicationId);
+    setSearchParam(setSearchParams, 'templateApplication', null);
+  }, [searchParams, setSearchParams]);
   // Public share links (#1486): mint/manage is Admin+ (mirrors board sharing). The
   // instance/workspace kill switch is enforced server-side — the dialog surfaces the
   // verbatim 403 detail if sharing is off, so the button never silently no-ops.
@@ -2464,6 +2483,21 @@ export function ScheduleView() {
           tasks. Renders nothing otherwise — safe to mount unconditionally. */}
       {projectId && <PendingCrossProjectReview projectId={projectId} currentRole={currentRole} />}
 
+      {/* Seed banner (#2731, ADR-0799 §1) — the plan and the fastest way to
+          disagree with it, mounted the moment a waterfall/hybrid template apply
+          lands here via `?templateApplication=`. Renders nothing while the
+          application is still pending/running or once undone — safe to mount
+          unconditionally ahead of that gate. */}
+      {projectId && seedApplicationId && (
+        <SeedBanner
+          projectId={projectId}
+          applicationId={seedApplicationId}
+          tasks={allTasks}
+          currentRole={currentRole}
+          onDismiss={() => setSeedApplicationId(null)}
+        />
+      )}
+
       {/* Task creation modal — replaces the inline AddTaskForm strip
           (issue #305 / ADR-0052). The unified TaskFormModal handles both
           create and edit flows; here it always opens in create mode. */}
@@ -2577,6 +2611,12 @@ export function ScheduleView() {
           announcement into it would mean a project with Monte Carlo off — or
           simply never run — never learns the server moved its dates. */}
       <ScheduleReconcileStrip workingDaysMask={reconcileMask} projectFinish={cpmFinish} />
+
+      {/* Next strip (#2731, ADR-0799 §4) — a few things worth doing, derived from
+          the plan rather than a static checklist. Renders nothing once nothing
+          untouched-seeded is worth flagging — safe to mount unconditionally,
+          same idiom as the reconcile strip above it. */}
+      <NextStrip tasks={allTasks} links={allLinks} />
 
       {surfaces.monte_carlo && (
         <ScheduleForecastBar

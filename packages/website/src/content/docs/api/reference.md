@@ -447,6 +447,7 @@ implementation is not yet available.
 | DELETE | `/api/v1/tasks/{id}/` | Soft-delete (cascades to edges) |
 | POST | `/api/v1/projects/{id}/tasks/bulk/` | Apply many task writes, and optionally dependency edges, in one request — returns `207`, see [Batch task writes](#batch-task-writes) |
 | PATCH | `/api/v1/projects/{id}/tasks/classification/` | Classify a subtree on the governance and delivery axes — see [Subtree classification](#subtree-classification) |
+| POST | `/api/v1/tasks/delete-untouched-seeded/` | Bulk soft-delete every untouched-seeded row in a project — see [Seed provenance](#seed-provenance) |
 
 CPM fields (`early_start`, `early_finish`, `late_start`, `late_finish`, `total_float`, `is_critical`) are read-only — set by the auto-scheduler. `early_start`/`early_finish` name the **remaining-work window** for an in-progress task, not its span — a 4-day task at 83% carries a one-day `early_start`..`early_finish` (ADR-0132). `scheduled_start` (paired with `early_finish` as `scheduled_finish` for symmetry — not a separate stored field, always identical to `early_finish`) and `remaining_duration` (also read-only) instead name the task's **span** and the working days of work left on it, so a consumer never has to branch on task state to know which quantity a date field means (ADR-0752). Any client that assumes `finish − start ≈ duration` should read `scheduled_start`/`scheduled_finish`, not `early_start`/`early_finish`.
 
@@ -482,6 +483,17 @@ seven-day offer applies the window itself.
 A recalculation never counts as an edit: the scheduling engine persists CPM output
 through a path that does not touch `edited_at`, so a freshly seeded project still
 reports its rows as untouched after the first schedule pass.
+
+**`POST /api/v1/tasks/delete-untouched-seeded/`** carries out the "Delete untouched
+rows (N)" offer. The body is `{"project": "<uuid>"}` and nothing else — there is no
+way to pass an explicit id list. The server recomputes the untouched set itself
+(the same `is_untouched_seed` predicate, unwindowed) rather than trusting a
+client-supplied one, because the affordance's entire safety story is "these rows
+were never touched," and only the server can assert that. Returns
+`200 {"deleted": N}`. Requires **Project Manager (Admin)** or above on the project —
+checked explicitly rather than through the usual project-scoped permission class,
+since this route is not nested under `/projects/{id}/` and carries no URL-level
+project id to gate on.
 
 ### Project templates
 

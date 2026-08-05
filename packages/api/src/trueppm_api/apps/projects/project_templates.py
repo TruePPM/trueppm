@@ -19,6 +19,7 @@ without a broker.
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
@@ -49,6 +50,23 @@ CARRIES_SPRINT_LENGTH = "sprint_length"
 
 class TemplateStructureError(ValueError):
     """The structure document is unusable — malformed, too large, or a version we don't know."""
+
+
+@dataclass(frozen=True)
+class MaterializeResult:
+    """What one apply wrote — the undo set, plus the counts the seed banner shows.
+
+    ``milestones_created`` / ``dependencies_created`` are read off the rows and edges
+    :func:`materialize_structure` already built in memory (ADR-0799 §2) — never a
+    second query. The seed banner (#2731) reads these off
+    ``TemplateApplication.result_summary`` rather than re-deriving them client-side
+    from the full task list, which would be a second, driftable definition of the same
+    counts the server already knows at write time.
+    """
+
+    task_ids: list[uuid.UUID]
+    milestones_created: int
+    dependencies_created: int
 
 
 def _task_node(task: Any) -> dict[str, Any]:
@@ -201,11 +219,13 @@ def materialize_structure(
     project: Project,
     *,
     applied_by: Any = None,
-) -> list[uuid.UUID]:
-    """Write ``template``'s shape into ``project`` and return the created task ids.
+) -> MaterializeResult:
+    """Write ``template``'s shape into ``project`` and return what was written.
 
-    Returns the ids rather than the objects because the caller stores them on the
-    ``TemplateApplication`` row — they are the undo set, and undo must be exact.
+    Returns ids rather than objects because the caller stores them on the
+    ``TemplateApplication`` row — they are the undo set, and undo must be exact. The
+    milestone/dependency counts travel alongside for the same reason (ADR-0799 §2):
+    the caller writes them straight into ``result_summary`` for the seed banner.
 
     Three things this deliberately does NOT do:
 
@@ -231,7 +251,7 @@ def materialize_structure(
     structure = validate_structure(template.structure)
     nodes = structure["tasks"]
     if not nodes:
-        return []
+        return MaterializeResult(task_ids=[], milestones_created=0, dependencies_created=0)
 
     # Allocate a contiguous short_id block in one UPDATE, exactly as the MS Project
     # importer does — per-row allocation would be N round-trips and the per-project
@@ -299,4 +319,8 @@ def materialize_structure(
     if edges:
         Dependency.objects.bulk_create(edges, batch_size=500, ignore_conflicts=True)
 
-    return [row.id for row in rows]
+    return MaterializeResult(
+        task_ids=[row.id for row in rows],
+        milestones_created=sum(1 for row in rows if row.is_milestone),
+        dependencies_created=len(edges),
+    )

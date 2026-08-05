@@ -1537,6 +1537,34 @@ export function SquareIcon({ className, ...rest }: IconProps) {
   );
 }
 
+/**
+ * Dotted-outline check — the seeded-and-untouched row mark in the outline margin
+ * (#2731, ADR-0799 §4). Deliberately distinct from {@link MilestoneIcon}: a
+ * dashed, not solid, ring reads as provisional — "a machine wrote this, nobody
+ * has looked yet" — the same disposability the seed banner states in words. Never
+ * shown for a row a person has since edited (`Task.isUntouchedSeed`, ADR-0786);
+ * it disappears the moment anyone touches the row, same as the delete offer.
+ */
+export function SeededUntouchedIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.25"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <circle cx="8" cy="8" r="5.5" strokeDasharray="2 1.75" />
+      <path d="M5.5 8.2 7.2 9.9 10.5 6.4" />
+    </svg>
+  );
+}
+
 /** Waste basket — the destructive row-menu action, replacing `🗑` (issue 1749). */
 export function TrashIcon({ className, ...rest }: IconProps) {
   return (
