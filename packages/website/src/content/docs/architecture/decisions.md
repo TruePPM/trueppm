@@ -13,7 +13,7 @@ Each ADR is a markdown file using the [Michael Nygard format](https://github.com
 
 ## How the ADR corpus is organized
 
-The repository holds 322 numbered ADRs (spanning 0001–0790), and it grows with most features. This page curates 60 of them — the records that explain the shape of the system to a new contributor or evaluator, not an index of every decision ever made. A few conventions make the set navigable:
+The repository holds 323 numbered ADRs (spanning 0001–0791), and it grows with most features. This page curates 60 of them — the records that explain the shape of the system to a new contributor or evaluator, not an index of every decision ever made. A few conventions make the set navigable:
 
 - **Numbering is monotonic and never reused.** A higher number is a later decision, not a more important one. Numbers are assigned at merge, so they roughly track chronology.
 - **Status lives in each record.** Every ADR has a `## Status` section: `Proposed` (documented, may still evolve), `Accepted`, `Deprecated`, or `Superseded` (with a pointer to the record that replaced it). A few headline records below are still `Proposed` — the decision is captured, but the ADR's own Status section is authoritative.
