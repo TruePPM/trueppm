@@ -126,6 +126,56 @@ def record_assignment_event(
     )
 
 
+def _write_one_owner(
+    task: Task, owner: dict[str, object], actor: Any
+) -> tuple[TaskResource, tuple[str, str] | None]:
+    """Upsert one inline owner; return the row and the board event it earns.
+
+    The event is ``None`` for a re-write at the same units. Committing the same row
+    twice is not an ownership change and must not read as one — so it earns no audit
+    row and no broadcast.
+    """
+    resource = owner["resource"]
+    assert isinstance(resource, Resource)
+    units = owner.get("units")
+    # Quantize to the column's 2dp before writing. Without this the audit row
+    # stringifies the caller's literal ("1.0") while the drawer path records the
+    # DB-normalized value ("1.00") — two spellings of the same allocation in one
+    # activity feed, and a spurious units-changed delta on the next write.
+    new_units = (units if isinstance(units, Decimal) else Decimal("1.0")).quantize(Decimal("0.01"))
+    prior = TaskResource.objects.filter(task=task, resource=resource).first()
+    assignment, created = TaskResource.objects.update_or_create(
+        task=task, resource=resource, defaults={"units": new_units}
+    )
+    ensure_project_resource(task.project, resource)
+
+    units_changed = prior is not None and prior.units != new_units
+    if actor is not None:
+        if created:
+            record_assignment_event(
+                task_id=task.pk,
+                event_type=TaskActivityEventType.ASSIGNEE_ADDED,
+                resource=resource,
+                actor=actor,
+                units_to=new_units,
+            )
+        elif prior is not None and units_changed:
+            record_assignment_event(
+                task_id=task.pk,
+                event_type=TaskActivityEventType.ASSIGNEE_UNITS_CHANGED,
+                resource=resource,
+                actor=actor,
+                units_from=prior.units,
+                units_to=new_units,
+            )
+
+    if created:
+        return assignment, ("assignment_created", str(assignment.pk))
+    if units_changed:
+        return assignment, ("assignment_updated", str(assignment.pk))
+    return assignment, None
+
+
 def apply_task_owners(
     task: Task, owners: list[dict[str, object]], *, actor: Any = None
 ) -> list[TaskResource]:
@@ -182,47 +232,10 @@ def apply_task_owners(
     written: list[TaskResource] = []
     events: list[tuple[str, str]] = []
     for owner in owners:
-        resource = owner["resource"]
-        assert isinstance(resource, Resource)
-        units = owner.get("units")
-        # Quantize to the column's 2dp before writing. Without this the audit row
-        # stringifies the caller's literal ("1.0") while the drawer path records the
-        # DB-normalized value ("1.00") — two spellings of the same allocation in one
-        # activity feed, and a spurious units-changed delta on the next write.
-        new_units = (units if isinstance(units, Decimal) else Decimal("1.0")).quantize(
-            Decimal("0.01")
-        )
-        prior = TaskResource.objects.filter(task=task, resource=resource).first()
-        assignment, created = TaskResource.objects.update_or_create(
-            task=task, resource=resource, defaults={"units": new_units}
-        )
-        ensure_project_resource(task.project, resource)
+        assignment, event = _write_one_owner(task, owner, actor)
         written.append(assignment)
-
-        if actor is not None:
-            if created:
-                record_assignment_event(
-                    task_id=task.pk,
-                    event_type=TaskActivityEventType.ASSIGNEE_ADDED,
-                    resource=resource,
-                    actor=actor,
-                    units_to=new_units,
-                )
-            elif prior is not None and prior.units != new_units:
-                record_assignment_event(
-                    task_id=task.pk,
-                    event_type=TaskActivityEventType.ASSIGNEE_UNITS_CHANGED,
-                    resource=resource,
-                    actor=actor,
-                    units_from=prior.units,
-                    units_to=new_units,
-                )
-        # A re-write at the same units is a no-op: no audit row, no event. Committing
-        # the same row twice is not an ownership change and must not read as one.
-        if created:
-            events.append(("assignment_created", str(assignment.pk)))
-        elif prior is not None and prior.units != new_units:
-            events.append(("assignment_updated", str(assignment.pk)))
+        if event is not None:
+            events.append(event)
 
     if events:
         project_id = str(task.project_id)

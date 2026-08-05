@@ -1,36 +1,46 @@
 ---
 title: Agent oversight
-description: A read-only view — per program, and per project on your own Activity tab — of what your team's agents did and what the engine refused. Every row is a link in a tamper-evident chain you can verify yourself. Governance of agents, never surveillance of people.
+documentedFor: "0.4"
+description: A read-only view — per program, and per project on your own Activity tab — of what your team's agents read and which agent calls were refused. Every row is a link in a tamper-evident chain you can verify yourself. Governance of agents, never surveillance of people.
 ---
 
-:::note[Coming in 0.4]
+:::note[Ships in 0.4]
 The agent-oversight panel ships in 0.4, alongside the read-only
-[MCP server](/features/mcp-server/). On unreleased builds the layout may still be
-changing.
+[MCP server](/features/mcp-server/). On the current release there is no Agents tab and
+no agent-action log to project — nothing on this page describes behavior you can
+exercise on it yet. On unreleased builds the layout may still be changing.
 :::
 
 Every program gets an **Agents** tab — a read-only window onto what your team's
-agents have done in that program, and what the scheduling engine refused. It is a
+agents have read in that program, and which of their calls were refused. It is a
 projection of the tamper-evident agent-action log (the same hash-chained record the
 `audit_verify` command validates), never a separate data store. It sits in the
 program rail between **Resources** and **Members**: governance of execution next to
 capacity for it.
 
+What lands in that log is the agent surface itself: calls made with an
+`mcp:read`-scoped token, and rejections of a token that is revoked or expired. The
+scheduling engine's own feasibility refusals apply to every caller and are *not*
+recorded here — there is no agent write for them to refuse yet. They join the log
+with the gated write surface in a later release, as the **Refusals** view notes
+below.
+
 ## Three views
 
 The tab hosts three sub-views behind a segmented control:
 
-- **Activity** — the chronological log of every agent action in the program: when
-  it happened, which action and capability, which token acted (by its 8-character
+- **Activity** — the chronological log of the recorded agent actions in the program:
+  when it happened, which action and capability, which token acted (by its 8-character
   prefix, never the token itself), the accountable human it acted on behalf of, and
   the verdict (allowed / refused). Every column maps to a real recorded field —
   nothing is inferred. Click a row to open its detail, including the chain fingerprints
   (`record_hash`, `payload_hash`, `sequence`) you can locate in an `audit_verify` run.
-- **Refusals** — the concentrated view of what the engine *stopped*: an expired or
-  invalid token (identity), or a denied capability (policy), each with a plain-language
-  reason. When the gated-write surface lands in a later release, a write refused as
-  schedule-infeasible will appear here too, with the binding constraint and the
-  projected impact on your plan.
+- **Refusals** — the concentrated view of what was *stopped*, which today means the two
+  refusals the agent surface itself produces: an expired or invalid token (identity), or
+  a denied capability (policy), each with a plain-language reason. When the gated-write
+  surface lands in a later release, a write refused by the engine as schedule-infeasible
+  will appear here too, with the binding constraint and the projected impact on your
+  plan.
 - **Forecast impact** — the program's P80 completion date from the forecast rollup,
   with a contribution line showing how much of the plan agents have actually
   completed. Agent-finished work is already folded into the committed schedule the

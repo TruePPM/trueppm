@@ -212,6 +212,7 @@ from trueppm_api.apps.projects.serializers import (
     TaskScopeRollupSerializer,
     TaskSerializer,
 )
+from trueppm_api.apps.projects.task_bulk import MSG_PROGRESS_NEEDS_ANCHOR, BulkOutcome
 from trueppm_api.apps.scheduling.models import ScheduleRequestReason
 from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue_recalculate
 from trueppm_api.apps.sync.conflict import FieldLevelMergeMixin, check_field_conflict
@@ -4810,9 +4811,7 @@ class TaskViewSet(
             return Response(
                 {
                     "code": "progress_requires_anchor",
-                    "detail": (
-                        "Cannot record progress without a planned start date or sprint assignment."
-                    ),
+                    "detail": MSG_PROGRESS_NEEDS_ANCHOR,
                     "suggested_action": "set_planned_start",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -7682,6 +7681,50 @@ class TaskReparentView(IdempotencyMixin, APIView):
         )
 
 
+def _register_bulk_commit_hooks(
+    out: BulkOutcome, project_id: str, dep_recalc_ids: set[str]
+) -> None:
+    """Queue the post-commit recalculation and broadcasts for one 207 batch.
+
+    Module-level rather than nested in ``TaskBulkView.post`` so the closure
+    defaults below bind at definition time in a scope that cannot capture the
+    view's locals by accident.
+
+    Fires for WHATEVER COMMITTED, not only for a fully-clean batch (#2746): under
+    207, 35 applied rows out of 38 still mutated 35 rows, and skipping the recompute
+    would leave every collaborator on a silently stale schedule.
+    """
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    if not out.touched_anything:
+        return
+
+    mutated_task_ids = out.mutated_task_ids
+
+    def _broadcast_bulk_mutated(ids: list[str] = mutated_task_ids) -> None:
+        # #1009: carry the ids this batch actually touched so clients can
+        # target the refetch instead of blind-refetching the whole board.
+        broadcast_board_event(project_id, "tasks_bulk_mutated", {"task_ids": ids})
+
+    for recalc_id in {project_id} | dep_recalc_ids:
+        transaction.on_commit(
+            lambda rid=recalc_id: _enqueue_recalculate(rid)  # type: ignore[misc]
+        )
+    transaction.on_commit(_broadcast_bulk_mutated)
+    for dep in out.dep_applied:
+        transaction.on_commit(
+            lambda d=dep: broadcast_board_event(  # type: ignore[misc]
+                project_id, "dependency_created", {"id": d["id"]}
+            )
+        )
+    # #867: a row pulled the project start earlier — collaborators must
+    # re-fetch the boundary, which tasks_bulk_mutated does not carry.
+    if out.project_start_shifted:
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "project_updated", {"id": project_id})
+        )
+
+
 @extend_schema_view(
     post=extend_schema(
         summary="Create, update, and delete tasks per row in one request",
@@ -7753,12 +7796,10 @@ class TaskBulkView(IdempotencyMixin, APIView):
     def post(self, request: Request, pk: str) -> Response:
         from trueppm_api.apps.projects.task_bulk import (
             BulkContext,
-            BulkOutcome,
             InvalidGraphInput,
             apply_dependency_edges,
             apply_task_operations,
         )
-        from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         # The load-bearing role check on this route: IsProjectMemberWrite and
@@ -7814,33 +7855,7 @@ class TaskBulkView(IdempotencyMixin, APIView):
             # for a fully-clean batch (#2746). Under 207, 35 applied rows out of 38
             # still mutated 35 rows; skipping the recompute would leave every
             # collaborator on a silently stale schedule.
-            if out.touched_anything:
-                mutated_task_ids = out.mutated_task_ids
-
-                def _broadcast_bulk_mutated(ids: list[str] = mutated_task_ids) -> None:
-                    # #1009: carry the ids this batch actually touched so clients can
-                    # target the refetch instead of blind-refetching the whole board.
-                    broadcast_board_event(project_id, "tasks_bulk_mutated", {"task_ids": ids})
-
-                for recalc_id in {project_id} | dep_recalc_ids:
-                    transaction.on_commit(
-                        lambda rid=recalc_id: _enqueue_recalculate(rid)  # type: ignore[misc]
-                    )
-                transaction.on_commit(_broadcast_bulk_mutated)
-                for dep in out.dep_applied:
-                    transaction.on_commit(
-                        lambda d=dep: broadcast_board_event(  # type: ignore[misc]
-                            project_id, "dependency_created", {"id": d["id"]}
-                        )
-                    )
-                # #867: a row pulled the project start earlier — collaborators must
-                # re-fetch the boundary, which tasks_bulk_mutated does not carry.
-                if out.project_start_shifted:
-                    transaction.on_commit(
-                        lambda: broadcast_board_event(
-                            project_id, "project_updated", {"id": project_id}
-                        )
-                    )
+            _register_bulk_commit_hooks(out, project_id, dep_recalc_ids)
 
         # #998: one annotated batch fetch for every applied task, rather than
         # serializing bare instances inside the loop — a bare locked Task degrades

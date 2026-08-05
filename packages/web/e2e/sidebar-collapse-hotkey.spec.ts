@@ -7,7 +7,7 @@
  * text field is focused.
  */
 import { test, expect } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import { paletteSearch, setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-sbhotkey-0000-0000-0000-000000001193';
 
@@ -55,7 +55,7 @@ test.describe('sidebar collapse hotkey (#1193)', () => {
     // Open the command palette (⌘K) and focus its search input, then fire ⌘B.
     // The palette guard + editable-target guard must both keep the rail shown.
     await page.keyboard.press('ControlOrMeta+k');
-    const search = page.getByRole('combobox').or(page.getByRole('textbox')).first();
+    const search = paletteSearch(page);
     await expect(search).toBeVisible();
     await search.focus();
     await page.keyboard.press('ControlOrMeta+b');
