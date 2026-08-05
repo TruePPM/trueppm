@@ -7788,7 +7788,7 @@ class TaskBulkView(IdempotencyMixin, APIView):
         responses={200: TaskClassificationResponseSerializer},
     )
 )
-class TaskClassificationView(APIView):
+class TaskClassificationView(IdempotencyMixin, APIView):
     """Apply the two hybrid classification axes across a subtree (ADR-0790, #2735).
 
     PATCH /api/v1/projects/{pk}/tasks/classification/
@@ -7822,6 +7822,14 @@ class TaskClassificationView(APIView):
     ``delivery_mode`` — only ``governance_class`` carries an inherit bit, so only it
     can have an override. See ``task_classification._axis_report`` for why ``null``
     rather than ``0``.
+
+    Carries ``IdempotencyMixin`` (ADR-0170) even though the cascade is *already*
+    state-idempotent: rows at the requested value are not written, so a replay bumps no
+    version and enqueues nothing. It opts in rather than claiming
+    ``idempotency_exempt`` for the same reason ``ProjectShareLinkRevokeView`` does —
+    natural idempotence is a property of today's implementation, whereas the header
+    contract is a promise to the caller, and the mixin also makes a replay cost zero
+    queries instead of a subtree lock plus a scan.
     """
 
     permission_classes = [

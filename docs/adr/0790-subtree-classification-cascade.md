@@ -235,13 +235,26 @@ un-editable rows so the client can explain why; it names no ids, and needs no
 membership-inference hedging because every row is in a project the caller is already a
 member of.
 
-### 7. Idempotent by change detection, not by an idempotency key
+### 7. Idempotent by change detection, *and* by the key header
 
 Rows already at the requested value are **not saved**. That makes a repeated identical
 cascade a true no-op: no `server_version` bump, no `sync_seq` consumption, no history
-row, no CPM enqueue, no broadcast. `IdempotencyMixin` (which `TaskBulkView` carries) is
-therefore unnecessary here — it exists to stop replayed *creates* from minting second
-rows, and this endpoint creates nothing.
+row, no CPM enqueue, no broadcast.
+
+That property alone was initially judged sufficient to skip `IdempotencyMixin` — the
+mixin exists to stop replayed *creates* from minting second rows, and this endpoint
+creates nothing. **That reasoning was right about the mechanism and wrong about the
+conclusion.** The codebase already settled this question in the other direction:
+`ProjectShareLinkRevokeView` is a naturally-idempotent soft-revoke and still opts in,
+"like every other unsafe-method TruePPM view", and `tests/apps/idempotency/
+test_idempotency.py::test_every_unsafe_view_has_idempotency_mixin` enforces it — the
+exemptions on record are token-principal endpoints, importers with their own dedup, and
+SSO callbacks, none of which describes plan authoring.
+
+So the view carries the mixin. Two reasons beyond conforming to the rule: natural
+idempotence is a property of *this* implementation and could be lost by a later change,
+whereas the `Idempotency-Key` contract is a promise to the caller; and a replay under
+the mixin costs zero queries rather than a subtree lock plus a full classification pass.
 
 Every write that does happen goes through `Task.save()`, one row at a time — **never**
 `QuerySet.update()`. `server_version` is the optimistic-lock token and the arithmetic
@@ -366,12 +379,14 @@ call sites to update.
    waits on. No `{"queued": true}` — the classification itself is not queued.
 6. **Outbox cleanup**: N/A — no new outbox rows. `ScheduleRequest` rows created via
    `enqueue_recalculate` are purged on the existing nightly 7-day schedule.
-7. **Idempotency**: Change detection (§7) is the mechanism — a row already at the
-   requested value is not written, so a replayed request writes nothing, bumps no
-   version, and enqueues nothing. The idempotency key is effectively
-   `(task_id, governance_class, delivery_mode)` compared against current state under
-   `select_for_update`, which also closes the read-then-write window against a
-   concurrent cascade on an overlapping subtree.
+7. **Idempotency**: Two layers. `IdempotencyMixin` (ADR-0170) gives the caller the
+   standard `Idempotency-Key` replay contract, as on every other unsafe-method view.
+   Underneath it, change detection (§7) makes the operation idempotent even without a
+   key — a row already at the requested value is not written, so a replayed request
+   writes nothing, bumps no version, and enqueues nothing. The state-level key is
+   effectively `(task_id, governance_class, delivery_mode)` compared against current
+   state under `select_for_update`, which also closes the read-then-write window
+   against a concurrent cascade on an overlapping subtree.
 8. **Dead-letter / failure handling**: N/A at this layer. The endpoint's own writes are
    synchronous inside one `transaction.atomic()` — they either commit or roll back
    whole, with no partial state to dead-letter. The recalculation it enqueues inherits

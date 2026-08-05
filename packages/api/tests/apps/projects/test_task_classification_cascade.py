@@ -656,3 +656,26 @@ def test_a_no_op_cascade_skips_the_graph_guard_entirely(
     r = _patch(owner_client, project, subtree=str(phase.pk), delivery_mode=DeliveryMode.WATERFALL)
     assert r.status_code == 200, r.data
     assert r.data["delivery_mode"]["applied"] == 0
+
+
+def test_replaying_an_idempotency_key_returns_the_stored_response(
+    owner_client: APIClient, project: Project, phase: Task
+) -> None:
+    """ADR-0170: the view carries IdempotencyMixin like every unsafe-method view.
+
+    The cascade is already state-idempotent via change detection, but that is a
+    property of the current implementation; the header is a contract with the caller.
+    A replay must not re-run the classification at all.
+    """
+    body = {"subtree": str(phase.pk), "delivery_mode": DeliveryMode.SCRUM}
+    headers = {"HTTP_IDEMPOTENCY_KEY": "cascade-key-1"}
+    with _no_side_effects():
+        first = owner_client.patch(url(project), body, format="json", **headers)
+        second = owner_client.patch(url(project), body, format="json", **headers)
+
+    assert first.status_code == 200, first.data
+    assert second.status_code == 200, second.data
+    assert second.headers.get("Idempotent-Replay") == "true"
+    # The stored response is served verbatim — not recomputed into an all-`unchanged`
+    # report, which is what a re-run would have produced.
+    assert second.data["delivery_mode"]["applied"] == first.data["delivery_mode"]["applied"]
