@@ -231,4 +231,16 @@ describe('issuesToCsvString (#2732)', () => {
     expect(csv).toContain("'=cmd");
     expect(csv).not.toMatch(/,=cmd/);
   });
+
+  it('cannot be made to forge a record with an interior carriage return', () => {
+    // The parser quotes the offending cell verbatim into the message, and a `\r`
+    // survives `.strip()`. Records here are joined with \r\n, so an unquoted \r
+    // would end the row and start the next one at `=cmd…` — past the leading
+    // formula guard, which only sees position 0 of a field.
+    const csv = issuesToCsvString([
+      { row: 3, code: 'bad_date', message: "Could not read '2026-99-99\r=cmd|'/C calc'!A0'." },
+    ]);
+    expect(csv.split('\r\n')).toHaveLength(2);
+    expect(csv.split('\r\n')[1]).not.toMatch(/^=cmd/);
+  });
 });

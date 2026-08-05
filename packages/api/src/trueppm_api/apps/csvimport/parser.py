@@ -98,8 +98,17 @@ DEFAULT_UNRESOLVED_REASON = "could not be read"
 #: text into the outline; the row is preserved to be *fixed*, not archived.
 MAX_PARKED_VALUE_CELLS = 40
 
-#: Per-cell cap inside that block, for the same reason.
+#: Per-cell cap inside that block, applied to the header **and** the value. The
+#: header side is not cosmetic: header cells are parsed with no length cap, and
+#: an unbounded key is copied into every parked row's notes, so a workbook with
+#: 40 megabyte-long headers and 5,000 nameless rows would multiply out to
+#: hundreds of gigabytes of retained strings inside the worker.
 MAX_PARKED_VALUE_LENGTH = 200
+
+#: Hard ceiling on one parked row's assembled notes, independent of the two caps
+#: above so the bound survives a future change to either. ``Task.notes`` is an
+#: unbounded TextField, so nothing below this enforces a limit.
+MAX_PARKED_NOTES_LENGTH = 10_000
 
 _CSV_EXTENSIONS = {"csv", "tsv", "txt"}
 _XLSX_EXTENSIONS = {"xlsx", "xlsm"}
@@ -688,12 +697,19 @@ def _raw_values(headers: list[str], row: list[Any]) -> dict[str, str]:
     Taken before any coercion so the parked task shows what the operator wrote,
     not what the parser made of it — the point of parking a row is that the
     parser's reading of it is the thing in question.
+
+    The **key** is truncated as well as the value. Header cells carry no length
+    cap of their own, and this dict is materialized once per parked row, so an
+    uncapped key is the one term here that multiplies: a workbook of huge headers
+    plus thousands of nameless rows would otherwise expand a sub-megabyte upload
+    into hundreds of gigabytes of strings in the worker.
     """
     values: dict[str, str] = {}
     for index, header in enumerate(headers[:MAX_PARKED_VALUE_CELLS]):
         text = _cell(row, index).strip()
         if text:
-            values[header or f"Column {index + 1}"] = text[:MAX_PARKED_VALUE_LENGTH]
+            key = (header or f"Column {index + 1}")[:MAX_PARKED_VALUE_LENGTH]
+            values[key] = text[:MAX_PARKED_VALUE_LENGTH]
     return values
 
 
@@ -734,6 +750,17 @@ def _append_review_branch(result: ParseResult, filename: str) -> None:
     branch for the *whole* import and re-derive every real task's path from a
     number the parser only ever meant as a sequence — so the dotted form is used
     only when the file was already dotted, and levels carry it otherwise.
+
+    ``_build_wbs_paths`` has a **second** discriminator, though, and this branch
+    unavoidably trips it: a genuinely flat file has ``len(set(levels)) <= 1`` and
+    derives paths from the outline number, and adding a summary plus a child
+    makes the level set non-trivial, so it switches to the level sequence. That
+    is safe here only because of an invariant elsewhere in this module — when the
+    WBS column is not dotted, ``_apply_wbs`` reads a bare integer as a *depth*
+    and leaves ``outline_number`` as the sequence ``_build_task`` assigned, so
+    both modes produce the same 1..N paths for the real rows. If ``_apply_wbs``
+    ever preserves a non-sequential flat code, one parked row would silently
+    renumber the whole import; a test pins the indentation case.
     """
     if not result.unresolved_rows:
         return
@@ -741,14 +768,16 @@ def _append_review_branch(result: ParseResult, filename: str) -> None:
     tasks = result.project_data.tasks
     has_dotted = any("." in (t.outline_number or "") for t in tasks)
     base_level = min((t.outline_level for t in tasks), default=0)
-    next_top = _next_top_level_number(tasks)
+    # Only meaningful in dotted mode; left empty otherwise rather than written
+    # and ignored, so the field never disagrees with the path actually derived.
+    next_top = str(_next_top_level_number(tasks)) if has_dotted else ""
     next_uid = max((t.uid for t in tasks), default=0) + 1
 
     tasks.append(
         TaskData(
             uid=next_uid,
             name=REVIEW_BRANCH_NAME,
-            outline_number=str(next_top),
+            outline_number=next_top,
             outline_level=base_level,
             notes=(
                 f"Rows from {filename} that could not be imported as tasks. "
@@ -763,7 +792,7 @@ def _append_review_branch(result: ParseResult, filename: str) -> None:
                 uid=next_uid + offset,
                 name=f"Row {unresolved.row} — {unresolved.reason}"[:255],
                 # Dotted only when the file was: see the docstring.
-                outline_number=f"{next_top}.{offset}" if has_dotted else "",
+                outline_number=f"{next_top}.{offset}" if next_top else "",
                 outline_level=base_level + 1,
                 notes=_parked_notes(unresolved),
             )
@@ -776,6 +805,11 @@ def _parked_notes(unresolved: UnresolvedRow) -> str:
     ``Header: value`` lines rather than the original delimited text: the row is
     here to be read and fixed by a person in the outline, and a re-serialized CSV
     line would make them count commas to find the cell that is wrong.
+
+    Truncated at ``MAX_PARKED_NOTES_LENGTH`` as a backstop. The per-cell caps
+    already bound this, but ``Task.notes`` is an unbounded TextField and this
+    string is written once per parked row, so the ceiling is stated here too
+    rather than left as a consequence of two other constants.
     """
     lines = [
         f"Spreadsheet row {unresolved.row} — {unresolved.reason}.",
@@ -785,7 +819,7 @@ def _parked_notes(unresolved: UnresolvedRow) -> str:
         lines += [f"{header}: {value}" for header, value in unresolved.values.items()]
     else:
         lines.append("(the row was empty in every mapped column)")
-    return "\n".join(lines)
+    return "\n".join(lines)[:MAX_PARKED_NOTES_LENGTH]
 
 
 def _resolve_date_convention(

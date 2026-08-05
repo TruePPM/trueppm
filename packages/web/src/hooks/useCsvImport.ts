@@ -1,6 +1,6 @@
 import { useMutation, useQuery, type UseMutationResult } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import { escapeField } from '@/utils/exportCsv';
+import { downloadCsv, escapeField } from '@/utils/exportCsv';
 
 /**
  * CSV / Excel import wizard data layer (#746, ADR-0632).
@@ -403,13 +403,5 @@ export function issuesToCsvString(issues: CsvRowIssue[]): string {
 
 /** Save {@link issuesToCsvString} as a download. */
 export function downloadIssuesCsv(issues: CsvRowIssue[]): void {
-  const blob = new Blob([issuesToCsvString(issues)], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = CSV_IMPORT_ERRORS_FILENAME;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
+  downloadCsv(issuesToCsvString(issues), CSV_IMPORT_ERRORS_FILENAME);
 }

@@ -92,6 +92,24 @@ ID,Name,Duration
 2,,5
 """
 
+
+def build_huge_header_nameless_csv(header_chars: int = 100_000, rows: int = 5) -> bytes:
+    """A sheet with enormous header cells and only nameless rows (#2732).
+
+    Header cells carry no length cap of their own, and a parked row's notes are
+    keyed by header — so an uncapped key is the one term that multiplies with the
+    row count. This is the shape that turns a small upload into gigabytes of
+    retained strings if `_raw_values` truncates only the value side.
+
+    Stays under Python's 131,072-char `csv` field limit; a longer cell raises
+    `_csv.Error`, which this parser does not translate (tracked separately).
+    """
+    long_header = "H" * header_chars
+    lines = [f"Name,{long_header},{long_header}2"]
+    lines += [f",{i},{i}" for i in range(1, rows + 1)]
+    return ("\n".join(lines) + "\n").encode()
+
+
 # An indent depth deep enough that, unclamped, it would blow past Postgres's
 # ltree label-count ceiling once routed through _wbs_paths_from_levels (#2761).
 # The parser must clamp it to MAX_OUTLINE_DEPTH rather than let it reach

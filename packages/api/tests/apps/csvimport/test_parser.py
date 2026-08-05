@@ -8,6 +8,8 @@ from __future__ import annotations
 import pytest
 
 from trueppm_api.apps.csvimport.parser import (
+    MAX_PARKED_NOTES_LENGTH,
+    MAX_PARKED_VALUE_LENGTH,
     REVIEW_BRANCH_NAME,
     SEVERITY_BY_CODE,
     UNRESOLVED_REASON,
@@ -31,6 +33,7 @@ from .fixtures import (
     NO_NAME_COLUMN_CSV,
     REFERENCE_CSV,
     SEMICOLON_CSV,
+    build_huge_header_nameless_csv,
     build_xlsx,
     build_zip_bomb,
 )
@@ -300,6 +303,24 @@ class TestImportReviewBranch:
         result = parse_spreadsheet(ALL_NAMELESS_CSV, "q3-plan.csv")
         by_name = {t.name: t for t in result.project_data.tasks}
         assert "q3-plan.csv" in by_name[REVIEW_BRANCH_NAME].notes
+
+    def test_a_parked_row_s_notes_are_bounded_by_a_huge_header(self) -> None:
+        """The notes key is header text, and it is written once per parked row.
+
+        Truncating only the value side leaves the *key* free to multiply with the
+        row count, which is how a sub-megabyte upload expands into gigabytes of
+        strings inside the worker.
+        """
+        content = build_huge_header_nameless_csv(header_chars=100_000, rows=5)
+        result = parse_spreadsheet(content, "wide.csv")
+
+        parked = [t for t in result.project_data.tasks if t.name.startswith("Row ")]
+        assert len(parked) == 5
+        for task in parked:
+            assert len(task.notes) <= MAX_PARKED_NOTES_LENGTH
+        for unresolved in result.unresolved_rows:
+            for header in unresolved.values:
+                assert len(header) <= MAX_PARKED_VALUE_LENGTH
 
     def test_parked_uids_do_not_collide_with_imported_rows(self) -> None:
         result = parse_spreadsheet(MESSY_CSV, "plan.csv")

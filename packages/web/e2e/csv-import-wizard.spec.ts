@@ -318,6 +318,7 @@ test.describe('CSV/Excel import wizard (#746)', () => {
     // Stated BEFORE the commit: the review branch must not be a surprise found
     // later at the bottom of the outline.
     await expect(dialog.getByText(/parked in an “Import review” branch/)).toBeVisible();
+    await expect(dialog.getByText('Parked for review')).toBeVisible();
     await dialog.getByRole('button', { name: /Import 10 tasks/ }).click();
 
     // The plan count is the plan, not the plan plus the placeholders.
@@ -327,7 +328,7 @@ test.describe('CSV/Excel import wizard (#746)', () => {
 
     // Grouped by cause, so one wrong column reads as one edit rather than as
     // N indistinguishable lines.
-    const problems = dialog.getByRole('region', { name: 'What we could not read' });
+    const problems = dialog.getByRole('region', { name: 'Rows with problems' });
     await expect(problems).toContainText('No task name — 2 rows');
     await expect(problems).toContainText('Row 7, Row 9');
     await expect(problems).toContainText('Unreadable duration — 1 row');

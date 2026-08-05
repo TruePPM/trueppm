@@ -417,6 +417,15 @@ import creates no special repair mode. Once the branch is empty, delete it too.
 The wizard says this **before** you commit, on the confirm step, so the branch is
 never something you discover afterwards.
 
+:::caution[Parked rows are project data, and they stay]
+A parked row's original cell values are stored on a real task and are readable by
+everyone on the project, down to the **Viewer** role — the same as any other
+imported task. Before this, an unresolvable row's values were discarded. So if a
+sheet carries columns you did not intend to import (rates, personal contact
+details), delete the review branch once you have worked through it rather than
+leaving it in the plan.
+:::
+
 Three summary fields describe it:
 
 | Field | Meaning |

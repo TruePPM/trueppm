@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 from datetime import date
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -198,7 +199,6 @@ class TestImportComputability:
 
 
 @pytest.mark.django_db
-@pytest.mark.django_db
 class TestImportReviewBranchPersists:
     """The parked rows have to be real outline tasks, not a summary field (#2732).
 
@@ -297,7 +297,55 @@ class TestImportReviewBranchPersists:
         parked.save(update_fields=["name"])
         assert Task.objects.filter(project=project, name="Site survey").exists()
 
+    def test_an_all_parked_import_still_tells_live_collaborators(
+        self,
+        project: Project,
+        django_capture_on_commit_callbacks: Any,
+    ) -> None:
+        """A file of only bad rows used to write nothing and broadcast nothing.
 
+        The `tasks_created > 0` guard in `import_csv` counts every row written,
+        review branch included, which is why this now fires. Pinned because the
+        guard reads a count: swapping it to `plan_tasks_created` — which is 0 on
+        exactly this branch — would silently restore the old silence with every
+        other test still green.
+
+        The broadcast is deferred with `transaction.on_commit`, which never runs
+        under pytest-django's wrapping transaction, so it has to be captured
+        rather than merely patched.
+        """
+        from trueppm_api.apps.csvimport.tasks import import_csv
+
+        from .fixtures import ALL_NAMELESS_CSV
+
+        req = CsvImportRequest.objects.create(
+            project=project,
+            filename="all-bad.csv",
+            file_content_b64=base64.b64encode(ALL_NAMELESS_CSV).decode("ascii"),
+            status=CsvImportStatus.DISPATCHED,
+        )
+        with (
+            patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast,
+            patch("trueppm_api.apps.scheduling.services.enqueue_recalculate") as recalculate,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            summary = import_csv.apply(
+                kwargs={
+                    "project_id": str(project.pk),
+                    "file_content_b64": req.file_content_b64,
+                    "filename": req.filename,
+                    "import_request_id": str(req.pk),
+                },
+                throw=True,
+            ).get()
+
+        assert summary["plan_tasks_created"] == 0
+        assert summary["parked_row_count"] == 2
+        broadcast.assert_any_call(str(project.pk), "tasks_restructured", {})
+        recalculate.assert_called_once_with(str(project.pk))
+
+
+@pytest.mark.django_db
 class TestImportTaskDeadLettering:
     def test_cyclic_file_marks_the_row_dead_and_creates_no_tasks(self, project: Project) -> None:
         from trueppm_api.apps.csvimport.tasks import import_csv

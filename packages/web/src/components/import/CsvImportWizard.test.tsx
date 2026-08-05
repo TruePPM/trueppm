@@ -218,7 +218,9 @@ describe('CsvImportWizard (#746)', () => {
     expect(screen.getByText(/Notes/)).toBeInTheDocument();
     // Rows that cannot join the plan and rows merely defaulted are stated
     // separately — they are different decisions for the operator.
-    expect(screen.getByText(/1 row can’t become a task/)).toBeInTheDocument();
+    expect(screen.getByText(/That row can’t become a task/)).toBeInTheDocument();
+    // The count itself lives in the <dl>, once (web-rule 284).
+    expect(screen.getByText('Parked for review')).toBeInTheDocument();
     expect(screen.getByText(/2 rows will import with a field defaulted/)).toBeInTheDocument();
   });
 
@@ -329,7 +331,7 @@ describe('CsvImportWizard (#746)', () => {
       );
       await advanceToResult(user, container, PARKED_SUMMARY);
 
-      const list = screen.getByRole('region', { name: 'What we could not read' });
+      const list = screen.getByRole('region', { name: 'Rows with problems' });
       // Largest cause first, with the rows it covers on one line — the shape of
       // the single edit that fixes them.
       expect(list).toHaveTextContent('No task name — 2 rows');

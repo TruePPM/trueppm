@@ -222,6 +222,11 @@ def import_csv(
             _record_summary(import_request_id, summary)
         tracker.set_result(summary)
 
+        # Deliberately `tasks_created`, not the `plan_tasks_created` written just
+        # above: the Import review branch is a committed write that live peers
+        # have to learn about, so this guard counts rows written rather than plan
+        # rows. Reading the plan count here would make an all-parked import
+        # silent again — the exact behavior #2732 exists to end.
         if summary.get("tasks_created", 0) > 0:
             # Trigger CPM via the outbox (survives a broker outage at this point)
             # and emit tasks_restructured so live clients render the imported tree

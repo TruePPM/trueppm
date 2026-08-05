@@ -103,6 +103,17 @@ function StepRail({ step }: { step: Step }) {
 const ROWS_SHOWN_PER_CAUSE = 12;
 
 /**
+ * One name for the diagnostics list on both the confirm and result steps.
+ *
+ * The same content under two names would be two different `region` landmarks
+ * two steps apart. "What we could not read" was the other candidate and is
+ * wrong on the result step specifically: the parked rows were understood well
+ * enough to be written into the outline with their values, which is the whole
+ * claim the step above it makes.
+ */
+const ROW_ISSUE_LIST_TITLE = 'Rows with problems';
+
+/**
  * Per-row problems, folded into one entry per cause (#2732).
  *
  * A flat list is unreadable at the size real sheets produce: one wrong date
@@ -126,24 +137,37 @@ function RowIssueList({
   /** Renders a "Download as CSV" action when supplied. */
   onDownload?: () => void;
 }) {
+  // Unconditional, so the region exists before its text does: a live region
+  // created in the same tick as its content does not reliably announce — the
+  // same reason UploadStep mounts its "Template downloaded." span up front.
+  const [downloaded, setDownloaded] = useState(false);
+  const groups = groupIssuesByCause(issues);
   if (issues.length === 0) return null;
   const toneClass = tone === 'error' ? 'text-semantic-critical' : 'text-semantic-at-risk';
-  const groups = groupIssuesByCause(issues);
   return (
     <section aria-label={title} className="flex flex-col gap-1">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h4 className={`text-xs font-semibold ${toneClass}`}>{title}</h4>
         {onDownload && (
           <button
             type="button"
-            onClick={onDownload}
-            className="rounded-control text-xs font-medium text-brand-primary hover:underline
-                  focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+            onClick={() => {
+              onDownload();
+              setDownloaded(true);
+            }}
+            className="h-11 rounded-control px-2 text-xs font-medium text-brand-primary
+                  hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary
+                  focus:ring-offset-1"
           >
             Download problem rows (CSV)
           </button>
         )}
       </div>
+      {/* A download changes nothing on the page, so without this it is
+          indistinguishable from a dead button for a screen-reader user. */}
+      <span aria-live="polite" className="sr-only">
+        {downloaded ? 'Problem rows downloaded.' : ''}
+      </span>
       <ul className="max-h-40 overflow-y-auto rounded-control border border-neutral-border text-xs">
         {groups.map((group) => (
           <li key={group.key} className="border-b border-neutral-border px-2 py-1 last:border-b-0">
@@ -152,8 +176,10 @@ function RowIssueList({
               {group.rows.length === 1 ? '1 row' : `${group.rows.length.toLocaleString()} rows`}
             </p>
             {/* Row numbers first on the second line: the operator's next action
-                is to open the spreadsheet at those rows. */}
-            <p className="font-mono text-neutral-text-secondary">
+                is to open the spreadsheet at those rows. `.tppm-mono` rather
+                than bare `font-mono` — a comma-joined run of numbers is exactly
+                what tabular figures are for (rule 8c). */}
+            <p className="tppm-mono text-neutral-text-secondary">
               {group.rows
                 .slice(0, ROWS_SHOWN_PER_CAUSE)
                 .map((r) => `Row ${r}`)
@@ -161,7 +187,12 @@ function RowIssueList({
               {group.rows.length > ROWS_SHOWN_PER_CAUSE &&
                 ` and ${(group.rows.length - ROWS_SHOWN_PER_CAUSE).toLocaleString()} more`}
             </p>
-            <p className="text-neutral-text-secondary">{group.example}</p>
+            {/* Suppressed when it would repeat the heading verbatim, which is
+                the shape of the no-`code` fallback: there the label IS the
+                message, and rendering both prints it twice. */}
+            {group.example !== group.label && (
+              <p className="text-neutral-text-secondary">{group.example}</p>
+            )}
           </li>
         ))}
       </ul>
@@ -490,6 +521,7 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
           commitPending={commitMut.isPending}
           taskCount={preview?.task_count ?? 0}
           tasksCreated={tasksCreated}
+          parkedCount={parkedCount}
           closeRef={closeRef}
           viewScheduleRef={viewScheduleRef}
           onClose={onClose}
@@ -804,17 +836,21 @@ function ConfirmStep({
                 Said HERE, at map/confirm time, rather than only in the result —
                 the operator should never be surprised by the review branch
                 after the fact (#2732). */}
+      {/* The count itself lives in the `<dl>` above; repeating it here would
+                render one number twice on one screen (web-rule 284). This
+                paragraph carries only what the count cannot say. */}
       {parkedCount > 0 && (
         <p className="text-sm text-semantic-at-risk">
-          {parkedCount} row{parkedCount === 1 ? '' : 's'} can&rsquo;t become {parkedCount === 1 ? 'a task' : 'tasks'}.{' '}
-          {parkedCount === 1 ? 'It' : 'They'} will be parked in an &ldquo;{reviewBranch}&rdquo;
-          branch at the bottom of the outline, with the values you wrote &mdash; nothing is dropped.
+          {parkedCount === 1 ? 'That row' : 'Those rows'} can&rsquo;t become{' '}
+          {parkedCount === 1 ? 'a task' : 'tasks'}, so {parkedCount === 1 ? 'it' : 'they'} will be
+          parked in an &ldquo;{reviewBranch}&rdquo; branch at the bottom of the outline, with the
+          values you wrote &mdash; nothing is dropped.
         </p>
       )}
       {preview.warning_count > 0 && (
         <p className="text-sm text-semantic-at-risk">
-          {preview.warning_count} row{preview.warning_count === 1 ? '' : 's'} will import with a
-          field defaulted.
+          {preview.warning_count.toLocaleString()} row{preview.warning_count === 1 ? '' : 's'} will
+          import with a field defaulted.
         </p>
       )}
       {/* Imported dates are constraints the engine re-derives, not gospel —
@@ -826,7 +862,17 @@ function ConfirmStep({
           project&rsquo;s calendar, so some dates may move.
         </p>
       )}
-      <RowIssueList issues={preview.row_errors} tone="error" title="Rows with problems" />
+      {/* The download is offered HERE too, not only on the result step: this is
+                the screen where the commit decision is made, and the grouped
+                list truncates each cause at ROWS_SHOWN_PER_CAUSE. A surface that
+                says it truncated has to offer a way past the cap on that same
+                surface. */}
+      <RowIssueList
+        issues={preview.row_errors}
+        tone="error"
+        title={ROW_ISSUE_LIST_TITLE}
+        onDownload={() => downloadIssuesCsv(preview.row_errors)}
+      />
       {commitErrorMsg && (
         <p role="alert" className="text-sm text-semantic-critical">
           {commitErrorMsg}
@@ -851,11 +897,14 @@ function outcomeSentence(
   noticeCount: number,
 ): string {
   return (
-    `Imported ${tasksCreated} task${tasksCreated === 1 ? '' : 's'}.` +
+    `Imported ${tasksCreated.toLocaleString()} task${tasksCreated === 1 ? '' : 's'}.` +
     (parkedCount > 0
-      ? ` ${parkedCount} row${parkedCount === 1 ? '' : 's'} parked in the “${reviewBranch}” branch.`
+      ? ` ${parkedCount.toLocaleString()} row${parkedCount === 1 ? '' : 's'} parked in the ` +
+        `“${reviewBranch}” branch.`
       : '') +
-    (noticeCount > 0 ? ` ${noticeCount} note${noticeCount === 1 ? '' : 's'} about this file.` : '')
+    (noticeCount > 0
+      ? ` ${noticeCount.toLocaleString()} note${noticeCount === 1 ? '' : 's'} about this file.`
+      : '')
   );
 }
 
@@ -906,7 +955,7 @@ function ResultStep({
         <RowIssueList
           issues={rowErrors}
           tone="error"
-          title="What we could not read"
+          title={ROW_ISSUE_LIST_TITLE}
           onDownload={() => downloadIssuesCsv(rowErrors)}
         />
       )}
@@ -926,6 +975,7 @@ function WizardFooter({
   commitPending,
   taskCount,
   tasksCreated,
+  parkedCount,
   closeRef,
   viewScheduleRef,
   onClose,
@@ -943,7 +993,10 @@ function WizardFooter({
   previewPending: boolean;
   commitPending: boolean;
   taskCount: number;
+  /** Plan tasks created — excludes the Import review branch. */
   tasksCreated: number;
+  /** Rows parked in that branch; they are in the outline too. */
+  parkedCount: number;
   closeRef: RefObject<HTMLButtonElement | null>;
   viewScheduleRef: RefObject<HTMLButtonElement | null>;
   onClose: () => void;
@@ -1013,10 +1066,15 @@ function WizardFooter({
                 text-neutral-text-inverse hover:bg-brand-primary-dark disabled:opacity-60
                 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
         >
-          {commitPending ? 'Importing…' : `Import ${taskCount} tasks`}
+          {commitPending ? 'Importing…' : `Import ${taskCount.toLocaleString()} tasks`}
         </button>
       )}
-      {step === 'result' && terminal && tasksCreated > 0 && (
+      {/* `parkedCount` is in the gate, not just `tasksCreated`: an import whose
+          rows ALL parked creates zero plan tasks but does put the operator's
+          data in the outline, and the result step tells them so. Gating on the
+          plan count alone would name the destination and remove the way there
+          (web-rule 290). */}
+      {step === 'result' && terminal && (tasksCreated > 0 || parkedCount > 0) && (
         <button
           ref={viewScheduleRef}
           type="button"
