@@ -707,6 +707,50 @@ def forecast_diagnostic(
     }
 
 
+def _rollup_one_summary(
+    sid: str, leaf_results: list[Any], db_task_by_id: dict[str, Any]
+) -> Any | None:
+    """Derive one summary task's synthetic CPM row from its leaf results (ADR-0105).
+
+    Returns ``None`` when no leaf carries both an early start and an early finish:
+    there is nothing to roll up, and a half-populated row would render a bar with
+    no span rather than no bar at all.
+    """
+    from datetime import timedelta
+
+    from trueppm_scheduler.models import Task as SchedTask
+
+    es_dates = [t.early_start for t in leaf_results if t.early_start is not None]
+    ef_dates = [t.early_finish for t in leaf_results if t.early_finish is not None]
+    if not es_dates or not ef_dates:
+        return None
+
+    ls_dates = [t.late_start for t in leaf_results if t.late_start is not None]
+    lf_dates = [t.late_finish for t in leaf_results if t.late_finish is not None]
+    # ADR-0752: a summary's span start is the earliest of its leaves' span
+    # starts — the same min-aggregation as early_start, so a leaf whose work
+    # actually began before its own remaining-work window (actual_start <
+    # early_start) still pulls the rolled-up summary bar's span left. Falls
+    # back to early_start when no leaf carries one (pre-#2622 synced rows).
+    ss_dates = [t.scheduled_start for t in leaf_results if t.scheduled_start is not None]
+    floats = [t.total_float for t in leaf_results if t.total_float is not None]
+
+    summary_sched = SchedTask(
+        id=sid,
+        name=db_task_by_id[sid].name if sid in db_task_by_id else sid,
+        duration=timedelta(days=0),
+    )
+    summary_sched.early_start = min(es_dates)
+    summary_sched.early_finish = max(ef_dates)
+    summary_sched.late_start = min(ls_dates) if ls_dates else summary_sched.early_start
+    summary_sched.late_finish = max(lf_dates) if lf_dates else summary_sched.early_finish
+    summary_sched.scheduled_start = min(ss_dates) if ss_dates else summary_sched.early_start
+    summary_sched.total_float = min(floats) if floats else timedelta(days=0)
+    summary_sched.free_float = timedelta(days=0)
+    summary_sched.is_critical = any(t.is_critical for t in leaf_results)
+    return summary_sched
+
+
 def apply_summary_rollups(
     result_map: dict[str, Any],
     summary_ids: set[str],
@@ -724,46 +768,16 @@ def apply_summary_rollups(
     merged ``children_map`` keys are globally-unique task ids, so this works
     unchanged across the per-project and program graphs.
     """
-    from datetime import timedelta
-
     from trueppm_scheduler.engine import _collect_leaves
-    from trueppm_scheduler.models import Task as SchedTask
 
     for sid in summary_ids:
         leaves = _collect_leaves(sid, children_map)
         leaf_results = [result_map[lid] for lid in leaves if lid in result_map]
         if not leaf_results:
             continue
-
-        es_dates = [t.early_start for t in leaf_results if t.early_start is not None]
-        ef_dates = [t.early_finish for t in leaf_results if t.early_finish is not None]
-        ls_dates = [t.late_start for t in leaf_results if t.late_start is not None]
-        lf_dates = [t.late_finish for t in leaf_results if t.late_finish is not None]
-        # ADR-0752: a summary's span start is the earliest of its leaves' span
-        # starts — the same min-aggregation as early_start, so a leaf whose work
-        # actually began before its own remaining-work window (actual_start <
-        # early_start) still pulls the rolled-up summary bar's span left. Falls
-        # back to early_start when no leaf carries one (pre-#2622 synced rows).
-        ss_dates = [t.scheduled_start for t in leaf_results if t.scheduled_start is not None]
-        floats = [t.total_float for t in leaf_results if t.total_float is not None]
-
-        if not es_dates or not ef_dates:
-            continue
-
-        summary_sched = SchedTask(
-            id=sid,
-            name=db_task_by_id[sid].name if sid in db_task_by_id else sid,
-            duration=timedelta(days=0),
-        )
-        summary_sched.early_start = min(es_dates)
-        summary_sched.early_finish = max(ef_dates)
-        summary_sched.late_start = min(ls_dates) if ls_dates else summary_sched.early_start
-        summary_sched.late_finish = max(lf_dates) if lf_dates else summary_sched.early_finish
-        summary_sched.scheduled_start = min(ss_dates) if ss_dates else summary_sched.early_start
-        summary_sched.total_float = min(floats) if floats else timedelta(days=0)
-        summary_sched.free_float = timedelta(days=0)
-        summary_sched.is_critical = any(t.is_critical for t in leaf_results)
-        result_map[sid] = summary_sched
+        rolled = _rollup_one_summary(sid, leaf_results, db_task_by_id)
+        if rolled is not None:
+            result_map[sid] = rolled
 
 
 # Capture-path dedup window (ADR-0154 §3): a recompute that produces an

@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 from django.utils import timezone
 
 if TYPE_CHECKING:
-    from trueppm_api.apps.projects.models import Project, ProjectTemplate
+    from trueppm_api.apps.projects.models import Project, ProjectTemplate, Task
 
 #: Current structure-document version. Bumped when the shape changes
 #: incompatibly; ``materialize_structure`` refuses a version it does not know
@@ -170,15 +170,8 @@ def extract_structure(project: Project) -> dict[str, Any]:
     }
 
 
-def validate_structure(structure: Any) -> dict[str, Any]:
-    """Check a structure document before it is turned into somebody's rows.
-
-    Run at publish **and again at apply**. The second run is not belt-and-braces:
-    ``structure`` is a JSONB column, so a template row can be edited by any path
-    that reaches the database, and the apply job is the one that turns it into rows
-    in a project. Validating only on the way in would trust a value that a
-    different writer may have replaced.
-    """
+def _validate_structure_envelope(structure: Any) -> tuple[dict[str, Any], list[Any]]:
+    """Check the document wrapper; return the narrowed document and its task list."""
     if not isinstance(structure, dict):
         raise TemplateStructureError("Structure must be an object.")
     version = structure.get("version")
@@ -195,6 +188,11 @@ def validate_structure(structure: Any) -> dict[str, Any]:
         raise TemplateStructureError(
             f"Structure carries {len(tasks)} tasks; the ceiling is {MAX_TEMPLATE_NODES}."
         )
+    return structure, tasks
+
+
+def _validate_task_nodes(tasks: list[Any]) -> set[str]:
+    """Check every task node and return the set of refs they declare."""
     refs: set[str] = set()
     for node in tasks:
         if not isinstance(node, dict) or not node.get("name"):
@@ -203,7 +201,12 @@ def validate_structure(structure: Any) -> dict[str, Any]:
         if not ref or ref in refs:
             raise TemplateStructureError("Every task node needs a unique ref.")
         refs.add(str(ref))
-    for edge in structure.get("dependencies") or []:
+    return refs
+
+
+def _validate_dependency_edges(edges: Any, refs: set[str]) -> None:
+    """Check every dependency edge resolves to a task node in the same document."""
+    for edge in edges or []:
         if not isinstance(edge, dict):
             raise TemplateStructureError("Every dependency must be an object.")
         # A dangling edge would silently vanish at materialize time, so the
@@ -211,7 +214,64 @@ def validate_structure(structure: Any) -> dict[str, Any]:
         # the adopter chose it for.
         if str(edge.get("predecessor")) not in refs or str(edge.get("successor")) not in refs:
             raise TemplateStructureError("Dependency references a task not in this template.")
-    return structure
+
+
+def validate_structure(structure: Any) -> dict[str, Any]:
+    """Check a structure document before it is turned into somebody's rows.
+
+    Run at publish **and again at apply**. The second run is not belt-and-braces:
+    ``structure`` is a JSONB column, so a template row can be edited by any path
+    that reaches the database, and the apply job is the one that turns it into rows
+    in a project. Validating only on the way in would trust a value that a
+    different writer may have replaced.
+    """
+    document, tasks = _validate_structure_envelope(structure)
+    refs = _validate_task_nodes(tasks)
+    _validate_dependency_edges(document.get("dependencies"), refs)
+    return document
+
+
+def _build_template_task_row(
+    node: dict[str, Any],
+    *,
+    project: Project,
+    template: ProjectTemplate,
+    short_id: str,
+    seeded_at: Any,
+) -> Task:
+    """Build one unsaved ``Task`` from a template node.
+
+    No dates are written: durations are carried and the schedule comes from the
+    adopter's calendar via the CPM pass the caller enqueues afterwards. Writing the
+    publisher's dates here is the defect ADR-0789 §1 exists to prevent.
+    """
+    from trueppm_api.apps.projects.models import Task, TaskSource
+
+    row = Task(
+        project=project,
+        name=str(node["name"])[:512],
+        duration=int(node.get("duration") or 0),
+        is_milestone=bool(node.get("is_milestone")),
+        notes=str(node.get("notes") or ""),
+        short_id=short_id,
+        wbs_path=node.get("wbs_path") or None,
+        server_version=1,
+    )
+    for field in ("delivery_mode", "governance_class", "type"):
+        value = node.get(field)
+        if value:
+            setattr(row, field, value)
+    if node.get("is_subtask"):
+        row.is_subtask = True
+    # Seed provenance (ADR-0786, #2730). edited_at is deliberately left null:
+    # a machine wrote this row and nobody has touched it, which is exactly what
+    # makes it eligible for the "Delete untouched rows (N)" sweep — and what
+    # lets undo tell a seeded row from one somebody has since typed into.
+    row.source_kind = TaskSource.TEMPLATE
+    row.source_id = template.id
+    row.source_version = str(template.version)
+    row.seeded_at = seeded_at
+    return row
 
 
 def materialize_structure(
@@ -242,7 +302,7 @@ def materialize_structure(
     """
     from django.db.models import F
 
-    from trueppm_api.apps.projects.models import Dependency, Task, TaskSource
+    from trueppm_api.apps.projects.models import Dependency, Task
     from trueppm_api.apps.projects.models import (
         Project as ProjectModel,
     )
@@ -265,30 +325,13 @@ def materialize_structure(
     ref_to_task: dict[str, Task] = {}
     rows: list[Task] = []
     for i, node in enumerate(nodes):
-        row = Task(
+        row = _build_template_task_row(
+            node,
             project=project,
-            name=str(node["name"])[:512],
-            duration=int(node.get("duration") or 0),
-            is_milestone=bool(node.get("is_milestone")),
-            notes=str(node.get("notes") or ""),
+            template=template,
             short_id=f"{start_seq + i:06X}"[-8:],
-            wbs_path=node.get("wbs_path") or None,
-            server_version=1,
+            seeded_at=seeded_at,
         )
-        for field in ("delivery_mode", "governance_class", "type"):
-            value = node.get(field)
-            if value:
-                setattr(row, field, value)
-        if node.get("is_subtask"):
-            row.is_subtask = True
-        # Seed provenance (ADR-0786, #2730). edited_at is deliberately left null:
-        # a machine wrote this row and nobody has touched it, which is exactly what
-        # makes it eligible for the "Delete untouched rows (N)" sweep — and what
-        # lets undo below tell a seeded row from one somebody has since typed into.
-        row.source_kind = TaskSource.TEMPLATE
-        row.source_id = template.id
-        row.source_version = str(template.version)
-        row.seeded_at = seeded_at
         rows.append(row)
         ref_to_task[str(node["ref"])] = row
 

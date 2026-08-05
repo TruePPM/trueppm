@@ -266,6 +266,70 @@ def _discard_seed_payload(path: str) -> None:
         logging.getLogger(__name__).warning("could not discard orphaned seed payload %s", path)
 
 
+def _read_seed_json_body(
+    request: Request, max_bytes: int, too_large: _SeedPayloadProblem
+) -> tuple[Any, _SeedPayloadProblem | None]:
+    """Read a seed document from a raw JSON request body.
+
+    This path used to be capped only by DATA_UPLOAD_MAX_MEMORY_SIZE (100 MB), so
+    posting the same document as a body instead of a file bypassed
+    SEED_MAX_UPLOAD_MB entirely. Gate on the raw bytes: ``request.body`` is the
+    undecoded payload, so this measures what actually arrived rather than a
+    declared Content-Length that may be absent under chunked transfer-encoding.
+    """
+    try:
+        raw = request.body
+    except Exception:
+        # Stream already consumed (a multipart request with no ``file`` part
+        # reaches here). Fall back to the parsed form data, which is bounded by
+        # DATA_UPLOAD_MAX_MEMORY_SIZE and carries no document.
+        raw = None
+
+    if raw is None:
+        data = request.data
+    else:
+        if len(raw) > max_bytes:
+            return None, too_large
+        try:
+            data = json.loads(raw.decode("utf-8")) if raw else request.data
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            return None, _SeedPayloadProblem(
+                detail=f"Request body is not valid JSON: {exc}",
+                is_document_level=True,
+            )
+
+    if hasattr(data, "items"):
+        # On the multipart path the control fields sit beside ``file`` and never
+        # touch the document. On the JSON-body path there is only one object, so
+        # they arrive *inside* it — and the seed schema is
+        # ``additionalProperties: false``, which would reject the whole document
+        # with "'replace' was unexpected". Strip them here so both request shapes
+        # present the same document to the validator.
+        return {k: v for k, v in data.items() if k not in _SEED_CONTROL_FIELDS}, None
+    return data, None
+
+
+def _read_seed_multipart(
+    request: Request, max_bytes: int, too_large: _SeedPayloadProblem
+) -> tuple[Any, _SeedPayloadProblem | None]:
+    """Read a seed document from the multipart ``file`` part."""
+    upload = request.FILES.get("file")
+    if upload is None:
+        return request.data, None
+
+    # Bound the in-memory parse: an authenticated user must not be able
+    # to exhaust memory with a giant upload (mirrors the MSP importer).
+    if upload.size is not None and upload.size > max_bytes:
+        return None, too_large
+    try:
+        return json.loads(upload.read().decode("utf-8")), None
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        return None, _SeedPayloadProblem(
+            detail=f"Uploaded file is not valid JSON: {exc}",
+            is_document_level=True,
+        )
+
+
 def _read_seed_payload(request: Request) -> tuple[Any, _SeedPayloadProblem | None]:
     """Read a seed document from a multipart ``file`` or a raw JSON body.
 
@@ -287,56 +351,8 @@ def _read_seed_payload(request: Request) -> tuple[Any, _SeedPayloadProblem | Non
     # function exists to bound, and any size check after it could only change the
     # response, never the memory cost.
     if not (request.content_type or "").startswith("multipart/"):
-        # Raw-JSON-body branch. It used to be capped only by
-        # DATA_UPLOAD_MAX_MEMORY_SIZE (100 MB), so posting the same document as a
-        # body instead of a file bypassed SEED_MAX_UPLOAD_MB entirely. Gate on
-        # the raw bytes: ``request.body`` is the undecoded payload, so this
-        # measures what actually arrived rather than a declared Content-Length
-        # that may be absent under chunked transfer-encoding.
-        try:
-            raw = request.body
-        except Exception:
-            # Stream already consumed (a multipart request with no ``file``
-            # part reaches here). Fall back to the parsed form data, which is
-            # bounded by DATA_UPLOAD_MAX_MEMORY_SIZE and carries no document.
-            raw = None
-        if raw is not None:
-            if len(raw) > max_bytes:
-                return None, too_large
-            try:
-                data = json.loads(raw.decode("utf-8")) if raw else request.data
-            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-                return None, _SeedPayloadProblem(
-                    detail=f"Request body is not valid JSON: {exc}",
-                    is_document_level=True,
-                )
-        else:
-            data = request.data
-        if hasattr(data, "items"):
-            # On the multipart path the control fields sit beside ``file`` and
-            # never touch the document. On the JSON-body path there is only one
-            # object, so they arrive *inside* it — and the seed schema is
-            # ``additionalProperties: false``, which would reject the whole
-            # document with "'replace' was unexpected". Strip them here so both
-            # request shapes present the same document to the validator.
-            return {k: v for k, v in data.items() if k not in _SEED_CONTROL_FIELDS}, None
-        return data, None
-
-    upload = request.FILES.get("file")
-    if upload is None:
-        return request.data, None
-
-    # Bound the in-memory parse: an authenticated user must not be able
-    # to exhaust memory with a giant upload (mirrors the MSP importer).
-    if upload.size is not None and upload.size > max_bytes:
-        return None, too_large
-    try:
-        return json.loads(upload.read().decode("utf-8")), None
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        return None, _SeedPayloadProblem(
-            detail=f"Uploaded file is not valid JSON: {exc}",
-            is_document_level=True,
-        )
+        return _read_seed_json_body(request, max_bytes, too_large)
+    return _read_seed_multipart(request, max_bytes, too_large)
 
 
 class SeedValidateThrottle(UserRateThrottle):

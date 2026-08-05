@@ -91,6 +91,18 @@ CODE_TOMBSTONED = "tombstoned"
 #: A cascade crossed a milestone, which is a gate rather than a failure (#2723 §4).
 CODE_MILESTONE_GATE = "milestone_gate"
 
+#: Rejection text for a progress write with nothing to anchor the work to.
+#:
+#: Emitted from all three op handlers (create, update, delete-cascade), so it lives
+#: here rather than being repeated — the three must stay identical, since clients
+#: match on the pair (code, message) and a drifted copy reads as a different error.
+MSG_PROGRESS_NEEDS_ANCHOR = (
+    "Cannot record progress without a planned start date or sprint assignment."
+)
+
+#: One resolved edge awaiting the graph guard: (row index, raw row, predecessor, successor).
+_EdgeEntry = tuple[int, dict[str, Any], str, str]
+
 #: Maximum operations in one batch.
 #:
 #: ADR-0772 decides that a cap is *required* and leaves the value to #2723. 500
@@ -235,6 +247,43 @@ def _first_error_message(exc: DRFValidationError) -> str:
     return str(detail)
 
 
+def _validate_or_reject(ser: Any, index: int, row_id: Any, out: BulkOutcome) -> bool:
+    """Validate one row's serializer, converting a known failure to a rejection.
+
+    Returns ``True`` when the row validated and the caller may save.
+
+    The three failures are caught separately rather than as one ``Exception`` arm
+    because clients match on the pair ``(code, message)`` and each carries a
+    different remediation. ``ProgressAnchorError`` and ``MilestoneRollupLockedError``
+    both derive from plain ``Exception``, not from ``DRFValidationError``, so the
+    order of the arms is not load-bearing.
+
+    Safe to use on the create path even though ``MilestoneRollupLockedError`` cannot
+    arise there: ``_enforce_milestone_rollup_lock`` short-circuits on
+    ``self.instance is None``, so that arm is dead for an unbound serializer rather
+    than newly-reachable behavior.
+    """
+    from trueppm_api.apps.projects.serializers import (
+        MilestoneRollupLockedError,
+        ProgressAnchorError,
+    )
+
+    try:
+        ser.is_valid(raise_exception=True)
+    except ProgressAnchorError:
+        out.reject(index, row_id, CODE_INVALID, MSG_PROGRESS_NEEDS_ANCHOR)
+        return False
+    except MilestoneRollupLockedError:
+        out.reject(
+            index, row_id, CODE_INVALID, "This milestone's progress is rolled up from a sprint."
+        )
+        return False
+    except DRFValidationError as exc:
+        out.reject(index, row_id, CODE_INVALID, _first_error_message(exc))
+        return False
+    return True
+
+
 def _milestone_gate_applies(task: Task, data: dict[str, Any]) -> bool:
     """Whether a classification op must skip this row rather than re-type it (#2723 §4).
 
@@ -337,13 +386,39 @@ def _spawn_subtask_under(parent_task: Task, task: Task, ctx: BulkContext, out: B
         out.updated_ids.append(parent_task.pk)
 
 
+def _apply_recreate_as_edit(
+    index: int,
+    row_id: uuid.UUID | None,
+    existing: Task,
+    data: dict[str, Any],
+    ctx: BulkContext,
+    out: BulkOutcome,
+) -> None:
+    """Apply a ``create`` whose id already exists as an in-place edit (ADR-0772 guard 4).
+
+    The row landed in a prior batch, so this is an idempotent re-create. It is applied
+    under the STRICTER *edit* bar, not the create bar. Getting that backwards is the
+    trap the guard names: it would turn a client-mintable id into a privilege-escalation
+    primitive, letting a Member mint the id of somebody else's task and rewrite it as a
+    "create".
+    """
+    from trueppm_api.apps.projects.serializers import TaskSerializer
+
+    if not can_user_edit_task(ctx.request, existing, method="PATCH"):
+        out.reject(index, row_id, CODE_FORBIDDEN, "You may not edit this task.")
+        return
+    ser = TaskSerializer(existing, data=data, partial=True, context=_row_serializer_context(ctx))
+    if not _validate_or_reject(ser, index, row_id, out):
+        return
+    task = ser.save()
+    out.updated_ids.append(task.pk)
+    out.applied.append({"index": index, "id": str(task.pk), "op": "create", "outcome": "updated"})
+    _note_project_start_shift(task, out)
+
+
 def _apply_create(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOutcome) -> None:
     """Apply one ``create`` op, honoring the four client-minted-id guards."""
-    from trueppm_api.apps.projects.serializers import (
-        MilestoneRollupLockedError,
-        ProgressAnchorError,
-        TaskSerializer,
-    )
+    from trueppm_api.apps.projects.serializers import TaskSerializer
     from trueppm_api.apps.projects.services import maybe_record_scope_injection
 
     data = dict(op.get("data") or {})
@@ -380,41 +455,7 @@ def _apply_create(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOut
     is_subtask = str(data.pop("is_subtask", "") or "").lower() in ("true", "1")
 
     if existing is not None:
-        # Idempotent re-create: the row already landed in a prior batch. Apply it as
-        # an in-place edit under the STRICTER edit bar. Getting this backwards is the
-        # trap ADR-0772 guard 4 names — it would turn a client-mintable id into a
-        # privilege-escalation primitive, letting a Member mint the id of somebody
-        # else's task and rewrite it as a "create".
-        if not can_user_edit_task(ctx.request, existing, method="PATCH"):
-            out.reject(index, row_id, CODE_FORBIDDEN, "You may not edit this task.")
-            return
-        ser = TaskSerializer(
-            existing, data=data, partial=True, context=_row_serializer_context(ctx)
-        )
-        try:
-            ser.is_valid(raise_exception=True)
-        except ProgressAnchorError:
-            out.reject(
-                index,
-                row_id,
-                CODE_INVALID,
-                "Cannot record progress without a planned start date or sprint assignment.",
-            )
-            return
-        except MilestoneRollupLockedError:
-            out.reject(
-                index, row_id, CODE_INVALID, "This milestone's progress is rolled up from a sprint."
-            )
-            return
-        except DRFValidationError as exc:
-            out.reject(index, row_id, CODE_INVALID, _first_error_message(exc))
-            return
-        task = ser.save()
-        out.updated_ids.append(task.pk)
-        out.applied.append(
-            {"index": index, "id": str(task.pk), "op": "create", "outcome": "updated"}
-        )
-        _note_project_start_shift(task, out)
+        _apply_recreate_as_edit(index, row_id, existing, data, ctx, out)
         return
 
     # Hierarchy placement (#2724). A batch's rows apply in `operations` order
@@ -430,18 +471,7 @@ def _apply_create(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOut
     ser = TaskSerializer(
         data={**data, "project": str(ctx.project.pk)}, context=_row_serializer_context(ctx)
     )
-    try:
-        ser.is_valid(raise_exception=True)
-    except ProgressAnchorError:
-        out.reject(
-            index,
-            row_id,
-            CODE_INVALID,
-            "Cannot record progress without a planned start date or sprint assignment.",
-        )
-        return
-    except DRFValidationError as exc:
-        out.reject(index, row_id, CODE_INVALID, _first_error_message(exc))
+    if not _validate_or_reject(ser, index, row_id, out):
         return
 
     # The client's UUID becomes the primary key verbatim — never remapped. It is
@@ -462,11 +492,7 @@ def _apply_create(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOut
 
 def _apply_update(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOutcome) -> None:
     """Apply one ``update`` op under the per-row edit bar."""
-    from trueppm_api.apps.projects.serializers import (
-        MilestoneRollupLockedError,
-        ProgressAnchorError,
-        TaskSerializer,
-    )
+    from trueppm_api.apps.projects.serializers import TaskSerializer
 
     task = _resolve_target(index, op, ctx, out)
     if task is None:
@@ -490,23 +516,7 @@ def _apply_update(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOut
         return
 
     ser = TaskSerializer(task, data=data, partial=True, context=_row_serializer_context(ctx))
-    try:
-        ser.is_valid(raise_exception=True)
-    except ProgressAnchorError:
-        out.reject(
-            index,
-            task.pk,
-            CODE_INVALID,
-            "Cannot record progress without a planned start date or sprint assignment.",
-        )
-        return
-    except MilestoneRollupLockedError:
-        out.reject(
-            index, task.pk, CODE_INVALID, "This milestone's progress is rolled up from a sprint."
-        )
-        return
-    except DRFValidationError as exc:
-        out.reject(index, task.pk, CODE_INVALID, _first_error_message(exc))
+    if not _validate_or_reject(ser, index, task.pk, out):
         return
 
     saved = ser.save()
@@ -662,7 +672,7 @@ def _cycle_edge_pairs(cycle_path: list[str]) -> set[tuple[str, str]]:
 
 def _resolve_edges(
     edge_rows: list[dict[str, Any]], ctx: BulkContext, out: BulkOutcome
-) -> list[tuple[int, dict[str, Any], str, str]]:
+) -> list[_EdgeEntry]:
     """Resolve and role-gate every proposed edge; return the survivors.
 
     Two gates, both per-edge rather than per-request, so a Member's task rows still
@@ -670,7 +680,7 @@ def _resolve_edges(
     """
     from trueppm_api.apps.projects.models import Task
 
-    survivors: list[tuple[int, dict[str, Any], str, str]] = []
+    survivors: list[_EdgeEntry] = []
     for index, row in enumerate(edge_rows):
         # Dependency ops sit at IsProjectScheduler — one role ABOVE this view's
         # IsProjectMemberWrite floor. Accepting edges under the view's own gate
@@ -707,9 +717,33 @@ def _resolve_edges(
     return survivors
 
 
+def _drop_offending_edges(
+    remaining: list[_EdgeEntry],
+    offending_pairs: set[tuple[str, str]],
+    out: BulkOutcome,
+    code: str,
+    message: str,
+    offending: list[str],
+) -> list[_EdgeEntry] | None:
+    """Reject the batch edges the guard blamed; return the survivors.
+
+    Returns ``None`` when nothing was dropped. That is the terminating signal for
+    the caller's loop: every edge the guard named is already persisted, so this
+    batch offered nothing on the offending path and rejecting more of its own rows
+    cannot clear the condition.
+    """
+    kept = [entry for entry in remaining if (entry[2], entry[3]) not in offending_pairs]
+    if len(kept) == len(remaining):
+        return None
+    for index, _row, pred, succ in remaining:
+        if (pred, succ) in offending_pairs:
+            out.dep_reject(index, code, message, offending=offending)
+    return kept
+
+
 def _guard_edge_graph(
-    survivors: list[tuple[int, dict[str, Any], str, str]], ctx: BulkContext, out: BulkOutcome
-) -> list[tuple[int, dict[str, Any], str, str]]:
+    survivors: list[_EdgeEntry], ctx: BulkContext, out: BulkOutcome
+) -> list[_EdgeEntry]:
     """Run the ADR-0259 graph guard over existing ∪ batch edges, before any write.
 
     The guard is absolute over what gets written, and what it refuses to write is
@@ -748,41 +782,25 @@ def _guard_edge_graph(
         try:
             validate_task_graph(persisted + batch_edges, children_map=children_map)
         except InfeasibleGraphError as exc:
+            # Both verdicts reduce to the same shape — a set of offending (pred, succ)
+            # pairs — so they share one rejection pass. A self-reference is the edge
+            # (x, x) for each blamed node x; a cycle is the adjacent pairs along the
+            # reported path.
             if exc.reason == "self_reference":
-                offending = set(exc.offending)
-                kept = []
-                for entry in remaining:
-                    _idx, _row, pred, succ = entry
-                    if pred == succ and pred in offending:
-                        out.dep_reject(
-                            _idx,
-                            CODE_SELF_REFERENCE,
-                            "A task cannot depend on itself.",
-                            offending=exc.offending,
-                        )
-                    else:
-                        kept.append(entry)
-                if len(kept) == len(remaining):
-                    break
-                remaining = kept
-                continue
+                offending_pairs = {(node, node) for node in exc.offending}
+                code = CODE_SELF_REFERENCE
+                message = "A task cannot depend on itself."
+            else:
+                offending_pairs = _cycle_edge_pairs(exc.offending)
+                code = CODE_CYCLIC_DEPENDENCY
+                message = "This dependency would create a cycle."
 
-            on_cycle = _cycle_edge_pairs(exc.offending)
-            kept = []
-            for entry in remaining:
-                _idx, _row, pred, succ = entry
-                if (pred, succ) in on_cycle:
-                    out.dep_reject(
-                        _idx,
-                        CODE_CYCLIC_DEPENDENCY,
-                        "This dependency would create a cycle.",
-                        offending=exc.offending,
-                    )
-                else:
-                    kept.append(entry)
-            if len(kept) == len(remaining):
-                # The cycle lies entirely in already-persisted edges — nothing this
-                # batch offered is on it, so dropping more of our own rows cannot help.
+            kept = _drop_offending_edges(
+                remaining, offending_pairs, out, code, message, exc.offending
+            )
+            if kept is None:
+                # Nothing of ours is on the offending path — it lies entirely in
+                # already-persisted edges, so dropping more of our own rows cannot help.
                 break
             remaining = kept
             continue
