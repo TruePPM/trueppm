@@ -148,6 +148,13 @@ const SAGE_600 = '#3E8C6D'; // sage-600 — light on-track / today
 const SAGE_700 = '#316F57'; // sage-700 — light brand-primary affordance, 5.93:1 on white
 const SAGE_400 = '#66B998'; // sage-400 — dark on-track / today / affordance, holds on navy
 
+// Agile violet stops (globals.css --violet/--agile), named once for the same reason
+// the sage stops are: the delivery-mode cue and the sprint-window band MUST be the
+// same hue — the band is a claim about the bars it covers, and two independently
+// spelled violets could drift apart in review without either looking wrong.
+const VIOLET_600 = '#6D4AC4'; // violet-600 — light agile accent (BurnChart, scrum gutter)
+const VIOLET_400 = '#A78BFA'; // violet-400 — dark agile accent, reads on navy
+
 export const COLOR = {
   surface: '#FFFFFF',
   rowBandAlt: 'rgba(0,0,0,0.02)',
@@ -221,7 +228,7 @@ export const COLOR = {
   // Hues chosen to not collide with any existing bar-state color (info blue,
   // sage complete/today, critical red, slate summary, amber milestone, navy
   // selection ring).
-  deliveryScrum: '#6D4AC4', // same hue as --violet/--agile (globals.css) — already the codebase's agile-methodology accent (BurnChart)
+  deliveryScrum: VIOLET_600, // --violet/--agile (globals.css) — the codebase's agile-methodology accent (BurnChart)
   deliveryKanban: '#0D9488', // teal-600 — same hue as --teal/--kanban (globals.css), shared with ScheduleLegend's KanbanSwatch
   // Texture stroke/dot color — low alpha so the pattern reads as a secondary
   // cue and never fights the progress overlay's own 30%-alpha black tint.
@@ -244,7 +251,7 @@ export const COLOR = {
   // Window edges + the name pill. Full-strength violet: the two vertical rules
   // ARE the sprint window, so they carry the fact even where the wash washes out
   // against the weekend shading.
-  sprintBandEdge: '#6D4AC4',
+  sprintBandEdge: VIOLET_600,
   // Band hatch — the same diagonal direction as the scrum bar texture, at a
   // wider pitch (see SPRINT_BAND_HATCH_PITCH) because it covers a whole region
   // rather than an 18px bar. Tinted violet rather than reusing deliveryTexture's
@@ -300,7 +307,7 @@ export const COLOR_DARK: ColorPalette = {
   // barComplete / todayLine; #1666).
   linkPreview: SAGE_400, // sage-400 — brand-primary (dark)
   filterMarker: SAGE_400,
-  deliveryScrum: '#A78BFA', // same hue as --violet/--agile dark (globals.css) — readable on the dark navy surface
+  deliveryScrum: VIOLET_400, // --violet/--agile dark (globals.css) — readable on the dark navy surface
   deliveryKanban: '#2DD4BF', // teal-400 — same hue as --teal/--kanban dark (globals.css)
   deliveryTexture: 'rgba(255,255,255,0.14)',
   // Sprint band on the dark navy surface (#2738) — the lighter violet stop, the
@@ -308,7 +315,7 @@ export const COLOR_DARK: ColorPalette = {
   // a 5.5% tint that reads on white disappears on navy.
   sprintBandFill: 'rgba(167,139,250,0.09)',
   chipTextOnHighlight: '#1A1917', // ink on the light violet-400 pill (issue #1032 flip)
-  sprintBandEdge: '#A78BFA', // violet-400 — same hue as --agile dark
+  sprintBandEdge: VIOLET_400, // violet-400 — --agile dark
   sprintBandTexture: 'rgba(167,139,250,0.18)',
 };
 
