@@ -101,15 +101,23 @@ def apply_template(self: Any, application_id: str) -> dict[str, Any]:
                 # asked for a skeleton and did not get one.
                 raise TemplateStructureError("Template no longer exists.")
             project_id = str(application.project_id)
-            created = materialize_structure(
+            result = materialize_structure(
                 application.template,
                 application.project,
                 applied_by=application.applied_by,
             )
+            created = result.task_ids
             application.created_task_ids = created
             application.status = TemplateApplicationStatus.SUCCESS
             application.completed_at = timezone.now()
-            application.result_summary = {"tasks_created": len(created)}
+            # Counts feed the seed banner (#2731, ADR-0799 §2) — read off what
+            # materialize_structure already built in memory, never re-derived from
+            # a second query against the rows it just wrote.
+            application.result_summary = {
+                "tasks_created": len(created),
+                "milestones_created": result.milestones_created,
+                "dependencies_created": result.dependencies_created,
+            }
             application.save(
                 update_fields=[
                     "created_task_ids",

@@ -16,9 +16,16 @@ import type { CreatedProjectIntent } from './NewProjectModal';
  * - AGILE + `templateApplied` → the product backlog, with `?seeding=1` so
  *   `ProductBacklogPage` treats a momentarily-empty backlog as "still filling" from
  *   the fire-and-forget template apply (ADR-0789 §4) rather than genuinely empty.
- * - Everything else (blank project, import way, WATERFALL/HYBRID template) →
- *   Overview, unchanged from before this issue. The WATERFALL/HYBRID equivalent of
- *   the seeded-landing branch is #2731's concern, not built here.
+ * - Non-AGILE + `templateApplicationId` → the Schedule, with the seed banner
+ *   polling that application for its `result_summary` counts (ADR-0799 §1). Gated
+ *   on the id rather than on `templateApplied` because a failed dispatch leaves
+ *   nothing to poll — that case falls through to Overview rather than landing on a
+ *   banner that can never resolve.
+ * - Everything else (blank project, import way) → Overview.
+ *
+ * The three seeded branches are mutually exclusive by construction: `way` is one of
+ * `'template' | 'blank' | 'import'`, so `importCsv` and a template application can
+ * never both be set.
  */
 export function createdProjectDestination(
   projectId: string,
@@ -27,6 +34,9 @@ export function createdProjectDestination(
   if (intent?.importCsv) return `/projects/${projectId}/schedule?import=csv`;
   if (intent?.templateApplied && intent.methodology === 'AGILE') {
     return `/projects/${projectId}/product-backlog?seeding=1`;
+  }
+  if (intent?.templateApplicationId && intent.methodology !== 'AGILE') {
+    return `/projects/${projectId}/schedule?templateApplication=${intent.templateApplicationId}`;
   }
   return `/projects/${projectId}/overview`;
 }

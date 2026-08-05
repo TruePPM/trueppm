@@ -52,6 +52,7 @@ import {
   NoteIcon,
   OutdentIcon,
   PencilIcon,
+  SeededUntouchedIcon,
   SlidersIcon,
   TrashIcon,
   UndoIcon,
@@ -1753,6 +1754,18 @@ function TaskListRowInner({
           onToggleId={onToggleId}
           tabIndex={rovingChildTabIndex}
         />
+
+        {/* Seeded-and-untouched tick (#2731, ADR-0799 §4) — a machine wrote this
+            row and nobody has looked at it yet. Disappears the moment anyone
+            touches the row (`isUntouchedSeed` flips false server-side), so it
+            never lingers as stale provenance chrome. */}
+        {task.isUntouchedSeed && (
+          <SeededUntouchedIcon
+            className="mr-1 inline-block h-3 w-3 shrink-0 align-[-0.125em] text-neutral-text-secondary"
+            aria-hidden="true"
+            data-testid="seeded-untouched-glyph"
+          />
+        )}
 
         {/* Milestone diamond indicator */}
         {task.isMilestone && (

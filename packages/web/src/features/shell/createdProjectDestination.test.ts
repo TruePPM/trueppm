@@ -22,16 +22,44 @@ describe('createdProjectDestination', () => {
     ).toBe('/projects/p1/product-backlog?seeding=1');
   });
 
-  it('lands a WATERFALL template application on Overview — not this issue’s branch', () => {
+  it('lands a WATERFALL template application on the seeded Schedule (#2731)', () => {
+    expect(
+      createdProjectDestination('p1', {
+        templateApplied: true,
+        methodology: 'WATERFALL',
+        templateApplicationId: 'app-1',
+      }),
+    ).toBe('/projects/p1/schedule?templateApplication=app-1');
+  });
+
+  it('lands a HYBRID template application on the seeded Schedule (#2731)', () => {
+    expect(
+      createdProjectDestination('p1', {
+        templateApplied: true,
+        methodology: 'HYBRID',
+        templateApplicationId: 'app-2',
+      }),
+    ).toBe('/projects/p1/schedule?templateApplication=app-2');
+  });
+
+  it('falls back to Overview when the apply dispatch failed and left no id to poll', () => {
+    // `templateApplied` without `templateApplicationId` is the 202-never-resolved
+    // case: landing on the seed banner would show a poll that can never complete.
     expect(
       createdProjectDestination('p1', { templateApplied: true, methodology: 'WATERFALL' }),
     ).toBe('/projects/p1/overview');
   });
 
-  it('lands a HYBRID template application on Overview — not this issue’s branch', () => {
+  it('keeps an AGILE template on the backlog even when an application id is present', () => {
+    // The two seeded landings are gated on methodology, not on which field is set —
+    // an agile template must not be routed to the schedule seed banner.
     expect(
-      createdProjectDestination('p1', { templateApplied: true, methodology: 'HYBRID' }),
-    ).toBe('/projects/p1/overview');
+      createdProjectDestination('p1', {
+        templateApplied: true,
+        methodology: 'AGILE',
+        templateApplicationId: 'app-3',
+      }),
+    ).toBe('/projects/p1/product-backlog?seeding=1');
   });
 
   it('does not route to the backlog when methodology is AGILE but no template was applied', () => {

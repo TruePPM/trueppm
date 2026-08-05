@@ -329,6 +329,32 @@ describe('TaskListRow', () => {
     expect(screen.getByLabelText('milestone')).toBeInTheDocument();
   });
 
+  it('seeded-and-untouched task shows the tick mark (#2731, ADR-0799 §4)', () => {
+    renderWithRouter(
+      <TaskListRow
+        task={{ ...base, isUntouchedSeed: true }}
+        level={1}
+        widths={defaultWidths}
+        visible={defaultVisible}
+        {...defaultTreeProps}
+      />,
+    );
+    expect(screen.getByTestId('seeded-untouched-glyph')).toBeInTheDocument();
+  });
+
+  it('a hand-authored (or since-edited) task shows no tick mark', () => {
+    renderWithRouter(
+      <TaskListRow
+        task={{ ...base, isUntouchedSeed: false }}
+        level={1}
+        widths={defaultWidths}
+        visible={defaultVisible}
+        {...defaultTreeProps}
+      />,
+    );
+    expect(screen.queryByTestId('seeded-untouched-glyph')).toBeNull();
+  });
+
   it('milestone Finish column renders em-dash and never a date range', () => {
     // Regression for !221: even if the API returns a finish date that differs from start
     // (e.g. legacy data where the milestone invariant was bypassed), the row must not

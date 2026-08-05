@@ -193,9 +193,11 @@ def test_materialize_writes_shape_without_dates(
         name="Skeleton", structure=extract_structure(source_project), owner=owner
     )
 
-    created = materialize_structure(template, target_project)
+    result = materialize_structure(template, target_project)
 
-    assert len(created) == 2
+    assert len(result.task_ids) == 2
+    assert result.milestones_created == 0
+    assert result.dependencies_created == 1
     rows = Task.objects.filter(project=target_project).order_by("wbs_path")
     assert [r.name for r in rows] == ["Design", "Build"]
     assert [r.duration for r in rows] == [5, 10]
@@ -389,7 +391,7 @@ def test_undo_removes_exactly_what_the_application_wrote(
     # A row that predates the application must survive the undo.
     pre_existing = Task.objects.create(project=target_project, name="Ours", duration=3)
 
-    created = materialize_structure(template, target_project)
+    created = materialize_structure(template, target_project).task_ids
     application = TemplateApplication.objects.create(
         template=template,
         project=target_project,
@@ -420,7 +422,7 @@ def test_undo_keeps_rows_a_person_has_touched(
     template = ProjectTemplate.objects.create(
         name="Skeleton", structure=extract_structure(source_project)
     )
-    created = materialize_structure(template, target_project)
+    created = materialize_structure(template, target_project).task_ids
     application = TemplateApplication.objects.create(
         template=template,
         project=target_project,
@@ -484,6 +486,40 @@ def test_apply_is_idempotent_under_redelivery(
     assert first["tasks_created"] == 2
     assert second.get("skipped") is True
     assert Task.objects.filter(project=target_project, is_deleted=False).count() == 2
+
+
+@pytest.mark.django_db(transaction=True)
+def test_apply_records_milestone_and_dependency_counts_for_the_seed_banner(
+    source_project: Project, target_project: Project
+) -> None:
+    """result_summary carries the breakdown the seed banner reads (#2731, ADR-0799 §2).
+
+    Read straight off what materialize_structure already built, never re-derived by a
+    second query — a milestone task plus the one FS edge from ``_shape`` gives an
+    unambiguous, non-zero expectation for both new keys.
+    """
+    from trueppm_api.apps.projects.template_tasks import apply_template
+
+    _shape(source_project)
+    milestone = Task.objects.create(project=source_project, name="Ship", is_milestone=True)
+    Dependency.objects.create(
+        predecessor=Task.objects.get(project=source_project, name="Build"),
+        successor=milestone,
+        dep_type="FS",
+    )
+    template = ProjectTemplate.objects.create(
+        name="Skeleton", structure=extract_structure(source_project)
+    )
+    application = TemplateApplication.objects.create(template=template, project=target_project)
+
+    apply_template.apply(args=[str(application.pk)]).get()
+
+    application.refresh_from_db()
+    assert application.result_summary == {
+        "tasks_created": 3,
+        "milestones_created": 1,
+        "dependencies_created": 2,
+    }
 
 
 @pytest.mark.django_db(transaction=True)

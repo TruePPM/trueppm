@@ -42,13 +42,10 @@ export function CreateDispatcher() {
         onClose={close}
         onCreated={(projectId, intent) => {
           close();
-          // Centralized in `createdProjectDestination` (#2734, ADR-0800) so the
-          // CSV-import deep link (#2710) and the agile-backlog landing apply the
-          // same way at every entry point that can open this modal — see that
-          // module for the full rationale. NOTE for #2731 (seeded landing,
-          // running concurrently): the WATERFALL/HYBRID equivalent belongs inside
-          // that same shared helper, not duplicated here — expect it to be a
-          // merge/rebase conflict point between the two branches.
+          // Centralized in `createdProjectDestination` (ADR-0800) so the CSV-import
+          // deep link (#2710), the seeded-schedule landing (#2731) and the
+          // agile-backlog landing (#2734) apply the same way at every entry point
+          // that can open this modal — see that module for the full rationale.
           void navigate(createdProjectDestination(projectId, intent));
         }}
       />
