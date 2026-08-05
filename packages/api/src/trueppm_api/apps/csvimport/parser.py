@@ -19,6 +19,12 @@ Row-level errors are **data, not exceptions**: a bad date or an unresolvable
 predecessor records a ``RowError`` and the row still imports with that one field
 dropped. Only a structurally unusable file (no header, no name column,
 unreadable bytes) raises ``CsvImportError``.
+
+A row that cannot become a plan task at all is **parked, not dropped** (#2732):
+it becomes a task under an "Import review" summary branch appended at the bottom
+of the outline, carrying its raw cell values in ``notes``. Fixing one is then an
+ordinary task edit — undoable and broadcast to co-authors — rather than a
+re-upload of the whole file. See ``_append_review_branch``.
 """
 
 from __future__ import annotations
@@ -71,6 +77,30 @@ LABEL_NAME_MAX_LENGTH = 50
 #: contract in this module.
 MAX_OUTLINE_DEPTH = 100
 
+#: Name of the summary task unresolvable rows are parked under (#2732). A fixed
+#: string rather than one carrying the filename: the branch is meant to be
+#: *emptied*, so the operator, the wizard copy, and the docs all have to be able
+#: to name the same thing without knowing which file produced it.
+REVIEW_BRANCH_NAME = "Import review"
+
+#: Why a row could not become a plan task, phrased for the parked task's own
+#: name. Keyed by the same diagnostic codes as ``SEVERITY_BY_CODE``, so a new
+#: unresolvable cause declares its severity and its parked-row phrasing together.
+UNRESOLVED_REASON: dict[str, str] = {
+    "missing_name": "no task name",
+}
+
+#: Fallback name fragment for a parked row whose code predates the table above.
+DEFAULT_UNRESOLVED_REASON = "could not be read"
+
+#: Cap on the raw values carried onto a parked task's notes. ``Task.notes`` is an
+#: unbounded TextField, but a 200-column sheet would otherwise write a wall of
+#: text into the outline; the row is preserved to be *fixed*, not archived.
+MAX_PARKED_VALUE_CELLS = 40
+
+#: Per-cell cap inside that block, for the same reason.
+MAX_PARKED_VALUE_LENGTH = 200
+
 _CSV_EXTENSIONS = {"csv", "tsv", "txt"}
 _XLSX_EXTENSIONS = {"xlsx", "xlsm"}
 SUPPORTED_EXTENSIONS = _CSV_EXTENSIONS | _XLSX_EXTENSIONS
@@ -113,13 +143,17 @@ class CsvImportError(Exception):
 #: Severity is **declared per diagnostic code, not decided by control flow.**
 #:
 #: The distinction that matters to an operator is exactly one thing: *did the row
-#: survive?* A row dropped for having no name is a different event from a row that
-#: imported with its start date unset, and collapsing both into "7 problems" hides
-#: the only one that lost data. Keeping the mapping as a table rather than as
-#: branch structure means a reader can answer "what is fatal here?" by reading one
-#: dict, and the wizard can group by severity without re-deriving the rule.
+#: land as a plan task?* A row that could not be resolved is a different event
+#: from a row that imported with its start date unset, and collapsing both into
+#: "7 problems" hides the only one that needs a person. Keeping the mapping as a
+#: table rather than as branch structure means a reader can answer "what is fatal
+#: here?" by reading one dict, and the wizard can group by severity without
+#: re-deriving the rule.
 #:
-#: ``error``   — the row did **not** import.
+#: ``error``   — the row did **not** become a plan task. Since #2732 it is not
+#:               dropped either: it is parked in the Import review branch with
+#:               its raw values intact, so ``error_count`` counts rows awaiting
+#:               a person rather than rows that vanished.
 #: ``warning`` — the row imported; one field was dropped or defaulted.
 SEVERITY_BY_CODE: dict[str, str] = {
     "missing_name": "error",
@@ -167,6 +201,27 @@ class RowError:
 
 
 @dataclass
+class UnresolvedRow:
+    """One data row that could not be resolved into a plan task (#2732).
+
+    Carries the row's raw cell text verbatim, keyed by header, so the parked
+    task can reproduce the spreadsheet row inside the outline. This is what makes
+    "nothing is silently dropped" true rather than aspirational: an unresolvable
+    row becomes a task under the Import review branch instead of leaving only a
+    line number in a summary the operator may never open.
+    """
+
+    row: int
+    code: str
+    values: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def reason(self) -> str:
+        """Short phrase naming why the row could not become a plan task."""
+        return UNRESOLVED_REASON.get(self.code, DEFAULT_UNRESOLVED_REASON)
+
+
+@dataclass
 class ParseResult:
     """Everything both the preview and the commit path need from one upload."""
 
@@ -176,6 +231,8 @@ class ParseResult:
     #: First ``SAMPLE_ROW_COUNT`` data rows, raw cell text, for the wizard.
     sample_rows: list[list[str]] = field(default_factory=list)
     row_errors: list[RowError] = field(default_factory=list)
+    #: Rows parked in the Import review branch rather than dropped (#2732).
+    unresolved_rows: list[UnresolvedRow] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     #: Data rows read (after skipping blank and ``#``-comment rows).
     total_rows: int = 0
@@ -184,13 +241,32 @@ class ParseResult:
 
     @property
     def error_count(self) -> int:
-        """Diagnostics whose row did not import."""
+        """Diagnostics whose row did not become a plan task."""
         return sum(1 for e in self.row_errors if e.severity == "error")
 
     @property
     def warning_count(self) -> int:
         """Diagnostics whose row imported with a field dropped or defaulted."""
         return sum(1 for e in self.row_errors if e.severity == "warning")
+
+    @property
+    def review_task_count(self) -> int:
+        """Tasks the Import review branch adds: its summary row plus one per row.
+
+        Zero when nothing was parked — an import with no unresolvable rows must
+        not leave an empty review branch behind for someone to wonder about.
+        """
+        return len(self.unresolved_rows) + 1 if self.unresolved_rows else 0
+
+    @property
+    def plan_task_count(self) -> int:
+        """Tasks that are the operator's actual plan, excluding the review branch.
+
+        ``len(project_data.tasks)`` is the number of rows that will be *created*;
+        this is the number that answers "how much of my plan arrived?", which is
+        the one the wizard's counts and the confirm step's button are about.
+        """
+        return len(self.project_data.tasks) - self.review_task_count
 
 
 # --- File readers --------------------------------------------------------
@@ -452,9 +528,15 @@ def parse_spreadsheet(
 ) -> ParseResult:
     """Parse an uploaded CSV/XLSX into ``ProjectData`` plus preview metadata.
 
+    ``project_data.tasks`` holds the operator's plan **plus** the Import review
+    branch, when any row could not be resolved. ``plan_task_count`` is the former
+    on its own; anything reporting "how much of my plan arrived" wants that one.
+
     Args:
         content: Raw uploaded bytes.
-        filename: Sanitized filename; only its extension is used, to pick a reader.
+        filename: Sanitized filename; used to pick a reader, and named on the
+            Import review branch so a second import's parked rows are traceable
+            to the file that produced them.
         column_map: Optional ``{header: field}`` overrides from the wizard's
             mapping step. Wins over auto-detection, field by field.
         max_rows: Hard cap on data rows; the remainder is reported in
@@ -518,6 +600,8 @@ def parse_spreadsheet(
     _resolve_predecessors(result, data_rows, by_field)
     _build_resources(result, data_rows, by_field)
     _build_labels(result, data_rows, by_field)
+    # Last, and deliberately so — see _append_review_branch.
+    _append_review_branch(result, filename)
 
     result.project_data.warnings = list(result.warnings)
     return result
@@ -578,8 +662,14 @@ def _build_tasks(
         if not raw_name.strip():
             result.row_errors.append(
                 RowError(
-                    row_number, result.headers[name_index], "missing_name", "Row has no task name."
+                    row_number,
+                    result.headers[name_index],
+                    "missing_name",
+                    "Row has no task name; parked in the Import review branch.",
                 )
+            )
+            result.unresolved_rows.append(
+                UnresolvedRow(row_number, "missing_name", _raw_values(result.headers, row))
             )
             continue
         tasks.append(
@@ -587,6 +677,115 @@ def _build_tasks(
         )
 
     result.project_data.tasks = tasks
+
+
+# --- Import review branch (#2732) ----------------------------------------
+
+
+def _raw_values(headers: list[str], row: list[Any]) -> dict[str, str]:
+    """Snapshot one spreadsheet row's non-empty cells as ``{header: text}``.
+
+    Taken before any coercion so the parked task shows what the operator wrote,
+    not what the parser made of it — the point of parking a row is that the
+    parser's reading of it is the thing in question.
+    """
+    values: dict[str, str] = {}
+    for index, header in enumerate(headers[:MAX_PARKED_VALUE_CELLS]):
+        text = _cell(row, index).strip()
+        if text:
+            values[header or f"Column {index + 1}"] = text[:MAX_PARKED_VALUE_LENGTH]
+    return values
+
+
+def _next_top_level_number(tasks: list[TaskData]) -> int:
+    """The first top-level outline number no imported task has claimed.
+
+    Read from the *first* segment of each outline number so a file using dotted
+    WBS codes ("1", "1.1", "2.3") yields the next whole-numbered phase. The
+    length gate mirrors ``_apply_wbs``: an absurdly long digit string is a
+    malformed cell, not a real outline position, and must not reach ``int()``.
+    """
+    highest = 0
+    for task in tasks:
+        head = (task.outline_number or "").split(".")[0].strip()
+        if head.isdigit() and len(head) <= 10:
+            highest = max(highest, int(head))
+    return highest + 1
+
+
+def _append_review_branch(result: ParseResult, filename: str) -> None:
+    """Park every unresolvable row under an "Import review" summary task.
+
+    An unresolvable row used to be counted and then dropped, which meant the
+    operator's only record of it was a line number in a summary they had to be
+    looking at when the import finished. Parking the row keeps the data in the
+    plan, where a normal task edit fixes it — undoable, and broadcast to
+    co-authors like any other edit, with no special repair surface to build.
+
+    **Appended last, after predecessor / resource / label resolution.** Those
+    passes address ``data_rows`` by ``task.uid``, so a synthetic uid in the task
+    list would index out of range. Running after them also means the parked rows
+    carry no predecessor links, so the dependency graph the caller hands to
+    ``validate_task_graph`` (ADR-0259) is exactly the one the real rows produced.
+
+    Hierarchy is expressed in whichever of ``_build_wbs_paths``' two modes the
+    real rows already use. Writing a dotted outline number onto a file whose
+    hierarchy lives in indentation would flip that function's ``has_dotted``
+    branch for the *whole* import and re-derive every real task's path from a
+    number the parser only ever meant as a sequence — so the dotted form is used
+    only when the file was already dotted, and levels carry it otherwise.
+    """
+    if not result.unresolved_rows:
+        return
+
+    tasks = result.project_data.tasks
+    has_dotted = any("." in (t.outline_number or "") for t in tasks)
+    base_level = min((t.outline_level for t in tasks), default=0)
+    next_top = _next_top_level_number(tasks)
+    next_uid = max((t.uid for t in tasks), default=0) + 1
+
+    tasks.append(
+        TaskData(
+            uid=next_uid,
+            name=REVIEW_BRANCH_NAME,
+            outline_number=str(next_top),
+            outline_level=base_level,
+            notes=(
+                f"Rows from {filename} that could not be imported as tasks. "
+                "Each one below keeps the values you wrote. Fix or delete them, "
+                "and this branch can go."
+            ),
+        )
+    )
+    for offset, unresolved in enumerate(result.unresolved_rows, start=1):
+        tasks.append(
+            TaskData(
+                uid=next_uid + offset,
+                name=f"Row {unresolved.row} — {unresolved.reason}"[:255],
+                # Dotted only when the file was: see the docstring.
+                outline_number=f"{next_top}.{offset}" if has_dotted else "",
+                outline_level=base_level + 1,
+                notes=_parked_notes(unresolved),
+            )
+        )
+
+
+def _parked_notes(unresolved: UnresolvedRow) -> str:
+    """Render one parked row's raw values as the task's notes.
+
+    ``Header: value`` lines rather than the original delimited text: the row is
+    here to be read and fixed by a person in the outline, and a re-serialized CSV
+    line would make them count commas to find the cell that is wrong.
+    """
+    lines = [
+        f"Spreadsheet row {unresolved.row} — {unresolved.reason}.",
+        "",
+    ]
+    if unresolved.values:
+        lines += [f"{header}: {value}" for header, value in unresolved.values.items()]
+    else:
+        lines.append("(the row was empty in every mapped column)")
+    return "\n".join(lines)
 
 
 def _resolve_date_convention(

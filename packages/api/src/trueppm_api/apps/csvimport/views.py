@@ -25,6 +25,7 @@ from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import IsProjectNotArchived, IsProjectScheduler
 from trueppm_api.apps.csvimport.mapping import field_choices
 from trueppm_api.apps.csvimport.parser import (
+    REVIEW_BRANCH_NAME,
     SUPPORTED_EXTENSIONS,
     CsvImportError,
     parse_spreadsheet,
@@ -196,8 +197,15 @@ class CsvImportPreviewView(IdempotencyMixin, APIView):
                 "sample_rows": parsed.sample_rows,
                 "row_count": parsed.total_rows,
                 "truncated_rows": parsed.truncated_rows,
-                "task_count": len(parsed.project_data.tasks),
+                # The plan, not the plan plus its Import review branch (#2732):
+                # this number answers "how much of my file arrives as schedule",
+                # and the parked rows are counted on their own line below.
+                "task_count": parsed.plan_task_count,
                 "resource_count": len(parsed.project_data.resources),
+                # Rows that cannot become plan tasks and will be parked in the
+                # Import review branch instead of dropped.
+                "parked_row_count": len(parsed.unresolved_rows),
+                "review_branch_name": REVIEW_BRANCH_NAME,
                 "row_errors": [e.as_dict() for e in parsed.row_errors],
                 # Split counts, not just a total: an operator deciding whether to
                 # commit needs to know how many rows would be *lost* separately

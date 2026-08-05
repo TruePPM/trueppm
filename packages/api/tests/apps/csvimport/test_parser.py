@@ -8,7 +8,9 @@ from __future__ import annotations
 import pytest
 
 from trueppm_api.apps.csvimport.parser import (
+    REVIEW_BRANCH_NAME,
     SEVERITY_BY_CODE,
+    UNRESOLVED_REASON,
     CsvImportError,
     RowError,
     parse_spreadsheet,
@@ -16,10 +18,13 @@ from trueppm_api.apps.csvimport.parser import (
 from trueppm_api.apps.csvimport.template import CSV_TEMPLATE
 
 from .fixtures import (
+    ALL_NAMELESS_CSV,
     CYCLIC_CSV,
     DAY_FIRST_CSV,
+    DOTTED_WBS_WITH_NAMELESS_CSV,
     EMPTY_CSV,
     INDENTED_CSV,
+    INDENTED_WITH_NAMELESS_CSV,
     LABELS_CSV,
     MESSY_CSV,
     MULTI_PREDECESSOR_CSV,
@@ -115,8 +120,10 @@ class TestRowLevelErrors:
 
     def test_valid_rows_still_import_alongside_bad_ones(self) -> None:
         result = parse_spreadsheet(MESSY_CSV, "plan.csv")
-        # Five of six rows import; only the nameless row is dropped.
-        assert len(result.project_data.tasks) == 5
+        # Five of six rows land in the plan; the nameless one is parked, not
+        # dropped, so the task list also carries the review branch (#2732).
+        assert result.plan_task_count == 5
+        assert len(result.project_data.tasks) == 7
         assert "Good row" in _names(result)
 
     def test_each_error_is_reported_by_row_number(self) -> None:
@@ -137,10 +144,10 @@ class TestRowLevelErrors:
         assert by_code["missing_name"].row == 7
 
     def test_severity_separates_dropped_rows_from_degraded_ones(self) -> None:
-        """The only distinction an operator needs: did the row survive?"""
+        """The only distinction an operator needs: did the row become a task?"""
         result = parse_spreadsheet(MESSY_CSV, "plan.csv")
         by_code = {e.code: e for e in result.row_errors}
-        # The nameless row did not import at all.
+        # The nameless row is not part of the plan — it is parked for review.
         assert by_code["missing_name"].severity == "error"
         # These four rows imported, each minus one field.
         for code in ("bad_date", "bad_duration", "unknown_predecessor", "self_dependency"):
@@ -150,12 +157,18 @@ class TestRowLevelErrors:
         result = parse_spreadsheet(MESSY_CSV, "plan.csv")
         assert result.error_count == 1
         assert result.warning_count == 4
-        # The error count equals the number of rows that did NOT become tasks.
-        assert len(result.project_data.tasks) == result.total_rows - result.error_count
+        # The error count equals the number of rows that did NOT become plan
+        # tasks — those rows are still present, in the review branch.
+        assert result.plan_task_count == result.total_rows - result.error_count
 
     def test_severity_rides_in_the_serialized_payload(self) -> None:
         result = parse_spreadsheet(MESSY_CSV, "plan.csv")
         assert all("severity" in e.as_dict() for e in result.row_errors)
+
+    def test_every_unresolvable_code_has_a_parked_row_phrasing(self) -> None:
+        """A code that parks a row must be able to name itself on that row."""
+        parked_codes = {code for code, severity in SEVERITY_BY_CODE.items() if severity == "error"}
+        assert parked_codes <= set(UNRESOLVED_REASON), parked_codes - set(UNRESOLVED_REASON)
 
     def test_an_undeclared_code_defaults_to_warning_not_error(self) -> None:
         """A new check must not silently start reading as data loss."""
@@ -199,6 +212,99 @@ class TestRowLevelErrors:
             for link in t.predecessor_links
         ]
         assert sorted(edges) == [(1, 2), (2, 1)]
+
+
+class TestImportReviewBranch:
+    """Unresolvable rows are parked in the outline, never dropped (#2732)."""
+
+    def test_a_nameless_row_becomes_a_task_under_the_review_branch(self) -> None:
+        result = parse_spreadsheet(MESSY_CSV, "plan.csv")
+        names = _names(result)
+        assert REVIEW_BRANCH_NAME in names
+        # The parked task names the spreadsheet row and why it is here, so the
+        # operator's next action does not need the wizard still to be open.
+        assert names[-1] == "Row 7 — no task name"
+
+    def test_the_branch_is_last_in_the_outline(self) -> None:
+        result = parse_spreadsheet(MESSY_CSV, "plan.csv")
+        names = _names(result)
+        assert names[-2] == REVIEW_BRANCH_NAME
+        assert names[:5] == [
+            "Good row",
+            "Bad date",
+            "Bad duration",
+            "Ghost predecessor",
+            "Self referential",
+        ]
+
+    def test_the_parked_task_keeps_the_row_s_raw_values(self) -> None:
+        """ "Nothing is silently dropped" means the *values*, not just the count."""
+        result = parse_spreadsheet(MESSY_CSV, "plan.csv")
+        notes = result.project_data.tasks[-1].notes
+        # MESSY_CSV row 7 is `6,,2,2026-03-02,` — ID, Duration and Start survive.
+        assert "ID: 6" in notes
+        assert "Duration: 2" in notes
+        assert "Start: 2026-03-02" in notes
+
+    def test_no_branch_when_every_row_resolves(self) -> None:
+        result = parse_spreadsheet(REFERENCE_CSV, "plan.csv")
+        assert result.unresolved_rows == []
+        assert REVIEW_BRANCH_NAME not in _names(result)
+        assert result.review_task_count == 0
+        assert result.plan_task_count == len(result.project_data.tasks)
+
+    def test_parked_rows_carry_no_dependency_edges(self) -> None:
+        """The graph the caller validates (ADR-0259) must be the real rows' one."""
+        result = parse_spreadsheet(MESSY_CSV, "plan.csv")
+        for task in result.project_data.tasks[-2:]:
+            assert task.predecessor_links == []
+            assert task.resource_assignments == []
+
+    def test_a_dotted_wbs_file_gets_a_dotted_review_branch(self) -> None:
+        result = parse_spreadsheet(DOTTED_WBS_WITH_NAMELESS_CSV, "plan.csv")
+        by_name = {t.name: t for t in result.project_data.tasks}
+        branch = by_name[REVIEW_BRANCH_NAME].outline_number
+        # A fresh top-level code, so the branch cannot land inside a real phase.
+        # Asserted relationally rather than as a literal: which number is free
+        # depends on how _apply_wbs read the file's own codes, and the property
+        # that matters is only that no imported row already claims it.
+        heads = {
+            (t.outline_number or "").split(".")[0]
+            for t in result.project_data.tasks
+            if t.name not in (REVIEW_BRANCH_NAME, "Row 6 — no task name")
+        }
+        assert branch.isdigit()
+        assert branch not in heads
+        assert by_name["Row 6 — no task name"].outline_number == f"{branch}.1"
+
+    def test_an_indented_file_keeps_its_level_hierarchy(self) -> None:
+        """A dotted number here would flip _build_wbs_paths for the whole file."""
+        result = parse_spreadsheet(INDENTED_WITH_NAMELESS_CSV, "plan.csv")
+        assert not any("." in (t.outline_number or "") for t in result.project_data.tasks)
+        by_name = {t.name: t for t in result.project_data.tasks}
+        assert by_name[REVIEW_BRANCH_NAME].outline_level == 0
+        assert by_name["Row 5 — no task name"].outline_level == 1
+        # Untouched: the real rows keep the depths indentation gave them.
+        assert by_name["Design"].outline_level == 1
+
+    def test_a_file_of_only_bad_rows_still_arrives(self) -> None:
+        result = parse_spreadsheet(ALL_NAMELESS_CSV, "plan.csv")
+        assert result.plan_task_count == 0
+        assert _names(result) == [
+            REVIEW_BRANCH_NAME,
+            "Row 2 — no task name",
+            "Row 3 — no task name",
+        ]
+
+    def test_the_branch_names_the_file_it_came_from(self) -> None:
+        result = parse_spreadsheet(ALL_NAMELESS_CSV, "q3-plan.csv")
+        by_name = {t.name: t for t in result.project_data.tasks}
+        assert "q3-plan.csv" in by_name[REVIEW_BRANCH_NAME].notes
+
+    def test_parked_uids_do_not_collide_with_imported_rows(self) -> None:
+        result = parse_spreadsheet(MESSY_CSV, "plan.csv")
+        uids = [t.uid for t in result.project_data.tasks]
+        assert len(set(uids)) == len(uids)
 
 
 class TestDateHandling:

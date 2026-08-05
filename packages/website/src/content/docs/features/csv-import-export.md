@@ -376,6 +376,9 @@ same number you see in Excel's row gutter.
 ```json
 {
   "tasks_created": 5,
+  "plan_tasks_created": 5,
+  "parked_row_count": 0,
+  "review_branch_name": "",
   "row_error_count": 2,
   "error_count": 0,
   "warning_count": 2,
@@ -388,23 +391,73 @@ same number you see in Excel's row gutter.
 }
 ```
 
-### Severity: did the row survive?
+### Nothing is silently dropped: the Import review branch
+
+Some rows cannot become a task at all — today, a row with no name in the column
+you mapped to **Name**. Those rows are **not discarded**. They are imported into
+an **Import review** summary branch appended at the bottom of the outline, one
+task per row, each named for the spreadsheet row it came from and carrying that
+row's original cell values in its notes.
+
+```
+1  Discovery
+   1.1  Stakeholder interviews
+   1.2  Requirements draft
+2  Build
+3  Import review              ← added by the import
+   3.1  Row 7 — no task name
+   3.2  Row 9 — no task name
+```
+
+Fixing one is an ordinary edit: rename it and it becomes a normal task, or
+delete it. Both are undoable and both broadcast to anyone else on the project,
+because they are the same operations you would use on any other task — the
+import creates no special repair mode. Once the branch is empty, delete it too.
+
+The wizard says this **before** you commit, on the confirm step, so the branch is
+never something you discover afterwards.
+
+Three summary fields describe it:
+
+| Field | Meaning |
+|---|---|
+| `tasks_created` | Every task row written, the review branch included. |
+| `plan_tasks_created` | Your plan alone — what "imported N tasks" is allowed to claim. |
+| `parked_row_count` | Rows that landed in the review branch instead. |
+
+The preview endpoint reports the same split before you commit, as `task_count`
+(the plan) and `parked_row_count`.
+
+### Severity: did the row become a task?
 
 Every diagnostic carries a `severity`, and it answers exactly one question:
 
 | Severity | Meaning |
 |---|---|
 | `warning` | The row **imported**, with one field dropped or defaulted — a bad date, an unreadable duration, a predecessor that matched nothing. |
-| `error` | The row **did not import** at all. Today the only cause is a row with no task name. |
+| `error` | The row **did not join the plan**. It is parked in the Import review branch instead, with its values intact. Today the only cause is a row with no task name. |
 
 They are counted separately (`error_count` / `warning_count`) rather than totalled,
 because the two are not the same event: seven warnings means seven tasks landed slightly
-lossy, while one error means a row of your spreadsheet is simply not there. Both are
-returned by the preview endpoint too, so you can see the split **before** committing.
+lossy, while one error means a row of your spreadsheet is waiting for you rather than
+being part of the schedule. Both are returned by the preview endpoint too, so you can
+see the split **before** committing.
+
+The terminal screen groups the diagnostics **by cause** rather than listing one
+line per row — four hundred rows with the same wrong date format is one edit,
+not four hundred — and offers them as a CSV download so you can work through
+them next to your spreadsheet.
 
 Only a **structurally unusable** file fails outright: no header row, no column
 that could be the task name, unreadable bytes, or a cyclic predecessor column —
 and in that case nothing is written.
+
+### Imported dates are a starting point, not gospel
+
+Dates you import are constraints the scheduling engine **re-derives** on the
+project's calendar, so a date can move — a task starting on a non-working day
+will not stay there. The confirm step says so before you commit, whenever a
+column is mapped to a date field.
 
 ## Who can import and export
 

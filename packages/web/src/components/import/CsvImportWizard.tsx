@@ -4,7 +4,9 @@ import { useNavigate } from 'react-router';
 import {
   CSV_IMPORT_ACCEPT,
   CSV_IMPORT_MAX_UPLOAD_MB,
+  downloadIssuesCsv,
   flaggedColumns,
+  groupIssuesByCause,
   missingRequiredFields,
   normalizeColumns,
   overrideMap,
@@ -17,6 +19,7 @@ import {
   type CsvColumnMapping,
   type CsvMappingConfidence,
   type CsvPreview,
+  type CsvRowIssue,
 } from '@/hooks/useCsvImport';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { ImportDropzone } from './ImportDropzone';
@@ -96,31 +99,69 @@ function StepRail({ step }: { step: Step }) {
   );
 }
 
-/** Scrollable list of per-row problems, addressed by spreadsheet line number. */
+/** How many affected rows one group names before it says "and N more". */
+const ROWS_SHOWN_PER_CAUSE = 12;
+
+/**
+ * Per-row problems, folded into one entry per cause (#2732).
+ *
+ * A flat list is unreadable at the size real sheets produce: one wrong date
+ * format is one edit and four hundred identical lines. Grouping by the
+ * diagnostic `code` puts the *edit* at the top of each entry, with the rows it
+ * would fix listed under it and one concrete example of what the parser said.
+ *
+ * The rows are plain text, not links: nothing in the app can open a cell in the
+ * operator's spreadsheet, and a control that looks actionable and is not is
+ * worse than a number they can read off.
+ */
 function RowIssueList({
   issues,
   tone,
   title,
+  onDownload,
 }: {
-  issues: { row: number; message: string }[];
+  issues: CsvRowIssue[];
   tone: 'error' | 'warning';
   title: string;
+  /** Renders a "Download as CSV" action when supplied. */
+  onDownload?: () => void;
 }) {
   if (issues.length === 0) return null;
   const toneClass = tone === 'error' ? 'text-semantic-critical' : 'text-semantic-at-risk';
+  const groups = groupIssuesByCause(issues);
   return (
     <section aria-label={title} className="flex flex-col gap-1">
-      <h4 className={`text-xs font-semibold ${toneClass}`}>{title}</h4>
-      <ul className="max-h-32 overflow-y-auto rounded-control border border-neutral-border text-xs">
-        {issues.map((issue, i) => (
-          <li
-            key={`${issue.row}-${i}`}
-            className="border-b border-neutral-border px-2 py-1 last:border-b-0"
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h4 className={`text-xs font-semibold ${toneClass}`}>{title}</h4>
+        {onDownload && (
+          <button
+            type="button"
+            onClick={onDownload}
+            className="rounded-control text-xs font-medium text-brand-primary hover:underline
+                  focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
           >
-            {/* Line number first: the operator's next action is to open the
-                spreadsheet at that row. */}
-            <span className="font-mono text-neutral-text-secondary">Row {issue.row}</span>{' '}
-            <span className="text-neutral-text-primary">{issue.message}</span>
+            Download problem rows (CSV)
+          </button>
+        )}
+      </div>
+      <ul className="max-h-40 overflow-y-auto rounded-control border border-neutral-border text-xs">
+        {groups.map((group) => (
+          <li key={group.key} className="border-b border-neutral-border px-2 py-1 last:border-b-0">
+            <p className="font-medium text-neutral-text-primary">
+              {group.label} —{' '}
+              {group.rows.length === 1 ? '1 row' : `${group.rows.length.toLocaleString()} rows`}
+            </p>
+            {/* Row numbers first on the second line: the operator's next action
+                is to open the spreadsheet at those rows. */}
+            <p className="font-mono text-neutral-text-secondary">
+              {group.rows
+                .slice(0, ROWS_SHOWN_PER_CAUSE)
+                .map((r) => `Row ${r}`)
+                .join(', ')}
+              {group.rows.length > ROWS_SHOWN_PER_CAUSE &&
+                ` and ${(group.rows.length - ROWS_SHOWN_PER_CAUSE).toLocaleString()} more`}
+            </p>
+            <p className="text-neutral-text-secondary">{group.example}</p>
           </li>
         ))}
       </ul>
@@ -215,9 +256,12 @@ function MappingNote({ id, confidence }: { id: string; confidence: CsvMappingCon
  * - **A remap re-previews on the server** rather than being re-derived client
  *   side, so what the operator confirms on step 3 is what the parser actually
  *   produced under that mapping.
- * - **Partial success is a result, not a failure.** Rows that failed are listed
- *   by line number while the valid rows still land — the issue calls this the
- *   common case, and the terminal view treats it as one.
+ * - **Partial success is a result, not a failure, and not data loss.** The valid
+ *   rows land as the plan; the rows that could not be resolved land too, parked
+ *   in an "Import review" branch at the bottom of the outline with the values
+ *   the operator wrote (#2732). So the terminal view's job is to say what is
+ *   waiting and where, not to ask for a re-upload — fixing a parked row is an
+ *   ordinary task edit, undoable and broadcast like any other.
  */
 export function CsvImportWizard({ projectId, onClose }: Props) {
   const navigate = useNavigate();
@@ -311,17 +355,30 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
 
   const summary = statusQuery.data?.summary ?? null;
   const terminal = statusQuery.data?.status === 'done' || statusQuery.data?.status === 'dead';
-  const tasksCreated = summary?.tasks_created ?? 0;
-  const rowErrors = (summary?.row_errors ?? []) as { row: number; message: string }[];
+  // The plan count when the server sends one; `tasks_created` includes the
+  // review branch's own rows, which are not plan tasks (#2732). Falls back so a
+  // status row written by an older worker still reads sensibly.
+  const tasksCreated = summary?.plan_tasks_created ?? summary?.tasks_created ?? 0;
+  const parkedCount = summary?.parked_row_count ?? 0;
+  const reviewBranch = summary?.review_branch_name || 'Import review';
+  const rowErrors = summary?.row_errors ?? [];
   const resultNotices = summary?.warnings ?? [];
+  // Whether a date column is in play, which decides if the "dates are
+  // re-derived on this calendar" note belongs on the confirm step. Read off the
+  // live mapping rather than the preview, so a column the operator just pointed
+  // at a date field counts before the next re-check.
+  const datesImported = columns.some(
+    (c) => c.field === 'planned_start' || c.field === 'planned_finish',
+  );
 
-  // A clean import has nothing to read: tasks landed, no row was lost, and the
-  // parser made no decision worth reporting.
+  // A clean import has nothing to read: tasks landed, nothing was parked, and
+  // the parser made no decision worth reporting.
   const cleanSuccess =
     terminal &&
     statusQuery.data?.status === 'done' &&
     tasksCreated > 0 &&
     rowErrors.length === 0 &&
+    parkedCount === 0 &&
     resultNotices.length === 0;
 
   /**
@@ -400,7 +457,12 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
 
         {/* ---------------------------------------------------------------- */}
         {step === 'confirm' && preview && (
-          <ConfirmStep preview={preview} unmapped={unmapped} commitErrorMsg={commitErrorMsg} />
+          <ConfirmStep
+            preview={preview}
+            unmapped={unmapped}
+            datesImported={datesImported}
+            commitErrorMsg={commitErrorMsg}
+          />
         )}
 
         {/* ---------------------------------------------------------------- */}
@@ -410,6 +472,8 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
             failed={statusQuery.data?.status === 'dead'}
             errorText={summary?.error ?? null}
             tasksCreated={tasksCreated}
+            parkedCount={parkedCount}
+            reviewBranch={reviewBranch}
             rowErrors={rowErrors}
             notices={resultNotices}
           />
@@ -677,12 +741,20 @@ function MapStep({
 function ConfirmStep({
   preview,
   unmapped,
+  datesImported,
   commitErrorMsg,
 }: {
   preview: CsvPreview;
   unmapped: string[];
+  /** Whether any column maps to a date field, so the re-derive note applies. */
+  datesImported: boolean;
   commitErrorMsg: string | null;
 }) {
+  // `error_count` counts diagnostics; `parked_row_count` counts rows. They are
+  // 1:1 today, but the server owns that relationship — read its number when it
+  // sends one rather than re-deriving it here.
+  const parkedCount = preview.parked_row_count ?? preview.error_count;
+  const reviewBranch = preview.review_branch_name ?? 'Import review';
   return (
     <div className="flex flex-col gap-3">
       <dl className="grid grid-cols-2 gap-2 text-sm">
@@ -703,6 +775,14 @@ function ConfirmStep({
         <dd className="font-medium">{preview.task_count.toLocaleString()}</dd>
         <dt className="text-neutral-text-secondary">Resources to create</dt>
         <dd className="font-medium">{preview.resource_count.toLocaleString()}</dd>
+        {parkedCount > 0 && (
+          <>
+            <dt className="text-neutral-text-secondary">Parked for review</dt>
+            <dd className="font-medium text-semantic-at-risk">
+              {parkedCount.toLocaleString()}
+            </dd>
+          </>
+        )}
       </dl>
 
       {/* Repeated from step 2 on purpose: this is the last screen before
@@ -719,12 +799,16 @@ function ConfirmStep({
         </p>
       )}
 
-      {/* Split counts, not one total: rows that would be LOST are a
-                different decision from rows that land with a field defaulted. */}
-      {preview.error_count > 0 && (
-        <p className="text-sm text-semantic-critical">
-          {preview.error_count} row{preview.error_count === 1 ? '' : 's'} could not be read and will
-          be skipped. The rest will still import.
+      {/* Split counts, not one total: rows that cannot join the plan are a
+                different decision from rows that land with a field defaulted.
+                Said HERE, at map/confirm time, rather than only in the result —
+                the operator should never be surprised by the review branch
+                after the fact (#2732). */}
+      {parkedCount > 0 && (
+        <p className="text-sm text-semantic-at-risk">
+          {parkedCount} row{parkedCount === 1 ? '' : 's'} can&rsquo;t become {parkedCount === 1 ? 'a task' : 'tasks'}.{' '}
+          {parkedCount === 1 ? 'It' : 'They'} will be parked in an &ldquo;{reviewBranch}&rdquo;
+          branch at the bottom of the outline, with the values you wrote &mdash; nothing is dropped.
         </p>
       )}
       {preview.warning_count > 0 && (
@@ -733,11 +817,16 @@ function ConfirmStep({
           field defaulted.
         </p>
       )}
-      <RowIssueList
-        issues={preview.row_errors as { row: number; message: string }[]}
-        tone="error"
-        title="Rows with problems"
-      />
+      {/* Imported dates are constraints the engine re-derives, not gospel —
+                stated before the commit rather than discovered afterwards when
+                a date moves. */}
+      {datesImported && (
+        <p className="text-sm text-neutral-text-secondary">
+          Imported dates are treated as a starting point: the schedule is recalculated on this
+          project&rsquo;s calendar, so some dates may move.
+        </p>
+      )}
+      <RowIssueList issues={preview.row_errors} tone="error" title="Rows with problems" />
       {commitErrorMsg && (
         <p role="alert" className="text-sm text-semantic-critical">
           {commitErrorMsg}
@@ -750,12 +839,21 @@ function ConfirmStep({
 /**
  * One sentence carrying the whole outcome, so the polite announcement is
  * complete without the reader having to navigate down to the lists.
+ *
+ * `tasksCreated` is the *plan* count, never the raw row count: the review branch
+ * writes tasks too, and "imported 14 tasks" would otherwise include three
+ * placeholders the operator still has to fix.
  */
-function outcomeSentence(tasksCreated: number, rowErrorCount: number, noticeCount: number): string {
+function outcomeSentence(
+  tasksCreated: number,
+  parkedCount: number,
+  reviewBranch: string,
+  noticeCount: number,
+): string {
   return (
     `Imported ${tasksCreated} task${tasksCreated === 1 ? '' : 's'}.` +
-    (rowErrorCount > 0
-      ? ` ${rowErrorCount} row${rowErrorCount === 1 ? '' : 's'} could not be imported.`
+    (parkedCount > 0
+      ? ` ${parkedCount} row${parkedCount === 1 ? '' : 's'} parked in the “${reviewBranch}” branch.`
       : '') +
     (noticeCount > 0 ? ` ${noticeCount} note${noticeCount === 1 ? '' : 's'} about this file.` : '')
   );
@@ -767,6 +865,8 @@ function ResultStep({
   failed,
   errorText,
   tasksCreated,
+  parkedCount,
+  reviewBranch,
   rowErrors,
   notices,
 }: {
@@ -774,13 +874,15 @@ function ResultStep({
   failed: boolean;
   errorText: string | null;
   tasksCreated: number;
-  rowErrors: { row: number; message: string }[];
+  parkedCount: number;
+  reviewBranch: string;
+  rowErrors: CsvRowIssue[];
   notices: string[];
 }) {
   let outcome: string;
   if (!terminal) outcome = 'Importing…';
   else if (failed) outcome = errorText ?? 'The import failed. Nothing was changed.';
-  else outcome = outcomeSentence(tasksCreated, rowErrors.length, notices.length);
+  else outcome = outcomeSentence(tasksCreated, parkedCount, reviewBranch, notices.length);
 
   return (
     <div className="flex flex-col gap-3">
@@ -788,21 +890,25 @@ function ResultStep({
         {outcome}
       </p>
       {terminal && <FileNoticeList notices={notices} />}
+      {terminal && parkedCount > 0 && (
+        /* Partial success is a RESULT, not a failure — and since #2732 it is
+                  not data loss either. The count lives in the outcome sentence
+                  above, which is the live region, so this paragraph carries only
+                  what to do next: the rows are in the plan, and fixing one is an
+                  ordinary edit rather than a re-upload of the whole file. */
+        <p className="text-sm text-semantic-at-risk">
+          Those rows are already in your outline under &ldquo;{reviewBranch}&rdquo;, with the values
+          you wrote. Rename or delete each one like any other task — the branch is gone once it is
+          empty.
+        </p>
+      )}
       {terminal && rowErrors.length > 0 && (
-        <>
-          {/* Partial success is a RESULT, not a failure: the valid rows
-                    landed and the rest are addressable by line number. The
-                    count itself lives in the outcome sentence above, which is
-                    the live region — repeating it here would say the same
-                    thing twice, so this paragraph carries only the next step.
-                    It names the rows rather than saying "them": the file
-                    notices can sit between it and the outcome sentence. */}
-          <p className="text-sm text-semantic-at-risk">
-            Fix the rows listed below in your spreadsheet and import again — the rows that succeeded
-            have already landed.
-          </p>
-          <RowIssueList issues={rowErrors} tone="error" title="Rows not imported" />
-        </>
+        <RowIssueList
+          issues={rowErrors}
+          tone="error"
+          title="What we could not read"
+          onDownload={() => downloadIssuesCsv(rowErrors)}
+        />
       )}
     </div>
   );

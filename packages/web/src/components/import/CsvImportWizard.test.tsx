@@ -55,7 +55,11 @@ const PREVIEW: CsvPreview = {
   truncated_rows: 0,
   task_count: 12,
   resource_count: 3,
-  row_errors: [{ row: 4, message: 'Duration is not a number' }],
+  parked_row_count: 1,
+  review_branch_name: 'Import review',
+  row_errors: [
+    { row: 4, column: 'Days', code: 'bad_duration', severity: 'warning', message: 'Duration is not a number' },
+  ],
   error_count: 1,
   warning_count: 2,
   warnings: [],
@@ -212,10 +216,54 @@ describe('CsvImportWizard (#746)', () => {
 
     expect(screen.getByText(/1 column will not be imported/)).toBeInTheDocument();
     expect(screen.getByText(/Notes/)).toBeInTheDocument();
-    // Rows LOST and rows merely defaulted are stated separately — they are
-    // different decisions for the operator.
-    expect(screen.getByText(/1 row could not be read/)).toBeInTheDocument();
+    // Rows that cannot join the plan and rows merely defaulted are stated
+    // separately — they are different decisions for the operator.
+    expect(screen.getByText(/1 row can’t become a task/)).toBeInTheDocument();
     expect(screen.getByText(/2 rows will import with a field defaulted/)).toBeInTheDocument();
+  });
+
+  it('names the review branch before the commit, not after it (#2732)', async () => {
+    const user = userEvent.setup();
+    const { container } = renderWithProvidersAndRouter(
+      <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+    );
+    await advanceToMapping(user, container);
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+
+    // The operator must not meet the review branch for the first time in their
+    // outline: what happens to an unresolvable row is stated at map time.
+    expect(screen.getByText(/parked in an “Import review” branch/)).toBeInTheDocument();
+    expect(screen.getByText(/nothing is dropped/)).toBeInTheDocument();
+    // Counted as its own line so it is not read as part of the plan.
+    expect(screen.getByText('Parked for review')).toBeInTheDocument();
+  });
+
+  it('states that imported dates are re-derived, before the commit', async () => {
+    const user = userEvent.setup();
+    const { container } = renderWithProvidersAndRouter(
+      <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+    );
+    await advanceToMapping(user, container, {
+      ...PREVIEW,
+      columns: [
+        { index: 0, header: 'Title', field: 'name', confidence: 'exact' },
+        { index: 1, header: 'Begin', field: 'planned_start', confidence: 'exact' },
+      ],
+    });
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+
+    expect(screen.getByText(/some dates may move/)).toBeInTheDocument();
+  });
+
+  it('says nothing about dates when no date column is mapped', async () => {
+    const user = userEvent.setup();
+    const { container } = renderWithProvidersAndRouter(
+      <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+    );
+    await advanceToMapping(user, container);
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+
+    expect(screen.queryByText(/some dates may move/)).not.toBeInTheDocument();
   });
 
   it('reports partial success as a result, listing failed rows by line number', () => {
@@ -235,6 +283,97 @@ describe('CsvImportWizard (#746)', () => {
     // render of the result state is covered by the e2e spec. Here we only need
     // the status hook wiring not to throw on a terminal payload.
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  describe('import review branch (#2732)', () => {
+    const PARKED_SUMMARY = {
+      tasks_created: 13,
+      plan_tasks_created: 11,
+      parked_row_count: 2,
+      review_branch_name: 'Import review',
+      row_errors: [
+        { row: 7, code: 'missing_name', column: 'Title', message: 'Row has no task name.' },
+        { row: 9, code: 'missing_name', column: 'Title', message: 'Row has no task name.' },
+        { row: 4, code: 'bad_duration', column: 'Days', message: "Could not read 'x'." },
+      ],
+    };
+
+    it('reports the plan count, not the count including the parked rows', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, PARKED_SUMMARY);
+
+      // 13 rows were written; 11 of them are the operator's plan. Claiming 13
+      // would count two placeholders they still have to fix.
+      expect(screen.getByText(/Imported 11 tasks\./)).toBeInTheDocument();
+      expect(screen.getByText(/2 rows parked in the “Import review” branch\./)).toBeInTheDocument();
+    });
+
+    it('says the rows are already in the outline, not that they must be re-uploaded', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, PARKED_SUMMARY);
+
+      expect(screen.getByText(/already in your outline/)).toBeInTheDocument();
+      expect(screen.getByText(/like any other task/)).toBeInTheDocument();
+    });
+
+    it('groups the diagnostics by cause rather than listing one line per row', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, PARKED_SUMMARY);
+
+      const list = screen.getByRole('region', { name: 'What we could not read' });
+      // Largest cause first, with the rows it covers on one line — the shape of
+      // the single edit that fixes them.
+      expect(list).toHaveTextContent('No task name — 2 rows');
+      expect(list).toHaveTextContent('Row 7, Row 9');
+      expect(list).toHaveTextContent('Unreadable duration — 1 row');
+    });
+
+    it('offers the problem rows as a CSV built from the payload in hand', async () => {
+      const user = userEvent.setup();
+      const createObjectURL = vi.fn(() => 'blob:problems');
+      const revokeObjectURL = vi.fn();
+      vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL });
+      const click = vi
+        .spyOn(HTMLAnchorElement.prototype, 'click')
+        .mockImplementation(() => undefined);
+
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, PARKED_SUMMARY);
+      await user.click(screen.getByRole('button', { name: 'Download problem rows (CSV)' }));
+
+      expect(createObjectURL).toHaveBeenCalledTimes(1);
+      expect(click).toHaveBeenCalledTimes(1);
+      click.mockRestore();
+      vi.unstubAllGlobals();
+    });
+
+    it('shows no review-branch copy when nothing was parked', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, {
+        tasks_created: 12,
+        plan_tasks_created: 12,
+        parked_row_count: 0,
+        row_errors: [],
+        warnings: [],
+      });
+
+      expect(screen.queryByText(/parked in/)).not.toBeInTheDocument();
+      expect(screen.getByText(/Imported 12 tasks\./)).toBeInTheDocument();
+    });
   });
 
   describe('file notices (#111)', () => {
@@ -456,8 +595,11 @@ describe('CsvImportWizard (#746)', () => {
         <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
       );
       await advanceToResult(user, container, {
-        tasks_created: 11,
-        row_errors: [{ row: 4, message: 'Duration is not a number' }],
+        tasks_created: 13,
+        plan_tasks_created: 11,
+        parked_row_count: 1,
+        review_branch_name: 'Import review',
+        row_errors: [{ row: 4, code: 'missing_name', message: 'Row has no task name.' }],
       });
 
       // Walking the operator past a partial-success report is exactly what the
@@ -465,7 +607,7 @@ describe('CsvImportWizard (#746)', () => {
       // tabIndex={-1} paragraph it cannot punch a Shift+Tab hole in the focus
       // trap (web-rule 288).
       expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
-      expect(screen.getByText(/1 row could not be imported\./)).toBeInTheDocument();
+      expect(screen.getByText(/1 row parked in the “Import review” branch\./)).toBeInTheDocument();
     });
 
     it('keeps focus off the schedule when file notices need reading', async () => {
@@ -489,7 +631,7 @@ describe('CsvImportWizard (#746)', () => {
       );
       await advanceToResult(user, container, {
         tasks_created: 11,
-        row_errors: [{ row: 4, message: 'Duration is not a number' }],
+        row_errors: [{ row: 4, code: 'bad_duration', message: 'Duration is not a number' }],
       });
 
       // useFocusTrap's selector excludes tabindex="-1", so a node it cannot see

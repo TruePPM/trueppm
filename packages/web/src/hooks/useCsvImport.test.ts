@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   flaggedColumns,
+  groupIssuesByCause,
+  issuesToCsvString,
   missingRequiredFields,
   normalizeColumns,
   overrideMap,
@@ -156,5 +158,77 @@ describe('flaggedColumns', () => {
 
   it('does not flag a column the operator has already overridden', () => {
     expect(flaggedColumns([col(0, 'Days', 'duration', 'override')])).toEqual([]);
+  });
+});
+
+describe('groupIssuesByCause (#2732)', () => {
+  it('collapses one cause into one entry, largest first', () => {
+    // A 400-row sheet with one wrong date format produces 400 identical lines;
+    // the grouping is what turns that back into a single edit to make.
+    const groups = groupIssuesByCause([
+      { row: 3, code: 'bad_date', message: "Could not read 'a'." },
+      { row: 4, code: 'missing_name', message: 'Row has no task name.' },
+      { row: 5, code: 'bad_date', message: "Could not read 'b'." },
+      { row: 6, code: 'bad_date', message: "Could not read 'c'." },
+    ]);
+    expect(groups.map((g) => [g.label, g.rows.length])).toEqual([
+      ['Unreadable date', 3],
+      ['No task name', 1],
+    ]);
+    expect(groups[0].rows).toEqual([3, 5, 6]);
+  });
+
+  it('keeps one concrete example per group, since the label is a category', () => {
+    const [group] = groupIssuesByCause([
+      { row: 3, code: 'bad_date', message: "Could not read 'not-a-date' as a date." },
+      { row: 5, code: 'bad_date', message: "Could not read 'soon' as a date." },
+    ]);
+    expect(group.example).toContain('not-a-date');
+  });
+
+  it('derives a readable label for a code this build has never seen', () => {
+    // A new server check must not render as a raw identifier or as nothing.
+    const [group] = groupIssuesByCause([{ row: 2, code: 'brand_new_check', message: 'x' }]);
+    expect(group.label).toBe('Brand new check');
+  });
+
+  it('falls back to the message when the server sent no code', () => {
+    // Degrades to one group per distinct text rather than folding unrelated
+    // problems together on a shared `undefined` key.
+    const groups = groupIssuesByCause([
+      { row: 2, message: 'Duration is not a number' },
+      { row: 3, message: 'Start is not a date' },
+    ]);
+    expect(groups).toHaveLength(2);
+    expect(groups[0].label).toBe('Duration is not a number');
+  });
+
+  it('is empty for no issues', () => {
+    expect(groupIssuesByCause([])).toEqual([]);
+  });
+});
+
+describe('issuesToCsvString (#2732)', () => {
+  it('writes one row per diagnostic under a stable header', () => {
+    const csv = issuesToCsvString([
+      { row: 7, column: 'Title', code: 'missing_name', severity: 'error', message: 'No name.' },
+    ]);
+    expect(csv.split('\r\n')).toEqual([
+      'Row,Column,Severity,Cause,Message',
+      '7,Title,error,missing_name,No name.',
+    ]);
+  });
+
+  it('leaves the optional fields blank rather than writing "undefined"', () => {
+    const csv = issuesToCsvString([{ row: 4, message: 'Bad' }]);
+    expect(csv.split('\r\n')[1]).toBe('4,,,,Bad');
+  });
+
+  it('neutralizes a formula-injection payload carried in a message (#2762)', () => {
+    // Import applies no character filtering, so a task name quoted back inside
+    // a diagnostic reaches this file verbatim and would execute on open.
+    const csv = issuesToCsvString([{ row: 2, message: '=cmd|\'/C calc\'!A0' }]);
+    expect(csv).toContain("'=cmd");
+    expect(csv).not.toMatch(/,=cmd/);
   });
 });
