@@ -17,6 +17,7 @@ import {
 } from '@/hooks/useProjectTemplates';
 import { ROLE_ADMIN } from '@/lib/roles';
 import { SELECT_CHEVRON } from './selectChevron';
+import type { Methodology } from '@/types';
 
 /** Where the user asked to land after the project exists (#2710). */
 export interface CreatedProjectIntent {
@@ -27,6 +28,18 @@ export interface CreatedProjectIntent {
    * server's.
    */
   importCsv?: boolean;
+  /**
+   * The methodology this project was derived with (ADR-0791) and whether a template
+   * application was just fired for it (#2734, ADR-0800). Set only on the `template`
+   * way — lets the caller route straight to the surface that matches how the project
+   * will actually be worked (the agile backlog for AGILE) instead of always landing on
+   * Overview regardless of methodology, and to skip that surface's default empty state
+   * while the fire-and-forget apply is still streaming rows in over the board
+   * WebSocket (ADR-0789 §4 — the sheet never blocks on seeding, so the destination may
+   * still be genuinely empty for a moment after navigation).
+   */
+  methodology?: Methodology;
+  templateApplied?: boolean;
 }
 
 interface Props {
@@ -227,7 +240,12 @@ export function NewProjectModal({
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!canSubmit || createProject.isPending) return;
-    const intent: CreatedProjectIntent = way === 'import' ? { importCsv: true } : {};
+    const intent: CreatedProjectIntent =
+      way === 'import'
+        ? { importCsv: true }
+        : way === 'template' && template
+          ? { methodology: derived.methodology, templateApplied: true }
+          : {};
     createProject.mutate(
       {
         name: name.trim(),

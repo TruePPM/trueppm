@@ -50,6 +50,7 @@ import {
   AgentIcon,
 } from '@/components/Icons';
 import { NewProjectModal } from './NewProjectModal';
+import { createdProjectDestination } from './createdProjectDestination';
 import { NewProgramModal } from '@/features/programs/NewProgramModal';
 import { ImportProjectModal } from '@/components/import/ImportProjectModal';
 import { ProgramIdentitySquare } from '@/features/programs/ProgramIdentitySquare';
@@ -1039,13 +1040,9 @@ function SidebarModals({
           onCreated={(projectId, intent) => {
             setShowNewProject(false);
             if (isDrawer) onClose?.();
-            // "Create & import spreadsheet" (#2710) — land in the Schedule with
-            // the wizard open rather than on an empty Overview.
-            void navigate(
-              intent?.importCsv
-                ? `/projects/${projectId}/schedule?import=csv`
-                : `/projects/${projectId}/overview`,
-            );
+            // Centralized in `createdProjectDestination` (#2710, #2734) — see
+            // that module for the CSV-import and agile-backlog-landing rationale.
+            void navigate(createdProjectDestination(projectId, intent));
           }}
         />
       )}

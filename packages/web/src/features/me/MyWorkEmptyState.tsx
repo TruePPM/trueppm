@@ -22,6 +22,7 @@ import { InboxIcon } from '@/components/Icons';
 import { docsUrl } from '@/lib/docsUrl';
 import { useLoadSampleProgram } from '@/hooks/useProgramSeedIo';
 import { NewProjectModal } from '@/features/shell/NewProjectModal';
+import { createdProjectDestination } from '@/features/shell/createdProjectDestination';
 
 interface Props {
   hasProjects: boolean;
@@ -207,11 +208,7 @@ export function MyWorkEmptyState({ hasProjects, hasConnectedExternalSource = fal
             onClose={() => setShowNewProject(false)}
             onCreated={(projectId, intent) => {
               setShowNewProject(false);
-              void navigate(
-                intent?.importCsv
-                  ? `/projects/${projectId}/schedule?import=csv`
-                  : `/projects/${projectId}/overview`,
-              );
+              void navigate(createdProjectDestination(projectId, intent));
             }}
           />
         )}

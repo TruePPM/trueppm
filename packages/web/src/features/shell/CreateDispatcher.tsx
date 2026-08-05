@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router';
 import { useCreateIntentStore } from '@/stores/createIntentStore';
 import { NewProjectModal } from './NewProjectModal';
+import { createdProjectDestination } from './createdProjectDestination';
 import { TaskFormModal } from '@/features/board/TaskFormModal';
 
 /**
@@ -41,17 +42,14 @@ export function CreateDispatcher() {
         onClose={close}
         onCreated={(projectId, intent) => {
           close();
-          // "Create & import spreadsheet" (#2710) lands in the Schedule with the
-          // CSV wizard already open, rather than on an empty Overview the user
-          // would then have to find an overflow menu inside. The wizard needs a
-          // project id, so the project is created first and the deep link hands
-          // it in — `?import=csv` follows the same `useSearchParams` convention
-          // ScheduleView already uses for `?task=`, `?focus=`, `?cp=`.
-          void navigate(
-            intent?.importCsv
-              ? `/projects/${projectId}/schedule?import=csv`
-              : `/projects/${projectId}/overview`,
-          );
+          // Centralized in `createdProjectDestination` (#2734, ADR-0800) so the
+          // CSV-import deep link (#2710) and the agile-backlog landing apply the
+          // same way at every entry point that can open this modal — see that
+          // module for the full rationale. NOTE for #2731 (seeded landing,
+          // running concurrently): the WATERFALL/HYBRID equivalent belongs inside
+          // that same shared helper, not duplicated here — expect it to be a
+          // merge/rebase conflict point between the two branches.
+          void navigate(createdProjectDestination(projectId, intent));
         }}
       />
     );

@@ -4,6 +4,7 @@ import { useProgram } from '@/hooks/useProgram';
 import { useProgramProjects } from '@/hooks/useProgramProjects';
 import { useAssignProjectToProgram } from '@/hooks/useProgramMutations';
 import { NewProjectModal } from '@/features/shell/NewProjectModal';
+import { createdProjectDestination } from '@/features/shell/createdProjectDestination';
 import { ImportProjectModal } from '@/components/import/ImportProjectModal';
 import { AddProjectToProgramModal } from './AddProjectToProgramModal';
 import { RemoveFromProgramConfirmDialog } from './RemoveFromProgramConfirmDialog';
@@ -292,9 +293,9 @@ export function ProgramProjectsPage() {
           programId={programId}
           programName={program?.name}
           onClose={() => setShowNewProjectModal(false)}
-          onCreated={(newProjectId) => {
+          onCreated={(newProjectId, intent) => {
             setShowNewProjectModal(false);
-            void navigate(`/projects/${newProjectId}/overview`);
+            void navigate(createdProjectDestination(newProjectId, intent));
           }}
         />
       )}

@@ -27,7 +27,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useCreateIntentStore } from '@/stores/createIntentStore';
 import {
   DndContext,
@@ -83,6 +83,8 @@ import { SprintCommitButton, type PlannedSprintRef } from './SprintCommitButton'
 import { SprintPlanningRail } from './SprintPlanningRail';
 import { StoryDetailDrawer } from './components/StoryDetailDrawer';
 import { TypeBadge } from './components/TypeBadge';
+import { NotInSprintStrip } from './NotInSprintStrip';
+import { BacklogSeedingState } from './BacklogSeedingState';
 import {
   useAutoRank,
   useCreateEpic,
@@ -551,6 +553,25 @@ function DesktopGroomingView() {
   // the per-row commit toggle. Deduped against the board's ['sprints'] query.
   const plannedSprint = useSprintsByState(projectId).planned[0] ?? null;
 
+  // `?seeding=1` (#2734, ADR-0800): set by `createdProjectDestination` when an AGILE
+  // project's Start-sheet template application just fired. `NewProjectModal` never
+  // waits on the apply (ADR-0789 §4, fire-and-forget), so this page's backlog can be
+  // genuinely empty for a moment after landing here. Rather than poll the template
+  // application, this rides the WS invalidation that already refetches
+  // `['product-backlog', projectId]` on every task broadcast
+  // (`useProjectWebSocket.ts`) — the first seeded row's arrival flips `allEmpty`
+  // below and the seeding branch stops rendering on its own. The timeout is only a
+  // fallback for a dispatch failure (already toast-surfaced by the sheet), so a
+  // failed apply never strands the user on a "setting up" message forever.
+  const [searchParams] = useSearchParams();
+  const isSeeding = searchParams.get('seeding') === '1';
+  const [seedingTimedOut, setSeedingTimedOut] = useState(false);
+  useEffect(() => {
+    if (!isSeeding) return;
+    const timer = setTimeout(() => setSeedingTimedOut(true), 10_000);
+    return () => clearTimeout(timer);
+  }, [isSeeding]);
+
   // Grooming filter (issue 1044): search + DoR facet + unestimated toggle. While
   // any filter is active, drag-reorder is suspended (a filtered subset persisted
   // through the ADR-0110 reorder path would corrupt server-side ranks).
@@ -952,6 +973,11 @@ function DesktopGroomingView() {
           <Button variant="primary" size="sm" onClick={focusQuickAdd}>
             + Add story
           </Button>
+          {/* TODO(#2736): mount the classification-cascade popover's `⌘⇧M` entry
+              point here once it ships — #2736 (the popover this shortcut would
+              open) is still unmerged, so there is nothing to wire yet. The hybrid
+              door (an agile project declaring a gated compliance subtree, Epic C)
+              must stay reachable from this toolbar, not just the Schedule one. */}
         </header>
 
         <HealthStrip health={health} iterationLower={itl.lower} />
@@ -1012,13 +1038,22 @@ function DesktopGroomingView() {
                 primaryTo={projectId ? `/projects/${projectId}/schedule` : '#'}
               />
             )}
-            {allEmpty && effectiveMethodology !== 'WATERFALL' && (
-              <EmptyState
-                icon={ListIcon}
-                title="No stories yet"
-                description="Pull items from the program backlog, or add a story below to start grooming."
-              />
+            {/* #2734, ADR-0800: while a just-applied template's rows are still streaming
+                in, show the seeding skeleton instead of the ordinary empty-backlog CTA —
+                a genuinely-empty backlog and a not-yet-arrived one must not read the same
+                to a user who just watched the sheet say "Created". */}
+            {allEmpty && effectiveMethodology !== 'WATERFALL' && isSeeding && !seedingTimedOut && (
+              <BacklogSeedingState />
             )}
+            {allEmpty &&
+              effectiveMethodology !== 'WATERFALL' &&
+              (!isSeeding || seedingTimedOut) && (
+                <EmptyState
+                  icon={ListIcon}
+                  title="No stories yet"
+                  description="Pull items from the program backlog, or add a story below to start grooming."
+                />
+              )}
 
             {/* No-results state when a filter is active but nothing matches (issue 1044).
                 Distinct from the all-empty state above, which stays reachable. */}
@@ -1246,6 +1281,14 @@ function DesktopGroomingView() {
                 <span className="text-xs text-neutral-text-secondary">↵ to add</span>
               )}
             </div>
+
+            {/* Not-in-a-sprint strip (#2734, ADR-0800) — the agile re-label of the
+                waterfall Unscheduled gutter, reusing the same `isTaskScheduled`
+                predicate. Suppressed on the true empty state; there is nothing to
+                summarize before the backlog has any stories. */}
+            {!allEmpty && (
+              <NotInSprintStrip stories={allStories} onSelect={(id) => setSelectedId(id)} />
+            )}
           </div>
         </div>
       </div>
