@@ -1,0 +1,1 @@
+Schedule: creating a task or phase no longer leaves the rest of the task list dimmed and unclickable. Focusing a row that is being renamed no longer triggers the dependency-chain de-emphasis, and a de-emphasized row stays interactive so hovering it re-targets the chain instead of being swallowed.

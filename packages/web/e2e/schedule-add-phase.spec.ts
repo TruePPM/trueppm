@@ -179,6 +179,16 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
     await expect(hint).toBeVisible();
     await expect(hint).toHaveText(/Add first task to this phase/);
 
+    // Committing the rename opens the next row and focuses it programmatically.
+    // Settle past `HOVER_SETTLE_MS` (80ms, useDependencyHover) before clicking,
+    // so this asserts the *steady* state rather than racing it (#2782): the
+    // focus-driven chain used to dim every other row to opacity-0.22 +
+    // pointer-events-none once that timer fired, killing this very affordance.
+    // Without the wait the click usually wins the race and the regression only
+    // shows up as a ~1-in-15 CI flake.
+    await page.waitForTimeout(200);
+    await expect(hint).toBeVisible();
+
     await hint.click();
 
     // The ghost's own creation drops the new child into rename too.
