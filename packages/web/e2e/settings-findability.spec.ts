@@ -1,5 +1,5 @@
 import { test, expect, type Page } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import { paletteSearch, setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 /**
  * Settings findability (ADR-0606).
@@ -172,7 +172,7 @@ test.describe('Command palette settings sections (#2319)', () => {
     await expect(dialog.getByRole('option', { name: /API tokens/ })).toHaveCount(0);
 
     // A keyword synonym ("pat") surfaces the personal "API tokens" section.
-    await page.getByRole('combobox').fill('pat');
+    await paletteSearch(page).fill('pat');
     const option = dialog.getByRole('option', { name: /API tokens/ });
     await expect(option).toBeVisible();
 

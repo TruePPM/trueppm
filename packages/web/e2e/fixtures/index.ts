@@ -1,5 +1,6 @@
 export { expectNoA11yViolations, type A11yScanOptions } from './a11y';
 export { setupAuth, type SetupAuthOptions } from './auth';
+export { openCommandPalette, paletteDialog, paletteSearch } from './command-palette';
 export {
   setupTaskStore,
   type TaskRow,

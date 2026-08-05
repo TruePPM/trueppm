@@ -7,7 +7,7 @@
  * that it is suppressed while typing in a text field.
  */
 import { test, expect } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import { paletteSearch, setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-helpkey-0000-0000-0000-000000002058';
 
@@ -61,7 +61,7 @@ test.describe('global ? keyboard-shortcuts hotkey (#2058)', () => {
     // Focus the command-palette search input, then press `?` — it must land as
     // text in the field, never open the modal.
     await page.keyboard.press('ControlOrMeta+k');
-    const search = page.getByRole('combobox').or(page.getByRole('textbox')).first();
+    const search = paletteSearch(page);
     await expect(search).toBeVisible();
     await search.focus();
     await page.keyboard.press('?');

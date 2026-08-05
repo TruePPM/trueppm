@@ -6,7 +6,7 @@
  * unit-level mocks.
  */
 import { test, expect, type Page } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import { paletteSearch, setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-feedback-0000-0000-0000-000000002392';
 
@@ -173,7 +173,7 @@ test.describe('Report a bug (#2392)', () => {
     const palette = page.getByRole('dialog', { name: 'Command palette' });
     await expect(palette).toBeVisible();
 
-    await page.getByRole('combobox').fill('report a bug');
+    await paletteSearch(page).fill('report a bug');
     await palette
       .getByRole('option', { name: /Report a bug/ })
       .first()
