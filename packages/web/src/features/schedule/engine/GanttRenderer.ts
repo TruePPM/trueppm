@@ -17,6 +17,7 @@
  */
 
 import type { DeliveryMode, ExternalLinkStatus, Task, TaskLink } from '@/types';
+import type { SprintBand } from '../sprintBands';
 import type { FiscalConfig, GanttScaleData } from './GanttScaleData';
 import {
   CALENDAR_QUARTERS,
@@ -225,6 +226,30 @@ export const COLOR = {
   // Texture stroke/dot color — low alpha so the pattern reads as a secondary
   // cue and never fights the progress overlay's own 30%-alpha black tint.
   deliveryTexture: 'rgba(0,0,0,0.12)',
+  // Sprint-window band (#2738, ADR-0803) — the SAME violet the scrum delivery
+  // mode already owns (deliveryScrum above, --agile in globals.css, the outline
+  // gutter in deliveryModePresentation.ts). Reusing the hue is the point: the
+  // band and the hatched bars inside it must read as one statement about the
+  // same work, not as two independent overlays that happen to be purple.
+  //
+  // The wash is deliberately far below bar-fill intensity — it sits UNDER every
+  // bar on the bg layer and must never compete with the bar states (blue
+  // in-progress, sage complete, red critical frame) it is drawn behind.
+  sprintBandFill: 'rgba(109,74,196,0.055)',
+  // Ink for a pill filled with `sprintBandEdge`. Distinct from chipTextOnSurface
+  // because under forced-colors that pill is `Highlight`, whose only guaranteed
+  // contrast partner is `HighlightText` — `Canvas` happens to read on the shipped
+  // Windows themes, but nothing in the spec promises it will.
+  chipTextOnHighlight: '#FFFFFF',
+  // Window edges + the name pill. Full-strength violet: the two vertical rules
+  // ARE the sprint window, so they carry the fact even where the wash washes out
+  // against the weekend shading.
+  sprintBandEdge: '#6D4AC4',
+  // Band hatch — the same diagonal direction as the scrum bar texture, at a
+  // wider pitch (see SPRINT_BAND_HATCH_PITCH) because it covers a whole region
+  // rather than an 18px bar. Tinted violet rather than reusing deliveryTexture's
+  // neutral ink so it belongs to the band and not to whatever it overlaps.
+  sprintBandTexture: 'rgba(109,74,196,0.14)',
 } as const;
 
 /** Semantic type for the color palette. Both COLOR and COLOR_DARK satisfy this. */
@@ -278,6 +303,13 @@ export const COLOR_DARK: ColorPalette = {
   deliveryScrum: '#A78BFA', // same hue as --violet/--agile dark (globals.css) — readable on the dark navy surface
   deliveryKanban: '#2DD4BF', // teal-400 — same hue as --teal/--kanban dark (globals.css)
   deliveryTexture: 'rgba(255,255,255,0.14)',
+  // Sprint band on the dark navy surface (#2738) — the lighter violet stop, the
+  // same light/dark flip deliveryScrum makes. The wash alpha rises slightly:
+  // a 5.5% tint that reads on white disappears on navy.
+  sprintBandFill: 'rgba(167,139,250,0.09)',
+  chipTextOnHighlight: '#1A1917', // ink on the light violet-400 pill (issue #1032 flip)
+  sprintBandEdge: '#A78BFA', // violet-400 — same hue as --agile dark
+  sprintBandTexture: 'rgba(167,139,250,0.18)',
 };
 
 /**
@@ -328,6 +360,15 @@ export const COLOR_FORCED: ColorPalette = {
   deliveryScrum: 'CanvasText',
   deliveryKanban: 'CanvasText',
   deliveryTexture: 'CanvasText', // alpha tints aren't honored under forced-colors
+  // Sprint band under forced colors (#2738): the wash collapses to the surface —
+  // a solid ink region behind every bar would swallow the bars it exists to
+  // frame, and the system palette has no opacity budget to soften it. The window
+  // survives as its two `Highlight` edge rules and a `GrayText` hatch, which is
+  // the same shape-and-line-over-hue policy the bar kinds already follow here.
+  sprintBandFill: 'Canvas',
+  sprintBandEdge: 'Highlight',
+  sprintBandTexture: 'GrayText',
+  chipTextOnHighlight: 'HighlightText',
 };
 
 /**
@@ -349,8 +390,15 @@ let _palette: ColorPalette = COLOR;
  * Switch the active color palette for all subsequent draw calls in the current pass.
  * Called by GanttEngineImpl at the start of each paint method.
  */
+// Whether the ACTIVE palette is the forced-colors one. Kept alongside `_palette`
+// because a few marks need more than a different color under a high-contrast
+// theme — see `drawSprintBands`, where the correct forced-colors treatment is to
+// skip a fill entirely rather than to paint it in a system color (rule 295).
+let _forcedColors = false;
+
 export function setRendererColorMode(dark: boolean, forced = false): void {
   _palette = pickPalette(dark, forced);
+  _forcedColors = forced;
 }
 
 /**
@@ -376,6 +424,10 @@ export interface ChartRenderOptions {
    *  placement is `left` AND the task table is hidden (Timeline mode) — in Grid
    *  mode the table already carries the names, so no gutter is needed. */
   showNameGutter: boolean;
+  /** Draw sprint-window bands over the rows of sprint-driven subtrees (#2738).
+   *  A presentation toggle, NOT a view switch: turning it off hides the band and
+   *  changes nothing else — the same bars, the same links, the same one plan. */
+  showSprintBands: boolean;
 }
 
 // Active chart options — swapped by GanttEngineImpl before each paint pass,
@@ -384,6 +436,7 @@ let _chartOptions: ChartRenderOptions = {
   taskNamePlacement: 'next',
   showProgressPills: true,
   showNameGutter: false,
+  showSprintBands: true,
 };
 
 /** Set the chart presentation toggles for subsequent draw calls (#2097). */
@@ -592,6 +645,326 @@ export function drawTodayLine(
   ctx.moveTo(x + 0.5, HEADER_HEIGHT);
   ctx.lineTo(x + 0.5, canvasHeight);
   ctx.stroke();
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// Draw: sprint-window bands (#2738, ADR-0803)
+// ---------------------------------------------------------------------------
+
+/**
+ * Horizontal step between band hatch lines, in logical px.
+ *
+ * Wider than `drawDeliveryModeMark`'s 6px scrum pitch on purpose. That hatch
+ * fills an 18px bar, where 6px reads as a texture; the same pitch stretched over
+ * a region hundreds of pixels tall reads as a solid screen and buries the bars
+ * the band is drawn behind. Same 45° direction, lower density — the texture
+ * family is the vocabulary, the pitch is a function of the area.
+ */
+const SPRINT_BAND_HATCH_PITCH = 10;
+
+/**
+ * Height of the band's name pill, in logical px.
+ *
+ * Sized so the 12px name sits entirely inside the 10px gutter BETWEEN two rows'
+ * bars (`ROW_HEIGHT` 28 − `BAR_HEIGHT` 18): only the pill's rounded 3px caps
+ * reach into a bar box, and the label is drawn before the bars so a bar wins
+ * that sliver — the critical-path frame lives in the first and last 2px of the
+ * bar box and must never be occluded by a decorative label (rule 235/295).
+ */
+const SPRINT_BAND_PILL_HEIGHT = 16;
+/** Inset of the name pill from the band's left edge. */
+const SPRINT_BAND_PILL_INSET = 6;
+const SPRINT_BAND_PILL_PAD_X = 5;
+
+/**
+ * Dash pattern for the band's two window rules.
+ *
+ * Not decoration — it is the band's shape channel. Under `forced-colors` the
+ * band edge and the today line both resolve to `Highlight`, and a solid 2px
+ * vertical rule would be pixel-identical to "now": three indistinguishable lines
+ * where one of them is ADR-0103's load-bearing mark. The dash also carries the
+ * window at zoom levels where the band is too narrow for its name pill, which is
+ * the case that would otherwise leave hue as the sole carrier (WCAG 1.4.1).
+ */
+const SPRINT_BAND_EDGE_DASH = [5, 3];
+
+/**
+ * Duration of the band fade-in, in ms.
+ *
+ * Short enough to read as the band *arriving* rather than as an animation the
+ * user has to wait through — the chart is otherwise instantaneous, and a slow
+ * reveal on a presentation toggle would feel like a load.
+ */
+export const SPRINT_BAND_FADE_MS = 180;
+
+/**
+ * Eased alpha for a band fade-in that started `elapsedMs` ago.
+ *
+ * Ease-out quadratic: most of the opacity lands early, so the band is legible
+ * almost immediately and only the last few percent are spent settling. Pure and
+ * exported so the ramp is unit-testable without a canvas or a rAF loop — the
+ * engine owns the clock, this owns the curve.
+ *
+ * NOTE: reduced motion is NOT handled here. The engine skips the ramp entirely
+ * under `prefers-reduced-motion` (rule 70) and paints at alpha 1 on the first
+ * frame; clamping the curve instead would still schedule the repaint loop.
+ */
+export function sprintBandFadeAlpha(elapsedMs: number): number {
+  if (elapsedMs >= SPRINT_BAND_FADE_MS) return 1;
+  if (elapsedMs <= 0) return 0;
+  const t = elapsedMs / SPRINT_BAND_FADE_MS;
+  return 1 - (1 - t) * (1 - t);
+}
+
+/** Viewport-relative rect for a band, or null when it is entirely off-screen. */
+interface BandRect {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+  /** Band top before header/viewport clamping — where the name pill is anchored. */
+  anchorTop: number;
+}
+
+/**
+ * Project one band into viewport coordinates, culling anything off-screen.
+ *
+ * Exported-by-consequence of being shared: `drawSprintBands` (bg layer) and
+ * `drawSprintBandLabels` (bars layer) MUST agree pixel-for-pixel, or the label
+ * detaches from the region it names. One projection, two consumers.
+ */
+function bandRect(
+  band: SprintBand,
+  scales: GanttScaleData,
+  scrollLeft: number,
+  scrollTop: number,
+  viewportWidth: number,
+  viewportHeight: number,
+): BandRect | null {
+  const left = dateToLeft(band.startDate, scales) - scrollLeft;
+  // Inclusive finish, closed at the end of the finish day — the same convention
+  // every bar uses, so a task finishing on the sprint's last day ends flush with
+  // the band edge instead of a day short of it.
+  const right = dateToRight(band.finishDate, scales) - scrollLeft;
+  const anchorTop = band.firstRow * ROW_HEIGHT + HEADER_HEIGHT - scrollTop;
+  const bottom = (band.lastRow + 1) * ROW_HEIGHT + HEADER_HEIGHT - scrollTop;
+  if (right <= left) return null;
+  if (right <= 0 || left >= viewportWidth) return null;
+  if (bottom <= HEADER_HEIGHT || anchorTop >= viewportHeight) return null;
+  return {
+    left,
+    right,
+    // Clamp to below the header band and inside the viewport so a band scrolled
+    // past the fold cannot bleed over the retained date header.
+    top: Math.max(anchorTop, HEADER_HEIGHT),
+    bottom: Math.min(bottom, viewportHeight),
+    anchorTop,
+  };
+}
+
+/**
+ * Draw the sprint-window bands on canvas-bg (#2738, ADR-0803).
+ *
+ * A band is a wash + hatch + edge rules over the rows of a sprint-driven subtree,
+ * spanning the sprint's own window on the shared date axis. It is drawn on the
+ * BACKGROUND layer, between the grid and the today line, which is what makes the
+ * hybrid claim legible rather than merely present: every gated bar, every
+ * dependency arrow and the critical-path frame paint on the layer above and stay
+ * fully readable through it. Nothing forks — an arrow crosses into and out of a
+ * band exactly as it crosses anything else, because the band is paint, not a
+ * container.
+ *
+ * Zoom- and pan-safe by construction: the horizontal extent is derived from the
+ * live `scales` on every paint (Month and Quarter tiers included) and the
+ * vertical extent from row indices, so there is no cached pixel geometry to go
+ * stale. The engine already forces a full bg repaint on scroll and zoom.
+ *
+ * `alpha` multiplies the whole band so the engine can fade it in; pass 1 for a
+ * static paint. Bands are skipped entirely at alpha 0.
+ */
+export function drawSprintBands(
+  ctx: CanvasRenderingContext2D,
+  bands: readonly SprintBand[],
+  scales: GanttScaleData,
+  scrollLeft: number,
+  scrollTop: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  alpha = 1,
+): void {
+  if (!bands.length || alpha <= 0) return;
+
+  for (const band of bands) {
+    const rect = bandRect(band, scales, scrollLeft, scrollTop, viewportWidth, viewportHeight);
+    if (!rect) continue;
+
+    // Clip to the on-screen intersection before hatching, so the line loop is
+    // bounded by the viewport and not by the band's full (possibly multi-year,
+    // multi-thousand-row) extent.
+    const clipLeft = Math.max(rect.left, 0);
+    const clipRight = Math.min(rect.right, viewportWidth);
+    const width = clipRight - clipLeft;
+    const height = rect.bottom - rect.top;
+    if (width <= 0 || height <= 0) continue;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.rect(clipLeft, rect.top, width, height);
+    ctx.clip();
+
+    // Under forced-colors the wash is NOT painted at all. The palette entry
+    // collapses to the opaque system `Canvas`, and this fill runs AFTER
+    // drawGridLines — so painting it would erase every day tick and row
+    // separator inside the band, which is the one cue a high-contrast user needs
+    // most on a wide chart. The hatch and the edge rules carry the window there
+    // instead (rule 295).
+    if (!_forcedColors) {
+      ctx.fillStyle = _palette.sprintBandFill;
+      ctx.fillRect(clipLeft, rect.top, width, height);
+    }
+
+    // Same 45° bottom-left → top-right direction as the scrum bar hatch, so the
+    // band and the bars inside it read as one texture family (WCAG 1.4.1: the
+    // window survives a color-vision deficiency and a monochrome print).
+    ctx.strokeStyle = _palette.sprintBandTexture;
+    ctx.lineWidth = 1;
+    for (
+      let hx = clipLeft - height;
+      hx < clipLeft + width;
+      hx += SPRINT_BAND_HATCH_PITCH
+    ) {
+      ctx.beginPath();
+      ctx.moveTo(hx, rect.bottom);
+      ctx.lineTo(hx + height, rect.top);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+
+    // Edges drawn OUTSIDE the clip: the two vertical rules are the window, and
+    // a 2px stroke centered on the boundary would lose half its width to a clip
+    // that ends exactly there.
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = _palette.sprintBandEdge;
+    ctx.lineWidth = 2;
+    ctx.setLineDash(SPRINT_BAND_EDGE_DASH);
+    ctx.beginPath();
+    if (rect.left >= 0 && rect.left <= viewportWidth) {
+      ctx.moveTo(rect.left, rect.top);
+      ctx.lineTo(rect.left, rect.bottom);
+    }
+    if (rect.right >= 0 && rect.right <= viewportWidth) {
+      ctx.moveTo(rect.right, rect.top);
+      ctx.lineTo(rect.right, rect.bottom);
+    }
+    ctx.stroke();
+
+    // Top and bottom hairlines close the bracket, so the band reads as a region
+    // bounded on all four sides rather than as two unrelated vertical rules.
+    // Only drawn where the band's real edge is on screen — a clamped edge is the
+    // viewport, not the subtree boundary, and ruling it would lie.
+    ctx.lineWidth = 1;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    if (rect.anchorTop >= HEADER_HEIGHT) {
+      ctx.moveTo(clipLeft, rect.anchorTop + 0.5);
+      ctx.lineTo(clipRight, rect.anchorTop + 0.5);
+    }
+    if (rect.bottom < viewportHeight) {
+      ctx.moveTo(clipLeft, rect.bottom - 0.5);
+      ctx.lineTo(clipRight, rect.bottom - 0.5);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+/**
+ * Draw each band's sprint-name pill on canvas-bars (#2738, ADR-0803).
+ *
+ * Split from {@link drawSprintBands} because of layer order, not taste. The band
+ * is a background wash and belongs under everything; its label is text and would
+ * be unreadable there — the bg layer is overpainted by the first bar that
+ * crosses it, and the bars inside a sprint band are precisely the ones that will.
+ * So the region paints on the bg layer and the label on the bars layer.
+ *
+ * Within the bars layer it paints EARLY — after the hover wash, before the bars.
+ * That is a deliberate loss: the pill straddles a row boundary, and the 3px of it
+ * that reach into a bar box are exactly where `drawTaskBar`'s 2px inset
+ * critical-path frame lives. A decorative label must never occlude a risk signal
+ * (rule 235), so the bar wins the sliver and the pill keeps the 10px inter-bar
+ * gutter its text actually occupies.
+ *
+ * The pill straddles the band's top edge rather than sitting inside the first
+ * row: a 28px row leaves 5px above the bar, which cannot hold 12px text, and a
+ * pill placed inside would cover the first bar's leading edge — the one part of
+ * a bar a planner reads dates from.
+ *
+ * Horizontally the pill sticks to the viewport's left edge while the band's own
+ * start is scrolled off, so panning into the middle of a long sprint never
+ * leaves an anonymous band. It falls back to the band's true left edge whenever
+ * sticking would push the pill past the band's right edge — better off-screen
+ * than floating over a window it does not label.
+ */
+export function drawSprintBandLabels(
+  ctx: CanvasRenderingContext2D,
+  bands: readonly SprintBand[],
+  scales: GanttScaleData,
+  scrollLeft: number,
+  scrollTop: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  alpha = 1,
+): void {
+  if (!bands.length || alpha <= 0) return;
+
+  ctx.save();
+  // The body face, not chipFont(): a sprint name is prose, and chipFont() is
+  // 11px JetBrains Mono scoped to tabular numerals in the % chip (rule 8c) —
+  // and below the 12px minimum (rule 50).
+  ctx.font = canvasFont();
+  ctx.textBaseline = 'middle';
+
+  for (const band of bands) {
+    const rect = bandRect(band, scales, scrollLeft, scrollTop, viewportWidth, viewportHeight);
+    if (!rect) continue;
+
+    const bandWidth = rect.right - rect.left;
+    const maxTextWidth = bandWidth - SPRINT_BAND_PILL_INSET * 2 - SPRINT_BAND_PILL_PAD_X * 2;
+    // A band narrower than a couple of glyphs gets no label at all — an ellipsis
+    // alone names nothing, and the band's edges already carry the window.
+    if (maxTextWidth < 16) continue;
+
+    const label = truncateToWidth(ctx, band.name, maxTextWidth);
+    const pillWidth = ctx.measureText(label).width + SPRINT_BAND_PILL_PAD_X * 2;
+
+    const ownX = rect.left + SPRINT_BAND_PILL_INSET;
+    const stickyLimit = rect.right - SPRINT_BAND_PILL_INSET - pillWidth;
+    const x = Math.min(Math.max(ownX, SPRINT_BAND_PILL_INSET), Math.max(stickyLimit, ownX));
+    if (x + pillWidth <= 0 || x >= viewportWidth) continue;
+
+    // Straddle the band's top edge, but never let the pill ride up into the date
+    // header — on a band whose first row is the first row of the chart it sits
+    // flush below the header instead.
+    const pillTop = Math.max(rect.anchorTop - SPRINT_BAND_PILL_HEIGHT / 2, HEADER_HEIGHT + 1);
+    if (pillTop >= viewportHeight || pillTop + SPRINT_BAND_PILL_HEIGHT <= HEADER_HEIGHT) continue;
+
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = _palette.sprintBandEdge;
+    ctx.beginPath();
+    ctx.roundRect(x, pillTop, pillWidth, SPRINT_BAND_PILL_HEIGHT, 3);
+    ctx.fill();
+
+    // Paired with the pill's own fill, not with the chart surface: under
+    // forced-colors the pill is `Highlight`, whose guaranteed-contrast partner
+    // is `HighlightText` and NOT the `Canvas` that chipTextOnSurface resolves to.
+    ctx.fillStyle = _palette.chipTextOnHighlight;
+    ctx.fillText(label, x + SPRINT_BAND_PILL_PAD_X, pillTop + SPRINT_BAND_PILL_HEIGHT / 2);
+  }
+
   ctx.restore();
 }
 

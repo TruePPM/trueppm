@@ -21,6 +21,10 @@ import {
   MERGE_HALO_RADIUS,
   MERGE_DOT_RADIUS,
   COLOR,
+  drawSprintBands,
+  drawSprintBandLabels,
+  sprintBandFadeAlpha,
+  SPRINT_BAND_FADE_MS,
   canvasFont,
   chipFont,
   refreshFontScale,
@@ -29,6 +33,7 @@ import {
 import { buildScaleData, dateToLeft, dateToRight } from './GanttScaleData';
 import { HEADER_HEIGHT } from '../scheduleConstants';
 import type { Task } from '@/types';
+import type { SprintBand } from '../sprintBands';
 
 function makeCtxSpy() {
   const calls: Array<{ name: string; args: unknown[] }> = [];
@@ -1740,7 +1745,16 @@ describe('forced-colors (Windows High Contrast) palette (#1742)', () => {
   });
 
   it('the forced palette is entirely CSS system-color keywords, never hex', () => {
-    const systemColors = new Set(['Canvas', 'CanvasText', 'GrayText', 'Highlight', 'LinkText']);
+    // `HighlightText` is the guaranteed-contrast partner of `Highlight` (#2738):
+    // a pill filled with the accent must be inked with it, not with `Canvas`.
+    const systemColors = new Set([
+      'Canvas',
+      'CanvasText',
+      'GrayText',
+      'Highlight',
+      'HighlightText',
+      'LinkText',
+    ]);
     for (const value of Object.values(COLOR_FORCED)) {
       expect(systemColors.has(value)).toBe(true);
     }
@@ -1778,6 +1792,7 @@ const DEFAULT_CHART = {
   taskNamePlacement: 'next' as const,
   showProgressPills: true,
   showNameGutter: false,
+  showSprintBands: true,
 };
 
 describe('drawTaskBarLabel — paper halo + placement gate (#2096/#2097)', () => {
@@ -2093,6 +2108,7 @@ describe('chart render options round-trip (#2097)', () => {
       taskNamePlacement: 'left' as const,
       showProgressPills: false,
       showNameGutter: true,
+      showSprintBands: false,
     };
     setRendererChartOptions(opts);
     expect(getRendererChartOptions()).toEqual(opts);
@@ -3153,5 +3169,294 @@ describe('refreshFontScale — environments without getComputedStyle (#2459)', (
     } finally {
       globalThis.getComputedStyle = real;
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sprint-window bands (#2738, ADR-0803)
+// ---------------------------------------------------------------------------
+
+describe('sprintBandFadeAlpha — band appearance ramp (#2738)', () => {
+  it('starts at 0 and saturates at 1 exactly at the fade duration', () => {
+    expect(sprintBandFadeAlpha(0)).toBe(0);
+    expect(sprintBandFadeAlpha(SPRINT_BAND_FADE_MS)).toBe(1);
+  });
+
+  it('clamps outside the window in both directions', () => {
+    expect(sprintBandFadeAlpha(-50)).toBe(0);
+    expect(sprintBandFadeAlpha(SPRINT_BAND_FADE_MS * 10)).toBe(1);
+  });
+
+  it('eases out — the band is mostly opaque by the halfway point', () => {
+    const half = sprintBandFadeAlpha(SPRINT_BAND_FADE_MS / 2);
+    expect(half).toBeGreaterThan(0.5);
+    expect(half).toBeLessThan(1);
+  });
+
+  it('is monotonically non-decreasing, so a band never flickers darker', () => {
+    let prev = -1;
+    for (let t = 0; t <= SPRINT_BAND_FADE_MS; t += 10) {
+      const a = sprintBandFadeAlpha(t);
+      expect(a).toBeGreaterThanOrEqual(prev);
+      prev = a;
+    }
+  });
+});
+
+describe('drawSprintBands — the window on the shared timeline (#2738)', () => {
+  const scales = buildScaleData('week', '2026-04-01', '2026-05-01');
+  const VIEW_W = 800;
+  const VIEW_H = 600;
+
+  function band(over: Partial<SprintBand> = {}): SprintBand {
+    return {
+      sprintId: 'sp1',
+      name: 'Sprint 4',
+      startDate: '2026-04-06',
+      finishDate: '2026-04-17',
+      firstRow: 1,
+      lastRow: 3,
+      ...over,
+    };
+  }
+
+  it('draws nothing for an empty band list', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawSprintBands(ctx, [], scales, 0, 0, VIEW_W, VIEW_H);
+    expect(calls.length).toBe(0);
+  });
+
+  it('draws nothing at alpha 0 — the first frame of a fade costs no paint', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawSprintBands(ctx, [band()], scales, 0, 0, VIEW_W, VIEW_H, 0);
+    expect(calls.length).toBe(0);
+  });
+
+  it('washes the exact row span of the band', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawSprintBands(ctx, [band()], scales, 0, 0, VIEW_W, VIEW_H);
+
+    const left = dateToLeft('2026-04-06', scales);
+    // Inclusive finish — the window closes at the END of the finish day, the
+    // same convention every bar uses (#950).
+    const right = dateToRight('2026-04-17', scales);
+    const top = 1 * ROW_HEIGHT + HEADER_HEIGHT;
+    const bottom = 4 * ROW_HEIGHT + HEADER_HEIGHT;
+
+    const wash = calls.find((c) => c.name === 'fillRect');
+    expect(wash).toBeDefined();
+    expect(wash!.args[0]).toBeCloseTo(left);
+    expect(wash!.args[1]).toBeCloseTo(top);
+    expect(wash!.args[2]).toBeCloseTo(right - left);
+    expect(wash!.args[3]).toBeCloseTo(bottom - top);
+  });
+
+  it('dashes the window rules so they are not another solid vertical line', () => {
+    // Under forced-colors the band edge and the today line are BOTH `Highlight`
+    // at 2px — a solid rule would be pixel-identical to ADR-0103's "now" mark.
+    // The dash is also what carries the window at zoom levels too narrow for the
+    // name pill, where hue would otherwise be the sole cue (WCAG 1.4.1).
+    const { ctx, calls } = makeCtxSpy();
+    drawSprintBands(ctx, [band()], scales, 0, 0, VIEW_W, VIEW_H);
+    const dashes = calls.filter((c) => c.name === 'setLineDash').map((c) => c.args[0]);
+    expect(dashes.some((d) => Array.isArray(d) && d.length > 0)).toBe(true);
+    // …and reset before the top/bottom hairlines, which are not window edges.
+    expect(dashes.some((d) => Array.isArray(d) && d.length === 0)).toBe(true);
+  });
+
+  it('uses the sprint-band palette entries, not the bar palette', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawSprintBands(ctx, [band()], scales, 0, 0, VIEW_W, VIEW_H);
+    const fills = calls.filter((c) => c.name === 'fillStyle').map((c) => c.args[0]);
+    const strokes = calls.filter((c) => c.name === 'strokeStyle').map((c) => c.args[0]);
+    expect(fills).toContain(COLOR.sprintBandFill);
+    expect(strokes).toContain(COLOR.sprintBandTexture);
+    expect(strokes).toContain(COLOR.sprintBandEdge);
+  });
+
+  it('reuses the scrum hue so the band and its hatched bars read as one thing', () => {
+    // Vocabulary match with #2727/#2737 is the whole point — a parallel color
+    // mechanism would make the band look like a different feature.
+    expect(COLOR.sprintBandEdge).toBe(COLOR.deliveryScrum);
+  });
+
+  it('multiplies the whole band by alpha during a fade', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawSprintBands(ctx, [band()], scales, 0, 0, VIEW_W, VIEW_H, 0.4);
+    const alphas = calls.filter((c) => c.name === 'globalAlpha').map((c) => c.args[0]);
+    expect(alphas.length).toBeGreaterThan(0);
+    for (const a of alphas) expect(a).toBe(0.4);
+  });
+
+  it('culls a band scrolled off the left of the viewport', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const far = dateToRight('2026-04-17', scales) + 10;
+    drawSprintBands(ctx, [band()], scales, far, 0, VIEW_W, VIEW_H);
+    expect(calls.length).toBe(0);
+  });
+
+  it('culls a band scrolled above the header fold', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawSprintBands(ctx, [band()], scales, 0, 10_000, VIEW_W, VIEW_H);
+    expect(calls.length).toBe(0);
+  });
+
+  it('clamps the top to below the header so it cannot bleed over the date axis', () => {
+    const { ctx, calls } = makeCtxSpy();
+    // Scroll the band's first row above the fold.
+    drawSprintBands(ctx, [band({ firstRow: 0, lastRow: 20 })], scales, 0, 3 * ROW_HEIGHT, VIEW_W, VIEW_H);
+    const wash = calls.find((c) => c.name === 'fillRect');
+    expect(wash).toBeDefined();
+    expect(wash!.args[1]).toBe(HEADER_HEIGHT);
+  });
+
+  it('survives a zoom change by re-deriving x from the live scales', () => {
+    const monthScales = buildScaleData('month', '2026-04-01', '2026-07-01');
+    const quarterScales = buildScaleData('quarter', '2026-04-01', '2026-07-01');
+    const at = (s: ReturnType<typeof buildScaleData>) => {
+      const { ctx, calls } = makeCtxSpy();
+      drawSprintBands(ctx, [band()], s, 0, 0, VIEW_W, VIEW_H);
+      const wash = calls.find((c) => c.name === 'fillRect');
+      return { x: wash!.args[0] as number, w: wash!.args[2] as number };
+    };
+    const month = at(monthScales);
+    const quarter = at(quarterScales);
+    // Same window, different pixel scale — the band must narrow with the zoom
+    // rather than hold a cached width.
+    expect(quarter.w).toBeLessThan(month.w);
+    expect(quarter.w).toBeGreaterThan(0);
+  });
+
+  it('skips the wash under forced colors — an opaque region would erase the grid', () => {
+    // COLOR_FORCED.sprintBandFill is the solid system `Canvas`, and this paints
+    // AFTER drawGridLines: filling it would delete every day tick and row
+    // separator inside the band, which is the cue a high-contrast user needs
+    // most (rule 295). The hatch and the edge rules carry the window there.
+    setRendererColorMode(false, true);
+    try {
+      const { ctx, calls } = makeCtxSpy();
+      drawSprintBands(ctx, [band()], scales, 0, 0, VIEW_W, VIEW_H);
+      expect(calls.filter((c) => c.name === 'fillRect')).toHaveLength(0);
+      // Still drawn — the band does not vanish, it changes carrier.
+      const strokes = calls.filter((c) => c.name === 'strokeStyle').map((c) => c.args[0]);
+      expect(strokes).toContain(COLOR_FORCED.sprintBandEdge);
+      expect(strokes).toContain(COLOR_FORCED.sprintBandTexture);
+    } finally {
+      setRendererColorMode(false, false);
+    }
+  });
+
+  it('draws each band in a multi-band outline', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawSprintBands(
+      ctx,
+      [band({ firstRow: 0, lastRow: 1 }), band({ sprintId: 'sp2', firstRow: 3, lastRow: 4 })],
+      scales,
+      0,
+      0,
+      VIEW_W,
+      VIEW_H,
+    );
+    expect(calls.filter((c) => c.name === 'fillRect')).toHaveLength(2);
+  });
+});
+
+describe('drawSprintBandLabels — naming the window (#2738)', () => {
+  const scales = buildScaleData('week', '2026-04-01', '2026-05-01');
+  const VIEW_W = 800;
+  const VIEW_H = 600;
+
+  const BAND: SprintBand = {
+    sprintId: 'sp1',
+    name: 'Sprint 4',
+    startDate: '2026-04-06',
+    finishDate: '2026-04-17',
+    firstRow: 2,
+    lastRow: 4,
+  };
+
+  it('draws the sprint name once per visible band', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawSprintBandLabels(ctx, [BAND], scales, 0, 0, VIEW_W, VIEW_H);
+    const texts = calls.filter((c) => c.name === 'fillText').map((c) => c.args[0]);
+    expect(texts).toEqual(['Sprint 4']);
+  });
+
+  it('straddles the band top edge instead of covering the first bar', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawSprintBandLabels(ctx, [BAND], scales, 0, 0, VIEW_W, VIEW_H);
+    const pill = calls.find((c) => c.name === 'roundRect');
+    expect(pill).toBeDefined();
+    const bandTop = 2 * ROW_HEIGHT + HEADER_HEIGHT;
+    expect(pill!.args[1] as number).toBeLessThan(bandTop);
+  });
+
+  it('keeps its TEXT inside the inter-bar gutter, clear of both bar boxes', () => {
+    // Rule 235/295: the first and last 2px of a bar box hold the critical-path
+    // frame. The pill's rounded caps may graze them (the bars paint after and
+    // win), but the glyphs must sit in the 10px gutter between the two bars.
+    const { ctx, calls } = makeCtxSpy();
+    drawSprintBandLabels(ctx, [BAND], scales, 0, 0, VIEW_W, VIEW_H);
+    const text = calls.find((c) => c.name === 'fillText');
+    const bandTop = 2 * ROW_HEIGHT + HEADER_HEIGHT;
+    // textBaseline is 'middle', so the glyph box is centred on this y.
+    const baseline = text!.args[2] as number;
+    expect(baseline).toBeCloseTo(bandTop);
+    // The gutter runs from the previous row's bar bottom to this row's bar top.
+    expect(baseline).toBeGreaterThan(bandTop - (ROW_HEIGHT - BAR_HEIGHT) / 2);
+    expect(baseline).toBeLessThan(bandTop + (ROW_HEIGHT - BAR_HEIGHT) / 2);
+  });
+
+  it('inks the pill with the palette entry paired to the pill fill', () => {
+    // Under forced-colors the pill is `Highlight`, whose only guaranteed
+    // contrast partner is `HighlightText` — not the `Canvas` that
+    // chipTextOnSurface resolves to.
+    const { ctx, calls } = makeCtxSpy();
+    drawSprintBandLabels(ctx, [BAND], scales, 0, 0, VIEW_W, VIEW_H);
+    const fills = calls.filter((c) => c.name === 'fillStyle').map((c) => c.args[0]);
+    expect(fills).toContain(COLOR.chipTextOnHighlight);
+    expect(COLOR_FORCED.chipTextOnHighlight).toBe('HighlightText');
+  });
+
+  it('never lets the pill ride up into the date header', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawSprintBandLabels(ctx, [{ ...BAND, firstRow: 0 }], scales, 0, 0, VIEW_W, VIEW_H);
+    const pill = calls.find((c) => c.name === 'roundRect');
+    expect(pill!.args[1] as number).toBeGreaterThanOrEqual(HEADER_HEIGHT);
+  });
+
+  it('sticks the label to the viewport edge when the window start is panned off', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const scrolled = dateToLeft('2026-04-10', scales);
+    drawSprintBandLabels(ctx, [BAND], scales, scrolled, 0, VIEW_W, VIEW_H);
+    const pill = calls.find((c) => c.name === 'roundRect');
+    expect(pill).toBeDefined();
+    // Pinned just inside the viewport, not left at a negative x where a planner
+    // panning into a long sprint would see an anonymous band.
+    expect(pill!.args[0] as number).toBeGreaterThanOrEqual(0);
+  });
+
+  it('omits the label on a band too narrow to name', () => {
+    const { ctx, calls } = makeCtxSpy();
+    // A one-day window at week zoom is a few px wide.
+    drawSprintBandLabels(
+      ctx,
+      [{ ...BAND, startDate: '2026-04-06', finishDate: '2026-04-06' }],
+      scales,
+      0,
+      0,
+      VIEW_W,
+      VIEW_H,
+    );
+    expect(calls.filter((c) => c.name === 'fillText')).toHaveLength(0);
+  });
+
+  it('draws nothing at alpha 0 or with no bands', () => {
+    const a = makeCtxSpy();
+    drawSprintBandLabels(a.ctx, [BAND], scales, 0, 0, VIEW_W, VIEW_H, 0);
+    expect(a.calls.filter((c) => c.name === 'fillText')).toHaveLength(0);
+    const b = makeCtxSpy();
+    drawSprintBandLabels(b.ctx, [], scales, 0, 0, VIEW_W, VIEW_H);
+    expect(b.calls.filter((c) => c.name === 'fillText')).toHaveLength(0);
   });
 });

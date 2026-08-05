@@ -303,6 +303,42 @@ TruePPM ships its own canvas Schedule renderer in `packages/web/src/features/sch
 
 Bar labels use `COLOR.text` (`#1A1917` light / palette swap in dark mode). The canvas font is set once at engine init to the Tailwind `font-sans` stack so labels match the task list typography.
 
+## Sprint windows
+
+:::note[Ships in 0.4]
+Sprint window bands ship in 0.4. On the current release the Schedule draws no sprint band; a sprint's dates are visible only on the [Sprints](/features/sprints/) workspace.
+:::
+
+A hybrid program is **one plan**, so its sprint cadence is drawn on the same timeline as its gated bars — not on a second view, and not behind a toggle that swaps one for the other. Where a subtree is driven by a sprint, the Schedule paints a **sprint window**: a tinted, hatched band spanning that subtree's rows, running from the sprint's start date to its finish date, with the sprint name on a pill at the band's top-left corner.
+
+The point is what you can see in one glance: the gated critical path, the sprint cadence, and the dependencies crossing between them. A predecessor in a gated phase drives a story inside a sprint window exactly as it drives anything else — **the band is paint, not a container**. It changes no dates, no dependency routing, and no bar. Nothing forks.
+
+### Which rows a band covers
+
+A band covers a **contiguous run of rows** that all resolve to the same sprint. If a sprint's work sits in two places in the WBS with other work between them, you get two bands — never one tall band claiming the rows in between, which are in no sprint at all.
+
+Rows resolve exactly the way the [delivery-mode chip](/features/task-classification/) does, so the band and the chip can never disagree about what a subtree is:
+
+- A **phase reads from its descendants**, not from its own sprint field. A phase whose branches sit in different sprints gets no band of its own; its children get theirs.
+- **Milestones contribute nothing.** A gate inside a sprint-driven phase is a gate, not evidence the phase spans two sprints — so a gate never splits a band.
+- A row carrying no sprint of its own — that gate, or a task nobody has pulled in yet — **inherits the band around it**, so a sprint-driven phase reads as one region instead of one with holes in it.
+
+**Cancelled** sprints draw nothing. **Planned**, **active** and **completed** sprints all draw: past cadence explains the shape of the plan behind the today line as much as the live sprint explains the shape ahead of it.
+
+### Reading the band
+
+The band uses the same visual vocabulary as the delivery-mode marks it sits behind — the same violet, the same diagonal hatch as a scrum bar, at a lower density because it covers a region rather than an 18px bar. Its two **dashed** vertical rules *are* the window: work that runs past them is work that runs past the sprint. The **Sprint window** entry in the schedule legend explains the mark, alongside **Scrum**, **Kanban** and **Mixed subtree** — one legend for the whole hybrid vocabulary.
+
+The band never relies on color alone: hue, hatch, the dashed edges and the name pill each carry the fact, so it survives a color-vision deficiency and a monochrome print. In Windows High Contrast the tint drops away entirely — a solid region would erase the grid and row separators it sits over — and the window survives as its two dashed rules and a gray hatch, which is also why they are dashed rather than solid: there, a solid rule would be indistinguishable from the today line.
+
+Screen readers get the fact as text, and they get the *window*, not just the membership: a task inside one announces `…, in Sprint 4 (Apr 20 – May 1)`, and a task whose finish runs past the window adds `, finishes after the sprint window` — the thing a sighted user reads off the band's right-hand rule. Hovering a row surfaces the full sprint name even when the pill had to truncate it.
+
+Bands survive zoom and pan — the window is re-derived from the live timescale on every repaint, so it narrows correctly from Month to Quarter rather than holding a stale width. They fade in briefly when they first appear; under `prefers-reduced-motion` they simply appear, with no animation scheduled at all.
+
+### Turning them off
+
+**Display → Chart → Sprint windows** hides the bands. This is a presentation toggle, not a view switch: hiding the window changes nothing else — the same rows, the same bars, the same links. The choice persists per browser, and the Display badge counts it so you are never left wondering where the band went. On a project with no sprint window to draw the option is not offered at all, and it never lights the badge.
+
 ## Dependency types
 
 Finish-to-Start dependencies render as collision-avoiding Manhattan-routed arrows; the other three (SS, FF, SF) render as cubic-Bézier curves:
@@ -469,9 +505,10 @@ The [Advancing-to-Milestone card](/features/sprints/) on the Sprints view links 
 - [ADR-0040](/architecture/decisions/) — Wave/3 Schedule: bar render, task drawer, unscheduled gutter, canvas rationale
 - [ADR-0027](/architecture/decisions/) — Incremental CPM recompute (subgraph delta strategy)
 - [ADR-0752](/architecture/decisions/) — Task span (`scheduled_start`) vs. the remaining-work window (`early_start`); the bar/Duration-chip treatment above
+- [ADR-0803](/architecture/decisions/) — Sprint window bands on the schedule canvas — row attribution, the shared delivery-mode vocabulary, and why it is not a second view
 
 ## If you are…
 
 - **Raj (PM)** — this is your home. The critical path lights up automatically; baselines overlay as ghosts; the milestone diamonds are your contractual signal.
-- **Maya (Scrum Master)** — you don't open this. The deep-link from the Sprints workspace's milestone card is the rare case you'd land here.
+- **Maya (Scrum Master)** — you don't open this day to day. When you do, the sprint windows are where your cadence is visible against Raj's gates — and the one place you can see a gate landing inside one of your sprints.
 - **Tom (engineer)** — you don't open this either. The Schedule auto-re-forecasts off your board moves.

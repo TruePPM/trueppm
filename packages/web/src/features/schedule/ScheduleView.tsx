@@ -101,6 +101,7 @@ import { BeforeProjectStartDialog } from './BeforeProjectStartDialog';
 import { useScheduleCommit } from './useScheduleCommit';
 import { useProject } from '@/hooks/useProject';
 import { useSprints } from '@/hooks/useSprints';
+import { computeSprintBands } from './sprintBands';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { SchedulePrintLayout } from './export/SchedulePrintLayout';
 import { useScheduleExport } from './export/useScheduleExport';
@@ -649,6 +650,7 @@ export function ScheduleView() {
     setDependencyLinesVisible,
     setTaskNamePlacement,
     setProgressPillsVisible,
+    setSprintBandsVisible,
   } = useScheduleChartPrefs();
 
   // Filter links to critical-path only when showCpOnly is active, and drop them
@@ -721,6 +723,22 @@ export function ScheduleView() {
     reviewFilterActive,
     reviewTaskIds,
   ]);
+
+  /**
+   * Sprint-window bands for the canvas (#2738, ADR-0803).
+   *
+   * Computed from `visibleTasks` — the SAME array handed to the engine — because
+   * bands are addressed by row index. Deriving them from `allTasks` would put a
+   * band over the wrong rows the moment a filter, a collapsed phase, or the
+   * milestones-only view changes what the canvas is actually drawing.
+   *
+   * Memoized so the identity is stable between renders: the engine compares by
+   * reference and would otherwise restart the fade on every unrelated re-render.
+   */
+  const sprintBands = useMemo(
+    () => computeSprintBands(visibleTasks, sprints),
+    [visibleTasks, sprints],
+  );
 
   // Wrap toggle to announce the new state to the polite aria-live region.
   // Written via DOM ref (rule 30) — avoids a state-driven re-render on every toggle.
@@ -879,7 +897,11 @@ export function ScheduleView() {
   // Display menu. (`effectiveViewMode`, not the stored `viewMode`, so mobile's
   // forced-Timeline layout paints and edits Timeline's placement.)
   const activeNamePlacement = chartPrefs.taskNamePlacementByView[effectiveViewMode];
-  const hiddenChartCount = hiddenChartCountForView(chartPrefs, effectiveViewMode);
+  const hiddenChartCount = hiddenChartCountForView(
+    chartPrefs,
+    effectiveViewMode,
+    sprintBands.length > 0,
+  );
 
   // Engine chart options (name placement + progress pills). Dependency-line
   // visibility is handled by the `links` filter above, not here. The gutter is
@@ -890,8 +912,14 @@ export function ScheduleView() {
       taskNamePlacement: activeNamePlacement,
       showProgressPills: chartPrefs.progressPillsVisible,
       showNameGutter: effectiveViewMode === 'timeline' && activeNamePlacement === 'left',
+      showSprintBands: chartPrefs.sprintBandsVisible,
     }),
-    [activeNamePlacement, chartPrefs.progressPillsVisible, effectiveViewMode],
+    [
+      activeNamePlacement,
+      chartPrefs.progressPillsVisible,
+      chartPrefs.sprintBandsVisible,
+      effectiveViewMode,
+    ],
   );
 
   // Tracks tasks created but not yet scheduled (null dates filtered from Gantt).
@@ -2440,6 +2468,9 @@ export function ScheduleView() {
         activeNamePlacement={activeNamePlacement}
         setTaskNamePlacement={setTaskNamePlacement}
         setProgressPillsVisible={setProgressPillsVisible}
+        // Offered only when the project actually has a window to draw — an
+        // inert checkbox on a pure waterfall plan is a control that lies (#2738).
+        setSprintBandsVisible={sprintBands.length > 0 ? setSprintBandsVisible : undefined}
         hiddenChartCount={hiddenChartCount}
         breakpoint={breakpoint}
         handleScrollToToday={handleScrollToToday}
@@ -2533,6 +2564,7 @@ export function ScheduleView() {
         canvasScrollRef={canvasScrollRef}
         handleCanvasScroll={handleCanvasScroll}
         links={links}
+        sprintBands={sprintBands}
         zoomLevel={zoomLevel}
         chartOptions={chartOptions}
         handleEngineReady={handleEngineReady}
@@ -3221,6 +3253,8 @@ interface ScheduleToolbarProps {
   activeNamePlacement: NamePlacement;
   setTaskNamePlacement: ChartPrefsHook['setTaskNamePlacement'];
   setProgressPillsVisible: ChartPrefsHook['setProgressPillsVisible'];
+  /** Undefined when the project has no sprint window to draw (#2738). */
+  setSprintBandsVisible: ChartPrefsHook['setSprintBandsVisible'] | undefined;
   hiddenChartCount: number;
   breakpoint: ReturnType<typeof useBreakpoint>;
   handleScrollToToday: () => void;
@@ -3273,6 +3307,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
     activeNamePlacement,
     setTaskNamePlacement,
     setProgressPillsVisible,
+    setSprintBandsVisible,
     hiddenChartCount,
     breakpoint,
     handleScrollToToday,
@@ -3389,6 +3424,8 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           setTaskNamePlacement: (v) => setTaskNamePlacement(effectiveViewMode, v),
           progressPillsVisible: chartPrefs.progressPillsVisible,
           setProgressPillsVisible,
+          sprintBandsVisible: chartPrefs.sprintBandsVisible,
+          setSprintBandsVisible,
         }}
         hiddenChartCount={hiddenChartCount}
         iconOnly={breakpoint !== 'lg'}
@@ -3513,6 +3550,8 @@ interface ScheduleMainAreaProps {
   canvasScrollRef: RefObject<HTMLDivElement | null>;
   handleCanvasScroll: () => void;
   links: ComponentProps<typeof CanvasScheduleTimeline>['links'];
+  /** Sprint-window bands for the canvas (#2738), row-indexed against visibleTasks. */
+  sprintBands: ComponentProps<typeof CanvasScheduleTimeline>['sprintBands'];
   zoomLevel: ComponentProps<typeof CanvasScheduleTimeline>['zoomLevel'];
   chartOptions: ComponentProps<typeof CanvasScheduleTimeline>['chartOptions'];
   handleEngineReady: (eng: GanttEngine) => void;
@@ -3568,6 +3607,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
     canvasScrollRef,
     handleCanvasScroll,
     links,
+    sprintBands,
     zoomLevel,
     chartOptions,
     handleEngineReady,
@@ -3704,6 +3744,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
                 <CanvasScheduleTimeline
                   tasks={visibleTasks}
                   links={links ?? []}
+                  sprintBands={sprintBands}
                   zoomLevel={zoomLevel}
                   chartOptions={chartOptions}
                   containerRef={canvasScrollRef}

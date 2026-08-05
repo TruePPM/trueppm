@@ -149,6 +149,12 @@ survive a monochrome print.
 **Nothing forks.** Dependencies cross the boundary freely: a gated 4.1 still drives a
 sprint 4.2, on one plan and one timeline.
 
+Where a subtree is driven by a sprint, the Schedule also paints the sprint's **window** as
+a band across that subtree's rows — the same violet and the same diagonal hatch, at a
+region's scale. So the delivery mode says *how* the work executes and the band says *when*
+the cadence puts it, both on the timeline that already carries the gated critical path. See
+[Sprint windows](/features/schedule/#sprint-windows).
+
 ## Why this matters
 
 The three fields are the seam that lets one task hierarchy serve Waterfall, Agile, and Hybrid teams at once without translation. A program manager can mark a compliance subtree `gated` / `waterfall` while the team next to it runs `flow` / `kanban`, and both roll up into the same program view. Before the editor, that taxonomy could only be set through the seed data or the API; 0.3 puts it in front of the user.

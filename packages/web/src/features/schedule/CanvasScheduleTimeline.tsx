@@ -17,6 +17,7 @@
 import { useRef, useEffect, useMemo, type CSSProperties, type RefObject } from 'react';
 import type { Task, TaskLink } from '@/types';
 import type { ChartRenderOptions, GanttEngine, ZoomLevel } from './engine';
+import type { SprintBand } from './sprintBands';
 import { useGanttEngine } from '@/hooks/useGanttEngine';
 import { useIsDark } from '@/hooks/useIsDark';
 import { useFiscalYearStartMonth } from '@/hooks/useFiscalYearStartMonth';
@@ -26,6 +27,12 @@ import { ScheduleAriaOverlay } from './ScheduleAriaOverlay';
 interface CanvasScheduleTimelineProps {
   tasks: Task[];
   links: TaskLink[];
+  /**
+   * Sprint windows to band behind the bars (#2738), row-indexed against `tasks`.
+   * Defaults to none for hosts with no sprint context (the read-only program
+   * schedule view), which simply draws no bands.
+   */
+  sprintBands?: SprintBand[];
   zoomLevel: ZoomLevel;
   /** Chart menu toggles — on-bar name placement + progress-pill visibility (#2097).
    *  Defaults to everything-visible for hosts without a Display menu (e.g. the
@@ -39,11 +46,17 @@ const DEFAULT_CHART_OPTIONS: ChartRenderOptions = {
   taskNamePlacement: 'next',
   showProgressPills: true,
   showNameGutter: false,
+  showSprintBands: true,
 };
+
+/** Stable identity for the "no bands" case — a fresh `[]` default would re-push
+ *  on every render and defeat the engine's reference comparison. */
+const NO_SPRINT_BANDS: SprintBand[] = [];
 
 export function CanvasScheduleTimeline({
   tasks,
   links,
+  sprintBands = NO_SPRINT_BANDS,
   zoomLevel,
   chartOptions = DEFAULT_CHART_OPTIONS,
   containerRef,
@@ -103,6 +116,13 @@ export function CanvasScheduleTimeline({
     engine.setLinks(links);
   }, [engine, links]);
 
+  // Sprint-window bands (#2738). Pushed after setTasks in effect order so the
+  // engine never holds bands whose row indices outrun the task array it has.
+  useEffect(() => {
+    if (!engine) return;
+    engine.setSprintBands(sprintBands);
+  }, [engine, sprintBands]);
+
   // Push Chart menu toggles (name placement / progress pills) to the engine (#2097).
   useEffect(() => {
     if (!engine) return;
@@ -156,6 +176,7 @@ export function CanvasScheduleTimeline({
         engine={engine}
         tasks={tasks}
         links={links}
+        sprintBands={sprintBands}
         containerRef={containerRef}
       />
     </div>

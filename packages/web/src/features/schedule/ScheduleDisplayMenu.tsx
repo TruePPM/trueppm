@@ -61,6 +61,9 @@ export interface ChartMenuConfig {
   setTaskNamePlacement: (v: TaskNamePlacement) => void;
   progressPillsVisible: boolean;
   setProgressPillsVisible: (v: boolean) => void;
+  /** Sprint-window bands (#2738). Present only when the host has sprint context. */
+  sprintBandsVisible?: boolean;
+  setSprintBandsVisible?: (v: boolean) => void;
 }
 
 const TASK_NAME_OPTIONS: ReadonlyArray<{ value: TaskNamePlacement; label: string }> = [
@@ -223,6 +226,21 @@ export function ScheduleDisplayMenu({
           checked: chart.progressPillsVisible,
           activate: () => chart.setProgressPillsVisible(!chart.progressPillsVisible),
         },
+        // Sprint windows (#2738) sit in Chart, beside the other things the canvas
+        // paints — NOT in "View filters". A filter changes which work you are
+        // looking at; this changes only whether the window behind it is drawn.
+        ...(chart.setSprintBandsVisible
+          ? [
+              {
+                kind: 'checkbox' as const,
+                id: 'sprint-bands',
+                label: 'Sprint windows',
+                checked: chart.sprintBandsVisible !== false,
+                activate: () =>
+                  chart.setSprintBandsVisible?.(!(chart.sprintBandsVisible !== false)),
+              },
+            ]
+          : []),
       ],
       radioGroup: { afterItemId: 'dependency-lines', label: taskNamesLabel, itemIds: radioIds },
     });

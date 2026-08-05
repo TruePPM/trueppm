@@ -35,6 +35,17 @@ export interface ScheduleChartPrefs {
   taskNamePlacementByView: TaskNamePlacementByView;
   /** Show/hide the on-bar progress % pills. */
   progressPillsVisible: boolean;
+  /**
+   * Show/hide the sprint-window bands drawn behind the bars (#2738).
+   *
+   * Default ON, and deliberately NOT a view switch: hiding the band changes
+   * nothing but the band. The hybrid claim is that the gated critical path and
+   * the sprint cadence are one plan, so there is no mode in which the schedule
+   * becomes "the sprint view" — there is only whether the window is painted.
+   * A pure waterfall project has no sprints and therefore no bands, so the
+   * toggle costs it nothing whether it is on or off.
+   */
+  sprintBandsVisible: boolean;
 }
 
 // Defaults (#2107, revised #2422): Grid hides the redundant on-bar name; Timeline
@@ -50,6 +61,7 @@ const DEFAULT_PREFS: ScheduleChartPrefs = {
   dependencyLinesVisible: true,
   taskNamePlacementByView: { ...DEFAULT_PLACEMENT_BY_VIEW },
   progressPillsVisible: true,
+  sprintBandsVisible: true,
 };
 
 function defaults(): ScheduleChartPrefs {
@@ -107,6 +119,13 @@ function loadPrefs(): ScheduleChartPrefs {
         typeof parsed.progressPillsVisible === 'boolean'
           ? parsed.progressPillsVisible
           : DEFAULT_PREFS.progressPillsVisible,
+      // Absent from every pref blob written before #2738 — fall through to the
+      // default so an existing user gets the band rather than an invisible
+      // opt-out they never chose.
+      sprintBandsVisible:
+        typeof parsed.sprintBandsVisible === 'boolean'
+          ? parsed.sprintBandsVisible
+          : DEFAULT_PREFS.sprintBandsVisible,
     };
   } catch {
     return defaults();
@@ -116,18 +135,31 @@ function loadPrefs(): ScheduleChartPrefs {
 /**
  * How many chart elements are hidden for a given view — feeds the Display badge.
  *
+ * `hasSprintBands` is whether the project has any sprint window to draw at all;
+ * see the sprint-band note in the body.
+ *
  * A hidden *Grid* task name is deliberately NOT counted: the task table still
  * shows every name, so nothing is lost and a brand-new Grid user (names hidden
  * by default) must not see a spurious "1 active" badge on a default view. Only a
  * hidden *Timeline* name — where the canvas is the sole name carrier — counts,
  * preserving the #2097 "don't leave the user wondering where it went" intent.
  */
-export function hiddenChartCountForView(prefs: ScheduleChartPrefs, view: ScheduleViewMode): number {
+export function hiddenChartCountForView(
+  prefs: ScheduleChartPrefs,
+  view: ScheduleViewMode,
+  hasSprintBands = false,
+): number {
   const nameHidden = view === 'timeline' && prefs.taskNamePlacementByView.timeline === 'hidden';
+  // A hidden sprint window only counts when there IS one to hide (#2738). On a
+  // pure waterfall project the badge would otherwise point at the absence of a
+  // mark that would never have drawn — the same "don't leave the user wondering
+  // where it went" intent, applied in reverse.
+  const bandsHidden = hasSprintBands && !prefs.sprintBandsVisible;
   return (
     (prefs.dependencyLinesVisible ? 0 : 1) +
     (nameHidden ? 1 : 0) +
-    (prefs.progressPillsVisible ? 0 : 1)
+    (prefs.progressPillsVisible ? 0 : 1) +
+    (bandsHidden ? 1 : 0)
   );
 }
 
@@ -137,6 +169,7 @@ export interface UseScheduleChartPrefs {
   /** Set the on-bar name placement for a single view, leaving the other intact. */
   setTaskNamePlacement: (view: ScheduleViewMode, v: TaskNamePlacement) => void;
   setProgressPillsVisible: (v: boolean) => void;
+  setSprintBandsVisible: (v: boolean) => void;
 }
 
 /**
@@ -180,11 +213,16 @@ export function useScheduleChartPrefs(): UseScheduleChartPrefs {
     (v: boolean) => setPrefs((prev) => persist({ ...prev, progressPillsVisible: v })),
     [persist],
   );
+  const setSprintBandsVisible = useCallback(
+    (v: boolean) => setPrefs((prev) => persist({ ...prev, sprintBandsVisible: v })),
+    [persist],
+  );
 
   return {
     prefs,
     setDependencyLinesVisible,
     setTaskNamePlacement,
     setProgressPillsVisible,
+    setSprintBandsVisible,
   };
 }

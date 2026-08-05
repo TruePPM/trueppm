@@ -17,6 +17,7 @@ import type { RefObject } from 'react';
 import type { GanttEngine, GanttEngineEventMap, GanttScaleData } from './engine';
 import { buildScaleData, dateToLeft } from './engine';
 import { ScheduleAriaOverlay, buildTaskAriaLabel } from './ScheduleAriaOverlay';
+import type { SprintBand } from './sprintBands';
 import { useDragStore } from '@/stores/dragStore';
 import type { Task, TaskLink } from '@/types';
 
@@ -236,6 +237,50 @@ describe('buildTaskAriaLabel (rule 69 canonical format)', () => {
     expect(
       buildTaskAriaLabel(makeTask('t1', 'Design', { start: '', deliveryMode: 'kanban' })),
     ).toBe('Design, 5 days, unscheduled, Kanban delivery');
+  });
+
+  // #2738: the sprint-window band is paint on an aria-hidden canvas, so without
+  // this suffix a screen-reader user cannot learn a bar sits inside a sprint.
+  const BAND: SprintBand = {
+    sprintId: 'sp1',
+    name: 'Sprint 4',
+    startDate: '2026-04-06',
+    finishDate: '2026-04-17',
+    firstRow: 0,
+    lastRow: 0,
+  };
+
+  it('names the sprint window AND its dates, not just membership', () => {
+    // Membership alone is not the read: what a sighted user takes from the band
+    // is where the bar sits relative to the window's edges.
+    expect(buildTaskAriaLabel(makeTask('t1', 'Design'), BAND)).toBe(
+      'Design, 5 days, starts Apr 6, finishes Apr 10, in Sprint 4 (Apr 6 – Apr 17)',
+    );
+  });
+
+  it('calls out a bar that finishes past the window — the reason to look', () => {
+    expect(
+      buildTaskAriaLabel(makeTask('t1', 'Design', { finish: '2026-04-24' }), BAND),
+    ).toBe(
+      'Design, 5 days, starts Apr 6, finishes Apr 24, in Sprint 4 (Apr 6 – Apr 17), finishes after the sprint window',
+    );
+  });
+
+  it('stays silent about sprints for a row no band covers', () => {
+    expect(buildTaskAriaLabel(makeTask('t1', 'Design'), undefined)).toBe(
+      'Design, 5 days, starts Apr 6, finishes Apr 10',
+    );
+  });
+
+  it('carries the sprint suffix after the delivery mode, and on unscheduled rows', () => {
+    expect(
+      buildTaskAriaLabel(makeTask('t1', 'Design', { deliveryMode: 'scrum' }), BAND),
+    ).toBe(
+      'Design, 5 days, starts Apr 6, finishes Apr 10, Scrum delivery, in Sprint 4 (Apr 6 – Apr 17)',
+    );
+    expect(buildTaskAriaLabel(makeTask('t1', 'Design', { start: '' }), BAND)).toBe(
+      'Design, 5 days, unscheduled, in Sprint 4 (Apr 6 – Apr 17)',
+    );
   });
 
   it('omits the delivery-mode suffix when the task carries none', () => {
