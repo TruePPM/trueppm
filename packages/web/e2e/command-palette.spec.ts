@@ -1,5 +1,11 @@
 import { test, expect, type Page } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll, type ProjectFixture } from './fixtures';
+import {
+  paletteSearch,
+  setupAuth,
+  setupApiMocks,
+  setupCatchAll,
+  type ProjectFixture,
+} from './fixtures';
 
 /**
  * E2E coverage for the ⌘K command palette (v2, #1166).
@@ -34,7 +40,7 @@ test.describe('command palette', () => {
     const dialog = page.getByRole('dialog', { name: 'Command palette' });
     await expect(dialog).toBeVisible();
 
-    await page.getByRole('combobox').fill('borealis');
+    await paletteSearch(page).fill('borealis');
     // "borealis" now also matches the v2 Backlog/Board targets (issue 647); the
     // jump-to-overview option is the project row specifically (label + Project chip).
     await expect(
@@ -43,7 +49,7 @@ test.describe('command palette', () => {
     await expect(dialog.getByRole('option', { name: /Apollo Redesign/ })).toHaveCount(0);
 
     // The jump-to-project row is the first match → Enter navigates to its overview.
-    await page.getByRole('combobox').press('Enter');
+    await paletteSearch(page).press('Enter');
     await expect(page).toHaveURL(/\/projects\/cmdk-proj-borealis\/overview/);
   });
 
@@ -54,7 +60,7 @@ test.describe('command palette', () => {
     const dialog = page.getByRole('dialog', { name: 'Command palette' });
     await expect(dialog).toBeVisible();
 
-    await page.getByRole('combobox').fill('zzzznotathing');
+    await paletteSearch(page).fill('zzzznotathing');
     await expect(dialog.getByText(/No matches/)).toBeVisible();
   });
 
@@ -65,7 +71,7 @@ test.describe('command palette', () => {
     await page.keyboard.press('Control+k');
     await expect(page.getByRole('dialog', { name: 'Command palette' })).toBeVisible();
 
-    await page.getByRole('combobox').press('Escape');
+    await paletteSearch(page).press('Escape');
     await expect(page.getByRole('dialog', { name: 'Command palette' })).toHaveCount(0);
     await expect(page).toHaveURL(/\/me\/work/);
   });
@@ -107,7 +113,7 @@ test.describe('command palette', () => {
     const dialog = page.getByRole('dialog', { name: 'Command palette' });
     await expect(dialog).toBeVisible();
 
-    await page.getByRole('combobox').fill('ann');
+    await paletteSearch(page).fill('ann');
     // The People group renders the server-searched resource.
     await expect(dialog.getByText('People')).toBeVisible();
     const person = dialog.getByRole('option', { name: /Ann Rivera/ });
@@ -208,7 +214,7 @@ test.describe('command palette', () => {
     const dialog = page.getByRole('dialog', { name: 'Command palette' });
     await expect(dialog).toBeVisible();
 
-    await page.getByRole('combobox').fill('login');
+    await paletteSearch(page).fill('login');
 
     // Both agile groups render with their breadcrumbed rows.
     await expect(dialog.getByText('Epics', { exact: true })).toBeVisible();
@@ -280,7 +286,7 @@ test.describe('command palette', () => {
     await page.keyboard.press('Control+k');
     const dialog = page.getByRole('dialog', { name: 'Command palette' });
     await expect(dialog).toBeVisible();
-    await page.getByRole('combobox').fill('foundation');
+    await paletteSearch(page).fill('foundation');
 
     // Both new groups render under scope-explicit headers. "Tasks in all projects" is
     // qualified so it cannot be confused with the project-scoped "Tasks" tier.
@@ -330,11 +336,11 @@ test.describe('command palette', () => {
     const dialog = page.getByRole('dialog', { name: 'Command palette' });
     await expect(dialog).toBeVisible();
 
-    await page.getByRole('combobox').fill('oauth');
+    await paletteSearch(page).fill('oauth');
     const taskOption = dialog.getByRole('option', { name: /Open task: Wire OAuth callback/ });
     await expect(taskOption).toBeVisible();
 
-    await page.getByRole('combobox').press('Enter');
+    await paletteSearch(page).press('Enter');
 
     // The palette closes and the app-wide task drawer opens in place — the URL
     // stays on the schedule route (drawer, not navigation).

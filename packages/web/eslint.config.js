@@ -15,6 +15,29 @@ const NO_DEFAULT_EXPORT = {
   message: 'Default exports are not allowed. Use named exports instead.',
 };
 
+// Ban page-level `page.getByRole('combobox')` in specs (#2778). The ⌘K palette is
+// only one of several comboboxes the app renders — BurnChart's `<select
+// aria-label="Metric">`, LocationSegment, and EntitySelectCombobox are the others —
+// so an unscoped query matches whichever happen to be mounted. That produced two
+// failure modes on one main pipeline: a strict-mode violation (two matches, throws)
+// and, worse, a *silent false pass* where `.or(getByRole('textbox')).first()` resolved
+// to the BurnChart select and asserted `toHaveValue('?')` against it, reading back
+// "tasks". Reach the palette via the `paletteSearch`/`openCommandPalette` fixtures,
+// which scope to the dialog; scope any other combobox to its own container.
+//
+// `arguments.length=1` is load-bearing: it flags only the bare form. The named form
+// `page.getByRole('combobox', { name: 'Estimation scale' })` is already unambiguous —
+// the accessible name is the scope — and 20 legitimate sites use it. Flagging those
+// would be noise that gets the whole rule disabled.
+const NO_UNSCOPED_COMBOBOX = {
+  selector:
+    "CallExpression[callee.object.name='page'][callee.property.name='getByRole'][arguments.length=1] > Literal[value='combobox']",
+  message:
+    "Unscoped page.getByRole('combobox') matches any combobox on the page (#2778). " +
+    "For the ⌘K palette use paletteSearch(page) from './fixtures'; otherwise scope to " +
+    "the containing dialog/row locator, or name it: getByRole('combobox', { name: … }).",
+};
+
 // Iteration-label gate (#1287, ADR-0111). User-facing copy on the
 // sprint-container surfaces must read the project's configured label via
 // useIterationLabel() (the `itl.*` forms), never the hard-coded word "sprint" —
@@ -256,7 +279,7 @@ export default [
   {
     files: ['e2e/**/*.ts'],
     rules: {
-      'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT],
+      'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT, NO_UNSCOPED_COMBOBOX],
     },
   },
   prettierConfig,

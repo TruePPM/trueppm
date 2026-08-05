@@ -1,5 +1,11 @@
 import { test, expect, type Page } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll, type ProjectFixture } from './fixtures';
+import {
+  paletteSearch,
+  setupAuth,
+  setupApiMocks,
+  setupCatchAll,
+  type ProjectFixture,
+} from './fixtures';
 
 /**
  * E2E coverage for the ⌘K "Labels" group (#2334).
@@ -53,7 +59,7 @@ test.describe('⌘K — find tasks by label (#2334)', () => {
     await setup(page);
     const dialog = await openPalette(page);
 
-    await page.getByRole('combobox').fill('rework');
+    await paletteSearch(page).fill('rework');
     const row = dialog.getByRole('option', { name: /Rework .*12 tasks.*Label/ });
     await expect(row).toBeVisible();
 
@@ -79,7 +85,7 @@ test.describe('⌘K — find tasks by label (#2334)', () => {
     await setup(page, { inProject: false });
     const dialog = await openPalette(page);
 
-    await page.getByRole('combobox').fill('rework');
+    await paletteSearch(page).fill('rework');
     // Labels are project-scoped (ADR-0400); a cross-project label view is #2333.
     await expect(dialog.getByRole('option', { name: /Rework/ })).toHaveCount(0);
   });

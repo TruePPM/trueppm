@@ -1,5 +1,11 @@
 import { test, expect, type Page } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll, type UserFixture } from './fixtures';
+import {
+  paletteSearch,
+  setupAuth,
+  setupApiMocks,
+  setupCatchAll,
+  type UserFixture,
+} from './fixtures';
 
 /**
  * Role-context lens — "View focus" (issue 1263, ADR-0162).
@@ -129,7 +135,7 @@ test.describe('Role-context lens (ADR-0162)', () => {
     await page.keyboard.press('Control+k');
     const dialog = page.getByRole('dialog', { name: 'Command palette' });
     await expect(dialog).toBeVisible();
-    await page.getByRole('combobox').fill('login');
+    await paletteSearch(page).fill('login');
 
     const storyRow = dialog.getByRole('option', { name: /Login form validation.*Story/ });
     await expect(storyRow).toBeVisible();
