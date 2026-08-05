@@ -91,6 +91,7 @@ api/v1/^tasks/(?P<pk>[^/.]+)/reorder/$
 api/v1/^tasks/(?P<pk>[^/.]+)/restore/$
 api/v1/^tasks/(?P<pk>[^/.]+)/split/$
 api/v1/^tasks/(?P<pk>[^/.]+)/withdraw-approval/$
+api/v1/^tasks/delete-untouched-seeded/$
 api/v1/^template-applications/(?P<pk>[^/.]+)/undo/$
 api/v1/^velocity-suggestions/(?P<pk>[^/.]+)/accept/$
 api/v1/^velocity-suggestions/(?P<pk>[^/.]+)/dismiss/$
