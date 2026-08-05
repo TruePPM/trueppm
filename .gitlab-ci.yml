@@ -2405,6 +2405,13 @@ api:fuzz:
     # extra (Schemathesis). [binary] pulls psycopg for the DB connection.
     - retry pip install -e "packages/scheduler[dev]" --quiet
     - retry pip install -e "packages/api[binary,fuzz]" --quiet
+    # Record the resolved Schemathesis version (#2768). The pin is `>=4.0,<5.0`
+    # and floats within it, `pip install` runs --quiet, and the 16 MB trace limit
+    # truncates the log before the summary — so when behavior changed between the
+    # 08-03 (green) and 08-04 (errored) nightlies there was no way to tell from
+    # the job whether the tool had moved under us. One line makes the next
+    # regression bisectable.
+    - pip show schemathesis hypothesis | grep -E '^(Name|Version):'
     - cd packages/api
     - python manage.py migrate --noinput
     - python manage.py seed_integration_fixtures
@@ -2427,7 +2434,19 @@ api:fuzz:
       | python -c 'import sys, json; print(json.load(sys.stdin)["access"])')
     - export FUZZ_TOKEN
   script:
+    # Prove the coverage guard can fail before trusting the run it will judge.
+    - python scripts/check_fuzz_coverage.py --self-test
     - cd packages/api
+    # `packages/api/schemathesis.toml` also carries --suppress-health-check
+    # (#2768). Running from this directory is what makes Schemathesis discover
+    # it, so do not move this `cd` below the run.
+    #
+    # `|| FUZZ_STATUS=$?` instead of letting the run abort the script: the
+    # coverage guard below has to see the report even when — especially when —
+    # the run itself reported failures. The worse of the two exit codes is
+    # returned at the end, so a real fuzz finding is never masked by a clean
+    # coverage check.
+    - FUZZ_STATUS=0
     - >
       schemathesis run http://127.0.0.1:8000/api/schema/
       --url http://127.0.0.1:8000
@@ -2438,6 +2457,21 @@ api:fuzz:
       --workers 4
       --suppress-health-check=filter_too_much
       --report junit --report-junit-path junit-fuzz.xml
+      || FUZZ_STATUS=$?
+    # Nothing else distinguishes "581 operations fuzzed, all clean" from "580
+    # fuzzed, 1 never ran" (#2768). An errored operation gets ZERO checks, and
+    # the run still ends 580/581 green.
+    - cd ../..
+    - COVERAGE_STATUS=0
+    - >
+      python scripts/check_fuzz_coverage.py
+      --report packages/api/junit-fuzz.xml
+      --schema docs/api/openapi.json
+      || COVERAGE_STATUS=$?
+    # Quoted: the `: ` inside the ternary would otherwise make YAML read this
+    # scalar as a mapping and the job would parse to nothing.
+    - 'if [ "$COVERAGE_STATUS" -gt "$FUZZ_STATUS" ]; then exit "$COVERAGE_STATUS"; fi'
+    - exit "$FUZZ_STATUS"
   artifacts:
     when: always
     reports:
