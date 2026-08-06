@@ -23,7 +23,7 @@
 FROM python:3.11-slim AS builder
 
 ENV VIRTUAL_ENV=/venv
-RUN python -m venv $VIRTUAL_ENV
+RUN python -m venv "$VIRTUAL_ENV"
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # Patch the venv-seeded build tooling forward before installing so the published
