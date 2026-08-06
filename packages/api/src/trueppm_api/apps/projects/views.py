@@ -556,6 +556,13 @@ class TaskBulkResponseSerializer(serializers.Serializer[Any]):
         ),
     )
     dependencies = TaskBulkDependencyResultSerializer()
+    operation_id = serializers.UUIDField(
+        allow_null=True,
+        help_text=(
+            "ADR-0810 (#2756): the ⌘Z undo ledger row for this batch's creates. Null when "
+            "the batch created no rows — POST /paste-many-operations/{operation_id}/undo/."
+        ),
+    )
 
 
 class PhaseReorderResponseSerializer(serializers.Serializer[Any]):
@@ -7860,7 +7867,7 @@ class TaskBulkView(IdempotencyMixin, APIView):
                 record_paste_many_operation,
             )
 
-            record_paste_many_operation(project, _caller, out.created_ids)
+            paste_many_operation = record_paste_many_operation(project, _caller, out.created_ids)
 
             # Recalculation and the broadcast fire for WHATEVER COMMITTED, not only
             # for a fully-clean batch (#2746). Under 207, 35 applied rows out of 38
@@ -7891,6 +7898,12 @@ class TaskBulkView(IdempotencyMixin, APIView):
                 "rejected": out.rejected,
                 "skipped": out.skipped,
                 "dependencies": {"applied": out.dep_applied, "rejected": out.dep_rejected},
+                # ADR-0810 (#2756): null when the batch created no rows, so the
+                # client has nothing to key an Undo affordance off — never a
+                # placeholder id that would 404 on POST .../undo/.
+                "operation_id": (
+                    str(paste_many_operation.pk) if paste_many_operation is not None else None
+                ),
             },
             status=status.HTTP_207_MULTI_STATUS,
         )
@@ -7990,6 +8003,7 @@ class TaskClassificationView(IdempotencyMixin, APIView):
         )
 
         project_id = str(project.pk)
+        operation_id: str | None = None
         try:
             with transaction.atomic():
                 report, written, before_after = cascade_task_classification(project, request, spec)
@@ -8004,9 +8018,10 @@ class TaskClassificationView(IdempotencyMixin, APIView):
                         record_cascade_classification_operation,
                     )
 
-                    record_cascade_classification_operation(
+                    cascade_operation = record_cascade_classification_operation(
                         project, request.user, spec.subtree_id, before_after
                     )
+                    operation_id = str(cascade_operation.pk) if cascade_operation else None
 
                     written_ids = [str(pk_) for pk_ in written]
 
@@ -8052,6 +8067,7 @@ class TaskClassificationView(IdempotencyMixin, APIView):
         except InvalidScheduleInput as exc:
             raise DRFValidationError({"code": "invalid_graph_input", "detail": str(exc)}) from exc
 
+        report["operation_id"] = operation_id
         return Response(report, status=status.HTTP_200_OK)
 
 

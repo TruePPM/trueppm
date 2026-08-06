@@ -58612,11 +58612,18 @@
                     },
                     "dependencies": {
                         "$ref": "#/components/schemas/TaskBulkDependencyResult"
+                    },
+                    "operation_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true,
+                        "description": "ADR-0810 (#2756): the ⌘Z undo ledger row for this batch's creates. Null when the batch created no rows — POST /paste-many-operations/{operation_id}/undo/."
                     }
                 },
                 "required": [
                     "applied",
                     "dependencies",
+                    "operation_id",
                     "rejected",
                     "skipped"
                 ]
@@ -58672,10 +58679,16 @@
                         "items": {
                             "$ref": "#/components/schemas/TaskClassificationSkip"
                         }
+                    },
+                    "operation_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
                     }
                 },
                 "required": [
                     "matched",
+                    "operation_id",
                     "skipped",
                     "subtree"
                 ]

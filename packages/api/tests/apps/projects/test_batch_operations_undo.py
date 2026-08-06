@@ -104,6 +104,21 @@ def test_paste_many_operation_recorded_from_a_real_bulk_create(
     operation = PasteManyOperation.objects.get(project=project)
     assert len(operation.created_task_versions) == 3
     assert operation.status == SyncBatchOperationStatus.ACTIVE
+    # The frontend's whole undo affordance hangs off this field being present.
+    assert r.data["operation_id"] == str(operation.pk)
+
+
+@pytest.mark.django_db
+def test_bulk_response_operation_id_is_null_when_nothing_was_created(
+    owner_client: APIClient, project: Project
+) -> None:
+    task = Task.objects.create(project=project, name="Existing", duration=2)
+    r = owner_client.post(
+        bulk_url(project),
+        {"operations": [{"op": "update", "id": str(task.pk), "data": {"duration": 3}}]},
+        format="json",
+    )
+    assert r.data["operation_id"] is None
 
 
 @pytest.mark.django_db
@@ -234,6 +249,7 @@ def test_cascade_undo_restores_prior_classification(
     assert r.status_code == 200, r.data
     operation = CascadeClassificationOperation.objects.get(project=project)
     assert operation.task_snapshots[str(root.pk)]["before"]["governance_class"] == "flow"
+    assert r.data["operation_id"] == str(operation.pk)
 
     undo_resp = owner_client.post(
         f"/api/v1/cascade-classification-operations/{operation.pk}/undo/", {}, format="json"
@@ -242,6 +258,32 @@ def test_cascade_undo_restores_prior_classification(
     assert undo_resp.data["undo"] == {"reverted": 1, "kept": 0}
     root.refresh_from_db()
     assert root.governance_class == "flow"
+
+
+@pytest.mark.django_db
+def test_cascade_response_operation_id_is_null_on_a_no_op(
+    owner_client: APIClient, project: Project
+) -> None:
+    # The root's inherit bit is already at its post-cascade target value
+    # (False — the root is always the declaration point), so re-declaring the
+    # same governance_class is a genuine no-op rather than a bit flip.
+    root = Task.objects.create(
+        project=project,
+        name="Phase",
+        wbs_path="1",
+        duration=5,
+        governance_class="flow",
+        parent_governance_inherited=False,
+    )
+    with _no_recalc():
+        r = owner_client.patch(
+            classify_url(project),
+            {"subtree": str(root.pk), "cascade": False, "governance_class": "flow"},
+            format="json",
+        )
+    assert r.status_code == 200, r.data
+    assert r.data["operation_id"] is None
+    assert CascadeClassificationOperation.objects.filter(project=project).count() == 0
 
 
 @pytest.mark.django_db

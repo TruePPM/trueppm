@@ -5464,6 +5464,10 @@ class TaskClassificationResponseSerializer(serializers.Serializer[Any]):
     governance = TaskClassificationAxisSerializer(required=False)
     delivery_mode = TaskClassificationAxisSerializer(required=False)
     skipped = TaskClassificationSkipSerializer(many=True)
+    # ADR-0810 (#2756): null when the cascade changed nothing (ADR-0790 §7's
+    # no-op case) — nothing was recorded, so there is nothing to key an Undo
+    # affordance off.
+    operation_id = serializers.UUIDField(allow_null=True)
 
 
 class BaselineTaskSerializer(serializers.ModelSerializer[BaselineTask]):
