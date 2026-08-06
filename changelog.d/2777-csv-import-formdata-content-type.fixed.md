@@ -1,0 +1,1 @@
+- **CSV/Excel import**: uploading a file failed at step 1 with "Unsupported media type application/json". The shared API client's default JSON content-type header caused the browser to silently drop the uploaded file from the request. Fixed by sending the CSV import preview and commit requests as `multipart/form-data` with no client-side timeout.
