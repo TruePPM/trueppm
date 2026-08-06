@@ -245,6 +245,14 @@ async function routeImport(
       });
     });
   }
+  // ADR-0810 (#2756).
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/import/csv/imp-1/undo/`, (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ id: 'imp-1', status: 'undone', undo: { deleted: 11, kept: 0 } }),
+    }),
+  );
 }
 
 async function openWizard(page: Page) {
@@ -298,6 +306,25 @@ test.describe('CSV/Excel import wizard (#746)', () => {
     await expect(dialog.getByText(/Row 4/)).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'View schedule' })).toBeVisible();
     expect(captured.commitContentType).toContain('multipart/form-data');
+  });
+
+  test('Undo import removes the result and hides View schedule (#2756)', async ({ page }) => {
+    await gotoSchedule(page);
+    await routeImport(page, { preview: { status: 200, body: PREVIEW_BODY }, commit: true });
+    await openWizard(page);
+
+    const dialog = page.getByRole('dialog', { name: 'Import from a spreadsheet' });
+    await pickFile(page);
+    await dialog.getByRole('button', { name: 'Next' }).click();
+    await dialog.getByRole('button', { name: 'Next' }).click();
+    await dialog.getByRole('button', { name: /Import 12 tasks/ }).click();
+
+    await expect(dialog.getByText(/Imported 11 tasks/)).toBeVisible();
+    await dialog.getByRole('button', { name: 'Undo import (⌘Z)' }).click();
+
+    await expect(dialog.getByText('Import undone — the rows it created were removed.')).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'View schedule' })).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Undo import (⌘Z)' })).toHaveCount(0);
   });
 
   test('unresolvable rows are parked in a review branch, not dropped (#2732)', async ({ page }) => {
