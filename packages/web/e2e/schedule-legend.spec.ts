@@ -72,9 +72,11 @@ test.describe('Schedule legend overlay (#474)', () => {
     await expect(body.getByText('Critical path')).toBeVisible();
     await expect(body.getByText('Today')).toBeVisible();
     await expect(body.getByText('Finish-to-start')).toBeVisible();
-    // Delivery-mode rows (#2727 pt.7) plus MIXED (#2737).
+    // Delivery-mode rows (#2727 pt.7) plus MIXED (#2737) and the sprint-window
+    // band (#2738) — one legend carries the whole hybrid vocabulary.
     await expect(body.getByText('Scrum')).toBeVisible();
     await expect(body.getByText('Mixed subtree')).toBeVisible();
+    await expect(body.getByText('Sprint window')).toBeVisible();
   });
 
   test('clicking the chip collapses the body; chip stays visible', async ({ page }) => {

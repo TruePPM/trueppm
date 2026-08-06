@@ -45,6 +45,7 @@ import type { GanttEngine } from './engine';
 import { dateToLeft, dateToRight } from './engine';
 import { ROW_HEIGHT, BAR_TOP_OFFSET, BAR_HEIGHT } from './engine/GanttHitIndex';
 import { HEADER_HEIGHT } from './scheduleConstants';
+import { sprintBandByTaskId, type SprintBand } from './sprintBands';
 
 const OVERSCAN_ROWS = 5;
 
@@ -77,14 +78,30 @@ const DELIVERY_MODE_LABEL: Record<DeliveryMode, string> = {
  * #2727 pt.7) is sighted-only. Omitted when the task carries no mode (the
  * field is optional; a task fetched before the server always resolved a
  * default could still be missing it).
+ *
+ * `band` closes the same gap for the sprint-window band (#2738). The band is
+ * paint on an `aria-hidden` canvas, so without this suffix a screen-reader user
+ * has no way to learn that a bar sits inside a sprint window at all. It names
+ * the window's DATES, not just the sprint, and calls out a bar that finishes
+ * past the window — because membership is not what a sighted user reads off the
+ * band. What they read is where the bar sits relative to the window's edges, and
+ * a commitment that overruns its sprint is the whole reason to look. Omitted for
+ * rows no band covers, which is most rows on a gated plan.
  */
-export function buildTaskAriaLabel(task: Task): string {
+export function buildTaskAriaLabel(task: Task, band?: SprintBand): string {
   const cp = task.isCritical ? ', on the critical path' : '';
   const mode = task.deliveryMode ? `, ${DELIVERY_MODE_LABEL[task.deliveryMode]} delivery` : '';
-  if (!task.start || !task.finish) {
-    return `${task.name}, ${task.duration} days, unscheduled${mode}`;
+  let sprint = '';
+  if (band) {
+    sprint = `, in ${band.name} (${formatAriaDate(band.startDate)} – ${formatAriaDate(band.finishDate)})`;
+    if (task.finish && task.finish > band.finishDate) {
+      sprint += ', finishes after the sprint window';
+    }
   }
-  return `${task.name}, ${task.duration} days, starts ${formatAriaDate(task.start)}, finishes ${formatAriaDate(task.finish)}${cp}${mode}`;
+  if (!task.start || !task.finish) {
+    return `${task.name}, ${task.duration} days, unscheduled${mode}${sprint}`;
+  }
+  return `${task.name}, ${task.duration} days, starts ${formatAriaDate(task.start)}, finishes ${formatAriaDate(task.finish)}${cp}${mode}${sprint}`;
 }
 
 /**
@@ -150,6 +167,8 @@ interface ScheduleAriaOverlayProps {
   tasks: Task[];
   /** Dependency edges — drives per-bar aria-describedby dep announcements (#1371). */
   links: TaskLink[];
+  /** Sprint-window bands (#2738) — the non-visual carrier for the canvas band. */
+  sprintBands?: SprintBand[];
   containerRef: RefObject<HTMLDivElement | null>;
 }
 
@@ -173,6 +192,7 @@ export function ScheduleAriaOverlay({
   engine,
   tasks,
   links,
+  sprintBands,
   containerRef,
 }: ScheduleAriaOverlayProps) {
   const [scrollTop, setScrollTop] = useState(0);
@@ -236,6 +256,14 @@ export function ScheduleAriaOverlay({
 
   // Per-task dep description strings for aria-describedby (#1371).
   const depDescriptions = useMemo(() => buildDepDescription(tasks, links), [tasks, links]);
+
+  // Band per row (#2738) — the band's text equivalent for screen readers, and
+  // the hover recovery path for a name the canvas had to truncate (rule 255):
+  // a canvas has no `title`, so the overlay's own row node carries it.
+  const sprintBandByTask = useMemo(
+    () => sprintBandByTaskId(tasks, sprintBands ?? []),
+    [tasks, sprintBands],
+  );
 
   // Virtualised row range — viewportHeight is reduced by fixed header band
   const overscan = OVERSCAN_ROWS * ROW_HEIGHT;
@@ -423,7 +451,8 @@ export function ScheduleAriaOverlay({
               role="option"
               data-task-id={task.id}
               tabIndex={isFocused ? 0 : -1}
-              aria-label={buildTaskAriaLabel(task)}
+              aria-label={buildTaskAriaLabel(task, sprintBandByTask.get(task.id))}
+              title={sprintBandByTask.get(task.id)?.name}
               aria-describedby={depDescId}
               aria-selected={selectedTaskIds.has(task.id)}
               aria-setsize={tasks.length}

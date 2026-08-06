@@ -47,6 +47,9 @@ import {
   drawLinkHandle,
   drawGridLines,
   drawTodayLine,
+  drawSprintBands,
+  drawSprintBandLabels,
+  sprintBandFadeAlpha,
   drawTimelineHeader,
   drawTaskBar,
   drawTaskBarLabel,
@@ -62,6 +65,7 @@ import {
   drawScheduleVarianceBadge,
 } from './GanttRenderer';
 import type { ChartRenderOptions, DependencyLayout } from './GanttRenderer';
+import type { SprintBand } from '../sprintBands';
 import { HEADER_HEIGHT } from '../scheduleConstants';
 
 // ---------------------------------------------------------------------------
@@ -233,6 +237,20 @@ export class GanttEngineImpl implements GanttEngine {
   // DPR
   private _dpr = 1;
 
+  // Sprint-window bands (#2738, ADR-0803). Row-indexed against _tasks; the host
+  // recomputes and re-pushes them whenever that array changes.
+  private _sprintBands: SprintBand[] = [];
+  /**
+   * `performance.now()` at which the band fade-in began, or null when no fade is
+   * running. Non-null is the ONLY thing that keeps the rAF loop re-arming for
+   * the ramp, so it must be cleared the frame the ramp completes or an idle
+   * Gantt would spin at 60fps forever (issue 1569's whole point).
+   *
+   * Never set under `prefers-reduced-motion` — see `_beginSprintBandFade`.
+   */
+  private _sprintBandFadeStart: number | null = null;
+  private _sprintBandAlpha = 1;
+
   // Accessibility
   private _reducedMotion = false;
   private _reducedMotionMQ: MediaQueryList | null = null;
@@ -271,6 +289,7 @@ export class GanttEngineImpl implements GanttEngine {
     taskNamePlacement: 'next',
     showProgressPills: true,
     showNameGutter: false,
+    showSprintBands: true,
   };
 
   // Quarter/year header tier config (#755) — calendar quarters until the host
@@ -592,6 +611,52 @@ export class GanttEngineImpl implements GanttEngine {
   }
 
   // ---------------------------------------------------------------------------
+  // GanttEngine — Sprint-window bands (#2738)
+  // ---------------------------------------------------------------------------
+
+  /** True when a band would actually paint — used to decide whether an incoming
+   *  change is an *appearance* (fade) or just a change to something already up. */
+  private _sprintBandsDrawn(): boolean {
+    return this._chartOptions.showSprintBands && this._sprintBands.length > 0;
+  }
+
+  /**
+   * Arm the band fade-in, or skip straight to full opacity (rule 70).
+   *
+   * Under `prefers-reduced-motion` this sets alpha to 1 and leaves the fade
+   * clock null, so the ramp never runs AND the rAF loop is never re-armed for
+   * it — honoring the preference by not scheduling the animation at all, rather
+   * than by playing it faster.
+   */
+  private _beginSprintBandFade(): void {
+    if (this._reducedMotion) {
+      this._sprintBandFadeStart = null;
+      this._sprintBandAlpha = 1;
+      return;
+    }
+    this._sprintBandFadeStart = performance.now();
+    this._sprintBandAlpha = 0;
+  }
+
+  setSprintBands(bands: SprintBand[]): void {
+    // Reference comparison, same contract as setHoverChain/setFilterHighlight —
+    // ScheduleView memoizes the band computation, so identity is stable until
+    // the tasks or the sprint list actually change.
+    if (this._sprintBands === bands) return;
+    const wasDrawn = this._sprintBandsDrawn();
+    this._sprintBands = bands;
+    // Only a transition from "nothing drawn" to "something drawn" is an
+    // appearance. Re-pushing bands during an edit (a task moves between
+    // sprints, a row is added) must not restart the fade — that would flash the
+    // whole region on every keystroke in the outline.
+    if (!wasDrawn && this._sprintBandsDrawn()) this._beginSprintBandFade();
+    // Bands live on the bg layer and their labels on the bars layer, so this is
+    // a genuine full repaint, not a bars-only one.
+    this._fullRepaintPending = true;
+    this._requestRepaint();
+  }
+
+  // ---------------------------------------------------------------------------
   // GanttEngine — Event emitter
   // ---------------------------------------------------------------------------
 
@@ -643,7 +708,11 @@ export class GanttEngineImpl implements GanttEngine {
   // ---------------------------------------------------------------------------
 
   setChartOptions(options: ChartRenderOptions): void {
+    const wasDrawn = this._sprintBandsDrawn();
     this._chartOptions = options;
+    // Turning the sprint-window toggle back on is an appearance — fade the
+    // bands in (#2738). Turning it off is not: the band simply stops painting.
+    if (!wasDrawn && this._sprintBandsDrawn()) this._beginSprintBandFade();
     // Toggling names/pills changes only the bars layer, but a full repaint is the
     // cheapest correct path and the call is user-driven (rare).
     this._fullRepaintPending = true;
@@ -929,6 +998,16 @@ export class GanttEngineImpl implements GanttEngine {
       return;
     }
 
+    // Advance the sprint-band fade before anything paints, so this frame's bands
+    // are drawn at this frame's alpha (#2738). Marking a full repaint here is
+    // what drives the ramp: the loop's re-arm condition below keeps ticking
+    // while the clock is live, and clearing it is what lets the Gantt park again.
+    if (this._sprintBandFadeStart !== null) {
+      this._sprintBandAlpha = sprintBandFadeAlpha(performance.now() - this._sprintBandFadeStart);
+      if (this._sprintBandAlpha >= 1) this._sprintBandFadeStart = null;
+      this._fullRepaintPending = true;
+    }
+
     const fsmState = this._dragFSM.state;
     // Only DRAGGING/DRAG_STARTED/RESIZING draw to the interaction canvas
     // (_paintInteraction below) — panning never touches it (drag shadow /
@@ -983,7 +1062,10 @@ export class GanttEngineImpl implements GanttEngine {
       this._barsRepaintPending ||
       this._dirtyRows.size > 0 ||
       gestureActive ||
-      this._ixDirty
+      this._ixDirty ||
+      // Sprint-band fade in flight (#2738) — the only self-sustaining animation
+      // in the loop, and it terminates because sprintBandFadeAlpha saturates.
+      this._sprintBandFadeStart !== null
     ) {
       this._rafId = requestAnimationFrame(this._tick);
     }
@@ -1047,6 +1129,24 @@ export class GanttEngineImpl implements GanttEngine {
 
     drawRowBands(ctx, firstRow, lastRow, this._scrollLeft, this._scrollTop, w);
     drawGridLines(ctx, this._scales, this._scrollLeft, this._scrollTop, h, firstRow, lastRow);
+    // Sprint windows sit above the grid and weekend shading (they are a claim
+    // about a span of days, so they must read as one region rather than as
+    // stripes) but below the today line, which is the one mark that must never
+    // be obscured — and below every bar, which lives on the layer above (#2738).
+    if (this._chartOptions.showSprintBands) {
+      for (const group of this._sprintBandGroups()) {
+        drawSprintBands(
+          ctx,
+          group.bands,
+          this._scales,
+          this._scrollLeft,
+          this._scrollTop,
+          w,
+          h,
+          group.alpha,
+        );
+      }
+    }
     drawTodayLine(ctx, this._scales, this._scrollLeft, h);
 
     if (drawHeader) {
@@ -1082,6 +1182,17 @@ export class GanttEngineImpl implements GanttEngine {
     // bars layer (not bg) because hover invalidates only this layer.
     if (this._hoverRowIndex >= 0) {
       drawHoverRowBand(ctx, this._hoverRowIndex, this._scrollTop, w, h);
+    }
+
+    // Sprint-window name pills (#2738). The band itself paints on the bg layer;
+    // its label has to be on THIS layer to be readable at all, but early in the
+    // pass rather than last: the 3px of the pill that reach into a bar box are
+    // where the critical-path frame lives, and a decorative label must never
+    // occlude a risk signal (rule 235). The bar wins that sliver; the pill keeps
+    // the 10px inter-bar gutter its text actually sits in. Screen coords — the
+    // helper applies scrollTop itself, so no translate here.
+    if (this._chartOptions.showSprintBands) {
+      this._paintSprintBandLabels(ctx, w, h);
     }
 
     // Layer order on canvas-bars: bars (no labels) → arrows → labels.
@@ -1133,6 +1244,71 @@ export class GanttEngineImpl implements GanttEngine {
         lastRow,
         this._scrollTop,
         this._viewportHeight,
+      );
+    }
+  }
+
+  /**
+   * Whether every row a band covers is dimmed by the active label filter.
+   *
+   * A band that survives at full strength over dimmed bars inverts the filter's
+   * whole message — the chart would say "ignore these rows" and "look here"
+   * about the same pixels, with the band as the loudest thing on screen.
+   */
+  private _bandFullyDimmed(
+    band: SprintBand,
+    highlight: import('./GanttEngine').FilterHighlight,
+  ): boolean {
+    for (let i = band.firstRow; i <= band.lastRow; i++) {
+      const task = this._tasks[i];
+      if (task && !highlight.dimmed.has(task.id)) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Bands grouped by the alpha they should paint at (#2738 + ADR-0631).
+   *
+   * `globalAlpha` is per draw call, not per band, so a band that must dim is
+   * drawn in a second pass rather than by threading a per-band opacity through
+   * the renderer. One group in the common case — the partition only happens
+   * while a label filter is actually live.
+   */
+  private _sprintBandGroups(): Array<{ bands: SprintBand[]; alpha: number }> {
+    const highlight = this._filterHighlight;
+    if (!highlight || this._sprintBands.length === 0) {
+      return [{ bands: this._sprintBands, alpha: this._sprintBandAlpha }];
+    }
+    const lit: SprintBand[] = [];
+    const dimmed: SprintBand[] = [];
+    for (const band of this._sprintBands) {
+      (this._bandFullyDimmed(band, highlight) ? dimmed : lit).push(band);
+    }
+    const groups: Array<{ bands: SprintBand[]; alpha: number }> = [];
+    if (lit.length) groups.push({ bands: lit, alpha: this._sprintBandAlpha });
+    if (dimmed.length) {
+      groups.push({ bands: dimmed, alpha: this._sprintBandAlpha * FILTER_DIM_ALPHA });
+    }
+    return groups;
+  }
+
+  /** Paint every band's name pill, at each band's filter-resolved alpha (#2738). */
+  private _paintSprintBandLabels(
+    ctx: CanvasRenderingContext2D,
+    w: number,
+    h: number,
+  ): void {
+    if (!this._scales) return;
+    for (const group of this._sprintBandGroups()) {
+      drawSprintBandLabels(
+        ctx,
+        group.bands,
+        this._scales,
+        this._scrollLeft,
+        this._scrollTop,
+        w,
+        h,
+        group.alpha,
       );
     }
   }

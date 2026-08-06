@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 from datetime import date
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -198,6 +199,153 @@ class TestImportComputability:
 
 
 @pytest.mark.django_db
+class TestImportReviewBranchPersists:
+    """The parked rows have to be real outline tasks, not a summary field (#2732).
+
+    The parser's own tests prove the branch is *built*; these prove it survives
+    the shared persistence path as a subtree an operator can actually edit.
+    """
+
+    def test_the_branch_lands_as_a_subtree_at_the_bottom_of_the_outline(
+        self, project: Project
+    ) -> None:
+        from .fixtures import MESSY_CSV
+
+        parsed = parse_spreadsheet(MESSY_CSV, "plan.csv")
+        import_project(str(project.pk), parsed.project_data)
+
+        tasks = {t.name: t for t in Task.objects.filter(project=project, is_deleted=False)}
+        branch = tasks["Import review"]
+        parked = tasks["Row 7 — no task name"]
+        # The parked row is a child of the branch, and the branch is a sibling
+        # of the plan's top-level rows rather than nested inside one of them.
+        assert str(parked.wbs_path).startswith(f"{branch.wbs_path}.")
+        assert "." not in str(branch.wbs_path)
+
+    def test_the_branch_does_not_flatten_an_indented_plan(self, project: Project) -> None:
+        """Regression guard for the _build_wbs_paths mode flip.
+
+        A dotted outline number on the review branch would push the *whole*
+        import into the dotted branch of `_build_wbs_paths`, re-deriving every
+        real task's path from a sequence number and flattening the hierarchy
+        that indentation encoded.
+        """
+        from .fixtures import INDENTED_WITH_NAMELESS_CSV
+
+        parsed = parse_spreadsheet(INDENTED_WITH_NAMELESS_CSV, "plan.csv")
+        import_project(str(project.pk), parsed.project_data)
+
+        tasks = {t.name: t for t in Task.objects.filter(project=project, is_deleted=False)}
+        assert str(tasks["Phase One"].wbs_path) == "1"
+        assert str(tasks["Design"].wbs_path) == "1.1"
+        assert str(tasks["Build"].wbs_path) == "1.2"
+        assert str(tasks["Import review"].wbs_path) == "2"
+        assert str(tasks["Row 5 — no task name"].wbs_path) == "2.1"
+
+    def test_a_file_of_only_bad_rows_still_produces_a_plan_to_open(self, project: Project) -> None:
+        """ "No tasks found in file" was the old outcome — and the rows were gone."""
+        from .fixtures import ALL_NAMELESS_CSV
+
+        parsed = parse_spreadsheet(ALL_NAMELESS_CSV, "plan.csv")
+        summary = import_project(str(project.pk), parsed.project_data)
+
+        assert summary["tasks_created"] == 3
+        assert "No tasks found in file" not in summary["warnings"]
+        names = set(
+            Task.objects.filter(project=project, is_deleted=False).values_list("name", flat=True)
+        )
+        assert names == {"Import review", "Row 2 — no task name", "Row 3 — no task name"}
+
+    def test_a_parked_row_keeps_its_values_where_a_person_can_read_them(
+        self, project: Project
+    ) -> None:
+        from .fixtures import MESSY_CSV
+
+        parsed = parse_spreadsheet(MESSY_CSV, "plan.csv")
+        import_project(str(project.pk), parsed.project_data)
+
+        parked = Task.objects.get(project=project, name="Row 7 — no task name")
+        assert "ID: 6" in parked.notes
+        assert "Start: 2026-03-02" in parked.notes
+
+    def test_parked_rows_add_no_dependencies_or_assignments(self, project: Project) -> None:
+        """The branch must not perturb the network the graph guard validated."""
+        from .fixtures import MESSY_CSV
+
+        parsed = parse_spreadsheet(MESSY_CSV, "plan.csv")
+        # No new edges: the guard sees exactly the real rows' graph (ADR-0259).
+        validate_task_graph(_edges(parsed.project_data))
+        summary = import_project(str(project.pk), parsed.project_data)
+
+        parked = Task.objects.get(project=project, name="Row 7 — no task name")
+        assert not Dependency.objects.filter(successor=parked).exists()
+        assert not Dependency.objects.filter(predecessor=parked).exists()
+        # An owner on a parked row would have to be a TaskResource with units,
+        # never a bare assignee (#2718) — so the import writes neither.
+        assert parked.assignee_id is None
+        assert summary["assignments_created"] == 0
+
+    def test_the_branch_is_a_normal_task_a_scheduler_can_delete(self, project: Project) -> None:
+        """ "Every fix is a normal edit": no bespoke repair endpoint exists."""
+        from .fixtures import MESSY_CSV
+
+        parsed = parse_spreadsheet(MESSY_CSV, "plan.csv")
+        import_project(str(project.pk), parsed.project_data)
+
+        parked = Task.objects.get(project=project, name="Row 7 — no task name")
+        parked.name = "Site survey"
+        parked.save(update_fields=["name"])
+        assert Task.objects.filter(project=project, name="Site survey").exists()
+
+    def test_an_all_parked_import_still_tells_live_collaborators(
+        self,
+        project: Project,
+        django_capture_on_commit_callbacks: Any,
+    ) -> None:
+        """A file of only bad rows used to write nothing and broadcast nothing.
+
+        The `tasks_created > 0` guard in `import_csv` counts every row written,
+        review branch included, which is why this now fires. Pinned because the
+        guard reads a count: swapping it to `plan_tasks_created` — which is 0 on
+        exactly this branch — would silently restore the old silence with every
+        other test still green.
+
+        The broadcast is deferred with `transaction.on_commit`, which never runs
+        under pytest-django's wrapping transaction, so it has to be captured
+        rather than merely patched.
+        """
+        from trueppm_api.apps.csvimport.tasks import import_csv
+
+        from .fixtures import ALL_NAMELESS_CSV
+
+        req = CsvImportRequest.objects.create(
+            project=project,
+            filename="all-bad.csv",
+            file_content_b64=base64.b64encode(ALL_NAMELESS_CSV).decode("ascii"),
+            status=CsvImportStatus.DISPATCHED,
+        )
+        with (
+            patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast,
+            patch("trueppm_api.apps.scheduling.services.enqueue_recalculate") as recalculate,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            summary = import_csv.apply(
+                kwargs={
+                    "project_id": str(project.pk),
+                    "file_content_b64": req.file_content_b64,
+                    "filename": req.filename,
+                    "import_request_id": str(req.pk),
+                },
+                throw=True,
+            ).get()
+
+        assert summary["plan_tasks_created"] == 0
+        assert summary["parked_row_count"] == 2
+        broadcast.assert_any_call(str(project.pk), "tasks_restructured", {})
+        recalculate.assert_called_once_with(str(project.pk))
+
+
+@pytest.mark.django_db
 class TestImportTaskDeadLettering:
     def test_cyclic_file_marks_the_row_dead_and_creates_no_tasks(self, project: Project) -> None:
         from trueppm_api.apps.csvimport.tasks import import_csv
@@ -388,12 +536,19 @@ class TestImportTaskDeadLettering:
                 throw=True,
             ).get()
 
-        assert summary["tasks_created"] == 5
+        # Seven rows written: five plan tasks, plus the review branch's summary
+        # and the one row that could not be resolved (#2732). The plan count is
+        # reported separately so "imported 5 tasks" stays true.
+        assert summary["tasks_created"] == 7
+        assert summary["plan_tasks_created"] == 5
+        assert summary["parked_row_count"] == 1
+        assert summary["review_branch_name"] == "Import review"
         assert summary["row_error_count"] == 5
         req.refresh_from_db()
         assert req.status == CsvImportStatus.DONE
         assert req.result_summary["row_error_count"] == 5
-        assert Task.objects.filter(project=project, is_deleted=False).count() == 5
+        assert req.result_summary["parked_row_count"] == 1
+        assert Task.objects.filter(project=project, is_deleted=False).count() == 7
 
     def test_duplicate_delivery_does_not_double_import(self, project: Project) -> None:
         """acks_late redelivery must not bulk-create the network twice."""
@@ -645,6 +800,23 @@ class TestPreviewEndpoint:
         )
         assert r.status_code == 400
         assert "task name" in r.data["detail"]
+
+    def test_preview_counts_parked_rows_apart_from_the_plan(self, project: Project) -> None:
+        """The operator's decision is "how much plan, how much to fix" (#2732)."""
+        from .fixtures import MESSY_CSV
+
+        client = self._client(project, Role.SCHEDULER, "p7")
+        r = client.post(
+            f"/api/v1/projects/{project.pk}/import/csv/preview/",
+            {"file": SimpleUploadedFile("messy.csv", MESSY_CSV, content_type="text/csv")},
+            format="multipart",
+        )
+        assert r.status_code == 200
+        # `task_count` is the plan, not the plan plus the review branch, so the
+        # confirm step's "Import N tasks" does not count placeholders.
+        assert r.data["task_count"] == 5
+        assert r.data["parked_row_count"] == 1
+        assert r.data["review_branch_name"] == "Import review"
 
     def test_preview_is_gated_at_the_same_role_as_commit(self, project: Project) -> None:
         """Preview parses attacker-supplied files; it is not a lighter surface."""

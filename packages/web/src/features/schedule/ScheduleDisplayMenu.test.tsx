@@ -127,6 +127,8 @@ describe('ScheduleDisplayMenu (#1741)', () => {
         setTaskNamePlacement: vi.fn(),
         progressPillsVisible: true,
         setProgressPillsVisible: vi.fn(),
+        sprintBandsVisible: true,
+        setSprintBandsVisible: vi.fn() as ((v: boolean) => void) | undefined,
       };
     }
 
@@ -153,6 +155,33 @@ describe('ScheduleDisplayMenu (#1741)', () => {
       expect(nextToBar).toHaveAttribute('aria-checked', 'true');
       fireEvent.click(screen.getByRole('menuitemradio', { name: 'Aligned left' }));
       expect(chart.setTaskNamePlacement).toHaveBeenCalledWith('left');
+    });
+
+    it('renders Sprint windows in Chart, not among the view filters (#2738)', () => {
+      const chart = chartProps('timeline');
+      setup({ chart });
+      fireEvent.click(screen.getByRole('button', { name: 'Display' }));
+
+      const row = screen.getByRole('menuitemcheckbox', { name: 'Sprint windows' });
+      expect(row).toHaveAttribute('aria-checked', 'true');
+      // A filter changes which work you are looking at; this changes only whether
+      // the window behind it is drawn — so it lives beside the other paint
+      // toggles, and turning it off is not a switch to some "sprint view".
+      const chartGroup = screen.getByRole('group', { name: 'Chart' });
+      expect(within(chartGroup).getByRole('menuitemcheckbox', { name: 'Sprint windows' })).toBe(row);
+
+      fireEvent.click(row);
+      expect(chart.setSprintBandsVisible).toHaveBeenCalledWith(false);
+    });
+
+    it('omits Sprint windows when the host has no sprint context', () => {
+      const chart = chartProps('timeline');
+      // The read-only program schedule view renders the Chart section without
+      // any sprint wiring — the row must simply not exist there.
+      chart.setSprintBandsVisible = undefined;
+      setup({ chart });
+      fireEvent.click(screen.getByRole('button', { name: 'Display' }));
+      expect(screen.queryByRole('menuitemcheckbox', { name: 'Sprint windows' })).toBeNull();
     });
 
     it('scopes the task-name sub-label to the active view (Timeline)', () => {

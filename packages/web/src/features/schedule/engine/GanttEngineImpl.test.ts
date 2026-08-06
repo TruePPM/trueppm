@@ -26,8 +26,12 @@ import {
   drawMilestone,
   drawSummaryBar,
   drawActualDateBar,
+  drawSprintBands,
+  drawSprintBandLabels,
   prepareDependencyLayout,
+  SPRINT_BAND_FADE_MS,
 } from './GanttRenderer';
+import type { SprintBand } from '../sprintBands';
 
 // Spy on the arrow-layout builder while keeping its real implementation, so
 // #1499's regression test can assert *when* the dependency layout cache gets
@@ -52,6 +56,10 @@ vi.mock('./GanttRenderer', async (importOriginal) => {
     drawMilestone: vi.fn(actual.drawMilestone),
     drawSummaryBar: vi.fn(actual.drawSummaryBar),
     drawActualDateBar: vi.fn(actual.drawActualDateBar),
+    // #2738 — the sprint-band seam: these specs assert WHICH bands the engine
+    // hands the renderer and at what alpha, without needing pixels.
+    drawSprintBands: vi.fn(actual.drawSprintBands),
+    drawSprintBandLabels: vi.fn(actual.drawSprintBandLabels),
   };
 });
 
@@ -1603,6 +1611,7 @@ describe('GanttEngineImpl — chart presentation toggles (#2097)', () => {
       taskNamePlacement: 'next',
       showProgressPills: true,
       showNameGutter: false,
+      showSprintBands: true,
     });
     flushFrame();
     expect(gutterSpy.mock.calls.length).toBe(before); // still off → not drawn
@@ -1611,6 +1620,7 @@ describe('GanttEngineImpl — chart presentation toggles (#2097)', () => {
       taskNamePlacement: 'next',
       showProgressPills: true,
       showNameGutter: true,
+      showSprintBands: true,
     });
     flushFrame();
     expect(gutterSpy.mock.calls.length).toBeGreaterThan(before); // on → drawn
@@ -1975,6 +1985,7 @@ describe('GanttEngineImpl — single-row repaint path (_dirtyRows)', () => {
       taskNamePlacement: 'next',
       showProgressPills: true,
       showNameGutter: true,
+      showSprintBands: true,
     });
     flushFrame(); // full repaint from setChartOptions settles
     const internals = engine as unknown as {
@@ -2094,5 +2105,187 @@ describe('GanttEngineImpl — hover cursor precedence over hit zones', () => {
     } as unknown as WheelEvent);
     expect(preventDefault).toHaveBeenCalled();
     expect(engine.pxPerDay).toBeNull(); // no coordinate system → no zoom applied
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sprint-window bands (#2738, ADR-0803)
+// ---------------------------------------------------------------------------
+
+describe('GanttEngineImpl — sprint-window bands (#2738)', () => {
+  const BANDS: SprintBand[] = [
+    {
+      sprintId: 'sp1',
+      name: 'Sprint 4',
+      startDate: '2026-04-01',
+      finishDate: '2026-04-10',
+      firstRow: 0,
+      lastRow: 0,
+    },
+  ];
+
+  const CHART = {
+    taskNamePlacement: 'next' as const,
+    showProgressPills: true,
+    showNameGutter: false,
+    showSprintBands: true,
+  };
+
+  /** Force `prefers-reduced-motion: reduce` to match, leaving other queries alone. */
+  function stubReducedMotion(): void {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: /prefers-reduced-motion/.test(query),
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }));
+  }
+
+  function lastBandAlpha(): number {
+    const spy = vi.mocked(drawSprintBands);
+    const call = spy.mock.calls[spy.mock.calls.length - 1];
+    return call[7] as number;
+  }
+
+  it('hands the pushed bands to the renderer on the background layer', () => {
+    const h = setup();
+    h.engine.setTasks([makeTask('a', '2026-04-01', '2026-04-10')]);
+    h.flushFrame();
+    vi.mocked(drawSprintBands).mockClear();
+
+    h.engine.setSprintBands(BANDS);
+    h.flushFrame();
+
+    const spy = vi.mocked(drawSprintBands);
+    expect(spy).toHaveBeenCalled();
+    expect(spy.mock.calls[0][1]).toBe(BANDS);
+  });
+
+  it('draws the name pills on the bars layer, not the background one', () => {
+    const h = setup();
+    h.engine.setTasks([makeTask('a', '2026-04-01', '2026-04-10')]);
+    h.engine.setSprintBands(BANDS);
+    h.flushFrame();
+    expect(vi.mocked(drawSprintBandLabels)).toHaveBeenCalled();
+  });
+
+  it('paints nothing when the Display toggle turns sprint windows off', () => {
+    const h = setup();
+    h.engine.setTasks([makeTask('a', '2026-04-01', '2026-04-10')]);
+    h.engine.setSprintBands(BANDS);
+    h.flushFrame();
+
+    vi.mocked(drawSprintBands).mockClear();
+    vi.mocked(drawSprintBandLabels).mockClear();
+    h.engine.setChartOptions({ ...CHART, showSprintBands: false });
+    h.flushFrame();
+
+    expect(vi.mocked(drawSprintBands)).not.toHaveBeenCalled();
+    expect(vi.mocked(drawSprintBandLabels)).not.toHaveBeenCalled();
+  });
+
+  it('ignores a re-push of the identical band array (reference contract)', () => {
+    const h = setup();
+    h.engine.setTasks([makeTask('a', '2026-04-01', '2026-04-10')]);
+    h.engine.setSprintBands(BANDS);
+    h.flushFrame();
+    while (h.hasScheduledFrame()) h.flushFrame();
+
+    h.engine.setSprintBands(BANDS);
+    expect(h.hasScheduledFrame()).toBe(false);
+  });
+
+  it('fades the band in when it first appears, then parks the loop', () => {
+    let now = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+
+    const h = setup();
+    h.engine.setTasks([makeTask('a', '2026-04-01', '2026-04-10')]);
+    h.flushFrame();
+
+    h.engine.setSprintBands(BANDS);
+    h.flushFrame();
+    expect(lastBandAlpha()).toBe(0);
+    // The fade is the only self-sustaining animation in the loop, so it must
+    // keep the frame armed while it runs...
+    expect(h.hasScheduledFrame()).toBe(true);
+
+    now += SPRINT_BAND_FADE_MS / 2;
+    h.flushFrame();
+    const mid = lastBandAlpha();
+    expect(mid).toBeGreaterThan(0);
+    expect(mid).toBeLessThan(1);
+
+    // ...and stop arming it the moment it saturates, or an idle Gantt would spin
+    // at 60fps forever (issue 1569).
+    now += SPRINT_BAND_FADE_MS;
+    h.flushFrame();
+    expect(lastBandAlpha()).toBe(1);
+    while (h.hasScheduledFrame()) h.flushFrame();
+    expect(h.hasScheduledFrame()).toBe(false);
+  });
+
+  it('honors prefers-reduced-motion: full opacity on the first frame, no ramp (rule 70)', () => {
+    stubReducedMotion();
+    let now = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+
+    const h = setup();
+    h.engine.setTasks([makeTask('a', '2026-04-01', '2026-04-10')]);
+    h.flushFrame();
+    vi.mocked(drawSprintBands).mockClear();
+
+    h.engine.setSprintBands(BANDS);
+    h.flushFrame();
+
+    // The band is fully there immediately — the preference is honored by NOT
+    // scheduling the animation, not by playing it faster.
+    expect(lastBandAlpha()).toBe(1);
+    expect(h.hasScheduledFrame()).toBe(false);
+  });
+
+  it('does not restart the fade when bands are re-pushed during an edit', () => {
+    let now = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+
+    const h = setup();
+    h.engine.setTasks([makeTask('a', '2026-04-01', '2026-04-10')]);
+    h.flushFrame();
+    h.engine.setSprintBands(BANDS);
+    now += SPRINT_BAND_FADE_MS * 2;
+    h.flushFrame();
+    while (h.hasScheduledFrame()) h.flushFrame();
+    expect(lastBandAlpha()).toBe(1);
+
+    // A row moves between sprints — the band recomputes and is re-pushed. The
+    // region must NOT flash back to transparent.
+    h.engine.setSprintBands([{ ...BANDS[0], lastRow: 1 }]);
+    h.flushFrame();
+    expect(lastBandAlpha()).toBe(1);
+  });
+
+  it('fades in again when the Display toggle brings the bands back', () => {
+    let now = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+
+    const h = setup();
+    h.engine.setTasks([makeTask('a', '2026-04-01', '2026-04-10')]);
+    h.engine.setSprintBands(BANDS);
+    now += SPRINT_BAND_FADE_MS * 2;
+    h.flushFrame();
+    while (h.hasScheduledFrame()) h.flushFrame();
+
+    h.engine.setChartOptions({ ...CHART, showSprintBands: false });
+    h.flushFrame();
+    while (h.hasScheduledFrame()) h.flushFrame();
+
+    vi.mocked(drawSprintBands).mockClear();
+    h.engine.setChartOptions({ ...CHART, showSprintBands: true });
+    h.flushFrame();
+    expect(lastBandAlpha()).toBe(0);
   });
 });

@@ -560,6 +560,7 @@ describe('GanttEngineImpl — single-row repaint path', () => {
   const CHART_BASE = {
     taskNamePlacement: 'next' as const,
     showProgressPills: true,
+    showSprintBands: true,
   };
 
   function clears(ctx: CanvasRenderingContext2D): number {
