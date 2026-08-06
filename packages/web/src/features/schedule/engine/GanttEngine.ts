@@ -12,6 +12,7 @@
  */
 
 import type { Task, TaskLink } from '@/types';
+import type { SprintBand } from '../sprintBands';
 import type { FiscalConfig, GanttScaleData, ZoomLevel } from './GanttScaleData';
 import type { ChartRenderOptions } from './GanttRenderer';
 
@@ -280,6 +281,25 @@ export interface GanttEngine {
    * drive it unchanged when the Schedule filter surface lands in #2443/#2444.
    */
   setFilterHighlight(highlight: FilterHighlight | null): void;
+
+  // ── Sprint-window bands (#2738) ───────────────────────────────────────────
+
+  /**
+   * Push the sprint-window bands to draw behind the bars (ADR-0803).
+   *
+   * Same one-way contract as {@link setHoverChain} and
+   * {@link setFilterHighlight}: the host resolves which rows a sprint drives
+   * (`computeSprintBands`) and the engine only paints the result. The engine
+   * never reads a sprint, and a band never changes hit-testing, dependency
+   * routing or the bars themselves — it is paint on the background layer, which
+   * is what lets the gated critical path and the sprint cadence share one
+   * picture instead of one of them owning it.
+   *
+   * Row indices address the array most recently handed to {@link setTasks}, so
+   * push bands recomputed from the SAME array whenever that array changes.
+   * Passing an empty array clears them.
+   */
+  setSprintBands(bands: SprintBand[]): void;
 
   // ── Event emitter ─────────────────────────────────────────────────────────
 

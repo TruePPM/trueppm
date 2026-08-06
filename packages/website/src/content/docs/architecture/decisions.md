@@ -13,13 +13,13 @@ Each ADR is a markdown file using the [Michael Nygard format](https://github.com
 
 ## How the ADR corpus is organized
 
-The repository holds 326 numbered ADRs (spanning 0001–0801), and it grows with most features. This page curates 60 of them — the records that explain the shape of the system to a new contributor or evaluator, not an index of every decision ever made. A few conventions make the set navigable:
+The repository holds 327 numbered ADRs (spanning 0001–0803), and it grows with most features. This page curates 60 of them — the records that explain the shape of the system to a new contributor or evaluator, not an index of every decision ever made. A few conventions make the set navigable:
 
 - **Numbering is monotonic and never reused.** A higher number is a later decision, not a more important one. Numbers are assigned at merge, so they roughly track chronology.
 - **Status lives in each record.** Every ADR has a `## Status` section: `Proposed` (documented, may still evolve), `Accepted`, `Deprecated`, or `Superseded` (with a pointer to the record that replaced it). A few headline records below are still `Proposed` — the decision is captured, but the ADR's own Status section is authoritative.
 - **Most ADRs map to a feature.** A record usually corresponds to a GitLab issue or epic and to a page under [Features](/features/schedule/); the ADR carries the *why*, the feature page documents the *what*.
 - **Amendments append, they don't rewrite.** When a decision shifts, the ADR gets an `## Amendment` section dated and explained, so the original reasoning stays legible.
-- **The numbering has gaps, and that's expected.** ADR numbers are reserved per feature branch when its worktree is created, so parallel agents working different issues never claim the same number. A reservation is released — not reused — when its branch is abandoned before merge, or when its ADR is renumbered to resolve a collision with another branch that merged first (`docs/adr/0146-single-page-scroll-spy-settings-ia.md` documents one such collision in progress). As of this audit, 475 numbers are unused across 80 gap ranges. These are unallocated reservations, not deleted content. (These four figures are verified against the tree by `scripts/check-adr-status.sh`, so they cannot silently drift again.)
+- **The numbering has gaps, and that's expected.** ADR numbers are reserved per feature branch when its worktree is created, so parallel agents working different issues never claim the same number. A reservation is released — not reused — when its branch is abandoned before merge, or when its ADR is renumbered to resolve a collision with another branch that merged first (`docs/adr/0146-single-page-scroll-spy-settings-ia.md` documents one such collision in progress). As of this audit, 476 numbers are unused across 81 gap ranges. These are unallocated reservations, not deleted content. (These four figures are verified against the tree by `scripts/check-adr-status.sh`, so they cannot silently drift again.)
 
 ## Start here
 

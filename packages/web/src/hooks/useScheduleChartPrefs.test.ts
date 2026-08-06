@@ -21,7 +21,28 @@ describe('useScheduleChartPrefs (#2097, per-view placement #2107)', () => {
       dependencyLinesVisible: true,
       taskNamePlacementByView: { grid: 'hidden', timeline: 'left' },
       progressPillsVisible: true,
+      sprintBandsVisible: true,
     });
+  });
+
+  it('sprint windows default ON and persist when turned off (#2738)', () => {
+    const { result } = renderHook(() => useScheduleChartPrefs());
+    expect(result.current.prefs.sprintBandsVisible).toBe(true);
+    act(() => result.current.setSprintBandsVisible(false));
+    expect(result.current.prefs.sprintBandsVisible).toBe(false);
+    const stored = JSON.parse(localStorage.getItem(KEY) ?? '{}') as ScheduleChartPrefs;
+    expect(stored.sprintBandsVisible).toBe(false);
+  });
+
+  it('falls through to ON for a pref blob written before #2738', () => {
+    // The key is simply absent from every stored blob predating the band —
+    // an existing user must get the band, not an opt-out they never chose.
+    localStorage.setItem(
+      KEY,
+      JSON.stringify({ dependencyLinesVisible: false, progressPillsVisible: false }),
+    );
+    const { result } = renderHook(() => useScheduleChartPrefs());
+    expect(result.current.prefs.sprintBandsVisible).toBe(true);
   });
 
   it('sets each view placement independently and persists to localStorage', () => {
@@ -150,7 +171,20 @@ describe('hiddenChartCountForView (#2107)', () => {
     dependencyLinesVisible: true,
     taskNamePlacementByView: { grid: 'hidden', timeline: 'next' },
     progressPillsVisible: true,
+    sprintBandsVisible: true,
   };
+
+  it('counts hidden sprint windows on the Display badge (#2738)', () => {
+    expect(hiddenChartCountForView(base, 'grid', true)).toBe(0);
+    expect(hiddenChartCountForView({ ...base, sprintBandsVisible: false }, 'grid', true)).toBe(1);
+  });
+
+  it('does not count a hidden sprint window on a project that has none (#2738)', () => {
+    // The badge would otherwise point at the absence of a mark that could never
+    // have drawn — a pure waterfall plan reading "1 hidden" for nothing.
+    expect(hiddenChartCountForView({ ...base, sprintBandsVisible: false }, 'grid', false)).toBe(0);
+    expect(hiddenChartCountForView({ ...base, sprintBandsVisible: false }, 'grid')).toBe(0);
+  });
 
   it('does not count a hidden Grid name (the table still shows it)', () => {
     // Grid default is `hidden` — a brand-new Grid user must show a zero badge.

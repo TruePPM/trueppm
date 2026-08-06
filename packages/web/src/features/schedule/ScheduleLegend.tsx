@@ -118,6 +118,16 @@ export function ScheduleLegend({ taskListWidth }: ScheduleLegendProps) {
           <LegendRow label="Mixed subtree">
             <MixedSwatch />
           </LegendRow>
+          {/* Sprint window (#2738): the band drawn behind the bars of a
+              sprint-driven subtree. It belongs in THIS list, beside Scrum and
+              Kanban, rather than in a legend of its own — the band and the
+              hatched bars inside it are one statement about one plan, and a
+              second legend would re-introduce the "two views" the band exists
+              to deny. The swatch is the region, not a bar: hatched wash between
+              two edge rules. */}
+          <LegendRow label="Sprint window">
+            <SprintBandSwatch />
+          </LegendRow>
           {/* Row 4 — lines &amp; arrows.
               No "Planned baseline" entry: ADR-0376 defers the baseline ghost-bar
               overlay to 0.5, so the canvas draws nothing from baseline dates. A
@@ -281,6 +291,42 @@ function MixedSwatch() {
         style={{ background: gutterBackground(['var(--ink-2)', 'var(--agile)']) }}
       />
       <span className="absolute left-[6px] right-0 top-1/2 -translate-y-1/2 h-[3px] bg-neutral-border" />
+    </span>
+  );
+}
+
+function SprintBandSwatch() {
+  // Mirrors drawSprintBands in GanttRenderer.ts: a low-alpha violet wash, the
+  // same 45° diagonal hatch the scrum bar texture uses (at the band's wider
+  // pitch), bounded left and right by the full-strength violet window rules.
+  // Uses the --agile token so the swatch, the canvas band, the scrum bar gutter
+  // and the outline chip all resolve to one hue in both light and dark.
+  return (
+    <span className="relative block w-full h-3.5 overflow-hidden">
+      <span
+        className="absolute inset-0"
+        style={{ backgroundColor: 'color-mix(in srgb, var(--agile) 8%, transparent)' }}
+      />
+      <svg className="absolute inset-0 w-full h-full" aria-hidden="true">
+        <pattern
+          id="sprint-band-swatch-stripes"
+          width="5"
+          height="5"
+          patternUnits="userSpaceOnUse"
+          patternTransform="rotate(45)"
+        >
+          <line x1="0" y1="0" x2="0" y2="5" stroke="var(--agile)" strokeWidth="1" />
+        </pattern>
+        <rect width="100%" height="100%" fill="url(#sprint-band-swatch-stripes)" opacity="0.3" />
+      </svg>
+      <span
+        className="absolute left-0 top-0 bottom-0 w-[2px]"
+        style={{ backgroundColor: 'var(--agile)' }}
+      />
+      <span
+        className="absolute right-0 top-0 bottom-0 w-[2px]"
+        style={{ backgroundColor: 'var(--agile)' }}
+      />
     </span>
   );
 }

@@ -70,7 +70,17 @@ SHELL_SRC="packages/web/src/features/shell"
 #                hex mirrors the new --teal/--kanban token added alongside it,
 #                which ScheduleLegend.tsx's KanbanSwatch consumes directly (so
 #                the arbitrary-color count below did NOT need a bump).
-BASELINE_HEX=122
+#    122 →  124  (#2738) GanttRenderer.ts's chipTextOnHighlight — the ink for a
+#                pill filled with the sprint-window band's edge violet — in
+#                {COLOR, COLOR_DARK}. It cannot fold into chipTextOnSurface: the
+#                two coincide on the light and dark palettes but diverge under
+#                forced-colors, where a Highlight-filled pill's only guaranteed
+#                contrast partner is HighlightText. The band's own edge hue added
+#                nothing here — sprintBandEdge consumes the VIOLET_600/VIOLET_400
+#                constants deliveryScrum already uses, which is what makes the
+#                band and the scrum bars inside it the same violet by
+#                construction rather than by review.
+BASELINE_HEX=124
 BASELINE_ARBITRARY=4
 BASELINE_SHADOW=0
 # Inline `rgba(0,0,0,α)` color VALUES in component/style source. These bypass the
