@@ -1,5 +1,6 @@
 import { useMutation, useQuery, type UseMutationResult } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { downloadCsv, escapeField } from '@/utils/exportCsv';
 
 /**
  * CSV / Excel import wizard data layer (#746, ADR-0632).
@@ -64,6 +65,15 @@ export interface CsvTargetField {
 export interface CsvRowIssue {
   row: number;
   message: string;
+  /** Source column the problem came from, when it is scoped to one. */
+  column?: string | null;
+  /**
+   * Stable, machine-readable cause. Never localized, so it — not the message —
+   * is what "group these by cause" may key on (ADR-0634).
+   */
+  code?: string;
+  /** `error` = the row is parked for review; `warning` = it imported degraded. */
+  severity?: string;
   [key: string]: unknown;
 }
 
@@ -79,10 +89,15 @@ export interface CsvPreview {
   sample_rows: string[][];
   row_count: number;
   truncated_rows: number;
+  /** The plan only — the Import review branch is counted by `parked_row_count`. */
   task_count: number;
   resource_count: number;
+  /** Rows that cannot become plan tasks and will be parked for review (#2732). */
+  parked_row_count?: number;
+  /** Name of the summary task those rows land under. */
+  review_branch_name?: string;
   row_errors: CsvRowIssue[];
-  /** Rows that would be LOST. */
+  /** Rows that would NOT join the plan — parked for review, not dropped. */
   error_count: number;
   /** Rows that would land with a field defaulted. */
   warning_count: number;
@@ -102,7 +117,14 @@ export interface CsvImportStatusResponse {
   status: 'pending' | 'dispatched' | 'done' | 'dead';
   filename: string;
   summary: {
+    /** Every row written, the Import review branch included. */
     tasks_created?: number;
+    /** The plan alone — what "imported N tasks" is allowed to claim (#2732). */
+    plan_tasks_created?: number;
+    /** Rows parked in the review branch instead of dropped. */
+    parked_row_count?: number;
+    /** Name of the summary task they landed under, or '' when none did. */
+    review_branch_name?: string;
     resources_created?: number;
     dependencies_created?: number;
     rows_read?: number;
@@ -280,4 +302,106 @@ export function toColumnMap(columns: CsvColumnMapping[]): Record<string, string>
 /** Headers the operator left unmapped — surfaced before commit, never silently dropped. */
 export function unmappedHeaders(columns: CsvColumnMapping[]): string[] {
   return columns.filter((c) => !c.field).map((c) => c.header);
+}
+
+/**
+ * Human label per diagnostic `code`.
+ *
+ * Keyed on the code rather than on the message on purpose: a code is a contract
+ * and never localized, while the message embeds the offending value and is free
+ * to change (ADR-0634). That is what makes "group these by cause" possible at
+ * all — grouping on message text would put every bad date in its own group.
+ */
+const ISSUE_CAUSE_LABELS: Record<string, string> = {
+  missing_name: 'No task name',
+  bad_date: 'Unreadable date',
+  bad_duration: 'Unreadable duration',
+  bad_percent: 'Unreadable progress',
+  unknown_predecessor: 'Predecessor matches no row',
+  self_dependency: 'Row depends on itself',
+  finish_before_start: 'Finish before start',
+  excessive_indent_depth: 'Indent too deep',
+};
+
+/** `some_new_code` → `Some new code`, for a cause this build has no label for. */
+function humanizeCode(code: string): string {
+  const spaced = code.replaceAll('_', ' ').trim();
+  return spaced ? spaced[0].toUpperCase() + spaced.slice(1) : 'Problem';
+}
+
+/** One cause, the rows it affected, and one example of what it said. */
+export interface CsvIssueGroup {
+  key: string;
+  label: string;
+  rows: number[];
+  /** The first message in the group — the concrete instance behind the label. */
+  example: string;
+}
+
+/**
+ * Fold per-row diagnostics into one entry per cause, largest group first.
+ *
+ * A 400-row sheet with one wrong date format produces 400 identical-looking
+ * lines, and scrolling them tells the operator nothing the first line did not.
+ * Grouping turns that into "Unreadable date — 400 rows", which is the shape of
+ * the single edit that fixes it.
+ *
+ * Issues with no `code` (an older server, or a hand-built fixture) fall back to
+ * grouping on the message, which degrades to one group per distinct text rather
+ * than collapsing unrelated problems together.
+ */
+export function groupIssuesByCause(issues: CsvRowIssue[]): CsvIssueGroup[] {
+  const groups = new Map<string, CsvIssueGroup>();
+  for (const issue of issues) {
+    const key = issue.code ?? issue.message;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.rows.push(issue.row);
+      continue;
+    }
+    groups.set(key, {
+      key,
+      label: issue.code
+        ? (ISSUE_CAUSE_LABELS[issue.code] ?? humanizeCode(issue.code))
+        : issue.message,
+      rows: [issue.row],
+      example: issue.message,
+    });
+  }
+  // Descending by size so the one edit that fixes the most rows is read first;
+  // ties keep first-seen order, which is file order.
+  return [...groups.values()].sort((a, b) => b.rows.length - a.rows.length);
+}
+
+/** Filename the browser saves the error-row export under. */
+export const CSV_IMPORT_ERRORS_FILENAME = 'trueppm-import-problems.csv';
+
+/**
+ * Render the diagnostics as a CSV the operator can open next to their sheet.
+ *
+ * Built client-side from the payload already in hand rather than through a new
+ * endpoint: the server has no state to re-read once the import is terminal, and
+ * a download that needs an id would stop working the moment the wizard closed.
+ * Cells go through the shared `escapeField`, so a message quoting a
+ * formula-injection task name cannot execute when this file is opened (#2762).
+ */
+export function issuesToCsvString(issues: CsvRowIssue[]): string {
+  const rows = ['Row,Column,Severity,Cause,Message'];
+  for (const issue of issues) {
+    rows.push(
+      [
+        String(issue.row),
+        escapeField(issue.column ?? ''),
+        escapeField(issue.severity ?? ''),
+        escapeField(issue.code ?? ''),
+        escapeField(issue.message),
+      ].join(','),
+    );
+  }
+  return rows.join('\r\n');
+}
+
+/** Save {@link issuesToCsvString} as a download. */
+export function downloadIssuesCsv(issues: CsvRowIssue[]): void {
+  downloadCsv(issuesToCsvString(issues), CSV_IMPORT_ERRORS_FILENAME);
 }

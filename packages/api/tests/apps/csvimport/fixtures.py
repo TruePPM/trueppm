@@ -61,6 +61,55 @@ ID,Name,Duration,Start,Predecessors
 6,,2,2026-03-02,
 """
 
+# Hierarchy carried by a *dotted* WBS column, with one nameless row (#2732).
+# The review branch must express itself in the same dotted form the real rows
+# use, or _build_wbs_paths flattens the whole import.
+DOTTED_WBS_WITH_NAMELESS_CSV = b"""\
+WBS,Name,Duration
+1,Discovery,1
+1.1,Interviews,5
+1.2,Requirements,8
+2,Build,1
+2.1,,10
+"""
+
+# Hierarchy carried by *indentation*, with one nameless row (#2732). Writing a
+# dotted outline number onto the review branch here would flip _build_wbs_paths
+# into its dotted mode and re-derive every real task's path.
+INDENTED_WITH_NAMELESS_CSV = b"""\
+Name,Duration
+Phase One,1
+  Design,3
+  Build,5
+,4
+"""
+
+# Every row unresolvable. Nothing lands in the plan, but nothing is lost either:
+# the whole file arrives as the review branch (#2732).
+ALL_NAMELESS_CSV = b"""\
+ID,Name,Duration
+1,,3
+2,,5
+"""
+
+
+def build_huge_header_nameless_csv(header_chars: int = 100_000, rows: int = 5) -> bytes:
+    """A sheet with enormous header cells and only nameless rows (#2732).
+
+    Header cells carry no length cap of their own, and a parked row's notes are
+    keyed by header — so an uncapped key is the one term that multiplies with the
+    row count. This is the shape that turns a small upload into gigabytes of
+    retained strings if `_raw_values` truncates only the value side.
+
+    Stays under Python's 131,072-char `csv` field limit; a longer cell raises
+    `_csv.Error`, which this parser does not translate (tracked separately).
+    """
+    long_header = "H" * header_chars
+    lines = [f"Name,{long_header},{long_header}2"]
+    lines += [f",{i},{i}" for i in range(1, rows + 1)]
+    return ("\n".join(lines) + "\n").encode()
+
+
 # An indent depth deep enough that, unclamped, it would blow past Postgres's
 # ltree label-count ceiling once routed through _wbs_paths_from_levels (#2761).
 # The parser must clamp it to MAX_OUTLINE_DEPTH rather than let it reach

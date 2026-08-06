@@ -193,7 +193,12 @@ async function gotoSchedule(
  */
 async function routeImport(
   page: Page,
-  opts: { preview: { status: number; body: unknown }; commit?: boolean },
+  opts: {
+    preview: { status: number; body: unknown };
+    commit?: boolean;
+    /** Terminal status payload; defaults to {@link DONE_STATUS}. */
+    done?: unknown;
+  },
 ) {
   await page.route(`**/api/v1/projects/${PROJECT_ID}/import/csv/preview/`, (r) =>
     r.fulfill({
@@ -208,7 +213,7 @@ async function routeImport(
       r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(DONE_STATUS),
+        body: JSON.stringify(opts.done ?? DONE_STATUS),
       }),
     );
     await page.route(`**/api/v1/projects/${PROJECT_ID}/import/csv/`, (r) =>
@@ -266,6 +271,86 @@ test.describe('CSV/Excel import wizard (#746)', () => {
     await expect(dialog.getByText(/Imported 11 tasks/)).toBeVisible();
     await expect(dialog.getByText(/Row 4/)).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'View schedule' })).toBeVisible();
+  });
+
+  test('unresolvable rows are parked in a review branch, not dropped (#2732)', async ({ page }) => {
+    // The failure this replaces: a row with no name was counted in a summary
+    // and then discarded. The operator's only record of it was a number on a
+    // screen they had to be looking at when the import finished.
+    await gotoSchedule(page);
+    await routeImport(page, {
+      preview: {
+        status: 200,
+        body: {
+          ...PREVIEW_BODY,
+          task_count: 10,
+          parked_row_count: 2,
+          review_branch_name: 'Import review',
+          error_count: 2,
+        },
+      },
+      commit: true,
+      done: {
+        id: 'imp-1',
+        status: 'done',
+        filename: 'plan.csv',
+        summary: {
+          tasks_created: 13,
+          plan_tasks_created: 10,
+          parked_row_count: 2,
+          review_branch_name: 'Import review',
+          row_errors: [
+            { row: 7, column: 'Title', code: 'missing_name', message: 'Row has no task name.' },
+            { row: 9, column: 'Title', code: 'missing_name', message: 'Row has no task name.' },
+            { row: 4, column: 'Days', code: 'bad_duration', message: "Could not read 'x'." },
+          ],
+        },
+        requested_at: '2026-08-05T00:00:00Z',
+      },
+    });
+    await openWizard(page);
+
+    const dialog = page.getByRole('dialog', { name: 'Import from a spreadsheet' });
+    await pickFile(page);
+    await dialog.getByRole('button', { name: 'Next' }).click();
+    await dialog.getByRole('button', { name: 'Next' }).click();
+
+    // Stated BEFORE the commit: the review branch must not be a surprise found
+    // later at the bottom of the outline.
+    await expect(dialog.getByText(/parked in an “Import review” branch/)).toBeVisible();
+    await expect(dialog.getByText('Parked for review')).toBeVisible();
+    await dialog.getByRole('button', { name: /Import 10 tasks/ }).click();
+
+    // The plan count is the plan, not the plan plus the placeholders.
+    await expect(dialog.getByText(/Imported 10 tasks/)).toBeVisible();
+    await expect(dialog.getByText(/2 rows parked in the “Import review” branch/)).toBeVisible();
+    await expect(dialog.getByText(/already in your outline/)).toBeVisible();
+
+    // Grouped by cause, so one wrong column reads as one edit rather than as
+    // N indistinguishable lines.
+    const problems = dialog.getByRole('region', { name: 'Rows with problems' });
+    await expect(problems).toContainText('No task name — 2 rows');
+    await expect(problems).toContainText('Row 7, Row 9');
+    await expect(problems).toContainText('Unreadable duration — 1 row');
+  });
+
+  test('offers the problem rows as a CSV download', async ({ page }) => {
+    await gotoSchedule(page);
+    await routeImport(page, {
+      preview: { status: 200, body: PREVIEW_BODY },
+      commit: true,
+    });
+    await openWizard(page);
+
+    const dialog = page.getByRole('dialog', { name: 'Import from a spreadsheet' });
+    await pickFile(page);
+    await dialog.getByRole('button', { name: 'Next' }).click();
+    await dialog.getByRole('button', { name: 'Next' }).click();
+    await dialog.getByRole('button', { name: /^Import/ }).click();
+
+    const download = page.waitForEvent('download');
+    await dialog.getByRole('button', { name: 'Download problem rows (CSV)' }).click();
+    expect((await download).suggestedFilename()).toBe('trueppm-import-problems.csv');
   });
 
   test('offers a template download from step 1 over an authenticated request', async ({ page }) => {
