@@ -36,6 +36,15 @@ one raw token cannot back two links.
 Read-only posture: this never touches the ``--with-personas`` /
 ``TRUEPPM_DEMO_PASSWORD`` path (#1350). The demo is reachable *only* through the
 unauthenticated share endpoints.
+
+**Minting and serving are two different gates** (#2781). ``mint_share_link()``
+writes a row; the *read* additionally requires the ADR-0135 "Public sharing"
+policy to resolve true for the project. Because ``Workspace.public_sharing``
+defaults to ``False``, a demo built from default state minted links that every
+recipient saw as ``410 Gone`` — while this command printed a confident URL. So
+the command now turns sharing on for the project it publishes, and verifies the
+*effective* policy before printing, rather than assuming the mint implies a
+working link.
 """
 
 from __future__ import annotations
@@ -51,6 +60,10 @@ from trueppm_api.apps.projects.management.commands.seed_demo_project import (
 )
 from trueppm_api.apps.projects.models import Project, ShareContentKind, ShareLink
 from trueppm_api.apps.projects.share_services import mint_share_link
+from trueppm_api.apps.projects.sharing_settings import (
+    public_sharing_instance_enabled,
+    resolve_effective_sharing,
+)
 
 # Idempotency key: a demo link is matched (and reused) by its exact label so
 # repeated runs never sprawl a fresh link per restart. The two kinds carry
@@ -157,6 +170,10 @@ class Command(BaseCommand):
                 "`python manage.py seed_demo_project` first."
             ) from exc
 
+        # Turn sharing on *before* minting, so the links this run prints resolve
+        # for the recipient rather than 410-ing (#2781).
+        self._enable_public_sharing(project)
+
         results: list[tuple[str, ShareLink, str]] = []
 
         scheduled = self._resolve_link(project, ShareContentKind.SCHEDULE, schedule_token)
@@ -172,6 +189,12 @@ class Command(BaseCommand):
         if not results:
             return
 
+        # Re-read the posture the *recipient* will hit. Enabling sharing above is
+        # necessary but not sufficient: the operator kill switch sits above every
+        # policy, and an Enterprise ENFORCE lock outranks the project override. If
+        # either still says no, say so instead of printing a URL that 404s/410s.
+        self._warn_if_links_will_not_resolve(project)
+
         self.stdout.write(self.style.SUCCESS("=" * 60))
         self.stdout.write(self.style.SUCCESS("  Public read-only demo share links"))
         self.stdout.write(self.style.SUCCESS(f"  Project:  {project.name!r}"))
@@ -183,6 +206,70 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(f"  Link id:  {link.id}"))
             self.stdout.write(self.style.SUCCESS(f"  URL:      {url}"))
         self.stdout.write(self.style.SUCCESS("=" * 60))
+
+    def _enable_public_sharing(self, project: Any) -> None:
+        """Set the demo project's own ADR-0135 ``public_sharing`` override to True.
+
+        The override is written at **project** scope, not on the workspace, and
+        that is the whole point of the choice: ``Workspace.public_sharing`` is the
+        admin-facing default for *every* project on the instance, and a management
+        command has no business flipping it. The demo project is public by
+        definition; nothing else on the instance is, and a self-hoster who seeds
+        the sample onto a real install must not find their workspace default
+        silently loosened as a side effect.
+
+        Safe by scoping: ``handle()`` resolves the project with ``is_sample=True``,
+        so the only row this can ever touch is one the seeder created.
+
+        Idempotent — a second run finds the override already true and writes
+        nothing, which keeps ``server_version`` (and the history row each save
+        writes) from advancing once per container restart.
+        """
+        if project.public_sharing:
+            return
+        project.public_sharing = True
+        project.save(update_fields=["public_sharing"])
+        self.stdout.write(
+            self.style.WARNING(
+                f"Enabled public sharing on demo project {project.name!r} "
+                "(project-scoped override; the workspace default is untouched)."
+            )
+        )
+
+    def _warn_if_links_will_not_resolve(self, project: Any) -> None:
+        """Warn when the printed URLs will not actually serve, and say why.
+
+        The mint and the read are separate gates, and this command historically
+        only exercised the first — which is how a demo shipped links that every
+        recipient saw as ``410 Gone`` while startup logs showed a confident URL
+        (#2781). Two conditions survive :meth:`_enable_public_sharing`:
+
+        * the operator kill switch (``TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED=false``),
+          which outranks every policy and makes the share endpoints answer 404;
+        * an Enterprise ``ENFORCE`` sharing lock with the workspace value off,
+          under which the project override is ignored and the read answers 410.
+
+        Neither is this command's to override — an operator or a workspace admin
+        set them deliberately. Reporting them is the honest response.
+        """
+        if not public_sharing_instance_enabled():
+            self.stdout.write(
+                self.style.ERROR(
+                    "TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED is false — this instance "
+                    "serves no public share links, so the URLs below will 404. Set it "
+                    "to true to run a public demo."
+                )
+            )
+            return
+        if not resolve_effective_sharing(project, "public_sharing"):
+            self.stdout.write(
+                self.style.ERROR(
+                    "Public sharing still resolves to off for this project despite the "
+                    "project-scoped override — a workspace ENFORCE policy is locking it. "
+                    "The URLs below will return 410 until a workspace admin turns "
+                    "'Public sharing' on or relaxes the override policy."
+                )
+            )
 
     def _resolve_link(
         self,

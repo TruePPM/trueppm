@@ -38,7 +38,6 @@ from django.core.management import call_command
 from django.urls import URLPattern, URLResolver, get_resolver
 
 from trueppm_api.apps.projects.models import Project, ShareLink
-from trueppm_api.apps.workspace.models import Workspace
 
 if TYPE_CHECKING:
     from rest_framework.test import APIClient
@@ -191,18 +190,14 @@ def test_password_reset_is_not_an_account_creation_path() -> None:
 
 
 def _publish_demo_link() -> ShareLink:
-    """Seed, mint, and put the workspace in the state a working demo requires.
+    """Seed and mint, on default workspace state.
 
-    ``public_sharing`` is enabled here rather than left at its default because
-    these tests are about the *method surface* of the demo URL. The default-state
-    behavior is a defect with its own test below and its own issue (#2781) — the
-    two must not be conflated, or fixing one would silently un-test the other.
+    No ``public_sharing`` fixture setup needed: ``create_demo_share_link`` enables
+    sharing on the demo project's own override (#2781), so the link resolves
+    without the workspace default ever changing.
     """
 
     _seed_demo()
-    workspace = Workspace.load()
-    workspace.public_sharing = True
-    workspace.save(update_fields=["public_sharing"])
     call_command("create_demo_share_link", token=DEMO_TOKEN)
     return ShareLink.objects.get(revoked_at__isnull=True)
 
@@ -245,34 +240,3 @@ def test_demo_share_link_read_needs_no_credentials(client: APIClient) -> None:
 
     assert response.status_code == 200
     assert User.objects.filter(is_active=True).count() == 0
-
-
-@pytest.mark.django_db
-def test_demo_link_does_not_resolve_on_a_default_workspace() -> None:
-    """Pins the #2781 defect: the demo is unreachable out of the box.
-
-    ``Workspace.public_sharing`` defaults to ``False`` and nothing on the demo
-    path turns it on, so the link ``create_demo_share_link`` confidently prints
-    at startup answers ``410 Public sharing has been turned off``. Minting
-    succeeds because the command calls ``mint_share_link()`` directly, below the
-    API view's policy gate — only the read fails, which is why the startup log
-    looks healthy.
-
-    This asserts the **broken** behavior on purpose, so that fixing #2781 fails
-    here and forces this test to be replaced by the 200 assertion rather than
-    leaving a stale expectation behind.
-    """
-
-    from django.test import Client
-
-    _seed_demo()
-    call_command("create_demo_share_link", token=DEMO_TOKEN)
-
-    response = Client().get(f"/api/v1/share/schedule/{DEMO_TOKEN}/")
-
-    assert response.status_code == 410, (
-        "the demo share link now resolves on a default workspace — #2781 is fixed. "
-        "Delete this test and assert 200 in the two above without the "
-        "public_sharing fixture."
-    )
-    assert Workspace.load().public_sharing is False
