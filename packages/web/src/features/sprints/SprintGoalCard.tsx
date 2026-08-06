@@ -44,6 +44,25 @@ export interface GoalQuality {
  * editor never blocks Save on them. Heuristics, not parsing: cheap and
  * forgiving on purpose.
  */
+/**
+ * Vocabulary that reads as a verifiable outcome ("…so that checkout passes",
+ * "signed off", "end-to-end"). Held as data rather than one long inline
+ * alternation: the list is the thing that gets edited, and a 20-branch literal
+ * is unreadable at the call site (S5843). Entries are regex fragments, so the
+ * few that need optional punctuation keep it (`end[- ]to[- ]end`).
+ *
+ * Order matters only for the multi-word entries: "so that" precedes "so" so the
+ * longer phrase wins the alternation. Word boundaries are applied once, around
+ * the whole group, exactly as the previous single literal did.
+ */
+const MEASURABLE_TERMS = [
+  'so that', 'so', 'can', 'without', 'proven', 'prove', 'demo', 'demos',
+  'demonstrate', 'ready', 'pass', 'passes', 'passed', 'verified', 'verify',
+  'live', 'end[- ]to[- ]end', 'under', 'within', 'complete', 'completed',
+  'signed[- ]?off', 'met',
+];
+const MEASURABLE_TERMS_RE = new RegExp(`\\b(${MEASURABLE_TERMS.join('|')})\\b`);
+
 export function evaluateSprintGoal(raw: string): GoalQuality {
   const text = raw.trim();
   if (text.length < 8) return { outcome: false, single: false, measurable: false };
@@ -59,11 +78,7 @@ export function evaluateSprintGoal(raw: string): GoalQuality {
   const sentenceBreaks = (text.match(/[.;]/g) ?? []).length;
   const outcome = !hasBullets && andCount <= 1 && text.length >= 12;
   const single = sentenceBreaks <= 1 && andCount <= 1 && !hasBullets;
-  const measurable =
-    /\d/.test(text) ||
-    /\b(so that|so|can|without|proven|prove|demo|demos|demonstrate|ready|pass|passes|passed|verified|verify|live|end[- ]to[- ]end|under|within|complete|completed|signed[- ]?off|met)\b/.test(
-      lower,
-    );
+  const measurable = /\d/.test(text) || MEASURABLE_TERMS_RE.test(lower);
   return { outcome, single, measurable };
 }
 

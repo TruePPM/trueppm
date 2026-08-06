@@ -225,7 +225,7 @@ export function useLocationModel(): LocationModel {
       const seg = viewSegment(location.pathname, programId, 'overview');
       return PROGRAM_VIEW_LABEL[seg] ?? titleCase(seg);
     }
-    const first = location.pathname.split('/').filter(Boolean)[0] ?? '';
+    const first = location.pathname.split('/').find(Boolean) ?? '';
     return GLOBAL_ROUTE_LABEL[first] ?? titleCase(first);
   }, [projectId, programId, projectView, location.pathname, grouped]);
 
