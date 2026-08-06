@@ -119,7 +119,8 @@ _s3_mc_alias() {
 # resolve to a private IP, is not recognized here and WILL warn — deliberately
 # (see TRUEPPM_S3_ALLOW_PLAINTEXT above for that operator's opt-out).
 _s3_endpoint_looks_incluster() {
-  case "$1" in
+  local endpoint="$1"
+  case "$endpoint" in
     # *.local also matches *.svc.cluster.local and *.cluster.local (both end in
     # ".local"), so only the bare ".svc" suffix needs its own arm.
     localhost | ::1 | *.local | *.svc) return 0 ;;

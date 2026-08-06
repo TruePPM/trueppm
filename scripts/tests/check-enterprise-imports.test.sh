@@ -26,19 +26,21 @@ trap 'rm -rf "$TMP"' EXIT
 fail=0
 pass=0
 check() { # check "<description>" <condition-exit-code>
-  if [[ "$2" -eq 0 ]]; then
+  local desc="$1" rc="$2"
+  if [[ "$rc" -eq 0 ]]; then
     pass=$((pass + 1))
   else
-    echo "  FAIL: $1"
+    echo "  FAIL: $desc"
     fail=$((fail + 1))
   fi
 }
 
 # stage <relative-path> — start a fresh tree and create the named file from stdin.
 stage() {
+  local rel="$1"
   rm -rf "$TMP/tree"
-  mkdir -p "$TMP/tree/$(dirname "$1")"
-  cat > "$TMP/tree/$1"
+  mkdir -p "$TMP/tree/$(dirname "$rel")"
+  cat > "$TMP/tree/$rel"
 }
 
 run_gate() { # sets $OUT and $RC; never aborts under `set -e`

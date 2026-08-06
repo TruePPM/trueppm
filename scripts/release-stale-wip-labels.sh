@@ -55,18 +55,20 @@ if [ "$have_glab" -eq 0 ] && [ -z "$TOKEN" ]; then
 fi
 
 api_get() {
+  local path="$1"
   if [ "$have_glab" -eq 1 ]; then
-    glab api "$1"
+    glab api "$path"
   else
-    curl -fsSL -H "PRIVATE-TOKEN: ${TOKEN}" "${API}/projects/${PROJECT}/${1#projects/:id/}"
+    curl -fsSL -H "PRIVATE-TOKEN: ${TOKEN}" "${API}/projects/${PROJECT}/${path#projects/:id/}"
   fi
 }
 
 api_put() {
+  local path="$1"
   if [ "$have_glab" -eq 1 ]; then
-    glab api --method PUT "$1"
+    glab api --method PUT "$path"
   else
-    curl -fsSL -X PUT -H "PRIVATE-TOKEN: ${TOKEN}" "${API}/projects/${PROJECT}/${1#projects/:id/}"
+    curl -fsSL -X PUT -H "PRIVATE-TOKEN: ${TOKEN}" "${API}/projects/${PROJECT}/${path#projects/:id/}"
   fi
 }
 

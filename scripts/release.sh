@@ -94,7 +94,8 @@ parse_version() {
 }
 
 stage_rank() {
-  case "$1" in
+  local stage="$1"
+  case "$stage" in
     alpha) echo 1 ;;
     beta)  echo 2 ;;
     rc)    echo 3 ;;
@@ -116,8 +117,9 @@ to_pep440() {
 
 validate_semver() {
   # Accepts x.y.z and x.y.z-(alpha|beta|rc).N
-  [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+\.[0-9]+)?$ ]] \
-    || die "'$1' is not a valid semver (expected x.y.z or x.y.z-alpha|beta|rc.N)"
+  local v="$1"
+  [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+\.[0-9]+)?$ ]] \
+    || die "'$v' is not a valid semver (expected x.y.z or x.y.z-alpha|beta|rc.N)"
 }
 
 # confirm_or_override_version SUGGESTED

@@ -71,10 +71,11 @@ calls() { cat "$TMP/idx"; }
 pass=0
 fail_count=0
 check() { # check "<description>" <expected> <actual>
-  if [ "$2" = "$3" ]; then
+  local desc="$1" expected="$2" actual="$3"
+  if [ "$expected" = "$actual" ]; then
     pass=$((pass + 1))
   else
-    echo "  FAIL: $1 — expected '$2', got '$3'"
+    echo "  FAIL: $desc — expected '$expected', got '$actual'"
     fail_count=$((fail_count + 1))
   fi
 }

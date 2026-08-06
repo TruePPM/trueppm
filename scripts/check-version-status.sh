@@ -268,22 +268,23 @@ MD
   # fixture goes in its own directory so one verdict cannot mask another.
   local case_dir
   fm_case() { # fm_case <name> <expect-pass|expect-fail> <page-body>
-    case_dir="$tmp/fm-$1"
+    local name="$1" expect="$2" body="$3"
+    case_dir="$tmp/fm-$name"
     mkdir -p "$case_dir"
     cp "$docs/overview/roadmap.md" "$case_dir/"
-    printf '%s\n' "$3" > "$case_dir/page.md"
+    printf '%s\n' "$body" > "$case_dir/page.md"
     if run_scan "$case_dir/roadmap.md" "$case_dir" >/dev/null 2>&1; then
-      if [ "$2" = "expect-pass" ]; then
-        echo "SELF-TEST OK: $1 accepted."
+      if [ "$expect" = "expect-pass" ]; then
+        echo "SELF-TEST OK: $name accepted."
       else
-        echo "SELF-TEST FAILED: $1 was accepted and should not be." >&2
+        echo "SELF-TEST FAILED: $name was accepted and should not be." >&2
         return 1
       fi
     else
-      if [ "$2" = "expect-fail" ]; then
-        echo "SELF-TEST OK: $1 correctly rejected."
+      if [ "$expect" = "expect-fail" ]; then
+        echo "SELF-TEST OK: $name correctly rejected."
       else
-        echo "SELF-TEST FAILED: $1 was rejected and should not be." >&2
+        echo "SELF-TEST FAILED: $name was rejected and should not be." >&2
         return 1
       fi
     fi
