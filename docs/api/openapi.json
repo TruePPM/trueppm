@@ -2657,7 +2657,7 @@
                     }
                 ],
                 "tags": [
-                    "cascade-classification-operations"
+                    "projects"
                 ],
                 "security": [
                     {
@@ -2716,7 +2716,7 @@
                     }
                 ],
                 "tags": [
-                    "cascade-classification-operations"
+                    "projects"
                 ],
                 "security": [
                     {
@@ -2775,7 +2775,7 @@
                     }
                 ],
                 "tags": [
-                    "cascade-classification-operations"
+                    "projects"
                 ],
                 "security": [
                     {
@@ -6586,7 +6586,7 @@
                     }
                 ],
                 "tags": [
-                    "paste-many-operations"
+                    "projects"
                 ],
                 "security": [
                     {
@@ -6645,7 +6645,7 @@
                     }
                 ],
                 "tags": [
-                    "paste-many-operations"
+                    "projects"
                 ],
                 "security": [
                     {
@@ -6704,7 +6704,7 @@
                     }
                 ],
                 "tags": [
-                    "paste-many-operations"
+                    "projects"
                 ],
                 "security": [
                     {

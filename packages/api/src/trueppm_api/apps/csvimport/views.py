@@ -341,7 +341,7 @@ class CsvImportStatusView(APIView):
         )
 
 
-class CsvImportUndoView(APIView):
+class CsvImportUndoView(IdempotencyMixin, APIView):
     """⌘Z one completed import (ADR-0810, #2756, #2732).
 
     Project-nested like ``CsvImportStatusView`` rather than a router-registered
