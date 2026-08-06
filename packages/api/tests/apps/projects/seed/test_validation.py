@@ -264,6 +264,48 @@ def test_v2_event_unqualified_task_target_rejected() -> None:
     _expect_error(seed, "must be")
 
 
+def test_v2_event_dangling_project_target_rejected() -> None:
+    # `baseline.capture` is the one action whose target is a project slug. The
+    # task and sprint arms of _check_event_target had dangling-ref tests; the
+    # project and risk arms did not, so both were unexercised until #2775's
+    # diff-coverage gate surfaced the project one.
+    seed = _valid_v2_seed()
+    seed["events"].append(
+        {
+            "at": "A-5",
+            "actor": "alex",
+            "action": "baseline.capture",
+            "target": "project:ghost",
+        }
+    )
+    _expect_error(seed, "no project with slug 'ghost'")
+
+
+def test_v2_event_project_target_resolves() -> None:
+    # The pass side of the same branch: a baseline.capture against a project that
+    # DOES exist must validate, so the test above is proving the slug check and
+    # not just that any baseline.capture event is rejected.
+    seed = _valid_v2_seed()
+    seed["events"].append(
+        {
+            "at": "A-5",
+            "actor": "alex",
+            "action": "baseline.capture",
+            "target": "project:core",
+        }
+    )
+    validate_seed(seed)  # does not raise
+
+
+def test_v2_event_dangling_risk_target_rejected() -> None:
+    # The other untested arm found alongside the project one. Not required by the
+    # coverage gate (this line is not in the #2775 diff), but it is the same
+    # branch family and the gap was real.
+    seed = _valid_v2_seed()
+    seed["events"][1]["target"] = "risk:ghost"
+    _expect_error(seed, "no risk with slug 'ghost'")
+
+
 def test_v2_event_unknown_actor_rejected() -> None:
     seed = _valid_v2_seed()
     seed["events"][0]["actor"] = "ghost"
