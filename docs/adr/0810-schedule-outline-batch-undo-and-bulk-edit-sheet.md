@@ -230,6 +230,29 @@ skip-if-touched-since safety, and idempotency guard all still apply to `ImportFi
 as written; only its dispatch timing moves from "synchronous" to "async, outbox-shaped,
 reuse template-apply's drain."
 
+## Amendment — 2026-08-06, purge job: no TemplateApplication precedent to sit "alongside"
+
+Durable Execution item 6 originally said the new purge would register "in Beat alongside
+the existing TemplateApplication-adjacent purge jobs." At implementation time,
+`TemplateApplication` turned out to have **no purge job at all** — its rows accumulate
+indefinitely today, so there was nothing to sit alongside. Two real precedents exist
+instead: the curated, six-table `RETENTION_SPECS`/`purge_registry` coordinator
+(ADR-0173, operator-facing retention editor) and the simpler standalone
+`purge_expired_project_exports`-style tasks already in `apps/projects/tasks.py`
+(settings-only retention, no operator override, own Beat entry).
+
+**Corrected decision:** the standalone shape. `RETENTION_SPECS` is explicitly described
+in its own module as "the six operational tables surfaced in the editor" — folding a
+seventh (or eighth, for `CsvImportRequest`) in would be scope beyond what this ADR
+asked for, and would mean updating every place that count is asserted. Instead,
+`purge_expired_batch_operations` (`apps/projects/tasks.py`) mirrors
+`purge_expired_project_exports` exactly: a plain `TRUEPPM_BATCH_OPERATION_RETENTION_DAYS`
+settings value (default 30, `None` disables), no `RetentionPolicy` override row, its own
+`@idempotent_task` and Beat entry (04:40 UTC, after the program-import purge). Purges
+`PasteManyOperation` and `CascadeClassificationOperation` only — `CsvImportRequest`
+already has its own retention story via the import-fix section above (and, like
+`TemplateApplication`, currently has no purge job of its own; out of scope here).
+
 ## Amendment — 2026-08-06, `ImportFixOperation` dropped in favor of extending `CsvImportRequest`
 
 Implementing the amendment above, per this ADR's own Decision-section instruction to

@@ -286,25 +286,7 @@ def undo_import_fix_operation(csv_import_request: CsvImportRequest) -> dict[str,
     return result
 
 
-# ── Purge (ADR-0810 §Durable Execution 6) ───────────────────────────────────────
-
-
-def purge_expired_batch_operations(retention_days: int = 30) -> dict[str, int]:
-    """Nightly purge of ledger rows past the retention window, undone or not.
-
-    Registered in Beat alongside the existing TemplateApplication-adjacent purge
-    jobs (see ``apps/projects/tasks.py``). CsvImportRequest is deliberately left
-    to its own existing retention job — this only purges the two operation-ledger
-    tables this module owns.
-    """
-    from trueppm_api.apps.projects.models import CascadeClassificationOperation, PasteManyOperation
-
-    cutoff = timezone.now() - timezone.timedelta(days=retention_days)
-    paste_deleted, _ = PasteManyOperation.objects.filter(created_at__lt=cutoff).delete()
-    cascade_deleted, _ = CascadeClassificationOperation.objects.filter(
-        created_at__lt=cutoff
-    ).delete()
-    return {
-        "paste_many_operations": paste_deleted,
-        "cascade_classification_operations": cascade_deleted,
-    }
+# Purge lives in apps/projects/tasks.py (purge_expired_batch_operations),
+# alongside purge_expired_project_exports — see that module for why, and
+# ADR-0810's amendment for the correction (TemplateApplication has no purge
+# job to sit "alongside"; this mirrors the export-job purge shape instead).

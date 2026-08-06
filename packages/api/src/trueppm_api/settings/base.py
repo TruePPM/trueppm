@@ -673,6 +673,13 @@ CELERY_BEAT_SCHEDULE = {
         # 04:35 UTC — after the program export purge.
         "schedule": crontab(hour=4, minute=35),
     },
+    # Nightly: delete paste-many/cascade ⌘Z undo ledger rows past
+    # TRUEPPM_BATCH_OPERATION_RETENTION_DAYS, undone or not (ADR-0810, #2756).
+    "purge-expired-batch-operations": {
+        "task": "projects.purge_expired_batch_operations",
+        # 04:40 UTC — after the program import purge.
+        "schedule": crontab(hour=4, minute=40),
+    },
     # Lazily materialize upcoming recurring-task occurrences within the
     # TRUEPPM_RECURRENCE_HORIZON_DAYS look-ahead. Hourly: occurrences are date-grained,
     # and a missed tick self-heals on the next one (idempotent). See ADR-0090 / #736.
@@ -1665,6 +1672,15 @@ TRUEPPM_IMPORT_RETENTION_DAYS: int | None = env.int("TRUEPPM_IMPORT_RETENTION_DA
 # archive can be large and contains every project's data, so it is not kept
 # indefinitely. Set to None to disable expiry/purge (links never lapse).
 TRUEPPM_EXPORT_RETENTION_DAYS: int | None = env.int("TRUEPPM_EXPORT_RETENTION_DAYS", default=7)
+
+# Retention window (days) for the ⌘Z undo ledger rows behind paste-many and
+# cascade classification (ADR-0810, #2756) — undone or not. 30 days comfortably
+# exceeds any plausible "wait, I meant to undo that" gap while staying inside
+# the 90-day HISTORY_RETENTION_DAYS these tables sit alongside. Set to None to
+# disable the purge (ledger rows kept indefinitely).
+TRUEPPM_BATCH_OPERATION_RETENTION_DAYS: int | None = env.int(
+    "TRUEPPM_BATCH_OPERATION_RETENTION_DAYS", default=30
+)
 
 # Age in seconds past which the Beat heartbeat is considered stale. Drives both
 # the GET /api/v1/health/beat/ stale flag and the beat.check_stale_heartbeat
