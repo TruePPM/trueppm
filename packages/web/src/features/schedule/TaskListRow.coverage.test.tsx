@@ -450,13 +450,16 @@ describe('TaskListRow — hover + dim treatments', () => {
     expect(screen.getByRole('row').className).toContain('bg-chrome-row-hover');
   });
 
-  it('dims and disables pointer events for out-of-chain rows in focus mode', () => {
+  it('dims out-of-chain rows in focus mode but keeps them interactive (#2782)', () => {
     renderWithRouter(
       <TaskListRow task={base} level={1} widths={widths} visible={visible} {...tree} dimmed />,
     );
     const row = screen.getByRole('row');
     expect(row.className).toContain('opacity-[0.22]');
-    expect(row.className).toContain('pointer-events-none');
+    // The dim is de-emphasis, not disablement. `pointer-events-none` here made
+    // the chain unrecoverable for a pointer user: an inert row never fires the
+    // `mouseenter`/`mouseleave` that re-origins or clears the chain.
+    expect(row.className).not.toContain('pointer-events-none');
   });
 
   it('fires the hover bus on mouse enter/leave and keyboard focus', () => {
@@ -478,6 +481,27 @@ describe('TaskListRow — hover + dim treatments', () => {
     expect(onHoverChange).toHaveBeenLastCalledWith(null);
     fireEvent.focus(row);
     expect(onHoverChange).toHaveBeenLastCalledWith('t1');
+  });
+
+  it('does not fire the hover bus when focus lands on a row that is in inline edit (#2782)', () => {
+    const onHoverChange = vi.fn();
+    renderWithRouter(
+      <TaskListRow
+        task={base}
+        level={1}
+        widths={widths}
+        visible={visible}
+        {...tree}
+        startInlineEditOnMount
+        onHoverChange={onHoverChange}
+      />,
+    );
+    // Build mode creates a row and focuses its name cell programmatically. If
+    // that focus fed the hover chain, `HOVER_SETTLE_MS` (80ms) later every other
+    // row would dim on a chain of {the new row} — with the pointer nowhere near
+    // the list, no `mouseleave` ever arrives to clear it.
+    fireEvent.focus(screen.getByRole('row'));
+    expect(onHoverChange).not.toHaveBeenCalled();
   });
 });
 

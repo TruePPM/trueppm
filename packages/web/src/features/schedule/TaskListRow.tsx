@@ -834,7 +834,14 @@ function getRowClassName(s: {
     editingCell ? 'cursor-text' : 'cursor-pointer',
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary',
     selectionClass,
-    s.dimmed ? 'opacity-[0.22] pointer-events-none' : '',
+    // De-emphasis is visual only — a dimmed row stays clickable (#2782). The
+    // chain dim used to also carry `pointer-events-none`, which made the state
+    // unrecoverable for a pointer user: an inert row never fires `mouseenter`,
+    // so the hover that would re-origin (or `mouseleave`-clear) the chain can
+    // never happen, and every non-chain row stays dead until focus moves. The
+    // #806 fix treated one instance of that (a hover pinned to a deleted task);
+    // keeping the rows interactive removes the whole class.
+    s.dimmed ? 'opacity-[0.22]' : '',
     s.isStructuralPending ? 'opacity-70 cursor-progress' : '',
   ].join(' ');
 }
@@ -1697,7 +1704,15 @@ function TaskListRowInner({
       onMouseEnter={() => onHoverChange?.(task.id)}
       onMouseLeave={() => onHoverChange?.(null)}
       onFocus={() => {
-        onHoverChange?.(task.id);
+        // A row that is being typed into is not being *pointed at*: skip the
+        // chain highlight while any of its cells is in edit (#2782). Build mode
+        // creates a row and focuses its name cell programmatically, so without
+        // this gate the 80ms `HOVER_SETTLE_MS` fires ~80ms after every quick-add
+        // and dims the entire rest of the list on a chain of {the new row} —
+        // which carries no information (a brand-new task has no dependencies)
+        // and, because the pointer is nowhere near the list, no `mouseleave`
+        // ever arrives to clear it.
+        if (!isEditing && !anyCellInEdit) onHoverChange?.(task.id);
         // Move the grid's roving tab stop to whichever row gains focus (#2204),
         // so Tab out-and-back returns to the last-focused row (mirrors the
         // overlay's onFocus → setFocusedTaskId).
