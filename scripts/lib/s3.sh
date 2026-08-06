@@ -78,6 +78,7 @@ s3_client() {
 # Human-readable install hint, used in the error message when no client is found.
 s3_client_hint() {
   echo "install the AWS CLI (aws) or the MinIO client (mc), or set TRUEPPM_S3_CLIENT"
+  return 0
 }
 
 # Configure an `mc` alias named "trueppm" in a private, writable config dir.
@@ -94,6 +95,11 @@ _s3_mc_alias() {
     "${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID is required for the mc client}" \
     "${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY is required for the mc client}" \
     >/dev/null
+  # Propagate `mc alias set`'s status deliberately. A blanket `return 0` here
+  # would mask an alias failure, and every caller invokes this as a bare
+  # statement under `set -e` — the subsequent `mc cp` would then run against an
+  # unconfigured alias instead of the run aborting.
+  return $?
 }
 
 # _s3_endpoint_looks_incluster HOST — best-effort heuristic: succeeds when HOST
@@ -189,6 +195,7 @@ _s3_prepare() {
     AWS_S3_ADDRESSING_STYLE=path
     export AWS_S3_ADDRESSING_STYLE
   fi
+  return 0
 }
 
 # s3_put <local-file> <object-key>
