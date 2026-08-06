@@ -80,7 +80,9 @@ export function CalendarMobileList({ anchorIso, tasks, onTaskClick }: CalendarMo
     .map(([iso, dayTasks]) => ({
       iso,
       label: formatDayLabel(parseUTCDate(iso)),
-      tasks: dayTasks.sort((a, b) => a.name.localeCompare(b.name)),
+      // Copy before sorting: `.sort()` is in-place, and these arrays are the
+      // grouping map's values (S4043). ES2022 lib here, so no `toSorted`.
+      tasks: [...dayTasks].sort((a, b) => a.name.localeCompare(b.name)),
     }));
 
   // Tasks may exist elsewhere in the project but not intersect the anchored

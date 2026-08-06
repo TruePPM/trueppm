@@ -12,6 +12,17 @@ import { useResources } from '@/hooks/useResources';
 import { ResourceList, ResourceListSkeleton } from './ResourceList';
 import { ResourceDetailPanel } from './ResourceDetailPanel';
 
+// Selection is intentionally preserved on both transitions — the detail panel
+// renders the deactivated/restored state in place. Module scope: neither closes
+// over component state, so re-creating them per render bought nothing (S7721).
+function handleDeactivated() {
+  // Keep selected — the panel shows the deactivated state
+}
+
+function handleRestored() {
+  // Keep selected — panel shows restored state
+}
+
 export function ResourcesPage() {
   // Seed the search box from `?q=` so the command palette's people tier can
   // deep-link here pre-filtered to a name (ADR-0401/#1940). Read once on mount —
@@ -49,14 +60,6 @@ export function ResourcesPage() {
   function handleCreated(id: string) {
     setSelectedId(id);
     setMode('view');
-  }
-
-  function handleDeactivated() {
-    // Keep selected — the panel shows the deactivated state
-  }
-
-  function handleRestored() {
-    // Keep selected — panel shows restored state
   }
 
   const showDetail = mode === 'create' || selectedResource !== null;

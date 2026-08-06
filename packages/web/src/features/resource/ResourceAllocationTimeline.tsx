@@ -104,6 +104,12 @@ function spanFractions(
 // ResourceAllocationTimeline
 // ---------------------------------------------------------------------------
 
+// The optimistic update happens via query invalidation inside
+// AllocationEditPopover, so this is a deliberate no-op. Module scope (S7721).
+function handleSaved(_assignmentId: string, _newUnits: number) {
+  // Nothing extra needed here.
+}
+
 export function ResourceAllocationTimeline({
   data,
   windowStart,
@@ -156,11 +162,6 @@ export function ResourceAllocationTimeline({
 
   function closeEdit() {
     setActiveEdit(null);
-  }
-
-  function handleSaved(_assignmentId: string, _newUnits: number) {
-    // Optimistic update happens via query invalidation in AllocationEditPopover.
-    // Nothing extra needed here.
   }
 
   // ---------------------------------------------------------------------------

@@ -25,10 +25,11 @@ trap 'rm -rf "$TMP"' EXIT
 fail=0
 pass=0
 check() { # check "<description>" <condition-exit-code>
-  if [[ "$2" -eq 0 ]]; then
+  local desc="$1" rc="$2"
+  if [[ "$rc" -eq 0 ]]; then
     pass=$((pass + 1))
   else
-    echo "  FAIL: $1"
+    echo "  FAIL: $desc"
     fail=$((fail + 1))
   fi
 }
@@ -36,8 +37,9 @@ check() { # check "<description>" <condition-exit-code>
 # run_gate <json-file> — runs the gate, captures combined output + exit code
 # into the globals $OUT and $RC (never aborts the test under `set -e`).
 run_gate() {
+  local fixture="$1"
   set +e
-  OUT="$(sh "$GATE" "$1" 2>&1)"
+  OUT="$(sh "$GATE" "$fixture" 2>&1)"
   RC=$?
   set -e
 }
@@ -45,11 +47,12 @@ run_gate() {
 # A one-package, one-group OSV result. $1 max_severity (CVSS string, "" = unscored),
 # $2 db_specific label, $3 package name.
 one_group() { # one_group <max_severity> <label> <pkg>
+  local max_severity="$1" label="$2" pkg="$3"
   cat <<JSON
 {"results":[{"source":{"path":"packages/web/package-lock.json"},"packages":[
- {"package":{"name":"$3","version":"1.0.0","ecosystem":"npm"},
-  "vulnerabilities":[{"id":"GHSA-x","database_specific":{"severity":"$2"}}],
-  "groups":[{"ids":["GHSA-x"],"max_severity":"$1"}]}
+ {"package":{"name":"$pkg","version":"1.0.0","ecosystem":"npm"},
+  "vulnerabilities":[{"id":"GHSA-x","database_specific":{"severity":"$label"}}],
+  "groups":[{"ids":["GHSA-x"],"max_severity":"$max_severity"}]}
 ]}]}
 JSON
 }

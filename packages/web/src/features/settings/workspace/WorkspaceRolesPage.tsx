@@ -167,7 +167,7 @@ function exportRolesMatrixCsv(): void {
   link.download = 'trueppm-roles-matrix.csv';
   document.body.appendChild(link);
   link.click();
-  document.body.removeChild(link);
+  link.remove();
   URL.revokeObjectURL(url);
 }
 

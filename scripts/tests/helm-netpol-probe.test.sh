@@ -64,19 +64,22 @@ probe() {
   i="$(cat "$TMP/idx")"
   echo $((i + 1)) > "$TMP/idx"
   sed -n "$((i + 1))p" "$TMP/seq"
+  return 0
 }
-setup() { printf '%s\n' "$@" > "$TMP/seq"; echo 0 > "$TMP/idx"; }
-calls() { cat "$TMP/idx"; }
+setup() { printf '%s\n' "$@" > "$TMP/seq"; echo 0 > "$TMP/idx"; return 0; }
+calls() { cat "$TMP/idx"; return 0; }
 
 pass=0
 fail_count=0
 check() { # check "<description>" <expected> <actual>
-  if [ "$2" = "$3" ]; then
+  local desc="$1" expected="$2" actual="$3"
+  if [ "$expected" = "$actual" ]; then
     pass=$((pass + 1))
   else
-    echo "  FAIL: $1 — expected '$2', got '$3'"
+    echo "  FAIL: $desc — expected '$expected', got '$actual'"
     fail_count=$((fail_count + 1))
   fi
+  return 0
 }
 
 # --- The retry must absorb a transient silence ------------------------------

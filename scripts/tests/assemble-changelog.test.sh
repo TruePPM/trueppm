@@ -23,15 +23,16 @@ trap 'rm -rf "$TMP"' EXIT
 fail=0
 pass=0
 check() { # check "<description>" <condition-exit-code>
-  if [[ "$2" -eq 0 ]]; then
+  local desc="$1" rc="$2"
+  if [[ "$rc" -eq 0 ]]; then
     pass=$((pass + 1))
   else
-    echo "  FAIL: $1"
+    echo "  FAIL: $desc"
     fail=$((fail + 1))
   fi
 }
-has() { grep -qF "$1" "$2"; }      # literal substring present
-hasnt() { ! grep -qF "$1" "$2"; }  # literal substring absent
+has() { local needle="$1" file="$2"; grep -qF "$needle" "$file"; }      # literal substring present
+hasnt() { local needle="$1" file="$2"; ! grep -qF "$needle" "$file"; }  # literal substring absent
 
 # stage_sandbox <dir> — a self-contained repo root with the script under test.
 stage_sandbox() {
@@ -44,7 +45,8 @@ write_changelog() {
   # The prior release section is intentionally heading-free (prose only) so the
   # ### category assertions below see ONLY the freshly assembled block, not a
   # category that happens to also live in an older release.
-  cat > "$1" <<'EOF'
+  local out="$1"
+  cat > "$out" <<'EOF'
 # Changelog
 
 ## [Unreleased]

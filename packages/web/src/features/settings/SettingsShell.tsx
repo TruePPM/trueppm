@@ -204,7 +204,9 @@ export function SettingsShell({
       .map((i) => i.to)
       .filter((to): to is string => !!to && to.startsWith('/') && !to.includes('#'));
     const matches = routeTos.filter((to) => pathname === to || pathname.startsWith(`${to}/`));
-    return matches.sort((a, b) => b.length - a.length)[0] ?? null;
+    // Longest match wins. Sorted on a copy — `.sort()` mutates in place (S4043).
+    const byLengthDesc = [...matches].sort((a, b) => b.length - a.length);
+    return byLengthDesc[0] ?? null;
   }, [navGroups, pathname]);
 
   // Id of the active route-link item, so the mobile "Jump to section" <select>

@@ -1,10 +1,10 @@
-import { execSync } from 'child_process';
-import { readFileSync } from 'fs';
+import { execSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vite';
 import type { PluginOption } from 'vite';
 import react from '@vitejs/plugin-react';
 import istanbul from 'vite-plugin-istanbul';
-import { resolve } from 'path';
+import { resolve } from 'node:path';
 
 const buildSha = (() => {
   try {

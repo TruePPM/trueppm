@@ -188,7 +188,7 @@ def test_validate_rejects_unknown_select_option(project):
     field = _field(
         project, "Env", CustomFieldType.SINGLE_SELECT, options=[{"value": "prod", "label": "Prod"}]
     )
-    with pytest.raises(Exception) as exc:
+    with pytest.raises(serializers.ValidationError) as exc:
         validate_custom_field_write(field, "staging")
     assert "valid option" in str(exc.value)
 

@@ -17,7 +17,7 @@ set -euo pipefail
 
 # Load .env so DOMAIN, TLS_MODE, etc. are available.
 if [[ ! -f .env ]]; then
-  echo "ERROR: .env file not found. Copy .env.example and fill in the required values."
+  echo "ERROR: .env file not found. Copy .env.example and fill in the required values." >&2
   exit 1
 fi
 set -a
@@ -38,7 +38,7 @@ TLS_MODE="${TLS_MODE:-letsencrypt}"
 case "${TLS_MODE}" in
   letsencrypt|selfsigned|none) ;;
   *)
-    echo "ERROR: Invalid TLS_MODE='${TLS_MODE}'. Must be one of: letsencrypt, selfsigned, none."
+    echo "ERROR: Invalid TLS_MODE='${TLS_MODE}'. Must be one of: letsencrypt, selfsigned, none." >&2
     exit 1
     ;;
 esac

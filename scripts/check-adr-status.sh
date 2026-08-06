@@ -97,7 +97,8 @@ adr_status() {
 }
 
 is_allowlisted() {
-  printf '%s\n' "$ADR_STATUS_ALLOWLIST" | grep -qE "^[[:space:]]*$1([[:space:]]|\$)"
+  local adr="$1"
+  printf '%s\n' "$ADR_STATUS_ALLOWLIST" | grep -qE "^[[:space:]]*$adr([[:space:]]|\$)"
 }
 
 violations=0
@@ -174,11 +175,11 @@ PY
   a_count="$1"; a_lo="$2"; a_hi="$3"; a_unused="$4"; a_gaps="$5"
 
   check_stat() {
-    # $1 human label, $2 expected value, $3 grep -oE pattern capturing the claim
+    local label="$1" expected="$2" pattern="$3"
     local found
-    found="$(grep -ohE "$3" "$INDEX" | head -1 | grep -oE '[0-9]+' | head -1)"
-    if [ -n "$found" ] && [ "$found" != "$2" ]; then
-      echo "check-adr-status: FAIL  ${INDEX} says ${1} is ${found}; the tree has ${2}"
+    found="$(grep -ohE "$pattern" "$INDEX" | head -1 | grep -oE '[0-9]+' | head -1)"
+    if [ -n "$found" ] && [ "$found" != "$expected" ]; then
+      echo "check-adr-status: FAIL  ${INDEX} says ${label} is ${found}; the tree has ${expected}"
       stats_violations=$((stats_violations + 1))
     fi
   }

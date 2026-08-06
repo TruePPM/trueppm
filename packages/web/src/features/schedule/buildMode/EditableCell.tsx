@@ -98,7 +98,7 @@ export interface EditableCellProps {
 export function parseDurationInput(raw: string): number | null {
   const trimmed = raw.trim().toLowerCase();
   if (!trimmed) return null;
-  const m = trimmed.match(/^(\d+)\s*(d|w)?$/);
+  const m = trimmed.match(/^(\d+)\s*([dw])?$/);
   if (!m) return null;
   const n = Number(m[1]);
   if (!Number.isFinite(n) || n < 0) return null;

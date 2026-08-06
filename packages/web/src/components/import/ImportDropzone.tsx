@@ -54,10 +54,10 @@ export function ImportDropzone({
   const [announcement, setAnnouncement] = useState('');
   const acceptLabel = accept.join(', ');
 
-  const acceptList = accept.map((a) => a.toLowerCase());
+  const acceptList = new Set(accept.map((a) => a.toLowerCase()));
 
   function validateAndSelect(candidate: File) {
-    if (!acceptList.includes(extensionOf(candidate.name))) {
+    if (!acceptList.has(extensionOf(candidate.name))) {
       onReject?.(`That file can't be imported. ${acceptLabel} only, up to ${maxSizeMb} MB.`);
       return;
     }

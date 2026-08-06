@@ -370,9 +370,8 @@ def _check_event_target(
             errors.append(f"{base}.target: no project {project_slug!r} for sprint ref {ref!r}")
         elif sprint_slug not in sprints:
             errors.append(f"{base}.target: no sprint {sprint_slug!r} in project {project_slug!r}")
-    elif kind == "project":
-        if ref not in project_slugs:
-            errors.append(f"{base}.target: no project with slug {ref!r}")
+    elif kind == "project" and ref not in project_slugs:
+        errors.append(f"{base}.target: no project with slug {ref!r}")
     elif kind == "risk":
         if ref not in risk_slugs:
             errors.append(f"{base}.target: no risk with slug {ref!r}")
