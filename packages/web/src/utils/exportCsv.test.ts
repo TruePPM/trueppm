@@ -45,8 +45,23 @@ describe('escapeField', () => {
   // filtering — so a name starting with a formula-trigger character must be
   // neutralized on export or it executes as a formula when opened in a spreadsheet.
   describe('formula-injection mitigation', () => {
-    it.each(['=', '+', '-', '@', '\t', '\r'])('prefixes a value starting with %j with a leading apostrophe', (char) => {
+    it.each(['=', '+', '-', '@', '\t'])('prefixes a value starting with %j with a leading apostrophe', (char) => {
       expect(escapeField(`${char}cmd|'/C calc'!A0`)).toBe(`'${char}cmd|'/C calc'!A0`);
+    });
+
+    it('prefixes AND quotes a value starting with a carriage return', () => {
+      // `\r` is both a formula trigger and a record separator, so it needs both
+      // treatments; the prefix alone would leave the field able to end its row.
+      expect(escapeField("\rcmd|'/C calc'!A0")).toBe("\"'\rcmd|'/C calc'!A0\"");
+    });
+
+    it('quotes an INTERIOR carriage return, which would otherwise forge a record', () => {
+      // Records are joined with \r\n and the formula prefix only guards position
+      // 0 of a field. Unquoted, this field ends its record at the \r and the next
+      // record begins `=cmd…` — unprefixed, and live when opened in Excel.
+      expect(escapeField("2026-99-99\r=cmd|'/C calc'!A0")).toBe(
+        "\"2026-99-99\r=cmd|'/C calc'!A0\"",
+      );
     });
 
     it('does not prefix a value where the trigger character is not first', () => {

@@ -95,11 +95,18 @@ def import_csv(
     anticipate) marks the row DEAD too, for the same reason (#2761). Row-level
     problems (a bad date, an unknown predecessor) are **not** failures: those
     rows import without the offending field and the errors ride back in the
-    summary.
+    summary. A row that cannot become a plan task at all is parked in the
+    parser's Import review branch (#2732) and imports through this same path —
+    there is no second write path for it, so the graph guard below still covers
+    every row that reaches the database.
     """
     from django.conf import settings
 
-    from trueppm_api.apps.csvimport.parser import CsvImportError, parse_spreadsheet
+    from trueppm_api.apps.csvimport.parser import (
+        REVIEW_BRANCH_NAME,
+        CsvImportError,
+        parse_spreadsheet,
+    )
 
     with _get_tracker(self, project_id, initiated_by_id) as tracker:
         file_content = base64.b64decode(file_content_b64)
@@ -201,11 +208,25 @@ def import_csv(
         summary["rows_skipped"] = parsed.truncated_rows
         summary["warnings"] = list(parsed.warnings)
         summary["filename"] = filename
+        # Rows parked in the Import review branch rather than dropped (#2732).
+        # ``tasks_created`` counts every row written, review branch included, so
+        # the plan count is reported separately — "imported 11 tasks" must not
+        # silently include three placeholders the operator still has to fix.
+        summary["parked_row_count"] = len(parsed.unresolved_rows)
+        summary["review_branch_name"] = REVIEW_BRANCH_NAME if parsed.unresolved_rows else ""
+        summary["plan_tasks_created"] = max(
+            summary.get("tasks_created", 0) - parsed.review_task_count, 0
+        )
 
         if import_request_id:
             _record_summary(import_request_id, summary)
         tracker.set_result(summary)
 
+        # Deliberately `tasks_created`, not the `plan_tasks_created` written just
+        # above: the Import review branch is a committed write that live peers
+        # have to learn about, so this guard counts rows written rather than plan
+        # rows. Reading the plan count here would make an all-parked import
+        # silent again — the exact behavior #2732 exists to end.
         if summary.get("tasks_created", 0) > 0:
             # Trigger CPM via the outbox (survives a broker outage at this point)
             # and emit tasks_restructured so live clients render the imported tree
