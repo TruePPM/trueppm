@@ -22,6 +22,8 @@ import {
   type CsvRowIssue,
 } from '@/hooks/useCsvImport';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { useUndoImportFixOperation, describeUndo } from '@/hooks/useBatchOperations';
+import { toast } from '@/components/Toast';
 import { ImportDropzone } from './ImportDropzone';
 import { CheckIcon, WarningIcon } from '@/components/Icons';
 
@@ -305,11 +307,16 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
   // Which columns the operator has actually touched since the last preview —
   // the only ones a re-check may pin (web-rule 289).
   const [changed, setChanged] = useState<ReadonlySet<number>>(() => new Set());
+  // ADR-0810 (#2756): flips once the operator undoes a completed import — the
+  // result step then shows what happened instead of a "View schedule" button
+  // pointing at rows that no longer exist.
+  const [undone, setUndone] = useState(false);
 
   const previewMut = useCsvImportPreview(projectId);
   const commitMut = useCsvImportCommit(projectId);
   const statusQuery = useCsvImportStatus(projectId, importId);
   const templateMut = useCsvImportTemplate();
+  const undoMut = useUndoImportFixOperation(projectId);
 
   const closeRef = useRef<HTMLButtonElement>(null);
   const viewScheduleRef = useRef<HTMLButtonElement>(null);
@@ -382,6 +389,17 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
         },
       },
     );
+  }
+
+  function handleUndo() {
+    if (!importId) return;
+    undoMut.mutate(importId, {
+      onSuccess: (data) => {
+        setUndone(true);
+        toast.info(describeUndo(data.undo));
+      },
+      onError: () => toast.error("Couldn't undo the import — try again."),
+    });
   }
 
   const summary = statusQuery.data?.summary ?? null;
@@ -507,6 +525,9 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
             reviewBranch={reviewBranch}
             rowErrors={rowErrors}
             notices={resultNotices}
+            undone={undone}
+            undoPending={undoMut.isPending}
+            onUndo={handleUndo}
           />
         )}
 
@@ -522,6 +543,7 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
           taskCount={preview?.task_count ?? 0}
           tasksCreated={tasksCreated}
           parkedCount={parkedCount}
+          undone={undone}
           closeRef={closeRef}
           viewScheduleRef={viewScheduleRef}
           onClose={onClose}
@@ -918,6 +940,9 @@ function ResultStep({
   reviewBranch,
   rowErrors,
   notices,
+  undone,
+  undoPending,
+  onUndo,
 }: {
   terminal: boolean;
   failed: boolean;
@@ -927,19 +952,26 @@ function ResultStep({
   reviewBranch: string;
   rowErrors: CsvRowIssue[];
   notices: string[];
+  /** ADR-0810 (#2756): the operator already undid this import. */
+  undone: boolean;
+  undoPending: boolean;
+  onUndo: () => void;
 }) {
   let outcome: string;
   if (!terminal) outcome = 'Importing…';
+  else if (undone) outcome = 'Import undone — the rows it created were removed.';
   else if (failed) outcome = errorText ?? 'The import failed. Nothing was changed.';
   else outcome = outcomeSentence(tasksCreated, parkedCount, reviewBranch, notices.length);
+
+  const canUndo = terminal && !failed && !undone && tasksCreated + parkedCount > 0;
 
   return (
     <div className="flex flex-col gap-3">
       <p aria-live="polite" className="text-sm text-neutral-text-primary">
         {outcome}
       </p>
-      {terminal && <FileNoticeList notices={notices} />}
-      {terminal && parkedCount > 0 && (
+      {terminal && !undone && <FileNoticeList notices={notices} />}
+      {terminal && !undone && parkedCount > 0 && (
         /* Partial success is a RESULT, not a failure — and since #2732 it is
                   not data loss either. The count lives in the outcome sentence
                   above, which is the live region, so this paragraph carries only
@@ -951,13 +983,25 @@ function ResultStep({
           empty.
         </p>
       )}
-      {terminal && rowErrors.length > 0 && (
+      {terminal && !undone && rowErrors.length > 0 && (
         <RowIssueList
           issues={rowErrors}
           tone="error"
           title={ROW_ISSUE_LIST_TITLE}
           onDownload={() => downloadIssuesCsv(rowErrors)}
         />
+      )}
+      {canUndo && (
+        <button
+          type="button"
+          onClick={onUndo}
+          disabled={undoPending}
+          className="self-start text-sm font-medium text-brand-primary hover:underline
+                disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-brand-primary
+                focus:ring-offset-1"
+        >
+          {undoPending ? 'Undoing…' : 'Undo import (⌘Z)'}
+        </button>
       )}
     </div>
   );
@@ -976,6 +1020,7 @@ function WizardFooter({
   taskCount,
   tasksCreated,
   parkedCount,
+  undone,
   closeRef,
   viewScheduleRef,
   onClose,
@@ -997,6 +1042,8 @@ function WizardFooter({
   tasksCreated: number;
   /** Rows parked in that branch; they are in the outline too. */
   parkedCount: number;
+  /** ADR-0810 (#2756): the operator undid this import — nothing left to view. */
+  undone: boolean;
   closeRef: RefObject<HTMLButtonElement | null>;
   viewScheduleRef: RefObject<HTMLButtonElement | null>;
   onClose: () => void;
@@ -1074,7 +1121,7 @@ function WizardFooter({
           data in the outline, and the result step tells them so. Gating on the
           plan count alone would name the destination and remove the way there
           (web-rule 290). */}
-      {step === 'result' && terminal && (tasksCreated > 0 || parkedCount > 0) && (
+      {step === 'result' && terminal && !undone && (tasksCreated > 0 || parkedCount > 0) && (
         <button
           ref={viewScheduleRef}
           type="button"

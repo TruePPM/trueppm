@@ -51,6 +51,12 @@ export interface ClassificationReport {
   governance?: ClassificationAxisReport;
   delivery_mode?: ClassificationAxisReport;
   skipped: ClassificationSkip[];
+  /**
+   * ADR-0810 (#2756): the ⌘Z undo ledger row for this cascade — pass to
+   * `useUndoCascadeClassificationOperation`. Null on a no-op cascade (ADR-0790
+   * §7 — nothing changed, so nothing was recorded).
+   */
+  operation_id: string | null;
 }
 
 export function useClassifySubtree() {

@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { ProjectResource, Task } from '@/types';
 import { toast } from '@/components/Toast';
+import { useUndoPasteManyOperation } from '@/hooks/useBatchOperations';
 import { useBulkCreateTasks, useBulkDeleteTasks } from '@/hooks/useTaskMutations';
 import { useWbsStore } from '@/stores/wbsStore';
 import { buildPasteOperations, type PasteSummary } from './buildPasteOperations';
@@ -13,6 +14,12 @@ export interface PasteReceiptState {
    *  client minted: a row can be rejected (e.g. the milestone-parent guard) and
    *  never land. */
   createdIds: string[];
+  /**
+   * The ⌘Z undo ledger row for this paste (ADR-0810, #2756) — null only if the
+   * batch somehow created rows but the server didn't record one (should not
+   * happen in practice; `undo` falls back to the raw client-side delete then).
+   */
+  operationId: string | null;
   needsDurationIds: Set<string>;
   parsedRows: ParsedPasteRow[];
   columns: PasteColumnMapping[];
@@ -39,6 +46,7 @@ export function usePasteMany({
 }) {
   const bulkCreate = useBulkCreateTasks(projectId);
   const bulkDelete = useBulkDeleteTasks(projectId);
+  const undoOperation = useUndoPasteManyOperation(projectId);
   const [receipt, setReceipt] = useState<PasteReceiptState | null>(null);
   const [isUndoing, setIsUndoing] = useState(false);
   const [mappingDialogOpen, setMappingDialogOpen] = useState(false);
@@ -85,6 +93,7 @@ export function usePasteMany({
               needsDurationCount: needsDurationIds.size,
             },
             createdIds,
+            operationId: res.operation_id,
             needsDurationIds,
             parsedRows,
             columns,
@@ -117,6 +126,27 @@ export function usePasteMany({
   const undo = useCallback(() => {
     if (!receipt) return;
     setIsUndoing(true);
+    // ADR-0810 (#2756): the server-recorded ledger, not a raw client-side
+    // bulk-delete — it skips any row a person has since touched (e.g. typed a
+    // real name over "Row 3" before deciding to undo) rather than discarding it.
+    // Falls back to the old raw delete only in the should-not-happen case where
+    // the create response carried no operation id.
+    if (receipt.operationId) {
+      undoOperation.mutate(receipt.operationId, {
+        onSuccess: (data) => {
+          setIsUndoing(false);
+          setReceipt(null);
+          if (data.undo.kept > 0) {
+            toast.info(`Undid the paste — kept ${data.undo.kept} row(s) you'd already touched.`);
+          }
+        },
+        onError: () => {
+          setIsUndoing(false);
+          toast.error("Couldn't undo the paste — try again.");
+        },
+      });
+      return;
+    }
     bulkDelete.mutate(receipt.createdIds, {
       onSuccess: () => {
         setIsUndoing(false);
@@ -127,13 +157,22 @@ export function usePasteMany({
         toast.error("Couldn't undo the paste — try again.");
       },
     });
-  }, [receipt, bulkDelete]);
+  }, [receipt, bulkDelete, undoOperation]);
 
   const keep = useCallback(() => setReceipt(null), []);
   const openMapColumns = useCallback(() => setMappingDialogOpen(true), []);
   const closeMapColumns = useCallback(() => setMappingDialogOpen(false), []);
 
-  /** Undo the current paste, then re-submit the same rows under a corrected mapping. */
+  /**
+   * Undo the current paste, then re-submit the same rows under a corrected mapping.
+   *
+   * Deliberately the raw client-side `bulkDelete`, not `undoOperation` — this is an
+   * internal delete-then-recommit step, never exposed as an "Undo" the user can
+   * reach for later, and `commit` mints a fresh ledger row for the recommit
+   * regardless. Routing it through the server undo would only add a request; the
+   * old ledger row is left orphaned but harmless (its rows are gone, so undoing it
+   * later is a no-op the purge job clears in time).
+   */
   const applyColumnMapping = useCallback(
     (newColumns: PasteColumnMapping[]) => {
       if (!receipt) return;

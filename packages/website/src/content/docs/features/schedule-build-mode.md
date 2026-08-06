@@ -233,7 +233,7 @@ until you act on it:
 
 | Action | What it does |
 |---|---|
-| `⌘ Z` / **Undo** | Removes the whole paste as one step |
+| `⌘ Z` / **Undo** | Removes the whole paste as one step, keeping any row you've already edited since |
 | **Keep** | Dismisses the strip; the rows stay |
 | **Map columns…** | Corrects a wrong column guess and re-applies the paste under the new mapping |
 | `F8` | Walks to the next row the paste couldn't infer a duration for |
@@ -304,7 +304,7 @@ never the only signal.
 - **Enter's positional insert is one-directional.** Plain `Enter` appends the new row at the end of its parent's children rather than immediately after the focused row. `Shift + Enter` (insert above) *does* land exactly where you'd expect — it composes the create with a reorder — but the common "type, Enter, type" flow still appends.
 - **No optimistic indent.** Indent / outdent waits ~50ms for the server to confirm before the row position updates.
 - **No fill-down.** Multi-row select and duplicate exist, and 0.4 adds [paste-many from a spreadsheet](#paste-rows-from-a-spreadsheet); a fill-down / fill-series gesture for extending a value down a column does not exist yet.
-- **No multi-step undo, no bulk-edit sheet, no Enter-to-create on the Timeline.** A paste undoes as one step (see [Paste rows from a spreadsheet](#paste-rows-from-a-spreadsheet)); undoing a cascade or an import fix as one step, a `⌘ ⇧ K` sheet for bulk-editing mode/phase/calendar/owner/dates across a selection, and creating rows from the Timeline the way Enter does on the list are tracked separately, not in this release.
+- **No multi-step undo (yet), no bulk-edit sheet, no Enter-to-create on the Timeline.** A paste, a classification cascade, and a spreadsheet import each undo as one step — see [Paste rows from a spreadsheet](#paste-rows-from-a-spreadsheet) above, [Classify a subtree](/features/task-classification/#undo-a-cascade), and [CSV/Excel import](/features/csv-import-export/#undo-an-import). What's still missing: a *stack* of undoable steps (only the most recent action of each kind is reversible), a `⌘ ⇧ K` sheet for bulk-editing mode/phase/calendar/owner/dates across a selection, and creating rows from the Timeline the way Enter does on the list — tracked separately, not in this release.
 - **No Sprint backlog parity yet.** The same inline-edit / Tab pattern will extend to the Sprint backlog table in a future release.
 
 ## See also

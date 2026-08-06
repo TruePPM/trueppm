@@ -78,6 +78,7 @@ import { computePlannedByPhase, type PhasePlannedBadge } from './plannedByPhase'
 import { computeRowModes, type RowMode } from './deliveryModePresentation';
 import { ClassificationPopover } from './classification/ClassificationPopover';
 import { useClassifySubtree, type ClassificationApply } from '@/hooks/useTaskClassification';
+import { useUndoCascadeClassificationOperation, describeUndo } from '@/hooks/useBatchOperations';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import {
   ToolbarOverflowMenu,
@@ -1332,6 +1333,7 @@ export function ScheduleView() {
   } | null>(null);
   const classifyMut = useClassifySubtree();
   const { reset: resetClassifyMut } = classifyMut;
+  const undoClassifyMut = useUndoCascadeClassificationOperation(projectId);
   const indentTask = useIndentTask(projectId);
   const outdentTask = useOutdentTask(projectId);
   const updateTaskMut = useUpdateTask();
@@ -2141,6 +2143,19 @@ export function ScheduleView() {
    * the one that is true — which is why the toast is built from `report` and
    * never from the popover's state.
    */
+  // ADR-0810 (#2756): reverses one cascade via its operation ledger — the server
+  // skips any row reclassified again since (e.g. a second cascade, or a person
+  // hand-editing the axis) rather than blindly stomping it.
+  const undoClassify = useCallback(
+    (operationId: string) => {
+      undoClassifyMut.mutate(operationId, {
+        onSuccess: (data) => setScheduleActionToast({ message: describeUndo(data.undo) }),
+        onError: () => setScheduleActionToast({ message: "Couldn't undo the cascade." }),
+      });
+    },
+    [undoClassifyMut, setScheduleActionToast],
+  );
+
   const handleClassifyApply = useCallback(
     (spec: ClassificationApply) => {
       if (!projectId) return;
@@ -2164,15 +2179,19 @@ export function ScheduleView() {
             ]
               .filter(Boolean)
               .join(' · ');
+            const operationId = report.operation_id;
             setScheduleActionToast({
               message: `Classified: ${parts.join(', ')} — ${detail}.`,
               durationMs: 8000,
+              action: operationId
+                ? { label: 'Undo', onClick: () => undoClassify(operationId) }
+                : undefined,
             });
           },
         },
       );
     },
-    [projectId, classifyMut, setScheduleActionToast],
+    [projectId, classifyMut, setScheduleActionToast, undoClassify],
   );
 
   const keyBindings = useMemo<Record<string, (e: KeyboardEvent) => void>>(() => {

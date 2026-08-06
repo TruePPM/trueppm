@@ -437,6 +437,19 @@ Three summary fields describe it:
 The preview endpoint reports the same split before you commit, as `task_count`
 (the plan) and `parked_row_count`.
 
+### Undo an import
+
+:::note[Ships in 0.4]
+Import undo ships in **0.4**, alongside CSV/Excel import itself.
+:::
+
+The wizard's result step carries an **Undo import (⌘Z)** action once a completed import
+has created or parked any rows. Applying it removes every row the import wrote — plan
+rows and Import review placeholders alike — except any you (or a teammate) have already
+edited since; those are left in place, and the confirmation names how many. Undo is a
+single step per import and is only offered for a completed import, never a failed or
+still-running one.
+
 ### Severity: did the row become a task?
 
 Every diagnostic carries a `severity`, and it answers exactly one question:
