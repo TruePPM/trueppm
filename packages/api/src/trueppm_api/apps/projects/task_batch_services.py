@@ -41,26 +41,34 @@ if TYPE_CHECKING:
 _VersionSnapshot = dict[str, int]
 
 
-def _snapshot_versions(task_ids: list[uuid.UUID]) -> _VersionSnapshot:
+def _snapshot_versions(task_ids: list[uuid.UUID], project_id: Any) -> _VersionSnapshot:
     """Read back each row's current ``server_version`` right after a batch write.
 
     Must be called in the same transaction as the write, before it commits, so the
     versions recorded are exactly what the write just produced — the baseline undo
-    compares against later.
+    compares against later. ``project_id`` is defense-in-depth, not a load-bearing
+    guard today (every caller's ``task_ids`` already came from that same project's
+    write) — it closes the boundary off in case a future caller ever feeds in ids
+    that weren't pre-scoped.
     """
     from trueppm_api.apps.projects.models import Task
 
     if not task_ids:
         return {}
-    rows = Task.objects.filter(pk__in=task_ids).values_list("pk", "server_version")
+    rows = Task.objects.filter(pk__in=task_ids, project_id=project_id).values_list(
+        "pk", "server_version"
+    )
     return {str(pk): version for pk, version in rows}
 
 
-def _partition_touched(snapshot: _VersionSnapshot) -> tuple[list[uuid.UUID], list[uuid.UUID]]:
+def _partition_touched(
+    snapshot: _VersionSnapshot, project_id: Any
+) -> tuple[list[uuid.UUID], list[uuid.UUID]]:
     """Split a snapshot's rows into (untouched, touched) by comparing server_version.
 
-    A row missing from the current read (hard-deleted by the tombstone reap) counts
-    as touched — nothing to revert, and reporting it "kept" rather than crashing.
+    A row missing from the current read (hard-deleted by the tombstone reap, or —
+    the defense-in-depth case — somehow not in ``project_id``) counts as touched:
+    nothing to revert, reported as "kept" rather than crashing.
     """
     from trueppm_api.apps.projects.models import Task
 
@@ -68,7 +76,9 @@ def _partition_touched(snapshot: _VersionSnapshot) -> tuple[list[uuid.UUID], lis
         return [], []
     ids = [uuid.UUID(k) for k in snapshot]
     current = dict(
-        Task.objects.filter(pk__in=ids, is_deleted=False).values_list("pk", "server_version")
+        Task.objects.filter(pk__in=ids, project_id=project_id, is_deleted=False).values_list(
+            "pk", "server_version"
+        )
     )
     untouched: list[uuid.UUID] = []
     touched: list[uuid.UUID] = []
@@ -80,6 +90,27 @@ def _partition_touched(snapshot: _VersionSnapshot) -> tuple[list[uuid.UUID], lis
         else:
             untouched.append(task_id)
     return untouched, touched
+
+
+def _broadcast_and_recalc(project_id: Any, task_ids: list[uuid.UUID]) -> None:
+    """Post-commit broadcast + recalculation for an undo that changed task rows.
+
+    Mirrors the forward write paths' own hooks exactly (``_register_bulk_commit_hooks``
+    for paste-many/import-fix, ``TaskClassificationView.patch`` for cascade) — an undo
+    is itself a mutation collaborators are watching for, and CPM dates can move on a
+    reverted classification the same way they do on the classification itself.
+    """
+    if not task_ids:
+        return
+    from trueppm_api.apps.scheduling.services import enqueue_recalculate
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    ids = [str(t) for t in task_ids]
+    project_id_str = str(project_id)
+    transaction.on_commit(lambda: enqueue_recalculate(project_id_str))
+    transaction.on_commit(
+        lambda: broadcast_board_event(project_id_str, "tasks_bulk_mutated", {"task_ids": ids})
+    )
 
 
 # ── Paste-many (#2724) ──────────────────────────────────────────────────────────
@@ -103,7 +134,7 @@ def record_paste_many_operation(
     return PasteManyOperation.objects.create(
         project=project,
         applied_by=applied_by,
-        created_task_versions=_snapshot_versions(created_ids),
+        created_task_versions=_snapshot_versions(created_ids, project.pk),
     )
 
 
@@ -115,6 +146,9 @@ def undo_paste_many_operation(operation: PasteManyOperation) -> dict[str, int]:
     operation row, inside its own transaction, closes the race a bare ``undone_at``
     check would leave open — two concurrent ⌘Z's (double keypress, retried
     request) serialize instead of both passing the check and double-processing.
+
+    Broadcasts ``tasks_bulk_mutated`` and enqueues a recalculation on commit — an
+    undo is a mutation collaborators are watching for, same as the paste it reverses.
     """
     from trueppm_api.apps.projects.models import PasteManyOperation, SyncBatchOperationStatus, Task
 
@@ -123,10 +157,13 @@ def undo_paste_many_operation(operation: PasteManyOperation) -> dict[str, int]:
         if operation.undone_at is not None:
             return dict(operation.result_summary.get("undo") or {"deleted": 0, "kept": 0})
 
-        untouched, touched = _partition_touched(operation.created_task_versions or {})
+        untouched, touched = _partition_touched(
+            operation.created_task_versions or {}, operation.project_id
+        )
         if untouched:
             for row in Task.objects.filter(pk__in=untouched, is_deleted=False):
                 row.soft_delete()
+            _broadcast_and_recalc(operation.project_id, untouched)
 
         result = {"deleted": len(untouched), "kept": len(touched)}
         operation.status = SyncBatchOperationStatus.UNDONE
@@ -163,7 +200,7 @@ def record_cascade_classification_operation(
 
     if not before_after:
         return None
-    versions = _snapshot_versions([uuid.UUID(k) for k in before_after])
+    versions = _snapshot_versions([uuid.UUID(k) for k in before_after], project.pk)
     task_snapshots = {
         task_id: {**pair, "version": versions.get(task_id)}
         for task_id, pair in before_after.items()
@@ -184,6 +221,10 @@ def undo_cascade_classification_operation(
     Unlike paste-many/import-fix, cascade rows always pre-exist: undo writes the
     "before" field values back rather than deleting anything. Locks the operation
     row for the same reason as :func:`undo_paste_many_operation`.
+
+    Broadcasts ``tasks_bulk_mutated`` and enqueues a recalculation on commit,
+    mirroring the forward cascade's own hooks in ``TaskClassificationView.patch`` —
+    a reverted ``delivery_mode`` can move CPM dates the same way applying it did.
     """
     from trueppm_api.apps.projects.models import (
         CascadeClassificationOperation,
@@ -198,9 +239,9 @@ def undo_cascade_classification_operation(
 
         snapshots = operation.task_snapshots or {}
         version_snapshot = {task_id: entry.get("version") for task_id, entry in snapshots.items()}
-        untouched, touched = _partition_touched(version_snapshot)
+        untouched, touched = _partition_touched(version_snapshot, operation.project_id)
 
-        reverted = 0
+        reverted_ids: list[uuid.UUID] = []
         if untouched:
             rows = {row.pk: row for row in Task.objects.filter(pk__in=untouched, is_deleted=False)}
             for task_id in untouched:
@@ -211,10 +252,17 @@ def undo_cascade_classification_operation(
                 for field in _CLASSIFICATION_FIELDS:
                     if field in before:
                         setattr(row, field, before[field])
-                row.save(update_fields=[f for f in _CLASSIFICATION_FIELDS if f in before])
-                reverted += 1
+                # known_exists=True: freshly SELECTed two lines above under the
+                # operation row's lock — same guaranteed-True probe the forward
+                # cascade skips for the same reason (task_classification.py).
+                row.save(
+                    update_fields=[f for f in _CLASSIFICATION_FIELDS if f in before],
+                    known_exists=True,
+                )
+                reverted_ids.append(task_id)
+            _broadcast_and_recalc(operation.project_id, reverted_ids)
 
-        result = {"reverted": reverted, "kept": len(touched)}
+        result = {"reverted": len(reverted_ids), "kept": len(touched)}
         operation.status = SyncBatchOperationStatus.UNDONE
         operation.undone_at = timezone.now()
         operation.result_summary = {**(operation.result_summary or {}), "undo": result}
@@ -232,7 +280,7 @@ def undo_cascade_classification_operation(
 
 
 def finalize_import_fix_operation(
-    csv_import_request_id: str, created_task_ids: list[uuid.UUID]
+    csv_import_request_id: str, project_id: Any, created_task_ids: list[uuid.UUID]
 ) -> None:
     """Stamp the version snapshot onto a CsvImportRequest as its import completes.
 
@@ -241,24 +289,30 @@ def finalize_import_fix_operation(
     same same-transaction guarantee as the other two operations' ledger row.
     Takes an id and does a filtered update, matching ``_claim_import``'s own
     idiom in this call path, rather than a fetch-mutate-save round trip.
+    ``project_id`` comes from the caller's own scope (already resolved there)
+    rather than a second fetch of the request row.
     """
     from trueppm_api.apps.csvimport.models import CsvImportRequest
 
     if not created_task_ids:
         return
     CsvImportRequest.objects.filter(pk=csv_import_request_id).update(
-        created_task_versions=_snapshot_versions(created_task_ids)
+        created_task_versions=_snapshot_versions(created_task_ids, project_id)
     )
 
 
 def undo_import_fix_operation(csv_import_request: CsvImportRequest) -> dict[str, int]:
     """Reverse one CSV import — soft-deletes the rows it created.
 
-    Mirrors :func:`undo_paste_many_operation`, including the row lock. The
-    caller (view) is expected to have already checked ``status ==
-    CsvImportStatus.DONE`` for a clear 400 on a not-yet-terminal or failed
-    import; the re-check under lock here is the concurrency backstop, same
-    reasoning as the other two undo functions.
+    Mirrors :func:`undo_paste_many_operation`, including the row lock and the
+    post-commit broadcast + recalculation — the CSV importer's own forward path
+    fires ``tasks_restructured`` on completion (``csvimport/tasks.py``), so an
+    undo that removes those same rows is exactly the kind of mutation a
+    collaborator watching the schedule needs to learn about too. The caller
+    (view) is expected to have already checked ``status == CsvImportStatus.DONE``
+    for a clear 400 on a not-yet-terminal or failed import; the re-check under
+    lock here is the concurrency backstop, same reasoning as the other two undo
+    functions.
     """
     from trueppm_api.apps.csvimport.models import CsvImportRequest, CsvImportStatus
     from trueppm_api.apps.projects.models import Task
@@ -270,10 +324,13 @@ def undo_import_fix_operation(csv_import_request: CsvImportRequest) -> dict[str,
         if csv_import_request.status != CsvImportStatus.DONE:
             return dict(csv_import_request.result_summary.get("undo") or {"deleted": 0, "kept": 0})
 
-        untouched, touched = _partition_touched(csv_import_request.created_task_versions or {})
+        untouched, touched = _partition_touched(
+            csv_import_request.created_task_versions or {}, csv_import_request.project_id
+        )
         if untouched:
             for row in Task.objects.filter(pk__in=untouched, is_deleted=False):
                 row.soft_delete()
+            _broadcast_and_recalc(csv_import_request.project_id, untouched)
 
         result = {"deleted": len(untouched), "kept": len(touched)}
         csv_import_request.status = CsvImportStatus.UNDONE

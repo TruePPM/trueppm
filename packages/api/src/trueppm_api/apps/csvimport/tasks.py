@@ -198,7 +198,7 @@ def import_csv(
                     )
 
                     finalize_import_fix_operation(
-                        import_request_id, summary.get("created_task_ids") or []
+                        import_request_id, project_id, summary.get("created_task_ids") or []
                     )
         except Exception as exc:
             # Any unanticipated failure during persistence (e.g. a Postgres

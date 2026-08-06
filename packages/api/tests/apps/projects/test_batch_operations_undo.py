@@ -14,6 +14,7 @@ from __future__ import annotations
 import base64
 from datetime import date
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -85,6 +86,25 @@ def owner_client(project: Project) -> APIClient:
 @pytest.fixture
 def member_client(project: Project) -> APIClient:
     return _member(project, "member", Role.MEMBER)
+
+
+@pytest.fixture
+def outsider_client() -> APIClient:
+    """Authenticated, but a member of no project at all — the IDOR case."""
+    user = User.objects.create_user(username="outsider", password="pw")
+    client = APIClient()
+    client.force_authenticate(user=user)
+    return client
+
+
+def _immediate_on_commit() -> Any:
+    """Run ``transaction.on_commit`` callbacks synchronously.
+
+    Tests run inside a rolled-back transaction (`@pytest.mark.django_db`), so an
+    unpatched `on_commit` callback never fires — this is what lets a test assert
+    on the broadcast/recalc calls those callbacks make.
+    """
+    return patch("django.db.transaction.on_commit", side_effect=lambda f: f())
 
 
 # ---------------------------------------------------------------------------
@@ -368,7 +388,7 @@ def test_import_fix_undo_removes_exactly_what_it_created(project: Project) -> No
     parsed = parse_spreadsheet(REFERENCE_CSV, "plan.csv")
     summary = import_project(str(project.pk), parsed.project_data)
     req = _make_request(project, status=CsvImportStatus.DONE)
-    finalize_import_fix_operation(str(req.pk), summary["created_task_ids"])
+    finalize_import_fix_operation(str(req.pk), project.pk, summary["created_task_ids"])
     req.refresh_from_db()
     assert len(req.created_task_versions) == 7
 
@@ -384,7 +404,7 @@ def test_import_fix_undo_keeps_a_row_a_person_has_touched(project: Project) -> N
     parsed = parse_spreadsheet(REFERENCE_CSV, "plan.csv")
     summary = import_project(str(project.pk), parsed.project_data)
     req = _make_request(project, status=CsvImportStatus.DONE)
-    finalize_import_fix_operation(str(req.pk), summary["created_task_ids"])
+    finalize_import_fix_operation(str(req.pk), project.pk, summary["created_task_ids"])
     req.refresh_from_db()
 
     touched = Task.objects.get(pk=summary["created_task_ids"][0])
@@ -403,7 +423,7 @@ def test_import_fix_undo_is_idempotent(project: Project) -> None:
     parsed = parse_spreadsheet(REFERENCE_CSV, "plan.csv")
     summary = import_project(str(project.pk), parsed.project_data)
     req = _make_request(project, status=CsvImportStatus.DONE)
-    finalize_import_fix_operation(str(req.pk), summary["created_task_ids"])
+    finalize_import_fix_operation(str(req.pk), project.pk, summary["created_task_ids"])
     req.refresh_from_db()
 
     first = undo_import_fix_operation(req)
@@ -431,7 +451,7 @@ def test_import_fix_undo_endpoint_requires_admin(
     parsed = parse_spreadsheet(REFERENCE_CSV, "plan.csv")
     summary = import_project(str(project.pk), parsed.project_data)
     req = _make_request(project, status=CsvImportStatus.DONE)
-    finalize_import_fix_operation(str(req.pk), summary["created_task_ids"])
+    finalize_import_fix_operation(str(req.pk), project.pk, summary["created_task_ids"])
 
     resp = member_client.post(
         f"/api/v1/projects/{project.pk}/import/csv/{req.pk}/undo/", {}, format="json"
@@ -444,7 +464,7 @@ def test_import_fix_undo_endpoint_happy_path(owner_client: APIClient, project: P
     parsed = parse_spreadsheet(REFERENCE_CSV, "plan.csv")
     summary = import_project(str(project.pk), parsed.project_data)
     req = _make_request(project, status=CsvImportStatus.DONE)
-    finalize_import_fix_operation(str(req.pk), summary["created_task_ids"])
+    finalize_import_fix_operation(str(req.pk), project.pk, summary["created_task_ids"])
 
     resp = owner_client.post(
         f"/api/v1/projects/{project.pk}/import/csv/{req.pk}/undo/", {}, format="json"
@@ -489,3 +509,178 @@ def test_purge_disabled_when_retention_is_none(project: Project, settings: Any) 
     _do_purge_expired_batch_operations()
 
     assert PasteManyOperation.objects.filter(pk=old.pk).exists()
+
+
+# ---------------------------------------------------------------------------
+# Cross-project undo (IDOR) — rbac-check / security-review coverage gap
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_paste_many_undo_404s_for_a_caller_with_no_membership_on_the_project(
+    owner_client: APIClient, outsider_client: APIClient, project: Project
+) -> None:
+    owner_client.post(
+        bulk_url(project),
+        {"operations": [{"op": "create", "data": {"name": "Solo", "duration": 1}}]},
+        format="json",
+    )
+    operation_id = PasteManyOperation.objects.get(project=project).pk
+
+    resp = outsider_client.post(
+        f"/api/v1/paste-many-operations/{operation_id}/undo/", {}, format="json"
+    )
+    # get_queryset() scopes to the caller's own memberships — an operation on a
+    # project the caller has never joined does not exist as far as they're
+    # concerned, so this is a 404, not a 403 (no existence leak).
+    assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+def test_cascade_undo_404s_for_a_caller_with_no_membership_on_the_project(
+    owner_client: APIClient, outsider_client: APIClient, project: Project
+) -> None:
+    root = Task.objects.create(
+        project=project, name="Phase", wbs_path="1", duration=5, governance_class="flow"
+    )
+    with _no_recalc():
+        owner_client.patch(
+            classify_url(project),
+            {"subtree": str(root.pk), "cascade": False, "governance_class": "gated"},
+            format="json",
+        )
+    operation_id = CascadeClassificationOperation.objects.get(project=project).pk
+
+    resp = outsider_client.post(
+        f"/api/v1/cascade-classification-operations/{operation_id}/undo/", {}, format="json"
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+def test_import_fix_undo_404s_for_a_caller_with_no_membership_on_the_project(
+    outsider_client: APIClient, project: Project
+) -> None:
+    parsed = parse_spreadsheet(REFERENCE_CSV, "plan.csv")
+    summary = import_project(str(project.pk), parsed.project_data)
+    req = _make_request(project, status=CsvImportStatus.DONE)
+    finalize_import_fix_operation(str(req.pk), project.pk, summary["created_task_ids"])
+
+    resp = outsider_client.post(
+        f"/api/v1/projects/{project.pk}/import/csv/{req.pk}/undo/", {}, format="json"
+    )
+    # IsProjectScheduler is the class-level gate here (not a plain IsAuthenticated
+    # + queryset scope like the two router-registered viewsets above), so a
+    # non-member fails that permission class before the view body even runs —
+    # 403, not 404. Different mechanism, same outcome: no cross-project undo.
+    assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_import_fix_undo_404s_when_project_pk_does_not_match_the_import(
+    owner_client: APIClient, project: Project, calendar: Calendar
+) -> None:
+    """The dual-key lookup (id AND project_id) — not just id — is what closes this."""
+    other_project = Project.objects.create(
+        name="Other", start_date=date(2026, 1, 1), calendar=calendar
+    )
+    parsed = parse_spreadsheet(REFERENCE_CSV, "plan.csv")
+    summary = import_project(str(project.pk), parsed.project_data)
+    req = _make_request(project, status=CsvImportStatus.DONE)
+    finalize_import_fix_operation(str(req.pk), project.pk, summary["created_task_ids"])
+
+    # owner_client is Admin on `project`, but not on `other_project` — using
+    # other_project's pk in the URL with project's own import id must 404, not
+    # silently undo an import that belongs to a different project.
+    resp = owner_client.post(
+        f"/api/v1/projects/{other_project.pk}/import/csv/{req.pk}/undo/", {}, format="json"
+    )
+    assert resp.status_code in (403, 404)
+    req.refresh_from_db()
+    assert req.status == CsvImportStatus.DONE
+
+
+# ---------------------------------------------------------------------------
+# Broadcast + recalc on undo (broadcast-check finding — undo is a mutation too)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_paste_many_undo_broadcasts_and_recalculates(
+    owner_client: APIClient, project: Project
+) -> None:
+    ops = [{"op": "create", "data": {"name": f"Row {i}", "duration": 1}} for i in range(2)]
+    owner_client.post(bulk_url(project), {"operations": ops}, format="json")
+    operation_id = PasteManyOperation.objects.get(project=project).pk
+
+    with (
+        _immediate_on_commit(),
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
+        patch("trueppm_api.apps.scheduling.services.enqueue_recalculate") as mock_recalc,
+    ):
+        resp = owner_client.post(
+            f"/api/v1/paste-many-operations/{operation_id}/undo/", {}, format="json"
+        )
+    assert resp.status_code == 200
+    mock_recalc.assert_called_once_with(str(project.pk))
+    mock_broadcast.assert_called_once()
+    args = mock_broadcast.call_args[0]
+    assert args[0] == str(project.pk)
+    assert args[1] == "tasks_bulk_mutated"
+    assert len(args[2]["task_ids"]) == 2
+
+
+@pytest.mark.django_db
+def test_cascade_undo_broadcasts_and_recalculates(
+    owner_client: APIClient, project: Project
+) -> None:
+    root = Task.objects.create(
+        project=project, name="Phase", wbs_path="1", duration=5, governance_class="flow"
+    )
+    with _no_recalc():
+        owner_client.patch(
+            classify_url(project),
+            {"subtree": str(root.pk), "cascade": False, "governance_class": "gated"},
+            format="json",
+        )
+    operation_id = CascadeClassificationOperation.objects.get(project=project).pk
+
+    with (
+        _immediate_on_commit(),
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
+        patch("trueppm_api.apps.scheduling.services.enqueue_recalculate") as mock_recalc,
+    ):
+        resp = owner_client.post(
+            f"/api/v1/cascade-classification-operations/{operation_id}/undo/", {}, format="json"
+        )
+    assert resp.status_code == 200
+    mock_recalc.assert_called_once_with(str(project.pk))
+    mock_broadcast.assert_called_once_with(
+        str(project.pk), "tasks_bulk_mutated", {"task_ids": [str(root.pk)]}
+    )
+
+
+@pytest.mark.django_db
+def test_import_fix_undo_broadcasts_and_recalculates(
+    owner_client: APIClient, project: Project
+) -> None:
+    parsed = parse_spreadsheet(REFERENCE_CSV, "plan.csv")
+    summary = import_project(str(project.pk), parsed.project_data)
+    req = _make_request(project, status=CsvImportStatus.DONE)
+    finalize_import_fix_operation(str(req.pk), project.pk, summary["created_task_ids"])
+
+    with (
+        _immediate_on_commit(),
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
+        patch("trueppm_api.apps.scheduling.services.enqueue_recalculate") as mock_recalc,
+    ):
+        resp = owner_client.post(
+            f"/api/v1/projects/{project.pk}/import/csv/{req.pk}/undo/", {}, format="json"
+        )
+    assert resp.status_code == 200
+    mock_recalc.assert_called_once_with(str(project.pk))
+    mock_broadcast.assert_called_once()
+    args = mock_broadcast.call_args[0]
+    assert args[0] == str(project.pk)
+    assert args[1] == "tasks_bulk_mutated"
+    assert len(args[2]["task_ids"]) == 7

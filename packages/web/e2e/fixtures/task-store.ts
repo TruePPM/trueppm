@@ -71,6 +71,9 @@ export async function setupTaskStore(
   // {id}/undo/` restores — captured before the classification route's own mutation
   // loop runs, mirroring the real server's before/after snapshot.
   let lastCascadeUndo: Record<string, unknown>[] | null = null;
+  // ADR-0810 (#2756): the ids `/paste-many-operations/{id}/undo/` removes —
+  // exactly what the most recent `tasks/bulk/` create batch wrote.
+  let lastPasteManyUndo: string[] | null = null;
   const applyPatch =
     opts.applyPatch ?? ((body: Record<string, unknown>, current: TaskRow) => ({ ...current, ...body }));
 
@@ -124,11 +127,13 @@ export async function setupTaskStore(
     };
     const applied: Record<string, unknown>[] = [];
     const rejected: Record<string, unknown>[] = [];
+    const createdIds: string[] = [];
     (body.operations ?? []).forEach((op, index) => {
       if (op.op === 'create') {
         const id = op.id ?? `bulk-${rows.length}-${index}`;
         rows.push({ id, ...op.data });
         applied.push({ index, id, op: 'create', outcome: 'created' });
+        createdIds.push(id);
         return;
       }
       if (op.op === 'delete') {
@@ -143,7 +148,27 @@ export async function setupTaskStore(
       }
       rejected.push({ index, id: op.id ?? null, code: 'invalid', message: `Unknown op '${op.op}'.` });
     });
-    return route.fulfill(json({ applied, rejected, skipped: [] }, 207));
+    // ADR-0810 (#2756): the ⌘Z undo ledger id — a fixed fixture id whenever the
+    // batch created at least one row, matching the real server's "any create
+    // through this endpoint is undoable" behavior. `/paste-many-operations/
+    // {id}/undo/` below deletes exactly this batch's created ids.
+    const operationId = createdIds.length > 0 ? 'e2e-paste-many-op-1' : null;
+    if (createdIds.length > 0) lastPasteManyUndo = createdIds;
+    return route.fulfill(json({ applied, rejected, skipped: [], operation_id: operationId }, 207));
+  });
+
+  // ADR-0810 (#2756): reverses the most recent paste-many batch by removing
+  // exactly the ids that same batch created — good enough for a frontend
+  // wiring test (skip-if-touched-since is pytest's job, not e2e's).
+  await page.route(/\/api\/v1\/paste-many-operations\/[^/]+\/undo\/$/, async (route: Route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    const ids = lastPasteManyUndo ?? [];
+    for (const id of ids) {
+      const idx = rows.findIndex((r) => r.id === id);
+      if (idx >= 0) rows.splice(idx, 1);
+    }
+    lastPasteManyUndo = null;
+    return route.fulfill(json({ undo: { deleted: ids.length, kept: 0 } }));
   });
 
   // `projects/{pk}/tasks/classification/` (#2735/#2736) — the two-axis subtree
