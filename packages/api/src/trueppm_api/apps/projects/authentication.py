@@ -121,6 +121,7 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
             # guessing; auditing those would be an unbounded, chain-locking DoS amplifier,
             # so it is deliberately not recorded.
             self._audit_identity_refusal(request, raw_token)
+            self._mark_identity_refusal(request)
             raise exceptions.AuthenticationFailed(_INVALID_TOKEN_DETAIL)
 
         # last_used_at is updated in a single UPDATE so we don't perturb the
@@ -140,6 +141,31 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
         #     deleted) → AnonymousUser.
         user = token.owner or token.created_by or AnonymousUser()
         return (user, token)
+
+    def _mark_identity_refusal(self, request: Request) -> None:
+        """Tag the request so the 401 body carries the taxonomy (#2689).
+
+        Separate from :meth:`_audit_identity_refusal`, which is bounded to one
+        write ever per dead token. This mark is free and must happen on **every**
+        rejection, or the second replay of a revoked token would get a bare 401
+        while the first got an explanation — the sort of inconsistency that reads
+        as a bug in the caller.
+
+        ``token_identity`` is disclosable: it describes the credential the caller
+        supplied, and reveals nothing about any resource. The response detail
+        itself stays ``_INVALID_TOKEN_DETAIL``, so this does not distinguish
+        "revoked" from "expired" from "never existed" — the enumeration-resistance
+        of that message is unchanged.
+        """
+
+        from trueppm_api.apps.agents.models import AgentActionRefusalReason, RefusalConstraint
+        from trueppm_api.apps.agents.refusal import mark_refusal
+
+        mark_refusal(
+            request,
+            AgentActionRefusalReason.IDENTITY,
+            RefusalConstraint.TOKEN_IDENTITY,
+        )
 
     def _audit_identity_refusal(self, request: Request, raw_token: str) -> None:
         """Record a refused/identity AgentAction for a real-but-dead token, at most once.

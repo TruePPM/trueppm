@@ -13,6 +13,7 @@ The bearer token is set as a request header and is never logged.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from types import TracebackType
 from typing import Any
 
@@ -37,12 +38,95 @@ DEFAULT_TIMEOUT = 30.0
 DEFAULT_MAX_ROWS = 1000
 
 
-class ApiError(RuntimeError):
+@dataclass(frozen=True)
+class Refusal:
+    """Why the API refused a call, as the API itself described it (#2689).
+
+    The API records a two-axis refusal taxonomy on every refused agent call and,
+    since ADR-0809, returns it in the 401/403 body. Before that, an operator saw a
+    bare HTTP status here and had to make a second, separate call to
+    ``GET /agent-actions/?constraint=…`` to learn the reason — for the persona this
+    server exists to serve, a system that fails without saying why is the worst
+    outcome.
+
+    Attributes:
+        verdict: Always ``"refused"`` today; carried so a caller can branch on one
+            field across the whole taxonomy rather than inferring it.
+        reason: The coarse axis — ``"identity"`` (the credential was rejected) or
+            ``"policy"`` (the credential is fine, a guard denied the call).
+        constraint: The finer axis — which specific guard fired, e.g.
+            ``"token_identity"`` or ``"capability_scope"``. Empty when the API
+            withheld it: the constraint vocabulary includes schedule-shaped codes
+            that could name a resource the caller may not read, so the API
+            discloses only from an allow-list. Absence is not an error.
+    """
+
+    verdict: str
+    reason: str
+    constraint: str = ""
+
+    def describe(self) -> str:
+        """One line an operator can act on, e.g. ``"policy refusal (capability_scope)"``."""
+
+        if self.constraint:
+            return f"{self.reason} refusal ({self.constraint})"
+        return f"{self.reason} refusal"
+
+
+class TruePPMError(RuntimeError):
+    """Base for API-call failures, carrying the structured refusal when present."""
+
+    def __init__(self, message: str, refusal: Refusal | None = None) -> None:
+        super().__init__(message)
+        #: The parsed refusal taxonomy, or ``None`` when the API sent none — an
+        #: older server, or a failure that is not a governed refusal (a 404, a
+        #: 5xx). Callers must treat ``None`` as "no reason given", never as an
+        #: error in itself.
+        self.refusal = refusal
+
+
+class ApiError(TruePPMError):
     """Raised when the API returns an unexpected (non-401) error status."""
 
 
-class AuthError(RuntimeError):
+class AuthError(TruePPMError):
     """Raised when the API rejects the configured bearer token (HTTP 401)."""
+
+
+def parse_refusal(response: httpx.Response) -> Refusal | None:
+    """Extract the refusal envelope from an error response, if it carries one.
+
+    Total by design: a body that is not JSON, not an object, or carries no
+    ``refusal`` key yields ``None``. A refusal that cannot be parsed must never
+    turn a clean 403 into a client-side crash — the HTTP status is still the
+    answer, and the envelope is additional explanation.
+    """
+
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    if not isinstance(body, dict):
+        return None
+    envelope = body.get("refusal")
+    if not isinstance(envelope, dict):
+        return None
+    reason = envelope.get("reason")
+    if not isinstance(reason, str) or not reason:
+        return None
+    verdict = envelope.get("verdict")
+    constraint = envelope.get("constraint")
+    return Refusal(
+        verdict=verdict if isinstance(verdict, str) else "refused",
+        reason=reason,
+        constraint=constraint if isinstance(constraint, str) else "",
+    )
+
+
+def _refusal_suffix(refusal: Refusal | None) -> str:
+    """`" — policy refusal (capability_scope)"`, or empty when nothing was sent."""
+
+    return f" — {refusal.describe()}" if refusal is not None else ""
 
 
 class TruePPMClient:
@@ -87,11 +171,20 @@ class TruePPMClient:
         """
         response = await self._client.get(AUTH_VERIFY_PATH)
         if response.status_code == httpx.codes.UNAUTHORIZED:
-            # No token material in the message — only the fact of rejection.
-            raise AuthError("The TruePPM API rejected the configured token (HTTP 401).")
+            # No token material in the message — only the fact of rejection, plus
+            # whatever reason the API chose to disclose.
+            refusal = parse_refusal(response)
+            raise AuthError(
+                "The TruePPM API rejected the configured token (HTTP 401)"
+                f"{_refusal_suffix(refusal)}.",
+                refusal,
+            )
         if response.is_error:
+            refusal = parse_refusal(response)
             raise ApiError(
-                f"Unexpected response from {AUTH_VERIFY_PATH}: HTTP {response.status_code}."
+                f"Unexpected response from {AUTH_VERIFY_PATH}: "
+                f"HTTP {response.status_code}{_refusal_suffix(refusal)}.",
+                refusal,
             )
         result: dict[str, Any] = response.json()
         return result
@@ -122,10 +215,21 @@ class TruePPMClient:
         """
         response = await self._client.get(path, params=dict(params) if params else None)
         if response.status_code == httpx.codes.UNAUTHORIZED:
-            # No token material in the message — only the fact of rejection.
-            raise AuthError("The TruePPM API rejected the configured token (HTTP 401).")
+            # No token material in the message — only the fact of rejection, plus
+            # whatever reason the API chose to disclose.
+            refusal = parse_refusal(response)
+            raise AuthError(
+                "The TruePPM API rejected the configured token (HTTP 401)"
+                f"{_refusal_suffix(refusal)}.",
+                refusal,
+            )
         if response.is_error:
-            raise ApiError(f"Unexpected response from {path}: HTTP {response.status_code}.")
+            refusal = parse_refusal(response)
+            raise ApiError(
+                f"Unexpected response from {path}: "
+                f"HTTP {response.status_code}{_refusal_suffix(refusal)}.",
+                refusal,
+            )
         return response.json()
 
     async def get_paginated(
