@@ -201,3 +201,69 @@ pass and implementer judgment rather than mandated here — flagging it so it is
    partial undo (some rows skipped as touched-since) is not a failure state — it's
    the designed outcome, surfaced to the user as which rows reverted and which didn't
    rather than an error.
+
+## Amendment — 2026-08-06, corrected at implementation time
+
+Implementation-time code reading (`packages/api/src/trueppm_api/apps/csvimport/tasks.py`,
+`views.py`) found that **import-fix is not synchronous**: `CsvImportView.post` only
+enqueues `import_csv` (a Celery `shared_task`), which does the actual `bulk_create` of
+review-branch rows asynchronously, with its own drain (`drain_csv_import_queue`). The
+Context and Durable-Execution §1 claim that "paste-many, cascade, and import-fix already
+write synchronously... no Celery dispatch" is **wrong for import-fix** — only paste-many
+and cascade are synchronous. Import-fix's durability shape matches template-apply's, not
+paste-many/cascade's.
+
+**Corrected decision for `ImportFixOperation`:** it follows the async outbox shape
+(`TemplateApplicationStatus`-style `pending/running/success/failed/undone`,
+`celery_task_id` field, row created eagerly as `pending` before `transaction.on_commit`
+dispatch, `created_task_ids` populated when `import_csv` completes inside its own
+`transaction.atomic()` block) — not the plain synchronous row Durable-Execution §1
+describes. §1's "no broker-down window" and §3's "orphan window N/A" do **not** apply to
+`ImportFixOperation`: it needs the same broker-down handling, drain re-dispatch, and
+orphan-window filtering as `TemplateApplication` already has (reuse that existing drain
+rather than adding a new one, since the semantics match exactly). Only `PasteManyOperation`
+and `CascadeClassificationOperation` get the synchronous, same-transaction ledger-row
+treatment §1-§3 originally described for all three.
+
+No other part of this ADR's decision changes — the sibling-model shape, undo semantics,
+skip-if-touched-since safety, and idempotency guard all still apply to `ImportFixOperation`
+as written; only its dispatch timing moves from "synchronous" to "async, outbox-shaped,
+reuse template-apply's drain."
+
+## Amendment — 2026-08-06, `ImportFixOperation` dropped in favor of extending `CsvImportRequest`
+
+Implementing the amendment above, per this ADR's own Decision-section instruction to
+check for an existing suitable row before adding a new table: `apps/csvimport/models.py`
+already defines `CsvImportRequest` — the exact async outbox row the corrected
+`ImportFixOperation` would have duplicated (`project` FK, `status`, `initiated_by`,
+`result_summary`, `celery_task_id`, `requested_at`). A parallel `ImportFixOperation`
+table would mean two rows bookkeeping the same import.
+
+**Corrected decision:** no `ImportFixOperation` model. Instead, `CsvImportRequest` gets
+two new fields — `created_task_versions` (`JSONField`, same `{"<task id>": <server_version
+int>} `shape as `PasteManyOperation`) and `undone_at` — and `CsvImportStatus` gets a new
+terminal member, `UNDONE`. `import_project()` (`apps/msproject/importer.py`) already
+builds `task_objects` with populated `.pk` right where `task_uid_to_pk` is built; it now
+also returns `created_task_ids` in its summary dict, and `csvimport/tasks.py`'s
+`import_csv` task writes `created_task_versions` onto the `CsvImportRequest` row inside
+the same `transaction.atomic()` block that claims it (`_claim_import`, DISPATCHED →
+DONE) — the same "row and write commit together" guarantee as the other two operation
+types, just against an existing table instead of a new one. `undo_import_fix_operation()`
+lives in the new `task_batch_services.py` alongside its two siblings for one vocabulary
+at the call site, even though its model lives in a different app; it reuses
+`CsvImportRequest`'s existing `drain_csv_import_queue` rather than adding a new drain,
+since an `UNDONE` row is inert to that drain's PENDING/DISPATCHED-scoped queries by
+construction.
+
+This changes only where the fields live, not the ADR's decision: server-recorded,
+skip-if-touched-since, idempotent, one-shot undo, same as the other two operation types.
+
+**Further correction to Implementation Notes' stated URL:** the actual endpoint is
+`POST /projects/{project_pk}/import/csv/{pk}/undo/`, not a router-registered
+`/import-fix-operations/{id}/undo/`. `apps/csvimport` has no `DefaultRouter` — every
+endpoint in it is a plain project-nested `path()` (`CsvImportView`,
+`CsvImportStatusView`, …) — and matching that app's own existing convention beats
+importing the `projects` app's router style for one endpoint. `PasteManyOperation`'s
+and `CascadeClassificationOperation`'s endpoints keep the router-registered,
+flat-collection shape this ADR originally specified, since that matches
+`template-applications`' own convention in the app they actually live in.

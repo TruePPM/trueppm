@@ -7439,3 +7439,136 @@ class TemplateApplication(models.Model):
 
     def __str__(self) -> str:
         return f"TemplateApplication({self.id}, {self.project_id}, {self.status})"
+
+
+class SyncBatchOperationStatus(models.TextChoices):
+    """Lifecycle of a *synchronous* batch operation (ADR-0810).
+
+    Paste-many and cascade classification write inside the request/response
+    cycle — there is no pending/running/failed window to represent, unlike the
+    async ``TemplateApplicationStatus``/``ImportFixOperationStatus`` siblings. A
+    row only ever exists once its write has already succeeded (it is created
+    inside the same ``transaction.atomic()`` block as the write), so the only
+    question a status can answer is whether it has since been undone.
+    """
+
+    ACTIVE = "active", "Active"
+    UNDONE = "undone", "Undone"
+
+
+class PasteManyOperation(models.Model):
+    """One paste-many batch create — the undo target (ADR-0810, #2724, #2756).
+
+    A sibling to :class:`TemplateApplication`, not a shared polymorphic table:
+    the codebase's house style is per-operation-type models (see
+    ``ProjectExportJob`` / ``ProgramExportJob``) rather than one row with a
+    nullable discriminator, which would leak nullability through the
+    serializer, service, and undo endpoint for no real gain.
+
+    ``created_task_versions`` maps each written row's id to the
+    ``server_version`` it held the moment this operation finished writing —
+    deliberately **not** a plain id list like ``TemplateApplication.
+    created_task_ids``. Paste-many creates through the normal
+    ``TaskSerializer``/``Task.save()`` path (not ``bulk_create``), so
+    ``edited_at`` is stamped at creation time by the paste itself (a write is
+    treated as human unless it opts out, ADR-0786 §4) — reusing
+    ``TemplateApplication``'s "touched = edited_at is not None" check would
+    report every freshly pasted row as already touched and undo nothing.
+    Comparing a row's *current* ``server_version`` against the value
+    snapshotted here answers "has anyone changed this since the paste"
+    correctly regardless of write-path attribution.
+
+    Plain (non-synced) model, like ``TemplateApplication``: this is server-side
+    operation bookkeeping, never a mobile-offline entity.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        PROJECT_MODEL_LABEL,
+        on_delete=models.CASCADE,
+        related_name="paste_many_operations",
+    )
+    applied_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="paste_many_operations",
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=SyncBatchOperationStatus.choices,
+        default=SyncBatchOperationStatus.ACTIVE,
+        db_index=True,
+    )
+    # {"<task id>": <server_version int>} for every row this operation created.
+    created_task_versions = models.JSONField(default=dict, blank=True)
+    result_summary = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    undone_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "projects_paste_many_operation"
+        ordering = ["-created_at"]
+        indexes = [
+            # The nightly purge scan (ADR-0810 §Durable Execution 6).
+            models.Index(fields=["created_at"], name="pastemany_created_idx"),
+            models.Index(fields=["project", "created_at"], name="pastemany_proj_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"PasteManyOperation({self.id}, {self.project_id}, {self.status})"
+
+
+class CascadeClassificationOperation(models.Model):
+    """One subtree classification cascade — the undo target (ADR-0810, #2735, #2756).
+
+    ``task_snapshots`` records, per touched row, the governance/delivery field
+    values from *before* the cascade plus the ``server_version`` the row held
+    immediately after — enough both to restore the prior classification and to
+    detect whether anyone has changed the row since. Cascade rows always
+    pre-exist (never created by this operation), so undo restores fields on
+    existing rows rather than deleting anything.
+
+    Plain (non-synced) model, like ``TemplateApplication``.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        PROJECT_MODEL_LABEL,
+        on_delete=models.CASCADE,
+        related_name="cascade_classification_operations",
+    )
+    applied_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="cascade_classification_operations",
+    )
+    # Plain UUID, not an FK: the root may be reparented or deleted after the
+    # cascade without invalidating this record's undo capability, which acts on
+    # task_snapshots's keys, never on the root itself.
+    subtree_id = models.UUIDField()
+    status = models.CharField(
+        max_length=10,
+        choices=SyncBatchOperationStatus.choices,
+        default=SyncBatchOperationStatus.ACTIVE,
+        db_index=True,
+    )
+    # {"<task id>": {"before": {...}, "after": {...}, "version": <int>}}
+    task_snapshots = models.JSONField(default=dict, blank=True)
+    result_summary = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    undone_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "projects_cascade_classification_operation"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["created_at"], name="cascclass_created_idx"),
+            models.Index(fields=["project", "created_at"], name="cascclass_proj_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"CascadeClassificationOperation({self.id}, {self.project_id}, {self.status})"

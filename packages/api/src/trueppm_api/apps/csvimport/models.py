@@ -21,6 +21,11 @@ class CsvImportStatus(models.TextChoices):
     DISPATCHED = "dispatched", "Dispatched"
     DONE = "done", "Done"
     DEAD = "dead", "Dead"
+    #: ADR-0810, #2756. A one-shot ⌘Z undo of a completed (DONE) import. Every
+    #: status transition elsewhere in this module filters on an explicit
+    #: PENDING/DISPATCHED predicate, so an UNDONE row is inert to the drain and
+    #: dispatch logic by construction — it can never match those filters.
+    UNDONE = "undone", "Undone"
 
 
 class CsvImportRequest(models.Model):
@@ -70,6 +75,16 @@ class CsvImportRequest(models.Model):
     requested_at = models.DateTimeField(auto_now_add=True)
     dispatched_at = models.DateTimeField(null=True, blank=True)
     celery_task_id = models.CharField(max_length=255, blank=True, default="")
+    # ADR-0810 (#2756): {"<task id>": <server_version int>} for every row this
+    # import wrote (plan rows and Import review branch placeholders alike — the
+    # same set ``summary["tasks_created"]`` counts). ``server_version`` rather
+    # than a plain id list, because ``import_project`` writes via
+    # ``bulk_create`` (bypasses ``Task.save()``, ADR-0011): every row lands at
+    # its field default (0) and only advances once a person actually edits it,
+    # so comparing current server_version to the snapshot here is the
+    # touched-since-import check undo needs.
+    created_task_versions = models.JSONField(default=dict, blank=True)
+    undone_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["requested_at"]

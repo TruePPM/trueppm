@@ -7851,6 +7851,17 @@ class TaskBulkView(IdempotencyMixin, APIView):
                     {"code": "invalid_graph_input", "detail": str(exc)}
                 ) from exc
 
+            # ADR-0810 (#2756): record the ⌘Z undo ledger row for this batch's
+            # creates, inside the same transaction as the writes it records. Any
+            # bulk create through this endpoint is undoable, not only paste-many
+            # specifically — the endpoint has no discriminator distinguishing
+            # callers, and there is no cost to a caller that never uses the undo.
+            from trueppm_api.apps.projects.task_batch_services import (
+                record_paste_many_operation,
+            )
+
+            record_paste_many_operation(project, _caller, out.created_ids)
+
             # Recalculation and the broadcast fire for WHATEVER COMMITTED, not only
             # for a fully-clean batch (#2746). Under 207, 35 applied rows out of 38
             # still mutated 35 rows; skipping the recompute would leave every
@@ -7981,12 +7992,22 @@ class TaskClassificationView(IdempotencyMixin, APIView):
         project_id = str(project.pk)
         try:
             with transaction.atomic():
-                report, written = cascade_task_classification(project, request, spec)
+                report, written, before_after = cascade_task_classification(project, request, spec)
 
                 # Only when something actually changed. A repeated identical cascade
                 # writes nothing (ADR-0790 §7), so it must not enqueue a recalculation
                 # or wake every collaborator's client either.
                 if written:
+                    # ADR-0810 (#2756): the ⌘Z undo ledger row, in the same
+                    # transaction as the write it records.
+                    from trueppm_api.apps.projects.task_batch_services import (
+                        record_cascade_classification_operation,
+                    )
+
+                    record_cascade_classification_operation(
+                        project, request.user, spec.subtree_id, before_after
+                    )
+
                     written_ids = [str(pk_) for pk_ in written]
 
                     def _broadcast(ids: list[str] = written_ids) -> None:
