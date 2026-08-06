@@ -191,6 +191,12 @@ async function gotoSchedule(
  * Playwright matches routes in REVERSE registration order, so the catch-all
  * would otherwise swallow these and answer with its "unmocked" stub.
  */
+/** Request content-types the wizard actually sent, captured by {@link routeImport} (#2777). */
+interface CapturedTransport {
+  previewContentType?: string;
+  commitContentType?: string;
+}
+
 async function routeImport(
   page: Page,
   opts: {
@@ -198,15 +204,25 @@ async function routeImport(
     commit?: boolean;
     /** Terminal status payload; defaults to {@link DONE_STATUS}. */
     done?: unknown;
+    /**
+     * Out param: filled with the real Content-Type header of each intercepted
+     * request. A Playwright route fulfills regardless of what the browser
+     * actually sent, so nothing else here would notice the shared axios
+     * client's `Content-Type: application/json` default silently turning a
+     * `FormData` upload into an (empty) JSON body (#2777) — this is what
+     * lets the golden path assert transport shape, not just app behavior.
+     */
+    captured?: CapturedTransport;
   },
 ) {
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/import/csv/preview/`, (r) =>
-    r.fulfill({
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/import/csv/preview/`, async (r) => {
+    if (opts.captured) opts.captured.previewContentType = r.request().headers()['content-type'];
+    await r.fulfill({
       status: opts.preview.status,
       contentType: 'application/json',
       body: JSON.stringify(opts.preview.body),
-    }),
-  );
+    });
+  });
   if (opts.commit) {
     // Status route first; the commit glob would otherwise also match it.
     await page.route(`**/api/v1/projects/${PROJECT_ID}/import/csv/imp-1/`, (r) =>
@@ -216,8 +232,9 @@ async function routeImport(
         body: JSON.stringify(opts.done ?? DONE_STATUS),
       }),
     );
-    await page.route(`**/api/v1/projects/${PROJECT_ID}/import/csv/`, (r) =>
-      r.fulfill({
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/import/csv/`, async (r) => {
+      if (opts.captured) opts.captured.commitContentType = r.request().headers()['content-type'];
+      await r.fulfill({
         status: 202,
         contentType: 'application/json',
         body: JSON.stringify({
@@ -225,8 +242,8 @@ async function routeImport(
           queued: true,
           import_request_id: 'imp-1',
         }),
-      }),
-    );
+      });
+    });
   }
 }
 
@@ -249,7 +266,12 @@ async function pickFile(page: Page) {
 test.describe('CSV/Excel import wizard (#746)', () => {
   test('upload → map → confirm → import lands on the result', async ({ page }) => {
     await gotoSchedule(page);
-    await routeImport(page, { preview: { status: 200, body: PREVIEW_BODY }, commit: true });
+    const captured: CapturedTransport = {};
+    await routeImport(page, {
+      preview: { status: 200, body: PREVIEW_BODY },
+      commit: true,
+      captured,
+    });
     await openWizard(page);
 
     const dialog = page.getByRole('dialog', { name: 'Import from a spreadsheet' });
@@ -260,6 +282,10 @@ test.describe('CSV/Excel import wizard (#746)', () => {
 
     // Step 2 — the detected mapping, pre-selected.
     await expect(dialog.getByLabel('TruePPM field for column Title')).toHaveValue('name');
+    // The preview request must actually leave the browser as multipart, not
+    // JSON (#2777) — a wrong axios request config drops the File silently and
+    // the wizard would still reach this line with a stale/mock-shaped body.
+    expect(captured.previewContentType).toContain('multipart/form-data');
     await dialog.getByRole('button', { name: 'Next' }).click();
 
     // Step 3 — confirm, with the unmapped column named rather than silently dropped.
@@ -271,6 +297,7 @@ test.describe('CSV/Excel import wizard (#746)', () => {
     await expect(dialog.getByText(/Imported 11 tasks/)).toBeVisible();
     await expect(dialog.getByText(/Row 4/)).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'View schedule' })).toBeVisible();
+    expect(captured.commitContentType).toContain('multipart/form-data');
   });
 
   test('unresolvable rows are parked in a review branch, not dropped (#2732)', async ({ page }) => {

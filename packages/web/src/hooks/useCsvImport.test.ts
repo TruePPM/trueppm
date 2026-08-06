@@ -1,4 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { renderHook, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { createElement, type ReactNode } from 'react';
+
+const { postMock } = vi.hoisted(() => ({ postMock: vi.fn() }));
+
+vi.mock('@/api/client', () => ({
+  apiClient: { post: postMock },
+}));
+
 import {
   flaggedColumns,
   groupIssuesByCause,
@@ -8,11 +18,23 @@ import {
   overrideMap,
   toColumnMap,
   unmappedHeaders,
+  useCsvImportCommit,
+  useCsvImportPreview,
   type CsvColumnMapping,
   type CsvColumnMappingWire,
   type CsvMappingConfidence,
   type CsvTargetField,
 } from './useCsvImport';
+
+function makeWrapper(qc: QueryClient) {
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return createElement(QueryClientProvider, { client: qc }, children);
+  };
+}
+
+function csvFile(name = 'plan.csv'): File {
+  return new File(['Title\nDig footings'], name, { type: 'text/csv' });
+}
 
 const FIELDS: CsvTargetField[] = [
   { field: 'name', label: 'Task name', required: true, multi: false },
@@ -26,6 +48,89 @@ const col = (
   field: string,
   confidence: CsvMappingConfidence = 'exact',
 ): CsvColumnMapping => ({ index, header, field, confidence });
+
+/**
+ * Regression coverage for #2777: the shared axios instance defaults
+ * `Content-Type: application/json`, which makes axios's `transformRequest`
+ * run `formDataToJSON()` on a `FormData` body and silently drop the `File` —
+ * the request leaves the browser as JSON even though a `FormData` was posted.
+ * Both mutations must override the header (and opt out of the client's 30s
+ * default timeout, since uploads can run long) on every call, not just when
+ * it happens to work.
+ */
+describe('useCsvImportPreview and useCsvImportCommit (#2777)', () => {
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    vi.clearAllMocks();
+  });
+
+  it('POSTs the preview as multipart/form-data with no client-side timeout', async () => {
+    postMock.mockResolvedValueOnce({
+      data: {
+        filename: 'plan.csv',
+        headers: ['Title'],
+        columns: [],
+        sample_rows: [],
+        row_count: 1,
+        truncated_rows: 0,
+        task_count: 1,
+        resource_count: 0,
+        row_errors: [],
+        error_count: 0,
+        warning_count: 0,
+        warnings: [],
+        available_fields: [],
+      },
+    });
+
+    const { result } = renderHook(() => useCsvImportPreview('p1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    result.current.mutate({ file: csvFile() });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(postMock).toHaveBeenCalledTimes(1);
+    const [url, body, config] = postMock.mock.calls[0] as [
+      string,
+      FormData,
+      { headers: Record<string, string>; timeout: number },
+    ];
+    expect(url).toBe('/projects/p1/import/csv/preview/');
+    expect(body).toBeInstanceOf(FormData);
+    expect(body.get('file')).toBeInstanceOf(File);
+    expect(config).toEqual({ headers: { 'Content-Type': 'multipart/form-data' }, timeout: 0 });
+  });
+
+  it('POSTs the commit as multipart/form-data with no client-side timeout', async () => {
+    postMock.mockResolvedValueOnce({
+      data: { detail: 'queued', queued: true, import_request_id: 'req-1' },
+    });
+
+    const { result } = renderHook(() => useCsvImportCommit('p1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    result.current.mutate({ file: csvFile(), columnMap: { Title: 'name' } });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(postMock).toHaveBeenCalledTimes(1);
+    const [url, body, config] = postMock.mock.calls[0] as [
+      string,
+      FormData,
+      { headers: Record<string, string>; timeout: number },
+    ];
+    expect(url).toBe('/projects/p1/import/csv/');
+    expect(body).toBeInstanceOf(FormData);
+    expect(body.get('file')).toBeInstanceOf(File);
+    expect(body.get('column_map')).toBe(JSON.stringify({ Title: 'name' }));
+    expect(config).toEqual({ headers: { 'Content-Type': 'multipart/form-data' }, timeout: 0 });
+  });
+});
 
 describe('missingRequiredFields', () => {
   it('reports a required field no column maps to', () => {

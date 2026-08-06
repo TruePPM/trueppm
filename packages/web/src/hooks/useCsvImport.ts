@@ -159,6 +159,7 @@ export function useCsvImportPreview(
       const res = await apiClient.post<CsvPreview>(
         `/projects/${projectId}/import/csv/preview/`,
         buildForm(file, columnMap),
+        { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 0 },
       );
       return res.data;
     },
@@ -174,6 +175,7 @@ export function useCsvImportCommit(
       const res = await apiClient.post<CsvCommitResponse>(
         `/projects/${projectId}/import/csv/`,
         buildForm(file, columnMap),
+        { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 0 },
       );
       return res.data;
     },
