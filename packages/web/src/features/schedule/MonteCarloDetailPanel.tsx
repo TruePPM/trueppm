@@ -79,11 +79,9 @@ export function MonteCarloDetailPanel({ result, cpmFinish, tasks, isOpen, onClos
           e.preventDefault();
           last?.focus();
         }
-      } else {
-        if (document.activeElement === last) {
-          e.preventDefault();
-          first?.focus();
-        }
+      } else if (document.activeElement === last) {
+        e.preventDefault();
+        first?.focus();
       }
     }
     document.addEventListener('keydown', trapFocus);

@@ -32,10 +32,11 @@ fail=0
 pass=0
 skip=0
 check() { # check "<description>" <condition-exit-code>
-  if [[ "$2" -eq 0 ]]; then
+  local desc="$1" rc="$2"
+  if [[ "$rc" -eq 0 ]]; then
     pass=$((pass + 1))
   else
-    echo "  FAIL: $1"
+    echo "  FAIL: $desc"
     fail=$((fail + 1))
   fi
 }

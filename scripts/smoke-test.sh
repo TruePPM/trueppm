@@ -16,9 +16,9 @@ BASE_URL="${BASE_URL:-http://localhost:8000}"
 PASS=0
 FAIL=0
 
-green()  { printf '\033[0;32m  [pass]\033[0m %s\n' "$1"; PASS=$((PASS + 1)); }
-red()    { printf '\033[0;31m  [FAIL]\033[0m %s\n' "$1"; FAIL=$((FAIL + 1)); }
-header() { printf '\n\033[1m%s\033[0m\n' "$1"; }
+green()  { local msg="$1"; printf '\033[0;32m  [pass]\033[0m %s\n' "$msg"; PASS=$((PASS + 1)); }
+red()    { local msg="$1"; printf '\033[0;31m  [FAIL]\033[0m %s\n' "$msg"; FAIL=$((FAIL + 1)); }
+header() { local msg="$1"; printf '\n\033[1m%s\033[0m\n' "$msg"; }
 
 check() {
   local label="$1" url="$2" expected_status="${3:-200}"

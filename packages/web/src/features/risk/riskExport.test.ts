@@ -250,7 +250,9 @@ describe('exportRisksToCSV — download trigger', () => {
       capturedFilename = (el as HTMLAnchorElement).download ?? null;
       return el;
     });
-    vi.spyOn(document.body, 'removeChild').mockImplementation((el) => el);
+    // No removeChild spy: the export now calls `link.remove()` on the anchor
+    // itself. appendChild above is mocked and never really attaches it, so
+    // remove() on a parentless node is a no-op rather than a throw.
     clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
   });
 

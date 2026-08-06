@@ -411,7 +411,9 @@ def dimension_full_load(steps: Iterable[int]) -> DimensionResult:
             client,
             step=size,
             label=f"{size} tasks — full load",
-            take=lambda: repeat(full_load, 7),
+            # Bind the loop's closure by default-arg, matching the idiom used by the
+            # other steps in this file — `full_load` is rebound each iteration (S1515).
+            take=lambda f=full_load: repeat(f, 7),
         )
         report(step)
         result.steps.append(step)

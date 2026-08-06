@@ -481,7 +481,7 @@ def test_audit_events_body_matches_its_declared_schema(
     response = owner_client.get("/api/v1/workspace/audit-events/")
 
     body = response.json()
-    assert {"next", "previous", "results"} == set(body), (
+    assert set(body) == {"next", "previous", "results"}, (
         "cursor pagination emits next/previous/results and deliberately no count"
     )
     assert len(body["results"]) == 1

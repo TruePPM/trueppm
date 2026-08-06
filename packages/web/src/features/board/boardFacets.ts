@@ -151,8 +151,8 @@ export function matchesFacets(task: Task, filters: FacetFilters, now: Date): boo
   }
 
   if (filters.labels.length > 0) {
-    const taskLabelIds = (task.labels ?? []).map((l) => l.id);
-    if (!filters.labels.some((id) => taskLabelIds.includes(id))) return false;
+    const taskLabelIds = new Set((task.labels ?? []).map((l) => l.id));
+    if (!filters.labels.some((id) => taskLabelIds.has(id))) return false;
   }
 
   return true;

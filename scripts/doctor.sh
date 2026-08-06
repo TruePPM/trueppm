@@ -9,9 +9,9 @@ set -euo pipefail
 PASS=0
 FAIL=0
 
-ok()   { echo "  [ok] $1"; PASS=$((PASS + 1)); }
-fail() { echo "  [!!] $1"; FAIL=$((FAIL + 1)); }
-info() { echo "       $1"; }
+ok()   { local msg="$1"; echo "  [ok] $msg"; PASS=$((PASS + 1)); }
+fail() { local msg="$1"; echo "  [!!] $msg"; FAIL=$((FAIL + 1)); }
+info() { local msg="$1"; echo "       $msg"; }
 
 check_version() {
   local name="$1" cmd="$2" min_major="$3" min_minor="${4:-0}"

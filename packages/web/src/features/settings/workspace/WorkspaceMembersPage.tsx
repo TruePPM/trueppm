@@ -251,7 +251,7 @@ function exportMembersCsv(members: WorkspaceMember[]): void {
   link.download = 'trueppm-workspace-members.csv';
   document.body.appendChild(link);
   link.click();
-  document.body.removeChild(link);
+  link.remove();
   URL.revokeObjectURL(url);
 }
 

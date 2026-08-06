@@ -88,9 +88,11 @@ violations=0
 
 # 1. Hard-fail STUB: / WIP: markers.
 if stub_hits=$(grep "${GREP_OPTS[@]}" -E '(STUB|WIP):' "${EXISTING_ROOTS[@]}" 2>/dev/null); then
-  echo "ERROR: STUB:/WIP: marker(s) found in source — these must not ship:"
-  echo "$stub_hits"
-  echo ""
+  {
+    echo "ERROR: STUB:/WIP: marker(s) found in source — these must not ship:"
+    echo "$stub_hits"
+    echo ""
+  } >&2
   violations=$((violations + 1))
 fi
 
@@ -121,7 +123,7 @@ if [ -n "$todo_refs" ]; then
       state=$(printf '%s' "$body" | jq -r '.state // "unknown"')
       if [ "$state" = "closed" ]; then
         title=$(printf '%s' "$body" | jq -r '.title // ""')
-        echo "ERROR: TODO(#${iid}) references a closed issue: ${title}"
+        echo "ERROR: TODO(#${iid}) references a closed issue: ${title}" >&2
         closed_count=$((closed_count + 1))
       fi
     done <<< "$todo_refs"

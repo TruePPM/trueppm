@@ -8,7 +8,7 @@ RUN apt-get update -qq && \
     rm -rf /var/lib/apt/lists/*
 
 ENV VIRTUAL_ENV=/venv
-RUN python -m venv $VIRTUAL_ENV
+RUN python -m venv "$VIRTUAL_ENV"
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # python:3.11-slim seeds the venv with wheel 0.45.1 via ensurepip (3.11 still

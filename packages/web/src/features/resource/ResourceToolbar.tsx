@@ -17,7 +17,6 @@ import {
 } from '@/components/toolbar/ToolbarOverflowMenu';
 
 export type ViewMode = 'timeline' | 'utilization';
-type ViewModeLocal = ViewMode;
 
 const ALL_STATUSES = ['NOT_STARTED', 'IN_PROGRESS', 'ON_HOLD', 'COMPLETE'] as const;
 const STATUS_LABELS: Record<string, string> = {
@@ -28,8 +27,8 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 interface Props {
-  viewMode: ViewModeLocal;
-  onViewModeChange: (mode: ViewModeLocal) => void;
+  viewMode: ViewMode;
+  onViewModeChange: (mode: ViewMode) => void;
   windowStart: string;
   windowEnd: string;
   unassignedCount: number;

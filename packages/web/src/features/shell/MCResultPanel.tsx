@@ -9,6 +9,19 @@ interface Props {
   onClose: () => void;
 }
 
+// Pure formatter — hoisted out of the component so it is not re-created per
+// render (S7721).
+function fmtDate(iso: string) {
+  // Server MC forecast dates are UTC calendar dates — pin timeZone:'UTC' so the
+  // rendered day does not shift one earlier for viewers west of UTC (#1927).
+  return new Date(iso).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
 /**
  * Right-side desktop drawer showing the Monte Carlo confidence distribution.
  * Opens when the P80 TopBar pill is clicked (issue #196).
@@ -36,17 +49,6 @@ export function MCResultPanel({ result, onClose }: Props) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
-
-  function fmtDate(iso: string) {
-    // Server MC forecast dates are UTC calendar dates — pin timeZone:'UTC' so the
-    // rendered day does not shift one earlier for viewers west of UTC (#1927).
-    return new Date(iso).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      timeZone: 'UTC',
-    });
-  }
 
   return (
     <div

@@ -100,6 +100,26 @@ interface CpTask {
   total_float: number | null;
 }
 
+// Pure status→pill mapping; no component state (S7721).
+function statusPill(status: string): { label: string; cls: string } | null {
+  switch (status) {
+    case 'COMPLETE':
+      return { label: 'Done', cls: 'border-semantic-on-track/40 text-semantic-on-track' };
+    case 'IN_PROGRESS':
+      return { label: 'In progress', cls: 'border-brand-primary/40 text-brand-primary' };
+    case 'REVIEW':
+      return { label: 'Review', cls: 'border-brand-accent-dark/40 text-brand-accent-dark' };
+    case 'NOT_STARTED':
+      return { label: 'Not started', cls: 'border-neutral-border text-neutral-text-secondary' };
+    case 'BACKLOG':
+      return { label: 'Backlog', cls: 'border-neutral-border text-neutral-text-secondary' };
+    case 'ON_HOLD':
+      return { label: 'On hold', cls: 'border-semantic-warning/40 text-semantic-warning' };
+    default:
+      return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Hooks
 // ---------------------------------------------------------------------------
@@ -569,25 +589,6 @@ function MyTasksPanel({ tasks, projectId }: MyTasksPanelProps) {
   }
 
   // Map task status to a compact pill label + colour family.
-  function statusPill(status: string): { label: string; cls: string } | null {
-    switch (status) {
-      case 'COMPLETE':
-        return { label: 'Done', cls: 'border-semantic-on-track/40 text-semantic-on-track' };
-      case 'IN_PROGRESS':
-        return { label: 'In progress', cls: 'border-brand-primary/40 text-brand-primary' };
-      case 'REVIEW':
-        return { label: 'Review', cls: 'border-brand-accent-dark/40 text-brand-accent-dark' };
-      case 'NOT_STARTED':
-        return { label: 'Not started', cls: 'border-neutral-border text-neutral-text-secondary' };
-      case 'BACKLOG':
-        return { label: 'Backlog', cls: 'border-neutral-border text-neutral-text-secondary' };
-      case 'ON_HOLD':
-        return { label: 'On hold', cls: 'border-semantic-warning/40 text-semantic-warning' };
-      default:
-        return null;
-    }
-  }
-
   return (
     <ul className="flex flex-col gap-1" aria-label="My tasks due this week">
       {tasks.map((task) => {

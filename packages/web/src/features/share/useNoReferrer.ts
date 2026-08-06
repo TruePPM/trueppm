@@ -15,7 +15,7 @@ export function useNoReferrer(): void {
     meta.content = 'no-referrer';
     document.head.appendChild(meta);
     return () => {
-      document.head.removeChild(meta);
+      meta.remove();
     };
   }, []);
 }
