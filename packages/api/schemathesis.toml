@@ -1,0 +1,24 @@
+# Schemathesis configuration for the nightly `api:fuzz` job (#2364, #2768).
+#
+# `suppress-health-check` is ALSO passed as a CLI flag in .gitlab-ci.yml. That is
+# deliberate redundancy, not an oversight: the CLI flag demonstrably stopped
+# reaching `POST /projects/{id}/tasks/bulk/` on the 2026-08-04 and 2026-08-05
+# nightlies, which errored that operation with a message recommending the very
+# flag the job was already passing. Schemathesis resolves this file through
+# `SchemathesisConfig.discover()`, a different path from the CLI override, and it
+# was verified to land in `hypothesis.settings.suppress_health_check`.
+#
+# What the health check is actually reacting to, measured rather than assumed
+# (#2768): it is NOT the `operations` array. Generating `TaskBulkRequest` from
+# the committed schema alone, `operations` at its shipped `maxItems: 500`
+# produces 30/30 examples cleanly, and so does the `dependencies` bucket on its
+# own. Only the two together trip it — 5/5 seeds — and shrinking `operations`
+# to `maxItems: 10` does not help while `dependencies` is present. It is the
+# combined draw size, and Hypothesis counts a buffer overrun as a *filtered*
+# input, which is why an alarm about filtering fires when nothing is filtered.
+#
+# Suppressing costs no coverage: with the check suppressed the same body
+# generates the full 30/30 examples per seed. The operation is fully fuzzable —
+# it was simply never being fuzzed at all, because a health check aborts
+# generation for an operation rather than degrading it.
+suppress-health-check = ["filter_too_much"]

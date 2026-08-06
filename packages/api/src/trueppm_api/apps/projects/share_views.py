@@ -13,7 +13,6 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from django.conf import settings
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
@@ -32,7 +31,10 @@ from trueppm_api.apps.projects.share_serializers import (
     ShareLinkCreateSerializer,
     ShareLinkSerializer,
 )
-from trueppm_api.apps.projects.sharing_settings import resolve_effective_sharing
+from trueppm_api.apps.projects.sharing_settings import (
+    public_sharing_instance_enabled,
+    resolve_effective_sharing,
+)
 
 # Uniform 404 detail — the kill switch, an unknown token, and a policy-disabled
 # link must all be indistinguishable to the recipient.
@@ -58,7 +60,7 @@ class ShareLinkAccessThrottle(AnonRateThrottle):
 
 def _sharing_enabled() -> bool:
     """Instance kill switch (ADR-0245). Operators disable public sharing org-wide."""
-    return bool(getattr(settings, "TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED", True))
+    return public_sharing_instance_enabled()
 
 
 def _public_sharing_allowed(project: Project) -> bool:

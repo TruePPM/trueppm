@@ -26,6 +26,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from django.conf import settings
+
 if TYPE_CHECKING:
     from trueppm_api.apps.projects.models import Program, Project
     from trueppm_api.apps.workspace.models import Workspace
@@ -54,6 +56,23 @@ def sharing_enforcement_active() -> bool:
     locks downstream sharing overrides in the community edition.
     """
     return _ENFORCEMENT_PROVIDER is not None and bool(_ENFORCEMENT_PROVIDER())
+
+
+def public_sharing_instance_enabled() -> bool:
+    """Operator-level kill switch (ADR-0245) — public sharing org-wide, on or off.
+
+    This is a strictly *coarser* gate than :func:`resolve_effective_sharing`: it
+    answers "does this instance serve public links at all", before any
+    workspace/program/project policy is consulted. The share views check it first
+    and answer 404 (not 410) because it fires before token resolution and so
+    cannot distinguish a real token from a forged one.
+
+    It lives here rather than in the views because it is half of the answer to
+    "will a link I mint actually resolve?", and non-view callers need to ask that
+    question too — ``create_demo_share_link`` does, so it can refuse to print a
+    URL the instance will never serve (#2781).
+    """
+    return bool(getattr(settings, "TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED", True))
 
 
 def _enforced(workspace: Workspace) -> bool:

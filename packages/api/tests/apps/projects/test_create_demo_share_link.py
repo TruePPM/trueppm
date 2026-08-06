@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from datetime import date
 from io import StringIO
+from typing import Any
 
 import pytest
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from rest_framework.test import APIClient
 
 from trueppm_api.apps.projects.authentication import sha256_hex
 from trueppm_api.apps.projects.management.commands.create_demo_share_link import (
@@ -15,6 +17,8 @@ from trueppm_api.apps.projects.management.commands.create_demo_share_link import
     DEMO_LABEL_BOARD,
 )
 from trueppm_api.apps.projects.models import Project, ShareContentKind, ShareLink
+from trueppm_api.apps.projects.sharing_settings import resolve_effective_sharing
+from trueppm_api.apps.workspace.models import Workspace
 
 
 def _seed() -> Project:
@@ -249,3 +253,91 @@ def test_pinned_board_link_survives_reseed(monkeypatch: pytest.MonkeyPatch) -> N
     # Same URLs as before the upgrade — the whole point of pinning.
     assert "https://demo.example.org/share/schedule/pin-s" in rendered
     assert "https://demo.example.org/share/board/pin-b" in rendered
+
+
+# --- #2781: the minted link must actually resolve ---------------------------
+#
+# Minting and serving are separate gates. Every test above this point asserts on
+# the *mint* — that a ShareLink row exists with the right hash, label and kind —
+# and all of them passed while the demo's own published URL answered 410 to every
+# recipient, because Workspace.public_sharing defaults to False and nothing on the
+# demo path turned it on. These tests assert the property the demo actually
+# promises: seed → mint → GET returns 200, from default workspace state, with no
+# fixture pre-setting the policy.
+
+
+@pytest.mark.django_db
+def test_minted_schedule_link_resolves_from_default_workspace_state() -> None:
+    _seed()
+    call_command("create_demo_share_link", token="probe-token")
+
+    resp = APIClient().get("/api/v1/share/schedule/probe-token/")
+
+    assert resp.status_code == 200, getattr(resp, "data", None)
+
+
+@pytest.mark.django_db
+def test_minted_board_link_resolves_from_default_workspace_state() -> None:
+    """The board link rides the same ADR-0135 gate as the schedule one."""
+    _seed()
+    call_command("create_demo_share_link", token="probe-sched", token_board="probe-board")
+
+    resp = APIClient().get("/api/v1/share/board/probe-board/")
+
+    assert resp.status_code == 200, getattr(resp, "data", None)
+
+
+@pytest.mark.django_db
+def test_sharing_is_enabled_on_the_project_not_the_workspace() -> None:
+    """The blast radius of the fix is one demo project, not the whole instance.
+
+    A self-hoster who seeds the sample onto a real install must not find the
+    workspace-wide "Public sharing" default flipped on underneath them — every
+    other project on the instance still inherits ``False``.
+    """
+    project = _seed()
+    other = Project.objects.create(name="Real work", start_date=date(2026, 1, 1))
+
+    call_command("create_demo_share_link", token="probe-token")
+
+    project.refresh_from_db()
+    assert project.public_sharing is True
+    assert Workspace.load().public_sharing is False
+    assert resolve_effective_sharing(other, "public_sharing") is False
+
+
+@pytest.mark.django_db
+def test_enabling_sharing_is_idempotent_across_restarts() -> None:
+    """A second run writes nothing — the demo container restarts, often.
+
+    Each save advances ``server_version`` and writes a HistoricalRecords row, so
+    an unconditional write would accrue one of each per restart forever.
+    """
+    project = _seed()
+    call_command("create_demo_share_link", token="probe-token")
+    project.refresh_from_db()
+    version_after_first = project.server_version
+
+    call_command("create_demo_share_link", token="probe-token")
+
+    project.refresh_from_db()
+    assert project.server_version == version_after_first
+
+
+@pytest.mark.django_db
+def test_reports_the_instance_kill_switch_instead_of_printing_a_dead_url(
+    settings: Any,
+) -> None:
+    """The operator kill switch outranks every policy — say so, don't print a URL.
+
+    This is the failure mode the whole issue is about, generalized: the command
+    must not report a confident link it knows the instance will not serve.
+    """
+    settings.TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED = False
+    _seed()
+    out = StringIO()
+
+    call_command("create_demo_share_link", token="probe-token", stdout=out)
+
+    assert "TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED is false" in out.getvalue()
+    assert APIClient().get("/api/v1/share/schedule/probe-token/").status_code == 404

@@ -1210,6 +1210,40 @@ api:extension-signals:
   script:
     - bash scripts/check-extension-signals.sh
 
+demo:readonly-posture:
+  extends: .fast-job
+  # The hosted demo must stay read-only by construction (#2773, gates #2271).
+  #
+  # `try.trueppm.com` has no login-capable account, because `seed_demo_project`
+  # runs without `--with-personas` in both deployment manifests. No account means
+  # no token, which means the ungoverned `legacy:full` write path (#2749) is not
+  # reachable from the public internet. That is the whole security argument for
+  # publishing the demo at all.
+  #
+  # It was enforced by the absence of a flag in two YAML files and by nothing
+  # else — no test, no lint, no review checklist. Adding it back is a one-line
+  # change someone makes for a sales walkthrough, at launch, under time pressure,
+  # which is exactly when #2271 is being worked.
+  #
+  # The runtime half (zero login-capable accounts, no registration route, GET-only
+  # public surface) is pytest, in
+  # packages/api/tests/apps/projects/test_demo_readonly_posture.py. This job is
+  # the manifest half, which pytest cannot see because nothing imports those
+  # files. Comments naming the flag are ignored — both manifests document why it
+  # is absent, and that prose is worth keeping. bash + grep; ~1s.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash grep sed
+  script:
+    # Self-test first: a guard nobody has watched fail is indistinguishable from
+    # one with a typo in its pattern.
+    - bash scripts/check-demo-readonly.sh --self-test
+    - bash scripts/check-demo-readonly.sh
+
 api:lint:
   extends: .fast-job
   stage: lint
@@ -2371,6 +2405,13 @@ api:fuzz:
     # extra (Schemathesis). [binary] pulls psycopg for the DB connection.
     - retry pip install -e "packages/scheduler[dev]" --quiet
     - retry pip install -e "packages/api[binary,fuzz]" --quiet
+    # Record the resolved Schemathesis version (#2768). The pin is `>=4.0,<5.0`
+    # and floats within it, `pip install` runs --quiet, and the 16 MB trace limit
+    # truncates the log before the summary — so when behavior changed between the
+    # 08-03 (green) and 08-04 (errored) nightlies there was no way to tell from
+    # the job whether the tool had moved under us. One line makes the next
+    # regression bisectable.
+    - pip show schemathesis hypothesis | grep -E '^(Name|Version):'
     - cd packages/api
     - python manage.py migrate --noinput
     - python manage.py seed_integration_fixtures
@@ -2393,7 +2434,19 @@ api:fuzz:
       | python -c 'import sys, json; print(json.load(sys.stdin)["access"])')
     - export FUZZ_TOKEN
   script:
+    # Prove the coverage guard can fail before trusting the run it will judge.
+    - python scripts/check_fuzz_coverage.py --self-test
     - cd packages/api
+    # `packages/api/schemathesis.toml` also carries --suppress-health-check
+    # (#2768). Running from this directory is what makes Schemathesis discover
+    # it, so do not move this `cd` below the run.
+    #
+    # `|| FUZZ_STATUS=$?` instead of letting the run abort the script: the
+    # coverage guard below has to see the report even when — especially when —
+    # the run itself reported failures. The worse of the two exit codes is
+    # returned at the end, so a real fuzz finding is never masked by a clean
+    # coverage check.
+    - FUZZ_STATUS=0
     - >
       schemathesis run http://127.0.0.1:8000/api/schema/
       --url http://127.0.0.1:8000
@@ -2404,6 +2457,21 @@ api:fuzz:
       --workers 4
       --suppress-health-check=filter_too_much
       --report junit --report-junit-path junit-fuzz.xml
+      || FUZZ_STATUS=$?
+    # Nothing else distinguishes "581 operations fuzzed, all clean" from "580
+    # fuzzed, 1 never ran" (#2768). An errored operation gets ZERO checks, and
+    # the run still ends 580/581 green.
+    - cd ../..
+    - COVERAGE_STATUS=0
+    - >
+      python scripts/check_fuzz_coverage.py
+      --report packages/api/junit-fuzz.xml
+      --schema docs/api/openapi.json
+      || COVERAGE_STATUS=$?
+    # Quoted: the `: ` inside the ternary would otherwise make YAML read this
+    # scalar as a mapping and the job would parse to nothing.
+    - 'if [ "$COVERAGE_STATUS" -gt "$FUZZ_STATUS" ]; then exit "$COVERAGE_STATUS"; fi'
+    - exit "$FUZZ_STATUS"
   artifacts:
     when: always
     reports:

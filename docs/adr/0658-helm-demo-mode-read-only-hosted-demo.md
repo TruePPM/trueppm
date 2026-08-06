@@ -172,6 +172,36 @@ ADR-0265, which explicitly rejected a second switch as an operational footgun), 
 flag gates *both* share kinds. If it is unset the demo deploys cleanly, serves a working
 app, and 404s every share URL — a silent, hard-to-diagnose failure.
 
+### D12 — `create_demo_share_link` enables sharing on the demo *project*, and verifies before printing (#2781)
+
+D8 above caught one half of "the demo deploys cleanly and every share URL fails": the
+ADR-0245 instance kill switch. It missed the other half. `Workspace.public_sharing` is
+`default=False`, and the ADR-0135 policy resolution (workspace → program → project) gates
+the *read* — while `mint_share_link()`, which the command calls directly, does not consult
+it at all. So on a fresh install both demo manifests minted links successfully, printed a
+confident `URL: …/share/schedule/<token>`, and every recipient got `410 Gone`.
+
+**The command enables sharing at project scope, not workspace scope.** `Project.public_sharing`
+is a nullable override that outranks the workspace value under the OSS `SUGGEST` policy, so
+setting it makes the demo link resolve while leaving the admin-facing workspace default
+alone. Flipping the workspace flag from a management command would loosen the default for
+*every* project on the instance — unacceptable for a self-hoster who seeds the sample onto
+a real install to look around. The write is scoped by the same `is_sample=True` lookup the
+command already uses to pick its project (#2476), so the only row it can touch is one the
+seeder created, and it is a no-op when already set (each save advances `server_version` and
+writes a history row; the demo container restarts often).
+
+Rejected: setting it from the two manifests instead. That is the failure mode being fixed —
+two copies of a step that a third deployment path would omit. Rejected likewise: seeding the
+`Workspace` row with the toggle on, which flips a global policy merely because someone ran
+the seeder, without ever minting a link.
+
+**Verification, not assumption.** Enabling the override is necessary but not sufficient: the
+kill switch outranks every policy, and an Enterprise `ENFORCE` lock outranks the project
+override. Neither is the command's to override — an operator or workspace admin set them
+deliberately. So after minting, the command re-reads the posture the recipient will hit and
+prints an explicit error naming the cause instead of a URL it knows will not serve.
+
 ### D9 — `cloudflared` stays out of the chart
 
 Cloudflare Tunnel is cluster ingress topology, not application topology. Bundling it
