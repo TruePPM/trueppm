@@ -174,18 +174,18 @@ hex_pat_self_test() {
            '  color: #1A1917,' '  color: #fff !important;' '  stroke: #abcdef inherit;' \
            '  background: #0e1626 url(/x.png);' '  border-bottom: #ccc solid;' \
            '  color: #123456;'; do
-    grep -qE "$HEX_COLOR_PAT" <<<"$s" || { echo "::error:: hex pattern MISSED a color: $s"; rc=1; }
+    grep -qE "$HEX_COLOR_PAT" <<<"$s" || { echo "::error:: hex pattern MISSED a color: $s" >&2; rc=1; }
   done
   # MUST NOT match — issue references, the false-positive class this pattern exists
   # to exclude. A bare ref, and the quote/colon-adjacent forms that #2651 fixed.
   for s in '// plain bare ref #2640 in prose' '/* the "#2495 scope boundary" test */' \
            'That is deliberate: #1788 tuned the phone bar'; do
-    grep -qE "$HEX_COLOR_PAT" <<<"$s" && { echo "::error:: hex pattern COUNTED an issue ref: $s"; rc=1; }
+    grep -qE "$HEX_COLOR_PAT" <<<"$s" && { echo "::error:: hex pattern COUNTED an issue ref: $s" >&2; rc=1; }
   done
   return $rc
 }
 if ! hex_pat_self_test; then
-  echo "design-system-v2: HEX_COLOR_PAT is broken — refusing to report a count it cannot be trusted to produce."
+  echo "design-system-v2: HEX_COLOR_PAT is broken — refusing to report a count it cannot be trusted to produce." >&2
   exit 1
 fi
 
@@ -254,68 +254,82 @@ bare_suspense=$(bare_suspense_fallback_offenders | wc -l | tr -d ' ')
 echo "design-system-v2: hex=$hex (≤$BASELINE_HEX) · arbitrary-color=$arb (≤$BASELINE_ARBITRARY) · shadow=$shadow (≤$BASELINE_SHADOW) · black-rgba=$black (≤$BASELINE_BLACK) · dark-chrome=$dark_chrome (=0) · tiny-text=$tiny_text (≤$BASELINE_TINY_TEXT) · bare-suspense=$bare_suspense (=0)"
 
 if (( arb > BASELINE_ARBITRARY )); then
-  echo "::error:: $arb arbitrary Tailwind color value classes (baseline $BASELINE_ARBITRARY)."
-  echo "  Use a Design System token, not bg-[#...]/text-[#...]. New offenders:"
-  grep -rInE "(bg|text|border|ring|fill|stroke|from|to|via|divide|outline|decoration|shadow)-\[#" \
-    "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null | grep -vE "$EXCLUDE" | sed 's/^/    /'
+  {
+    echo "::error:: $arb arbitrary Tailwind color value classes (baseline $BASELINE_ARBITRARY)."
+    echo "  Use a Design System token, not bg-[#...]/text-[#...]. New offenders:"
+    grep -rInE "(bg|text|border|ring|fill|stroke|from|to|via|divide|outline|decoration|shadow)-\[#" \
+      "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null | grep -vE "$EXCLUDE" | sed 's/^/    /'
+  } >&2
   fail=1
 elif (( arb < BASELINE_ARBITRARY )); then
   echo "::notice:: arbitrary color classes dropped to $arb — lower BASELINE_ARBITRARY in $(basename "$0") to $arb."
 fi
 
 if (( hex > BASELINE_HEX )); then
-  echo "::error:: $hex raw hex literals in component source (baseline $BASELINE_HEX) — you added new hardcoded colors."
-  echo "  Define colors as tokens in globals.css / tailwind.config.ts (ADR-0126, rule 8); consume the token."
+  {
+    echo "::error:: $hex raw hex literals in component source (baseline $BASELINE_HEX) — you added new hardcoded colors."
+    echo "  Define colors as tokens in globals.css / tailwind.config.ts (ADR-0126, rule 8); consume the token."
+  } >&2
   fail=1
 elif (( hex < BASELINE_HEX )); then
   echo "::notice:: hex literals dropped to $hex — lower BASELINE_HEX in $(basename "$0") to $hex to lock the gain."
 fi
 
 if (( shadow > BASELINE_SHADOW )); then
-  echo "::error:: $shadow off-token box-shadows (baseline $BASELINE_SHADOW) — v2 is borders-over-shadows (rule 1)."
-  echo "  Use 'border border-neutral-border' to separate; reserve shadow-card/shadow-pop for popover/drawer/modal/palette/toast. Offenders:"
-  grep -rInE "\bshadow-(sm|md|lg|xl|2xl|inner)\b|shadow-\[" \
-    "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null | grep -vE "$EXCLUDE" | sed 's/^/    /'
+  {
+    echo "::error:: $shadow off-token box-shadows (baseline $BASELINE_SHADOW) — v2 is borders-over-shadows (rule 1)."
+    echo "  Use 'border border-neutral-border' to separate; reserve shadow-card/shadow-pop for popover/drawer/modal/palette/toast. Offenders:"
+    grep -rInE "\bshadow-(sm|md|lg|xl|2xl|inner)\b|shadow-\[" \
+      "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null | grep -vE "$EXCLUDE" | sed 's/^/    /'
+  } >&2
   fail=1
 elif (( shadow < BASELINE_SHADOW )); then
   echo "::notice:: off-token shadows dropped to $shadow — lower BASELINE_SHADOW in $(basename "$0") to $shadow."
 fi
 
 if (( black > BASELINE_BLACK )); then
-  echo "::error:: $black inline rgba(0,0,0,α) color values (baseline $BASELINE_BLACK) — the black-on-blue antipattern (issue 1638)."
-  echo "  A fixed black value renders invisible on the dark navy surfaces. Use a mode-aware token (var(--color-*) / a COLOR_DARK palette entry). Offenders:"
-  grep -rInE "rgba\(0, ?0, ?0, ?[0-9]?\.[0-9]" \
-    "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null | grep -vE "$EXCLUDE" | sed 's/^/    /'
+  {
+    echo "::error:: $black inline rgba(0,0,0,α) color values (baseline $BASELINE_BLACK) — the black-on-blue antipattern (issue 1638)."
+    echo "  A fixed black value renders invisible on the dark navy surfaces. Use a mode-aware token (var(--color-*) / a COLOR_DARK palette entry). Offenders:"
+    grep -rInE "rgba\(0, ?0, ?0, ?[0-9]?\.[0-9]" \
+      "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null | grep -vE "$EXCLUDE" | sed 's/^/    /'
+  } >&2
   fail=1
 elif (( black < BASELINE_BLACK )); then
   echo "::notice:: black-rgba values dropped to $black — lower BASELINE_BLACK in $(basename "$0") to $black to lock the gain."
 fi
 
 if (( dark_chrome > 0 )); then
-  echo "::error:: $dark_chrome dark-chrome-on-light occurrence(s) in $SHELL_SRC (ADR-0126 §4 — never a dark sidebar on a light app)."
-  echo "  Shell chrome must use the adaptive 'bg-chrome-surface' token (it swaps with the .dark class), not a raw dark navy fill. Offenders:"
-  dark_chrome_offenders | sed 's/^/    /'
+  {
+    echo "::error:: $dark_chrome dark-chrome-on-light occurrence(s) in $SHELL_SRC (ADR-0126 §4 — never a dark sidebar on a light app)."
+    echo "  Shell chrome must use the adaptive 'bg-chrome-surface' token (it swaps with the .dark class), not a raw dark navy fill. Offenders:"
+    dark_chrome_offenders | sed 's/^/    /'
+  } >&2
   fail=1
 fi
 
 if (( tiny_text > BASELINE_TINY_TEXT )); then
-  echo "::error:: $tiny_text sub-floor type occurrence(s) (baseline $BASELINE_TINY_TEXT) — the type floor is text-xs (12px, rule 50)."
-  echo "  text-[10px] is permitted only inside features/settings (rule 118); text-[9px] and below are prohibited everywhere. Offenders:"
-  tiny_text_offenders | sed 's/^/    /'
+  {
+    echo "::error:: $tiny_text sub-floor type occurrence(s) (baseline $BASELINE_TINY_TEXT) — the type floor is text-xs (12px, rule 50)."
+    echo "  text-[10px] is permitted only inside features/settings (rule 118); text-[9px] and below are prohibited everywhere. Offenders:"
+    tiny_text_offenders | sed 's/^/    /'
+  } >&2
   fail=1
 elif (( tiny_text < BASELINE_TINY_TEXT )); then
   echo "::notice:: sub-floor type dropped to $tiny_text — lower BASELINE_TINY_TEXT in $(basename "$0") to $tiny_text to lock the gain."
 fi
 
 if (( bare_suspense > 0 )); then
-  echo "::error:: $bare_suspense bare text node(s) used as a Suspense fallback (rule 248)."
-  echo "  Render a skeleton that mirrors the surface's shape so the layout does not jump when the chunk lands. Offenders:"
-  bare_suspense_fallback_offenders | sed 's/^/    /'
+  {
+    echo "::error:: $bare_suspense bare text node(s) used as a Suspense fallback (rule 248)."
+    echo "  Render a skeleton that mirrors the surface's shape so the layout does not jump when the chunk lands. Offenders:"
+    bare_suspense_fallback_offenders | sed 's/^/    /'
+  } >&2
   fail=1
 fi
 
 if (( fail )); then
-  echo "design-system-v2 gate FAILED — see docs/design/v2-golden-standard.md / ADR-0126."
+  echo "design-system-v2 gate FAILED — see docs/design/v2-golden-standard.md / ADR-0126." >&2
   exit 1
 fi
 echo "design-system-v2 gate passed."

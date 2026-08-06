@@ -121,16 +121,16 @@ run_check() {
 
     # (1) Any proxied path outside the allowlist is a surface-widening regression.
     if [ "$proxy" = "1" ] && ! is_allowed "$path"; then
-      echo "VIOLATION: location '$path' proxies to the API but is not in the demo allowlist."
-      echo "    The public demo must only proxy: ${ALLOWED_PROXY_PATHS[*]}"
+      echo "VIOLATION: location '$path' proxies to the API but is not in the demo allowlist." >&2
+      echo "    The public demo must only proxy: ${ALLOWED_PROXY_PATHS[*]}" >&2
       violations=$((violations + 1))
     fi
 
     # (2) The catch-all /api/ must be a deny, not a proxy.
     if [ "$path" = "/api/" ]; then
       if [ "$proxy" = "1" ]; then
-        echo "VIOLATION: catch-all 'location /api/' proxies to the API — it must DENY (return 404),"
-        echo "    otherwise the full authenticated API is exposed on the public demo."
+        echo "VIOLATION: catch-all 'location /api/' proxies to the API — it must DENY (return 404)," >&2
+        echo "    otherwise the full authenticated API is exposed on the public demo." >&2
         violations=$((violations + 1))
       elif [ "$deny" = "1" ]; then
         saw_catchall_deny=1
@@ -144,21 +144,23 @@ run_check() {
   done <<< "$records"
 
   if [ "$saw_catchall_deny" -ne 1 ]; then
-    echo "VIOLATION: no catch-all 'location /api/ { return … }' deny found."
-    echo "    Without it, any /api/ route not explicitly allowlisted defaults to open."
+    echo "VIOLATION: no catch-all 'location /api/ { return … }' deny found." >&2
+    echo "    Without it, any /api/ route not explicitly allowlisted defaults to open." >&2
     violations=$((violations + 1))
   fi
   if [ "$saw_share_proxy" -ne 1 ]; then
-    echo "VIOLATION: the share-link data plane 'location ^~ /api/v1/share/' is not proxied —"
-    echo "    the public demo would have no reachable content."
+    echo "VIOLATION: the share-link data plane 'location ^~ /api/v1/share/' is not proxied —" >&2
+    echo "    the public demo would have no reachable content." >&2
     violations=$((violations + 1))
   fi
 
   echo ""
   if [ "$violations" -gt 0 ]; then
-    echo "ERROR: $violations demo-nginx allowlist violation(s) in $template."
-    echo "The public read-only demo must proxy ONLY the anonymous share endpoints,"
-    echo "the liveness probe, static assets, and loopback admin. See #1763."
+    {
+      echo "ERROR: $violations demo-nginx allowlist violation(s) in $template."
+      echo "The public read-only demo must proxy ONLY the anonymous share endpoints,"
+      echo "the liveness probe, static assets, and loopback admin. See #1763."
+    } >&2
     return 1
   fi
   echo "OK: $template proxies only the vetted allowlist; the authenticated API is closed."

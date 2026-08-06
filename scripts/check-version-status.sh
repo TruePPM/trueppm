@@ -127,8 +127,8 @@ run_scan() {
       while read -r ver; do
         [ -z "$ver" ] && continue
         if [ "$(version_gt "$ver" "$highest")" = "1" ]; then
-          echo "VIOLATION: $f:$lineno references unshipped version $ver in past/present tense"
-          echo "    $line"
+          echo "VIOLATION: $f:$lineno references unshipped version $ver in past/present tense" >&2
+          echo "    $line" >&2
           violations=$((violations + 1))
         fi
       done < <(printf '%s\n' "$line" \
@@ -170,20 +170,20 @@ run_scan() {
     if [ -n "$declared" ]; then
       if [ "$(version_gt "$declared" "$highest")" = "1" ]; then
         if [ -z "$callout_ver" ]; then
-          echo "VIOLATION: $f declares documentedFor: $declared (unshipped) but carries no \"Ships in $declared\" callout"
+          echo "VIOLATION: $f declares documentedFor: $declared (unshipped) but carries no \"Ships in $declared\" callout" >&2
           echo "    A reader on $highest would take this page as describing their install."
           fm_violations=$((fm_violations + 1))
         elif [ "$callout_ver" != "$declared" ]; then
-          echo "VIOLATION: $f declares documentedFor: $declared but its callout says \"Ships in $callout_ver\""
+          echo "VIOLATION: $f declares documentedFor: $declared but its callout says \"Ships in $callout_ver\"" >&2
           fm_violations=$((fm_violations + 1))
         fi
       elif [ -n "$callout_ver" ]; then
-        echo "VIOLATION: $f carries a \"Ships in $callout_ver\" callout, but documentedFor: $declared has shipped"
+        echo "VIOLATION: $f carries a \"Ships in $callout_ver\" callout, but documentedFor: $declared has shipped" >&2
         echo "    Delete the callout — $declared is released, so the banner now misinforms."
         fm_violations=$((fm_violations + 1))
       fi
     elif [ -n "$callout_ver" ] && [ "$(version_gt "$callout_ver" "$highest")" != "1" ]; then
-      echo "VIOLATION: $f carries a \"Ships in $callout_ver\" callout for a version that has shipped"
+      echo "VIOLATION: $f carries a \"Ships in $callout_ver\" callout for a version that has shipped" >&2
       fm_violations=$((fm_violations + 1))
     fi
   done <<< "$files"
@@ -192,15 +192,17 @@ run_scan() {
   echo ""
   echo "Shipped versions (from roadmap): $(echo "$shipped" | tr '\n' ' ')(highest: $highest)"
   if [ "$violations" -gt 0 ]; then
-    echo ""
-    echo "ERROR: $violations version-tense violation(s) found."
-    echo "Past/present-tense version claims must reference a SHIPPED version."
-    echo "For unshipped versions use future tense (\"ships in 0.X\", \"lands in 0.X\")."
-    echo ""
-    echo "If a page documents behavior that has not been released, declare it:"
-    echo "  documentedFor: \"0.X\"   in front matter, plus a :::note[Ships in 0.X] callout."
-    echo "Once 0.X ships, delete the callout — the roadmap move is what makes it stale."
-    echo "Source of truth: $roadmap"
+    {
+      echo ""
+      echo "ERROR: $violations version-tense violation(s) found."
+      echo "Past/present-tense version claims must reference a SHIPPED version."
+      echo "For unshipped versions use future tense (\"ships in 0.X\", \"lands in 0.X\")."
+      echo ""
+      echo "If a page documents behavior that has not been released, declare it:"
+      echo "  documentedFor: \"0.X\"   in front matter, plus a :::note[Ships in 0.X] callout."
+      echo "Once 0.X ships, delete the callout — the roadmap move is what makes it stale."
+      echo "Source of truth: $roadmap"
+    } >&2
     return 1
   fi
   echo "OK: no past/present-tense claims reference an unshipped version."
