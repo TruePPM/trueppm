@@ -635,6 +635,39 @@ echo "  Updated CHANGELOG.md: [Unreleased] → [$NEW_VERSION] — $TODAY (with s
 bash scripts/rotate-scheduler-changelog.sh "$NEW_PEP440" "$CURRENT_PEP440" "$TODAY"
 
 # ---------------------------------------------------------------------------
+# Remove stale "Ships in 0.X" / "Coming in 0.X" docs callouts (#2694)
+# ---------------------------------------------------------------------------
+#
+# Once a version is promoted to the roadmap's "## Shipped" section, every
+# :::note[Ships in 0.X] / :::caution[Ships in 0.X] / "Coming in 0.X" callout
+# for that version documents something that is no longer true — the same
+# misinformation the version-status gate polices, in the other direction
+# (CLAUDE.md "Version-status tense": delete the callout once 0.X ships). 57
+# such callouts across 44 pages made that a release-day chore easy to skip
+# (#2694), so it runs here instead of by hand.
+#
+# Scoped to MAJOR.MINOR (the roadmap's "### 0.X" grain), not the full semver
+# just bumped — a 0.4.0-beta.2 release and the eventual 0.4.0 stable release
+# share the same "0.4" callouts. scripts/remove-ships-in-callouts.sh's own
+# safety gate refuses (exit 2) unless "0.4" already appears under the
+# roadmap's "## Shipped" heading, which is a human docs edit this version
+# bump does not imply — so on every pre-1.0 alpha/beta/rc cut before that
+# promotion, this call is an expected, harmless no-op, not a release
+# blocker. Only a non-refusal failure (bad invocation, missing roadmap)
+# aborts the release.
+parse_version "$NEW_VERSION"
+ROADMAP_MM="${MAJOR}.${MINOR}"
+set +e
+bash scripts/remove-ships-in-callouts.sh "$ROADMAP_MM" --apply
+CALLOUT_STATUS=$?
+set -e
+case "$CALLOUT_STATUS" in
+  0) echo "  Removed stale 'Ships in $ROADMAP_MM' / 'Coming in $ROADMAP_MM' docs callouts" ;;
+  2) echo "  Skipped callout removal — $ROADMAP_MM is not yet in the roadmap's '## Shipped' section" ;;
+  *) die "scripts/remove-ships-in-callouts.sh failed (exit $CALLOUT_STATUS) — fix before releasing." ;;
+esac
+
+# ---------------------------------------------------------------------------
 # Commit and tag
 # ---------------------------------------------------------------------------
 
@@ -644,6 +677,9 @@ bash scripts/rotate-scheduler-changelog.sh "$NEW_PEP440" "$CURRENT_PEP440" "$TOD
 # and rm's it) are committed WITH the release. Without changelog.d/ here those
 # deletions stay unstaged, leaving the tag pointing at a tree that still carries
 # already-consumed fragments — a dangling diff on top of every release (#1386).
+# Also stage the docs tree: remove-ships-in-callouts.sh above may have deleted
+# stale "Ships in 0.X" callouts in --apply mode, and those edits belong in the
+# same release commit, not left dangling unstaged (#2694).
 git add \
   packages/scheduler/pyproject.toml \
   packages/scheduler/uv.lock \
@@ -655,6 +691,7 @@ git add \
   packages/wasm-scheduler/Cargo.lock \
   packages/api/src/trueppm_api/settings/base.py \
   docs/api/openapi.json \
+  packages/website/src/content/docs \
   CHANGELOG.md \
   changelog.d
 

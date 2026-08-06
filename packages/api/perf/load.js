@@ -150,7 +150,7 @@ function endpointRows(metrics) {
   const rows = [];
   const names = Object.keys(metrics)
     .filter((name) => ENDPOINT_METRIC_RE.test(name))
-    .sort();
+    .sort((a, b) => a.localeCompare(b));
 
   for (let i = 0; i < names.length; i++) {
     const name = names[i];
