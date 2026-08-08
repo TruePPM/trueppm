@@ -657,6 +657,9 @@ describe('Sidebar rail — Tier 2 "This project" (grouped views)', () => {
   // workspace's methodology when the value shown is this project's own resolved
   // preset. It now names the fact the client can verify: whether the project
   // currently matches the workspace default.
+  // The qualifier lives on the line's `title`, not in the visible string: the full
+  // phrase is wider than the rail and used to overflow the card and be clipped
+  // mid-word by the rail's `overflow-hidden`.
   it('appends "(workspace default)" only when inherited_methodology matches effective_methodology (#2619)', () => {
     mockUseProject.mockReturnValue({
       data: { ...HYBRID_PROJECT, inherited_methodology: 'HYBRID' },
@@ -664,7 +667,10 @@ describe('Sidebar rail — Tier 2 "This project" (grouped views)', () => {
       error: null,
     });
     renderRail();
-    expect(screen.getByText('Hybrid methodology (workspace default)')).toBeInTheDocument();
+    expect(screen.getByText('Hybrid methodology')).toBeInTheDocument();
+    expect(
+      screen.getByTitle('Artemis · Hybrid methodology (workspace default)'),
+    ).toBeInTheDocument();
   });
 
   it('omits the qualifier when the project overrides the workspace default (#2619)', () => {
