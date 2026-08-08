@@ -47,3 +47,54 @@ ecosystem = "npm"
 ignore = true
 effectiveUntil = 2026-12-31
 reason = "GHSA-mh99-v99m-4gvg: no patched 1.x release exists. Build-time only, via minimatch@3 under eslint and its plugins, and under react-native's own codegen/metro toolchain (glob, test-exclude). Not bundled into the app; brace patterns come from our own eslint config and react-native's internal globs, not from user input."
+
+# GHSA-5p2g-fcmc-qvqq (JXL and HEIF parsers) and GHSA-w3rx-r6r6-pgpr (ICNS
+# parser) — image-size DoS via infinite loop (both HIGH, CVSS 8.7,
+# availability-only). A malformed image of one of those three formats never
+# terminates the dimension probe.
+#
+# There is no patched release in ANY line, which is why this is a suppression
+# rather than a bump. Both advisories are `introduced: 0, last_affected: 2.0.2`
+# with no `fixed` event, and npm `latest` IS 2.0.2 — every published version is
+# affected. Our 1.2.1 is the `legacy` dist-tag. Bumping is not an option that
+# exists; forcing 2.0.2 via `overrides` would both break metro's declared
+# `^1.0.2` range and still be vulnerable.
+#
+# It arrives on exactly one path, build-time only:
+#
+#   1.2.1 <- metro@0.83.7 (range ^1.0.2) <- react-native 0.81.6
+#
+# metro is the React Native bundler. Like brace-expansion above, it is marked
+# non-dev only because react-native declares its own build tooling under
+# `dependencies`.
+#
+# Reachability, verified rather than assumed: image-size is required in exactly
+# one metro file, metro/src/Assets.js:17, and called at two sites — Assets.js:72
+# (`getAssetSize`, on asset file content) and Assets.js:177 (`getAssetData`, on
+# an asset path from the project's own asset map). Both read image dimensions
+# during bundling. Nothing from image-size reaches the shipped app bundle; only
+# the computed width/height integers do.
+#
+# One caveat worth stating rather than glossing: metro gates the *call* on file
+# extension (`isAssetTypeAnImage()` at Assets.js:49 allows only png, jpg, jpeg,
+# bmp, gif, webp, psd, svg, tiff, ktx — NOT jxl, heif, or icns), but
+# image-size's `detector()` dispatches on magic bytes, not the extension
+# (0x69 -> icns sits in its fast-path table, and the fallback tries every
+# handler including jxl and heif). So a file named `logo.png` whose content is
+# actually ICNS/JXL/HEIF data WOULD reach a vulnerable parser.
+#
+# That leaves the realistic trigger as a malicious image committed into our own
+# asset directory, or shipped inside a dependency's assets, hanging the bundler
+# on a developer machine or a CI runner. No user- or network-supplied input
+# reaches it, and no shipped TruePPM surface is exposed.
+#
+# Re-evaluate when image-size ships a patched release in any line, or when metro
+# moves off it. Tracked in #2787.
+
+[[PackageOverrides]]
+name = "image-size"
+version = "1.2.1"
+ecosystem = "npm"
+ignore = true
+effectiveUntil = 2026-12-31
+reason = "GHSA-5p2g-fcmc-qvqq / GHSA-w3rx-r6r6-pgpr: no patched release exists in any line — npm `latest` is 2.0.2 and both advisories mark 2.0.2 `last_affected`, so there is no version to bump to. Build-time only, via metro's asset pipeline (metro/src/Assets.js) under react-native. Not bundled into the app; the input is our own committed image assets, never user or network input."

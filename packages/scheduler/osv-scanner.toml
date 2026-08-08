@@ -22,8 +22,14 @@
 # PYSEC-2025-183 (pyjwt) is likewise NOT carried: pyjwt is not in the
 # scheduler's dependency set (it reaches the api via simplejwt only). Omitting
 # it is exactly the cross-package bleed the per-directory split removes.
-
-[[IgnoredVulns]]
-id = "CVE-2026-4539"
-ignoreUntil = 2026-12-31
-reason = "Local-access-only ReDoS in pygments' AdlLexer (CVSS low/medium). Dev tooling only (diff-cover -> pygments), not part of the published wheel's runtime closure (networkx + numpy). No patched release addresses it as of 2026-03-25; re-evaluate once pygments ships a fix."
+#
+# This file currently carries no suppressions. Its one entry was removed on
+# 2026-08-06 (#2786) once the scanner began reporting it as unused — meaning the
+# locked version had moved out of the advisory's affected range, so the entry
+# was no longer suppressing anything:
+#
+#   CVE-2026-4539 / PYSEC-2026-2987 (pygments AdlLexer ReDoS) — fixed in 2.20.0;
+#     uv.lock is at pygments 2.20.0.
+#
+# The file is kept rather than deleted so the auto-discovery path and the
+# accepted-risk contract above stay in place for the next entry.
