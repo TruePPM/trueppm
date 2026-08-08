@@ -12,6 +12,10 @@ from trueppm_api.apps.projects.asset_views import (
     WorkspaceAssetsView,
 )
 from trueppm_api.apps.projects.backlog_views import BacklogItemViewSet
+from trueppm_api.apps.projects.batch_operation_views import (
+    CascadeClassificationOperationViewSet,
+    PasteManyOperationViewSet,
+)
 from trueppm_api.apps.projects.board_activity_views import BoardActivityView
 from trueppm_api.apps.projects.ceremony_views import (
     CeremonyTemplateViewSet,
@@ -126,6 +130,16 @@ router.register(r"dependencies", DependencyViewSet, basename="dependency")
 router.register(r"project-templates", ProjectTemplateViewSet, basename="project-template")
 router.register(
     r"template-applications", TemplateApplicationViewSet, basename="template-application"
+)
+# ⌘Z undo ledgers (ADR-0810, #2756) — same flat-collection shape as
+# template-applications, for the same reason: not owned by the project route.
+router.register(
+    r"paste-many-operations", PasteManyOperationViewSet, basename="paste-many-operation"
+)
+router.register(
+    r"cascade-classification-operations",
+    CascadeClassificationOperationViewSet,
+    basename="cascade-classification-operation",
 )
 router.register(r"task-relations", TaskRelationViewSet, basename="task-relation")
 router.register(r"slip-conflicts", CrossProjectSlipConflictViewSet, basename="slip-conflict")

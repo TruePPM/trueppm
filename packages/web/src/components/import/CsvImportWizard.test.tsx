@@ -27,6 +27,10 @@ const h = vi.hoisted(() => ({
     isSuccess: false,
     mutate: vi.fn(),
   },
+  undo: {
+    isPending: false,
+    mutate: vi.fn(),
+  },
 }));
 
 vi.mock('@/hooks/useCsvImport', async (importOriginal) => {
@@ -37,6 +41,17 @@ vi.mock('@/hooks/useCsvImport', async (importOriginal) => {
     useCsvImportCommit: () => ({ ...h.commit }),
     useCsvImportStatus: () => ({ ...h.status }),
     useCsvImportTemplate: () => ({ ...h.template }),
+  };
+});
+
+// ADR-0810 (#2756): mocked the same way as useCsvImport above — the wizard's
+// Undo affordance is a thin wrapper over this hook, and the hook's own POST
+// contract is covered by useBatchOperations.test.ts.
+vi.mock('@/hooks/useBatchOperations', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useBatchOperations')>();
+  return {
+    ...actual,
+    useUndoImportFixOperation: () => ({ ...h.undo }),
   };
 });
 
@@ -81,6 +96,8 @@ beforeEach(() => {
   h.template.isError = false;
   h.template.isSuccess = false;
   h.template.mutate = vi.fn();
+  h.undo.isPending = false;
+  h.undo.mutate = vi.fn();
 });
 
 /** The dropzone's file input is intentionally hidden and unlabeled. */
@@ -640,6 +657,65 @@ describe('CsvImportWizard (#746)', () => {
       // lets Shift+Tab escape the dialog when nothing focusable precedes it.
       expect(document.activeElement?.getAttribute('tabindex')).not.toBe('-1');
       expect(document.activeElement?.tagName).toBe('BUTTON');
+    });
+  });
+
+  describe('undo (ADR-0810, #2756)', () => {
+    it('offers Undo on a completed import that created rows', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, { tasks_created: 12, row_errors: [], warnings: [] });
+
+      expect(screen.getByRole('button', { name: 'Undo import (⌘Z)' })).toBeInTheDocument();
+    });
+
+    it('calls the undo hook with the import id and shows the outcome', async () => {
+      const user = userEvent.setup();
+      h.undo.mutate = vi.fn(
+        (_id, opts?: { onSuccess?: (d: { undo: { deleted: number; kept: number } }) => void }) => {
+          opts?.onSuccess?.({ undo: { deleted: 12, kept: 0 } });
+        },
+      );
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, { tasks_created: 12, row_errors: [], warnings: [] });
+
+      await user.click(screen.getByRole('button', { name: 'Undo import (⌘Z)' }));
+
+      expect(h.undo.mutate).toHaveBeenCalledWith('imp-1', expect.anything());
+      expect(
+        screen.getByText('Import undone — the rows it created were removed.'),
+      ).toBeInTheDocument();
+    });
+
+    it('hides View schedule and the Undo button once the import is undone', async () => {
+      const user = userEvent.setup();
+      h.undo.mutate = vi.fn(
+        (_id, opts?: { onSuccess?: (d: { undo: { deleted: number; kept: number } }) => void }) => {
+          opts?.onSuccess?.({ undo: { deleted: 12, kept: 0 } });
+        },
+      );
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, { tasks_created: 12, row_errors: [], warnings: [] });
+      await user.click(screen.getByRole('button', { name: 'Undo import (⌘Z)' }));
+
+      expect(screen.queryByRole('button', { name: 'View schedule' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Undo import (⌘Z)' })).not.toBeInTheDocument();
+    });
+
+    it('offers no Undo on a failed import — there is nothing to reverse', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, { error: 'Bad file' }, 'dead');
+
+      expect(screen.queryByRole('button', { name: 'Undo import (⌘Z)' })).not.toBeInTheDocument();
     });
   });
 

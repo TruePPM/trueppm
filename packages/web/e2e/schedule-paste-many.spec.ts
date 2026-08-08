@@ -12,6 +12,10 @@
  * own `tasks/bulk/`), not the stateless default list mock — the tree-shape
  * assertion below reads the DOM *after* the paste commits, which would
  * otherwise race `useBulkCreateTasks`' `['tasks']` invalidation (#2752).
+ *
+ * Undo (ADR-0810, #2756): the `tasks/bulk/` mock returns an `operation_id`, so
+ * the golden-path test below exercises the real `POST /paste-many-operations/
+ * {id}/undo/` server-recorded undo, not the client-side fallback.
  */
 import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll, setupTaskStore } from './fixtures';

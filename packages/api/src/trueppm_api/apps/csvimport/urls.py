@@ -8,6 +8,7 @@ from trueppm_api.apps.csvimport.views import (
     CsvImportPreviewView,
     CsvImportStatusView,
     CsvImportTemplateView,
+    CsvImportUndoView,
     CsvImportView,
 )
 
@@ -36,5 +37,14 @@ urlpatterns = [
         "projects/<project_pk>/import/csv/<pk>/",
         CsvImportStatusView.as_view(),
         name="project-import-csv-status",
+    ),
+    # Declared after the status route: "undo" would otherwise never be reached
+    # if a router matched it as a <pk> segment first, though plain path()
+    # entries don't have that ambiguity — kept last anyway for readability,
+    # status then action, mirroring the rest of this file's ordering.
+    path(
+        "projects/<project_pk>/import/csv/<pk>/undo/",
+        CsvImportUndoView.as_view(),
+        name="project-import-csv-undo",
     ),
 ]

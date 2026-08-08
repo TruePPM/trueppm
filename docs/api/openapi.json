@@ -2623,6 +2623,202 @@
                 }
             }
         },
+        "/api/v1/cascade-classification-operations/": {
+            "get": {
+                "operationId": "v1_cascade_classification_operations_list",
+                "description": "Adds ``Idempotency-Key`` replay/store semantics to a DRF view.\n\nApply by inheriting before the DRF base (so its ``initial`` /\n``finalize_response`` / ``handle_exception`` overrides precede ``APIView`` in the\nMRO). Set ``idempotency_exempt = True`` to opt a view out (auth/token endpoints,\nalready-deduped outbox entrypoints, streaming/export views).",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedCascadeClassificationOperationList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "List cascade classification operations"
+            }
+        },
+        "/api/v1/cascade-classification-operations/{id}/": {
+            "get": {
+                "operationId": "v1_cascade_classification_operations_retrieve",
+                "description": "Adds ``Idempotency-Key`` replay/store semantics to a DRF view.\n\nApply by inheriting before the DRF base (so its ``initial`` /\n``finalize_response`` / ``handle_exception`` overrides precede ``APIView`` in the\nMRO). Set ``idempotency_exempt = True`` to opt a view out (auth/token endpoints,\nalready-deduped outbox entrypoints, streaming/export views).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CascadeClassificationOperation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve cascade classification operation"
+            }
+        },
+        "/api/v1/cascade-classification-operations/{id}/undo/": {
+            "post": {
+                "operationId": "v1_cascade_classification_operations_undo_create",
+                "description": "Undo this cascade — restores each untouched row's prior classification.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CascadeClassificationOperation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Undo cascade classification operation"
+            }
+        },
         "/api/v1/dependencies/": {
             "get": {
                 "operationId": "v1_dependencies_list",
@@ -6354,6 +6550,202 @@
                     }
                 },
                 "summary": "Retrieve work"
+            }
+        },
+        "/api/v1/paste-many-operations/": {
+            "get": {
+                "operationId": "v1_paste_many_operations_list",
+                "description": "Adds ``Idempotency-Key`` replay/store semantics to a DRF view.\n\nApply by inheriting before the DRF base (so its ``initial`` /\n``finalize_response`` / ``handle_exception`` overrides precede ``APIView`` in the\nMRO). Set ``idempotency_exempt = True`` to opt a view out (auth/token endpoints,\nalready-deduped outbox entrypoints, streaming/export views).",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedPasteManyOperationList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "List paste many operations"
+            }
+        },
+        "/api/v1/paste-many-operations/{id}/": {
+            "get": {
+                "operationId": "v1_paste_many_operations_retrieve",
+                "description": "Adds ``Idempotency-Key`` replay/store semantics to a DRF view.\n\nApply by inheriting before the DRF base (so its ``initial`` /\n``finalize_response`` / ``handle_exception`` overrides precede ``APIView`` in the\nMRO). Set ``idempotency_exempt = True`` to opt a view out (auth/token endpoints,\nalready-deduped outbox entrypoints, streaming/export views).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PasteManyOperation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve paste many operation"
+            }
+        },
+        "/api/v1/paste-many-operations/{id}/undo/": {
+            "post": {
+                "operationId": "v1_paste_many_operations_undo_create",
+                "description": "Undo this paste-many batch — removes the rows it created that nobody has edited.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PasteManyOperation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Undo paste many operation"
             }
         },
         "/api/v1/poker/{id}/cancel/": {
@@ -21721,6 +22113,83 @@
                     },
                     "403": {
                         "description": "Caller lacks the Scheduler role on the project."
+                    },
+                    "404": {
+                        "description": "No such import for this project."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/import/csv/{id}/undo/": {
+            "post": {
+                "operationId": "v1_projects_import_csv_undo_create",
+                "description": "⌘Z one completed import (ADR-0810, #2756, #2732).\n\nProject-nested like ``CsvImportStatusView`` rather than a router-registered\n``import-fix-operations`` collection: this app has no router, and every\nother endpoint here is a plain ``path()`` under ``projects/<project_pk>/\nimport/csv/...`` — matching that convention beats forcing in a different\napp's routing style for one endpoint.\n\nNo separate ``ImportFixOperation`` model backs this — ``CsvImportRequest``\nalready is the outbox row for the import (see ``task_batch_services.py``'s\nimport-fix section for why a parallel table would have duplicated it).",
+                "summary": "Undo one completed CSV/Excel import",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "import-export"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "{\"status\", \"undo\": {\"deleted\", \"kept\"}}."
+                    },
+                    "400": {
+                        "description": "Import is not in a completed (done) state."
+                    },
+                    "403": {
+                        "description": "Caller lacks the Admin role on the project."
                     },
                     "404": {
                         "description": "No such import for this project."
@@ -43637,6 +44106,67 @@
                     "name"
                 ]
             },
+            "CascadeClassificationOperation": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "applied_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "subtree_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StatusE83Enum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "task_snapshots": {
+                        "readOnly": true
+                    },
+                    "result_summary": {
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "undone_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "applied_by",
+                    "created_at",
+                    "id",
+                    "project",
+                    "result_summary",
+                    "status",
+                    "subtree_id",
+                    "task_snapshots",
+                    "undone_at"
+                ]
+            },
             "CastVoteRequest": {
                 "type": "object",
                 "description": "POST body — the caller's estimate (``value`` null = the \"?\" card).",
@@ -47005,6 +47535,37 @@
                     }
                 }
             },
+            "PaginatedCascadeClassificationOperationList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CascadeClassificationOperation"
+                        }
+                    }
+                }
+            },
             "PaginatedCeremonyTemplateList": {
                 "type": "object",
                 "required": [
@@ -47373,6 +47934,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/NotificationPreference"
+                        }
+                    }
+                }
+            },
+            "PaginatedPasteManyOperationList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/PasteManyOperation"
                         }
                     }
                 }
@@ -48617,6 +49209,61 @@
                 },
                 "required": [
                     "email"
+                ]
+            },
+            "PasteManyOperation": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "applied_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StatusE83Enum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "created_task_versions": {
+                        "readOnly": true
+                    },
+                    "result_summary": {
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "undone_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "applied_by",
+                    "created_at",
+                    "created_task_versions",
+                    "id",
+                    "project",
+                    "result_summary",
+                    "status",
+                    "undone_at"
                 ]
             },
             "PatchedAcceptanceCriterionRequest": {
@@ -56766,6 +57413,14 @@
                 "type": "string",
                 "description": "* `pending` - Pending\n* `running` - Running\n* `success` - Success\n* `failed` - Failed\n* `cancelled` - Cancelled"
             },
+            "StatusE83Enum": {
+                "enum": [
+                    "active",
+                    "undone"
+                ],
+                "type": "string",
+                "description": "* `active` - Active\n* `undone` - Undone"
+            },
             "SyncPullResponse": {
                 "type": "object",
                 "description": "Response envelope for the paginated delta pull (#1013).\n\n``next_cursor``/``has_more`` are added for cursor pagination; the pre-existing\n``changes`` and ``timestamp`` fields are unchanged, so an older client that\nignores the cursor still gets a valid (first) page. The client loops while\n``has_more`` is true, sending the previous ``next_cursor`` back and keeping\n``since`` constant, then adopts ``timestamp`` as the next ``since``.",
@@ -57957,11 +58612,18 @@
                     },
                     "dependencies": {
                         "$ref": "#/components/schemas/TaskBulkDependencyResult"
+                    },
+                    "operation_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true,
+                        "description": "ADR-0810 (#2756): the ⌘Z undo ledger row for this batch's creates. Null when the batch created no rows — POST /paste-many-operations/{operation_id}/undo/."
                     }
                 },
                 "required": [
                     "applied",
                     "dependencies",
+                    "operation_id",
                     "rejected",
                     "skipped"
                 ]
@@ -58017,10 +58679,16 @@
                         "items": {
                             "$ref": "#/components/schemas/TaskClassificationSkip"
                         }
+                    },
+                    "operation_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
                     }
                 },
                 "required": [
                     "matched",
+                    "operation_id",
                     "skipped",
                     "subtree"
                 ]

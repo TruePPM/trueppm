@@ -67,6 +67,13 @@ export async function setupTaskStore(
   const rows: TaskRow[] = opts.tasks.map((t) => ({ ...t }));
   const patches: Record<string, unknown>[] = [];
   const classifications: Record<string, unknown>[] = [];
+  // ADR-0810 (#2756): the pre-cascade snapshot `/cascade-classification-operations/
+  // {id}/undo/` restores — captured before the classification route's own mutation
+  // loop runs, mirroring the real server's before/after snapshot.
+  let lastCascadeUndo: Record<string, unknown>[] | null = null;
+  // ADR-0810 (#2756): the ids `/paste-many-operations/{id}/undo/` removes —
+  // exactly what the most recent `tasks/bulk/` create batch wrote.
+  let lastPasteManyUndo: string[] | null = null;
   const applyPatch =
     opts.applyPatch ?? ((body: Record<string, unknown>, current: TaskRow) => ({ ...current, ...body }));
 
@@ -120,11 +127,13 @@ export async function setupTaskStore(
     };
     const applied: Record<string, unknown>[] = [];
     const rejected: Record<string, unknown>[] = [];
+    const createdIds: string[] = [];
     (body.operations ?? []).forEach((op, index) => {
       if (op.op === 'create') {
         const id = op.id ?? `bulk-${rows.length}-${index}`;
         rows.push({ id, ...op.data });
         applied.push({ index, id, op: 'create', outcome: 'created' });
+        createdIds.push(id);
         return;
       }
       if (op.op === 'delete') {
@@ -139,7 +148,27 @@ export async function setupTaskStore(
       }
       rejected.push({ index, id: op.id ?? null, code: 'invalid', message: `Unknown op '${op.op}'.` });
     });
-    return route.fulfill(json({ applied, rejected, skipped: [] }, 207));
+    // ADR-0810 (#2756): the ⌘Z undo ledger id — a fixed fixture id whenever the
+    // batch created at least one row, matching the real server's "any create
+    // through this endpoint is undoable" behavior. `/paste-many-operations/
+    // {id}/undo/` below deletes exactly this batch's created ids.
+    const operationId = createdIds.length > 0 ? 'e2e-paste-many-op-1' : null;
+    if (createdIds.length > 0) lastPasteManyUndo = createdIds;
+    return route.fulfill(json({ applied, rejected, skipped: [], operation_id: operationId }, 207));
+  });
+
+  // ADR-0810 (#2756): reverses the most recent paste-many batch by removing
+  // exactly the ids that same batch created — good enough for a frontend
+  // wiring test (skip-if-touched-since is pytest's job, not e2e's).
+  await page.route(/\/api\/v1\/paste-many-operations\/[^/]+\/undo\/$/, async (route: Route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    const ids = lastPasteManyUndo ?? [];
+    for (const id of ids) {
+      const idx = rows.findIndex((r) => r.id === id);
+      if (idx >= 0) rows.splice(idx, 1);
+    }
+    lastPasteManyUndo = null;
+    return route.fulfill(json({ undo: { deleted: ids.length, kept: 0 } }));
   });
 
   // `projects/{pk}/tasks/classification/` (#2735/#2736) — the two-axis subtree
@@ -176,6 +205,14 @@ export async function setupTaskStore(
     }
 
     const matched = rows.filter((r) => subtreeIds.has(r.id as string));
+    // ADR-0810 (#2756): snapshot before the mutation loop below — this is what
+    // `/cascade-classification-operations/{id}/undo/` restores.
+    const beforeSnapshot = matched.map((row) => ({
+      id: row.id,
+      governance_class: row.governance_class,
+      parent_governance_inherited: row.parent_governance_inherited,
+      delivery_mode: row.delivery_mode,
+    }));
     const skipped: Record<string, unknown>[] = [];
     let govApplied = 0;
     let govKept = 0;
@@ -218,10 +255,18 @@ export async function setupTaskStore(
       }
     }
 
+    // ADR-0810 (#2756): the ⌘Z undo ledger id — null on a no-op cascade (nothing
+    // written), a fixed fixture id otherwise. `/cascade-classification-operations/
+    // {id}/undo/` below reverts the exact fields this same request just wrote.
+    const wroteAnything = govApplied > 0 || deliveryApplied > 0;
+    const operationId = wroteAnything ? 'e2e-cascade-op-1' : null;
+    if (wroteAnything) lastCascadeUndo = beforeSnapshot;
+
     const report: Record<string, unknown> = {
       subtree: body.subtree,
       matched: matched.length,
       skipped,
+      operation_id: operationId,
     };
     if (body.governance_class != null) {
       report.governance = {
@@ -244,6 +289,26 @@ export async function setupTaskStore(
     }
     return route.fulfill(json(report));
   });
+
+  // ADR-0810 (#2756): reverses the most recent cascade — restores the
+  // pre-cascade snapshot captured above. Good enough for a frontend wiring
+  // test (the skip-if-touched-since logic itself is pytest's job, not e2e's).
+  await page.route(
+    /\/api\/v1\/cascade-classification-operations\/[^/]+\/undo\/$/,
+    async (route: Route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      const snapshot = lastCascadeUndo ?? [];
+      for (const before of snapshot) {
+        const row = rows.find((r) => r.id === before.id);
+        if (!row) continue;
+        row.governance_class = before.governance_class;
+        row.parent_governance_inherited = before.parent_governance_inherited;
+        row.delivery_mode = before.delivery_mode;
+      }
+      lastCascadeUndo = null;
+      return route.fulfill(json({ undo: { reverted: snapshot.length, kept: 0 } }));
+    },
+  );
 
   return { patches, classifications, rows: () => rows.map((r) => ({ ...r })) };
 }

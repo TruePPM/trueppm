@@ -121,6 +121,19 @@ are preserved. Three of those numbers are worth understanding:
 After the cascade lands, a receipt names what the **server** actually wrote — not what the
 preview predicted — including any rows it skipped.
 
+### Undo a cascade
+
+:::note[Ships in 0.4]
+Cascade undo ships in **0.4**, alongside the popover and cascade themselves.
+:::
+
+The toast that reports what the cascade wrote carries an **Undo** action. Applying it
+restores every changed task's prior `governance_class` and `delivery_mode` — but only for
+rows nobody has reclassified again since. A row someone else recascaded, or that you
+changed again yourself, is left as it is rather than being stomped; the undo toast says
+how many it kept. Undo is a single step per cascade — undoing an older cascade once a
+newer one has landed on the same subtree is not supported.
+
 ## Seeing the split without auditing it
 
 :::note[Ships in 0.4]

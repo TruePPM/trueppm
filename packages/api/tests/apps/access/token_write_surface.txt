@@ -25,10 +25,12 @@ api/v1/^admin/failed-tasks/drop_all/$
 api/v1/^admin/failed-tasks/requeue_all/$
 api/v1/^calendars/$
 api/v1/^calendars/(?P<pk>[^/.]+)/$
+api/v1/^cascade-classification-operations/(?P<pk>[^/.]+)/undo/$
 api/v1/^dependencies/$
 api/v1/^dependencies/(?P<pk>[^/.]+)/$
 api/v1/^dependencies/(?P<pk>[^/.]+)/accept/$
 api/v1/^dependencies/(?P<pk>[^/.]+)/reject/$
+api/v1/^paste-many-operations/(?P<pk>[^/.]+)/undo/$
 api/v1/^programs/$
 api/v1/^programs/(?P<pk>[^/.]+)/$
 api/v1/^programs/(?P<pk>[^/.]+)/bulk-project-fields/$
@@ -164,6 +166,7 @@ api/v1/projects/<project_pk>/fields/
 api/v1/projects/<project_pk>/fields/<pk>/
 api/v1/projects/<project_pk>/guardrail-policy/
 api/v1/projects/<project_pk>/import/csv/
+api/v1/projects/<project_pk>/import/csv/<pk>/undo/
 api/v1/projects/<project_pk>/import/csv/preview/
 api/v1/projects/<project_pk>/import/jira/
 api/v1/projects/<project_pk>/import/msproject/

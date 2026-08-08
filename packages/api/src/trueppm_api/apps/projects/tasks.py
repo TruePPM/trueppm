@@ -1209,6 +1209,61 @@ def _do_purge_expired_program_imports() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Schedule outline batch operation undo ledgers (ADR-0810, #2756)
+# ---------------------------------------------------------------------------
+# PasteManyOperation and CascadeClassificationOperation, not CsvImportRequest —
+# that table already has its own retention story (task_batch_services.py's
+# import-fix section). Shaped like purge_expired_project_exports above, not the
+# consolidated ADR-0173 retention coordinator (apps/observability): that
+# coordinator's RETENTION_SPECS is a deliberately curated, count-asserted set of
+# six tables surfaced in an operator-facing editor, and folding a seventh in
+# would be scope beyond what #2756 asked for. A plain settings-driven purge,
+# same shape as the export/import job purges already in this file, is
+# consistent with the (lighter) precedent those set.
+
+
+def _batch_operation_retention_days() -> int | None:
+    from django.conf import settings
+
+    return getattr(settings, "TRUEPPM_BATCH_OPERATION_RETENTION_DAYS", 30)
+
+
+@idempotent_task(
+    lock_key_template="purge_expired_batch_operations",
+    lock_ttl=120,
+    on_contention="skip",
+    soft_time_limit=55,
+    time_limit=90,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    name="projects.purge_expired_batch_operations",
+)
+def purge_expired_batch_operations(self: object) -> None:
+    """Delete paste-many/cascade undo ledger rows past retention, undone or not."""
+    _do_purge_expired_batch_operations()
+
+
+def _do_purge_expired_batch_operations() -> None:
+    from trueppm_api.apps.projects.models import CascadeClassificationOperation, PasteManyOperation
+
+    retention = _batch_operation_retention_days()
+    if retention is None:  # retention disabled — keep rows indefinitely
+        return
+    cutoff = timezone.now() - timedelta(days=retention)
+    paste_deleted, _ = PasteManyOperation.objects.filter(created_at__lt=cutoff).delete()
+    cascade_deleted, _ = CascadeClassificationOperation.objects.filter(
+        created_at__lt=cutoff
+    ).delete()
+    total = paste_deleted + cascade_deleted
+    if total:
+        logger.info(
+            "purge_expired_batch_operations: deleted %d paste-many + %d cascade row(s)",
+            paste_deleted,
+            cascade_deleted,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Template application (ADR-0789, #2729)
 # ---------------------------------------------------------------------------
 # Celery's autodiscover_tasks() only imports ``<app>/tasks.py``, so a task defined

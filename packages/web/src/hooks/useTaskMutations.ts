@@ -691,6 +691,11 @@ export interface TaskBulkResponse {
   applied: BulkAppliedEntry[];
   rejected: BulkRowRejection[];
   skipped: BulkSkippedEntry[];
+  /**
+   * ADR-0810 (#2756): the ⌘Z undo ledger row for this batch's creates — pass to
+   * `useUndoPasteManyOperation`. Null when the batch created no rows.
+   */
+  operation_id: string | null;
 }
 
 /**

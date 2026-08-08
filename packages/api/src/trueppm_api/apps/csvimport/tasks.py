@@ -189,6 +189,17 @@ def import_csv(
                     source_kind=TaskSource.CSV_IMPORT,
                     source_id=import_request_id or None,
                 )
+                if import_request_id:
+                    # ADR-0810 (#2756): the ⌘Z undo ledger, in the same
+                    # transaction as the write it records — the row already
+                    # flipped DISPATCHED -> DONE above via _claim_import.
+                    from trueppm_api.apps.projects.task_batch_services import (
+                        finalize_import_fix_operation,
+                    )
+
+                    finalize_import_fix_operation(
+                        import_request_id, project_id, summary.get("created_task_ids") or []
+                    )
         except Exception as exc:
             # Any unanticipated failure during persistence (e.g. a Postgres
             # DataError from an oversized ltree path that slipped past the

@@ -69,6 +69,27 @@ def _require_project_scheduler(user: object, project_pk: str) -> None:
         raise PermissionDenied("You need at least the Scheduler role to import a spreadsheet.")
 
 
+def _require_project_admin(user: object, project_pk: str) -> None:
+    """Authoritative in-body role check for undoing an import (ADR-0810, #2756).
+
+    Admin+, not Scheduler — the same bar as undoing a template apply or a
+    cascade (``batch_operation_views._require_admin``). A Scheduler may have
+    run the import; undoing it removes rows other collaborators may already be
+    building on top of, which is the Admin-line decision, not the import-line one.
+    """
+    role = (
+        ProjectMembership.objects.filter(
+            project_id=project_pk,
+            user=user,  # type: ignore[misc]
+            is_deleted=False,
+        )
+        .values_list("role", flat=True)
+        .first()
+    )
+    if role is None or role < Role.ADMIN:
+        raise PermissionDenied("You need at least Project Manager role to undo an import.")
+
+
 def _read_validated_upload(request: Request) -> tuple[str, bytes] | Response:
     """Read the multipart ``file`` field; validate extension + size.
 
@@ -316,6 +337,58 @@ class CsvImportStatusView(APIView):
                 "summary": req.result_summary,
                 "requested_at": req.requested_at,
             },
+            status=status.HTTP_200_OK,
+        )
+
+
+class CsvImportUndoView(IdempotencyMixin, APIView):
+    """⌘Z one completed import (ADR-0810, #2756, #2732).
+
+    Project-nested like ``CsvImportStatusView`` rather than a router-registered
+    ``import-fix-operations`` collection: this app has no router, and every
+    other endpoint here is a plain ``path()`` under ``projects/<project_pk>/
+    import/csv/...`` — matching that convention beats forcing in a different
+    app's routing style for one endpoint.
+
+    No separate ``ImportFixOperation`` model backs this — ``CsvImportRequest``
+    already is the outbox row for the import (see ``task_batch_services.py``'s
+    import-fix section for why a parallel table would have duplicated it).
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectScheduler, IsProjectNotArchived]
+
+    @extend_schema(
+        summary="Undo one completed CSV/Excel import",
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description='{"status", "undo": {"deleted", "kept"}}.',
+            ),
+            400: OpenApiResponse(description="Import is not in a completed (done) state."),
+            403: OpenApiResponse(description="Caller lacks the Admin role on the project."),
+            404: OpenApiResponse(description="No such import for this project."),
+        },
+    )
+    def post(self, request: Request, project_pk: str, pk: str) -> Response:
+        _require_project_admin(request.user, project_pk)
+
+        from trueppm_api.apps.csvimport.models import CsvImportRequest, CsvImportStatus
+        from trueppm_api.apps.projects.task_batch_services import undo_import_fix_operation
+
+        req = CsvImportRequest.objects.filter(id=pk, project_id=project_pk).first()
+        if req is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if req.status != CsvImportStatus.DONE:
+            return Response(
+                {"detail": f"Only a completed import can be undone (this one is {req.status})."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        summary = undo_import_fix_operation(req)
+        req.refresh_from_db()
+        return Response(
+            {"id": str(req.id), "status": req.status, "undo": summary},
             status=status.HTTP_200_OK,
         )
 

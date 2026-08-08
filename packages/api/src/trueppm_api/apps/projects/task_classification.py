@@ -325,10 +325,22 @@ def _axis_report(
     }
 
 
+#: Fields _classify_row can change — also consulted by task_batch_services.py's
+#: undo (the two modules deliberately don't import from each other; see that
+#: module's own copy of this tuple for why).
+CLASSIFICATION_FIELDS = ("governance_class", "parent_governance_inherited", "delivery_mode")
+
+
 def cascade_task_classification(
     project: Project, request: Request, spec: ClassificationSpec
-) -> tuple[dict[str, Any], list[uuid.UUID]]:
-    """Apply one classification cascade. Returns ``(report, written_task_ids)``.
+) -> tuple[dict[str, Any], list[uuid.UUID], dict[str, dict[str, Any]]]:
+    """Apply one classification cascade.
+
+    Returns ``(report, written_task_ids, before_after)``. ``before_after`` maps
+    ``str(task_id) -> {"before": {...}, "after": {...}}`` for exactly the rows
+    written — the ADR-0810 undo ledger's input, built here because this is the
+    only point that sees both a row's pre-cascade values and its post-cascade
+    ``changed`` fields in the same place.
 
     Must be called inside ``transaction.atomic()`` — ``resolve_subtree`` takes row
     locks, and the caller registers the recalculation and broadcast with
@@ -348,14 +360,21 @@ def cascade_task_classification(
     delivery = _AxisTally()
     skipped: list[dict[str, Any]] = []
     written: list[uuid.UUID] = []
+    before_after: dict[str, dict[str, Any]] = {}
 
     # Two passes. The first mutates instances in memory only and collects what would
     # be written; nothing touches the database. That is what lets the graph guard be
     # skipped entirely when the cascade turns out to be a no-op — its cost scales with
     # PROJECT size (every task row plus every edge), not subtree size, so a repeated
     # identical cascade would otherwise pay a full project scan to write nothing.
+    #
+    # The "before" snapshot is taken here, ahead of _classify_row, because that
+    # function mutates `task` in memory before the caller decides to save — by the
+    # time a row reaches `pending` below, its pre-cascade values are already gone
+    # from the instance itself.
     pending: list[tuple[Task, list[str]]] = []
     for task in rows:
+        before = {field: getattr(task, field) for field in CLASSIFICATION_FIELDS}
         changed = _classify_row(
             task,
             is_root=task.pk == spec.subtree_id,
@@ -366,6 +385,7 @@ def cascade_task_classification(
         )
         if changed:
             pending.append((task, changed))
+            before_after[str(task.pk)] = {"before": before}
 
     if pending:
         assert_graph_feasible(project.pk)
@@ -375,6 +395,9 @@ def cascade_task_classification(
             # per row is a guaranteed-True query — 2000 of them for a large phase.
             task.save(update_fields=changed, known_exists=True)
             written.append(task.pk)
+            before_after[str(task.pk)]["after"] = {
+                field: getattr(task, field) for field in CLASSIFICATION_FIELDS
+            }
 
     report: dict[str, Any] = {
         "subtree": str(spec.subtree_id),
@@ -387,4 +410,4 @@ def cascade_task_classification(
     delivery_block = _axis_report(spec.delivery_mode, delivery, has_inherit_bit=False)
     if delivery_block is not None:
         report["delivery_mode"] = delivery_block
-    return report, written
+    return report, written, before_after

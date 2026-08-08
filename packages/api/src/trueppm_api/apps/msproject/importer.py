@@ -94,6 +94,10 @@ def import_project(
         source_id=source_id,
     )
     task_uid_to_pk = {td.uid: str(task_objects[i].pk) for i, td in enumerate(data.tasks)}
+    # ADR-0810 (#2756, CSV path only): every row this import wrote, so the caller
+    # can record the ⌘Z undo ledger. Harmless for the MS Project path, which has
+    # no undo affordance today and simply ignores the key.
+    summary["created_task_ids"] = [str(t.pk) for t in task_objects]
 
     # --- Step 3: Create dependencies ---
     _update(50, "Creating dependencies...")

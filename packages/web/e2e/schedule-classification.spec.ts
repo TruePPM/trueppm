@@ -144,6 +144,29 @@ test.describe('Hybrid classification — declare it once, then see it (#2736/#27
     await expect(phase.getByTestId('mode-chip')).toHaveText('MIXED');
   });
 
+  test('⌘Z on the toast undoes the cascade and restores the prior mode chip (#2756)', async ({
+    page,
+  }) => {
+    await page.goto(BASE_URL);
+    await page.getByText('Control software').click();
+    await page.keyboard.press('ControlOrMeta+Shift+KeyM');
+    await page.getByTestId('classification-cascade').uncheck();
+    await page.getByTestId('classification-preset-scrum').click();
+    await page.getByTestId('classification-apply').click();
+
+    const row42 = page.getByRole('row').filter({ hasText: 'Control software' });
+    await expect(row42.getByTestId('mode-chip')).toHaveText('SCRUM');
+
+    const toast = page.getByRole('status').filter({ hasText: 'Classified' });
+    await expect(toast).toBeVisible();
+    await toast.getByRole('button', { name: 'Undo' }).click();
+
+    // The result, not the request: 4.2's chip is gone — it reverted to
+    // waterfall (the baseline draws no chip at all).
+    await expect(page.getByRole('status').filter({ hasText: 'Undone' })).toBeVisible();
+    await expect(row42.getByTestId('mode-chip')).toHaveCount(0);
+  });
+
   test('the gate keeps its delivery mode through a cascade over the whole phase', async ({
     page,
   }) => {
