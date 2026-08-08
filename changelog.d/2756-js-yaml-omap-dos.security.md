@@ -1,1 +1,0 @@
-Bumped `js-yaml` to 4.3.1 (and 3.15.1 for the one transitive 3.x resolution) across the web, website, and mobile dependency sets, clearing GHSA-5p4m-2wfm-xmqj / CVE-2026-59870 — quadratic CPU consumption when resolving a `!!omap`, which lets a hostile YAML document stall the parser. The package is build- and test-time tooling in all three, not part of any shipped runtime bundle.
