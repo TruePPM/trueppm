@@ -160,6 +160,39 @@ def test_malformed_project_id_is_a_400(owner: Any) -> None:
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param([None, None], id="list"),
+        pytest.param({"id": "x"}, id="dict"),
+        pytest.param(7, id="int"),
+        pytest.param(1.5, id="float"),
+        pytest.param(True, id="bool"),
+    ],
+)
+def test_non_string_project_is_a_400_not_a_500(owner: Any, value: Any) -> None:
+    """A non-string `project` must fail closed at the same 400 as a bad string (#2785).
+
+    The two existing malformed-input tests both send strings, so nothing here
+    exercised the branch where the value is truthy but has no `.strip()` — which
+    was an unhandled AttributeError, i.e. a 500 on input the endpoint's own
+    contract calls a 400.
+    """
+    resp = _client_as(owner).post(DELETE_URL, {"project": value}, format="json")
+    assert resp.status_code == 400, resp.data
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "value", [pytest.param([], id="empty-list"), pytest.param({}, id="empty-dict")]
+)
+def test_falsy_non_string_project_is_a_400(owner: Any, value: Any) -> None:
+    """The falsy half of the same class — it already 400'd, and must keep doing so."""
+    resp = _client_as(owner).post(DELETE_URL, {"project": value}, format="json")
+    assert resp.status_code == 400, resp.data
+
+
+@pytest.mark.django_db
 def test_unknown_project_is_a_404(owner: Any) -> None:
     resp = _client_as(owner).post(
         DELETE_URL, {"project": "00000000-0000-0000-0000-000000000000"}, format="json"

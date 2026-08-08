@@ -210,8 +210,24 @@ class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[Pro
         tasks and edges, bounded by ``MAX_TEMPLATE_NODES``, and the publisher should
         learn immediately whether their project was too large rather than by polling.
         """
+        # Same type-confusion class as #2785: a JSON list/dict/number is truthy, so
+        # `(value or "")` hands it straight to .strip() / slicing and raises
+        # AttributeError, and a non-string pk reaches UUIDField.to_python, which
+        # raises Django's ValidationError — not one of the ValueError/TypeError
+        # caught below, and not something DRF converts. All three are 500s on input
+        # that has to be a 400.
         project_id = request.data.get("project")
-        name = (request.data.get("name") or "").strip()
+        raw_name = request.data.get("name")
+        raw_description = request.data.get("description")
+        for field, value in (
+            ("project", project_id),
+            ("name", raw_name),
+            ("description", raw_description),
+        ):
+            if value is not None and not isinstance(value, str):
+                raise ValidationError({field: "Must be a string."})
+
+        name = (raw_name or "").strip()
         if not project_id or not name:
             raise ValidationError({"detail": "Both `project` and `name` are required."})
         try:
@@ -231,7 +247,7 @@ class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[Pro
 
         template = ProjectTemplate.objects.create(
             name=name[:200],
-            description=(request.data.get("description") or "")[:2000],
+            description=(raw_description or "")[:2000],
             source_kind=source_kind,
             owner=cast("Any", request.user),
             published_by=cast("Any", request.user),
