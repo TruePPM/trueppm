@@ -5195,7 +5195,17 @@ class TaskViewSet(
         from trueppm_api.apps.projects.models import Task as TaskModel
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-        project_id = (request.data.get("project") or "").strip()
+        # The type check precedes .strip(): a JSON list/dict/number is truthy, so
+        # `(value or "")` does not fall back for it and the string method raises
+        # AttributeError — a 500 on input this endpoint is supposed to reject with
+        # a 400 (#2785). uuid.UUID() cannot backstop it either: it raises TypeError,
+        # not ValueError, on a non-string argument.
+        raw_project = request.data.get("project")
+        if raw_project is not None and not isinstance(raw_project, str):
+            return Response(
+                {"detail": "`project` must be a UUID."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        project_id = (raw_project or "").strip()
         if not project_id:
             return Response(
                 {"detail": "The `project` field is required."},
@@ -5203,7 +5213,7 @@ class TaskViewSet(
             )
         try:
             uuid.UUID(project_id)
-        except ValueError:
+        except (ValueError, TypeError):
             return Response(
                 {"detail": "`project` must be a UUID."}, status=status.HTTP_400_BAD_REQUEST
             )

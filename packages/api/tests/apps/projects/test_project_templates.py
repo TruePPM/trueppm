@@ -267,6 +267,30 @@ def test_publish_then_apply_returns_202_and_an_application(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "field", ["project", "name", "description"], ids=["project", "name", "description"]
+)
+def test_publish_refuses_a_non_string_field_with_a_400_not_a_500(
+    admin_client: APIClient, source_project: Project, field: str
+) -> None:
+    """Type confusion on publish's raw body reads must fail closed (#2785).
+
+    `publish` reads `project`, `name`, and `description` straight off `request.data`
+    with no serializer, so a JSON list reached `.strip()` (AttributeError), slicing
+    into the model field, or `UUIDField.to_python` — which raises Django's
+    ValidationError, not the ValueError/TypeError the `Project.objects.get` guard
+    catches, and not something DRF converts. All three were 500s.
+    """
+    body: dict[str, Any] = {"project": str(source_project.pk), "name": "Delivery skeleton"}
+    body[field] = [None, None]
+
+    resp = admin_client.post("/api/v1/project-templates/publish/", body, format="json")
+
+    assert resp.status_code == 400, resp.data
+    assert not ProjectTemplate.objects.exists()
+
+
+@pytest.mark.django_db
 def test_apply_is_admin_only(
     calendar: Calendar, source_project: Project, target_project: Project
 ) -> None:
