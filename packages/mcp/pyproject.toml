@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "trueppm-mcp"
-version = "0.4.0a0"
+version = "0.4.0b1"
 description = "Read-only Model Context Protocol (MCP) server for self-hosted TruePPM — query the live schedule, board, risks, and My Work from any MCP client"
 readme = "README.md"
 license = "Apache-2.0"
@@ -23,7 +23,7 @@ keywords = [
     "llm-tools",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "License :: OSI Approved :: Apache Software License",
     "Intended Audience :: Developers",
     "Intended Audience :: Information Technology",
