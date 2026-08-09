@@ -9,7 +9,7 @@ what it does **not** do, and which file to use when CSV is the wrong tool —
 then covers the import wizard and the reference tables for anyone scripting
 against the endpoints directly.
 
-:::note[Task CSV / Excel import ships in 0.4]
+:::note[Ships in 0.4 — task CSV / Excel import]
 Task **export** to CSV is available today from the Table view. Task **import**
 from CSV or Excel ships in **TruePPM 0.4**, the first beta — on unreleased
 builds the column aliases and endpoints may still be changing. Risk CSV

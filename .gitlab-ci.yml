@@ -823,16 +823,25 @@ docs:version-accuracy:
   # of packages/website/src/content/docs/overview/roadmap.md. The roadmap page
   # itself and docs/adr/** are exempt (forward-tense is correct there). See the
   # CLAUDE.md "Version-status tense" rule. ~2s.
+  #
+  # Also self-tests scripts/remove-ships-in-callouts.sh (#2818), the other half
+  # of the same discipline: this gate flags a banner that outlived its release,
+  # and that script deletes them at the tag. Its only other invocation is
+  # release.sh --apply, so without a self-test here a regression in it would
+  # first be discovered mid-release, editing the docs tree by hand. The two are
+  # composed — a banner phrasing must be one both recognize — so they belong in
+  # one job. Needs python3 for the removal script's line-range surgery. ~5s.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
   before_script:
-    - apk add --no-cache bash grep sed findutils
+    - apk add --no-cache bash grep sed findutils python3 perl-utils
   script:
     - bash scripts/check-version-status.sh
     - bash scripts/check-version-status.sh --self-test
+    - bash scripts/remove-ships-in-callouts.sh --self-test
 
 docs:adr-status:
   extends: .fast-job

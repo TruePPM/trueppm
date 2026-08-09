@@ -34,7 +34,7 @@ project's calendar applies.
 
 ## Composable working calendars
 
-:::note[0.4]
+:::note[Ships in 0.4 — composable calendars]
 Applying **multiple** calendars to one project — the overlay described here — ships in
 0.4 in the **Community (OSS)** edition.
 :::

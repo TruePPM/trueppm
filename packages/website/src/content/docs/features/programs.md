@@ -23,7 +23,7 @@ workflows — is part of the Enterprise edition.
 
 ## Scanning the programs directory
 
-:::note[Search and sort land in 0.4 (beta)]
+:::note[Ships in 0.4 (beta) — directory search and sort]
 Inline search, a methodology filter, and a sort control for the **/programs**
 directory are planned for **TruePPM 0.4**, the first beta. On earlier releases
 the directory renders as a plain card grid.

@@ -1,10 +1,11 @@
 ---
 title: OpenTelemetry & OTLP Export
 description: How to export TruePPM's traces and metrics to your own OpenTelemetry collector over OTLP — an opt-in, off-by-default integration configured with environment variables or Helm values.
+documentedFor: "0.4"
 ---
 
 
-:::note[Lands in 0.4 (first beta)]
+:::note[Ships in 0.4 (first beta)]
 OpenTelemetry export **ships in TruePPM 0.4**, the first beta — the provider and
 configuration groundwork, **trace instrumentation** (spans for HTTP requests,
 database queries, Celery tasks, WebSocket connections, and the CPM / Monte Carlo
