@@ -25,11 +25,22 @@ flags:
   honored verbatim.
 - **Valkey auth is ON by default** (`valkey.auth.enabled: true`).
 - **No plaintext credentials in any Deployment.** `DATABASE_URL` and `REDIS_URL`
-  are built server-side from the generated credentials and injected via
-  `secretKeyRef` against the connection Secret. They are never rendered into a
-  Deployment manifest. The bundled subcharts source their password from the same
-  connection Secret, so the database server credential and the URL string can
-  never drift apart (no `--set` split-brain).
+  are *always* injected via `secretKeyRef` — on the bundled path, on the
+  managed-datastore path, and in the API, worker, beat, init, backup, and
+  demo-seed containers alike. They are never rendered into a Deployment, Job, or
+  CronJob manifest. With the bundled datastores the chart builds both URLs
+  server-side from the credentials it generated, and the subcharts source their
+  password from the same connection Secret, so the database server credential and
+  the URL string can never drift apart (no `--set` split-brain).
+
+  **Caveat for a managed datastore supplied as a URL string.** If you pass
+  `env.DATABASE_URL` as a plaintext string, the chart stores it in the
+  chart-owned connection Secret and injects it from there — so it stays out of
+  the Deployment, but it did pass through Helm on the way, and it therefore
+  persists in whatever held it: your values file, your shell history if you used
+  `--set`, and the Helm release Secret. To keep the credential out of Helm
+  entirely, point at a Secret you manage instead
+  ([Production](#production-managed-datastores)).
 - **Hardened containers.** The API and Celery worker run with
   `allowPrivilegeEscalation: false`, `readOnlyRootFilesystem: true`,
   `capabilities: { drop: [ALL] }`, `seccompProfile: RuntimeDefault`, and
@@ -89,7 +100,7 @@ kubectl get secret <release>-trueppm-connection \
 | `autoscaling.enabled` | `false` | Optional HPA for the API (and `autoscaling.worker.enabled` for the worker). Needs metrics-server. |
 | `dashboards.enabled` | `false` | Ship the starter Grafana dashboard as a labeled ConfigMap. |
 | `alerts.enabled` | `false` | Ship async/outbox `PrometheusRule` alerts. Requires the Prometheus Operator CRDs. |
-| `env.DATABASE_URL` / `env.REDIS_URL` | unset (built by chart) | Required only when the bundled datastores are disabled. `env.REDIS_URL` is not required when `valkey.sentinel.enabled` is true. |
+| `env.DATABASE_URL` / `env.REDIS_URL` | unset (built by chart) | Required when the bundled datastores are disabled, and **rejected** while they are enabled. Either a `secretKeyRef` map (preferred) or a URL string — see [Production](#production-managed-datastores). `env.REDIS_URL` is not required when `valkey.sentinel.enabled` is true. |
 | `valkey.sentinel.enabled` | `false` | **Experimental** (0.4). Use an external Valkey Sentinel topology. Requires `valkey.enabled: false`, `valkey.sentinel.nodes`, and `valkey.sentinel.masterName`. Not yet verified against a live quorum failover. |
 | `global.trueppm.connectionSecretName` | `""` (derived) | Override only if you renamed the connection Secret. |
 | `backup.enabled` | `false` | Opt-in scheduled `pg_dump` backup CronJob (see below). |
@@ -252,6 +263,55 @@ For anything beyond dev/demo, use managed datastores with TLS (below). When
 
 ## Production (managed datastores)
 
+`values-prod.yaml` disables the bundled `postgresql` and `valkey` subcharts. When
+they are disabled you **must** supply `env.DATABASE_URL` and `env.REDIS_URL`
+(point them at your managed services); the chart fails the render with a clear
+message otherwise. The inverse is also enforced: setting either one *while* the
+matching bundled datastore is enabled fails the render, because the chart-built
+URL always wins and your value would be silently ignored.
+
+There are two supported shapes. Both inject the URL by `secretKeyRef`, so neither
+puts a credential in a Deployment — they differ in whether the credential passes
+through Helm at all.
+
+### Recommended: a Secret you manage
+
+Create the Secret out of band (or with external-secrets / sealed-secrets), then
+point the chart at it. Helm never sees the URL, so it is absent from your values
+file, your shell history, and the Helm release Secret:
+
+```bash
+kubectl create secret generic trueppm-db \
+  --from-literal=url='postgres://user:pass@your-db:5432/trueppm?sslmode=require'
+kubectl create secret generic trueppm-cache \
+  --from-literal=url='redis://:pass@your-cache:6379'
+```
+
+```yaml
+# values-my-prod.yaml
+env:
+  DATABASE_URL:
+    secretKeyRef:
+      name: trueppm-db
+      key: url
+  REDIS_URL:
+    secretKeyRef:
+      name: trueppm-cache
+      key: url
+```
+
+```bash
+helm install trueppm packages/helm \
+  -f packages/helm/values-prod.yaml -f values-my-prod.yaml
+```
+
+Every container that needs the URL — API, Celery worker, Celery beat, the
+`migrate` / `bootstrap` init containers, and the backup CronJob — reads it
+straight from your Secret. The chart does not copy it into its own connection
+Secret.
+
+### Alternative: a URL string
+
 ```bash
 helm install trueppm packages/helm \
   -f packages/helm/values-prod.yaml \
@@ -259,15 +319,19 @@ helm install trueppm packages/helm \
   --set env.REDIS_URL="redis://your-cache:6379"
 ```
 
-`values-prod.yaml` disables the bundled `postgresql` and `valkey` subcharts. When
-they are disabled you **must** supply `env.DATABASE_URL` and `env.REDIS_URL`
-(point them at your managed services); the chart fails the render with a clear
-message otherwise. The external `DATABASE_URL` **must** include `sslmode=require`
-— `settings.prod` refuses to boot on a plaintext external database. Only if TLS is
-already enforced at the network layer (service mesh / private encrypted link) set
-`env.TRUEPPM_ALLOW_UNENCRYPTED_DB=true` to downgrade that guard to a warning.
-Prefer injecting these via an external Secret rather than `--set` so they don't
-land in shell history.
+The chart stores the string in the chart-owned connection Secret and injects it
+from there, so it still never lands in a Deployment — but it passed through Helm,
+so it persists wherever it was held (the values file, `--set` in shell history,
+the Helm release Secret). Use the Secret form above if that matters to you.
+
+### TLS on the external database
+
+The external `DATABASE_URL` **must** include `sslmode=require` — `settings.prod`
+refuses to boot on a plaintext external database. The chart cannot check this for
+the `secretKeyRef` form (it never sees the value), so there the guard is the
+app's alone, at boot. Only if TLS is already enforced at the network layer
+(service mesh / private encrypted link) set `env.TRUEPPM_ALLOW_UNENCRYPTED_DB=true`
+to downgrade that guard to a warning.
 
 ## Required secrets (prod refuses to boot without them)
 

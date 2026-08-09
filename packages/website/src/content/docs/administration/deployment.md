@@ -309,8 +309,45 @@ a plaintext external database.
 For production, disable the bundled subcharts and point at managed services.
 When `postgresql.enabled` / `valkey.enabled` are `false`, `env.DATABASE_URL` and
 `env.REDIS_URL` become **required** — the chart fails the render with a clear
-message if either is missing. Managed Redis services (AWS ElastiCache, GCP
-Memorystore, Azure Cache, etc.) work via the `redis://` scheme.
+message if either is missing. (Setting either one while the matching bundled
+datastore is still enabled also fails the render: the chart-built URL always
+wins, so your value would be silently ignored.) Managed Redis services (AWS
+ElastiCache, GCP Memorystore, Azure Cache, etc.) work via the `redis://` scheme.
+
+**Prefer a Secret you manage.** Referencing one keeps the credential out of Helm
+altogether — out of your values file, your shell history, and the Helm release
+Secret. The chart wires every consumer (API, worker, beat, the `migrate` and
+`bootstrap` init containers, the backup CronJob) straight at your Secret:
+
+```bash
+kubectl create secret generic trueppm-db \
+  --from-literal=url='postgres://user:pass@your-db:5432/trueppm?sslmode=require'
+kubectl create secret generic trueppm-cache \
+  --from-literal=url='redis://:pass@your-cache:6379'
+```
+
+```yaml
+# values-my-prod.yaml
+env:
+  DATABASE_URL:
+    secretKeyRef:
+      name: trueppm-db
+      key: url
+  REDIS_URL:
+    secretKeyRef:
+      name: trueppm-cache
+      key: url
+```
+
+```bash
+helm install trueppm packages/helm \
+  -f packages/helm/values-prod.yaml -f values-my-prod.yaml
+```
+
+A plain URL string also works. The chart stores it in the chart-owned connection
+Secret and injects it from there, so it never reaches a Deployment manifest — but
+it passed through Helm, so it persists wherever it was held (the values file,
+`--set` in shell history, the Helm release Secret):
 
 ```bash
 helm install trueppm packages/helm \
