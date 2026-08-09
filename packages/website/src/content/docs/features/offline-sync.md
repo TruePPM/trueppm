@@ -90,7 +90,7 @@ protocol has always asked for.
 
 `since=0` returns all rows.
 
-:::caution[Changing in 0.4]
+:::caution[Ships in 0.4 — sync watermark change]
 `since` and `timestamp` move from `server_version` to `sync_seq` in 0.4. Comparing
 a per-row save count against a project-wide maximum is not a valid ordering: a
 frequently-edited row drags the checkpoint above every other row's counter, and

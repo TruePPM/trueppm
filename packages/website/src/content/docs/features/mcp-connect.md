@@ -1,9 +1,10 @@
 ---
 title: Connect your MCP client
 description: Wire Claude Desktop, Cursor, or Zed to your self-hosted TruePPM MCP server — mint a read-only token, drop in the config snippet, and ask your assistant real questions of the live schedule.
+documentedFor: "0.4"
 ---
 
-:::note[Coming in 0.4]
+:::note[Ships in 0.4]
 The read-only MCP server ships in 0.4, TruePPM's first beta. On unreleased
 builds the tool list and token-scope surface may still be changing.
 :::

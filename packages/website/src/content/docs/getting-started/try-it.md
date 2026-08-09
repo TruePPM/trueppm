@@ -1,13 +1,14 @@
 ---
 title: Try TruePPM
 description: Two zero-config ways to evaluate TruePPM before you install anything — a hosted read-only demo and a one-command local trial.
+documentedFor: "0.4"
 ---
 
 TruePPM's zero-config evaluation paths — a hosted read-only demo and a
 one-command local trial, both preloaded with the same **Platform Migration**
 hybrid sample project — arrive with the **0.4 beta**. This page previews them.
 
-:::caution[Coming in 0.4 — not yet available]
+:::caution[Ships in 0.4 — not yet available]
 Both paths on this page land with the **0.4 tag**. 0.4 is currently **Underway**
 (target Aug 17 – 31, 2026) — see the [roadmap](/overview/roadmap/). The hosted
 `try.trueppm.com` instance goes live at the tag, and the `docker-compose.demo.yml`

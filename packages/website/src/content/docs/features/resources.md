@@ -47,7 +47,7 @@ results.
 
 ## Assignments across projects
 
-:::note[0.4]
+:::note[Ships in 0.4 — the Assignments view]
 The **Assignments** view on a resource's detail panel will ship in 0.4 as part of
 the **Community (OSS)** edition.
 :::

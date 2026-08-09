@@ -1,9 +1,10 @@
 ---
 title: Sample project tour — history & offline demo
 description: A guided walkthrough of the history-aware sample project, including the go-offline demo.
+documentedFor: "0.4"
 ---
 
-:::note[Coming in 0.4]
+:::note[Ships in 0.4]
 The history-aware sample and the offline walkthrough below ship in **0.4**, the
 first beta. 0.4 is currently **Underway** — see the
 [roadmap](/overview/roadmap/). Until it tags, treat this page as a preview of
