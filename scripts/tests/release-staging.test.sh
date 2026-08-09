@@ -135,6 +135,23 @@ for pair in "scheduler SCHEDULER_TAG" "mcp MCP_TAG"; do
 
   if grep -qE "CI_COMMIT_TAG =~ /\^${prefix}-v" "$CI_YML"; then r=0; else r=1; fi
   check "${prefix}:publish fires on ${prefix}-v* in .gitlab-ci.yml" "$r"
+
+  # …and the top-level `workflow:` rules must ADMIT that tag. A tag push carries
+  # no $CI_COMMIT_BRANCH, so a scheme missing from workflow: falls through the
+  # catch-all and NO pipeline is created — the publish job never runs and the tag
+  # looks like a clean release. Silent, and invisible until someone tries to
+  # install the package. The rule must be inside `workflow:` specifically — the
+  # job-level match above is satisfied by the publish job's own rules, which
+  # never get evaluated if no pipeline is created. `workflow:` is not the first
+  # key in the file, so the block runs from that line to the next unindented
+  # line (top-level key or comment).
+  WORKFLOW_BLOCK="$(awk '
+    /^workflow:/                  { inblock = 1; next }
+    inblock && /^[^[:space:]]/    { exit }
+    inblock                       { print }
+  ' "$CI_YML")"
+  if printf '%s\n' "$WORKFLOW_BLOCK" | grep -qE "CI_COMMIT_TAG =~ /\^${prefix}-v"; then r=0; else r=1; fi
+  check "workflow: rules create a pipeline for ${prefix}-v* tags" "$r"
 done
 
 echo ""

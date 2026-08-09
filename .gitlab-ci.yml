@@ -119,6 +119,14 @@ workflow:
     - if: '$CI_COMMIT_TAG =~ /^scheduler-v\d+/'
       auto_cancel:
         on_new_commit: none
+    # Every publish tag scheme needs its own workflow rule. A tag push has no
+    # $CI_COMMIT_BRANCH, so it falls through the catch-all at the bottom and NO
+    # pipeline is created at all — the publish job never runs and the tag looks
+    # like it succeeded. `mcp-v*` joined at #2809 with mcp:publish; if you add a
+    # third package tag, add it here in the same MR.
+    - if: '$CI_COMMIT_TAG =~ /^mcp-v\d+/'
+      auto_cancel:
+        on_new_commit: none
     - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
       when: never
     - if: '$CI_COMMIT_BRANCH'
@@ -4388,7 +4396,7 @@ mcp:publish:
   # the MCP server can be released independently of the scheduler library.
   #
   # Why this job exists: packages/mcp had NO publish path at all. Three docs
-  # pages instructed `pip install trueppm-mcp`, packages/server.json declared a
+  # pages instructed `pip install trueppm-mcp`, packages/mcp/server.json declared a
   # `pypi` registry entry with a `uvx` runtime hint, and two CI comments (in
   # security:osv and license:check:mcp) asserted the package "ships to PyPI as
   # trueppm-mcp" — while nothing in the publish stage built it and the name
