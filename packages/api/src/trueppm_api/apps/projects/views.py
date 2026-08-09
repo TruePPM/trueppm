@@ -5195,12 +5195,26 @@ class TaskViewSet(
         from trueppm_api.apps.projects.models import Task as TaskModel
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-        # The type check precedes .strip(): a JSON list/dict/number is truthy, so
-        # `(value or "")` does not fall back for it and the string method raises
-        # AttributeError — a 500 on input this endpoint is supposed to reject with
-        # a 400 (#2785). uuid.UUID() cannot backstop it either: it raises TypeError,
-        # not ValueError, on a non-string argument.
-        raw_project = request.data.get("project")
+        # Two independent type confusions, and guarding one does not guard the other.
+        #
+        # The *container*: DRF's JSONParser accepts a top-level array or scalar, so
+        # `request.data` is not necessarily a dict and `.get` is not necessarily
+        # defined — `[null, null]` raised AttributeError here before any validation
+        # ran (#2795). A non-object body carries no `project`, so it resolves to None
+        # and falls through to the same 400 an omitted field already gets. This is the
+        # #2126 idiom, which fixed the identical class in core/throttling.py and
+        # core/auth_views.py but was never swept into the app views.
+        #
+        # The *value*: the type check below precedes .strip() because a JSON
+        # list/dict/number is truthy, so `(value or "")` does not fall back for it and
+        # the string method raises AttributeError — again a 500 on input this endpoint
+        # is supposed to reject with a 400 (#2785). uuid.UUID() cannot backstop that
+        # either: it raises TypeError, not ValueError, on a non-string argument.
+        #
+        # Neither can be left to the exception handler: core/exception_handlers.py
+        # converts only ValueError and Django ValidationError, so AttributeError and
+        # TypeError fall through to a 500.
+        raw_project = request.data.get("project") if isinstance(request.data, dict) else None
         if raw_project is not None and not isinstance(raw_project, str):
             return Response(
                 {"detail": "`project` must be a UUID."}, status=status.HTTP_400_BAD_REQUEST
