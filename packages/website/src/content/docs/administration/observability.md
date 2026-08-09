@@ -431,14 +431,24 @@ age, dead-letter parked tasks, PostgreSQL backends, and Celery Beat liveness. Th
 rules alert on **beat staleness** (the `/api/v1/health/beat/` endpoint returning
 503), **rising outbox depth**, **rising oldest-age**, and **dead-lettered tasks**.
 
-:::note[Beat-liveness and dead-letter panels need a Blackbox probe]
+:::note[Beat-liveness and dead-letter signals need extra scrape wiring]
 The outbox and database panels read the native `trueppm.*` OTLP metrics directly.
-The beat-staleness signal reads a [Blackbox
-Exporter](https://github.com/prometheus/blackbox_exporter) probe of
-`/api/v1/health/beat/` (200 = fresh heartbeat, 503 = stale). Point a Blackbox probe
-job whose name matches `.*beat.*` at that endpoint, or the beat-liveness panel and
-`TruePPMBeatStale` alert stay empty. Celery Beat itself upserts a heartbeat row
-every 30s that the endpoint reads.
+The other two signals do not, and each needs a job you add yourself:
+
+- **Beat staleness** reads a [Blackbox
+  Exporter](https://github.com/prometheus/blackbox_exporter) probe of
+  `/api/v1/health/beat/` (200 = fresh heartbeat, 503 = stale). Point a Blackbox
+  probe job whose name matches `.*beat.*` at that endpoint, or the beat-liveness
+  panel and `TruePPMBeatStale` alert stay empty. Celery Beat itself upserts a
+  heartbeat row every 30s that the endpoint reads.
+- **Dead-letter** reads the `trueppm_task_dead_letter_parked` gauge, which is
+  **not** an OTLP metric: it is Prometheus text exposition served by
+  `/api/v1/health/dead-letter/`. Add a scrape job that targets that path on the
+  API service, or the dead-letter panel stays blank and
+  `TruePPMDeadLetterPresent` evaluates an empty vector — so it can never fire,
+  and permanently-lost background work goes unnoticed. See [Dead-letter
+  alerting](/administration/dead-letter-alerting/) for the scrape config and the
+  metric's labels.
 :::
 
 ## Enterprise
