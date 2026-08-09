@@ -4631,6 +4631,37 @@ class TaskViewSet(
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["name"]
     ordering_fields = ["wbs_path", "name", "early_start", "status"]
+    # Deterministic default ordering for pagination (#2807).
+    #
+    # `Task.Meta.ordering = ["wbs_path", "name"]` does NOT reach this endpoint.
+    # `annotate_tasks_queryset` attaches aggregate annotations (predecessor_count,
+    # linked_risks_count, external_link_count, …), which give the query a GROUP BY,
+    # and Django's SQL compiler drops *Meta*-derived ordering whenever a GROUP BY is
+    # present (`if self._meta_ordering: order_by = None`). So the shipped list query
+    # emitted `LIMIT 50` with no ORDER BY at all — DRF raised
+    # UnorderedObjectListWarning on every request, and the Schedule's parallel
+    # all-pages fetch (`fetchAllPagesParallel`) was one plan flip away from a Gantt
+    # with duplicated and missing tasks. An ordering set *here* is an explicit
+    # `.order_by()` applied by OrderingFilter, which the GROUP BY does not discard.
+    #
+    # Why `id` and not the WBS order the model declares: the ORDER BY sits above the
+    # GroupAggregate, whose group key contains four correlated SubPlans, so any sort
+    # key the aggregate does not already emit forces every group to be materialized
+    # before the first row is returned. Measured on a 4,000-task project
+    # (EXPLAIN ANALYZE, best of 3, page 1):
+    #
+    #   no ORDER BY (as shipped)     115 ms
+    #   ORDER BY id                  120 ms   ← no Sort node; free
+    #   ORDER BY wbs_path, name    5,753 ms   ← top-N Sort above GroupAggregate
+    #
+    # and 5,753 ms is *with* a `(project, wbs_path, name)` btree in place — the index
+    # is never reached, because the sort is above the aggregate rather than under it.
+    # `id` is the order the GroupAggregate already emits (its group key leads with
+    # `projects_task.id` over a pkey-presorted input), so naming it costs nothing and
+    # changes no response: it pins the order the endpoint was already returning.
+    # Clients that want WBS order ask for it explicitly via `?ordering=wbs_path`.
+    # Restoring WBS as the *default* requires removing the GROUP BY first (#2814).
+    ordering = ["id"]
     queryset = (
         Task.objects.select_related("project", "sprint")
         .prefetch_related("assignments__resource")

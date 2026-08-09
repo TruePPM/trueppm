@@ -34,6 +34,17 @@ This is a **single-node developer-class machine**, which is deliberately close t
 | **Dependency edges per project** | **12,000 edges** on a 4,000-task project | 0.12–0.15 s, flat — **no breach found** | Not the binding constraint at this scale. Untested above 12,000 |
 | **Projects per workspace / total tasks** | **50 projects · 50,000 tasks** | 0.04–0.06 s, flat — **no breach found** | The project-list N+1 ([#1482](https://gitlab.com/trueppm/trueppm/-/issues/1482)) does not bite at this scale. Untested above 50 projects |
 
+:::caution[The two task-list rows are pending a re-measure — updated 2026-08-09]
+Both task rows above were measured **before** the `GET /tasks/` latency regression window of 2026-08-04 → 2026-08-05 ([#2767](https://gitlab.com/trueppm/trueppm/-/issues/2767)), and have not been re-run since. Treat them as the last known-good envelope, not as current.
+
+Two corrections that follow from the [#2807](https://gitlab.com/trueppm/trueppm/-/issues/2807) diagnosis, and that the numbers above do not yet reflect:
+
+- **"Page-bounded, so it degrades gently" holds for the first page only.** The harness reads page 1 (`run_capacity.py`). Later pages do not degrade gently: `OFFSET n` cannot skip work on this endpoint, so cost grows with how deep the page is. On a 4,000-task project, page 1 and page 70 of the same request differed by roughly 40× in database time. This is also the most likely explanation for the 32× whole-project cliff between 1,000 and 2,000 tasks in the row below it.
+- **The task list paginated with no `ORDER BY`** until this release, so the whole-project figure was measured against a fetch whose page boundaries were not guaranteed stable. Pagination is now explicitly ordered.
+
+Tracked in [#2814](https://gitlab.com/trueppm/trueppm/-/issues/2814) and [#2815](https://gitlab.com/trueppm/trueppm/-/issues/2815). Re-run `packages/api/perf/capacity/` on the documented hardware at the next tag and replace both rows.
+:::
+
 **Two things in this table matter more than the rest.**
 
 **The Schedule is the binding constraint, not the database.** A project holds several thousand tasks comfortably while you page through a list, and a workspace absorbs 50,000 tasks without noticing. But when the **Schedule** opens a project the client pulls *every* page, and that is a far lower ceiling. If you work in the Gantt, plan against **~1,000 tasks per project** in 0.4 — not 4,000.

@@ -877,8 +877,15 @@ def _apply_cpm_results(
         db_task.early_finish = sched.early_finish
         db_task.late_start = sched.late_start
         db_task.late_finish = sched.late_finish
-        db_task.total_float = sched.total_float.days if sched.total_float else None
-        db_task.free_float = sched.free_float.days if sched.free_float else None
+        # `is not None`, NOT truthiness: bool(timedelta(0)) is False, so a truthy
+        # test writes NULL for zero float — the defining value of every
+        # critical-path task. NULL means "not scheduled"; 0 means "no slack", and
+        # collapsing the two blanked the Float cell on exactly the tasks a PM
+        # inspects and made capture_forecast_snapshot's Min("total_float") skip
+        # them, reporting the project's tightest slack as the smallest *positive*
+        # float on the plan (#2802).
+        db_task.total_float = sched.total_float.days if sched.total_float is not None else None
+        db_task.free_float = sched.free_float.days if sched.free_float is not None else None
         db_task.is_critical = sched.is_critical
         # ADR-0752: the task's span start, distinct from early_start's
         # remaining-work window.

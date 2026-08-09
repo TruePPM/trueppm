@@ -33,12 +33,19 @@
 #       found within a bounded window. Rather than guess where the block
 #       ends and risk deleting real content, this is reported and left
 #       alone.
-#     - getting-started/try-it.md, ALWAYS — its "Coming in 0.4" callout
+#     - getting-started/try-it.md, ALWAYS — its "Ships in 0.4" callout
 #       requires flipping the whole page from preview language to live
 #       usage instructions (tracked separately by #1487 / #2271), not a
 #       mechanical delete. This script intentionally does not attempt that
 #       rewrite; the page is reported like any other match so the release
 #       operator sees it, but neither --dry-run nor --apply ever touches it.
+#     - README.md, ALWAYS (#2818) — it sits outside the docs tree, and so
+#       outside scripts/check-version-status.sh's scan root as well as this
+#       script's docs_root. Its future-tense version claims ("a hosted
+#       public demo ships with the 0.4 beta", "single sign-on ... lands in
+#       0.4") are therefore checked by nothing in either direction. Every
+#       line mentioning the version is listed so the release operator
+#       rewrites them by hand; the file is never edited here.
 #
 #   OUT OF SCOPE (not scanned for at all):
 #     The much larger, pre-existing population of lowercase "(ships in 0.X)"
@@ -107,8 +114,8 @@ USAGE
 # portable bash; release.sh already shells to python3 for this class of
 # text rewrite — see its CHANGELOG rotation). ────────────────────────────
 run_scan() {
-  local version="$1" mode="$2" docs_root="$3"
-  VERSION="$version" MODE="$mode" DOCS_ROOT="$docs_root" python3 - <<'PY'
+  local version="$1" mode="$2" docs_root="$3" readme="${4:-}"
+  VERSION="$version" MODE="$mode" DOCS_ROOT="$docs_root" README_PATH="$readme" python3 - <<'PY'
 import os
 import re
 import sys
@@ -116,6 +123,8 @@ import sys
 version = os.environ["VERSION"]
 mode = os.environ["MODE"]  # "dry-run" or "apply"
 docs_root = os.environ["DOCS_ROOT"]
+# Optional: a file outside docs_root that is reported but never edited (#2818).
+readme_path = os.environ.get("README_PATH", "")
 
 # `version` is already the full "0.4"-shaped major.minor string; do not
 # prepend another literal "0." or the pattern doubles up to "0.0.4".
@@ -126,6 +135,8 @@ OPEN_RE = re.compile(
 )
 COMING_BARE_RE = re.compile(r'Coming in ' + version_re + r'(?!\d)')
 TRY_IT_SUFFIX = os.path.join("getting-started", "try-it.md")
+# Any mention of the version at all, for the always-flagged README (#2818).
+VERSION_MENTION_RE = re.compile(version_re + r'(?!\d)')
 
 CLOSE_WINDOW = 80  # lines to search forward for a matching closing ':::'
 
@@ -269,6 +280,39 @@ def main():
             new_lines = remove_blocks(lines, blocks)
             with open(path, "w", encoding="utf-8") as fh:
                 fh.write("\n".join(new_lines))
+
+    # ── README.md — always flagged, never touched (#2818) ────────────────
+    # The version-status gate scans packages/website/src/content/docs only,
+    # so README.md's future-tense version claims ("a hosted public demo ships
+    # with the 0.4 beta", "single sign-on ... lands in 0.4") are checked by
+    # nothing and go stale at the tag with no signal at all. Wiring README
+    # into that gate would mean teaching it a second content root and a
+    # second front-matter convention it does not have; reporting the file
+    # here instead reuses the mechanism try-it.md already relies on — the
+    # release operator sees it in the same report and rewrites it by hand.
+    # Every mention of the version is listed rather than only future-tense
+    # ones: this list is read by a human, so over-reporting in a file that is
+    # never auto-edited costs a glance, and under-reporting costs a release.
+    if readme_path and os.path.isfile(readme_path):
+        with open(readme_path, encoding="utf-8") as fh:
+            readme_lines = fh.read().split("\n")
+        hits = [
+            (idx + 1, line.strip())
+            for idx, line in enumerate(readme_lines)
+            if VERSION_MENTION_RE.search(line)
+        ]
+        if hits:
+            print(f"\n{os.path.basename(readme_path)}")
+            for line_no, text in hits:
+                snippet = text if len(text) <= 90 else text[:87] + "..."
+                print(f"  FLAG    line {line_no}  {snippet}")
+                print(
+                    f"          -> outside the docs scan root and outside the "
+                    f"version-status gate — rewrite any future-tense {version} "
+                    "claim by hand"
+                )
+            files_with_ambiguous += 1
+            total_ambiguous += len(hits)
 
     print("")
     verb = "Removed" if mode == "apply" else "Would remove"
@@ -529,6 +573,61 @@ Rest of the page.
   }
   scan_case_try_it
 
+  # 10. README.md is always reported and never edited (#2818). It lives
+  # outside docs_root, so it is passed explicitly as the 4th run_scan arg.
+  scan_case_readme() {
+    local case_docs="$tmp/docs-readme"
+    mkdir -p "$case_docs/sub"
+    printf '%s' 'A page with no callouts at all.
+' > "$case_docs/sub/page.md"
+
+    local readme="$tmp/README.md"
+    printf '%s' '# TruePPM
+
+A hosted public demo ships with the 0.4 beta.
+Single sign-on through your own identity provider lands in 0.4.
+The installable PWA follows in 0.5, so this line must not be reported.
+' > "$readme"
+
+    local before after dry_out flags
+    before="$(shasum "$readme" | awk '{print $1}')"
+    dry_out="$(run_scan "0.4" "dry-run" "$case_docs" "$readme")"
+
+    flags="$(printf '%s\n' "$dry_out" | grep -c '  FLAG    ' || true)"
+    if [ "$flags" = "2" ]; then
+      echo "SELF-TEST OK: README — both 0.4 lines flagged, the 0.5 line ignored."
+    else
+      echo "SELF-TEST FAILED: README — expected 2 flagged lines, got $flags." >&2
+      failures=$((failures + 1))
+    fi
+
+    if printf '%s\n' "$dry_out" | grep -q '  REMOVE  '; then
+      echo "SELF-TEST FAILED: README — a removable block was reported; it must never be edited." >&2
+      failures=$((failures + 1))
+    else
+      echo "SELF-TEST OK: README — nothing reported as removable."
+    fi
+
+    run_scan "0.4" "apply" "$case_docs" "$readme" >/dev/null
+    after="$(shasum "$readme" | awk '{print $1}')"
+    if [ "$before" = "$after" ]; then
+      echo "SELF-TEST OK: README — --apply left the file byte-for-byte unchanged."
+    else
+      echo "SELF-TEST FAILED: README — --apply modified the file." >&2
+      failures=$((failures + 1))
+    fi
+
+    # A missing README must be a silent no-op, not a crash: run_scan is called
+    # with a path that may legitimately not exist in a stripped checkout.
+    if run_scan "0.4" "dry-run" "$case_docs" "$tmp/no-such-README.md" >/dev/null 2>&1; then
+      echo "SELF-TEST OK: README — a missing path is a no-op."
+    else
+      echo "SELF-TEST FAILED: README — a missing path made the scan fail." >&2
+      failures=$((failures + 1))
+    fi
+  }
+  scan_case_readme
+
   return $failures
 }
 
@@ -587,7 +686,7 @@ main() {
   fi
 
   echo "Scanning $docs_root for 'Ships in $version' / 'Coming in $version' callouts (mode: $mode)..."
-  run_scan "$version" "$mode" "$docs_root"
+  run_scan "$version" "$mode" "$docs_root" "$REPO_ROOT/README.md"
 }
 
 main "$@"

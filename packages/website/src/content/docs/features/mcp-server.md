@@ -1,9 +1,10 @@
 ---
 title: MCP server (read-only)
 description: Point any MCP client — Claude Desktop, Cursor, Zed — at your self-hosted TruePPM instance and ask real questions of the live schedule. Every answer is computed server-side by the same engine the web UI uses, never guessed by a model, never leaving your box.
+documentedFor: "0.4"
 ---
 
-:::note[Coming in 0.4]
+:::note[Ships in 0.4]
 The read-only MCP server ships in 0.4, TruePPM's first beta. On unreleased
 builds the tool list may still be changing.
 :::

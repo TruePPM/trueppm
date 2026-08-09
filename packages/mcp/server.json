@@ -3,7 +3,7 @@
   "name": "com.trueppm/mcp-server",
   "title": "TruePPM (read-only)",
   "description": "Read-only Model Context Protocol server for self-hosted TruePPM. Query the live schedule, board, risks, Monte Carlo forecast, sprints, and My Work from any MCP client. Every answer is computed server-side by TruePPM's own CPM/Monte Carlo engine under your existing role-based permissions — never guessed by a model, never leaving your instance.",
-  "version": "0.4.0-alpha.0",
+  "version": "0.4.0-beta.1",
   "websiteUrl": "https://docs.trueppm.com/features/mcp-connect",
   "repository": {
     "url": "https://gitlab.com/trueppm/trueppm",
@@ -15,7 +15,7 @@
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "trueppm-mcp",
-      "version": "0.4.0a0",
+      "version": "0.4.0b1",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"

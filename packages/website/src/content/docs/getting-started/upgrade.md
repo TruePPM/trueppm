@@ -1,6 +1,7 @@
 ---
 title: Upgrading
 description: How to upgrade TruePPM — Docker Compose, single-server, and Helm paths.
+documentedFor: "0.4"
 ---
 
 ## Before you upgrade
@@ -212,7 +213,10 @@ note](#per-release-operational-change-notes) states this):
   case, and every 0.3 migration). The new schema is a **superset** of the old, so
   the previous image runs against it unchanged. **Roll back the image/chart
   revision only — do not reverse the migrations and do not restore the database.**
-  The extra tables/columns sit unused until you roll forward again.
+  The extra tables/columns sit unused until you roll forward again. The readiness
+  probe cannot verify "additive-only" for you, so it holds the rolled-back pods
+  out of the Service until you confirm that classification — see the caution
+  below for the one-line opt-out.
 - **Destructive or transforming** (a column drop/rename, a type change, or a data
   backfill that rewrites rows). The old code cannot run against the new schema,
   and reversing the migration **loses the data the new schema captured**. Here a
@@ -221,15 +225,66 @@ note](#per-release-operational-change-notes) states this):
   cannot recover dropped or transformed data. This is why the [pre-upgrade
   backup](#before-you-upgrade) is mandatory, not optional.
 
-:::caution[The migration-aware readiness probe interacts with rollback]
-The API readiness probe (`/api/v1/readyz`) reports **not-ready** whenever the
-connected database has migrations the running image has not applied — its design
-guard for rolling *forward*. On a **downgrade to an image older than the applied
-schema**, that same check keeps the older pods out of the Service until the schema
-matches their code. So an image-only rollback across a schema change will leave
-pods `Ready: false`; the correct move for a schema-changing release is the
-restore-from-backup path above (restore the old schema, *then* roll the image
-back), not an image-only downgrade.
+:::caution[The readiness probe is not a rollback safety net]
+The API readiness probe (`/api/v1/readyz`) reports the pod's **migration drift**,
+in one of four states — but it is a *schema-presence* check, not a
+*data-compatibility* one, and it cannot make a downgrade safe:
+
+- `behind` — this image ships migrations the database has not applied. The
+  rolling-*forward* guard: a mid-upgrade pod stays out of the Service.
+- `ahead` — the database records migrations this image does not ship. Two very
+  different things produce that: a pod **booted** against a newer schema (an
+  image rolled back without restoring it), or a pod that booted in sync and
+  **drifted** there because a newer pod's `migrate` ran while it kept serving.
+  Only the first is gated — pods report `Ready: false`, so an image-only
+  rollback across a schema change stalls loudly instead of silently serving old
+  code against a new schema. The second is the ordinary forward rolling upgrade
+  and stays ready, because pulling the old pods out while the new ones are not
+  Ready yet would take the whole Service down. Both are reported as `ahead`.
+- `in_sync` / `unknown` — ready, and not-ready-because-the-check-failed.
+
+**`ahead` telling you the schema is newer is not the same as the old code being
+able to run against it.** The probe cannot tell an additive migration from a
+destructive one, so it assumes the worse case and gates the pods. For a
+**destructive or transforming** release that assumption is correct and the fix is
+the restore-from-backup path above — restore the old schema, *then* roll the
+image back. No probe can recover data a migration already dropped or rewrote.
+
+For a release you have classified as **additive-only**, the gate is the thing
+standing between you and the image-only rollback recommended above. Re-open it
+deliberately, after reading the release's migrations:
+
+```bash
+# API pods only; survives until you roll forward again.
+TRUEPPM_READYZ_ALLOW_DB_AHEAD=true
+```
+
+It changes readiness, not the diagnosis — `migration_state` still reports
+`ahead`, so the drift stays visible in monitoring, and each pod logs a WARNING
+once at the first suppressed probe. That log line matters: with the flag set,
+`status` and `checks` both read green, so an override left in `values.yaml`
+after one incident would silently cover the *next* rollback, which may be the
+destructive one. It has no effect on `behind`: nothing makes a half-migrated pod
+safe to serve. Roll it back to the default (`false`) once you have rolled
+forward.
+
+Three limits worth knowing before you lean on `ahead`: it only *gates* a pod
+that booted into it (a pod that drifted there mid-rollout keeps serving by
+design), it is only evaluated for apps this image installs (so a downgrade whose
+only difference is a removed app reads as `in_sync`), and it is a coarse enum —
+it never names the migration.
+:::
+
+:::note[Ships in 0.4]
+The `ahead` state, the `migration_state` field, and
+`TRUEPPM_READYZ_ALLOW_DB_AHEAD` ship in **TruePPM 0.4**, the first beta. In
+`v0.3.0-alpha.3`, the latest release, `/api/v1/readyz` detects only the `behind`
+direction: it compares the migrations *this image ships* against what is applied,
+so a database carrying migrations the image does not know about is invisible to
+it and the pods report **ready**. On 0.3 an image-only downgrade is unguarded —
+nothing stops old code serving a newer schema — so classify the migrations
+yourself and go straight to the restore-from-backup path if they are anything but
+additive.
 :::
 
 ### Docker Compose rollback

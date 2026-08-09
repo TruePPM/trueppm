@@ -250,6 +250,74 @@ if worker_cmd --set celeryWorker.concurrency=0 >/dev/null 2>&1; then
   fail "celeryWorker.concurrency=0 rendered successfully — it must fail the render, because Celery treats --concurrency=0 as cpu_count() (#2571)"
 fi
 
+# 8. The DEFAULT render must ask for an image tag that the release pipeline
+#    actually publishes to the registry the chart points at (#2811).
+#
+#    Every other assertion in this file — and the helm:template job that runs it —
+#    renders with `--set image.tag=latest`, so nothing exercised the default path
+#    at all. That is how the chart shipped pinned to a bare `{{ .Chart.AppVersion }}`
+#    while api:publish / web:publish push only `:${CI_COMMIT_TAG}` (v-prefixed) and
+#    `:latest` to the GitLab registry: a stock `helm install` resolved
+#    `.../api:0.4.0`, a tag that had never existed and that CI has no step to
+#    create. The operator gets ImagePullBackOff on the `migrate` initContainer,
+#    with no application log to diagnose from.
+#
+#    The bare-version tag is not merely absent, it is unsafe to add: the registry
+#    cleanup policy keeps `^v.*$|^latest$` (#2803), so a bare `0.4.0` would be
+#    reaped by the daily sweep. v-prefixed is the only durable form.
+#
+#    Rendered with demo enabled so templates/demo-seed-job.yaml — which carries two
+#    more copies of the same reference and is off by default — is covered too.
+APP_VERSION="$(yq '.appVersion' "$CHART/Chart.yaml")"
+case "$APP_VERSION" in
+  v*) fail "Chart.yaml appVersion is '$APP_VERSION' — it must be the bare semver ('0.4.0'); the 'v' prefix is added by trueppm.imageTag, so a v-prefixed appVersion renders 'vv0.4.0'" ;;
+esac
+EXPECTED_TAG="v${APP_VERSION}"
+
+# The two first-party repositories. Only these are checked: the bundled
+# postgresql / valkey subcharts and the backup / helm-test images are upstream
+# third-party images on their own independent tag schemes.
+API_REPO="$(yq '.image.repository' "$CHART/values.yaml")"
+WEB_REPO="$(yq '.image.webRepository' "$CHART/values.yaml")"
+
+# Collect every container/initContainer image from a DEFAULT-values render. No
+# --set image.tag here — that is the entire point of this check.
+default_images() {
+  helm template trueppm "$CHART" "$@" \
+    | yq ea '[.. | select(has("image") and has("name")) | .image] | .[]' \
+    | grep -v '^null$' | sort -u
+}
+
+FIRST_PARTY_IMAGES="$(default_images \
+  --set demo.enabled=true \
+  --set demo.baseUrl=https://demo.example.com \
+  --set demo.shareToken.schedule=structurecheckschedule \
+  --set demo.shareToken.board=structurecheckboard \
+  | grep -E "^(${API_REPO}|${WEB_REPO}):" || true)"
+
+[ -n "$FIRST_PARTY_IMAGES" ] \
+  || fail "default render produced no image reference for '$API_REPO' or '$WEB_REPO' — the render or the repository values changed, so this check proved nothing"
+
+tag_checked=0
+while IFS= read -r img; do
+  [ -n "$img" ] || continue
+  img_tag="${img##*:}"
+  [ "$img_tag" = "$EXPECTED_TAG" ] || fail "default render asks for '$img' — expected tag '$EXPECTED_TAG'. The GitLab registry only ever receives v-prefixed release tags and ':latest', so this reference can never be pulled (#2811). Fix trueppm.imageTag in templates/_helpers.tpl."
+  tag_checked=$((tag_checked + 1))
+done <<EOF
+$FIRST_PARTY_IMAGES
+EOF
+
+# An explicit operator tag must still win outright — no 'v' prepended to it.
+# Existing installs pin image.tag, and silently rewriting their tag would break
+# every one of them.
+override_images="$(default_images --set image.tag=1.2.3-rc1 \
+  | grep -E "^(${API_REPO}|${WEB_REPO}):" || true)"
+echo "$override_images" | grep -q ":1.2.3-rc1\$" \
+  || fail "an explicit image.tag override did not render verbatim — trueppm.imageTag must pass .Values.image.tag straight through"
+echo "$override_images" | grep -q ":v1.2.3-rc1\$" \
+  && fail "an explicit image.tag override was rewritten with a 'v' prefix — the prefix belongs to the appVersion fallback only"
+
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
 echo "  - operator envFrom secret reaches migrate, bootstrap, and api"
@@ -258,3 +326,4 @@ echo "  - web nginx proxies to release-scoped trueppm-api (baked compose 'api' h
 echo "  - all $np_checked datastore-client bindings are covered by the NetworkPolicy allow-lists"
 echo "  - production nginx /admin/ fails closed (deny all + limit_req; allow precedes deny)"
 echo "  - celery worker pins --concurrency=$wc_n and honors concurrency/extraArgs overrides"
+echo "  - all $tag_checked first-party images default to '$EXPECTED_TAG' (a tag the release pipeline publishes); explicit image.tag still wins"

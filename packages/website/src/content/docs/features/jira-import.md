@@ -1,9 +1,10 @@
 ---
 title: Jira import
 description: Import a Jira Server / Data Center XML export into an existing TruePPM project — one task per issue, durations from original estimates, and Finish-to-Start dependencies from Blocks links — as a CPM-schedulable network. An offline, one-way, file-based migration path, not a live connector.
+documentedFor: "0.4"
 ---
 
-:::note[Coming in 0.4]
+:::note[Ships in 0.4]
 Offline Jira import lands in **TruePPM 0.4**, the first beta. On unreleased
 builds the mapping and endpoint may still be changing.
 :::

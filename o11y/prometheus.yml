@@ -24,3 +24,16 @@ scrape_configs:
   #       target_label: instance
   #     - target_label: __address__
   #       replacement: blackbox-exporter:9115
+  # Optional: the "Dead-letter parked tasks" panel reads
+  # `trueppm_task_dead_letter_parked`, which is Prometheus text exposition served
+  # by the API — NOT an OTLP metric, so the collector job above does not carry it.
+  # The endpoint requires a staff account, so the scrape needs a bearer token;
+  # without this job the panel stays blank. See docs → Administration →
+  # Dead-letter alerting.
+  # - job_name: trueppm-dead-letter
+  #   metrics_path: /api/v1/health/dead-letter/
+  #   authorization:
+  #     type: Bearer
+  #     credentials_file: /etc/prometheus/trueppm-token
+  #   static_configs:
+  #     - targets: ["api:8000"]

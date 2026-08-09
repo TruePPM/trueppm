@@ -290,7 +290,14 @@ playwright-pins-check: ## Fail if a Playwright npm pin drifts from the CI image 
 	@# ~1s, no network.
 	@bash scripts/check-playwright-pins.sh
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check demo-readonly-check playwright-pins-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+helm-metric-names-check: ## Fail if the Helm chart's PromQL names a series the app never emits (#2805)
+	@# A PromQL name with no matching series is not an error anywhere in the
+	@# stack: the alert silently never fires and the panel is silently blank.
+	@# `helm lint` proves the template renders and cannot know what the app
+	@# publishes. Stdlib Python over two chart files, milliseconds.
+	@python3 scripts/check-helm-metric-names.py .
+
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check demo-readonly-check helm-metric-names-check playwright-pins-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/

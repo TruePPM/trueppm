@@ -13,6 +13,19 @@
 #   TLS_MODE=letsencrypt           (letsencrypt | selfsigned | none)
 #   CERTBOT_EMAIL=ops@example.com  (required only when TLS_MODE=letsencrypt)
 #   ALLOWED_HOSTS=trueppm.example.com
+#   INTEGRATION_ENCRYPTION_KEY=<Fernet key — the api container refuses to start
+#                without it (#1002). Generate with: python3 -c "from
+#                cryptography.fernet import Fernet;
+#                print(Fernet.generate_key().decode())">
+#   An attachment-storage choice (the api container refuses to start until one
+#                is made, #775): either TRUEPPM_DEFAULT_FILE_STORAGE +
+#                TRUEPPM_S3_BUCKET_NAME, or
+#                TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true. See .env.example
+#                — note that local storage is EPHEMERAL on this stack (the api
+#                container is read-only with no attachments volume).
+#   COMPOSE_PROFILES=letsencrypt   (required when TLS_MODE=letsencrypt, so the
+#                certbot renewal service is created — init-prod.sh writes this
+#                line for you; without it TLS expires at ~90 days)
 #
 # Optional .env variables:
 #   DJANGO_SUPERUSER_EMAIL=admin@example.com  (default: admin@trueppm.com)
@@ -58,6 +71,30 @@ services:
       timeout: 3s
       retries: 5
 
+  # ── Bundled-datastore posture: TRUEPPM_ALLOW_UNENCRYPTED_DB ────────────────
+  #
+  # settings/prod.py refuses to boot when DATABASE_URL carries no `sslmode`
+  # (#1550) — an unqualified connection can silently fall back to plaintext
+  # transport. The bundled postgres:16-alpine above serves no TLS, so
+  # `sslmode=require` can never succeed against it, and the DATABASE_URL below
+  # is composed by this file rather than read from .env. Without the escape
+  # hatch the documented production stack crash-loops on its own guard.
+  #
+  # Granting it here is safe for exactly this shape and no other: `db` publishes
+  # no host port, so the plaintext hop is confined to the private compose bridge
+  # network, reachable only by the containers in this file. That is the same
+  # reconciliation the Helm chart makes — `trueppm.datastoreSecurityEnv` in
+  # packages/helm/templates/_helpers.tpl auto-sets the flag when (and only when)
+  # the bundled PostgreSQL is in use behind an enforcing NetworkPolicy (#1716).
+  #
+  # It fails closed for an external database: pointing at a managed Postgres
+  # means replacing the `DATABASE_URL` line in each service below, and that URL
+  # must carry `sslmode=require` — do NOT carry this flag over with it. The
+  # guard is the only thing standing between a WAN database hop and plaintext.
+  #
+  # Runtime note: the flag downgrades the boot guard to a startup WARNING, so
+  # `docker compose logs api | grep sslmode` still shows the posture in effect.
+
   # Runs migrations, collectstatic, and admin bootstrap once before the API
   # starts. Exits 0 on success; api waits for this to complete.
   api-init:
@@ -72,6 +109,8 @@ services:
       DATABASE_URL: postgres://trueppm:${DB_PASSWORD:?DB_PASSWORD must be set in .env}@db:5432/trueppm
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@valkey:6379
       DJANGO_SETTINGS_MODULE: trueppm_api.settings.prod
+      # See the "Bundled-datastore posture" note above this service.
+      TRUEPPM_ALLOW_UNENCRYPTED_DB: "true"
       TRUEPPM_ADMIN_PASSWORD_FILE: /run/trueppm/admin_password
       STATIC_ROOT: /app/staticfiles
     volumes:
@@ -97,6 +136,8 @@ services:
       DATABASE_URL: postgres://trueppm:${DB_PASSWORD:?DB_PASSWORD must be set in .env}@db:5432/trueppm
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@valkey:6379
       DJANGO_SETTINGS_MODULE: trueppm_api.settings.prod
+      # See the "Bundled-datastore posture" note above the api-init service.
+      TRUEPPM_ALLOW_UNENCRYPTED_DB: "true"
       TRUEPPM_ADMIN_PASSWORD_FILE: /run/trueppm/admin_password
     volumes:
       - admin_password:/run/trueppm
@@ -125,9 +166,52 @@ services:
       DATABASE_URL: postgres://trueppm:${DB_PASSWORD:?DB_PASSWORD must be set in .env}@db:5432/trueppm
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@valkey:6379
       DJANGO_SETTINGS_MODULE: trueppm_api.settings.prod
+      # See the "Bundled-datastore posture" note above the api-init service.
+      TRUEPPM_ALLOW_UNENCRYPTED_DB: "true"
     depends_on:
       api-init:
         condition: service_completed_successfully
+
+  # Beat is the SINGLE scheduler for the whole stack: it is the one process that
+  # dispatches CELERY_BEAT_SCHEDULE (outbox and email drains, retention purge,
+  # burndown/forecast snapshots, and the beat.heartbeat marker that backs
+  # /api/v1/health/beat/). Without it the worker above has nothing periodic to
+  # consume and that endpoint reports 503 forever. Never scale this service past
+  # one replica — a second beat double-fires every periodic task.
+  celery-beat:
+    image: ghcr.io/trueppm/api:${APP_VERSION:-latest}
+    # `--schedule` / `--pidfile` under /tmp: read_only is on and beat's default
+    # paths are relative to the container working directory, which is not
+    # writable, so beat exits with PermissionError on the first tick (#314).
+    # The shelve is rebuilt from CELERY_BEAT_SCHEDULE on every start, so losing
+    # it on restart is harmless.
+    command:
+      - celery
+      - -A
+      - trueppm_api.celery
+      - beat
+      - --loglevel=info
+      - --schedule=/tmp/celerybeat-schedule
+      - --pidfile=/tmp/celerybeat.pid
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://trueppm:${DB_PASSWORD:?DB_PASSWORD must be set in .env}@db:5432/trueppm
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@valkey:6379
+      DJANGO_SETTINGS_MODULE: trueppm_api.settings.prod
+      # See the "Bundled-datastore posture" note above the api-init service.
+      TRUEPPM_ALLOW_UNENCRYPTED_DB: "true"
+    depends_on:
+      api-init:
+        condition: service_completed_successfully
+      celery:
+        condition: service_started
 
   # Copies the pre-built frontend assets into the shared volume so nginx
   # can serve them. Exits immediately after the copy.
@@ -160,12 +244,24 @@ services:
       DOMAIN: ${DOMAIN:?DOMAIN must be set in .env}
     # init-prod.sh copies the correct template to nginx/active.conf.template.
     # envsubst renders it at container startup.
+    #
+    # The background loop is the certificate pickup path. nginx reads its
+    # certificate files ONCE at startup and holds them for the life of the
+    # process, so a certificate the certbot service renews on disk is invisible
+    # to a long-running nginx — the stack would keep serving the expired one
+    # until someone restarted the container by hand. Reloading every 6 h picks
+    # up any renewal within hours of it landing, well inside Let's Encrypt's
+    # 30-day pre-expiry renewal window. `-s reload` is a graceful SIGHUP: it
+    # re-reads config and certificates without dropping connections. The
+    # `|| true` keeps a reload that races container startup (before the master
+    # process has written its pidfile) from killing the loop.
     command: >
       /bin/sh -c
       "envsubst '$${DOMAIN}'
        < /etc/nginx/templates/default.conf.template
        > /etc/nginx/conf.d/default.conf
-       && nginx -g 'daemon off;'"
+       && { while :; do sleep 6h; nginx -s reload || true; done & }
+       && exec nginx -g 'daemon off;'"
     volumes:
       - ./nginx/active.conf.template:/etc/nginx/templates/default.conf.template:ro
       - ./certbot/conf:/etc/letsencrypt:ro
@@ -179,7 +275,22 @@ services:
         condition: service_healthy
 
   # Renews the Let's Encrypt certificate every 12 hours.
-  # Only started when TLS_MODE=letsencrypt (compose --profile letsencrypt).
+  #
+  # Gated behind the `letsencrypt` profile, so it is only created when that
+  # profile is active. init-prod.sh writes COMPOSE_PROFILES=letsencrypt into
+  # .env when TLS_MODE=letsencrypt, and docker compose reads COMPOSE_PROFILES
+  # from .env on every subsequent `up`/`down` — including the systemd unit's.
+  # Without that line the service is silently never created and the certificate
+  # expires at ~90 days (#2804). Do not rely on passing --profile by hand: the
+  # renewal has to survive every restart path, not just the interactive one.
+  #
+  # `-a webroot` overrides the authenticator recorded in the renewal lineage.
+  # init-prod.sh issues the first certificate with --standalone (nginx cannot
+  # start before the certificate its config references exists), which persists
+  # "standalone" into the renewal conf — and standalone renewal would try to
+  # bind :80 inside this container, which publishes no ports, while nginx holds
+  # :80 on the host. Renewing through the webroot nginx already serves at
+  # /.well-known/acme-challenge/ needs no port and no downtime.
   certbot:
     image: certbot/certbot
     restart: unless-stopped
@@ -187,7 +298,7 @@ services:
     volumes:
       - ./certbot/conf:/etc/letsencrypt
       - ./certbot/www:/var/www/certbot
-    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew -a webroot --webroot-path=/var/www/certbot; sleep 12h & wait $${!}; done;'"
 
 volumes:
   postgres_data:

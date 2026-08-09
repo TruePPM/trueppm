@@ -1,13 +1,14 @@
 ---
 title: Try TruePPM
 description: Two zero-config ways to evaluate TruePPM before you install anything — a hosted read-only demo and a one-command local trial.
+documentedFor: "0.4"
 ---
 
 TruePPM's zero-config evaluation paths — a hosted read-only demo and a
 one-command local trial, both preloaded with the same **Platform Migration**
 hybrid sample project — arrive with the **0.4 beta**. This page previews them.
 
-:::caution[Coming in 0.4 — not yet available]
+:::caution[Ships in 0.4 — not yet available]
 Both paths on this page land with the **0.4 tag**. 0.4 is currently **Underway**
 (target Aug 17 – 31, 2026) — see the [roadmap](/overview/roadmap/). The hosted
 `try.trueppm.com` instance goes live at the tag, and the `docker-compose.demo.yml`
@@ -78,13 +79,23 @@ restarts, pin a token before the first `up`:
 
 ```bash
 TRUEPPM_DEMO_SHARE_TOKEN=your-fixed-token \
-TRUEPPM_DEMO_BASE_URL=https://try.trueppm.com \
   docker compose -f docker-compose.demo.yml up
 ```
 
-The public URL is then `https://try.trueppm.com/share/schedule/your-fixed-token`.
-The [`create_demo_share_link`](/administration/management-commands/#create_demo_share_link)
+The URL is then `http://localhost/share/schedule/your-fixed-token`. The
+[`create_demo_share_link`](/administration/management-commands/#create_demo_share_link)
 command that mints it is idempotent on the pinned token.
+
+If you are serving this stack on a public origin rather than your own machine,
+set `TRUEPPM_DEMO_BASE_URL` too so the logged URL names that host — it defaults
+to `http://localhost`, which is right for a local trial and wrong for a hosted
+one:
+
+```bash
+TRUEPPM_DEMO_SHARE_TOKEN=your-fixed-token \
+TRUEPPM_DEMO_BASE_URL=https://demo.example.com \
+  docker compose -f docker-compose.demo.yml up
+```
 
 ## Inspect before you import
 
