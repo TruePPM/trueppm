@@ -193,6 +193,33 @@ def test_falsy_non_string_project_is_a_400(owner: Any, value: Any) -> None:
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param([None, None], id="list"),
+        pytest.param([], id="empty-list"),
+        pytest.param(["x"], id="list-of-str"),
+        pytest.param("project", id="str"),
+        pytest.param(7, id="int"),
+        pytest.param(True, id="bool"),
+        pytest.param(None, id="null"),
+    ],
+)
+def test_non_object_body_is_a_400_not_a_500(owner: Any, body: Any) -> None:
+    """A body that is not a JSON *object* must 400, not 500 (#2795).
+
+    Distinct from the #2785 tests above, which vary the *value* of `project`
+    inside a well-formed object. Here the container itself is not a dict, so
+    `request.data` has no `.get` at all and the read raised AttributeError
+    before any of the value-level guards could run — the #2126 class, fixed in
+    `core/` but never swept into the app views. A non-object body carries no
+    `project`, so it resolves to the same 400 an omitted field gets.
+    """
+    resp = _client_as(owner).post(DELETE_URL, body, format="json")
+    assert resp.status_code == 400, resp.data
+
+
+@pytest.mark.django_db
 def test_unknown_project_is_a_404(owner: Any) -> None:
     resp = _client_as(owner).post(
         DELETE_URL, {"project": "00000000-0000-0000-0000-000000000000"}, format="json"
