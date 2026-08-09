@@ -89,9 +89,19 @@ function toCpmTasks(visited: Set<string>, taskIndex: Map<string, Task>): CpmTask
       earlyStart: t.start,
       earlyFinish: t.finish,
       lateFinish,
+      // FULL working-day duration. The engine derives the remaining portion
+      // itself from `remainingDuration` (issue #2813) — feeding it the full
+      // duration for an in-progress task was what made the preview lay 10 days
+      // of already-80%-burned work in front of every successor.
       durationDays: t.duration,
       isMilestone: t.isMilestone,
       name: t.name,
+      // ADR-0132 progress facts. All four already exist on the web Task; the
+      // preview simply never carried them across the worker boundary.
+      isComplete: t.isComplete,
+      actualStart: t.actualStart ?? null,
+      actualFinish: t.actualFinish ?? null,
+      remainingDuration: t.remainingDuration ?? null,
     });
   }
   return cpmTasks;

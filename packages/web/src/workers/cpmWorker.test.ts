@@ -142,4 +142,53 @@ describe('cpmWorker protocol', () => {
     send({ type: 'DRAG_MOVE', seq: 3, newStartIso: '2025-01-13' });
     expect(lastResult()?.draggedTaskId).toBe('A');
   });
+
+  // The data date is resident for the same reason the subgraph is: it cannot
+  // change mid-drag, so DRAG_START carries it once and every frame reuses it
+  // (issue #2813). A frame that lost it would preview a past drop the server
+  // is about to floor.
+  describe('resident data date', () => {
+    it('applies the DRAG_START data date to every subsequent DRAG_MOVE', () => {
+      send({
+        type: 'DRAG_START',
+        draggedTaskId: 'A',
+        subgraph: SUBGRAPH_A,
+        statusDate: '2025-02-03',
+      });
+      send({ type: 'DRAG_MOVE', seq: 1, newStartIso: '2025-01-13' });
+      send({ type: 'DRAG_MOVE', seq: 2, newStartIso: '2025-01-14' });
+
+      const a = lastResult()?.results.find((r) => r.taskId === 'A');
+      expect(a?.earlyStart).toBe('2025-02-03');
+    });
+
+    it('releases the data date on DRAG_END so the next drag cannot inherit it', () => {
+      send({
+        type: 'DRAG_START',
+        draggedTaskId: 'A',
+        subgraph: SUBGRAPH_A,
+        statusDate: '2025-02-03',
+      });
+      send({ type: 'DRAG_END' });
+      send({ type: 'DRAG_START', draggedTaskId: 'A', subgraph: SUBGRAPH_A });
+      send({ type: 'DRAG_MOVE', seq: 1, newStartIso: '2025-01-13' });
+
+      const a = lastResult()?.results.find((r) => r.taskId === 'A');
+      expect(a?.earlyStart).toBe('2025-01-13');
+    });
+
+    it('honors the data date carried on a stateless RECALC', () => {
+      send({
+        type: 'RECALC',
+        seq: 7,
+        draggedTaskId: 'A',
+        newStartIso: '2025-01-13',
+        subgraph: SUBGRAPH_A,
+        statusDate: '2025-02-03',
+      });
+
+      const a = lastResult()?.results.find((r) => r.taskId === 'A');
+      expect(a?.earlyStart).toBe('2025-02-03');
+    });
+  });
 });

@@ -153,4 +153,57 @@ describe('buildSubgraph', () => {
     // A is in visited, A is in visited → internal edge is included
     expect(edges).toHaveLength(1);
   });
+
+  // ADR-0132 progress facts (#2813). These already existed on the web `Task`;
+  // the preview subgraph simply never carried them across the worker boundary,
+  // so the engine could not apply the pin / remaining-duration / actual-start
+  // floors and previewed dates the server contradicted on commit.
+  describe('progress fields', () => {
+    it('carries the ADR-0132 progress facts through to the CPM task', () => {
+      const tasks = [
+        task('A', {
+          duration: 10,
+          progress: 80,
+          remainingDuration: 2,
+          actualStart: '2026-01-05',
+        }),
+      ];
+      const { tasks: subTasks } = buildSubgraph('A', tasks, []);
+
+      expect(subTasks[0]).toMatchObject({
+        // The FULL duration — the engine derives the remaining portion itself.
+        durationDays: 10,
+        remainingDuration: 2,
+        actualStart: '2026-01-05',
+        isComplete: false,
+      });
+    });
+
+    it('carries both actuals for a completed task so the engine can pin it', () => {
+      const tasks = [
+        task('A', {
+          isComplete: true,
+          status: 'COMPLETE',
+          progress: 100,
+          actualStart: '2026-01-05',
+          actualFinish: '2026-01-09',
+        }),
+      ];
+      const { tasks: subTasks } = buildSubgraph('A', tasks, []);
+
+      expect(subTasks[0].isComplete).toBe(true);
+      expect(subTasks[0].actualStart).toBe('2026-01-05');
+      expect(subTasks[0].actualFinish).toBe('2026-01-09');
+    });
+
+    it('normalises absent progress facts to null rather than dropping the keys', () => {
+      // A payload that predates the fields (an older WebSocket delta, an
+      // optimistic local create) must not read as "0 days of work left".
+      const { tasks: subTasks } = buildSubgraph('A', [task('A')], []);
+
+      expect(subTasks[0].remainingDuration).toBeNull();
+      expect(subTasks[0].actualStart).toBeNull();
+      expect(subTasks[0].actualFinish).toBeNull();
+    });
+  });
 });
