@@ -817,3 +817,41 @@ def test_task_list_query_count_invariant_to_task_count(calendar: Calendar, user:
         f"select_related/prefetch_related set, or a SerializerMethodField that "
         f"queries."
     )
+
+
+@pytest.mark.django_db
+def test_task_list_page_query_is_ordered(client: APIClient, project: Project) -> None:
+    """The paginated task list emits an ORDER BY, so pages partition the result set.
+
+    `Task.Meta.ordering` does not survive this endpoint: `annotate_tasks_queryset`
+    adds aggregate annotations, the query therefore has a GROUP BY, and Django's
+    compiler discards *Meta*-derived ordering whenever one is present. The shipped
+    query was `LIMIT 50` with no ORDER BY at all (#2807), which DRF flags with
+    UnorderedObjectListWarning — and which lets the Schedule's parallel all-pages
+    fetch duplicate and drop tasks the moment the plan changes.
+
+    Asserts the property (the page query is ordered), not the sort key, so #2814 can
+    change *what* the default order is without rewriting this guard.
+    """
+    for i in range(3):
+        Task.objects.create(project=project, name=f"T{i}", duration=1, wbs_path=str(i + 1))
+
+    with CaptureQueriesContext(connection) as ctx:
+        r = client.get(f"/api/v1/tasks/?project={project.pk}")
+        assert r.status_code == 200, r.data
+
+    page_queries = [
+        q["sql"]
+        for q in ctx.captured_queries
+        if "LIMIT" in q["sql"] and "projects_task" in q["sql"] and "COUNT(*) FROM (" not in q["sql"]
+    ]
+    assert page_queries, "no paginated task query captured"
+    # The page fetch is the one carrying the pagination LIMIT; every other LIMIT in
+    # this statement belongs to a correlated subquery in the annotation set.
+    page_sql = max(page_queries, key=len)
+    assert "ORDER BY" in page_sql, (
+        "GET /tasks/ paginated its result set with no ORDER BY. Pagination over an "
+        "unordered queryset is not stable, so the Schedule's parallel page fetch can "
+        "return the same task twice and miss another. TaskViewSet.ordering supplies "
+        "an explicit order_by that the GROUP BY cannot discard — see #2807."
+    )
