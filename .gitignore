@@ -95,3 +95,9 @@ packages/api/seed-imports/
 # SonarCloud / sonar-scanner scratch output
 .scannerwork/
 .sonar/
+
+# Captured docs-build output (#2797). website:build / pages redirect `npm run
+# build` here so the exit code stays honest (a `| tee` would report tee's
+# status), then check-mermaid-rendered.sh scans it for the [ERROR] lines Astro
+# logs while still exiting 0. CI-local scratch; never committed.
+website-build.log
