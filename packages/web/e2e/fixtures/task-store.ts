@@ -116,9 +116,9 @@ export async function setupTaskStore(
 
   // `tasks/bulk/` (#2724) lives under a different path (`projects/{pk}/tasks/bulk/`,
   // not `tasks/{id}/`), so the route above never sees it — a separate registration,
-  // sharing the same `rows` closure. Scoped to what paste-many's own spec needs:
-  // `create` (client-minted `id`, per ADR-0772) and `delete` (its Undo). No `update`
-  // support — nothing in this repo's specs bulk-updates yet.
+  // sharing the same `rows` closure. Covers `create` (client-minted `id`, per
+  // ADR-0772) and `delete` for paste-many (#2724), plus `update` for the ⌘⇧K
+  // bulk-edit sheet (#2756 pt.2).
   await page.route(/\/api\/v1\/projects\/[^/]+\/tasks\/bulk\/$/, async (route: Route) => {
     const request = route.request();
     if (request.method() !== 'POST') return route.fallback();
@@ -144,6 +144,31 @@ export async function setupTaskStore(
         }
         rows.splice(idx, 1);
         applied.push({ index, id: op.id, op: 'delete', outcome: 'deleted' });
+        return;
+      }
+      // `update` (#2756 pt.2, the ⌘⇧K bulk-edit sheet). Faithful in the two ways
+      // a spec can observe: the row's read shape reflects the write, and a row
+      // the user may not edit comes back in `rejected` rather than failing the
+      // whole batch — which is the partial-success path the sheet exists to
+      // report. `owners` is write-only and reads back as `assignments`, same
+      // asymmetry `applyPatch` exists for on the PATCH route.
+      if (op.op === 'update') {
+        const idx = rows.findIndex((r) => r.id === op.id);
+        if (idx < 0) {
+          rejected.push({ index, id: op.id ?? null, code: 'not_found', message: 'No such task.' });
+          return;
+        }
+        if (rows[idx].can_edit === false) {
+          rejected.push({
+            index,
+            id: op.id ?? null,
+            code: 'forbidden',
+            message: 'You may not edit this task.',
+          });
+          return;
+        }
+        rows[idx] = applyPatch(op.data ?? {}, rows[idx]);
+        applied.push({ index, id: op.id, op: 'update', outcome: 'updated' });
         return;
       }
       rejected.push({ index, id: op.id ?? null, code: 'invalid', message: `Unknown op '${op.op}'.` });
