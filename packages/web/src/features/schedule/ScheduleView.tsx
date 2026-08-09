@@ -77,6 +77,8 @@ import { useUnscheduledTasks } from '@/hooks/useUnscheduledTasks';
 import { computePlannedByPhase, type PhasePlannedBadge } from './plannedByPhase';
 import { computeRowModes, type RowMode } from './deliveryModePresentation';
 import { ClassificationPopover } from './classification/ClassificationPopover';
+import { BulkEditSheet } from './buildMode/bulkEdit/BulkEditSheet';
+import { useBulkEdit } from './buildMode/bulkEdit/useBulkEdit';
 import { useClassifySubtree, type ClassificationApply } from '@/hooks/useTaskClassification';
 import { useUndoCascadeClassificationOperation, describeUndo } from '@/hooks/useBatchOperations';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
@@ -2194,6 +2196,16 @@ export function ScheduleView() {
     [projectId, classifyMut, setScheduleActionToast, undoClassify],
   );
 
+  // ⌘⇧K bulk-edit sheet (#2756 pt.2, ADR-0810) — acts on exactly the rows
+  // #2727's selection holds, never their descendants (that scope is ⌘⇧M).
+  const bulkEdit = useBulkEdit({
+    projectId,
+    focus,
+    visibleTasks,
+    readOnly,
+    focusRowById: focusRowByIdSoon,
+  });
+
   const keyBindings = useMemo<Record<string, (e: KeyboardEvent) => void>>(() => {
     const out: Record<string, (e: KeyboardEvent) => void> = {};
     out['mod+m'] = (e) => {
@@ -2254,6 +2266,14 @@ export function ScheduleView() {
         if (!rowId) return;
         e.preventDefault();
         handleClassifyRequest(rowId);
+      };
+      // ⌘⇧K (#2756 pt.2): bulk-edit every selected row. Build-mode only — the
+      // selection it acts on only exists there. `open` is a no-op with nothing
+      // selected and nothing focused, so the key never opens an empty sheet.
+      out['mod+shift+k'] = (e) => {
+        if (readOnly) return;
+        e.preventDefault();
+        bulkEdit.open();
       };
       // F8 / Shift+F8 (#2727, ADR-0776 §3; extended by #2724): jump to the
       // next/previous visible row that needs attention — an unresolved
@@ -2359,6 +2379,7 @@ export function ScheduleView() {
     setSelectedTaskId,
     pasteMany,
     handleClassifyRequest,
+    bulkEdit,
   ]);
   useScheduleKeyboard(keyBindings);
 
@@ -2738,6 +2759,24 @@ export function ScheduleView() {
         onClassifyApply={handleClassifyApply}
         onClassifyClose={closeClassify}
       />
+
+      {/* Bulk-edit sheet (#2756 pt.2) — ⌘⇧K. Mounted here rather than threaded
+          through ScheduleOverlayLayer because it portals to document.body, so
+          its position in the tree buys nothing and would cost two more props on
+          an already-wide interface. */}
+      {bulkEdit.isOpen && bulkEdit.selectedTasks.length > 0 && (
+        <BulkEditSheet
+          tasks={bulkEdit.selectedTasks}
+          resourcePool={resourcePool ?? []}
+          isPending={bulkEdit.isPending}
+          error={bulkEdit.error}
+          result={bulkEdit.result}
+          skippedLocallyCount={bulkEdit.skippedLocallyCount}
+          onApply={bulkEdit.apply}
+          onReviewFailed={bulkEdit.reviewFailed}
+          onClose={bulkEdit.close}
+        />
+      )}
     </div>
   );
 

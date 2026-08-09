@@ -723,6 +723,56 @@ export function useBulkCreateTasks(projectId: string | null) {
 }
 
 // ---------------------------------------------------------------------------
+// useBulkUpdateTasks — POST /api/v1/projects/{pk}/tasks/bulk/ (update ops)
+// ---------------------------------------------------------------------------
+
+/** One `update` op in a `tasks/bulk` batch — `id` names an existing row. */
+export interface BulkUpdateOperation {
+  op: 'update';
+  id: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * POST /api/v1/projects/{pk}/tasks/bulk/ — edit many tasks in one request
+ * (the ⌘⇧K bulk-edit sheet, #2756 pt.2, ADR-0810).
+ *
+ * Returns the full 207 body rather than throwing on a partial batch, matching
+ * `useBulkCreateTasks` and diverging from `useBulkDeleteTasks` on purpose: "12
+ * of 15 rows updated, 2 are summary rows, 1 you can't edit" is the everyday
+ * outcome of editing a mixed selection, and reporting it per row is the entire
+ * reason ADR-0810 pointed this sheet at the batch endpoint instead of N PATCHes.
+ * The caller's result phase renders the breakdown; a throw would collapse it
+ * back to all-or-nothing.
+ */
+export function useBulkUpdateTasks(projectId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (operations: BulkUpdateOperation[]) => {
+      const res = await apiClient.post<TaskBulkResponse>(`/projects/${projectId}/tasks/bulk/`, {
+        operations,
+      });
+      return res.data;
+    },
+    onSuccess: (data) => {
+      void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+      // An owner write creates TaskResource rows, which every capacity,
+      // utilization and heat-map number reads (never `Task.assignee`) — so the
+      // resource pool and assignment views are stale the moment a batch lands.
+      void queryClient.invalidateQueries({ queryKey: ['project-resource-pool', projectId] });
+      // Only the rows the server actually changed need their Activity feed
+      // refreshed; a rejected or skipped row wrote no history entry.
+      for (const entry of data.applied) {
+        void queryClient.invalidateQueries({
+          queryKey: ['task-history', projectId ?? undefined, entry.id],
+        });
+      }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // useTrashedTasks — GET /api/v1/tasks/trash/?project=<id>
 // ---------------------------------------------------------------------------
 

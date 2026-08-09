@@ -277,6 +277,46 @@ scattered or cross-level selection has no single well-defined destination, so th
 a no-op there rather than guessing. Any plain arrow-key move or a click collapses the
 selection back to a single row.
 
+## Edit many rows at once
+
+:::note[Ships in 0.4]
+The bulk-edit sheet lands in **TruePPM 0.4**. In the current release, edit each row
+individually from the outline or the task drawer.
+:::
+
+`⌘ ⇧ K` (`Ctrl + Shift + K`) opens a sheet that applies one change to every selected row
+at once. With no selection, it acts on the focused row alone — the same rule `Delete`
+uses.
+
+**It acts on exactly the rows you selected, and never their children.** To change a whole
+subtree including descendants, use [`⌘ ⇧ M`](/features/task-classification/) instead — the
+two shortcuts differ in scope, not in what they can set.
+
+Every field starts on **Leave unchanged**, so a field you don't touch is never written.
+Where the selected rows disagree, the option reads "Leave — Mixed" rather than showing a
+single value the selection doesn't actually have.
+
+| Field | What it does |
+|---|---|
+| **Add owner** | Assigns a person from the project roster, with an allocation percent |
+| **Governed by** / **Progress from** | The two classification axes — the same pair `⌘ ⇧ M` sets, applied to just these rows |
+| **Planned start** / **Planned finish** | Set a committed date, or clear one |
+
+**Adding an owner adds a co-owner — it never replaces one.** A row that already has
+somebody keeps them and gains the person you picked. Removing an assignment stays on the
+row itself, in the task drawer's Assignees editor. Summary rows cannot take an owner at
+all; the sheet says how many of your selected rows that affects before you apply, and
+their other changes still land.
+
+**Rows are applied independently, and the sheet reports what happened.** If you can't
+edit some of the selection, the rest still goes through — you get "12 of 15 rows updated"
+plus the reason the others didn't, and **Review the 3** turns exactly those rows into your
+new selection so you can deal with them without hunting for them in a long outline.
+
+Setting a planned start applies it as a *no-earlier-than* constraint to every selected
+row, not as a literal identical start date — the schedule engine still decides when each
+row actually starts. See [How dates work](/features/schedule/).
+
 ## Accessibility
 
 The Schedule task list is a real **treegrid**: each row carries a genuine `aria-level`
@@ -304,7 +344,9 @@ never the only signal.
 - **Enter's positional insert is one-directional.** Plain `Enter` appends the new row at the end of its parent's children rather than immediately after the focused row. `Shift + Enter` (insert above) *does* land exactly where you'd expect — it composes the create with a reorder — but the common "type, Enter, type" flow still appends.
 - **No optimistic indent.** Indent / outdent waits ~50ms for the server to confirm before the row position updates.
 - **No fill-down.** Multi-row select and duplicate exist, and 0.4 adds [paste-many from a spreadsheet](#paste-rows-from-a-spreadsheet); a fill-down / fill-series gesture for extending a value down a column does not exist yet.
-- **No multi-step undo (yet), no bulk-edit sheet, no Enter-to-create on the Timeline.** A paste, a classification cascade, and a spreadsheet import each undo as one step — see [Paste rows from a spreadsheet](#paste-rows-from-a-spreadsheet) above, [Classify a subtree](/features/task-classification/#undo-a-cascade), and [CSV/Excel import](/features/csv-import-export/#undo-an-import). What's still missing: a *stack* of undoable steps (only the most recent action of each kind is reversible), a `⌘ ⇧ K` sheet for bulk-editing mode/phase/calendar/owner/dates across a selection, and creating rows from the Timeline the way Enter does on the list — tracked separately, not in this release.
+- **No multi-step undo (yet), and no Enter-to-create on the Timeline.** A paste, a classification cascade, and a spreadsheet import each undo as one step — see [Paste rows from a spreadsheet](#paste-rows-from-a-spreadsheet) above, [Classify a subtree](/features/task-classification/#undo-a-cascade), and [CSV/Excel import](/features/csv-import-export/#undo-an-import). What's still missing: a *stack* of undoable steps (only the most recent action of each kind is reversible), and creating rows from the Timeline the way Enter does on the list — tracked separately, not in this release.
+- **A bulk edit is not undoable with `⌘ Z`.** The [bulk-edit sheet](#edit-many-rows-at-once) ships in 0.4, but unlike a paste or a cascade it records no undo step — re-open the sheet and set the field back. Take particular care with **Add owner**, which the sheet cannot reverse at all: remove the assignment from the row's own Assignees editor.
+- **The bulk-edit sheet cannot move rows under a phase, or set a calendar.** Phase changes go one row at a time (drag, `Alt + →`, or the `[Phase name]` inline token); the working calendar is a project-level setting, not a per-task one, and lives in **Project settings → Schedule**. Shifting a selection's dates by a relative amount ("everything slips a week") is likewise not available — the sheet sets absolute dates only.
 - **No Sprint backlog parity yet.** The same inline-edit / Tab pattern will extend to the Sprint backlog table in a future release.
 
 ## See also

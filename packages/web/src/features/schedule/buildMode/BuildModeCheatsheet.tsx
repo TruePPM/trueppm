@@ -78,6 +78,10 @@ const SECTIONS: ShortcutSection[] = [
         keys: ['⌘', '⇧', 'M'],
         label: 'Classify this subtree — governance and delivery mode, with a preview',
       },
+      {
+        keys: ['⌘', '⇧', 'K'],
+        label: 'Edit every selected row — owner, classification, dates',
+      },
     ],
   },
   {
