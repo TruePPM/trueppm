@@ -49,6 +49,13 @@ export interface UseKeyboardRescheduleOptions {
    * useDragCpm to prevent its Escape handler from double-cancelling.
    */
   keyboardModeRef: RefObject<boolean>;
+  /**
+   * The project's data date (`Project.status_date`), or null to resolve it to
+   * today the way the server does (ADR-0132 §1, issue #2813). Floors the
+   * previewed start of the task being moved, so a nudge into the past previews
+   * the date the server will actually commit.
+   */
+  statusDate?: string | null;
   /** Called when the user presses 'd' to open the date input popover. */
   onOpenDatePopover: (taskId: string) => void;
 }
@@ -60,6 +67,7 @@ export function useKeyboardReschedule({
   ariaLiveRef,
   ariaAssertiveRef,
   keyboardModeRef,
+  statusDate,
   onOpenDatePopover,
 }: UseKeyboardRescheduleOptions): void {
   const workerRef = useRef<Worker | null>(null);
@@ -75,6 +83,10 @@ export function useKeyboardReschedule({
   const linksRef = useRef(links);
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
   useEffect(() => { linksRef.current = links; }, [links]);
+  // Same stable-ref treatment: read inside an engine event callback, and a
+  // status-date change must not tear down and rebuild the key bindings.
+  const statusDateRef = useRef(statusDate ?? null);
+  useEffect(() => { statusDateRef.current = statusDate ?? null; }, [statusDate]);
 
   const startDrag = useDragStore((s) => s.startDrag);
   const updatePreview = useDragStore((s) => s.updatePreview);
@@ -142,6 +154,7 @@ export function useKeyboardReschedule({
         draggedTaskId: taskId,
         newStartIso: newStart,
         subgraph,
+        statusDate: statusDateRef.current,
       };
       worker.postMessage(msg);
       setKeyboardDelta(newDelta);

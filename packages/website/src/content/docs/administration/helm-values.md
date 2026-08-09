@@ -25,7 +25,7 @@ may not be present.
 | `replicaCount` | `1` | API tier replica count. Raise to `2+` for production (the prod overlay sets 2). Request throughput scales with this because uvicorn runs one worker per pod by default. |
 | `image.repository` | `registry.gitlab.com/trueppm/trueppm/api` | API container image. |
 | `image.webRepository` | `registry.gitlab.com/trueppm/trueppm/web` | Web (nginx SPA) image; shares `tag`/`pullPolicy` with the API so a release deploys a matching pair. |
-| `image.tag` | `""` | Empty pins the chart to its own `appVersion` for reproducible rollbacks. Override per-deploy with a concrete tag. |
+| `image.tag` | `""` | Empty pins the chart to its own `appVersion` for reproducible rollbacks, resolving to `v<appVersion>` (e.g. `v0.4.0`) — released images are published under v-prefixed tags, so the `v` is part of the tag, not decoration. Override per-deploy with a concrete tag, which is used verbatim. |
 | `image.pullPolicy` | `IfNotPresent` | Standard Kubernetes pull policy. |
 
 ## Service and web tier
@@ -152,7 +152,7 @@ large request buffering). Tune per the [sizing profiles](/administration/sizing/
 
 | Key | Default | What it does |
 |---|---|---|
-| `probes.api.readinessPath` | `/api/v1/readyz` | Deep readiness: DB + cache reachable **and** no unapplied/in-flight migrations, so a rolling upgrade never routes traffic to a pod whose schema and code disagree. |
+| `probes.api.readinessPath` | `/api/v1/readyz` | Deep readiness: DB + cache reachable **and** no unapplied/in-flight migrations, so a rolling upgrade never routes traffic to a pod whose schema and code disagree. Detection of the reverse direction — a database carrying migrations the running image does not ship, i.e. an image rolled back without restoring the schema — ships in 0.4 as `migration_state: ahead`, gated only for a pod that *booted* into it so a forward rolling upgrade never pulls the old pods out of the Service. Either way, schema presence is not data compatibility: rolling back across a destructive migration still needs a [restore from backup](/getting-started/upgrade/#rollback). |
 | `probes.api.livenessPath` | `/api/v1/health/` | Shallow liveness so a transient dependency blip can't restart-loop the pod. |
 | `probes.api.readiness*/liveness*Seconds` | 10/10, 30/30 | Initial-delay and period tuning. |
 | `probes.worker.*` | ping every 60s, `failureThreshold: 3` | `celery inspect ping` exec probe — catches a wedged event loop a process-alive check would miss. |

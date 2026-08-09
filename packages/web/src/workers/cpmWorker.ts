@@ -28,6 +28,9 @@ import type {
 let residentTasks: CpmTask[] | null = null;
 let residentEdges: CpmEdge[] | null = null;
 let residentDraggedTaskId: string | null = null;
+// The project's data date for the active drag (issue #2813). Resident for the
+// same reason the subgraph is: it cannot change mid-drag.
+let residentStatusDate: string | null = null;
 
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const msg = event.data;
@@ -37,12 +40,14 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       residentTasks = msg.subgraph.tasks;
       residentEdges = msg.subgraph.edges;
       residentDraggedTaskId = msg.draggedTaskId;
+      residentStatusDate = msg.statusDate ?? null;
       return;
 
     case 'DRAG_END':
       residentTasks = null;
       residentEdges = null;
       residentDraggedTaskId = null;
+      residentStatusDate = null;
       return;
 
     case 'DRAG_MOVE': {
@@ -56,6 +61,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         residentDraggedTaskId,
         msg.newStartIso,
         msg.seq,
+        residentStatusDate,
       );
       return;
     }
@@ -69,6 +75,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         msg.draggedTaskId,
         msg.newStartIso,
         msg.seq,
+        msg.statusDate ?? null,
       );
       return;
   }
@@ -81,12 +88,14 @@ function postResult(
   draggedTaskId: string,
   newStartIso: string,
   seq: number,
+  statusDate: string | null,
 ): void {
   const { results, worstMilestone } = runCpmForwardPass(
     tasks,
     edges,
     draggedTaskId,
     newStartIso,
+    statusDate,
   );
 
   // Cap at 10 visible preview bars; report overflow count for the "+N more" label.

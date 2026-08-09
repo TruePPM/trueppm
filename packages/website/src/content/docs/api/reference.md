@@ -1342,7 +1342,23 @@ ingest endpoint that flips these same flags from a test run.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/v1/readyz` | Dependency-aware readiness for Kubernetes readiness/startup probes. Unauthenticated by design (kubelet sends no credentials). Coarse `{"status": "ok"\|"fail", "checks": {...}}` body with no infrastructure detail; `200` when every checked dependency is healthy, `503` otherwise |
+| GET | `/api/v1/readyz` | Dependency-aware readiness for Kubernetes readiness/startup probes. Unauthenticated by design (kubelet sends no credentials). Coarse `{"status": "ok"\|"fail", "checks": {...}, "migration_state": "in_sync"}` body with no infrastructure detail; `200` when every checked dependency is healthy, `503` otherwise |
+
+`migration_state` reports which way the pod's migrations differ from the recorded
+schema: `behind` (this image ships migrations the database has not applied — the
+rolling-forward window), `ahead` (the database records migrations this image does
+not ship), `unknown` (the check itself failed), or `in_sync`.
+
+`behind` and `unknown` always make the pod not-ready. `ahead` gates the pod only
+when it **booted** into that state — the rollback case. A pod that booted in sync
+and drifted to `ahead` while serving is the ordinary rolling upgrade, and stays
+ready so the Service is not emptied while the new pods come up; the state is
+still reported either way. An operator can also re-open the gated case with
+`TRUEPPM_READYZ_ALLOW_DB_AHEAD` for a deliberate additive-only rollback, which
+changes readiness without hiding the state. `checks` keeps its existing keys and
+its `ok`/`fail` values, so a scraper reading only `status`/`checks` is unaffected.
+`ahead` is a schema-presence signal, not a data-compatibility verdict — see
+[rollback](/getting-started/upgrade/#rollback).
 
 Distinct from the plain unauthenticated liveness check at `/api/v1/health/`
 and the admin-only, deeper `/health/system/` used by

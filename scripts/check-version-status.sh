@@ -155,37 +155,69 @@ run_scan() {
   # Honest about the limit: this cannot catch a page that documents an
   # unreleased feature and declares nothing. It converts "did the author pick
   # the right tense" — unenforceable — into "the author named a version once,
-  # and the banner is guaranteed to match it".
+  # and the banner is guaranteed to match it". Nor does it see a bare
+  # ":::note[0.X]" badge naming an unshipped version, for the reason given at
+  # callout_re below — declare documentedFor on such a page and the pairing
+  # check will demand a real banner.
+  #
+  # Which banner forms count (#2818). This originally accepted exactly one
+  # literal prefix, ":::note[Ships in 0.X". A banner phrased any other way was
+  # invisible in BOTH directions — the pairing check could not confirm it, and
+  # the post-release reverse check could not flag it once 0.X shipped. Seventeen
+  # 0.4 banners had drifted into "Coming in 0.4", "Single sign-on lands in 0.4",
+  # "Task CSV / Excel import ships in 0.4" (title text before the verb), and a
+  # bare ":::note[0.4]" badge before anyone noticed. So any aside whose title
+  # carries a future-tense verb immediately followed by the version counts, with
+  # arbitrary title text allowed before the verb.
+  #
+  # Deliberately NOT recognized: the bare ":::note[0.X]" / ":::note[Added in
+  # 0.X]" badges that mark SHIPPED behavior on dozens of pages. Reading those as
+  # pre-release banners would fire the stale-banner branch below on every one of
+  # them. A pre-release banner has to name its verb — which is why the drifted
+  # bare-version 0.4 badges were retitled rather than matched here.
+  local callout_re=':::(note|caution|tip|danger)\[[^]]*(ship(s|ping)?|com(e|es|ing)|land(s|ing)?|chang(e|es|ing)) in 0\.[0-9]+'
+
   local fm_violations=0
-  local declared callout_ver
+  local declared callout_vers v
   while IFS= read -r f; do
     [ -z "$f" ] && continue
     # Read the key only from the front-matter block (line 1 to the closing ---).
     declared="$(sed -n '1,/^---[[:space:]]*$/{ /^documentedFor:/p; }' "$f" 2>/dev/null \
       | head -n 1 | sed -E 's/^documentedFor:[[:space:]]*["'"'"']?([0-9]+\.[0-9]+).*/\1/')"
-    # A "Ships in 0.X" callout anywhere on the page, in note or caution form.
-    callout_ver="$(grep -oE ':::(note|caution)\[Ships in 0\.[0-9]+' "$f" 2>/dev/null \
-      | head -n 1 | grep -oE '0\.[0-9]+' || true)"
+    # EVERY version named by a pre-release banner on the page, not just the
+    # first: a page can legitimately carry banners for two versions, and taking
+    # only the first made the pairing check depend on document order.
+    callout_vers="$(grep -oEi "$callout_re" "$f" 2>/dev/null \
+      | grep -oE '0\.[0-9]+' | sort -u || true)"
 
-    if [ -n "$declared" ]; then
-      if [ "$(version_gt "$declared" "$highest")" = "1" ]; then
-        if [ -z "$callout_ver" ]; then
-          echo "VIOLATION: $f declares documentedFor: $declared (unshipped) but carries no \"Ships in $declared\" callout" >&2
-          echo "    A reader on $highest would take this page as describing their install."
-          fm_violations=$((fm_violations + 1))
-        elif [ "$callout_ver" != "$declared" ]; then
-          echo "VIOLATION: $f declares documentedFor: $declared but its callout says \"Ships in $callout_ver\"" >&2
-          fm_violations=$((fm_violations + 1))
-        fi
-      elif [ -n "$callout_ver" ]; then
-        echo "VIOLATION: $f carries a \"Ships in $callout_ver\" callout, but documentedFor: $declared has shipped" >&2
-        echo "    Delete the callout — $declared is released, so the banner now misinforms."
+    # Pre-release pairing: an unshipped declaration needs a matching banner.
+    if [ -n "$declared" ] && [ "$(version_gt "$declared" "$highest")" = "1" ]; then
+      if [ -z "$callout_vers" ]; then
+        echo "VIOLATION: $f declares documentedFor: $declared (unshipped) but carries no \"Ships in $declared\" callout" >&2
+        echo "    A reader on $highest would take this page as describing their install."
+        fm_violations=$((fm_violations + 1))
+      elif ! printf '%s\n' "$callout_vers" | grep -qxF "$declared"; then
+        echo "VIOLATION: $f declares documentedFor: $declared but its callout says \"Ships in $(printf '%s' "$callout_vers" | head -n 1)\"" >&2
         fm_violations=$((fm_violations + 1))
       fi
-    elif [ -n "$callout_ver" ] && [ "$(version_gt "$callout_ver" "$highest")" != "1" ]; then
-      echo "VIOLATION: $f carries a \"Ships in $callout_ver\" callout for a version that has shipped" >&2
-      fm_violations=$((fm_violations + 1))
     fi
+
+    # Post-release reverse check — the branch that turns red on the release
+    # which promotes 0.X into the roadmap's "## Shipped" section. It runs
+    # whether or not the page declares documentedFor, because the banner alone
+    # is the misinformation: a "not yet available" note on a shipped feature.
+    while IFS= read -r v; do
+      [ -z "$v" ] && continue
+      if [ "$(version_gt "$v" "$highest")" != "1" ]; then
+        if [ -n "$declared" ] && [ "$v" = "$declared" ]; then
+          echo "VIOLATION: $f carries a \"Ships in $v\" callout, but documentedFor: $declared has shipped" >&2
+          echo "    Delete the callout — $declared is released, so the banner now misinforms."
+        else
+          echo "VIOLATION: $f carries a \"Ships in $v\" callout for a version that has shipped" >&2
+        fi
+        fm_violations=$((fm_violations + 1))
+      fi
+    done <<< "$callout_vers"
   done <<< "$files"
   violations=$((violations + fm_violations))
 
@@ -328,6 +360,104 @@ title: Sharing
 ---
 
 Click **Share** to generate a public link.' || return 1
+
+  # ── Widened banner phrasings (#2818) ───────────────────────────────────────
+  # Each of these is a real phrasing found in the docs tree that the original
+  # literal ":::note[Ships in 0.X" matcher could not see. They are paired: the
+  # pre-release case proves the phrasing SATISFIES the pairing check, and the
+  # post-release case proves the same phrasing gets FLAGGED once the version
+  # moves into "## Shipped". The second half is the whole point — a banner the
+  # gate cannot see is a banner that survives the tag as misinformation.
+  fm_case "unshipped-coming-in" expect-pass '---
+title: Sharing
+documentedFor: "0.3"
+---
+
+:::note[Coming in 0.3]
+Not in the latest release.
+:::' || return 1
+
+  fm_case "unshipped-lands-in" expect-pass '---
+title: Single sign-on
+documentedFor: "0.3"
+---
+
+:::note[Single sign-on lands in 0.3]
+Not in the latest release.
+:::' || return 1
+
+  fm_case "unshipped-changing-in" expect-pass '---
+title: Offline sync
+documentedFor: "0.3"
+---
+
+:::caution[Changing in 0.3]
+The watermark changes with the next tag.
+:::' || return 1
+
+  # Title text BEFORE the verb — the csv-import-export.md form.
+  fm_case "unshipped-text-before-verb" expect-pass '---
+title: CSV import
+documentedFor: "0.3"
+---
+
+:::note[Task CSV / Excel import ships in 0.3]
+Not in the latest release.
+:::' || return 1
+
+  fm_case "shipped-stale-coming-in" expect-fail '---
+title: Sharing
+documentedFor: "0.2"
+---
+
+:::note[Coming in 0.2]
+Not in the latest release.
+:::' || return 1
+
+  # No documentedFor key at all — the banner alone must still be flagged.
+  fm_case "shipped-stale-lands-in-no-key" expect-fail '---
+title: Single sign-on
+---
+
+:::note[Single sign-on lands in 0.2]
+Not in the latest release.
+:::' || return 1
+
+  fm_case "shipped-stale-changing-in-no-key" expect-fail '---
+title: Offline sync
+---
+
+:::caution[Changing in 0.2]
+The watermark changed with that tag.
+:::' || return 1
+
+  fm_case "shipped-stale-text-before-verb-no-key" expect-fail '---
+title: CSV import
+---
+
+:::note[Task CSV / Excel import ships in 0.2]
+Not in the latest release.
+:::' || return 1
+
+  # ── Exclusions that must keep working ──────────────────────────────────────
+  # The shipped-version badge conventions used across dozens of pages. If the
+  # widened matcher read these as pre-release banners, the reverse check would
+  # fire on every one of them and the gate would be permanently red.
+  fm_case "shipped-bare-version-badge" expect-pass '---
+title: Calendars
+---
+
+:::note[0.1]
+Calendars shipped in 0.1 and are part of the **Community (OSS)** edition.
+:::' || return 1
+
+  fm_case "shipped-added-in-badge" expect-pass '---
+title: Email
+---
+
+:::note[Added in 0.2 (alpha)]
+This page documents functionality added in **TruePPM 0.2**.
+:::' || return 1
 
   return 0
 }

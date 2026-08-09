@@ -119,6 +119,14 @@ workflow:
     - if: '$CI_COMMIT_TAG =~ /^scheduler-v\d+/'
       auto_cancel:
         on_new_commit: none
+    # Every publish tag scheme needs its own workflow rule. A tag push has no
+    # $CI_COMMIT_BRANCH, so it falls through the catch-all at the bottom and NO
+    # pipeline is created at all — the publish job never runs and the tag looks
+    # like it succeeded. `mcp-v*` joined at #2809 with mcp:publish; if you add a
+    # third package tag, add it here in the same MR.
+    - if: '$CI_COMMIT_TAG =~ /^mcp-v\d+/'
+      auto_cancel:
+        on_new_commit: none
     - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
       when: never
     - if: '$CI_COMMIT_BRANCH'
@@ -820,16 +828,25 @@ docs:version-accuracy:
   # of packages/website/src/content/docs/overview/roadmap.md. The roadmap page
   # itself and docs/adr/** are exempt (forward-tense is correct there). See the
   # CLAUDE.md "Version-status tense" rule. ~2s.
+  #
+  # Also self-tests scripts/remove-ships-in-callouts.sh (#2818), the other half
+  # of the same discipline: this gate flags a banner that outlived its release,
+  # and that script deletes them at the tag. Its only other invocation is
+  # release.sh --apply, so without a self-test here a regression in it would
+  # first be discovered mid-release, editing the docs tree by hand. The two are
+  # composed — a banner phrasing must be one both recognize — so they belong in
+  # one job. Needs python3 for the removal script's line-range surgery. ~5s.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
   before_script:
-    - apk add --no-cache bash grep sed findutils
+    - apk add --no-cache bash grep sed findutils python3 perl-utils
   script:
     - bash scripts/check-version-status.sh
     - bash scripts/check-version-status.sh --self-test
+    - bash scripts/remove-ships-in-callouts.sh --self-test
 
 docs:adr-status:
   extends: .fast-job
@@ -1019,13 +1036,15 @@ ci:mirror-playwright-base:
   #
   # This is the ONLY job that pulls from MCR. Every Playwright-based job —
   # ci:build-integration-image's FROM, and the web:e2e / web:e2e:report /
-  # web:e2e:coverage / website:build / pages jobs' `image:` — consumes the mirror
+  # web:e2e:coverage / website:build jobs' `image:` — consumes the mirror
   # tag ($CI_REGISTRY_IMAGE/playwright-base:$PLAYWRIGHT_BASE_TAG) instead of
   # mcr.microsoft.com. The DAG (needs:) consumers declare an optional need on
   # this job so they wait for it when it is in the pipeline (a bump) and pull the
-  # existing tag when it is not (steady state); the stage-ordered consumers
-  # (website:build, pages) run in later stages so the lint-stage mirror precedes
-  # them without an explicit need.
+  # existing tag when it is not (steady state); the stage-ordered consumer
+  # (website:build) runs in a later stage so the lint-stage mirror precedes it
+  # without an explicit need. `pages` is deliberately NOT in this list: it
+  # publishes website:build's artifact and runs no build, so it needs no
+  # Chromium and stays on the plain node:22-alpine base (#2799).
   #
   # It is an idempotent gate that ci:build-integration-image `needs:`, sharing
   # the build's rules so the two are always co-present — guaranteeing the mirror
@@ -1248,6 +1267,34 @@ demo:readonly-posture:
     # one with a typo in its pattern.
     - bash scripts/check-demo-readonly.sh --self-test
     - bash scripts/check-demo-readonly.sh
+
+helm:metric-names:
+  extends: .fast-job
+  # The chart's PromQL must only name series the application emits (#2805).
+  #
+  # The shipped dead-letter alert and Grafana panel queried
+  # `trueppm_deadletter_parked` while the app emitted
+  # `trueppm_task_dead_letter_parked`. Prometheus treats a name with no series as
+  # an empty vector, not an error — so the alert could never fire, the panel was
+  # permanently blank, and permanently-lost background work went unnoticed with
+  # every gate in this file green. `helm lint` proves the template renders; it
+  # cannot know what the application publishes, and the docs pages (which had the
+  # name right) are not machine-checked against the chart.
+  #
+  # Rules are deliberately unconditional rather than *rules-helm: the two halves
+  # of this contract live in different trees, so the drift can be introduced by a
+  # chart-only MR OR by an api-only rename, and a change-gated job would miss one
+  # direction. Stdlib Python over two chart files; well under a second.
+  stage: lint
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  script:
+    # Self-test first: a guard nobody has watched fail is indistinguishable from
+    # one with a typo in its pattern.
+    - python3 scripts/check-helm-metric-names.py --self-test
+    - python3 scripts/check-helm-metric-names.py .
 
 api:lint:
   extends: .fast-job
@@ -1997,6 +2044,33 @@ scheduler:uv-lock-check:
     - pip install uv==0.9.5 --quiet
   script:
     - cd packages/scheduler
+    - uv lock --check
+
+mcp:uv-lock-check:
+  extends: .fast-job
+  # Verify packages/mcp/uv.lock stays in sync with packages/mcp/pyproject.toml.
+  # Mirrors api:/scheduler:uv-lock-check, and became load-bearing when mcp:publish
+  # landed (#2809): that job materializes its CycloneDX SBOM with
+  # `uv sync --frozen`, which HARD-FAILS on a stale lock. Without this gate the
+  # first symptom of a forgotten `uv lock` would be a red publish job on an
+  # already-pushed `mcp-v*` tag — the expensive, mid-release failure mode.
+  # Refresh with `cd packages/mcp && uv lock`. uv is pinned so the committed
+  # lock's revision stays stable across CI runs and Renovate's
+  # lockFileMaintenance owns the routine refreshes.
+  stage: analyze
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  needs: []
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/mcp/pyproject.toml
+        - packages/mcp/uv.lock
+        - .gitlab-ci.yml
+  before_script:
+    - pip install uv==0.9.5 --quiet
+  script:
+    - cd packages/mcp
     - uv lock --check
 
 web:type-check:
@@ -3630,27 +3704,54 @@ website:build:
 # DEPLOY — GitLab Pages for documentation.
 #
 # - Release tags (v*): auto-deploy (docs always ship with a release)
-# - Main branch: manual deploy for "next" (unreleased) docs
+# - Main branch: auto-deploy for "next" (unreleased) docs
 # ---------------------------------------------------------------------------
 
 pages:
   # GitLab Pages requires the job name to be "pages" and artifacts in public/.
   extends: .website
-  # Rebuilds the site, so it renders Mermaid and needs the same glibc Playwright
-  # image as website:build (see the note there — Alpine's musl can't run Chromium).
-  image: $CI_REGISTRY_IMAGE/playwright-base:$PLAYWRIGHT_BASE_TAG
   stage: deploy
+  # Publishes website:build's `packages/website/dist/` artifact instead of
+  # rebuilding it. The site is already built once per pipeline, and the second
+  # `npm run build` that used to live here paid for a full Mermaid render — plus
+  # a ~2 GB glibc Playwright image pull — to reproduce bytes that already
+  # existed. With no build left in this job, the image override and the npm
+  # install go with it: copying files needs neither Chromium nor node_modules,
+  # and dropping the install takes a registry round trip off the deploy path.
+  # `website:build` extends *rules-website, which matches main and v* tags
+  # unconditionally, so this `needs:` is satisfied on both deploy paths.
   needs: ["website:build"]
+  cache: []
+  before_script:
+    - cd packages/website
   rules:
     # Auto-deploy on release tags
     - if: '$CI_COMMIT_TAG =~ /^v\d+/'
       when: on_success
-    # Manual deploy from main (for "next" docs)
-    - if: '$CI_COMMIT_BRANCH == "main"'
-      when: manual
-      allow_failure: true
+    # Auto-deploy "next" docs from main (#2799). This was `when: manual`, which
+    # read like a safety gate and was not one: a click is not a review, nobody
+    # diffs a rendered site before clicking, and it fired 3 times across 500
+    # jobs — so main and the live site drifted arbitrarily far apart, and every
+    # docs bug report had to start by establishing which one it was even looking
+    # at. The one run that did fire published three fully blank pages (#2797).
+    # Version currency is gated at the content layer instead, where it is
+    # actually checkable: `documentedFor` front matter plus :::note[Ships in
+    # 0.X] callouts, enforced by scripts/check-version-status.sh. Those callouts
+    # are written and removed on a release cadence, so a site this stale worked
+    # against the very control meant to keep it honest.
+    #
+    # No `allow_failure` here: a failed docs deploy must red main rather than
+    # pass silently.
+    #
+    # Scoped to `push` so a merge to main deploys and the nightly SonarCloud
+    # schedule (0 1 * * * on refs/heads/main) does not: a schedule republishes
+    # a byte-identical site for a tree nobody changed, and "the docs deployed"
+    # should mean a commit landed. rules-website matches main unconditionally,
+    # so website:build — and therefore this job's `needs:` — is present in the
+    # scheduled pipeline too; without this condition the redeploy would fire.
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+      when: on_success
   script:
-    - npm run build
     # GitLab Pages serves from public/ at the repo root
     - mkdir -p ../../public
     - cp -r dist/* ../../public/
@@ -4358,6 +4459,174 @@ scheduler:publish:
 # The tag-triggered scheduler:publish above is LIVE, not dormant: the PyPI name
 # is reserved and two alphas are published (#937). Push a `scheduler-vX.Y.Z`
 # tag (after a green main pipeline) to release.
+
+mcp:publish:
+  # Publishes trueppm-mcp to PyPI (#2809). Modeled directly on scheduler:publish
+  # above — same Trusted Publishing exchange, same PEP 740 attestations, same
+  # locked-SBOM-before-upload ordering — with its own `mcp-vX.Y.Z` tag scheme so
+  # the MCP server can be released independently of the scheduler library.
+  #
+  # Why this job exists: packages/mcp had NO publish path at all. Three docs
+  # pages instructed `pip install trueppm-mcp`, packages/mcp/server.json declared a
+  # `pypi` registry entry with a `uvx` runtime hint, and two CI comments (in
+  # security:osv and license:check:mcp) asserted the package "ships to PyPI as
+  # trueppm-mcp" — while nothing in the publish stage built it and the name
+  # 404'd on pypi.org. Those comments are true as of this job.
+  stage: publish
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  rules:
+    # Only fire on tags matching the mcp version format (PEP 440, e.g.
+    # mcp-v0.4.0b1). Never fire on branch pushes or MR events.
+    - if: '$CI_COMMIT_TAG =~ /^mcp-v\d+\.\d+\.\d+/'
+  # Binds the GitLab OIDC claims to a named environment so the PyPI Trusted
+  # Publisher for `trueppm-mcp` can be registered with a NON-BLANK environment.
+  # A publisher bound with a blank environment matches every pipeline in this
+  # project that can mint a `pypi`-audience token, which is a wider trust
+  # surface than one release job needs. The environment name here MUST match
+  # the "Environment name" field configured on pypi.org, or the mint-token
+  # exchange fails closed with PyPI's own explanation (surfaced on stderr by
+  # the mint step below).
+  environment:
+    name: pypi-mcp
+    url: https://pypi.org/project/trueppm-mcp/
+  # GitLab OIDC tokens for PyPI Trusted Publishing. Two audiences:
+  #   PYPI_ID_TOKEN (aud: pypi)         — exchanged at PyPI's mint-token endpoint
+  #                                       for a short-lived, project-scoped token.
+  #   SIGSTORE_ID_TOKEN (aud: sigstore) — ambient identity Sigstore uses to sign
+  #                                       the PEP 740 attestations.
+  id_tokens:
+    PYPI_ID_TOKEN:
+      aud: pypi
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
+  variables:
+    # Suppress the keyring warning that fires in non-interactive environments.
+    PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
+  before_script:
+    # Same pinned tool set as scheduler:publish — this job runs on the vanilla
+    # python:3.11-slim base, so everything installs here. twine >= 6.1 uploads
+    # the PEP 740 attestation sidecars passed to it; pypi-attestations signs
+    # them via Sigstore; uv (0.9.5, matching the uv-lock-check jobs)
+    # materializes the locked SBOM input.
+    - pip install build "twine>=6.1" cyclonedx-bom==7.3.0 pypi-attestations==0.0.28 uv==0.9.5 --quiet
+  script:
+    # Verify the tag version matches the version declared in pyproject.toml AND
+    # the two version fields in server.json (the MCP registry manifest, which
+    # carries the semver form at the top level and the PEP 440 PyPI version
+    # under packages[0]). server.json is checked here because it is the file
+    # that tells an MCP client which version to `uvx`: publishing a wheel while
+    # the manifest advertises a different one is the drift this job exists to
+    # make impossible. Mismatches fail fast, before anything is uploaded.
+    - |
+      PKG_VERSION=$(python -c "
+      import tomllib
+      with open('packages/mcp/pyproject.toml', 'rb') as f:
+          d = tomllib.load(f)
+      print(d['project']['version'])
+      ")
+      TAG_VERSION="${CI_COMMIT_TAG#mcp-v}"
+      if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+        echo "ERROR: tag version ($TAG_VERSION) does not match pyproject.toml version ($PKG_VERSION)"
+        echo "Bump the version in packages/mcp/pyproject.toml before tagging."
+        exit 1
+      fi
+      echo "Version check passed: $PKG_VERSION"
+      python - "$PKG_VERSION" <<'PY'
+      import json, sys
+
+      pkg_version = sys.argv[1]
+      with open("packages/mcp/server.json", encoding="utf-8") as f:
+          manifest = json.load(f)
+      pypi_versions = [
+          p.get("version")
+          for p in manifest.get("packages", [])
+          if p.get("registryType") == "pypi"
+      ]
+      if pypi_versions != [pkg_version]:
+          sys.exit(
+              "ERROR: packages/mcp/server.json pypi package version(s) "
+              f"{pypi_versions} do not match pyproject.toml ({pkg_version}). "
+              "Bump server.json before tagging."
+          )
+      # The registry manifest's own version is the semver form of the same
+      # release (0.4.0b1 -> 0.4.0-beta.1); normalize before comparing so the
+      # two schemes cannot drift apart unnoticed.
+      normalized = (
+          manifest["version"]
+          .replace("-alpha.", "a")
+          .replace("-beta.", "b")
+          .replace("-rc.", "rc")
+      )
+      if normalized != pkg_version:
+          sys.exit(
+              f"ERROR: packages/mcp/server.json version ({manifest['version']}) "
+              f"is not the semver form of {pkg_version}. Bump it before tagging."
+          )
+      print(f"server.json version check passed: {manifest['version']} / {pkg_version}")
+      PY
+    # The mcp package has no standalone CHANGELOG.md (unlike packages/scheduler,
+    # whose wheel force-includes one), so there is no per-package release-notes
+    # gate to mirror here — the root CHANGELOG.md is its release record.
+    - cd packages/mcp
+    - python -m build
+    # Generate + validate the CycloneDX SBOM BEFORE uploading. Ordering matters:
+    # never let twine succeed (the release goes live) and then fail the job on a
+    # malformed SBOM. The runtime closure is materialized from the committed
+    # uv.lock (`uv sync --frozen --no-editable`, hash-verified) — the same locked
+    # surface security:osv audits — so the published SBOM is reproducible rather
+    # than a fresh PyPI resolve. The `dev` extra is opt-in, so a default sync
+    # keeps test/lint tooling out of the runtime SBOM.
+    - UV_PYTHON_PREFERENCE=only-system uv sync --frozen --no-editable
+    - cyclonedx-py environment .venv/bin/python --validate --output-format JSON --output-reproducible --sv 1.6 -o dist/sbom.cdx.json
+    # Sign PEP 740 attestations for the SAME sdist + wheel uploaded below. The
+    # explicit globs exclude dist/sbom.cdx.json, which is not a PyPI file.
+    - python -m pypi_attestations sign dist/*.tar.gz dist/*.whl
+    # Mint a short-lived, project-scoped PyPI upload token from the GitLab OIDC
+    # token (Trusted Publishing) — no static PYPI_TOKEN. The minted token is
+    # passed only via the twine environment below and is never echoed.
+    - |
+      PYPI_API_TOKEN=$(python -c '
+      import json, os, sys, urllib.request, urllib.error
+      req = urllib.request.Request("https://pypi.org/_/oidc/mint-token", data=json.dumps({"token": os.environ["PYPI_ID_TOKEN"]}).encode(), headers={"Content-Type": "application/json"})
+      try:
+          resp = urllib.request.urlopen(req)
+      except urllib.error.HTTPError as e:
+          # PyPI states the exact reason (e.g. no Trusted Publisher matches the
+          # pipeline OIDC claims, including a mismatched environment) in the
+          # response body; surface it on stderr instead of the bare "HTTP Error
+          # 422" traceback so the failure is self-diagnosing. Only the token
+          # goes to stdout (captured by the command substitution).
+          sys.stderr.write("PyPI mint-token failed: HTTP %s %s\n" % (e.code, e.reason))
+          sys.stderr.write(e.read().decode("utf-8", "replace") + "\n")
+          sys.exit(1)
+      print(json.load(resp)["token"])
+      ')
+    # Upload the wheel + sdist plus their `.publish.attestation` sidecars. In
+    # twine >= 6.1 `--attestations` is an opt-in GATE (fail if none present), NOT
+    # filesystem discovery — the sidecars must appear in the argument list or
+    # twine errors with "has no associated attestations" before any upload.
+    - TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_API_TOKEN" twine upload --attestations dist/*.tar.gz dist/*.whl dist/*.publish.attestation --non-interactive --verbose
+  artifacts:
+    # Keep the built wheel + sdist + SBOM as a CI artifact for traceability.
+    # The SBOM is never a PyPI file.
+    paths:
+      - packages/mcp/dist/
+    expire_in: 30 days
+
+# BEFORE THE FIRST `mcp-v*` TAG (one-time, human, cannot be automated):
+# register a PyPI Trusted Publisher for the project name `trueppm-mcp` at
+# https://pypi.org/manage/account/publishing/ with:
+#   Publisher     : GitLab
+#   Namespace     : trueppm
+#   Project       : trueppm
+#   Workflow file : .gitlab-ci.yml
+#   Environment   : pypi-mcp        <- MUST be set, and MUST match the
+#                                      `environment:` block above
+# Leaving the environment blank would let any pipeline in this project that can
+# mint a `pypi`-audience OIDC token upload to the package; the named
+# environment narrows the binding to this release job. Until the publisher
+# exists, the mint-token step fails closed with PyPI's own 422 explanation and
+# nothing is uploaded.
 
 # ---------------------------------------------------------------------------
 # PUBLISH — Docker images and Helm chart.

@@ -91,6 +91,7 @@ kubectl get secret <release>-trueppm-connection \
 | `celeryWorker.maxTasksPerChild` | `100` | Recycle prefork children to bound RSS growth on long tasks; `0` disables. |
 | `celeryWorker.extraArgs` | `[]` | Extra `celery worker` flags, appended in order. |
 | `image.webRepository` | `.../web` | Web tier image (shares `image.tag`/`pullPolicy` with the API). |
+| `image.tag` | `""` | Empty resolves to `v<appVersion>` (e.g. `v0.4.0`) — release images are published under v-prefixed tags. A value set here is used verbatim. |
 | `probes.api.readinessPath` | `/api/v1/readyz` | Deep API readiness check; liveness stays on `probes.api.livenessPath` (`/api/v1/health/`). |
 | `probes.worker.enabled` / `probes.beat.enabled` | `true` | `celery inspect ping` exec probe on the worker/beat tiers. |
 | `logging.level` | `""` | Root Django log level (`DJANGO_LOG_LEVEL`) for api/worker/beat. Empty = app default. |

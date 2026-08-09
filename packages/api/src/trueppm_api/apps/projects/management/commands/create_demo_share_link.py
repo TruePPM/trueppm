@@ -91,7 +91,14 @@ PATH_BY_KIND = {
 TOKEN_ENV = "TRUEPPM_DEMO_SHARE_TOKEN"
 TOKEN_BOARD_ENV = "TRUEPPM_DEMO_SHARE_TOKEN_BOARD"
 BASE_URL_ENV = "TRUEPPM_DEMO_BASE_URL"
-DEFAULT_BASE_URL = "https://try.trueppm.com"
+# The printed URL is the demo's only entry point (there are no accounts), so the
+# fallback must name a host the operator running the command can actually open.
+# It is therefore the loopback origin the local `docker-compose.demo.yml` stack
+# publishes on — NOT the hosted demo's domain, which would hand a local evaluator
+# a link that resolves to somebody else's instance where their token does not
+# exist (#2801). Every hosted path sets the env var explicitly; the Helm chart
+# fails its render when `demo.baseUrl` is empty rather than falling back here.
+DEFAULT_BASE_URL = "http://localhost"
 
 
 class Command(BaseCommand):

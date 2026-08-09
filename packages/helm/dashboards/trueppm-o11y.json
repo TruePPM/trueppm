@@ -42,11 +42,11 @@
       "id": 2,
       "type": "stat",
       "title": "Dead-letter parked tasks",
-      "description": "Count of dead-lettered Celery tasks (FailedTask in DEAD state). Requires the trueppm_deadletter_parked gauge (or a Blackbox probe of /api/v1/health/dead-letter/). Any value > 0 warrants operator attention.",
+      "description": "Count of dead-lettered Celery tasks (FailedTask in DEAD state). Requires the trueppm_task_dead_letter_parked gauge, which is served as Prometheus text exposition by /api/v1/health/dead-letter/ and needs its own scrape job — it does not arrive over OTLP. Any value > 0 warrants operator attention.",
       "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
-        { "refId": "A", "expr": "sum(trueppm_deadletter_parked)" }
+        { "refId": "A", "expr": "sum(trueppm_task_dead_letter_parked)" }
       ],
       "fieldConfig": {
         "defaults": {

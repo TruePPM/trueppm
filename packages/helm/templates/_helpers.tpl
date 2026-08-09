@@ -31,6 +31,34 @@ Create chart label value — used in the "helm.sh/chart" label.
 {{- end }}
 
 {{/*
+Tag for the first-party api / web images (#2811).
+
+`.Values.image.tag` wins when set. When it is empty the chart pins itself to its
+own appVersion — but the tag it must ask for is `v<appVersion>`, NOT the bare
+version, because that is the only form the release pipeline ever pushes to the
+registry this chart points at: api:publish / web:publish push
+`${CI_REGISTRY_IMAGE}/<img>:${CI_COMMIT_TAG}` (v-prefixed) and `:latest`. The
+bare `${VERSION}` tag exists only on ghcr.io, a different registry.
+
+Rendering the bare appVersion — which the chart did until 0.4 — therefore made a
+stock `helm install` permanently unresolvable: ImagePullBackOff on the `migrate`
+init container, before the app logs anything an operator can act on.
+
+Pushing an extra bare-version tag to the GitLab registry would also "fix" the
+render, but it is the wrong side of the seam: the container-registry cleanup
+policy keeps `^v.*$|^latest$` (#2803), so a bare `0.4.0` tag would fail the
+keep-regex and be deleted by the daily sweep — a release image that pulls for a
+few days and then 404s, which is the exact defect that policy was set to stop.
+Keeping the chart on v-prefixed tags also matches what
+scripts/check-release-images.sh probes.
+
+Usage: {{ include "trueppm.imageTag" . }}
+*/}}
+{{- define "trueppm.imageTag" -}}
+{{- .Values.image.tag | default (printf "v%s" .Chart.AppVersion) -}}
+{{- end }}
+
+{{/*
 Common labels applied to every resource.
 */}}
 {{- define "trueppm.labels" -}}

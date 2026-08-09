@@ -1,9 +1,10 @@
 ---
 title: Timesheet
 description: Three ways to capture time — a running timer, a global quick-log popover, and a keyboard-fast weekly grid — plus how to review and submit your week.
+documentedFor: "0.4"
 ---
 
-:::note[0.4]
+:::note[Ships in 0.4]
 The weekly timesheet grid and week submission ship in 0.4. Manager approval, non-project time
 categories, and the earned-value actuals feed follow in 0.5. The running timer and the quick-log
 popover described below feed the same underlying time entries and ship alongside the grid in 0.4.

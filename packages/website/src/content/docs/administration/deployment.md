@@ -4,7 +4,7 @@ description: Deploy TruePPM with Docker Compose, the Kubernetes Helm chart, or a
 ---
 
 :::caution[Pre-GA]
-TruePPM 0.3 has shipped (as the `0.3.0-alpha.1` pre-release) and is suitable for evaluation and early-adopter deployments; the release line stays alpha through 0.3, and 0.4 is planned as the first beta. Expect API contract changes across 0.x point releases; a stable contract arrives at 1.0.
+TruePPM 0.3 has shipped (as the `0.3.0-alpha.1` pre-release) and is suitable for evaluation and early-adopter deployments; the release line stays alpha through 0.3, and 0.4 is planned as the first beta. 0.4 will not arrive as a beta directly — it will tag one or more `0.4.0-alpha.N` pre-releases first, and the beta milestone begins at `0.4.0-beta.1` ([how the 0.4 line is numbered](/overview/roadmap/#how-the-04-line-is-numbered)). Expect API contract changes across 0.x point releases; a stable contract arrives at 1.0.
 :::
 
 ## Docker Compose (recommended for evaluation)
@@ -457,8 +457,44 @@ CERTBOT_EMAIL=ops@example.com
 SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))")
 DB_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
 REDIS_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
+
+# Encrypts stored integration credentials at rest. The API refuses to start
+# without it, so this is required even if you never connect an integration.
+INTEGRATION_ENCRYPTION_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+
+# Attachment storage — the API refuses to start until you choose one.
+# (a) Recommended: object storage, which survives container replacement.
+TRUEPPM_DEFAULT_FILE_STORAGE=storages.backends.s3.S3Storage
+TRUEPPM_S3_BUCKET_NAME=trueppm-attachments
+# (b) Local disk instead — see the warning below before choosing this.
+# TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true
+
 APP_VERSION=0.2.0
 ```
+
+:::caution[Three values the API refuses to start without]
+`SECRET_KEY`, `INTEGRATION_ENCRYPTION_KEY`, and an attachment-storage choice are
+each enforced at import time, not on first use. Omitting any one of them
+crash-loops the `api` container with a `Refusing to start:` message naming the
+missing value — check `docker compose -f docker-compose.prod.yml logs api` if the
+stack does not come up.
+
+On the local-disk option: this stack runs the `api` container with a read-only
+root filesystem and mounts no attachments volume, so
+`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` lets the container boot but leaves
+uploads failing at write time. Choose it only if you have added a persistent,
+writable volume for attachments yourself. See
+[Configuration](/administration/configuration/) for the full S3 variable list,
+including non-AWS endpoints such as MinIO or Ceph.
+:::
+
+You do not need to set `sslmode` on a database URL here. The stack composes its
+own `DATABASE_URL` for the bundled PostgreSQL and sets
+`TRUEPPM_ALLOW_UNENCRYPTED_DB=true` alongside it, because that container
+publishes no host port and is reachable only over the private Compose bridge
+network. If you repoint the stack at an external database, remove that flag from
+the compose file and put `?sslmode=require` on your own URL — the guard is what
+keeps a database hop across the network from falling back to plaintext.
 
 Run the one-time setup (obtains a TLS certificate and starts the stack):
 
@@ -499,6 +535,27 @@ WantedBy=multi-user.target
 sudo systemctl daemon-reload
 sudo systemctl enable --now trueppm
 ```
+
+:::caution[Keep `COMPOSE_PROFILES=letsencrypt` in `.env`]
+The certificate-renewal container is gated behind a Compose profile, so it is
+only created while that profile is active. `init-prod.sh` writes
+`COMPOSE_PROFILES=letsencrypt` into `.env` for you when `TLS_MODE=letsencrypt`,
+and Docker Compose reads it from `.env` on every invocation — which is what
+carries the setting into the unit above, since neither `ExecStart` nor a manual
+`docker compose up -d` passes `--profile`.
+
+If you delete that line, the stack still starts and serves HTTPS normally, and
+then stops renewing. The failure is invisible until the certificate expires
+roughly 90 days later. Confirm renewal is running with:
+
+```bash
+docker compose -f docker-compose.prod.yml ps certbot
+```
+
+An empty result means the profile is not active. Certbot renews through the
+webroot every 12 hours, and nginx reloads every 6 hours to pick up a renewed
+certificate without dropping connections.
+:::
 
 **Good for:** production on a single box, no Kubernetes cluster available.
 

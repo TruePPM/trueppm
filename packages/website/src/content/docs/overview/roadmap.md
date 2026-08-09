@@ -32,7 +32,7 @@ Foundation for self-hosted, scheduling-first PPM. Everything below is in `main` 
 
 ### 0.2 — settings, administration & consolidation (alpha: May 31, 2026)
 
-A broad consolidation release — the settings/administration platform, program foundations, board and schedule depth, and the first import/export migration path. Shipped as the **0.2.0-alpha.1** pre-release (tagged May 31, 2026), with `trueppm-scheduler` published to PyPI at **0.2.0a1**. Everything below is in `main` and tagged. 0.2 is an alpha release — there is no separate stable 0.2.0. The release line stays alpha through 0.3, and 0.4 is planned as the first beta.
+A broad consolidation release — the settings/administration platform, program foundations, board and schedule depth, and the first import/export migration path. Shipped as the **0.2.0-alpha.1** pre-release (tagged May 31, 2026), with `trueppm-scheduler` published to PyPI at **0.2.0a1**. Everything below is in `main` and tagged. 0.2 is an alpha release — there is no separate stable 0.2.0. The release line stays alpha through 0.3, and 0.4 is planned as the first beta — reached through one or more `0.4.0-alpha.N` pre-releases before the first `0.4.0-beta.N` tag (see [how the 0.4 line is numbered](#how-the-04-line-is-numbered)).
 
 - **Settings shell** — Workspace / Program / Project scope switcher with General, Members, Groups & teams, Roles, Methodology, Workflow, Notifications, Access, Integrations, and lifecycle pages on real APIs
 - **Program entity (OSS)** (#502) — container for related projects with rollup KPIs, cadence, and cross-project risk policy; program backlog with epic/feature/story/task item types and proposed→pulled→archived lifecycle (#733 #737 #739)
@@ -48,7 +48,7 @@ A broad consolidation release — the settings/administration platform, program 
 
 **For the Scrum Master and the self-managing developer.** Close a sprint and the master schedule reforecasts itself; merge a PR and the card moves and the dates shift — an agile board as good as the one you have now, with a CPM schedule quietly underneath.
 
-Shipped as the **0.3.0-alpha.1** pre-release (tagged Jun 28, 2026), with `trueppm-scheduler` published to PyPI at **0.3.0a1**. Everything below is in `main` and tagged. The release line stays alpha through 0.3, and 0.4 is planned as the first beta.
+Shipped as the **0.3.0-alpha.1** pre-release (tagged Jun 28, 2026), with `trueppm-scheduler` published to PyPI at **0.3.0a1**. Everything below is in `main` and tagged. The release line stays alpha through 0.3, and 0.4 is planned as the first beta — reached through one or more `0.4.0-alpha.N` pre-releases before the first `0.4.0-beta.N` tag (see [how the 0.4 line is numbered](#how-the-04-line-is-numbered)).
 
 - **First-class sprint model** — a real sprint *container* (goal, capacity, start/end, burndown) with **state-aware planning and closed views** (sprint-goal + advancing-milestone bridge banner, capacity preflight, carryover preview, sprint outcome cards, retro snapshot), not a board with date columns; auto-computed velocity with a forecast *range*; WIP-overload signal
 - **Sprint sovereignty** — mid-sprint scope changes require a deliberate, audited decision; velocity stays a team metric and is never auto-exposed as a management gauge; retro action items flow into the next sprint's backlog
@@ -65,6 +65,34 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 ### 0.4 — the self-hosting PM's beta (target: Aug 17 – 31, 2026)
 
 **For the project manager whose schedule lives on their own infrastructure — and TruePPM's first beta release.** The headliner is a read-only MCP server: point any MCP client (Claude Desktop, Cursor, Zed) at your self-hosted instance and ask real questions of the live schedule — critical path, a non-mutating Monte Carlo what-if, sprint status — all computed by the CPM engine, never guessed by a model, never leaving your box. That is the principle we call [**computed, not guessed**](/architecture/overview/#computed-not-guessed), and it is the spine of the MCP launch and of everything AI-facing that follows it. Because a beta is judged in its first five minutes, 0.4 is also where TruePPM becomes trivially evaluable: a hosted read-only demo, a one-command trial path, and read-only share links that let a schedule travel beyond its own instance — the evaluation story that stands in for a mobile app until the installable PWA lands in 0.5 and the native Android app in 0.6. And it lands the production foundations the self-hosting community expects at beta: SSO login federation, OpenTelemetry observability, a published rate-limiting and API-stability contract, and a coexistence-first inbound Jira sync so a team can adopt without abandoning the tools they already use. Time capture and in-app baselines move up from 0.5 into this release, because a PM cannot pilot a schedule they can't baseline or log time against. And the largest single body of work in the cycle is none of the above: it is the polish, accessibility, and refactoring pass described at the end of this section — the difference between a demo and a beta.
+
+#### How the 0.4 line is numbered
+
+0.4 is the first beta, but it does not arrive as one. The line stabilizes through
+one or more **alpha pre-releases** first, and only the later beta tags constitute
+the beta milestone:
+
+| Tag | What it means |
+|---|---|
+| `v0.4.0-alpha.1` … `alpha.N` | Stabilizing toward the beta. Feature work is still landing; treat as you would any 0.x alpha. |
+| `v0.4.0-beta.1` … `beta.N` | **The first beta.** Feature-complete for 0.4, in production-shaped hardening. |
+| `v0.4.0-rc.N` | Optional, if a release candidate is cut. |
+| `v0.4.0` | — |
+
+`trueppm-scheduler` publishes a companion tag per artifact in PEP 440 normalized
+form — `scheduler-v0.4.0a1`, then `scheduler-v0.4.0b1` — matching the
+`scheduler-v0.3.0a1`…`a3` history.
+
+Moving from alpha to beta is a **quality judgment, not a date**, so the number of
+alpha tags is deliberately open-ended. Read "0.4, the first beta" throughout these
+docs as naming the milestone, not the next tag to appear.
+
+The alpha spelling is load-bearing rather than stylistic. `0.4.0-beta-rc.1` — a
+plausible-looking "candidate for the beta" — is **invalid under PEP 440**, so it
+would fail the PyPI publish outright; and under SemVer 2.0.0 it sorts *after*
+`0.4.0-beta.1`, inverting the intended meaning, because the `rc` rung of the
+alpha → beta → rc ladder sits after beta by construction. `alpha.N` sorts first in
+both schemes and matches the existing tag history.
 
 :::tip[SSO is not an enterprise feature]
 Basic single sign-on ships in the **OSS core** at 0.4. The carve-out line is one sentence:

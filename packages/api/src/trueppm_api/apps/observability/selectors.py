@@ -16,8 +16,9 @@ Each of the five operator-facing components reports one of four statuses:
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from celery.schedules import crontab
 from django.conf import settings
@@ -35,6 +36,21 @@ from trueppm_api.apps.scheduling.models import (
 )
 from trueppm_api.apps.workflow_engine.models import WorkflowOutboxRow, WorkflowOutboxStatus
 
+if TYPE_CHECKING:  # annotation only — the probes import Django's migration
+    from django.db.migrations.loader import MigrationLoader  # machinery lazily.
+
+logger = logging.getLogger(__name__)
+
+# Latch so the DB-ahead override warning is logged once per process rather than
+# on every kubelet readiness call. See ``_warn_db_ahead_override_once``.
+_db_ahead_override_warned = False
+
+# First conclusive migration state this process observed, latched at the first
+# readiness probe. It is what tells a rolled-back pod (booted into "ahead") apart
+# from an old pod mid-rollout (booted "in_sync", drifted to "ahead") — a
+# distinction the database cannot make. See ``_remember_first_migration_state``.
+_first_migration_state: str | None = None
+
 # Status literals shared with the frontend contract (ADR-0172).
 STATUS_OK = "ok"
 STATUS_WARN = "warn"
@@ -46,6 +62,16 @@ STATUS_UNKNOWN = "unknown"
 # strings, host names, or driver error text to an unauthenticated caller.
 READY_OK = "ok"
 READY_FAIL = "fail"
+
+# Direction-of-drift literals for the readiness migration check (#2806). Reported
+# alongside the coarse ``checks`` map as ``migration_state`` so an operator can tell
+# a rolling-forward pod (``behind``) from a rolled-back one (``ahead``) without
+# shelling into the pod. Still coarse by design — an enum, never a migration name,
+# app label, or count, so the unauthenticated body stays free of internal detail.
+READY_MIGRATIONS_IN_SYNC = "in_sync"
+READY_MIGRATIONS_BEHIND = "behind"
+READY_MIGRATIONS_AHEAD = "ahead"
+READY_MIGRATIONS_UNKNOWN = "unknown"
 
 # Upper bound on the readiness DB probe so a wedged/slow database fails the probe
 # fast (503) instead of hanging kubelet's readiness call. Two seconds is well
@@ -402,33 +428,101 @@ def _probe_database() -> bool:
         return False
 
 
-def _probe_migrations() -> bool:
-    """Prove every migration shipped in this image is applied to the database.
+def _has_migrations_unknown_to_image(loader: MigrationLoader) -> bool:
+    """Report whether the database records migrations this image does not ship.
 
-    A pod that is up but whose database is behind (or ahead of) the code in its
-    image must not report ready. During a rolling upgrade the ``migrate`` init
-    container brings the schema forward while old-image pods are still serving;
-    routing traffic to a new pod before its migrations land — or to a pod whose
-    schema was migrated by a newer image than its own code — serves errors or, at
-    worst, writes against a half-migrated schema. Django's
-    ``MigrationExecutor.migration_plan`` against the full leaf set returns the
-    outstanding steps for *this* code against the connection; a non-empty plan
-    means migrations are unapplied or in flight, so the pod is not ready (#2217).
+    This is the **DB-ahead** half of the readiness migration check, and it cannot
+    be expressed as a migration plan: ``migration_plan()`` walks *this image's*
+    graph, and a migration the image never shipped is not a node in that graph, so
+    it can never appear in the plan no matter how the targets are chosen. Detecting
+    a rolled-back image therefore has to compare the recorded rows against what is
+    on disk, which is what this does (#2806).
 
-    Any error is swallowed into ``False`` (not ready), consistent with the DB and
-    cache probes — the caller needs only a boolean, and no detail may reach an
-    unauthenticated client.
+    Two deliberate exclusions keep it from crying wolf:
+
+    * **Squash-replaced originals.** The project squashes with ``replaces=`` and
+      keeps the original migration files on disk, so their recorded rows normally
+      resolve against ``disk_migrations`` directly. A recorded row is still treated
+      as known when it is merely *named* in some disk migration's ``replaces=``
+      list, so a future squash that does drop the originals cannot flip every pod
+      to not-ready.
+    * **Apps this image does not install.** Rows are only judged for app labels in
+      ``loader.migrated_apps`` — the installed apps that have a migrations module.
+      A row for an app that is absent from ``INSTALLED_APPS`` is ignored, because
+      this image ships no code that reads those tables, so their schema cannot
+      disagree with it. Flagging them would make two legitimate, safe operations
+      permanently unready: removing an optional app from settings, and running the
+      community image against a database an Enterprise image migrated (the
+      Enterprise apps' tables sit inert, exactly like the additive-upgrade case).
+      The cost of that posture is that a downgrade whose *only* difference is a
+      dropped app goes undetected — accepted, since the surviving apps' schema is
+      what this image's code actually touches.
     """
-    from django.db import connection
+    known: set[tuple[str, str]] = set(loader.disk_migrations)
+    for migration in loader.disk_migrations.values():
+        # Indexed rather than unpacked: a hand-written ``replaces`` entry is
+        # occasionally a list, and Django reads it positionally too.
+        known.update((entry[0], entry[1]) for entry in migration.replaces or ())
+    return any(
+        key not in known for key in loader.applied_migrations if key[0] in loader.migrated_apps
+    )
+
+
+def _probe_migrations() -> str:
+    """Classify how this image's migrations relate to the connected database.
+
+    Returns one of ``in_sync`` / ``behind`` / ``ahead`` / ``unknown``. A pod is
+    ready only on ``in_sync``; the other three keep it out of the Service.
+
+    * ``behind`` — this image ships migrations the database has not applied. This
+      is the rolling-*forward* window: the ``migrate`` init container is still
+      bringing the schema up while old-image pods serve, and a new pod that took
+      traffic now would error or write against a half-migrated schema (#2217).
+      Detected with ``MigrationExecutor.migration_plan`` over the full leaf set —
+      a non-empty plan means unapplied or in-flight steps.
+    * ``ahead`` — the database records migrations this image does not ship. Two
+      very different situations produce it: an image rolled back without restoring
+      the schema, and an old pod still serving while a newer pod's ``migrate``
+      moves the schema under it. The probe reports both identically because the
+      database cannot tell them apart; ``get_readiness`` decides which one gates,
+      from the state the process booted into. A plan is structurally blind to this
+      state either way (see ``_has_migrations_unknown_to_image``), which is why it
+      is a separate comparison rather than a wider target set.
+    * ``unknown`` — the check itself failed. Any error is swallowed into a
+      not-ready state, consistent with the DB and cache probes: no exception text
+      may reach an unauthenticated client.
+
+    Neither direction is a data-compatibility check. ``ahead`` says the recorded
+    schema is newer than this code; it says nothing about whether a destructive
+    migration already discarded data the old code needs. Rolling back across a
+    destructive change still requires restoring the pre-upgrade backup.
+    """
+    from django.db import connection, transaction
     from django.db.migrations.executor import MigrationExecutor
 
     try:
-        executor = MigrationExecutor(connection)
-        targets = executor.loader.graph.leaf_nodes()
-        # An empty plan ⇒ the database is at the migration state this code expects.
-        return not executor.migration_plan(targets)
+        # Same envelope as ``_probe_database``, for two reasons. (1) ``ATOMIC_REQUESTS``
+        # is on, so a failure in the loader's own queries would poison the request's
+        # transaction and make the *database* probe that runs after this one report
+        # ``fail`` for a healthy database — an operator sent chasing the wrong outage.
+        # The savepoint keeps the failure local. (2) The loader reads the migration
+        # table and the catalog unbounded otherwise; the timeout keeps a wedged
+        # database from hanging kubelet's readiness call here too.
+        with transaction.atomic(), connection.cursor() as cursor:
+            if connection.vendor == "postgresql":
+                cursor.execute(
+                    "SET LOCAL statement_timeout = %s",
+                    [_READY_DB_STATEMENT_TIMEOUT_MS],
+                )
+            executor = MigrationExecutor(connection)
+            # A non-empty plan ⇒ steps this code expects are not applied yet.
+            if executor.migration_plan(executor.loader.graph.leaf_nodes()):
+                return READY_MIGRATIONS_BEHIND
+            if _has_migrations_unknown_to_image(executor.loader):
+                return READY_MIGRATIONS_AHEAD
+            return READY_MIGRATIONS_IN_SYNC
     except Exception:  # any failure means "not ready", by design
-        return False
+        return READY_MIGRATIONS_UNKNOWN
 
 
 def _probe_cache() -> bool:
@@ -449,23 +543,111 @@ def _probe_cache() -> bool:
         return False
 
 
-def get_readiness() -> tuple[bool, dict[str, str]]:
-    """Probe every hard dependency and return ``(ready, per-dependency statuses)``.
+def _remember_first_migration_state(state: str) -> str | None:
+    """Latch the first conclusive migration state this process observed.
+
+    This is what separates a **rolled-back** pod from an **old pod mid-rollout**,
+    which the database alone cannot distinguish — both are "image older than the
+    recorded schema". The difference is when the pod met that schema:
+
+    * A pod that boots into ``ahead`` was started against a database already newer
+      than its code. That is a rollback (or an old-image pod scaled up after the
+      migration), and it must not take traffic.
+    * A pod that booted ``in_sync`` and *drifted* to ``ahead`` is the ordinary
+      forward rolling upgrade: the new pod's ``migrate`` init container moved the
+      schema while this pod kept serving. Gating here would empty the Service of
+      endpoints exactly when the new pods are not Ready yet — the outage
+      expand-migrate-contract exists to avoid.
+
+    ``unknown`` never latches: a probe that failed says nothing about which side of
+    the schema this pod started on, and latching it would freeze the wrong verdict.
+    """
+    global _first_migration_state
+    if _first_migration_state is None and state != READY_MIGRATIONS_UNKNOWN:
+        _first_migration_state = state
+    return _first_migration_state
+
+
+def _warn_db_ahead_override_once() -> None:
+    """Log the open DB-ahead gate once per process.
+
+    Once, not per probe: kubelet calls readiness every ~10 s, and a line at that
+    rate is noise an operator learns to filter — which would defeat the point.
+    The module-level latch is deliberately not reset; a pod restart re-arms it,
+    which is exactly when the posture is worth restating.
+    """
+    global _db_ahead_override_warned
+    if _db_ahead_override_warned:
+        return
+    _db_ahead_override_warned = True
+    logger.warning(
+        "TRUEPPM_READYZ_ALLOW_DB_AHEAD is enabled and this pod is reporting ready "
+        "with a database ahead of its image: it is serving older code against a "
+        "newer recorded schema. Intended only for a rollback whose migrations have "
+        "been classified as additive-only. Return the setting to false after "
+        "rolling forward."
+    )
+
+
+def get_readiness() -> tuple[bool, dict[str, str], str]:
+    """Probe every hard dependency; return ``(ready, statuses, migration_state)``.
 
     Backs the unauthenticated ``/api/v1/readyz`` Kubernetes readiness probe
     (#1894): a pod is Ready only when the database and the Valkey/Redis cache
-    answer a live round-trip **and** every migration shipped in this image is
-    applied (#2217), so a rolling upgrade never routes traffic to a pod whose
-    schema and code disagree. Statuses are coarse ``ok``/``fail`` strings so the
-    body carries no sensitive infrastructure detail.
+    answer a live round-trip **and** its migrations agree with the recorded schema
+    — a pod whose own migrations are not applied yet (#2217) and a pod that booted
+    against a schema newer than its code (#2806) are both kept out of the Service.
+
+    ``statuses`` stays a coarse ``ok``/``fail`` map — that contract is what the
+    body's freedom from infrastructure detail rests on, and adding a reason there
+    would break it. The migration drift direction is returned separately and
+    surfaced as its own ``migration_state`` field, so an operator can tell "still
+    migrating" from "this image is older than the schema" without a shell.
+
+    ``ahead`` gates the pod **only when the pod booted into it**. A pod that
+    started against a database already newer than its code is a rollback, and it
+    must not take traffic; a pod that booted ``in_sync`` and drifted to ``ahead``
+    is the ordinary forward rolling upgrade, where the new pod's ``migrate`` init
+    container moves the schema while this one keeps serving. Gating the second
+    case would empty the Service of endpoints at the exact moment the new pods are
+    not Ready yet — a self-inflicted outage on every upgrade, and the reason
+    expand-migrate-contract exists. ``_remember_first_migration_state`` holds that
+    distinction, which the database alone cannot express.
+
+    Even a gated ``ahead`` is a guess the probe cannot verify: it knows the schema
+    is newer, not whether the old code can serve it. So
+    ``TRUEPPM_READYZ_ALLOW_DB_AHEAD`` lets an operator who has read the release's
+    migrations and classified them additive-only complete the image-only rollback
+    the upgrade runbook recommends. Neither the latch nor the flag touches
+    ``behind`` — nothing makes a half-migrated pod safe to serve.
+
+    When the flag *is* suppressing an ``ahead`` state, ``checks["migrations"]``
+    reads ``ok`` while ``migration_state`` reads ``ahead`` — deliberate, but it
+    means every monitor that watches only ``status``/``checks`` (all of the
+    existing ones, by the compatibility promise above) sees green on a pod
+    knowingly serving older code against a newer schema. So the suppression also
+    logs a WARNING, once per process: an override set during one incident must not
+    silently cover the *next* rollback, which may be the destructive one.
     """
+    migration_state = _probe_migrations()
+    booted_into = _remember_first_migration_state(migration_state)
+    ahead_gates = (
+        migration_state == READY_MIGRATIONS_AHEAD and booted_into == READY_MIGRATIONS_AHEAD
+    )
+    override_in_use = ahead_gates and settings.TRUEPPM_READYZ_ALLOW_DB_AHEAD
+    if override_in_use:
+        _warn_db_ahead_override_once()
+    migrations_ok = migration_state in (
+        READY_MIGRATIONS_IN_SYNC,
+        READY_MIGRATIONS_AHEAD,
+    ) and (not ahead_gates or override_in_use)
     checks = {
         "database": READY_OK if _probe_database() else READY_FAIL,
         "cache": READY_OK if _probe_cache() else READY_FAIL,
-        "migrations": READY_OK if _probe_migrations() else READY_FAIL,
+        "migrations": READY_OK if migrations_ok else READY_FAIL,
     }
     ready = all(state == READY_OK for state in checks.values())
-    return ready, checks
+    return ready, checks, migration_state
 
 
 def _telemetry() -> dict[str, Any]:

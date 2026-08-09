@@ -13,6 +13,7 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.projects.authentication import sha256_hex
 from trueppm_api.apps.projects.management.commands.create_demo_share_link import (
+    DEFAULT_BASE_URL,
     DEMO_LABEL,
     DEMO_LABEL_BOARD,
 )
@@ -86,6 +87,39 @@ def test_base_url_override() -> None:
         stdout=out,
     )
     assert "https://demo.example.org/share/schedule/tok123" in out.getvalue()
+
+
+@pytest.mark.django_db
+def test_default_base_url_is_the_local_stack_not_the_hosted_demo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With nothing configured the printed URL must point at the local stack (#2801).
+
+    The share link is the demo's only entry point, so a fallback naming the
+    hosted demo's domain hands a local evaluator a URL on a host they do not
+    control — and once that domain is live it resolves to a different instance
+    where their locally minted token does not exist. Every hosted path supplies
+    the origin explicitly (the Helm chart fails its render without it), so the
+    fallback exists solely for the zero-config local run.
+    """
+    monkeypatch.delenv("TRUEPPM_DEMO_BASE_URL", raising=False)
+    _seed()
+    out = StringIO()
+    call_command("create_demo_share_link", token="tok-default", stdout=out)
+
+    assert DEFAULT_BASE_URL == "http://localhost"
+    assert "http://localhost/share/schedule/tok-default" in out.getvalue()
+    assert "try.trueppm.com" not in out.getvalue()
+
+
+@pytest.mark.django_db
+def test_base_url_env_var_wins_over_the_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A hosted deployment overrides the local default via the env var (#2801)."""
+    monkeypatch.setenv("TRUEPPM_DEMO_BASE_URL", "https://demo.example.com/")
+    _seed()
+    out = StringIO()
+    call_command("create_demo_share_link", token="tok-env", stdout=out)
+    assert "https://demo.example.com/share/schedule/tok-env" in out.getvalue()
 
 
 @pytest.mark.django_db

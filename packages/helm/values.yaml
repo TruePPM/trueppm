@@ -16,7 +16,9 @@ image:
   # tag and pullPolicy below with the API so a release deploys a matching pair.
   webRepository: registry.gitlab.com/trueppm/trueppm/web
   # Empty by default so the chart pins itself to its own appVersion
-  # (reproducible rollbacks). Override per-deploy with a concrete tag.
+  # (reproducible rollbacks). Empty resolves to `v<appVersion>` — the v-prefixed
+  # form is the only tag the release pipeline pushes to this registry, so a bare
+  # version would never pull (#2811). Override per-deploy with a concrete tag.
   tag: ""
   pullPolicy: IfNotPresent
 
@@ -661,9 +663,11 @@ dashboards:
 # Prometheus Operator (kube-prometheus-stack) installed — on a cluster without
 # those CRDs the apply is rejected. Enable it alongside the operator to ship the
 # async/outbox alerts (beat staleness 503, outbox depth/age rising, dead-letter).
-# Thresholds are tunable below. The beat-staleness and dead-letter rules read
-# Blackbox-Exporter probe series of /api/v1/health/beat/ and the dead-letter gauge;
-# see docs → Administration → Observability for the probe wiring.
+# Thresholds are tunable below. The beat-staleness rule reads a Blackbox-Exporter
+# probe series of /api/v1/health/beat/, and the dead-letter rule reads the
+# `trueppm_task_dead_letter_parked` gauge — which is Prometheus text exposition on
+# /api/v1/health/dead-letter/, NOT an OTLP metric, so it needs its own scrape job;
+# see docs → Administration → Observability for both wirings.
 alerts:
   enabled: false
   # Extra labels stamped on the PrometheusRule (e.g. `release: kube-prometheus-stack`
