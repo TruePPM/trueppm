@@ -152,7 +152,7 @@ large request buffering). Tune per the [sizing profiles](/administration/sizing/
 
 | Key | Default | What it does |
 |---|---|---|
-| `probes.api.readinessPath` | `/api/v1/readyz` | Deep readiness: DB + cache reachable **and** no unapplied/in-flight migrations, so a rolling upgrade never routes traffic to a pod whose schema and code disagree. |
+| `probes.api.readinessPath` | `/api/v1/readyz` | Deep readiness: DB + cache reachable **and** no unapplied/in-flight migrations, so a rolling upgrade never routes traffic to a pod whose schema and code disagree. Detection of the reverse direction — a database carrying migrations the running image does not ship, i.e. an image rolled back without restoring the schema — ships in 0.4 as `migration_state: ahead`, gated only for a pod that *booted* into it so a forward rolling upgrade never pulls the old pods out of the Service. Either way, schema presence is not data compatibility: rolling back across a destructive migration still needs a [restore from backup](/getting-started/upgrade/#rollback). |
 | `probes.api.livenessPath` | `/api/v1/health/` | Shallow liveness so a transient dependency blip can't restart-loop the pod. |
 | `probes.api.readiness*/liveness*Seconds` | 10/10, 30/30 | Initial-delay and period tuning. |
 | `probes.worker.*` | ping every 60s, `failureThreshold: 3` | `celery inspect ping` exec probe — catches a wedged event loop a process-alive check would miss. |
