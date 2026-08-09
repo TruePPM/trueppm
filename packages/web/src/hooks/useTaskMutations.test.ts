@@ -19,6 +19,7 @@ import {
   useDeleteTask,
   BulkRowRejectedError,
   useBulkDeleteTasks,
+  useBulkUpdateTasks,
   useRestoreTask,
   useBulkRestoreTasks,
   useReorderTasks,
@@ -714,6 +715,72 @@ describe('useBulkDeleteTasks', () => {
     const { result } = renderHook(() => useBulkDeleteTasks('p1'), { wrapper: makeWrapper(qc) });
     result.current.mutate(['t1']);
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
+  });
+});
+
+describe('useBulkUpdateTasks (#2756 pt.2)', () => {
+  let qc: QueryClient;
+  const BODY = {
+    applied: [{ index: 0, id: 't1', op: 'update', outcome: 'updated' }],
+    rejected: [{ index: 1, id: 't2', code: 'forbidden', message: 'You may not edit this task.' }],
+    skipped: [],
+    operation_id: null,
+  };
+
+  beforeEach(() => {
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    vi.clearAllMocks();
+    postMock.mockResolvedValue({ data: BODY });
+  });
+
+  it('POSTs the update operations verbatim to the bulk endpoint', async () => {
+    const { result } = renderHook(() => useBulkUpdateTasks('p1'), { wrapper: makeWrapper(qc) });
+    const operations = [{ op: 'update' as const, id: 't1', data: { delivery_mode: 'scrum' } }];
+    result.current.mutate(operations);
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith('/projects/p1/tasks/bulk/', { operations }),
+    );
+  });
+
+  it('resolves with the 207 body instead of throwing on a partial batch', async () => {
+    // Diverges from useBulkDeleteTasks deliberately: "12 of 15 updated" is the
+    // everyday outcome of a mixed selection, and a throw would collapse the
+    // per-row report back to all-or-nothing (ADR-0810).
+    const { result } = renderHook(() => useBulkUpdateTasks('p1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate([{ op: 'update', id: 't1', data: {} }]);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual(BODY);
+  });
+
+  it('invalidates the resource pool — an owner write creates TaskResource rows', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useBulkUpdateTasks('p1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate([{ op: 'update', id: 't1', data: {} }]);
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['project-resource-pool', 'p1'] }),
+    );
+  });
+
+  it('refreshes history only for rows the server actually changed', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useBulkUpdateTasks('p1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate([{ op: 'update', id: 't1', data: {} }]);
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['task-history', 'p1', 't1'] }),
+    );
+    // t2 was rejected — it wrote no history entry to refresh.
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['task-history', 'p1', 't2'] });
+  });
+
+  it('falls back to undefined query key when projectId is null', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useBulkUpdateTasks(null), { wrapper: makeWrapper(qc) });
+    result.current.mutate([{ op: 'update', id: 't1', data: {} }]);
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', undefined] }),
+    );
   });
 });
 
