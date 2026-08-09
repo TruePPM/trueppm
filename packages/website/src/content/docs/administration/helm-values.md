@@ -25,7 +25,7 @@ may not be present.
 | `replicaCount` | `1` | API tier replica count. Raise to `2+` for production (the prod overlay sets 2). Request throughput scales with this because uvicorn runs one worker per pod by default. |
 | `image.repository` | `registry.gitlab.com/trueppm/trueppm/api` | API container image. |
 | `image.webRepository` | `registry.gitlab.com/trueppm/trueppm/web` | Web (nginx SPA) image; shares `tag`/`pullPolicy` with the API so a release deploys a matching pair. |
-| `image.tag` | `""` | Empty pins the chart to its own `appVersion` for reproducible rollbacks. Override per-deploy with a concrete tag. |
+| `image.tag` | `""` | Empty pins the chart to its own `appVersion` for reproducible rollbacks, resolving to `v<appVersion>` (e.g. `v0.4.0`) — released images are published under v-prefixed tags, so the `v` is part of the tag, not decoration. Override per-deploy with a concrete tag, which is used verbatim. |
 | `image.pullPolicy` | `IfNotPresent` | Standard Kubernetes pull policy. |
 
 ## Service and web tier
@@ -152,7 +152,7 @@ large request buffering). Tune per the [sizing profiles](/administration/sizing/
 
 | Key | Default | What it does |
 |---|---|---|
-| `probes.api.readinessPath` | `/api/v1/readyz` | Deep readiness: DB + cache reachable **and** no unapplied/in-flight migrations, so a rolling upgrade never routes traffic to a pod whose schema and code disagree. |
+| `probes.api.readinessPath` | `/api/v1/readyz` | Deep readiness: DB + cache reachable **and** no unapplied/in-flight migrations, so a rolling upgrade never routes traffic to a pod whose schema and code disagree. Detection of the reverse direction — a database carrying migrations the running image does not ship, i.e. an image rolled back without restoring the schema — ships in 0.4 as `migration_state: ahead`, gated only for a pod that *booted* into it so a forward rolling upgrade never pulls the old pods out of the Service. Either way, schema presence is not data compatibility: rolling back across a destructive migration still needs a [restore from backup](/getting-started/upgrade/#rollback). |
 | `probes.api.livenessPath` | `/api/v1/health/` | Shallow liveness so a transient dependency blip can't restart-loop the pod. |
 | `probes.api.readiness*/liveness*Seconds` | 10/10, 30/30 | Initial-delay and period tuning. |
 | `probes.worker.*` | ping every 60s, `failureThreshold: 3` | `celery inspect ping` exec probe — catches a wedged event loop a process-alive check would miss. |
@@ -175,7 +175,7 @@ knobs operators reach for first:
 | Key | Default | What it does |
 |---|---|---|
 | `env.DJANGO_SETTINGS_MODULE` | `trueppm_api.settings.prod` | Settings module. |
-| `env.DATABASE_URL` / `env.REDIS_URL` | unset | **Required** when the bundled datastores are disabled — the chart fails the render if either is missing. Supply via an external Secret. `env.REDIS_URL` is **not** required when `valkey.sentinel.enabled` is true. |
+| `env.DATABASE_URL` / `env.REDIS_URL` | unset | **Required** when the bundled datastores are disabled, and **rejected** while they are enabled (the chart-built URL always wins, so your value would be silently ignored) — the render fails either way, with a message saying which. Two supported shapes, both injected via `secretKeyRef` so neither reaches a Deployment: a **`secretKeyRef` map** naming a Secret you manage (preferred — the credential never passes through Helm), or a **URL string** (the chart stores it in its own connection Secret, but it persists in your values file / shell history / Helm release Secret on the way). `env.REDIS_URL` is **not** required when `valkey.sentinel.enabled` is true. See [Managed datastores](#managed-external-datastores). |
 | `valkey.sentinel.enabled` | `false` | **Experimental** (0.4). Use a Valkey Sentinel topology instead of a single endpoint. Only honored when `valkey.enabled` is `false`. Validate a real failover in staging before depending on it. |
 | `valkey.sentinel.nodes` | `""` | Comma-separated `host:port` Sentinel list. **Required** when `valkey.sentinel.enabled` is true. |
 | `valkey.sentinel.masterName` | `""` | Name the Sentinels monitor the primary under. **Required** when `valkey.sentinel.enabled` is true. |
@@ -186,7 +186,46 @@ knobs operators reach for first:
 | `env.TRUEPPM_NUM_PROXIES` | `"1"` | Trusted reverse-proxy depth for real-client-IP extraction. A wrong value lets clients spoof `X-Forwarded-For`. |
 | `env.TRUEPPM_RATE_LIMIT_ENABLED` | `"true"` | Global API rate-limiting kill switch. Leave `"true"` in production. Disabling also requires `TRUEPPM_RATE_LIMIT_DISABLE_ACK`; for load testing only ([details](/administration/configuration/#disabling-rate-limiting-entirely)). |
 | `env.TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` | `"30"` | Trashed-project hard-delete window. |
-| `envFrom` | `[]` | Bulk-inject env vars from existing Secrets/ConfigMaps (e.g. `- secretRef: {name: trueppm-env}`) into the API, Celery worker, **and** the bootstrap/migrate init containers. This is the supported way to supply `SECRET_KEY`, `ALLOWED_HOSTS`, and `INTEGRATION_ENCRYPTION_KEY` — the values `prod` refuses to boot without — without rendering them in plaintext into `env`. An explicit `env:` key of the same name (e.g. the chart-built `DATABASE_URL`) always takes precedence over an `envFrom` entry. |
+| `envFrom` | `[]` | Bulk-inject env vars from existing Secrets/ConfigMaps (e.g. `- secretRef: {name: trueppm-env}`) into the API, Celery worker, **and** the bootstrap/migrate init containers. This is the supported way to supply `SECRET_KEY`, `ALLOWED_HOSTS`, and `INTEGRATION_ENCRYPTION_KEY` — the values `prod` refuses to boot without — without rendering them in plaintext into `env`. An explicit `env:` key of the same name always takes precedence over an `envFrom` entry. |
+
+### Managed (external) datastores
+
+With `postgresql.enabled: false` / `valkey.enabled: false`, the chart can no
+longer build the connection strings, so you supply them. Both shapes below are
+injected into every consumer — API, Celery worker, Celery beat, the `migrate` and
+`bootstrap` init containers, and the backup CronJob — via `secretKeyRef`, so
+neither renders a credential into a Deployment manifest.
+
+**Preferred — a Secret you manage.** The URL never passes through Helm, so it is
+absent from your values file, your shell history, and the Helm release Secret. The
+chart points the containers straight at your Secret and does not copy the value
+into its own:
+
+```yaml
+env:
+  DATABASE_URL:
+    secretKeyRef:
+      name: trueppm-db
+      key: url
+  REDIS_URL:
+    secretKeyRef:
+      name: trueppm-cache
+      key: url
+```
+
+**Alternative — a URL string.** The chart moves it into the chart-owned
+connection Secret and injects it from there, so it stays out of the Deployment;
+but it passed through Helm, so it persists wherever it was held:
+
+```yaml
+env:
+  DATABASE_URL: "postgres://user:pass@db.example.com:5432/trueppm?sslmode=require"
+```
+
+An external `DATABASE_URL` must carry `sslmode=require` — `settings.prod` refuses
+to boot on a plaintext external database. The chart cannot check this for the
+`secretKeyRef` form, since it never sees the value; there the guard is the app's
+alone, at boot.
 
 ## Observability
 

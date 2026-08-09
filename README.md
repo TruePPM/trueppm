@@ -243,7 +243,7 @@ All four dependency types (FS/SS/FF/SF), lead/lag on every link, multi-calendar 
 
 ## Documentation
 
-Full documentation at **[docs.trueppm.com](https://docs.trueppm.com)** (published via GitLab Pages on every release tag).
+Full documentation at **[docs.trueppm.com](https://docs.trueppm.com)** (published via GitLab Pages on every release tag, and from `main` on every merge — so the site tracks unreleased work; pages documenting behavior that is not in the latest tag carry a "Ships in 0.X" callout).
 
 - **[Installation](https://docs.trueppm.com/getting-started/installation/)** — Docker Compose, Helm/Kubernetes, single-server, or scheduler library
 - **[Quickstart](https://docs.trueppm.com/getting-started/quickstart/)** — from clone to a populated workspace in five minutes

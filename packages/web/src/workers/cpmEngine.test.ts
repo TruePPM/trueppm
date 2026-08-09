@@ -22,6 +22,12 @@ function task(
       ) + 1,
     isMilestone: opts.isMilestone ?? false,
     name: opts.name ?? id,
+    // ADR-0132 progress facts (#2813). Absent by default, so every pre-#2813
+    // case in this file continues to exercise the progress-free path.
+    isComplete: opts.isComplete,
+    actualStart: opts.actualStart ?? null,
+    actualFinish: opts.actualFinish ?? null,
+    remainingDuration: opts.remainingDuration ?? null,
   };
 }
 
@@ -316,5 +322,241 @@ describe('runCpmForwardPass', () => {
       expect(results[0].deltaDays).toBeGreaterThan(0); // it did slip
       expect(results[0].isCritical).toBe(false); // but well within float
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0132 progress semantics (issue #2813)
+//
+// Every expectation below is hand-computed against the server's forward pass
+// (`engine.py::_forward_pass` / `_pinned_placement` / `_effective_duration_days`
+// / `_compute_scheduled_start`), because the whole point of the fix is that the
+// preview and the commit agree. All dates are 2026: Jan 5 is a Monday, so
+// Mon–Fri weeks fall on 5/12/19/26 and the fixtures read cleanly.
+// ---------------------------------------------------------------------------
+
+describe('runCpmForwardPass — ADR-0132 progress semantics', () => {
+  describe('completed work is pinned', () => {
+    it('does not move a pinned task, and stops the cascade at it', () => {
+      // P → FS → C(complete, actuals recorded) → FS → D
+      // `_pinned_placement` takes C out of network logic entirely, so dragging
+      // P has no effect on C — and therefore none on D either. Before the fix
+      // the ripple ran straight through C and pushed both.
+      const tasks: CpmTask[] = [
+        task('P', '2026-01-05', '2026-01-09'),
+        task('C', '2026-01-12', '2026-01-16', {
+          isComplete: true,
+          actualStart: '2026-01-12',
+          actualFinish: '2026-01-16',
+        }),
+        task('D', '2026-01-19', '2026-01-21'),
+      ];
+      const edges: CpmEdge[] = [edge('P', 'C', 'FS'), edge('C', 'D', 'FS')];
+
+      const { results } = runCpmForwardPass(tasks, edges, 'P', '2026-03-02');
+      const byId = (id: string) => results.find((r) => r.taskId === id)!;
+
+      expect(byId('P').earlyStart).toBe('2026-03-02');
+      expect(byId('P').earlyFinish).toBe('2026-03-06');
+
+      expect(byId('C').earlyStart).toBe('2026-01-12');
+      expect(byId('C').earlyFinish).toBe('2026-01-16');
+      expect(byId('C').deltaDays).toBe(0);
+
+      expect(byId('D').earlyStart).toBe('2026-01-19');
+      expect(byId('D').deltaDays).toBe(0);
+    });
+
+    it('keeps the pinned finish feeding successors that are not yet clear of it', () => {
+      // Same pin, but D currently starts BEFORE C's finish allows. The pin
+      // removes C from the recompute without removing it from the network:
+      // its unchanged finish still pushes D to the next working day after it.
+      const tasks: CpmTask[] = [
+        task('C', '2026-01-12', '2026-01-16', {
+          isComplete: true,
+          actualStart: '2026-01-12',
+          actualFinish: '2026-01-16',
+        }),
+        task('D', '2026-01-06', '2026-01-08'),
+      ];
+      const edges: CpmEdge[] = [edge('C', 'D', 'FS')];
+
+      const { results } = runCpmForwardPass(tasks, edges, 'C', '2026-04-06');
+      const byId = (id: string) => results.find((r) => r.taskId === id)!;
+
+      // The drag target itself is pinned — the drop is ignored, exactly as the
+      // server ignores `planned_start` on a task with recorded actuals.
+      expect(byId('C').earlyStart).toBe('2026-01-12');
+      expect(byId('C').earlyFinish).toBe('2026-01-16');
+      // …and its finish still constrains D: Jan 17 is a Saturday → Jan 19.
+      expect(byId('D').earlyStart).toBe('2026-01-19');
+      expect(byId('D').earlyFinish).toBe('2026-01-21');
+    });
+
+    it('still schedules a complete-without-actuals task through the network', () => {
+      // `_pinned_placement` returns None for this case: completion by
+      // percent_complete alone, with no actuals, takes an ordinary
+      // full-duration position. Pinning on `isComplete` alone would be wrong.
+      const tasks: CpmTask[] = [
+        task('A', '2026-01-05', '2026-01-09'),
+        task('B', '2026-01-12', '2026-01-14', { isComplete: true }),
+      ];
+      const edges: CpmEdge[] = [edge('A', 'B', 'FS')];
+
+      const { results } = runCpmForwardPass(tasks, edges, 'A', '2026-03-02');
+      const b = results.find((r) => r.taskId === 'B')!;
+
+      // A finishes Mar 6 (Fri) → Mar 7 is a Saturday → B starts Mar 9, and
+      // keeps its FULL 3-day duration (ADR-0136), not a collapsed remainder.
+      expect(b.earlyStart).toBe('2026-03-09');
+      expect(b.earlyFinish).toBe('2026-03-11');
+    });
+  });
+
+  describe('in-progress work contributes only its remaining duration', () => {
+    it('lays the remaining duration ahead of the successors, not the full one', () => {
+      // B is a 10-day task at 80%: 2 days left. The server pushes 2 days in
+      // front of anything downstream; the pre-fix preview pushed all 10.
+      const tasks: CpmTask[] = [
+        task('A', '2026-01-05', '2026-01-09'),
+        task('B', '2026-01-05', '2026-02-03', {
+          durationDays: 10,
+          remainingDuration: 2,
+          actualStart: '2026-01-05',
+        }),
+      ];
+      const edges: CpmEdge[] = [edge('A', 'B', 'FS')];
+
+      const { results } = runCpmForwardPass(tasks, edges, 'A', '2026-03-02');
+      const b = results.find((r) => r.taskId === 'B')!;
+
+      // A finishes Mar 6 (Fri); Mar 7 is a Saturday → B's remaining window
+      // opens Mar 9 (Mon) and closes Mar 10 — two working days, not ten
+      // (which would have landed on Mar 20).
+      expect(b.earlyFinish).toBe('2026-03-10');
+      // The SPAN start does not move: work began Jan 5 and still did
+      // (`_compute_scheduled_start` → actual_start).
+      expect(b.earlyStart).toBe('2026-01-05');
+    });
+
+    it('floors the dragged in-progress task at its recorded actual start', () => {
+      // Dropping a started task before the day work actually began is not a
+      // reschedule the server will honor — `es_constraints` includes
+      // actual_start, so the early window cannot precede it.
+      const tasks: CpmTask[] = [
+        task('B', '2026-01-05', '2026-02-03', {
+          durationDays: 10,
+          remainingDuration: 2,
+          actualStart: '2026-01-05',
+        }),
+      ];
+
+      const { results } = runCpmForwardPass(tasks, [], 'B', '2025-12-01');
+
+      expect(results[0].earlyStart).toBe('2026-01-05');
+      expect(results[0].earlyFinish).toBe('2026-01-06');
+    });
+
+    it('moves only the finish side when a started task is dragged later', () => {
+      // planned_start moves past actual_start, so the span start follows the
+      // drop (`max(planned_start, scheduled_start)`) while the window carries
+      // the remaining 2 days.
+      const tasks: CpmTask[] = [
+        task('B', '2026-01-05', '2026-02-03', {
+          durationDays: 10,
+          remainingDuration: 2,
+          actualStart: '2026-01-05',
+        }),
+      ];
+
+      const { results } = runCpmForwardPass(tasks, [], 'B', '2026-02-16');
+
+      expect(results[0].earlyStart).toBe('2026-02-16');
+      expect(results[0].earlyFinish).toBe('2026-02-17');
+    });
+  });
+
+  describe('the dragged task is floored at the data date', () => {
+    it('resolves a drop in the past to the data date', () => {
+      const tasks: CpmTask[] = [task('A', '2026-01-05', '2026-01-09')];
+
+      const { results } = runCpmForwardPass(tasks, [], 'A', '2025-12-01', '2026-01-05');
+
+      expect(results[0].earlyStart).toBe('2026-01-05');
+      expect(results[0].earlyFinish).toBe('2026-01-09');
+    });
+
+    it('applies no data-date floor when the caller supplies none', () => {
+      // The `?? today` resolution is the caller's job (ScheduleView), which
+      // keeps this engine a pure function and its fixtures from decaying
+      // against the wall clock.
+      const tasks: CpmTask[] = [task('A', '2026-01-05', '2026-01-09')];
+
+      const { results } = runCpmForwardPass(tasks, [], 'A', '2025-12-01');
+
+      expect(results[0].earlyStart).toBe('2025-12-01');
+      expect(results[0].earlyFinish).toBe('2025-12-05');
+    });
+  });
+
+  it('previews a complete → in-progress → future chain the way the server computes it', () => {
+    // C1 complete with actuals (pinned), C2 a 10-day task with 4 days left,
+    // C3 not started. Dragging C2 to Feb 16 must leave C1 alone, lay C2's
+    // four remaining days from the drop, and cascade only that much onto C3.
+    const tasks: CpmTask[] = [
+      task('C1', '2026-01-05', '2026-01-09', {
+        isComplete: true,
+        actualStart: '2026-01-05',
+        actualFinish: '2026-01-09',
+      }),
+      task('C2', '2026-01-12', '2026-01-30', {
+        durationDays: 10,
+        remainingDuration: 4,
+        actualStart: '2026-01-12',
+      }),
+      task('C3', '2026-02-02', '2026-02-04'),
+    ];
+    const edges: CpmEdge[] = [edge('C1', 'C2', 'FS'), edge('C2', 'C3', 'FS')];
+
+    const { results } = runCpmForwardPass(tasks, edges, 'C2', '2026-02-16');
+    const byId = (id: string) => results.find((r) => r.taskId === id)!;
+
+    // C1: pinned to its actuals, untouched.
+    expect(byId('C1').earlyStart).toBe('2026-01-05');
+    expect(byId('C1').earlyFinish).toBe('2026-01-09');
+    expect(byId('C1').deltaDays).toBe(0);
+
+    // C2: four remaining working days from Mon Feb 16 → Thu Feb 19. With the
+    // full ten it would have run to Feb 27.
+    expect(byId('C2').earlyStart).toBe('2026-02-16');
+    expect(byId('C2').earlyFinish).toBe('2026-02-19');
+
+    // C3: the day after C2's finish is Fri Feb 20 → three working days to
+    // Tue Feb 24 (Feb 21/22 are the weekend).
+    expect(byId('C3').earlyStart).toBe('2026-02-20');
+    expect(byId('C3').earlyFinish).toBe('2026-02-24');
+  });
+
+  it('translates an FF constraint through the remaining duration, not the full one', () => {
+    // B is a 10-day task with 3 days left, finish-to-finish with A. Backing the
+    // FULL ten days off A's finish would put B's window in February and let it
+    // finish BEFORE A — silently breaking the very constraint being applied.
+    const tasks: CpmTask[] = [
+      task('A', '2026-01-05', '2026-01-09'),
+      task('B', '2026-01-05', '2026-01-30', {
+        durationDays: 10,
+        remainingDuration: 3,
+        actualStart: '2026-01-05',
+      }),
+    ];
+    const edges: CpmEdge[] = [edge('A', 'B', 'FF')];
+
+    const { results } = runCpmForwardPass(tasks, edges, 'A', '2026-03-02');
+    const byId = (id: string) => results.find((r) => r.taskId === id)!;
+
+    expect(byId('A').earlyFinish).toBe('2026-03-06');
+    // B lands exactly on A's finish, which is what FF means.
+    expect(byId('B').earlyFinish).toBe('2026-03-06');
+    expect(byId('B').earlyStart).toBe('2026-01-05');
   });
 });

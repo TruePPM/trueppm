@@ -1,9 +1,10 @@
 ---
 title: Task Labels
 description: Colored, filterable labels that categorize tasks across the board and schedule, independent of status, sprint, or WBS.
+documentedFor: "0.4"
 ---
 
-:::note[0.4]
+:::note[Ships in 0.4]
 Task labels ship in 0.4. This page describes the planned behavior; until 0.4 is tagged, treat it as the design of record.
 :::
 

@@ -47,16 +47,23 @@
 #   [Unreleased] section is hand-maintained during the cycle and rotated into a
 #   dated [<PEP440>] section here too, via scripts/rotate-scheduler-changelog.sh,
 #   so every scheduler-v<PEP440> tag publishes dated release notes (enforced by
-#   the scheduler:publish CI job).
+#   the scheduler:publish CI job). packages/mcp has no standalone changelog —
+#   the root CHANGELOG.md is its release record — so nothing is rotated for it.
 #
 # Versioning note (two schemes, one release):
-#   api + web carry the semver form (0.2.0-alpha.1); the scheduler is a PyPI
-#   package and carries the PEP 440 form of the SAME version (0.2.0a1). The
-#   canonical parse source is the API manifest (semver, parser-compatible);
-#   the scheduler manifest is bumped via a semver→PEP 440 translation so it
-#   always matches the `scheduler-v<PEP440>` publish tag and the CI version
-#   check in scheduler:publish. Two tags are created: v<semver> (Docker/Helm
-#   publish) and scheduler-v<PEP440> (PyPI publish).
+#   api + web carry the semver form (0.2.0-alpha.1); the scheduler and the MCP
+#   server are PyPI packages and carry the PEP 440 form of the SAME version
+#   (0.2.0a1). The canonical parse source is the API manifest (semver,
+#   parser-compatible); the PyPI manifests are bumped via a semver→PEP 440
+#   translation so they always match their `<pkg>-v<PEP440>` publish tags and
+#   the CI version checks in scheduler:publish / mcp:publish. Three tags are
+#   created: v<semver> (Docker/Helm publish), scheduler-v<PEP440> and
+#   mcp-v<PEP440> (PyPI publishes).
+#
+#   packages/mcp/server.json (the MCP registry manifest) carries BOTH forms —
+#   semver at the top level, PEP 440 under packages[0] — and both are bumped
+#   here. mcp:publish refuses to upload if either has drifted from
+#   packages/mcp/pyproject.toml.
 #
 # Enterprise note:
 #   The enterprise repo has its own release script that pins to a specific
@@ -154,7 +161,7 @@ confirm_or_override_version() {
       echo "About to cut a release:"
       echo "  current : $CURRENT_VERSION"
       echo "  new     : $suggested   <- suggested"
-      echo "  tags    : v${suggested}, scheduler-v${pep440}"
+      echo "  tags    : v${suggested}, scheduler-v${pep440}, mcp-v${pep440}"
     } >&2
 
     read -r -p "Enter to accept ${suggested}, type an explicit version to override, or 'q' to abort: " reply
@@ -413,9 +420,13 @@ TAG="v${NEW_VERSION}"
 # matches the tag against the scheduler manifest, so this tag must use the
 # PEP 440 form (scheduler-v0.2.0a1, not scheduler-v0.2.0-alpha.1).
 SCHEDULER_TAG="scheduler-v$(to_pep440 "$NEW_VERSION")"
+# Same contract for the MCP server (#2809): mcp:publish triggers on
+# mcp-v<PEP440> and string-matches the tag against packages/mcp/pyproject.toml.
+MCP_TAG="mcp-v$(to_pep440 "$NEW_VERSION")"
 
 git tag | grep -qxF "$TAG" && die "Tag $TAG already exists."
 git tag | grep -qxF "$SCHEDULER_TAG" && die "Tag $SCHEDULER_TAG already exists."
+git tag | grep -qxF "$MCP_TAG" && die "Tag $MCP_TAG already exists."
 
 # Build + Trivy-scan the api and web images BEFORE bumping manifests or cutting a
 # tag, so a fixable image CVE aborts the release cleanly here rather than failing
@@ -453,6 +464,31 @@ bump_manifest() {
 bump_manifest packages/scheduler/pyproject.toml \
   "s/^version = \"${CURRENT_PEP440_ESCAPED}\"/version = \"${NEW_PEP440}\"/" \
   "version = \"${NEW_PEP440}\""
+
+# The MCP server is the second PyPI package (#2809) and takes the PEP 440 form,
+# same as the scheduler. Its version lives in four places that must move
+# together: the manifest, the package's own __version__ (exported in __all__ and
+# reported to MCP clients), and BOTH version fields in server.json. The uv.lock
+# self-entry is refreshed by the `uv lock` below.
+bump_manifest packages/mcp/pyproject.toml \
+  "s/^version = \"${CURRENT_PEP440_ESCAPED}\"/version = \"${NEW_PEP440}\"/" \
+  "version = \"${NEW_PEP440}\""
+
+bump_manifest packages/mcp/src/trueppm_mcp/__init__.py \
+  "s/^__version__ = \"${CURRENT_PEP440_ESCAPED}\"/__version__ = \"${NEW_PEP440}\"/" \
+  "__version__ = \"${NEW_PEP440}\""
+
+# server.json's top-level "version" is the registry manifest's own semver
+# version; the nested packages[].version is the PyPI (PEP 440) one. Both are
+# anchored on their leading whitespace so the two substitutions cannot cross
+# over onto each other's line.
+bump_manifest packages/mcp/server.json \
+  "s/^  \"version\": \"${CURRENT_ESCAPED}\",/  \"version\": \"${NEW_VERSION}\",/" \
+  "\"version\": \"${NEW_VERSION}\""
+
+bump_manifest packages/mcp/server.json \
+  "s/^      \"version\": \"${CURRENT_PEP440_ESCAPED}\",/      \"version\": \"${NEW_PEP440}\",/" \
+  "\"version\": \"${NEW_PEP440}\""
 
 bump_manifest packages/api/pyproject.toml \
   "s/^version = \"${CURRENT_ESCAPED}\"/version = \"${NEW_VERSION}\"/" \
@@ -498,7 +534,11 @@ command -v uv >/dev/null 2>&1 || die \
    Install uv (https://docs.astral.sh/uv/) and retry."
 ( cd packages/scheduler && uv lock ) || die "Failed to regenerate packages/scheduler/uv.lock"
 ( cd packages/api && uv lock ) || die "Failed to regenerate packages/api/uv.lock"
-echo "  Regenerated uv.lock for scheduler and api"
+# packages/mcp joined the re-lock list with mcp:publish (#2809): its SBOM step
+# runs `uv sync --frozen`, which hard-fails on a lock whose self-entry still
+# claims the previous version, and mcp:uv-lock-check would go red on main.
+( cd packages/mcp && uv lock ) || die "Failed to regenerate packages/mcp/uv.lock"
+echo "  Regenerated uv.lock for scheduler, api, and mcp"
 
 # Regenerate the OpenAPI schema so its info.version matches the tag.
 #
@@ -686,6 +726,10 @@ git add \
   packages/scheduler/pyproject.toml \
   packages/scheduler/uv.lock \
   packages/scheduler/CHANGELOG.md \
+  packages/mcp/pyproject.toml \
+  packages/mcp/uv.lock \
+  packages/mcp/server.json \
+  packages/mcp/src/trueppm_mcp/__init__.py \
   packages/api/pyproject.toml \
   packages/api/uv.lock \
   packages/web/package.json \
@@ -703,13 +747,19 @@ Automated release commit. See CHANGELOG.md for details."
 
 git tag -a "$TAG" -m "Release $TAG"
 git tag -a "$SCHEDULER_TAG" -m "Release trueppm-scheduler ${NEW_PEP440}"
+git tag -a "$MCP_TAG" -m "Release trueppm-mcp ${NEW_PEP440}"
 
 echo ""
-echo "Done. Created commit and tags $TAG, $SCHEDULER_TAG."
+echo "Done. Created commit and tags $TAG, $SCHEDULER_TAG, $MCP_TAG."
 echo ""
 echo "Next steps:"
 echo "  git push origin main $TAG          # triggers Docker + Helm publish"
 echo "  git push origin $SCHEDULER_TAG     # triggers trueppm-scheduler PyPI publish"
+echo "  git push origin $MCP_TAG           # triggers trueppm-mcp PyPI publish"
+echo ""
+echo "  # First mcp-v* tag only: the PyPI Trusted Publisher for 'trueppm-mcp' must"
+echo "  # already exist (GitLab / trueppm / trueppm / .gitlab-ci.yml / environment"
+echo "  # 'pypi-mcp'). Without it mcp:publish fails closed at the mint-token step."
 if ! $IS_PRERELEASE; then
   echo "  # Then run the enterprise release script pinned to $TAG"
 fi

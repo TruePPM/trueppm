@@ -31,6 +31,34 @@ Create chart label value — used in the "helm.sh/chart" label.
 {{- end }}
 
 {{/*
+Tag for the first-party api / web images (#2811).
+
+`.Values.image.tag` wins when set. When it is empty the chart pins itself to its
+own appVersion — but the tag it must ask for is `v<appVersion>`, NOT the bare
+version, because that is the only form the release pipeline ever pushes to the
+registry this chart points at: api:publish / web:publish push
+`${CI_REGISTRY_IMAGE}/<img>:${CI_COMMIT_TAG}` (v-prefixed) and `:latest`. The
+bare `${VERSION}` tag exists only on ghcr.io, a different registry.
+
+Rendering the bare appVersion — which the chart did until 0.4 — therefore made a
+stock `helm install` permanently unresolvable: ImagePullBackOff on the `migrate`
+init container, before the app logs anything an operator can act on.
+
+Pushing an extra bare-version tag to the GitLab registry would also "fix" the
+render, but it is the wrong side of the seam: the container-registry cleanup
+policy keeps `^v.*$|^latest$` (#2803), so a bare `0.4.0` tag would fail the
+keep-regex and be deleted by the daily sweep — a release image that pulls for a
+few days and then 404s, which is the exact defect that policy was set to stop.
+Keeping the chart on v-prefixed tags also matches what
+scripts/check-release-images.sh probes.
+
+Usage: {{ include "trueppm.imageTag" . }}
+*/}}
+{{- define "trueppm.imageTag" -}}
+{{- .Values.image.tag | default (printf "v%s" .Chart.AppVersion) -}}
+{{- end }}
+
+{{/*
 Common labels applied to every resource.
 */}}
 {{- define "trueppm.labels" -}}
@@ -83,14 +111,24 @@ Each entry in .Values.env may be either:
   - a map with a `secretKeyRef` key → rendered as `valueFrom: secretKeyRef`,
     e.g.  MY_VAR: { secretKeyRef: { name: my-secret, key: my-key } }
 
-The secretKeyRef form lets the chart point env vars at chart-generated Secrets
-(DATABASE_URL, REDIS_URL) so no credential is ever rendered in plaintext into a
-Deployment manifest, and an operator `--set` of a sub-chart password can't cause
-a split-brain between the URL string and the running database.
+The secretKeyRef form lets an operator point any env var (e.g.
+EMAIL_HOST_PASSWORD) at a Secret they already manage, so no credential is ever
+rendered in plaintext into a Deployment manifest.
+
+DATABASE_URL and REDIS_URL are deliberately EXCLUDED here (#2810). They are owned
+end to end by trueppm.connectionEnv, which resolves whichever shape the operator
+supplied to a single secretKeyRef. Emitting them here too produced two defects at
+once: a duplicate env key (Kubernetes keeps the last, so the entry written here
+never took effect anyway) and — for the plaintext string form on the managed-DB
+path — the database password rendered verbatim into every api/worker/beat/init
+container, which is exactly what the chart's "no plaintext credentials in any
+Deployment" guarantee promises never happens.
 */}}
 {{- define "trueppm.envVars" -}}
 {{- range $key, $value := .Values.env }}
-{{- if kindIs "map" $value }}
+{{- if has $key (list "DATABASE_URL" "REDIS_URL") }}
+{{- /* owned by trueppm.connectionEnv — see the note above */}}
+{{- else if kindIs "map" $value }}
 - name: {{ $key }}
   valueFrom:
     secretKeyRef:
@@ -253,9 +291,63 @@ source of truth. Mirrors the subchart naming convention (`<release>-postgresql`,
 {{- end -}}
 
 {{/*
-DATABASE_URL / REDIS_URL env entries, sourced from the chart-owned connection
-Secret via secretKeyRef. Used by the API and Celery worker containers so the
-password is never rendered into the Deployment manifest in plaintext.
+Is DATABASE_URL supplied as a reference to a Secret the OPERATOR owns (the map
+form, `env.DATABASE_URL: {secretKeyRef: {name:…, key:…}}`) rather than as a
+string the chart must store for them? Non-empty output = true.
+
+Only meaningful on the managed-DB path: when the bundled PostgreSQL is enabled
+the chart builds the URL itself and env.DATABASE_URL is rejected outright (see
+trueppm.databaseUrl).
+*/}}
+{{- define "trueppm.databaseUrlIsExternalRef" -}}
+{{- if not .Values.postgresql.enabled -}}
+{{- if kindIs "map" (index (.Values.env | default dict) "DATABASE_URL") -}}
+true
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Same question for REDIS_URL against the bundled Valkey. Honored even under
+Sentinel: the app ignores REDIS_URL entirely when TRUEPPM_VALKEY_SENTINELS is
+set, so an operator-supplied reference is harmless there and it is better to
+pass their value through than to silently substitute the chart's placeholder.
+*/}}
+{{- define "trueppm.redisUrlIsExternalRef" -}}
+{{- if not .Values.valkey.enabled -}}
+{{- if kindIs "map" (index (.Values.env | default dict) "REDIS_URL") -}}
+true
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The `secretKeyRef` body (name + key, no indentation of its own) that a connection
+URL env var is injected from. Two sources, and exactly one is used per URL:
+
+  - the chart-owned connection Secret — the default, and the only option on the
+    bundled path. The operator's string URL is stored there by templates/secret.yaml.
+  - a Secret the operator already manages, when they supplied the map form.
+    The chart then never sees, stores, or re-emits the credential at all.
+
+Usage: include "trueppm.connectionSecretRef" (dict "root" . "var" "DATABASE_URL" "external" (include "trueppm.databaseUrlIsExternalRef" .))
+*/}}
+{{- define "trueppm.connectionSecretRef" -}}
+{{- if .external -}}
+{{- $ref := (index .root.Values.env .var).secretKeyRef | default dict -}}
+name: {{ required (printf "env.%s is a map, so it must be the secretKeyRef form: set env.%s.secretKeyRef.name to the Secret holding the URL" .var .var) $ref.name }}
+key: {{ required (printf "env.%s is a map, so it must be the secretKeyRef form: set env.%s.secretKeyRef.key to the key inside that Secret" .var .var) $ref.key }}
+{{- else -}}
+name: {{ include "trueppm.urlSecretName" .root }}
+key: {{ .var }}
+{{- end -}}
+{{- end -}}
+
+{{/*
+DATABASE_URL / REDIS_URL env entries. ALWAYS a secretKeyRef — never a literal
+value — so the password is never rendered into a Deployment manifest in
+plaintext, whichever shape the operator configured (#2810). This helper is the
+single owner of these two keys; trueppm.envVars deliberately skips them.
 
 The Valkey Sentinel block is appended here rather than in each Deployment so it
 reaches every container that already receives REDIS_URL. Adding it per-workload
@@ -263,17 +355,25 @@ would silently miss one — and a worker that resolves a different primary from 
 API is exactly the split-brain this issue set out to remove.
 */}}
 {{- define "trueppm.connectionEnv" -}}
-- name: DATABASE_URL
-  valueFrom:
-    secretKeyRef:
-      name: {{ include "trueppm.urlSecretName" . }}
-      key: DATABASE_URL
+{{- include "trueppm.databaseUrlEnv" . }}
 - name: REDIS_URL
   valueFrom:
     secretKeyRef:
-      name: {{ include "trueppm.urlSecretName" . }}
-      key: REDIS_URL
+      {{- include "trueppm.connectionSecretRef" (dict "root" . "var" "REDIS_URL" "external" (include "trueppm.redisUrlIsExternalRef" .)) | nindent 6 }}
 {{- include "trueppm.valkeySentinelEnv" . }}
+{{- end -}}
+
+{{/*
+Just the DATABASE_URL env entry. Split out of trueppm.connectionEnv so the backup
+CronJob — which needs the database and nothing else — resolves it identically. A
+second hand-written copy there is how the map form would come back broken for
+backups only, silently, on the one workload nobody watches until a restore.
+*/}}
+{{- define "trueppm.databaseUrlEnv" -}}
+- name: DATABASE_URL
+  valueFrom:
+    secretKeyRef:
+      {{- include "trueppm.connectionSecretRef" (dict "root" . "var" "DATABASE_URL" "external" (include "trueppm.databaseUrlIsExternalRef" .)) | nindent 6 }}
 {{- end -}}
 
 {{/*
@@ -376,14 +476,23 @@ PostgreSQL). Only meaningful when `.Values.valkey.auth.enabled` is true.
 {{- end -}}
 
 {{/*
-Server-side DATABASE_URL. Built from the resolved PostgreSQL password and the
-subchart's service fullname when the bundled DB is enabled; falls back to an
-operator-supplied `.Values.env.DATABASE_URL` when postgresql.enabled is false
-(managed-DB / production path). Never rendered into a Deployment in plaintext —
-it is stored only in the connection Secret.
+Server-side DATABASE_URL, for storage in the chart-owned connection Secret. Built
+from the resolved PostgreSQL password and the subchart's service fullname when the
+bundled DB is enabled; falls back to an operator-supplied string
+`.Values.env.DATABASE_URL` when postgresql.enabled is false (managed-DB /
+production path). Never rendered into a Deployment in plaintext — it is stored
+only in the connection Secret.
+
+NOT called when the operator supplied the secretKeyRef map form: that URL lives in
+their own Secret and the chart must not copy it (templates/secret.yaml guards on
+trueppm.databaseUrlIsExternalRef). Calling it there would stringify the map into
+`map[secretKeyRef:map[…]]`, which is exactly the crash-loop #2810 fixed.
 */}}
 {{- define "trueppm.databaseUrl" -}}
 {{- if .Values.postgresql.enabled -}}
+{{- if hasKey (.Values.env | default dict) "DATABASE_URL" -}}
+{{- fail "postgresql.enabled is true, so the chart builds DATABASE_URL from the bundled database's own generated credentials — env.DATABASE_URL would be silently ignored. Remove it, or set postgresql.enabled=false to point at a managed database." -}}
+{{- end -}}
 {{- $host := printf "%s-postgresql" .Release.Name -}}
 {{- $u := .Values.postgresql.auth.username -}}
 {{- $p := include "trueppm.postgresqlPassword" . -}}
@@ -395,13 +504,19 @@ it is stored only in the connection Secret.
 {{- end -}}
 
 {{/*
-Server-side REDIS_URL. When the bundled Valkey is enabled the host is derived
-from the subchart fullname (so it stays correct on non-`trueppm` release names),
-and the password is interpolated only when valkey.auth is enabled. Falls back to
-operator-supplied `.Values.env.REDIS_URL` when valkey.enabled is false.
+Server-side REDIS_URL, for storage in the chart-owned connection Secret. When the
+bundled Valkey is enabled the host is derived from the subchart fullname (so it
+stays correct on non-`trueppm` release names), and the password is interpolated
+only when valkey.auth is enabled. Falls back to an operator-supplied string
+`.Values.env.REDIS_URL` when valkey.enabled is false.
+
+Not called for the secretKeyRef map form — same contract as trueppm.databaseUrl.
 */}}
 {{- define "trueppm.redisUrl" -}}
 {{- if .Values.valkey.enabled -}}
+{{- if hasKey (.Values.env | default dict) "REDIS_URL" -}}
+{{- fail "valkey.enabled is true, so the chart builds REDIS_URL from the bundled Valkey's own generated credentials — env.REDIS_URL would be silently ignored. Remove it, or set valkey.enabled=false to point at a managed Valkey/Redis." -}}
+{{- end -}}
 {{- $host := printf "%s-valkey-primary" .Release.Name -}}
 {{- if .Values.valkey.auth.enabled -}}
 {{- printf "redis://:%s@%s:6379" (include "trueppm.valkeyPassword" .) $host -}}

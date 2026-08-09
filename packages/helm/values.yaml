@@ -16,7 +16,9 @@ image:
   # tag and pullPolicy below with the API so a release deploys a matching pair.
   webRepository: registry.gitlab.com/trueppm/trueppm/web
   # Empty by default so the chart pins itself to its own appVersion
-  # (reproducible rollbacks). Override per-deploy with a concrete tag.
+  # (reproducible rollbacks). Empty resolves to `v<appVersion>` — the v-prefixed
+  # form is the only tag the release pipeline pushes to this registry, so a bare
+  # version would never pull (#2811). Override per-deploy with a concrete tag.
   tag: ""
   pullPolicy: IfNotPresent
 
@@ -509,12 +511,39 @@ env:
   #     secretKeyRef:
   #       name: trueppm-smtp
   #       key: password
-  # DATABASE_URL and REDIS_URL are NOT set here. The chart builds them
-  # server-side from the generated credentials and injects them via
-  # secretKeyRef against the chart-owned connection Secret, so no password is
-  # ever rendered in plaintext into a Deployment manifest. When postgresql /
-  # valkey are disabled (managed-DB / production path), set DATABASE_URL /
-  # REDIS_URL here (or via an override) to point at your managed services.
+  # DATABASE_URL and REDIS_URL are NOT set here, and while the bundled
+  # postgresql / valkey subcharts are enabled they must not be: the chart builds
+  # both server-side from the credentials it generated, stores them in the
+  # chart-owned connection Secret, and injects them by secretKeyRef. Setting
+  # either one alongside a bundled datastore now FAILS the render rather than
+  # being silently ignored.
+  #
+  # When postgresql / valkey are disabled (the managed-DB / production path) one
+  # of them becomes REQUIRED, in either of two forms:
+  #
+  #   1. A Secret you already manage — PREFERRED. Nothing about the credential
+  #      passes through Helm, so it is absent from your values file, your shell
+  #      history, and your GitOps repo:
+  #        DATABASE_URL:
+  #          secretKeyRef:
+  #            name: trueppm-db
+  #            key: url
+  #        REDIS_URL:
+  #          secretKeyRef:
+  #            name: trueppm-cache
+  #            key: url
+  #
+  #   2. A plain URL string. The chart moves it into the chart-owned connection
+  #      Secret and injects it by secretKeyRef, so it still never reaches a
+  #      Deployment manifest — but it does pass through Helm, so it lands in
+  #      whatever holds it (a values file, `--set` in your shell history, the
+  #      Helm release Secret):
+  #        DATABASE_URL: "postgres://user:pass@db.example.com:5432/trueppm?sslmode=require"
+  #
+  # An external DATABASE_URL must carry sslmode=require — settings.prod refuses
+  # to boot on a plaintext external database. The chart cannot verify that for
+  # form 1 (it never sees the value), so with an external Secret the check is
+  # the app's alone, at boot.
   #
   # SECRET_KEY, ALLOWED_HOSTS, and INTEGRATION_ENCRYPTION_KEY must be set via a
   # Kubernetes Secret — do NOT store them here in plaintext. Create a Secret and
@@ -634,9 +663,11 @@ dashboards:
 # Prometheus Operator (kube-prometheus-stack) installed — on a cluster without
 # those CRDs the apply is rejected. Enable it alongside the operator to ship the
 # async/outbox alerts (beat staleness 503, outbox depth/age rising, dead-letter).
-# Thresholds are tunable below. The beat-staleness and dead-letter rules read
-# Blackbox-Exporter probe series of /api/v1/health/beat/ and the dead-letter gauge;
-# see docs → Administration → Observability for the probe wiring.
+# Thresholds are tunable below. The beat-staleness rule reads a Blackbox-Exporter
+# probe series of /api/v1/health/beat/, and the dead-letter rule reads the
+# `trueppm_task_dead_letter_parked` gauge — which is Prometheus text exposition on
+# /api/v1/health/dead-letter/, NOT an OTLP metric, so it needs its own scrape job;
+# see docs → Administration → Observability for both wirings.
 alerts:
   enabled: false
   # Extra labels stamped on the PrometheusRule (e.g. `release: kube-prometheus-stack`

@@ -42,7 +42,7 @@ spec:
           emptyDir: {}
       initContainers:
         - name: migrate
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.image.repository }}:{{ include "trueppm.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["python", "manage.py", "migrate", "--noinput"]
           securityContext:
@@ -63,7 +63,7 @@ spec:
             - name: tmp
               mountPath: /tmp
         - name: bootstrap
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.image.repository }}:{{ include "trueppm.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["python", "manage.py", "create_admin"]
           securityContext:
@@ -89,7 +89,7 @@ spec:
               mountPath: /tmp
       containers:
         - name: api
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.image.repository }}:{{ include "trueppm.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}

@@ -53,7 +53,12 @@ spec:
             summary: "TruePPM outbox oldest row is aging ({{ "{{" }} $labels.trueppm_outbox_name {{ "}}" }})"
             description: "The oldest not-done row in the {{ "{{" }} $labels.trueppm_outbox_name {{ "}}" }} outbox is older than {{ .Values.alerts.thresholds.outboxOldestAgeSeconds | default 900 }}s — the async drain has likely stalled."
         - alert: TruePPMDeadLetterPresent
-          expr: sum(trueppm_deadletter_parked) > {{ .Values.alerts.thresholds.deadLetter | default 0 }}
+          # trueppm_task_dead_letter_parked is NOT an OTLP metric — it is served as
+          # Prometheus text exposition by /api/v1/health/dead-letter/, so it needs its
+          # own scrape job against that endpoint. The name is pinned by
+          # `_DEAD_LETTER_METRIC` in apps/observability/views.py and kept in sync with
+          # this expr by scripts/check-helm-metric-names.py (#2805).
+          expr: sum(trueppm_task_dead_letter_parked) > {{ .Values.alerts.thresholds.deadLetter | default 0 }}
           for: {{ .Values.alerts.thresholds.deadLetterFor | default "5m" | quote }}
           labels:
             severity: warning
