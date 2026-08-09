@@ -146,3 +146,33 @@ Note that a republish rebuilds the image from the tagged source rather than
 restoring the original bytes, so the digest changes. Anything pinned to the old
 digest — a Cosign signature or an SBOM attestation on the GHCR copy — refers to
 an image that no longer exists and must be re-signed by the same publish job.
+
+**A republish can fail permanently, not just flakily.** `api:publish` runs a
+Trivy HIGH/CRITICAL scan before pushing. Rebuilding an old tag re-resolves that
+tag's own dependency pins, and a CVE disclosed *after* the tag was cut can fall
+outside a pin ceiling the tag can never move past (e.g. `cryptography<49`
+excluding a fix that landed in `49.0.0`). When that happens, retrying the
+publish job reproduces the identical failure forever — it is the gate working
+correctly, not an infra flake. Before assuming step 3 will eventually succeed,
+check whether the failure is a vulnerability-scan gate; if so, the only fixes
+are a genuine backport (branch off the tag, bump the one pin, cut a new patch
+tag via `/release`) or formally accepting the gap. `v0.3.0-alpha.3`'s `api`
+image hit exactly this (#2822): decided to accept the gap for that tag
+specifically rather than backport, since it is superseded by the upcoming 0.4
+line anyway.
+
+### Known accepted gaps
+
+`registry:release-images` supports `ACCEPTED_GAPS`, a space-separated list of
+exact `<image>:<tag>` pairs to report as `SKIP` instead of failing the job.
+It is empty by default — every entry is opt-in, set in the CI job's
+`variables:` block with a comment naming the decision issue, never silently
+defaulted in the script itself. Current entries:
+
+| Image:tag | Reason | Issue |
+|---|---|---|
+| `api:v0.3.0-alpha.3` | Trivy HIGH CVEs disclosed after the tag was cut fall outside the tag's `cryptography<49` pin ceiling; rebuilding can never pass the scan. Accepted rather than backported — superseded by `v0.4.0-alpha.1`. | #2822 |
+
+An entry matches one exact tag, so it does not widen if a new release tag is
+cut — remove it once the tag it names is no longer the newest resolvable `v*`
+tag (the check stops reading it either way, but a stale line reads as noise).

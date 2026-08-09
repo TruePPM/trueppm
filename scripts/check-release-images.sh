@@ -29,6 +29,15 @@
 #                       was actually wrong here is *what we conclude*, and a
 #                       gate observed only on a healthy registry is
 #                       indistinguishable from one that always passes.
+# ACCEPTED_GAPS         space-separated "<image>:<tag>" pairs to report as
+#                       SKIP instead of MISSING. Empty by default — this gate
+#                       exists to fail on absence, so silence is opt-in only,
+#                       set per-entry by the CI job with a comment naming the
+#                       decision issue, never defaulted here. Each entry must
+#                       be a documented, permanent, single-tag exception (e.g.
+#                       an old pre-release image a CVE gate keeps a rebuild
+#                       from ever reproducing, #2822) — not a way to quiet the
+#                       gate for an image that is expected to come back.
 #
 # Usage:
 #   scripts/check-release-images.sh [tag]
@@ -46,6 +55,7 @@ set -euo pipefail
 REGISTRY_IMAGE="${CI_REGISTRY_IMAGE:-}"
 RELEASE_IMAGES="${RELEASE_IMAGES:-api web}"
 RELEASE_IMAGE_PROBE="${RELEASE_IMAGE_PROBE:-}"
+ACCEPTED_GAPS="${ACCEPTED_GAPS:-}"
 
 # Resolve the newest release tag. `--sort=-v:refname` orders by version rather
 # than lexically, so v0.10.0 sorts above v0.9.0. Pre-release tags (v0.3.0-alpha.3)
@@ -53,6 +63,18 @@ RELEASE_IMAGE_PROBE="${RELEASE_IMAGE_PROBE:-}"
 # want: once v0.3.0 exists, it is the thing operators are told to pull.
 resolve_latest_release_tag() {
   git tag --list 'v*' --sort=-v:refname 2>/dev/null | head -n 1
+}
+
+# Exact "<image>:<tag>" match against ACCEPTED_GAPS — no globbing, so an
+# accepted gap can never widen to cover an image or tag nobody reviewed.
+is_accepted_gap() {
+  local image="$1" tag="$2" entry
+  for entry in $ACCEPTED_GAPS; do
+    if [ "$entry" = "${image}:${tag}" ]; then
+      return 0
+    fi
+  done
+  return 1
 }
 
 # Default probe: ask the registry for the manifest. Requires a prior
@@ -88,7 +110,9 @@ main() {
   local image ref
   for image in $RELEASE_IMAGES; do
     ref="${REGISTRY_IMAGE}/${image}:${tag}"
-    if probe_image "$ref"; then
+    if is_accepted_gap "$image" "$tag"; then
+      echo "  SKIP    $ref (accepted gap, see ACCEPTED_GAPS)"
+    elif probe_image "$ref"; then
       echo "  OK      $ref"
     else
       echo "  MISSING $ref"

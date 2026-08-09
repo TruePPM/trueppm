@@ -154,6 +154,48 @@ check "exits 0 when the narrowed image set is fully present" \
 check "does not probe images outside RELEASE_IMAGES" \
   "$(grep -q "/web:" <<<"$OUT" && echo 1 || echo 0)"
 
+# --- ACCEPTED_GAPS is opt-in and exact-match only ---------------------------
+# Defaults to empty so every case above stays exactly as strict as before
+# ACCEPTED_GAPS existed; this block proves the escape hatch itself, isolated.
+
+echo "check-release-images: ACCEPTED_GAPS skips only the named image:tag pair"
+present  # registry serves nothing — api is skipped, web must still fail
+set +e
+OUT="$(
+  CI_REGISTRY_IMAGE="registry.example.com/trueppm/trueppm" \
+  RELEASE_IMAGE_PROBE="$TMP/probe.sh" \
+  PRESENT_FILE="$TMP/present" \
+  ACCEPTED_GAPS="api:v0.3.0-alpha.3" \
+  bash "$GATE" "v0.3.0-alpha.3" 2>&1
+)"
+RC=$?
+set -e
+check "still exits 1 — the accepted gap does not mask the other missing image" \
+  "$([[ $RC -eq 1 ]] && echo 0 || echo 1)"
+check "reports the accepted image as SKIP, not MISSING" \
+  "$(grep -q "SKIP    $API_TAG" <<<"$OUT" && echo 0 || echo 1)"
+check "does not list the accepted image among the failure's missing refs" \
+  "$(grep -q "MISSING $API_TAG" <<<"$OUT" && echo 1 || echo 0)"
+check "still lists the non-accepted missing image" \
+  "$(grep -q "MISSING $WEB_TAG" <<<"$OUT" && echo 0 || echo 1)"
+
+echo "check-release-images: ACCEPTED_GAPS does not match a different tag"
+present  # registry serves nothing
+set +e
+OUT="$(
+  CI_REGISTRY_IMAGE="registry.example.com/trueppm/trueppm" \
+  RELEASE_IMAGE_PROBE="$TMP/probe.sh" \
+  PRESENT_FILE="$TMP/present" \
+  ACCEPTED_GAPS="api:v0.3.0-alpha.3" \
+  bash "$GATE" "v0.9.9" 2>&1
+)"
+RC=$?
+set -e
+check "exits 1 — an entry for one tag never covers another" \
+  "$([[ $RC -eq 1 ]] && echo 0 || echo 1)"
+check "reports the api image at the other tag as MISSING, not SKIP" \
+  "$(grep -q "MISSING registry.example.com/trueppm/trueppm/api:v0.9.9" <<<"$OUT" && echo 0 || echo 1)"
+
 echo
 if [[ "$fail" -gt 0 ]]; then
   echo "check-release-images.test.sh: $pass passed, $fail FAILED"

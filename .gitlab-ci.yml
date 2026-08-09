@@ -4987,6 +4987,16 @@ registry:release-images:
     # shallow fetch of a single branch ref carries no tags at all — which the
     # script reports as exit 2 (invocation error), not a missing image.
     GIT_DEPTH: "0"
+    # v0.3.0-alpha.3's api image cannot be restored: rebuilding it re-resolves
+    # cryptography>=48.0.1,<49, which now carries two HIGH CVEs disclosed
+    # after the tag was cut, and the tag's own pin ceiling makes the fix
+    # unreachable from that ref. Decision (#2822): accept the permanent gap
+    # for this one pre-0.4 tag rather than backport — v0.4.0-alpha.1, cut
+    # once the beta-readiness batch lands, is the release operators should be
+    # pointed to. Remove this entry once v0.3.0-alpha.3 is no longer the
+    # latest resolvable v* tag (it self-obsoletes then, but the line goes
+    # stale rather than wrong).
+    ACCEPTED_GAPS: "api:v0.3.0-alpha.3"
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule" && $REGISTRY_NIGHTLY == "true"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
