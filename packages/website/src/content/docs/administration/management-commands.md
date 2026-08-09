@@ -71,7 +71,7 @@ automatically.
 | `--project <name>` | Demo project to share (default: `Platform Migration`) |
 | `--token <token>` | Pin a fixed raw token for a stable, reprintable **schedule** URL (falls back to the `TRUEPPM_DEMO_SHARE_TOKEN` env var). Omit to mint a random token once |
 | `--token-board <token>` | Pin a fixed raw token for a **board** URL (falls back to `TRUEPPM_DEMO_SHARE_TOKEN_BOARD`). Omit and no board link is minted |
-| `--base-url <url>` | Public base URL of the demo host (falls back to `TRUEPPM_DEMO_BASE_URL`, else `https://try.trueppm.com`) |
+| `--base-url <url>` | Public base URL of the demo host (falls back to `TRUEPPM_DEMO_BASE_URL`, else `http://localhost`) |
 
 A schedule link is always minted. A **board** link is minted only when you supply a
 board token, so an existing invocation that passes only the schedule token keeps its
@@ -80,6 +80,14 @@ globally unique, so one token cannot back both links, and reusing a token alread
 bound to the other kind is refused rather than silently reusing the wrong row.
 There is no generated-token mode for the board link — a board link is only worth
 having if its URL is stable.
+
+The base URL only decides what host the *printed* URL names; it does not affect
+the link itself. It defaults to `http://localhost` — correct for the local
+[demo compose stack](/getting-started/try-it/), which publishes there — so set
+`TRUEPPM_DEMO_BASE_URL` (or `--base-url`) whenever you serve the demo on a public
+origin, or the logs will advertise a loopback address to your visitors. The Helm
+demo path requires `demo.baseUrl` and fails its render if it is empty, so it
+never falls back.
 
 With a pinned token the command is **idempotent and reprintable** — it upserts a
 link whose hash matches the token and prints the same stable URL on every run, so
