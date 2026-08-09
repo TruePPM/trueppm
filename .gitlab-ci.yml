@@ -67,7 +67,7 @@ variables:
   # packages/web/package.json ("@playwright/test"), and
   # packages/website/package.json ("playwright") — both exact pins, no carets —
   # then regenerate the lockfiles. Enforced by web:playwright-pins (#2797).
-  PLAYWRIGHT_BASE_TAG: "v1.58.2-noble"
+  PLAYWRIGHT_BASE_TAG: "v1.62.1-noble"
 
 # ---------------------------------------------------------------------------
 # retry() — surgical command-level retry for flaky network steps (#1212).

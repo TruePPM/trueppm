@@ -126,3 +126,11 @@ pre-push`) binds the four independent pins to the image tag and rejects a caret;
 `scripts/check-mermaid-rendered.sh` (jobs `website:build` and `pages`) asserts
 every fence reaches `dist/` as a rendered `<svg>` and that the build log carries
 no `[ERROR]` lines.
+
+The `v1.58.2-noble` named in the Decision above is the version current when this
+ADR was written, and it has since moved (#2800 took it to `v1.62.1-noble`). Do
+not treat that string as live, and do not update it on every bump — an ADR
+records a decision at a point in time, and re-editing it per release is how the
+original "matching the devDependency" claim came to be trusted in the first
+place. `PLAYWRIGHT_BASE_TAG` in `.gitlab-ci.yml` is the single live value, and
+`check-playwright-pins.sh` is what proves the other three agree with it.
