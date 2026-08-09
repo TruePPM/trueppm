@@ -389,6 +389,13 @@ settings.prod's #1550 boot guard would otherwise crash-loop a default
 when the network layer already isolates that plaintext hop, NOT to train operators
 to disable the check by hand.
 
+Scope: this clears the #1550 DB-encryption guard ONLY. settings.prod has four
+other import-time guards — SECRET_KEY, ALLOWED_HOSTS, the attachment-storage
+choice, and INTEGRATION_ENCRYPTION_KEY — that no chart default can satisfy,
+because their values are the operator's secrets. An install that supplies no
+app-env source still crash-loops in the migrate init container; NOTES.txt says so
+at install time.
+
 Why it fails closed everywhere else:
   - External DB (postgresql.enabled=false): emits nothing, so the operator's
     DATABASE_URL must still carry sslmode=require — the #1550 guard stays live.
@@ -569,6 +576,82 @@ plaintext into a Deployment manifest.
     secretKeyRef:
       name: {{ include "trueppm.urlSecretName" . }}
       key: TRUEPPM_VALKEY_SENTINEL_PASSWORD
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+Boot-guard preflight for NOTES.txt (#2812).
+
+settings.prod enforces four values at IMPORT time (packages/api/src/trueppm_api/
+settings/prod.py): ALLOWED_HOSTS, SECRET_KEY, an attachment-storage choice, and
+INTEGRATION_ENCRYPTION_KEY. gunicorn/uvicorn workers never run `manage.py check`,
+so a missing value is not a warning — it raises at settings import and crash-loops
+the pod, and because the migrate/bootstrap init containers import the same settings
+the failure lands there first, before any app log an operator would think to read.
+
+The chart cannot supply these (they are the operator's secrets) and cannot fail the
+render on them either: an `envFrom` Secret's keys are invisible at render time, so
+a hard render guard would block the correct configuration. The check is therefore
+deliberately narrow — warn only when NO app-env source is configured at all:
+`envFrom` is empty AND the key is absent from `.Values.env`. That is exactly the
+shape every documented minimal install had, and it is unambiguously broken. A
+notice that fires on a correctly-configured release is a notice nobody reads.
+
+Factored out of NOTES.txt so the logic is reachable by `helm template` — see the
+note at the top of NOTES.txt for why `helm install --dry-run` cannot test it.
+*/}}
+{{- define "trueppm.bootGuardNotice" -}}
+{{- $env := .Values.env | default dict }}
+{{- $hasEnvFrom := gt (len (.Values.envFrom | default list)) 0 }}
+{{- $missing := list }}
+{{- if not $hasEnvFrom }}
+  {{- if not (hasKey $env "SECRET_KEY") }}{{ $missing = append $missing "SECRET_KEY" }}{{ end }}
+  {{- if not (hasKey $env "ALLOWED_HOSTS") }}{{ $missing = append $missing "ALLOWED_HOSTS" }}{{ end }}
+  {{- if not (hasKey $env "INTEGRATION_ENCRYPTION_KEY") }}{{ $missing = append $missing "INTEGRATION_ENCRYPTION_KEY" }}{{ end }}
+  {{- if and (not (hasKey $env "TRUEPPM_DEFAULT_FILE_STORAGE")) (not (hasKey $env "TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE")) }}
+    {{- $missing = append $missing "TRUEPPM_DEFAULT_FILE_STORAGE (+ TRUEPPM_S3_BUCKET_NAME) or TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true" }}
+  {{- end }}
+{{- end }}
+{{- if $missing }}
+##############################################################################
+##  THIS RELEASE WILL NOT START — required application secrets are missing  ##
+##############################################################################
+
+No app-env source is configured: `envFrom` is empty and none of the required keys
+are set under `env`. settings.prod validates these at import time, so the pod will
+crash-loop in the `migrate` init container before the API ever runs.
+
+Missing:
+{{- range $missing }}
+  - {{ . }}
+{{- end }}
+
+Fix it without reinstalling — create the Secret, then `helm upgrade` to reference it:
+
+  kubectl create secret generic trueppm-env -n {{ .Release.Namespace }} \
+    --from-literal=SECRET_KEY="$(openssl rand -base64 48)" \
+    --from-literal=ALLOWED_HOSTS=trueppm.example.com \
+    --from-literal=INTEGRATION_ENCRYPTION_KEY="$(python3 -c \
+      'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')" \
+    --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true
+
+  helm upgrade {{ .Release.Name }} <chart> -n {{ .Release.Namespace }} \
+    --reuse-values --set 'envFrom[0].secretRef.name=trueppm-env'
+
+TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true keeps task attachments on the pod's
+ephemeral disk — they are LOST on restart. For durable attachments set
+TRUEPPM_DEFAULT_FILE_STORAGE=storages.backends.s3.S3Storage and
+TRUEPPM_S3_BUCKET_NAME instead.
+
+Full reference: packages/helm/README.md, "Required secrets (prod refuses to boot
+without them)".
+{{- else }}
+Required application secrets: configured{{ if $hasEnvFrom }} via envFrom{{ end }}.
+{{- if not .Values.postgresql.enabled }}
+Using an external database — settings.prod refuses to boot unless env.DATABASE_URL
+carries `sslmode=require` (or TRUEPPM_ALLOW_UNENCRYPTED_DB=true when TLS is
+enforced at the network layer).
 {{- end }}
 {{- end }}
 {{- end -}}

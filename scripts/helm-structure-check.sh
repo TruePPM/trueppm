@@ -470,6 +470,63 @@ if helm template trueppm "$CHART" --set image.tag=latest \
   fail "env.DATABASE_URL alongside the bundled postgresql rendered successfully — it must fail, because the chart-built URL always wins and the operator's value would be silently ignored (#2810)"
 fi
 
+# 10. NOTES.txt must warn when NO app-env source is configured (#2812).
+#    settings.prod validates SECRET_KEY, ALLOWED_HOSTS, INTEGRATION_ENCRYPTION_KEY
+#    and the attachment-storage choice at import time, so an install that supplies
+#    none of them crash-loops in the migrate init container — and every documented
+#    minimal install was exactly that shape. The chart cannot fail the render on it
+#    (an `envFrom` Secret's keys are invisible at render time), so the post-install
+#    notes are the only place the operator is told. Assert BOTH directions: the
+#    warning fires on a bare install and stays silent once a source is configured,
+#    because a notice that always prints is a notice nobody reads.
+#    `helm install --dry-run` is the natural way to exercise NOTES.txt and does not
+#    work here: even with --dry-run=client it needs a reachable cluster, and this
+#    job has none. So the notice lives in the trueppm.bootGuardNotice helper and is
+#    rendered through a throwaway probe template copied into a scratch chart — the
+#    shipped logic, reachable offline. NOTES.txt itself is asserted to include it.
+grep -q 'trueppm.bootGuardNotice' "$CHART/templates/NOTES.txt" \
+  || fail "NOTES.txt does not include the trueppm.bootGuardNotice helper — the boot-guard warning below is rendered but never shown to the operator (#2812)"
+
+PROBE_DIR="$(mktemp -d)"
+# A second `trap ... EXIT` REPLACES the first rather than adding to it, so this one
+# has to clean up section 5's temp dir too or that directory leaks on every run.
+trap 'rm -rf "$np_split" "$url_split" "$map_split" "$PROBE_DIR"' EXIT
+cp -R "$CHART" "$PROBE_DIR/chart"
+cat > "$PROBE_DIR/chart/templates/zz-boot-guard-probe.yaml" <<'PROBE'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: boot-guard-notice-probe
+data:
+  notice: |
+{{ include "trueppm.bootGuardNotice" . | indent 4 }}
+PROBE
+
+notes() {
+  helm template trueppm "$PROBE_DIR/chart" --set image.tag=latest "$@" \
+    --show-only templates/zz-boot-guard-probe.yaml 2>&1
+}
+
+bare_notes="$(notes)"
+for key in SECRET_KEY ALLOWED_HOSTS INTEGRATION_ENCRYPTION_KEY TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE; do
+  echo "$bare_notes" | grep -q "$key" \
+    || fail "NOTES.txt on a bare install does not name '$key' — the operator is not told why the pod will crash-loop (#2812)"
+done
+echo "$bare_notes" | grep -q "WILL NOT START" \
+  || fail "NOTES.txt on a bare install does not warn that the release will not start (#2812)"
+
+# Configured via envFrom (the README quickstart) — the warning must go away.
+if notes --set "envFrom[0].secretRef.name=${ENV_SECRET}" | grep -q "WILL NOT START"; then
+  fail "NOTES.txt still warns about missing secrets when envFrom is configured (#2812)"
+fi
+
+# Configured via env.* (the values-file idiom) — same.
+if notes --set env.SECRET_KEY=x --set env.ALLOWED_HOSTS=h \
+     --set env.INTEGRATION_ENCRYPTION_KEY=k \
+     --set env.TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true | grep -q "WILL NOT START"; then
+  fail "NOTES.txt still warns about missing secrets when every key is set under env.* (#2812)"
+fi
+
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
 echo "  - operator envFrom secret reaches migrate, bootstrap, and api"
@@ -482,3 +539,4 @@ echo "  - all $tag_checked first-party images default to '$EXPECTED_TAG' (a tag 
 
 echo "  - connection URLs: no plaintext credential in any workload; $url_env_checked env bindings are secretKeyRef-only and unduplicated"
 echo "  - the external-Secret (secretKeyRef map) form passes through to op-db/op-cache and is not copied into the chart Secret"
+echo "  - NOTES.txt names all four boot-guard keys on a bare install, and stays quiet once they are configured"
