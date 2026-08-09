@@ -197,6 +197,11 @@ workflow:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/helm/**/*
+        # helm:template's deploy-contract assertions live in this script, so a
+        # change to it must re-run the job that executes it — the same reason
+        # helm:netpol lists helm-netpol-drill.sh. Without this, an MR that only
+        # edits the checks runs none of them.
+        - scripts/helm-structure-check.sh
         - .gitlab-ci.yml
 
 .rules-mcp: &rules-mcp

@@ -250,6 +250,158 @@ if worker_cmd --set celeryWorker.concurrency=0 >/dev/null 2>&1; then
   fail "celeryWorker.concurrency=0 rendered successfully — it must fail the render, because Celery treats --concurrency=0 as cpu_count() (#2571)"
 fi
 
+# 8. Connection URLs are ALWAYS injected by reference, never rendered in
+#    plaintext into a workload — on BOTH supported shapes (#2810).
+#
+#    The chart's headline security claim is "no plaintext credentials in any
+#    Deployment", and on the managed-DB path it was false: `trueppm.appEnv`
+#    included the operator's `env.DATABASE_URL` verbatim AND the secretKeyRef, so
+#    the database password rendered into every api/worker/beat/init container.
+#    Kubernetes keeps the last duplicate, so the plaintext copy did not even take
+#    effect — it was pure leakage into `kubectl get deploy -o yaml`, into GitOps
+#    repos, and into every cluster-state backup. The documented alternative (a
+#    secretKeyRef map) was worse: it stringified into the connection Secret as
+#    `map[secretKeyRef:map[…]]` and crash-looped the app on an unparseable URL.
+#
+#    Nothing caught either one, because both render valid YAML that kubeconform
+#    accepts. So assert the property directly, on a rendered manifest, for both
+#    shapes.
+PG_SENTINEL="s3ntinelpgpassword"
+RD_SENTINEL="s3ntinelrdpassword"
+
+# The managed-datastore posture, with the URLs given as plaintext STRINGS — the
+# shape the README's production quickstart tells operators to use. backup is
+# enabled so the CronJob (a separate DATABASE_URL consumer) is in the render.
+url_render() {
+  helm template trueppm "$CHART" -f "$CHART/values-prod.yaml" \
+    --set image.tag=latest --set backup.enabled=true "$@"
+}
+STRING_RENDER="$(url_render \
+  --set "env.DATABASE_URL=postgres://u:${PG_SENTINEL}@db.example.com:5432/trueppm?sslmode=require" \
+  --set "env.REDIS_URL=redis://:${RD_SENTINEL}@cache.example.com:6379")"
+
+url_split="$(mktemp -d)"
+trap 'rm -rf "$np_split" "$url_split"' EXIT
+# shellcheck disable=SC2016  # $index is a yq expression variable, not a shell one
+echo "$STRING_RENDER" | (cd "$url_split" && yq -s '"doc_" + $index' >/dev/null)
+
+# 8a. The credential appears in the chart-owned Secret and NOWHERE else. Scoped by
+#     kind rather than by grepping the whole render, because the Secret is the one
+#     object that is SUPPOSED to hold it.
+#     Written as `if grep; then fail; fi` rather than `grep && fail`: under
+#     `set -e` the latter leaves the loop's exit status equal to the LAST grep's,
+#     so a clean render (every grep failing to match, which is the passing case)
+#     would abort the script instead of falling through to the checks below.
+url_secret_hits=0
+for f in "$url_split"/doc_*.yml; do
+  kind="$(yq '.kind' "$f")"
+  name="$(yq '.metadata.name' "$f")"
+  if [ "$kind" = "Secret" ]; then
+    if grep -q "$PG_SENTINEL" "$f"; then url_secret_hits=$((url_secret_hits + 1)); fi
+    continue
+  fi
+  if grep -q "$PG_SENTINEL" "$f"; then
+    fail "$kind/$name renders the DATABASE_URL password in plaintext — the chart guarantees no plaintext credential in any workload manifest (#2810)"
+  fi
+  if grep -q "$RD_SENTINEL" "$f"; then
+    fail "$kind/$name renders the REDIS_URL password in plaintext — the chart guarantees no plaintext credential in any workload manifest (#2810)"
+  fi
+done
+[ "$url_secret_hits" -eq 1 ] \
+  || fail "the operator's DATABASE_URL was found in $url_secret_hits Secret(s), expected exactly 1 (the chart-owned connection Secret) — it must be stored once and injected by reference"
+
+# 8b. Structural form of the same invariant, over every workload in a render:
+#     a DATABASE_URL / REDIS_URL env entry must use valueFrom, never a literal
+#     `value:`, and must appear EXACTLY ONCE per container. A duplicate is how the
+#     leak hid in plain sight — the effective value looked correct because
+#     Kubernetes keeps the last entry, so the wrong copy was invisible at runtime
+#     while sitting in the manifest.
+url_env_checked=0
+assert_url_env_bindings() {
+  local shape="$1" dir="$2" f kind name containers literal var n
+  for f in "$dir"/doc_*.yml; do
+    kind="$(yq '.kind' "$f")"
+    case "$kind" in Deployment|StatefulSet|Job|CronJob|Pod) ;; *) continue ;; esac
+    name="$(yq '.metadata.name' "$f")"
+    # CronJob nests its pod template one level deeper than Deployment/Job.
+    containers='[(.spec.jobTemplate.spec.template.spec, .spec.template.spec, .spec) | select(. != null) | (.containers // []) + (.initContainers // []) | .[]]'
+
+    literal="$(yq "${containers} | map(.env // [] | map(select((.name == \"DATABASE_URL\" or .name == \"REDIS_URL\") and has(\"value\"))) | .[].name) | flatten | join(\",\")" "$f")"
+    [ -z "$literal" ] \
+      || fail "[$shape] $kind/$name has a literal \`value:\` for $literal — connection URLs must always be injected via valueFrom.secretKeyRef (#2810)"
+
+    for var in DATABASE_URL REDIS_URL; do
+      n="$(yq "${containers} | map(.env // [] | map(select(.name == \"$var\")) | length) | max // 0" "$f")"
+      [ "$n" -le 1 ] \
+        || fail "[$shape] $kind/$name declares $var $n times in one container — a duplicate env key silently masks whichever copy is wrong (#2810)"
+      if [ "$n" -eq 1 ]; then url_env_checked=$((url_env_checked + 1)); fi
+    done
+  done
+  return 0
+}
+assert_url_env_bindings "string form" "$url_split"
+
+# 8c. The documented external-Secret form: `env.DATABASE_URL` as a secretKeyRef
+#     MAP must pass through to the operator's own Secret, and the chart must not
+#     write a second copy of a credential it was only asked to point at.
+MAP_RENDER="$(url_render \
+  --set env.DATABASE_URL.secretKeyRef.name=op-db \
+  --set env.DATABASE_URL.secretKeyRef.key=url \
+  --set env.REDIS_URL.secretKeyRef.name=op-cache \
+  --set env.REDIS_URL.secretKeyRef.key=cache-url)"
+
+# The map form gets the same structural sweep: it is the shape most likely to end
+# up double-emitted, because the operator's own secretKeyRef looks correct on its
+# own and the duplicate is only visible next to the chart's.
+map_split="$(mktemp -d)"
+trap 'rm -rf "$np_split" "$url_split" "$map_split"' EXIT
+# shellcheck disable=SC2016  # $index is a yq expression variable, not a shell one
+echo "$MAP_RENDER" | (cd "$map_split" && yq -s '"doc_" + $index' >/dev/null)
+assert_url_env_bindings "secretKeyRef map form" "$map_split"
+
+[ "$url_env_checked" -gt 0 ] \
+  || fail "the connection-URL env check inspected no workloads — the render or the yq paths changed"
+
+# The failure this replaces rendered a stringified Go map into the Secret. It is
+# valid YAML, so only an explicit check catches it.
+if echo "$MAP_RENDER" | grep -q 'map\[secretKeyRef'; then
+  fail "the secretKeyRef map form stringified into the manifest as map[secretKeyRef:…] — the documented external-Secret form is broken (#2810)"
+fi
+
+# yq exits non-zero on unparseable YAML: proves the whole map-form render is a
+# manifest a cluster would accept, not just that helm produced output.
+echo "$MAP_RENDER" | yq -e 'select(.kind != null) | .kind' >/dev/null \
+  || fail "the secretKeyRef map form produced an unparseable manifest (#2810)"
+
+map_api_ref() {
+  echo "$MAP_RENDER" | yq "select(.kind == \"Deployment\" and .metadata.name == \"trueppm-api\") | .spec.template.spec.containers[0].env[] | select(.name == \"$1\") | .valueFrom.secretKeyRef | .name + \"/\" + .key"
+}
+[ "$(map_api_ref DATABASE_URL)" = "op-db/url" ] \
+  || fail "api does not read DATABASE_URL from the operator's Secret op-db/url (got '$(map_api_ref DATABASE_URL)') (#2810)"
+[ "$(map_api_ref REDIS_URL)" = "op-cache/cache-url" ] \
+  || fail "api does not read REDIS_URL from the operator's Secret op-cache/cache-url (got '$(map_api_ref REDIS_URL)') (#2810)"
+
+# The backup CronJob is the workload nobody watches until a restore, so assert it
+# resolves identically rather than trusting it to have been updated too.
+map_backup_ref="$(echo "$MAP_RENDER" | yq 'select(.kind == "CronJob") | [.spec.jobTemplate.spec.template.spec.initContainers // [], .spec.jobTemplate.spec.template.spec.containers] | flatten | .[].env[] | select(.name == "DATABASE_URL") | .valueFrom.secretKeyRef | .name + "/" + .key' | sort -u)"
+[ "$map_backup_ref" = "op-db/url" ] \
+  || fail "the backup CronJob does not read DATABASE_URL from the operator's Secret op-db/url (got '$map_backup_ref') (#2810)"
+
+map_secret_keys="$(echo "$MAP_RENDER" | yq 'select(.kind == "Secret" and (.metadata.name | test("-trueppm-connection$"))) | .stringData | keys | join(",")')"
+case ",$map_secret_keys," in
+  *,DATABASE_URL,*|*,REDIS_URL,*)
+    fail "the chart-owned connection Secret still carries a URL the operator supplied by reference (keys: $map_secret_keys) — it must not hold a second copy (#2810)" ;;
+esac
+
+# 8d. The contradictory config must FAIL the render rather than be ignored.
+#     With the bundled datastore on, the chart builds the URL from its own
+#     generated password; an operator's env.DATABASE_URL cannot win and used to be
+#     dropped in silence (while still leaking into the manifest).
+if helm template trueppm "$CHART" --set image.tag=latest \
+    --set 'env.DATABASE_URL=postgres://u:p@h:5432/d' >/dev/null 2>&1; then
+  fail "env.DATABASE_URL alongside the bundled postgresql rendered successfully — it must fail, because the chart-built URL always wins and the operator's value would be silently ignored (#2810)"
+fi
+
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
 echo "  - operator envFrom secret reaches migrate, bootstrap, and api"
@@ -258,3 +410,5 @@ echo "  - web nginx proxies to release-scoped trueppm-api (baked compose 'api' h
 echo "  - all $np_checked datastore-client bindings are covered by the NetworkPolicy allow-lists"
 echo "  - production nginx /admin/ fails closed (deny all + limit_req; allow precedes deny)"
 echo "  - celery worker pins --concurrency=$wc_n and honors concurrency/extraArgs overrides"
+echo "  - connection URLs: no plaintext credential in any workload; $url_env_checked env bindings are secretKeyRef-only and unduplicated"
+echo "  - the external-Secret (secretKeyRef map) form passes through to op-db/op-cache and is not copied into the chart Secret"

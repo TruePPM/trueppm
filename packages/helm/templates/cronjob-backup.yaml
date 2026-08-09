@@ -18,14 +18,11 @@ only ever print a note about the bucket instead of writing to it (#2611).
 */}}
 
 {{- define "trueppm.backup.dumpEnv" -}}
-# DATABASE_URL from the chart-owned connection Secret — the same single
-# credential source of truth the API and worker use, so the backup never
-# carries a second copy of the password.
-- name: DATABASE_URL
-  valueFrom:
-    secretKeyRef:
-      name: {{ include "trueppm.urlSecretName" . }}
-      key: DATABASE_URL
+# DATABASE_URL resolved by the shared helper — the same single credential source
+# of truth the API and worker use, so the backup never carries a second copy of
+# the password and never disagrees with them about where it lives (the chart-owned
+# connection Secret, or the operator's own Secret on the managed-DB path).
+{{ include "trueppm.databaseUrlEnv" . }}
 - name: OUTPUT_DIR
   value: {{ .Values.backup.outputDir | quote }}
 - name: KEEP_DAILY
