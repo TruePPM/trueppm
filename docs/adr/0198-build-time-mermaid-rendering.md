@@ -93,3 +93,36 @@ Supporting decisions:
 - The both-modes palette is a fixed constraint: new diagrams inherit it
   automatically; authors should not hand-set per-diagram colors that assume a
   single background.
+
+## Amendment — 2026-08-09 (#2797)
+
+Two claims in the text above were wrong, and their wrongness caused a 19-day
+docs outage. Recorded here rather than edited in place, because the original
+belief is what made the failure invisible.
+
+**"(pinned by digest)" is false, and was never true.** `website:build` and
+`pages` resolve the image through `$CI_REGISTRY_IMAGE/playwright-base:$PLAYWRIGHT_BASE_TAG`
+— our registry mirror, by *tag*. A mirror cannot carry the upstream digest, so
+there is nothing to pin. The tag is the only binding.
+
+**"ships a Chromium matching the `playwright` devDependency" was an assumption,
+not a mechanism.** Nothing enforced it. `packages/website` declared `^1.58.2`;
+an unrelated astro 6→7 upgrade regenerated the lockfile, the caret floated to
+1.61.1, and the image stayed at `v1.58.2-noble`. Playwright looks for browsers
+only under its own revision path, so the launch failed outright.
+
+**The consequence this ADR did not anticipate is the one that mattered.** A
+failed render is not a failed build. Starlight's content loader catches the
+error, logs `[ERROR] Failed to parse Markdown file`, drops the page's **entire
+body**, emits the HTML anyway, and `astro build` exits 0. The three pages with
+diagrams published as bare navigation chrome — 99 characters of body text, one
+`<h2>` instead of eleven — across green pipelines. Choosing build-time rendering
+means accepting that a renderer failure silently deletes content, so it must be
+paired with a post-build assertion; the decision itself stands.
+
+Now enforced, since prose in this file demonstrably cannot:
+`scripts/check-playwright-pins.sh` (job `web:playwright-pins`, and `make
+pre-push`) binds the four independent pins to the image tag and rejects a caret;
+`scripts/check-mermaid-rendered.sh` (jobs `website:build` and `pages`) asserts
+every fence reaches `dist/` as a rendered `<svg>` and that the build log carries
+no `[ERROR]` lines.

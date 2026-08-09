@@ -78,11 +78,18 @@ run_check() {
   expected="${base_tag#v}"; expected="${expected%%-*}"
 
   # The Dockerfile ARG default keeps a local `docker build` honest.
+  #
+  # Compare on the TAG only. The house convention for CI base images is to keep
+  # tag AND digest (`:v1.58.2-noble@sha256:…`) — Renovate runs with
+  # `pinDigests: true` for the #904 supply-chain reason — so a digest suffix here
+  # is a correct hardening change, not drift. Without this strip the gate would
+  # red-light that change, which is how a gate teaches people to disable it.
   arg_tag="$(sed -n 's|^ARG PLAYWRIGHT_BASE=mcr.microsoft.com/playwright:\(.*\)$|\1|p' "$root/$DOCKERFILE" | head -1)"
+  arg_tag="${arg_tag%%@*}"
   if [ -z "$arg_tag" ]; then
     _note "$DOCKERFILE: no 'ARG PLAYWRIGHT_BASE=mcr.microsoft.com/playwright:<tag>' line"
-  elif [ "$arg_tag" != "$base_tag" ]; then
-    _note "$DOCKERFILE ARG default is '$arg_tag', expected '$base_tag'"
+  elif [ "$arg_tag" != "${base_tag%%@*}" ]; then
+    _note "$DOCKERFILE ARG default is '$arg_tag', expected '${base_tag%%@*}'"
   fi
 
   check_pkg() {
@@ -206,7 +213,20 @@ self_test() {
     return 1
   fi
 
-  # Case 5: a pinned file that has moved must error, not silently pass.
+  # Case 5: a digest-pinned ARG (`:tag@sha256:…`, the house convention under
+  # Renovate `pinDigests`) is correct hardening and must NOT be reported as
+  # drift — a gate that fails on a security improvement gets disabled.
+  _fixture "v1.58.2-noble" "1.58.2" "1.58.2" "1.58.2" "1.58.2"
+  printf 'ARG PLAYWRIGHT_BASE=mcr.microsoft.com/playwright:v1.58.2-noble@sha256:abc123\n' \
+    > "$tmp/$DOCKERFILE"
+  status=0; run_check "$tmp" >/dev/null 2>&1 || status=$?
+  if [ "$status" -ne 0 ]; then
+    echo "SELF-TEST FAIL: a digest-pinned ARG default was reported as drift (exit $status)" >&2
+    return 1
+  fi
+
+  # Case 6: a pinned file that has moved must error, not silently pass.
+  _fixture "v1.58.2-noble" "1.58.2" "1.58.2" "1.58.2" "1.58.2"
   rm "$tmp/$SITE_LOCK"
   status=0; run_check "$tmp" >/dev/null 2>&1 || status=$?
   if [ "$status" -ne 2 ]; then
@@ -214,7 +234,7 @@ self_test() {
     return 1
   fi
 
-  echo "SELF-TEST OK: agreement passes; floated lockfile, stale pins after an image bump, a still-correct caret, and a missing file all caught."
+  echo "SELF-TEST OK: agreement and a digest-pinned ARG pass; floated lockfile, stale pins after an image bump, a still-correct caret, and a missing file all caught."
   return 0
 }
 

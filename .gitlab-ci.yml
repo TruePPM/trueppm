@@ -190,6 +190,9 @@ workflow:
       changes:
         - packages/website/**/*
         - .gitlab-ci.yml
+        # The docs-content gate these jobs run. Without it, an MR that edits
+        # only the gate never exercises the job that invokes it (#2797).
+        - scripts/check-mermaid-rendered.sh
 
 .rules-wasm: &rules-wasm
   rules:
@@ -1034,7 +1037,10 @@ ci:mirror-playwright-base:
   # the build's rules so the two are always co-present — guaranteeing the mirror
   # exists before the build resolves its FROM (no manual ordering, no race). A
   # Playwright bump touches integration.Dockerfile (bump the tag there, in the
-  # PLAYWRIGHT_BASE_TAG variable, and in the playwright configs together), which
+  # PLAYWRIGHT_BASE_TAG variable, and in the packages/web + packages/website
+  # package.json pins together — four places, enforced by web:playwright-pins;
+  # this note used to say "the playwright configs", which named a file carrying
+  # no version at all and omitted packages/website entirely, #2797), which
   # trips these rules and refreshes the mirror before the bumped consumers pull.
   # It is a fast no-op when the tag is already mirrored (`docker manifest
   # inspect` short-circuits before any MCR traffic); it only pulls from MCR when
@@ -3668,6 +3674,9 @@ website:build:
     # re-echo instead, so the job log is unchanged and the exit code is honest.
     - npm run build > ../../website-build.log 2>&1 || { cat ../../website-build.log; exit 1; }
     - cat ../../website-build.log
+    # Self-test first: this gate's failure mode is a GREEN build, so "it passed"
+    # is not evidence it can still fail. Needs no dist — it builds its own.
+    - bash ../../scripts/check-mermaid-rendered.sh --self-test
     - bash ../../scripts/check-mermaid-rendered.sh ../../website-build.log
   artifacts:
     paths:
@@ -3704,6 +3713,7 @@ pages:
     # Gate the COPY on it, so a blank page fails here instead of publishing.
     - npm run build > ../../website-build.log 2>&1 || { cat ../../website-build.log; exit 1; }
     - cat ../../website-build.log
+    - bash ../../scripts/check-mermaid-rendered.sh --self-test
     - bash ../../scripts/check-mermaid-rendered.sh ../../website-build.log
     # GitLab Pages serves from public/ at the repo root
     - mkdir -p ../../public

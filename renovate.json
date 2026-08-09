@@ -50,6 +50,13 @@
       "groupSlug": "npm-dev-minor-patch"
     },
     {
+      "description": "Playwright gets its own PR — a bump needs four coordinated edits, and grouping it would block every unrelated devDependency (#2797). Renovate's gitlabci manager only reads `image:` keys, so it cannot see the bare PLAYWRIGHT_BASE_TAG variable or the Dockerfile ARG; its PR will bump only the two package.json pins and web:playwright-pins will correctly fail it. Ungrouped, that red PR is a standing reminder to do the other two edits by hand, instead of holding a dozen unrelated updates hostage.",
+      "matchManagers": ["npm"],
+      "matchPackageNames": ["playwright", "playwright-core", "@playwright/test"],
+      "groupName": "playwright",
+      "groupSlug": "playwright"
+    },
+    {
       "description": "Group all npm production dependency updates",
       "matchManagers": ["npm"],
       "matchDepTypes": ["dependencies"],
