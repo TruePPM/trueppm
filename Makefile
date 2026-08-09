@@ -281,6 +281,15 @@ enterprise-boundary-check: ## Fail if OSS source imports from trueppm-enterprise
 	@# that is a licensing defect rather than a bug.
 	@bash scripts/check-enterprise-imports.sh
 
+playwright-pins-check: ## Fail if a Playwright npm pin drifts from the CI image tag (#2797)
+	@# A version mismatch means the browsers baked into the image are at a path
+	@# the npm package never looks in, so the launch fails outright. In web:e2e
+	@# that is loud; in website:build Astro swallows it, drops the whole page
+	@# body, and still exits 0 — three docs pages published blank for 19 days on
+	@# green pipelines. Four pins with no automatic relationship; parse + compare,
+	@# ~1s, no network.
+	@bash scripts/check-playwright-pins.sh
+
 helm-metric-names-check: ## Fail if the Helm chart's PromQL names a series the app never emits (#2805)
 	@# A PromQL name with no matching series is not an error anywhere in the
 	@# stack: the alert silently never fires and the panel is silently blank.
@@ -288,7 +297,7 @@ helm-metric-names-check: ## Fail if the Helm chart's PromQL names a series the a
 	@# publishes. Stdlib Python over two chart files, milliseconds.
 	@python3 scripts/check-helm-metric-names.py .
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check demo-readonly-check helm-metric-names-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check demo-readonly-check helm-metric-names-check playwright-pins-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/

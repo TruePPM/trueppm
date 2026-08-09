@@ -16,15 +16,27 @@
 #
 # Tagged `:noble` — the Playwright base ships Ubuntu 24.04 noble, which provides
 # Python 3.12. Both packages declare `requires-python = ">=3.11"` so 3.12 is in
-# range. The Playwright version is pinned in the default below AND in
-# packages/web/playwright configs AND in the PLAYWRIGHT_BASE_TAG CI variable;
-# bump all three together.
+# range.
+#
+# The Playwright version is pinned in FOUR places; bump them together:
+#   1. the ARG default below
+#   2. PLAYWRIGHT_BASE_TAG in .gitlab-ci.yml
+#   3. "@playwright/test" in packages/web/package.json      (exact, no caret)
+#   4. "playwright" in packages/website/package.json        (exact, no caret)
+# then regenerate both lockfiles with `npm install --package-lock-only`.
+#
+# This list said "all three" and omitted packages/website, which is how #2797
+# happened: an unrelated astro upgrade regenerated the website lockfile, its
+# caret floated 1.58.2 → 1.61.1, and the docs build lost every Mermaid diagram —
+# taking the whole page body with it — for 19 days on green pipelines. The list
+# is now enforced by scripts/check-playwright-pins.sh (job: web:playwright-pins)
+# rather than by this comment, because a comment cannot fail a pipeline.
 #
 # PLAYWRIGHT_BASE is overridable so CI can build FROM our registry mirror of the
 # Playwright image ($CI_REGISTRY_IMAGE/playwright-base) instead of pulling it
 # anonymously from mcr.microsoft.com, which throttles cold pulls from CI runner
 # IPs (401/429). The default keeps local `docker build` working out of the box.
-ARG PLAYWRIGHT_BASE=mcr.microsoft.com/playwright:v1.58.2-noble
+ARG PLAYWRIGHT_BASE=mcr.microsoft.com/playwright:v1.62.1-noble
 FROM ${PLAYWRIGHT_BASE}
 
 # Python 3 + build deps for psycopg's C extension. curl is used by the

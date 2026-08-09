@@ -58,8 +58,16 @@ variables:
   # Playwright base-image tag, mirrored into our registry by
   # ci:mirror-playwright-base and consumed by ci:build-integration-image so MR
   # pipelines never pull anonymously from mcr.microsoft.com (which throttles CI
-  # runner IPs). Bump alongside the Dockerfile ARG default and packages/web.
-  PLAYWRIGHT_BASE_TAG: "v1.58.2-noble"
+  # runner IPs).
+  #
+  # This tag is the REFERENCE for every Playwright version in the tree: the image
+  # bakes browsers into a version-stamped path, and an npm package only looks in
+  # the path matching its own revision. Bump alongside all three of
+  # .gitlab/ci-images/integration.Dockerfile (ARG default),
+  # packages/web/package.json ("@playwright/test"), and
+  # packages/website/package.json ("playwright") — both exact pins, no carets —
+  # then regenerate the lockfiles. Enforced by web:playwright-pins (#2797).
+  PLAYWRIGHT_BASE_TAG: "v1.62.1-noble"
 
 # ---------------------------------------------------------------------------
 # retry() — surgical command-level retry for flaky network steps (#1212).
@@ -190,6 +198,9 @@ workflow:
       changes:
         - packages/website/**/*
         - .gitlab-ci.yml
+        # The docs-content gate these jobs run. Without it, an MR that edits
+        # only the gate never exercises the job that invokes it (#2797).
+        - scripts/check-mermaid-rendered.sh
 
 .rules-wasm: &rules-wasm
   rules:
@@ -1050,7 +1061,10 @@ ci:mirror-playwright-base:
   # the build's rules so the two are always co-present — guaranteeing the mirror
   # exists before the build resolves its FROM (no manual ordering, no race). A
   # Playwright bump touches integration.Dockerfile (bump the tag there, in the
-  # PLAYWRIGHT_BASE_TAG variable, and in the playwright configs together), which
+  # PLAYWRIGHT_BASE_TAG variable, and in the packages/web + packages/website
+  # package.json pins together — four places, enforced by web:playwright-pins;
+  # this note used to say "the playwright configs", which named a file carrying
+  # no version at all and omitted packages/website entirely, #2797), which
   # trips these rules and refreshes the mirror before the bumped consumers pull.
   # It is a fast no-op when the tag is already mirrored (`docker manifest
   # inspect` short-circuits before any MCR traffic); it only pulls from MCR when
@@ -1267,6 +1281,37 @@ demo:readonly-posture:
     # one with a typo in its pattern.
     - bash scripts/check-demo-readonly.sh --self-test
     - bash scripts/check-demo-readonly.sh
+
+web:playwright-pins:
+  extends: .fast-job
+  # The Playwright npm version must equal the tag of the image the Playwright
+  # jobs run in (#2797).
+  #
+  # The mcr.microsoft.com/playwright image bakes browsers into a version-stamped
+  # path, and a Playwright package only looks in the path matching its own
+  # revision — so a mismatch is a hard "Executable doesn't exist" on launch, not
+  # a soft degrade. In web:e2e that is loud. In website:build it is SILENT:
+  # Astro's content loader catches the throw, drops the whole page body, emits
+  # the HTML anyway, and exits 0. Three docs pages published as bare navigation
+  # chrome for 19 days across green pipelines.
+  #
+  # The version lives in four places with no automatic relationship — the CI
+  # variable, the integration Dockerfile ARG, and two package.json/lock pairs —
+  # so nothing but this job ties them together. It runs in the lint stage rather
+  # than gating website:build because the answer is static: it needs no install,
+  # no build, and no network. python3 for the lockfile JSON; ~1s.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash grep sed python3
+  script:
+    # Self-test first: this gate's failure mode produces a GREEN pipeline, so
+    # "it passed" is not evidence that it can still fail.
+    - bash scripts/check-playwright-pins.sh --self-test
+    - bash scripts/check-playwright-pins.sh
 
 helm:metric-names:
   extends: .fast-job
@@ -3680,21 +3725,38 @@ sso:integration:
 
 website:build:
   # Verify the Starlight documentation site builds cleanly.
-  # Catches broken links, invalid frontmatter, and build errors early.
+  #
+  # A zero exit from `astro build` is NOT that verification, and this job's
+  # comment used to claim otherwise (#2797). Starlight's content loader catches a
+  # per-page render error, logs `[ERROR] Failed to parse Markdown file …`, drops
+  # that page's ENTIRE body, emits the index.html anyway, and the build still
+  # exits 0. Three pages shipped as bare navigation chrome — 99 characters of
+  # body, one <h2> instead of eleven — for 19 days, every pipeline green. The
+  # post-build check is what turns that into a red job.
   extends: .website
   # `npm run build` renders ```mermaid fences to static inline SVG at build time
   # via rehype-mermaid, which drives a headless Chromium through Playwright
   # (ADR-0198). The shared `.website` base image is node:22-alpine (musl libc),
   # on which Playwright's bundled Chromium — a glibc binary — cannot launch, so
   # the build would fail there. Override to the same glibc Playwright image the
-  # web:e2e suite already uses; Chromium is pre-installed at $PLAYWRIGHT_BROWSERS_PATH
-  # and its version matches the `playwright` devDependency (v1.58.2). The client
-  # payload stays JS-free — the browser runs only on this build machine.
+  # web:e2e suite already uses; Chromium is pre-installed at $PLAYWRIGHT_BROWSERS_PATH.
+  # Its version must equal the `playwright` pin in packages/website/package.json —
+  # asserted by web:playwright-pins, NOT by a comment: this file previously
+  # asserted the match in prose and was silently wrong for 19 days.
+  # The client payload stays JS-free — the browser runs only on this build machine.
   image: $CI_REGISTRY_IMAGE/playwright-base:$PLAYWRIGHT_BASE_TAG
   stage: test
   <<: *rules-website
   script:
-    - npm run build
+    # Capture rather than pipe: `npm run build | tee` reports tee's status, so a
+    # hard failure would read as exit 0 without `set -o pipefail`. Redirect and
+    # re-echo instead, so the job log is unchanged and the exit code is honest.
+    - npm run build > ../../website-build.log 2>&1 || { cat ../../website-build.log; exit 1; }
+    - cat ../../website-build.log
+    # Self-test first: this gate's failure mode is a GREEN build, so "it passed"
+    # is not evidence it can still fail. Needs no dist — it builds its own.
+    - bash ../../scripts/check-mermaid-rendered.sh --self-test
+    - bash ../../scripts/check-mermaid-rendered.sh ../../website-build.log
   artifacts:
     paths:
       - packages/website/dist/

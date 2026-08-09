@@ -18,7 +18,7 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
-    "playwright": "^1.58.2",
+    "playwright": "1.62.1",
     "rehype-mermaid": "^3.0.0",
     "typescript": "~5.6.0"
   },
@@ -30,6 +30,7 @@
     "fast-uri": "^3.1.5"
   },
   "//": "fast-uri (transitive via ajv) is pinned to ^3.1.5 via overrides to clear GHSA-7p8r-x3mc-p8w7 (backslash host-confusion / SSRF-filter bypass).",
+  "//playwright": "EXACT pin, no caret (#2797). rehype-mermaid drives this Playwright to render ```mermaid fences to inline SVG at build time (ADR-0198), and website:build/pages run inside the mcr.microsoft.com/playwright image pinned by PLAYWRIGHT_BASE_TAG in .gitlab-ci.yml — which ships browsers for that version ONLY. A caret let `npm ci` float to 1.61.1 against a v1.58.2-noble image, so the browser launch failed, Astro dropped the whole page body, and the build still exited 0: three docs pages published blank for 19 days. Must equal PLAYWRIGHT_BASE_TAG; scripts/check-playwright-pins.sh enforces it.",
   "engines": {
     "node": ">=22.12.0"
   }
