@@ -1022,13 +1022,15 @@ ci:mirror-playwright-base:
   #
   # This is the ONLY job that pulls from MCR. Every Playwright-based job —
   # ci:build-integration-image's FROM, and the web:e2e / web:e2e:report /
-  # web:e2e:coverage / website:build / pages jobs' `image:` — consumes the mirror
+  # web:e2e:coverage / website:build jobs' `image:` — consumes the mirror
   # tag ($CI_REGISTRY_IMAGE/playwright-base:$PLAYWRIGHT_BASE_TAG) instead of
   # mcr.microsoft.com. The DAG (needs:) consumers declare an optional need on
   # this job so they wait for it when it is in the pipeline (a bump) and pull the
-  # existing tag when it is not (steady state); the stage-ordered consumers
-  # (website:build, pages) run in later stages so the lint-stage mirror precedes
-  # them without an explicit need.
+  # existing tag when it is not (steady state); the stage-ordered consumer
+  # (website:build) runs in a later stage so the lint-stage mirror precedes it
+  # without an explicit need. `pages` is deliberately NOT in this list: it
+  # publishes website:build's artifact and runs no build, so it needs no
+  # Chromium and stays on the plain node:22-alpine base (#2799).
   #
   # It is an idempotent gate that ci:build-integration-image `needs:`, sharing
   # the build's rules so the two are always co-present — guaranteeing the mirror
@@ -3660,27 +3662,47 @@ website:build:
 # DEPLOY — GitLab Pages for documentation.
 #
 # - Release tags (v*): auto-deploy (docs always ship with a release)
-# - Main branch: manual deploy for "next" (unreleased) docs
+# - Main branch: auto-deploy for "next" (unreleased) docs
 # ---------------------------------------------------------------------------
 
 pages:
   # GitLab Pages requires the job name to be "pages" and artifacts in public/.
   extends: .website
-  # Rebuilds the site, so it renders Mermaid and needs the same glibc Playwright
-  # image as website:build (see the note there — Alpine's musl can't run Chromium).
-  image: $CI_REGISTRY_IMAGE/playwright-base:$PLAYWRIGHT_BASE_TAG
   stage: deploy
+  # Publishes website:build's `packages/website/dist/` artifact instead of
+  # rebuilding it. The site is already built once per pipeline, and the second
+  # `npm run build` that used to live here paid for a full Mermaid render — plus
+  # a ~2 GB glibc Playwright image pull — to reproduce bytes that already
+  # existed. With no build left in this job, the image override and the npm
+  # install go with it: copying files needs neither Chromium nor node_modules,
+  # and dropping the install takes a registry round trip off the deploy path.
+  # `website:build` extends *rules-website, which matches main and v* tags
+  # unconditionally, so this `needs:` is satisfied on both deploy paths.
   needs: ["website:build"]
+  cache: []
+  before_script:
+    - cd packages/website
   rules:
     # Auto-deploy on release tags
     - if: '$CI_COMMIT_TAG =~ /^v\d+/'
       when: on_success
-    # Manual deploy from main (for "next" docs)
+    # Auto-deploy "next" docs from main (#2799). This was `when: manual`, which
+    # read like a safety gate and was not one: a click is not a review, nobody
+    # diffs a rendered site before clicking, and it fired 3 times across 500
+    # jobs — so main and the live site drifted arbitrarily far apart, and every
+    # docs bug report had to start by establishing which one it was even looking
+    # at. The one run that did fire published three fully blank pages (#2797).
+    # Version currency is gated at the content layer instead, where it is
+    # actually checkable: `documentedFor` front matter plus :::note[Ships in
+    # 0.X] callouts, enforced by scripts/check-version-status.sh. Those callouts
+    # are written and removed on a release cadence, so a site this stale worked
+    # against the very control meant to keep it honest.
+    #
+    # No `allow_failure` here: a failed docs deploy must red main rather than
+    # pass silently.
     - if: '$CI_COMMIT_BRANCH == "main"'
-      when: manual
-      allow_failure: true
+      when: on_success
   script:
-    - npm run build
     # GitLab Pages serves from public/ at the repo root
     - mkdir -p ../../public
     - cp -r dist/* ../../public/
