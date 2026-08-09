@@ -17,16 +17,25 @@
 # This is the hosted-demo counterpart of the production Helm/compose path — it is
 # NOT a production deployment. Front it with TLS at your load balancer / ingress.
 #
+# ── The printed share URL ─────────────────────────────────────────────────────
+# The share link is the ONLY way in — there are no accounts — so the URL logged
+# by `demo-seed` has to be one you can actually open. It therefore defaults to
+# `http://localhost`, which is where nginx below publishes the stack and which
+# ALLOWED_HOSTS already accepts. Override TRUEPPM_DEMO_BASE_URL only when you are
+# serving this stack on a public origin, so the printed URL names that host:
+#
+#     TRUEPPM_DEMO_BASE_URL=https://demo.example.com \
+#       docker compose -f docker-compose.demo.yml up
+#
 # ── Making the demo URL stable ────────────────────────────────────────────────
 # The raw share token is stored only as a hash, so a randomly-minted link cannot
 # be reprinted after the first run. To get a stable, reprintable deep-link that
 # survives restarts, pin a token before first `up`:
 #
 #     TRUEPPM_DEMO_SHARE_TOKEN=your-fixed-token \
-#     TRUEPPM_DEMO_BASE_URL=https://try.trueppm.com \
 #       docker compose -f docker-compose.demo.yml up
 #
-# The public URL is then:  https://try.trueppm.com/share/schedule/your-fixed-token
+# The URL is then:  http://localhost/share/schedule/your-fixed-token
 #
 # ── Security note ─────────────────────────────────────────────────────────────
 # The SECRET_KEY / INTEGRATION_ENCRYPTION_KEY below are BAKED DEMO VALUES, safe
@@ -120,7 +129,9 @@ services:
              python manage.py create_demo_share_link"
     environment:
       <<: *api-env
-      TRUEPPM_DEMO_BASE_URL: ${TRUEPPM_DEMO_BASE_URL:-https://try.trueppm.com}
+      # Defaults to the host this stack actually publishes on, so the zero-config
+      # `up` prints an openable URL. A hosted deployment sets its own origin.
+      TRUEPPM_DEMO_BASE_URL: ${TRUEPPM_DEMO_BASE_URL:-http://localhost}
       # Optional: pin a fixed token for a stable, reprintable share URL.
       TRUEPPM_DEMO_SHARE_TOKEN: ${TRUEPPM_DEMO_SHARE_TOKEN:-}
     depends_on:

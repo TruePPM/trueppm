@@ -78,13 +78,23 @@ restarts, pin a token before the first `up`:
 
 ```bash
 TRUEPPM_DEMO_SHARE_TOKEN=your-fixed-token \
-TRUEPPM_DEMO_BASE_URL=https://try.trueppm.com \
   docker compose -f docker-compose.demo.yml up
 ```
 
-The public URL is then `https://try.trueppm.com/share/schedule/your-fixed-token`.
-The [`create_demo_share_link`](/administration/management-commands/#create_demo_share_link)
+The URL is then `http://localhost/share/schedule/your-fixed-token`. The
+[`create_demo_share_link`](/administration/management-commands/#create_demo_share_link)
 command that mints it is idempotent on the pinned token.
+
+If you are serving this stack on a public origin rather than your own machine,
+set `TRUEPPM_DEMO_BASE_URL` too so the logged URL names that host — it defaults
+to `http://localhost`, which is right for a local trial and wrong for a hosted
+one:
+
+```bash
+TRUEPPM_DEMO_SHARE_TOKEN=your-fixed-token \
+TRUEPPM_DEMO_BASE_URL=https://demo.example.com \
+  docker compose -f docker-compose.demo.yml up
+```
 
 ## Inspect before you import
 
