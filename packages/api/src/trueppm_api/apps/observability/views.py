@@ -55,18 +55,27 @@ def _escape_label_value(value: str) -> str:
 @extend_schema(
     summary="Readiness probe (dependency-aware)",
     description=(
-        'Returns **200** with `{"status": "ok", "checks": {...}}` only when every '
-        "hard dependency answers a live round-trip: the primary database (a bounded "
-        "`SELECT 1`), the Valkey/Redis cache (a write-then-read), and the migration "
-        "state (no unapplied or in-flight migrations for this image). Returns **503** "
-        "with the failing dependency marked `fail` otherwise. The migration check "
-        "keeps a rolling upgrade from routing traffic to a pod whose schema and code "
-        "disagree. Unlike the shallow "
-        "`/api/v1/health/` liveness probe — which always returns 200 while the process "
-        "is up — this endpoint gates a pod out of the Service's endpoints when its "
-        "database or cache is dead. No authentication required, so kubelet can call it; "
-        "the body carries only coarse `ok`/`fail` per dependency and never any "
-        "connection string, host, or driver error text."
+        'Returns **200** with `{"status": "ok", "checks": {...}, "migration_state": '
+        '"in_sync"}` only when every hard dependency answers a live round-trip: the '
+        "primary database (a bounded `SELECT 1`), the Valkey/Redis cache (a "
+        "write-then-read), and the migration state. Returns **503** with the failing "
+        "dependency marked `fail` otherwise. The migration check keeps a rolling "
+        "upgrade from routing traffic to a pod whose schema and code disagree, in "
+        "both directions: `migration_state` is `behind` when this image ships "
+        "migrations the database has not applied (mid-upgrade), `ahead` when the "
+        "database records migrations this image does not ship (the image was rolled "
+        "back without restoring the schema), `unknown` when the check itself failed, "
+        "and `in_sync` otherwise. `ahead` is not a data-compatibility verdict — a "
+        "downgrade across a destructive migration still needs a restore from backup — "
+        "and an operator performing a classified additive-only rollback can re-open "
+        "readiness for it with `TRUEPPM_READYZ_ALLOW_DB_AHEAD` without hiding the "
+        "reported state. "
+        "Unlike the shallow `/api/v1/health/` liveness probe — which always returns "
+        "200 while the process is up — this endpoint gates a pod out of the Service's "
+        "endpoints when its database or cache is dead. No authentication required, so "
+        "kubelet can call it; the body carries only coarse `ok`/`fail` per dependency "
+        "plus the coarse migration-state enum, and never any connection string, host, "
+        "migration name, or driver error text."
     ),
     responses={
         200: inline_serializer(
@@ -74,6 +83,7 @@ def _escape_label_value(value: str) -> str:
             {
                 "status": serializers.CharField(),
                 "checks": serializers.DictField(child=serializers.CharField()),
+                "migration_state": serializers.CharField(),
             },
         ),
         503: OpenApiResponse(description="One or more dependencies are unavailable."),
@@ -89,12 +99,21 @@ def readyz(_request: Request) -> Response:
     Deliberately unauthenticated: kubelet issues probe requests with no
     credentials, and the dependency-aware ``/health/system/`` endpoint is
     ``IsAdminUser``-gated so it cannot serve as a probe (#1894). Safe to expose
-    because the response is coarse — ``ok``/``fail`` per dependency with no
-    infrastructure detail — and the probes themselves are read-only round-trips.
+    because the response is coarse — ``ok``/``fail`` per dependency plus a
+    four-value ``migration_state`` enum, with no infrastructure detail — and the
+    probes themselves are read-only round-trips.
+
+    ``migration_state`` is additive (#2806): ``checks`` keeps its existing keys and
+    ``ok``/``fail`` values, so a probe or scraper reading only ``status``/``checks``
+    is unaffected.
     """
-    ready, checks = get_readiness()
+    ready, checks, migration_state = get_readiness()
     return Response(
-        {"status": "ok" if ready else "fail", "checks": checks},
+        {
+            "status": "ok" if ready else "fail",
+            "checks": checks,
+            "migration_state": migration_state,
+        },
         status=status.HTTP_200_OK if ready else status.HTTP_503_SERVICE_UNAVAILABLE,
     )
 

@@ -1687,6 +1687,17 @@ TRUEPPM_BATCH_OPERATION_RETENTION_DAYS: int | None = env.int(
 # WARNING log. Default 120 s = four missed 30 s beats.
 TRUEPPM_BEAT_STALE_SECONDS: int = env.int("TRUEPPM_BEAT_STALE_SECONDS", default=120)
 
+# Escape hatch for a *deliberate* image-only rollback (#2806). /api/v1/readyz
+# reports not-ready when the database records migrations this image does not ship
+# ("migration_state": "ahead"), because the probe cannot tell an additive upgrade
+# — whose schema the old code can usually still serve — from a destructive one it
+# certainly cannot. Fail-closed is the right default, but it also blocks the
+# additive-only rollback the upgrade runbook recommends, so an operator who has
+# read the release's migrations and knows they are additive can set this to true
+# to let the older image serve. It never suppresses the "behind" gate: a
+# mid-upgrade pod is still kept out of the Service.
+TRUEPPM_READYZ_ALLOW_DB_AHEAD: bool = env.bool("TRUEPPM_READYZ_ALLOW_DB_AHEAD", default=False)
+
 # Freshness/dedup window in hours for mobile sync upload batches (ADR-0082). A
 # duplicate upload with the same client_batch_id within this window replays the
 # stored response; past it, the id is allowed to re-run and the nightly
