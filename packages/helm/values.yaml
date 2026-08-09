@@ -16,7 +16,9 @@ image:
   # tag and pullPolicy below with the API so a release deploys a matching pair.
   webRepository: registry.gitlab.com/trueppm/trueppm/web
   # Empty by default so the chart pins itself to its own appVersion
-  # (reproducible rollbacks). Override per-deploy with a concrete tag.
+  # (reproducible rollbacks). Empty resolves to `v<appVersion>` — the v-prefixed
+  # form is the only tag the release pipeline pushes to this registry, so a bare
+  # version would never pull (#2811). Override per-deploy with a concrete tag.
   tag: ""
   pullPolicy: IfNotPresent
 

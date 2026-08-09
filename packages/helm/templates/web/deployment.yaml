@@ -39,7 +39,7 @@ spec:
             name: {{ include "trueppm.fullname" . }}-web-nginx
       containers:
         - name: web
-          image: "{{ .Values.image.webRepository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.image.webRepository }}:{{ include "trueppm.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}

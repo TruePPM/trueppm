@@ -164,7 +164,7 @@ git push origin main v0.1.1
 | `docs/api/openapi.json` | Regenerated via `scripts/export-openapi.sh` so the committed schema matches the tag |
 | `CHANGELOG.md` | `[Unreleased]` → `[x.y.z] - YYYY-MM-DD` (stable only) |
 
-The Helm chart version in `packages/helm/Chart.yaml` is kept in sync manually — bump `version` and `appVersion` to match before running `release.sh`.
+The Helm chart version in `packages/helm/Chart.yaml` is kept in sync manually — bump `version` and `appVersion` to match before running `release.sh`. Keep `appVersion` as the **bare** semver (`0.4.0`): the chart's default image tag is derived as `v<appVersion>` to match the v-prefixed tags `api:publish` / `web:publish` push, so a v-prefixed `appVersion` would render `vv0.4.0`. `scripts/helm-structure-check.sh` asserts both halves.
 
 ## Troubleshooting
 

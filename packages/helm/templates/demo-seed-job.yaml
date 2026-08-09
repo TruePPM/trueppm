@@ -68,7 +68,7 @@ spec:
           emptyDir: {}
       initContainers:
         - name: migrate
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.image.repository }}:{{ include "trueppm.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["python", "manage.py", "migrate", "--noinput"]
           securityContext:
@@ -89,7 +89,7 @@ spec:
               mountPath: /tmp
       containers:
         - name: demo-seed
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.image.repository }}:{{ include "trueppm.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           # seed_demo_project runs WITHOUT --with-personas: no persona logins, no
           # password path. The zero-accounts / no-auth-write-path posture is what
