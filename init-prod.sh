@@ -33,6 +33,37 @@ set +a
 TLS_MODE="${TLS_MODE:-letsencrypt}"
 
 # ---------------------------------------------------------------------------
+# .env helpers
+# ---------------------------------------------------------------------------
+# Rewrite through a temp file and `cat` it back rather than `mv`, so .env keeps
+# the 0600 permissions the operator set on it instead of inheriting mktemp's.
+upsert_env_var() {
+  local key="$1" value="$2" tmp
+  tmp="$(mktemp)"
+  grep -v -E "^[[:space:]]*${key}=" .env > "${tmp}" || true
+  printf '%s=%s\n' "${key}" "${value}" >> "${tmp}"
+  cat "${tmp}" > .env
+  rm -f "${tmp}"
+  # Export too: this script sourced .env before rewriting it, so without this
+  # the stale value in our own environment would take precedence over the file
+  # for the `docker compose up` below.
+  export "${key}=${value}"
+}
+
+# Drop KEY from .env only when it currently holds exactly EXPECTED, so an
+# operator who set the variable to something of their own is never clobbered.
+remove_env_var_if() {
+  local key="$1" expected="$2" tmp current
+  current="$(grep -E "^[[:space:]]*${key}=" .env | tail -n 1 | cut -d= -f2- || true)"
+  [[ "${current}" == "${expected}" ]] || return 0
+  tmp="$(mktemp)"
+  grep -v -E "^[[:space:]]*${key}=" .env > "${tmp}" || true
+  cat "${tmp}" > .env
+  rm -f "${tmp}"
+  unset "${key}"
+}
+
+# ---------------------------------------------------------------------------
 # Validate TLS_MODE
 # ---------------------------------------------------------------------------
 case "${TLS_MODE}" in
@@ -67,22 +98,13 @@ if [[ "${TLS_MODE}" == "letsencrypt" ]]; then
 
   echo "Obtaining Let's Encrypt certificate for ${DOMAIN} ..."
 
-  # Start a temporary nginx to serve the ACME challenge.
-  docker compose -f docker-compose.prod.yml run --rm --no-deps \
-    -p 80:80 \
-    nginx sh -c "
-      mkdir -p /var/www/certbot
-      nginx -g 'daemon off;' &
-      sleep 3
-      certbot certonly \
-        --webroot --webroot-path=/var/www/certbot \
-        --email '${CERTBOT_EMAIL}' \
-        --agree-tos --no-eff-email \
-        -d '${DOMAIN}'
-      kill %1
-    " 2>/dev/null || true
-
-  # Proper certonly via standalone (simpler on first run).
+  # First issuance runs standalone, in its own container with :80 published.
+  # It cannot use the webroot: the nginx TLS config references certificate
+  # files that do not exist yet, so nginx cannot start to serve the ACME
+  # challenge until after this succeeds. RENEWALS do go through the webroot —
+  # see the certbot service in docker-compose.prod.yml, which overrides the
+  # authenticator recorded here with `-a webroot`, because by then nginx owns
+  # :80 and a standalone renewal could never bind it.
   docker run --rm \
     -p 80:80 \
     -v "$(pwd)/certbot/conf:/etc/letsencrypt" \
@@ -105,6 +127,28 @@ elif [[ "${TLS_MODE}" == "selfsigned" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Activate (or deactivate) the certbot renewal profile
+# ---------------------------------------------------------------------------
+# The certbot service in docker-compose.prod.yml sits behind
+# `profiles: ["letsencrypt"]`, so it only exists while that profile is active.
+# The choice is persisted into .env rather than passed as `--profile` on the
+# `up` below, because docker compose reads COMPOSE_PROFILES from .env on EVERY
+# invocation — including the plain `docker compose ... up -d` an operator runs
+# later and the systemd unit in the deployment docs, neither of which passes a
+# flag. A --profile here would have activated renewal for this one command and
+# nothing else, which is how the certificate silently expired at ~90 days
+# (#2804).
+if [[ "${TLS_MODE}" == "letsencrypt" ]]; then
+  upsert_env_var COMPOSE_PROFILES letsencrypt
+  echo "Enabled COMPOSE_PROFILES=letsencrypt in .env (certbot renewal service)."
+else
+  # Switching away from Let's Encrypt: drop the profile so a certbot with no
+  # lineage to renew is not left running. Only removed when it still holds the
+  # exact value this script wrote.
+  remove_env_var_if COMPOSE_PROFILES letsencrypt
+fi
+
+# ---------------------------------------------------------------------------
 # Start the production stack
 # ---------------------------------------------------------------------------
 echo "Starting TruePPM production stack ..."
@@ -114,3 +158,9 @@ echo ""
 echo "  Stack started. Retrieve the initial admin password with:"
 echo "    docker compose -f docker-compose.prod.yml exec api cat /run/trueppm/admin_password"
 echo ""
+if [[ "${TLS_MODE}" == "letsencrypt" ]]; then
+  echo "  Certificate renewal runs in the 'certbot' service (webroot, every 12h);"
+  echo "  nginx reloads every 6h to pick up a renewed certificate. Verify with:"
+  echo "    docker compose -f docker-compose.prod.yml ps certbot"
+  echo ""
+fi
