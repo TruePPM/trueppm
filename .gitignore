@@ -95,3 +95,10 @@ packages/api/seed-imports/
 # SonarCloud / sonar-scanner scratch output
 .scannerwork/
 .sonar/
+
+# Schemathesis API-fuzz crash cache — one JSON record per crash fingerprint,
+# written by the `fuzz` extra (packages/api/pyproject.toml) on every local run.
+# Generated, machine-local, and large (289 files in one observed run); each
+# record embeds the request headers and curl repro for its target. Never
+# committed. See #2794.
+.schemathesis/
