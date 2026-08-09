@@ -38,3 +38,30 @@ export const FIRST_BETA = "0.4";
 
 {/* Currently UNDERWAY (next release in flight, not yet shipped). */}
 export const UNDERWAY = "0.4";
+
+{/* The next artifact to tag on the UNDERWAY line.
+
+    0.4 is the first beta, but it does not arrive as one: the line stabilizes
+    through one or more alpha pre-releases first, and only the later beta tags
+    constitute the beta milestone. Reaching the beta is a quality judgment, not
+    a date, so the alpha count is deliberately open-ended.
+
+        v0.4.0-alpha.1 … alpha.N   stabilizing toward the beta  <- we are here
+        v0.4.0-beta.1  … beta.N    the first beta (the 0.4 milestone)
+        v0.4.0-rc.N                optional, if a candidate is cut
+        v0.4.0
+
+    Why alpha and not a "candidate for the beta" spelling: `0.4.0-beta-rc.1` is
+    INVALID under PEP 440 (`packaging` raises InvalidVersion), so it would break
+    the trueppm-scheduler publish outright — and under SemVer 2.0.0 it sorts
+    AFTER `0.4.0-beta.1`, inverting the meaning, because the `rc` rung of the
+    alpha -> beta -> rc ladder sits after beta by construction. `alpha.N` sorts
+    first in both schemes and matches the v0.1/v0.2/v0.3 tag history.
+
+    Keep the `v` prefix: the registry cleanup policy retains `^v.*$|^latest$`,
+    so a bare `0.4.0` tag is reaped by the daily sweep (#2803, #2811). */}
+export const UNDERWAY_PRERELEASE_TAG = "0.4.0-alpha.1";
+
+{/* PyPI companion tag for the same artifact, in PEP 440 normalized form
+    (matching scheduler-v0.3.0a1 … a3). */}
+export const UNDERWAY_SCHEDULER_TAG = "scheduler-v0.4.0a1";
