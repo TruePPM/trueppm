@@ -43,6 +43,13 @@ interface UseDragCpmOptions {
    * same key does not double-cancel both the keyboard mode and a ghost drag.
    */
   keyboardModeRef?: RefObject<boolean>;
+  /**
+   * The project's data date (`Project.status_date`), or null to resolve it to
+   * today the way the server does (ADR-0132 §1, issue #2813). Floors the
+   * previewed start of the dragged task, so a drop into the past previews the
+   * date the server will actually commit.
+   */
+  statusDate?: string | null;
 }
 
 export function useDragCpm({
@@ -51,6 +58,7 @@ export function useDragCpm({
   links,
   ariaLiveRef,
   keyboardModeRef,
+  statusDate,
 }: UseDragCpmOptions): void {
   const workerRef = useRef<Worker | null>(null);
   const seqRef = useRef(0);
@@ -66,6 +74,10 @@ export function useDragCpm({
   const linksRef = useRef(links);
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
   useEffect(() => { linksRef.current = links; }, [links]);
+  // Same treatment: read inside the drag-start callback, and a status-date
+  // change must not resubscribe the engine listeners mid-drag.
+  const statusDateRef = useRef(statusDate ?? null);
+  useEffect(() => { statusDateRef.current = statusDate ?? null; }, [statusDate]);
 
   // Spawn/terminate worker with the engine lifecycle
   useEffect(() => {
@@ -119,6 +131,7 @@ export function useDragCpm({
         type: 'DRAG_START',
         draggedTaskId: ev.id,
         subgraph,
+        statusDate: statusDateRef.current,
       };
       worker.postMessage(startMsg);
     });

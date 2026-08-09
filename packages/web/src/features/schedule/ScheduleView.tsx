@@ -1167,6 +1167,18 @@ export function ScheduleView() {
     }
   }, [engine, scheduleScales, visibleTasks]);
 
+  // Fetched ahead of the two preview hooks below because both need the
+  // project's data date. Project start date also feeds the project-start floor
+  // prompt (#868) — a reschedule before that date opens snap/move/cancel
+  // instead of silently clamping.
+  const { data: projectDetail } = useProject(projectIdUndef);
+  // ADR-0132's data date (#2813): the floor the server applies to every
+  // not-yet-finished task on the next CPM run. Resolved HERE rather than inside
+  // the preview engine — the `?? today` half of the server's
+  // `resolve_cpm_status_date()` — so the engine stays a pure function of its
+  // inputs and its unit tests do not decay against the wall clock.
+  const statusDate = projectDetail?.status_date ?? new Date().toISOString().slice(0, 10);
+
   // Drag CPM preview — wires engine events + Web Worker (issue #19). Uses the
   // full dependency graph (`allLinks`), NOT the paint-filtered `links`: the live
   // CPM ripple is a function of the real schedule, so hiding dependency lines or
@@ -1177,6 +1189,7 @@ export function ScheduleView() {
     links: allLinks,
     ariaLiveRef,
     keyboardModeRef,
+    statusDate,
   });
 
   // Keyboard rescheduling — Enter/Arrow/d/Escape (issue #34)
@@ -1197,15 +1210,13 @@ export function ScheduleView() {
     ariaLiveRef,
     ariaAssertiveRef,
     keyboardModeRef,
+    statusDate,
     onOpenDatePopover: handleOpenDatePopover,
   });
 
   // Pull-to-commit gate (ADR-0067 / #492). Drag-end and resize-end no longer
   // fire the PATCH directly: the bar visually moves via engine.updateTask, and
   // the popover holds the change until Confirm. Cancel/Esc/click-outside revert.
-  // Project start date feeds the project-start floor prompt (#868) — a reschedule
-  // before this date opens snap/move/cancel instead of silently clamping.
-  const { data: projectDetail } = useProject(projectIdUndef);
   // `projectStartDate` feeds the floor prompt; `effectiveFloorDate` is the first
   // working day >= start_date (#884), falling back to the literal start when the
   // detail field is absent (older payloads / list cache).
