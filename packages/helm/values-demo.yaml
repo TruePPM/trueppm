@@ -80,9 +80,16 @@ env:
 #
 #   kubectl create secret generic trueppm-env \
 #     --from-literal=SECRET_KEY="$(openssl rand -base64 48)" \
-#     --from-literal=INTEGRATION_ENCRYPTION_KEY="$(python -c \
+#     --from-literal=INTEGRATION_ENCRYPTION_KEY="$(python3 -c \
 #       'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')" \
-#     --from-literal=ALLOWED_HOSTS="demo.example.com"
+#     --from-literal=ALLOWED_HOSTS="demo.example.com" \
+#     --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true
+#
+# All four keys are required: settings.prod validates them at import time, so a
+# Secret missing any one of them crash-loops the migrate init container (#2812).
+# Local attachment storage is the right call for demo mode — the data is seeded
+# and disposable — but it is ephemeral, so never carry this key into an install
+# holding real uploads.
 #
 # then leave the envFrom reference below in place.
 # ─────────────────────────────────────────────────────────────────────────────

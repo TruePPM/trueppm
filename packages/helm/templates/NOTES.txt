@@ -1,0 +1,103 @@
+{{/*
+Post-install notes, and — the reason this file exists (#2812) — a boot-guard
+preflight.
+
+settings.prod enforces four values at IMPORT time (packages/api/src/trueppm_api/
+settings/prod.py): ALLOWED_HOSTS, SECRET_KEY, an attachment-storage choice, and
+INTEGRATION_ENCRYPTION_KEY. gunicorn/uvicorn workers never run `manage.py check`,
+so a missing value is not a warning — it raises at settings import and crash-loops
+the pod, and because the migrate/bootstrap init containers import the same settings
+the failure lands there first, before any app log an operator would think to read.
+
+The chart cannot supply these (they are the operator's secrets) and cannot fail the
+render on them either: `envFrom` may reference a Secret whose keys are invisible at
+render time, so a hard render guard would block the correct configuration. The
+honest check is therefore narrow — warn only when NO app-env source is configured
+at all: `envFrom` is empty AND the key is absent from `.Values.env`. That is
+exactly the shape every documented minimal install had, and it is unambiguously
+broken.
+*/}}
+TruePPM {{ .Chart.AppVersion }} — release {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
+
+{{- $env := .Values.env | default dict }}
+{{- $hasEnvFrom := gt (len (.Values.envFrom | default list)) 0 }}
+{{- $missing := list }}
+{{- if not $hasEnvFrom }}
+  {{- if not (hasKey $env "SECRET_KEY") }}{{ $missing = append $missing "SECRET_KEY" }}{{ end }}
+  {{- if not (hasKey $env "ALLOWED_HOSTS") }}{{ $missing = append $missing "ALLOWED_HOSTS" }}{{ end }}
+  {{- if not (hasKey $env "INTEGRATION_ENCRYPTION_KEY") }}{{ $missing = append $missing "INTEGRATION_ENCRYPTION_KEY" }}{{ end }}
+  {{- if and (not (hasKey $env "TRUEPPM_DEFAULT_FILE_STORAGE")) (not (hasKey $env "TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE")) }}
+    {{- $missing = append $missing "TRUEPPM_DEFAULT_FILE_STORAGE (+ TRUEPPM_S3_BUCKET_NAME) or TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true" }}
+  {{- end }}
+{{- end }}
+
+{{- if $missing }}
+
+##############################################################################
+##  THIS RELEASE WILL NOT START — required application secrets are missing  ##
+##############################################################################
+
+No app-env source is configured: `envFrom` is empty and none of the required keys
+are set under `env`. settings.prod validates these at import time, so the pod will
+crash-loop in the `migrate` init container before the API ever runs.
+
+Missing:
+{{- range $missing }}
+  - {{ . }}
+{{- end }}
+
+Fix it without reinstalling — create the Secret, then `helm upgrade` to reference it:
+
+  kubectl create secret generic trueppm-env -n {{ .Release.Namespace }} \
+    --from-literal=SECRET_KEY="$(openssl rand -base64 48)" \
+    --from-literal=ALLOWED_HOSTS=trueppm.example.com \
+    --from-literal=INTEGRATION_ENCRYPTION_KEY="$(python3 -c \
+      'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')" \
+    --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true
+
+  helm upgrade {{ .Release.Name }} <chart> -n {{ .Release.Namespace }} \
+    --reuse-values --set 'envFrom[0].secretRef.name=trueppm-env'
+
+TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true keeps task attachments on the pod's
+ephemeral disk — they are LOST on restart. For durable attachments set
+TRUEPPM_DEFAULT_FILE_STORAGE=storages.backends.s3.S3Storage and
+TRUEPPM_S3_BUCKET_NAME instead.
+
+Full reference: packages/helm/README.md, "Required secrets (prod refuses to boot
+without them)".
+{{- else }}
+
+Required application secrets: configured{{ if $hasEnvFrom }} via envFrom{{ end }}.
+{{- if not .Values.postgresql.enabled }}
+Using an external database — settings.prod refuses to boot unless env.DATABASE_URL
+carries `sslmode=require` (or TRUEPPM_ALLOW_UNENCRYPTED_DB=true when TLS is
+enforced at the network layer).
+{{- end }}
+{{- end }}
+
+Watch the rollout:
+
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} -w
+
+Retrieve the one-time admin password (written by the bootstrap init container):
+
+  kubectl exec -n {{ .Release.Namespace }} deployment/{{ include "trueppm.fullname" . }}-api \
+    -- cat {{ .Values.admin.passwordFile | default "/run/trueppm/admin_password" }}
+
+{{- if .Values.ingress.enabled }}
+
+Reach the app at:
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- else }}
+
+No Ingress is rendered (ingress.enabled=false). Port-forward to try it:
+{{- if .Values.web.enabled }}
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "trueppm.fullname" . }}-web 8080:80
+{{- else }}
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "trueppm.fullname" . }}-api 8080:{{ .Values.service.port }}
+{{- end }}
+{{- end }}

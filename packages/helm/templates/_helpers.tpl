@@ -289,6 +289,13 @@ settings.prod's #1550 boot guard would otherwise crash-loop a default
 when the network layer already isolates that plaintext hop, NOT to train operators
 to disable the check by hand.
 
+Scope: this clears the #1550 DB-encryption guard ONLY. settings.prod has four
+other import-time guards — SECRET_KEY, ALLOWED_HOSTS, the attachment-storage
+choice, and INTEGRATION_ENCRYPTION_KEY — that no chart default can satisfy,
+because their values are the operator's secrets. An install that supplies no
+app-env source still crash-loops in the migrate init container; NOTES.txt says so
+at install time.
+
 Why it fails closed everywhere else:
   - External DB (postgresql.enabled=false): emits nothing, so the operator's
     DATABASE_URL must still carry sslmode=require — the #1550 guard stays live.

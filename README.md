@@ -169,10 +169,28 @@ Install from the chart source today (public OCI publication to GHCR is planned �
 ```bash
 git clone https://gitlab.com/trueppm/trueppm.git && cd trueppm
 helm dependency update packages/helm
+kubectl create namespace trueppm
+
+# The four values TruePPM validates at startup. It refuses to boot without them,
+# so this step is not optional — skip it and the pod crash-loops in the migrate
+# init container.
+kubectl create secret generic trueppm-env --namespace trueppm \
+  --from-literal=SECRET_KEY="$(openssl rand -base64 48)" \
+  --from-literal=ALLOWED_HOSTS=trueppm.example.com \
+  --from-literal=INTEGRATION_ENCRYPTION_KEY="$(python3 -c \
+    'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')" \
+  --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true
+
 helm install trueppm packages/helm \
-  --namespace trueppm --create-namespace \
-  -f my-values.yaml
+  --namespace trueppm \
+  --set 'envFrom[0].secretRef.name=trueppm-env'
 ```
+
+That gets you a running instance on the bundled PostgreSQL and Valkey, with
+attachments on ephemeral disk (`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true`) —
+fine to evaluate, not to keep data in. For managed datastores, object storage, and
+Ingress, add a values file (`-f my-values.yaml`) as described in the installation
+guide.
 
 Once the chart is published to a public OCI registry, the same install will work with
 `helm install trueppm oci://ghcr.io/trueppm/charts/trueppm --version <version>`.

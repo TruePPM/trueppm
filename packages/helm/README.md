@@ -2,9 +2,32 @@
 
 Production-ready Helm 3 chart for deploying TruePPM on Kubernetes.
 
+## Quickstart
+
+`settings.prod` refuses to boot without four values, so the chart alone is not a
+complete install — create the app-env Secret first, then reference it with
+`envFrom`. Without it the `migrate` init container crash-loops before the API ever
+starts (details: [Required secrets](#required-secrets-prod-refuses-to-boot-without-them)).
+
 ```bash
-helm install trueppm packages/helm
+# 1. the four values settings.prod enforces at import time
+kubectl create secret generic trueppm-env \
+  --from-literal=SECRET_KEY="$(openssl rand -base64 48)" \
+  --from-literal=ALLOWED_HOSTS=trueppm.example.com \
+  --from-literal=INTEGRATION_ENCRYPTION_KEY="$(python3 -c \
+    'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')" \
+  --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true
+
+# 2. install, pointing the chart at it
+helm install trueppm packages/helm \
+  --set 'envFrom[0].secretRef.name=trueppm-env'
 ```
+
+`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` is the no-object-store default: task
+attachments land on the pod's ephemeral disk and are **lost on restart**. For
+anything you intend to keep, replace that one key with the S3 pair
+(`TRUEPPM_DEFAULT_FILE_STORAGE` + `TRUEPPM_S3_BUCKET_NAME`) — see
+[Required secrets](#required-secrets-prod-refuses-to-boot-without-them).
 
 The bundled PostgreSQL and Valkey subcharts are for **dev / demo / CI only**. For
 production, disable both and point at managed services (see
@@ -238,12 +261,17 @@ policy-enforcing CNI is present).
 
 To keep that posture coherent with the app's DB-encryption boot guard, the chart
 automatically sets `TRUEPPM_ALLOW_UNENCRYPTED_DB=true` **only** when the bundled
-database is in use **and** the NetworkPolicy is enabled. This is why a default
-`helm install` boots without crash-looping and **without** any operator being told
-to disable a security check by hand. If you disable the NetworkPolicy, the chart
-stops injecting that flag and a bundled plaintext database fails the boot guard —
-by design: an unprotected plaintext datastore on a flat pod network should fail
-closed.
+database is in use **and** the NetworkPolicy is enabled. This is why the bundled
+datastores satisfy the DB-encryption guard on their own, **without** any operator
+being told to disable a security check by hand. It clears that one guard only —
+the chart generates *datastore* credentials, but the *application* env secrets in
+[Required secrets](#required-secrets-prod-refuses-to-boot-without-them) still have
+to be supplied, and an install without them crash-loops in the migrate init
+container.
+
+If you disable the NetworkPolicy, the chart stops injecting that flag and a
+bundled plaintext database fails the boot guard — by design: an unprotected
+plaintext datastore on a flat pod network should fail closed.
 
 For anything beyond dev/demo, use managed datastores with TLS (below). When
 `postgresql.enabled=false` the chart injects no auto flag, so your external
@@ -290,6 +318,11 @@ kubectl create secret generic trueppm-env \
   --from-literal=TRUEPPM_DEFAULT_FILE_STORAGE=storages.backends.s3.S3Storage \
   --from-literal=TRUEPPM_S3_BUCKET_NAME=trueppm-attachments
 ```
+
+That is the durable-storage form. The [Quickstart](#quickstart) substitutes
+`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` for the last two keys, which needs
+no bucket but keeps attachments on ephemeral disk — the right trade only while you
+are evaluating.
 
 The API image bundles the S3 backend, so those two keys are all an AWS S3 deploy
 needs — credentials resolve from IRSA or the instance profile. For MinIO or
