@@ -3700,7 +3700,14 @@ pages:
     #
     # No `allow_failure` here: a failed docs deploy must red main rather than
     # pass silently.
-    - if: '$CI_COMMIT_BRANCH == "main"'
+    #
+    # Scoped to `push` so a merge to main deploys and the nightly SonarCloud
+    # schedule (0 1 * * * on refs/heads/main) does not: a schedule republishes
+    # a byte-identical site for a tree nobody changed, and "the docs deployed"
+    # should mean a commit landed. rules-website matches main unconditionally,
+    # so website:build — and therefore this job's `needs:` — is present in the
+    # scheduled pipeline too; without this condition the redeploy would fire.
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
       when: on_success
   script:
     # GitLab Pages serves from public/ at the repo root
