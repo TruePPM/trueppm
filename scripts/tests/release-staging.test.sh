@@ -90,6 +90,53 @@ EOF
   check "no leftover unstaged fragment deletion" "$r"
 fi
 
+# --- Case 3: structural — the PyPI publish contracts are closed --------------
+# Same failure class as #1386, one level up: release.sh can bump a manifest and
+# then not stage it, or cut a tag whose CI job does not exist. That is exactly
+# how `trueppm-mcp` shipped for a whole release line with docs telling users to
+# `pip install` a name that 404'd — nothing tied the manifest, the tag, and the
+# publish job together (#2809). Assert the three ends meet, for BOTH PyPI
+# packages, so a future package added to release.sh cannot repeat it.
+echo "Case 3: every PyPI package's bump / stage / tag / job chain is closed"
+CI_YML="$REPO_ROOT/.gitlab-ci.yml"
+
+# Every path release.sh rewrites a version into must appear in the git-add block,
+# or the bump is left unstaged and the tag points at the pre-bump tree.
+for path in \
+  packages/mcp/pyproject.toml \
+  packages/mcp/uv.lock \
+  packages/mcp/server.json \
+  packages/mcp/src/trueppm_mcp/__init__.py
+do
+  if printf '%s\n' "$ADD_BLOCK" | grep -qF "$path"; then r=0; else r=1; fi
+  check "git add block includes $path" "$r"
+done
+
+# release.sh must re-lock packages/mcp: mcp:publish materializes its SBOM with
+# `uv sync --frozen`, which hard-fails on a lock whose self-entry still claims
+# the previous version.
+if grep -qF 'cd packages/mcp && uv lock' "$RELEASE_SH"; then r=0; else r=1; fi
+check "release.sh re-locks packages/mcp/uv.lock after the bump" "$r"
+
+# Each PyPI tag release.sh creates must be matched by a publish job rule, and
+# vice versa — a tag with no job publishes nothing; a job with no tag never runs.
+# Pairs are "<tag-prefix> <shell-var>", space-split rather than held in an array,
+# for the same reason release.sh avoids arrays: macOS bash 3.2.
+for pair in "scheduler SCHEDULER_TAG" "mcp MCP_TAG"; do
+  # shellcheck disable=SC2086
+  set -- $pair
+  prefix="$1"; var="$2"
+
+  if grep -qE "^${var}=\"${prefix}-v\\\$\(to_pep440 " "$RELEASE_SH"; then r=0; else r=1; fi
+  check "release.sh computes a ${prefix}-v<PEP440> tag" "$r"
+
+  if grep -qF "git tag -a \"\$${var}\"" "$RELEASE_SH"; then r=0; else r=1; fi
+  check "release.sh cuts the ${prefix}-v tag" "$r"
+
+  if grep -qE "CI_COMMIT_TAG =~ /\^${prefix}-v" "$CI_YML"; then r=0; else r=1; fi
+  check "${prefix}:publish fires on ${prefix}-v* in .gitlab-ci.yml" "$r"
+done
+
 echo ""
 echo "release-staging: $pass passed, $fail failed, $skip skipped"
 [[ "$fail" -eq 0 ]]

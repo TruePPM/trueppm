@@ -1994,6 +1994,33 @@ scheduler:uv-lock-check:
     - cd packages/scheduler
     - uv lock --check
 
+mcp:uv-lock-check:
+  extends: .fast-job
+  # Verify packages/mcp/uv.lock stays in sync with packages/mcp/pyproject.toml.
+  # Mirrors api:/scheduler:uv-lock-check, and became load-bearing when mcp:publish
+  # landed (#2809): that job materializes its CycloneDX SBOM with
+  # `uv sync --frozen`, which HARD-FAILS on a stale lock. Without this gate the
+  # first symptom of a forgotten `uv lock` would be a red publish job on an
+  # already-pushed `mcp-v*` tag — the expensive, mid-release failure mode.
+  # Refresh with `cd packages/mcp && uv lock`. uv is pinned so the committed
+  # lock's revision stays stable across CI runs and Renovate's
+  # lockFileMaintenance owns the routine refreshes.
+  stage: analyze
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  needs: []
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/mcp/pyproject.toml
+        - packages/mcp/uv.lock
+        - .gitlab-ci.yml
+  before_script:
+    - pip install uv==0.9.5 --quiet
+  script:
+    - cd packages/mcp
+    - uv lock --check
+
 web:type-check:
   extends: [.web, .fast-job]
   stage: analyze
@@ -4353,6 +4380,174 @@ scheduler:publish:
 # The tag-triggered scheduler:publish above is LIVE, not dormant: the PyPI name
 # is reserved and two alphas are published (#937). Push a `scheduler-vX.Y.Z`
 # tag (after a green main pipeline) to release.
+
+mcp:publish:
+  # Publishes trueppm-mcp to PyPI (#2809). Modeled directly on scheduler:publish
+  # above — same Trusted Publishing exchange, same PEP 740 attestations, same
+  # locked-SBOM-before-upload ordering — with its own `mcp-vX.Y.Z` tag scheme so
+  # the MCP server can be released independently of the scheduler library.
+  #
+  # Why this job exists: packages/mcp had NO publish path at all. Three docs
+  # pages instructed `pip install trueppm-mcp`, packages/server.json declared a
+  # `pypi` registry entry with a `uvx` runtime hint, and two CI comments (in
+  # security:osv and license:check:mcp) asserted the package "ships to PyPI as
+  # trueppm-mcp" — while nothing in the publish stage built it and the name
+  # 404'd on pypi.org. Those comments are true as of this job.
+  stage: publish
+  image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  rules:
+    # Only fire on tags matching the mcp version format (PEP 440, e.g.
+    # mcp-v0.4.0b1). Never fire on branch pushes or MR events.
+    - if: '$CI_COMMIT_TAG =~ /^mcp-v\d+\.\d+\.\d+/'
+  # Binds the GitLab OIDC claims to a named environment so the PyPI Trusted
+  # Publisher for `trueppm-mcp` can be registered with a NON-BLANK environment.
+  # A publisher bound with a blank environment matches every pipeline in this
+  # project that can mint a `pypi`-audience token, which is a wider trust
+  # surface than one release job needs. The environment name here MUST match
+  # the "Environment name" field configured on pypi.org, or the mint-token
+  # exchange fails closed with PyPI's own explanation (surfaced on stderr by
+  # the mint step below).
+  environment:
+    name: pypi-mcp
+    url: https://pypi.org/project/trueppm-mcp/
+  # GitLab OIDC tokens for PyPI Trusted Publishing. Two audiences:
+  #   PYPI_ID_TOKEN (aud: pypi)         — exchanged at PyPI's mint-token endpoint
+  #                                       for a short-lived, project-scoped token.
+  #   SIGSTORE_ID_TOKEN (aud: sigstore) — ambient identity Sigstore uses to sign
+  #                                       the PEP 740 attestations.
+  id_tokens:
+    PYPI_ID_TOKEN:
+      aud: pypi
+    SIGSTORE_ID_TOKEN:
+      aud: sigstore
+  variables:
+    # Suppress the keyring warning that fires in non-interactive environments.
+    PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
+  before_script:
+    # Same pinned tool set as scheduler:publish — this job runs on the vanilla
+    # python:3.11-slim base, so everything installs here. twine >= 6.1 uploads
+    # the PEP 740 attestation sidecars passed to it; pypi-attestations signs
+    # them via Sigstore; uv (0.9.5, matching the uv-lock-check jobs)
+    # materializes the locked SBOM input.
+    - pip install build "twine>=6.1" cyclonedx-bom==7.3.0 pypi-attestations==0.0.28 uv==0.9.5 --quiet
+  script:
+    # Verify the tag version matches the version declared in pyproject.toml AND
+    # the two version fields in server.json (the MCP registry manifest, which
+    # carries the semver form at the top level and the PEP 440 PyPI version
+    # under packages[0]). server.json is checked here because it is the file
+    # that tells an MCP client which version to `uvx`: publishing a wheel while
+    # the manifest advertises a different one is the drift this job exists to
+    # make impossible. Mismatches fail fast, before anything is uploaded.
+    - |
+      PKG_VERSION=$(python -c "
+      import tomllib
+      with open('packages/mcp/pyproject.toml', 'rb') as f:
+          d = tomllib.load(f)
+      print(d['project']['version'])
+      ")
+      TAG_VERSION="${CI_COMMIT_TAG#mcp-v}"
+      if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+        echo "ERROR: tag version ($TAG_VERSION) does not match pyproject.toml version ($PKG_VERSION)"
+        echo "Bump the version in packages/mcp/pyproject.toml before tagging."
+        exit 1
+      fi
+      echo "Version check passed: $PKG_VERSION"
+      python - "$PKG_VERSION" <<'PY'
+      import json, sys
+
+      pkg_version = sys.argv[1]
+      with open("packages/mcp/server.json", encoding="utf-8") as f:
+          manifest = json.load(f)
+      pypi_versions = [
+          p.get("version")
+          for p in manifest.get("packages", [])
+          if p.get("registryType") == "pypi"
+      ]
+      if pypi_versions != [pkg_version]:
+          sys.exit(
+              "ERROR: packages/mcp/server.json pypi package version(s) "
+              f"{pypi_versions} do not match pyproject.toml ({pkg_version}). "
+              "Bump server.json before tagging."
+          )
+      # The registry manifest's own version is the semver form of the same
+      # release (0.4.0b1 -> 0.4.0-beta.1); normalize before comparing so the
+      # two schemes cannot drift apart unnoticed.
+      normalized = (
+          manifest["version"]
+          .replace("-alpha.", "a")
+          .replace("-beta.", "b")
+          .replace("-rc.", "rc")
+      )
+      if normalized != pkg_version:
+          sys.exit(
+              f"ERROR: packages/mcp/server.json version ({manifest['version']}) "
+              f"is not the semver form of {pkg_version}. Bump it before tagging."
+          )
+      print(f"server.json version check passed: {manifest['version']} / {pkg_version}")
+      PY
+    # The mcp package has no standalone CHANGELOG.md (unlike packages/scheduler,
+    # whose wheel force-includes one), so there is no per-package release-notes
+    # gate to mirror here — the root CHANGELOG.md is its release record.
+    - cd packages/mcp
+    - python -m build
+    # Generate + validate the CycloneDX SBOM BEFORE uploading. Ordering matters:
+    # never let twine succeed (the release goes live) and then fail the job on a
+    # malformed SBOM. The runtime closure is materialized from the committed
+    # uv.lock (`uv sync --frozen --no-editable`, hash-verified) — the same locked
+    # surface security:osv audits — so the published SBOM is reproducible rather
+    # than a fresh PyPI resolve. The `dev` extra is opt-in, so a default sync
+    # keeps test/lint tooling out of the runtime SBOM.
+    - UV_PYTHON_PREFERENCE=only-system uv sync --frozen --no-editable
+    - cyclonedx-py environment .venv/bin/python --validate --output-format JSON --output-reproducible --sv 1.6 -o dist/sbom.cdx.json
+    # Sign PEP 740 attestations for the SAME sdist + wheel uploaded below. The
+    # explicit globs exclude dist/sbom.cdx.json, which is not a PyPI file.
+    - python -m pypi_attestations sign dist/*.tar.gz dist/*.whl
+    # Mint a short-lived, project-scoped PyPI upload token from the GitLab OIDC
+    # token (Trusted Publishing) — no static PYPI_TOKEN. The minted token is
+    # passed only via the twine environment below and is never echoed.
+    - |
+      PYPI_API_TOKEN=$(python -c '
+      import json, os, sys, urllib.request, urllib.error
+      req = urllib.request.Request("https://pypi.org/_/oidc/mint-token", data=json.dumps({"token": os.environ["PYPI_ID_TOKEN"]}).encode(), headers={"Content-Type": "application/json"})
+      try:
+          resp = urllib.request.urlopen(req)
+      except urllib.error.HTTPError as e:
+          # PyPI states the exact reason (e.g. no Trusted Publisher matches the
+          # pipeline OIDC claims, including a mismatched environment) in the
+          # response body; surface it on stderr instead of the bare "HTTP Error
+          # 422" traceback so the failure is self-diagnosing. Only the token
+          # goes to stdout (captured by the command substitution).
+          sys.stderr.write("PyPI mint-token failed: HTTP %s %s\n" % (e.code, e.reason))
+          sys.stderr.write(e.read().decode("utf-8", "replace") + "\n")
+          sys.exit(1)
+      print(json.load(resp)["token"])
+      ')
+    # Upload the wheel + sdist plus their `.publish.attestation` sidecars. In
+    # twine >= 6.1 `--attestations` is an opt-in GATE (fail if none present), NOT
+    # filesystem discovery — the sidecars must appear in the argument list or
+    # twine errors with "has no associated attestations" before any upload.
+    - TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_API_TOKEN" twine upload --attestations dist/*.tar.gz dist/*.whl dist/*.publish.attestation --non-interactive --verbose
+  artifacts:
+    # Keep the built wheel + sdist + SBOM as a CI artifact for traceability.
+    # The SBOM is never a PyPI file.
+    paths:
+      - packages/mcp/dist/
+    expire_in: 30 days
+
+# BEFORE THE FIRST `mcp-v*` TAG (one-time, human, cannot be automated):
+# register a PyPI Trusted Publisher for the project name `trueppm-mcp` at
+# https://pypi.org/manage/account/publishing/ with:
+#   Publisher     : GitLab
+#   Namespace     : trueppm
+#   Project       : trueppm
+#   Workflow file : .gitlab-ci.yml
+#   Environment   : pypi-mcp        <- MUST be set, and MUST match the
+#                                      `environment:` block above
+# Leaving the environment blank would let any pipeline in this project that can
+# mint a `pypi`-audience OIDC token upload to the package; the named
+# environment narrows the binding to this release job. Until the publisher
+# exists, the mint-token step fails closed with PyPI's own 422 explanation and
+# nothing is uploaded.
 
 # ---------------------------------------------------------------------------
 # PUBLISH — Docker images and Helm chart.

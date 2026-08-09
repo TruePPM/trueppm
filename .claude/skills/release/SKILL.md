@@ -59,7 +59,7 @@ For every fragment in `changelog.d/`, verify documentation is in sync:
 
 - **`*.added.md` (new features)** — each must have a corresponding page or section in `docs/features/` (or `docs/getting-started/` / `docs/administration/` where appropriate), with the correct version callout (`> **Added in X.Y**`) and enterprise callout if applicable. Run the `docs-writer` skill if anything is missing.
 - **API surface changes** — any new or modified endpoint must be reflected in `docs/api/` and `docs/api/openapi.json`. Regenerate the schema if needed: `git merge origin/main && scripts/export-openapi.sh && git add docs/api/openapi.json`. Run the `api-design` skill (audit mode) if anything is missing.
-- **Scheduler pip-package surface changes** — any new export, signature change, or behaviour change in `packages/scheduler` must be reflected in the scheduler README and the published docs section. Once 1.0 ships, this surface is locked for the major line.
+- **PyPI package surface changes** — any new export, signature change, or behaviour change in `packages/scheduler` must be reflected in the scheduler README and the published docs section; any change to the `packages/mcp` tool list, token scopes, or environment variables must be reflected in `features/mcp-server.md`, `features/mcp-connect.md`, `administration/mcp-server.md`, **and** `packages/mcp/server.json`. Once 1.0 ships, both surfaces are locked for the major line.
 - **`*.changed.md` (changed behaviour)** — existing doc pages must reflect the new behaviour; stale screenshots or descriptions must be updated.
 - **Helm chart changes** — any new value, env var, or default change must be reflected in `packages/helm/values.yaml` comments and in `docs/administration/`.
 - **Breaking changes** — if any exist, ensure a migration or upgrade note is present in `docs/getting-started/` or a dedicated upgrade guide.
@@ -75,10 +75,10 @@ Do not proceed to Step 2 until the docs audit is complete. A release with stale 
 The script will automatically:
 1. Validate the working tree is clean and the branch is `main`
 2. Compute the new version from the canonical source (`packages/scheduler/pyproject.toml`)
-3. Bump versions in `packages/scheduler/pyproject.toml`, `packages/api/pyproject.toml`, and `packages/web/package.json` to lockstep
+3. Bump versions in `packages/scheduler/pyproject.toml`, `packages/api/pyproject.toml`, `packages/web/package.json`, `packages/wasm-scheduler/Cargo.toml`, and `packages/mcp/` (`pyproject.toml`, `src/trueppm_mcp/__init__.py`, and both version fields in `server.json`) to lockstep, then re-lock each `uv.lock`
 4. For **stable** releases only: assemble `changelog.d/*.md` fragments via `scripts/assemble-changelog.sh`, rotate `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD`, prepend a fresh `[Unreleased]` block, and delete the consumed fragments
 5. For **pre-releases** (alpha/beta/rc): leave `[Unreleased]` and fragments alone — notes accumulate until the final stable release
-6. Commit (`chore(release): bump version to X.Y.Z`) and create an annotated tag `vX.Y.Z`
+6. Commit (`chore(release): bump version to X.Y.Z`) and create **three** annotated tags: `vX.Y.Z` (Docker + Helm publish), `scheduler-v<PEP440>` (`trueppm-scheduler` PyPI publish), and `mcp-v<PEP440>` (`trueppm-mcp` PyPI publish). The PyPI tags carry the PEP 440 form of the same version — `mcp-v0.4.0b1`, not `mcp-v0.4.0-beta.1`
 
 The script **does not push and does not create an MR** — TruePPM tags from `main` directly. Read the printed "Next steps" line for the exact push command. If the script fails, read the error output before taking any action — common failure modes: dirty working tree, not on `main`, empty `[Unreleased]`, or duplicate tag.
 
@@ -88,7 +88,11 @@ After the script reports success:
 
 ```bash
 git push origin main vX.Y.Z
+git push origin scheduler-v<PEP440>    # triggers trueppm-scheduler PyPI publish
+git push origin mcp-v<PEP440>          # triggers trueppm-mcp PyPI publish
 ```
+
+The script prints all three commands under "Next steps" — copy them from there rather than reconstructing the PEP 440 suffix by hand.
 
 Pushing the tag triggers the release pipeline. What happens next depends on the version line:
 
@@ -97,7 +101,10 @@ Pushing the tag triggers the release pipeline. What happens next depends on the 
 - The CI pipeline runs full lint/test/build on the release commit.
 - A GitLab Release entry is created automatically by the tag push.
 - **No GHCR publish** — `github.com/trueppm` is registered but empty pre-1.0 by design.
-- **No PyPI publish for scheduler** — pre-1.0 the package is consumed in-tree from `packages/scheduler` only.
+- **PyPI publishes are live pre-1.0** and are driven by their own tags, not by `vX.Y.Z`:
+  - `scheduler-v<PEP440>` publishes `trueppm-scheduler` (`scheduler:publish`). Verify with `pip index versions trueppm-scheduler`.
+  - `mcp-v<PEP440>` publishes `trueppm-mcp` (`mcp:publish`). Verify with `pip index versions trueppm-mcp`, and confirm `uvx trueppm-mcp --help` resolves — three docs pages and the MCP registry manifest tell users to install it that way.
+  - Both use PyPI Trusted Publishing (GitLab OIDC), so no token is needed — but the Trusted Publisher must already exist on pypi.org for that project name. `trueppm-mcp`'s is bound to the **`pypi-mcp`** environment; a mismatch fails the job at the mint-token step with PyPI's own 422 explanation, before anything is uploaded.
 - Confirm the GitLab Release shows up at `gitlab.com/trueppm/trueppm/-/releases/vX.Y.Z` and the CHANGELOG section is populated.
 
 ### At-or-post-1.0 (`>= 1.0.0`)
@@ -105,7 +112,6 @@ Pushing the tag triggers the release pipeline. What happens next depends on the 
 In addition to the GitLab Release:
 
 - The CI pipeline builds and pushes multi-arch Docker images (ARM64 + AMD64) to GHCR under `ghcr.io/trueppm/*`. Verify the images appear at `https://github.com/orgs/trueppm/packages` and that both architectures are listed for each tag (`vX.Y.Z`, plus `latest` for stable releases on the highest line).
-- For stable releases, the scheduler package may publish to PyPI as `trueppm-scheduler==X.Y.Z`. Verify with `pip index versions trueppm-scheduler` if the publish job ran.
 - Stable releases publish docs to `docs.trueppm.com` under the `latest` alias; pre-releases publish under `next`. Verify the docs site shows the new version.
 - Trigger the enterprise repo release script pinned to this tag:
   ```bash

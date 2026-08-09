@@ -11,7 +11,7 @@ from trueppm_mcp.client import ApiError, AuthError, TruePPMClient
 from trueppm_mcp.config import ConfigError, Settings
 from trueppm_mcp.server import build_server
 
-__version__ = "0.4.0a0"
+__version__ = "0.4.0b1"
 
 __all__ = [
     "ApiError",
