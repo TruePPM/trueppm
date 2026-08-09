@@ -111,14 +111,24 @@ Each entry in .Values.env may be either:
   - a map with a `secretKeyRef` key → rendered as `valueFrom: secretKeyRef`,
     e.g.  MY_VAR: { secretKeyRef: { name: my-secret, key: my-key } }
 
-The secretKeyRef form lets the chart point env vars at chart-generated Secrets
-(DATABASE_URL, REDIS_URL) so no credential is ever rendered in plaintext into a
-Deployment manifest, and an operator `--set` of a sub-chart password can't cause
-a split-brain between the URL string and the running database.
+The secretKeyRef form lets an operator point any env var (e.g.
+EMAIL_HOST_PASSWORD) at a Secret they already manage, so no credential is ever
+rendered in plaintext into a Deployment manifest.
+
+DATABASE_URL and REDIS_URL are deliberately EXCLUDED here (#2810). They are owned
+end to end by trueppm.connectionEnv, which resolves whichever shape the operator
+supplied to a single secretKeyRef. Emitting them here too produced two defects at
+once: a duplicate env key (Kubernetes keeps the last, so the entry written here
+never took effect anyway) and — for the plaintext string form on the managed-DB
+path — the database password rendered verbatim into every api/worker/beat/init
+container, which is exactly what the chart's "no plaintext credentials in any
+Deployment" guarantee promises never happens.
 */}}
 {{- define "trueppm.envVars" -}}
 {{- range $key, $value := .Values.env }}
-{{- if kindIs "map" $value }}
+{{- if has $key (list "DATABASE_URL" "REDIS_URL") }}
+{{- /* owned by trueppm.connectionEnv — see the note above */}}
+{{- else if kindIs "map" $value }}
 - name: {{ $key }}
   valueFrom:
     secretKeyRef:
@@ -281,9 +291,63 @@ source of truth. Mirrors the subchart naming convention (`<release>-postgresql`,
 {{- end -}}
 
 {{/*
-DATABASE_URL / REDIS_URL env entries, sourced from the chart-owned connection
-Secret via secretKeyRef. Used by the API and Celery worker containers so the
-password is never rendered into the Deployment manifest in plaintext.
+Is DATABASE_URL supplied as a reference to a Secret the OPERATOR owns (the map
+form, `env.DATABASE_URL: {secretKeyRef: {name:…, key:…}}`) rather than as a
+string the chart must store for them? Non-empty output = true.
+
+Only meaningful on the managed-DB path: when the bundled PostgreSQL is enabled
+the chart builds the URL itself and env.DATABASE_URL is rejected outright (see
+trueppm.databaseUrl).
+*/}}
+{{- define "trueppm.databaseUrlIsExternalRef" -}}
+{{- if not .Values.postgresql.enabled -}}
+{{- if kindIs "map" (index (.Values.env | default dict) "DATABASE_URL") -}}
+true
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Same question for REDIS_URL against the bundled Valkey. Honored even under
+Sentinel: the app ignores REDIS_URL entirely when TRUEPPM_VALKEY_SENTINELS is
+set, so an operator-supplied reference is harmless there and it is better to
+pass their value through than to silently substitute the chart's placeholder.
+*/}}
+{{- define "trueppm.redisUrlIsExternalRef" -}}
+{{- if not .Values.valkey.enabled -}}
+{{- if kindIs "map" (index (.Values.env | default dict) "REDIS_URL") -}}
+true
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The `secretKeyRef` body (name + key, no indentation of its own) that a connection
+URL env var is injected from. Two sources, and exactly one is used per URL:
+
+  - the chart-owned connection Secret — the default, and the only option on the
+    bundled path. The operator's string URL is stored there by templates/secret.yaml.
+  - a Secret the operator already manages, when they supplied the map form.
+    The chart then never sees, stores, or re-emits the credential at all.
+
+Usage: include "trueppm.connectionSecretRef" (dict "root" . "var" "DATABASE_URL" "external" (include "trueppm.databaseUrlIsExternalRef" .))
+*/}}
+{{- define "trueppm.connectionSecretRef" -}}
+{{- if .external -}}
+{{- $ref := (index .root.Values.env .var).secretKeyRef | default dict -}}
+name: {{ required (printf "env.%s is a map, so it must be the secretKeyRef form: set env.%s.secretKeyRef.name to the Secret holding the URL" .var .var) $ref.name }}
+key: {{ required (printf "env.%s is a map, so it must be the secretKeyRef form: set env.%s.secretKeyRef.key to the key inside that Secret" .var .var) $ref.key }}
+{{- else -}}
+name: {{ include "trueppm.urlSecretName" .root }}
+key: {{ .var }}
+{{- end -}}
+{{- end -}}
+
+{{/*
+DATABASE_URL / REDIS_URL env entries. ALWAYS a secretKeyRef — never a literal
+value — so the password is never rendered into a Deployment manifest in
+plaintext, whichever shape the operator configured (#2810). This helper is the
+single owner of these two keys; trueppm.envVars deliberately skips them.
 
 The Valkey Sentinel block is appended here rather than in each Deployment so it
 reaches every container that already receives REDIS_URL. Adding it per-workload
@@ -291,17 +355,25 @@ would silently miss one — and a worker that resolves a different primary from 
 API is exactly the split-brain this issue set out to remove.
 */}}
 {{- define "trueppm.connectionEnv" -}}
-- name: DATABASE_URL
-  valueFrom:
-    secretKeyRef:
-      name: {{ include "trueppm.urlSecretName" . }}
-      key: DATABASE_URL
+{{- include "trueppm.databaseUrlEnv" . }}
 - name: REDIS_URL
   valueFrom:
     secretKeyRef:
-      name: {{ include "trueppm.urlSecretName" . }}
-      key: REDIS_URL
+      {{- include "trueppm.connectionSecretRef" (dict "root" . "var" "REDIS_URL" "external" (include "trueppm.redisUrlIsExternalRef" .)) | nindent 6 }}
 {{- include "trueppm.valkeySentinelEnv" . }}
+{{- end -}}
+
+{{/*
+Just the DATABASE_URL env entry. Split out of trueppm.connectionEnv so the backup
+CronJob — which needs the database and nothing else — resolves it identically. A
+second hand-written copy there is how the map form would come back broken for
+backups only, silently, on the one workload nobody watches until a restore.
+*/}}
+{{- define "trueppm.databaseUrlEnv" -}}
+- name: DATABASE_URL
+  valueFrom:
+    secretKeyRef:
+      {{- include "trueppm.connectionSecretRef" (dict "root" . "var" "DATABASE_URL" "external" (include "trueppm.databaseUrlIsExternalRef" .)) | nindent 6 }}
 {{- end -}}
 
 {{/*
@@ -316,6 +388,13 @@ settings.prod's #1550 boot guard would otherwise crash-loop a default
 `helm install`. The safe reconciliation is to grant the escape hatch precisely
 when the network layer already isolates that plaintext hop, NOT to train operators
 to disable the check by hand.
+
+Scope: this clears the #1550 DB-encryption guard ONLY. settings.prod has four
+other import-time guards — SECRET_KEY, ALLOWED_HOSTS, the attachment-storage
+choice, and INTEGRATION_ENCRYPTION_KEY — that no chart default can satisfy,
+because their values are the operator's secrets. An install that supplies no
+app-env source still crash-loops in the migrate init container; NOTES.txt says so
+at install time.
 
 Why it fails closed everywhere else:
   - External DB (postgresql.enabled=false): emits nothing, so the operator's
@@ -397,14 +476,23 @@ PostgreSQL). Only meaningful when `.Values.valkey.auth.enabled` is true.
 {{- end -}}
 
 {{/*
-Server-side DATABASE_URL. Built from the resolved PostgreSQL password and the
-subchart's service fullname when the bundled DB is enabled; falls back to an
-operator-supplied `.Values.env.DATABASE_URL` when postgresql.enabled is false
-(managed-DB / production path). Never rendered into a Deployment in plaintext —
-it is stored only in the connection Secret.
+Server-side DATABASE_URL, for storage in the chart-owned connection Secret. Built
+from the resolved PostgreSQL password and the subchart's service fullname when the
+bundled DB is enabled; falls back to an operator-supplied string
+`.Values.env.DATABASE_URL` when postgresql.enabled is false (managed-DB /
+production path). Never rendered into a Deployment in plaintext — it is stored
+only in the connection Secret.
+
+NOT called when the operator supplied the secretKeyRef map form: that URL lives in
+their own Secret and the chart must not copy it (templates/secret.yaml guards on
+trueppm.databaseUrlIsExternalRef). Calling it there would stringify the map into
+`map[secretKeyRef:map[…]]`, which is exactly the crash-loop #2810 fixed.
 */}}
 {{- define "trueppm.databaseUrl" -}}
 {{- if .Values.postgresql.enabled -}}
+{{- if hasKey (.Values.env | default dict) "DATABASE_URL" -}}
+{{- fail "postgresql.enabled is true, so the chart builds DATABASE_URL from the bundled database's own generated credentials — env.DATABASE_URL would be silently ignored. Remove it, or set postgresql.enabled=false to point at a managed database." -}}
+{{- end -}}
 {{- $host := printf "%s-postgresql" .Release.Name -}}
 {{- $u := .Values.postgresql.auth.username -}}
 {{- $p := include "trueppm.postgresqlPassword" . -}}
@@ -416,13 +504,19 @@ it is stored only in the connection Secret.
 {{- end -}}
 
 {{/*
-Server-side REDIS_URL. When the bundled Valkey is enabled the host is derived
-from the subchart fullname (so it stays correct on non-`trueppm` release names),
-and the password is interpolated only when valkey.auth is enabled. Falls back to
-operator-supplied `.Values.env.REDIS_URL` when valkey.enabled is false.
+Server-side REDIS_URL, for storage in the chart-owned connection Secret. When the
+bundled Valkey is enabled the host is derived from the subchart fullname (so it
+stays correct on non-`trueppm` release names), and the password is interpolated
+only when valkey.auth is enabled. Falls back to an operator-supplied string
+`.Values.env.REDIS_URL` when valkey.enabled is false.
+
+Not called for the secretKeyRef map form — same contract as trueppm.databaseUrl.
 */}}
 {{- define "trueppm.redisUrl" -}}
 {{- if .Values.valkey.enabled -}}
+{{- if hasKey (.Values.env | default dict) "REDIS_URL" -}}
+{{- fail "valkey.enabled is true, so the chart builds REDIS_URL from the bundled Valkey's own generated credentials — env.REDIS_URL would be silently ignored. Remove it, or set valkey.enabled=false to point at a managed Valkey/Redis." -}}
+{{- end -}}
 {{- $host := printf "%s-valkey-primary" .Release.Name -}}
 {{- if .Values.valkey.auth.enabled -}}
 {{- printf "redis://:%s@%s:6379" (include "trueppm.valkeyPassword" .) $host -}}
@@ -482,6 +576,82 @@ plaintext into a Deployment manifest.
     secretKeyRef:
       name: {{ include "trueppm.urlSecretName" . }}
       key: TRUEPPM_VALKEY_SENTINEL_PASSWORD
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+Boot-guard preflight for NOTES.txt (#2812).
+
+settings.prod enforces four values at IMPORT time (packages/api/src/trueppm_api/
+settings/prod.py): ALLOWED_HOSTS, SECRET_KEY, an attachment-storage choice, and
+INTEGRATION_ENCRYPTION_KEY. gunicorn/uvicorn workers never run `manage.py check`,
+so a missing value is not a warning — it raises at settings import and crash-loops
+the pod, and because the migrate/bootstrap init containers import the same settings
+the failure lands there first, before any app log an operator would think to read.
+
+The chart cannot supply these (they are the operator's secrets) and cannot fail the
+render on them either: an `envFrom` Secret's keys are invisible at render time, so
+a hard render guard would block the correct configuration. The check is therefore
+deliberately narrow — warn only when NO app-env source is configured at all:
+`envFrom` is empty AND the key is absent from `.Values.env`. That is exactly the
+shape every documented minimal install had, and it is unambiguously broken. A
+notice that fires on a correctly-configured release is a notice nobody reads.
+
+Factored out of NOTES.txt so the logic is reachable by `helm template` — see the
+note at the top of NOTES.txt for why `helm install --dry-run` cannot test it.
+*/}}
+{{- define "trueppm.bootGuardNotice" -}}
+{{- $env := .Values.env | default dict }}
+{{- $hasEnvFrom := gt (len (.Values.envFrom | default list)) 0 }}
+{{- $missing := list }}
+{{- if not $hasEnvFrom }}
+  {{- if not (hasKey $env "SECRET_KEY") }}{{ $missing = append $missing "SECRET_KEY" }}{{ end }}
+  {{- if not (hasKey $env "ALLOWED_HOSTS") }}{{ $missing = append $missing "ALLOWED_HOSTS" }}{{ end }}
+  {{- if not (hasKey $env "INTEGRATION_ENCRYPTION_KEY") }}{{ $missing = append $missing "INTEGRATION_ENCRYPTION_KEY" }}{{ end }}
+  {{- if and (not (hasKey $env "TRUEPPM_DEFAULT_FILE_STORAGE")) (not (hasKey $env "TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE")) }}
+    {{- $missing = append $missing "TRUEPPM_DEFAULT_FILE_STORAGE (+ TRUEPPM_S3_BUCKET_NAME) or TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true" }}
+  {{- end }}
+{{- end }}
+{{- if $missing }}
+##############################################################################
+##  THIS RELEASE WILL NOT START — required application secrets are missing  ##
+##############################################################################
+
+No app-env source is configured: `envFrom` is empty and none of the required keys
+are set under `env`. settings.prod validates these at import time, so the pod will
+crash-loop in the `migrate` init container before the API ever runs.
+
+Missing:
+{{- range $missing }}
+  - {{ . }}
+{{- end }}
+
+Fix it without reinstalling — create the Secret, then `helm upgrade` to reference it:
+
+  kubectl create secret generic trueppm-env -n {{ .Release.Namespace }} \
+    --from-literal=SECRET_KEY="$(openssl rand -base64 48)" \
+    --from-literal=ALLOWED_HOSTS=trueppm.example.com \
+    --from-literal=INTEGRATION_ENCRYPTION_KEY="$(python3 -c \
+      'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')" \
+    --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true
+
+  helm upgrade {{ .Release.Name }} <chart> -n {{ .Release.Namespace }} \
+    --reuse-values --set 'envFrom[0].secretRef.name=trueppm-env'
+
+TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true keeps task attachments on the pod's
+ephemeral disk — they are LOST on restart. For durable attachments set
+TRUEPPM_DEFAULT_FILE_STORAGE=storages.backends.s3.S3Storage and
+TRUEPPM_S3_BUCKET_NAME instead.
+
+Full reference: packages/helm/README.md, "Required secrets (prod refuses to boot
+without them)".
+{{- else }}
+Required application secrets: configured{{ if $hasEnvFrom }} via envFrom{{ end }}.
+{{- if not .Values.postgresql.enabled }}
+Using an external database — settings.prod refuses to boot unless env.DATABASE_URL
+carries `sslmode=require` (or TRUEPPM_ALLOW_UNENCRYPTED_DB=true when TLS is
+enforced at the network layer).
 {{- end }}
 {{- end }}
 {{- end -}}

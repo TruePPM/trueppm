@@ -1,0 +1,38 @@
+{{/*
+Post-install notes. The boot-guard preflight — the reason this file exists
+(#2812) — lives in the trueppm.bootGuardNotice helper rather than inline, so
+scripts/helm-structure-check.sh can render and assert it with `helm template`.
+`helm install --dry-run` would be the natural way to exercise NOTES.txt, but it
+needs a reachable cluster even with --dry-run=client, and the helm:template CI job
+has none; a helper is renderable offline through a throwaway probe template.
+*/}}
+TruePPM {{ .Chart.AppVersion }} — release {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
+
+{{ include "trueppm.bootGuardNotice" . }}
+
+Watch the rollout:
+
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} -w
+
+Retrieve the one-time admin password (written by the bootstrap init container):
+
+  kubectl exec -n {{ .Release.Namespace }} deployment/{{ include "trueppm.fullname" . }}-api \
+    -- cat {{ .Values.admin.passwordFile | default "/run/trueppm/admin_password" }}
+
+{{- if .Values.ingress.enabled }}
+
+Reach the app at:
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- else }}
+
+No Ingress is rendered (ingress.enabled=false). Port-forward to try it:
+{{- if .Values.web.enabled }}
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "trueppm.fullname" . }}-web 8080:80
+{{- else }}
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "trueppm.fullname" . }}-api 8080:{{ .Values.service.port }}
+{{- end }}
+{{- end }}

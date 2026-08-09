@@ -116,13 +116,42 @@ curl -sL https://gitlab.com/trueppm/trueppm/-/raw/main/packages/helm/values-prod
   -o my-values.yaml
 ```
 
-At minimum, set:
+**Create the application Secret.** TruePPM validates four values at startup and
+**refuses to boot** without them — the pod crash-loops in the `migrate` init
+container before the API ever runs, so this is not an optional hardening step:
+
+| Key | What it is |
+|-----|-----------|
+| `SECRET_KEY` | Django signing key, 32 characters minimum |
+| `ALLOWED_HOSTS` | Comma-separated hostnames the app will answer on |
+| `INTEGRATION_ENCRYPTION_KEY` | Fernet key that encrypts integration credentials at rest |
+| `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE` **or** `TRUEPPM_DEFAULT_FILE_STORAGE` + `TRUEPPM_S3_BUCKET_NAME` | Where task attachments are stored |
+
+```bash
+kubectl create secret generic trueppm-env --namespace trueppm \
+  --from-literal=SECRET_KEY="$(openssl rand -base64 48)" \
+  --from-literal=ALLOWED_HOSTS=trueppm.example.com \
+  --from-literal=INTEGRATION_ENCRYPTION_KEY="$(python3 -c \
+    'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')" \
+  --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true
+```
+
+`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` puts task attachments on the pod's
+ephemeral disk, where they are **lost on restart**. It is the right choice for a
+first install you are evaluating, and the wrong one for anything you intend to
+keep — swap it for the S3 pair when you are ready (see
+[object storage](/administration/configuration/#object-storage-s3--minio)).
+
+At minimum, your values file then needs:
 
 ```yaml
 # my-values.yaml
-env:
-  SECRET_KEY: "<50+ character random string>"
-  ALLOWED_HOSTS: "trueppm.example.com"
+# Point the chart at the Secret created above. This reaches the API, the Celery
+# worker, AND the migrate/bootstrap init containers — all of which import the
+# same settings module and so hit the same startup checks.
+envFrom:
+  - secretRef:
+      name: trueppm-env
 
 # Recommended for production: disable the bundled datastores and point at managed
 # services. When they are disabled, env.DATABASE_URL and env.REDIS_URL are
@@ -132,14 +161,19 @@ postgresql:
 valkey:
   enabled: false
 # env:
-#   DATABASE_URL: "postgres://trueppm:<password>@<host>:5432/trueppm"
+#   # sslmode=require is REQUIRED on an external database — TruePPM refuses to
+#   # boot on a connection string that does not ask for TLS. If TLS is already
+#   # enforced at the network layer (service mesh, private encrypted link), set
+#   # env.TRUEPPM_ALLOW_UNENCRYPTED_DB: "true" to downgrade that check to a warning.
+#   DATABASE_URL: "postgres://trueppm:<password>@<host>:5432/trueppm?sslmode=require"
 #   REDIS_URL: "redis://:<password>@<host>:6379"
 ```
 
 With the bundled datastores **enabled** (dev / demo) instead, leave
 `postgresql.auth.password` and `valkey.auth.password` empty — see
 [Secure by default](#secure-by-default) below for what the chart generates on
-its own.
+its own. The chart also satisfies the database-TLS check for you on that path, so
+the bundled install needs no `DATABASE_URL` of its own.
 
 **Install:**
 
@@ -150,9 +184,15 @@ helm install trueppm packages/helm \
   -f my-values.yaml
 ```
 
-For real secrets, prefer injecting `SECRET_KEY` / `DATABASE_URL` / `REDIS_URL`
-via an external Kubernetes Secret over putting them in `my-values.yaml` or
-`--set`.
+If anything required is still missing, the install's own output says so: the
+chart's post-install notes name the exact keys the app will refuse to start
+without, and `helm upgrade --reuse-values` fixes it without a reinstall.
+
+Keep secrets in the Kubernetes Secret rather than in `my-values.yaml` or `--set`:
+values files get committed and `--set` lands in shell history. `DATABASE_URL` and
+`REDIS_URL` for a managed datastore belong in the same Secret for the same reason
+— add them as extra `--from-literal` keys instead of the commented `env:` block
+above.
 
 :::note[Bring your own Ingress]
 The chart's `Ingress` template is off by default — it exposes the API as a
@@ -309,8 +349,45 @@ a plaintext external database.
 For production, disable the bundled subcharts and point at managed services.
 When `postgresql.enabled` / `valkey.enabled` are `false`, `env.DATABASE_URL` and
 `env.REDIS_URL` become **required** — the chart fails the render with a clear
-message if either is missing. Managed Redis services (AWS ElastiCache, GCP
-Memorystore, Azure Cache, etc.) work via the `redis://` scheme.
+message if either is missing. (Setting either one while the matching bundled
+datastore is still enabled also fails the render: the chart-built URL always
+wins, so your value would be silently ignored.) Managed Redis services (AWS
+ElastiCache, GCP Memorystore, Azure Cache, etc.) work via the `redis://` scheme.
+
+**Prefer a Secret you manage.** Referencing one keeps the credential out of Helm
+altogether — out of your values file, your shell history, and the Helm release
+Secret. The chart wires every consumer (API, worker, beat, the `migrate` and
+`bootstrap` init containers, the backup CronJob) straight at your Secret:
+
+```bash
+kubectl create secret generic trueppm-db \
+  --from-literal=url='postgres://user:pass@your-db:5432/trueppm?sslmode=require'
+kubectl create secret generic trueppm-cache \
+  --from-literal=url='redis://:pass@your-cache:6379'
+```
+
+```yaml
+# values-my-prod.yaml
+env:
+  DATABASE_URL:
+    secretKeyRef:
+      name: trueppm-db
+      key: url
+  REDIS_URL:
+    secretKeyRef:
+      name: trueppm-cache
+      key: url
+```
+
+```bash
+helm install trueppm packages/helm \
+  -f packages/helm/values-prod.yaml -f values-my-prod.yaml
+```
+
+A plain URL string also works. The chart stores it in the chart-owned connection
+Secret and injects it from there, so it never reaches a Deployment manifest — but
+it passed through Helm, so it persists wherever it was held (the values file,
+`--set` in shell history, the Helm release Secret):
 
 ```bash
 helm install trueppm packages/helm \

@@ -419,9 +419,21 @@ When you disable the bundled subcharts (`postgresql.enabled: false` /
 `valkey.enabled: false`) to use managed services, the chart can no longer build
 the connection strings for you, so `env.DATABASE_URL` and `env.REDIS_URL` become
 **required** — the render fails with a clear message if either is missing.
-Inject them via an external Secret rather than `--set` so they don't land in
-shell history. See [Deployment](/administration/deployment/) and the chart
-README.
+
+Both supported shapes are injected via `secretKeyRef`, so neither renders a
+credential into a Deployment, Job, or CronJob. They differ in whether the
+credential passes through Helm:
+
+- **`secretKeyRef` map** (preferred) — the chart points every consumer at a
+  Secret you manage and never sees the URL, so it is absent from your values
+  file, your shell history, and the Helm release Secret.
+- **URL string** — the chart moves it into the chart-owned connection Secret and
+  injects it from there. It stays out of the workload manifests, but it persists
+  in whatever held it on the way in.
+
+See [Deployment](/administration/deployment/),
+[Helm values](/administration/helm-values/#managed-external-datastores), and the
+chart README.
 
 ## RBAC enforcement
 

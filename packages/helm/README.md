@@ -2,9 +2,32 @@
 
 Production-ready Helm 3 chart for deploying TruePPM on Kubernetes.
 
+## Quickstart
+
+`settings.prod` refuses to boot without four values, so the chart alone is not a
+complete install — create the app-env Secret first, then reference it with
+`envFrom`. Without it the `migrate` init container crash-loops before the API ever
+starts (details: [Required secrets](#required-secrets-prod-refuses-to-boot-without-them)).
+
 ```bash
-helm install trueppm packages/helm
+# 1. the four values settings.prod enforces at import time
+kubectl create secret generic trueppm-env \
+  --from-literal=SECRET_KEY="$(openssl rand -base64 48)" \
+  --from-literal=ALLOWED_HOSTS=trueppm.example.com \
+  --from-literal=INTEGRATION_ENCRYPTION_KEY="$(python3 -c \
+    'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')" \
+  --from-literal=TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true
+
+# 2. install, pointing the chart at it
+helm install trueppm packages/helm \
+  --set 'envFrom[0].secretRef.name=trueppm-env'
 ```
+
+`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` is the no-object-store default: task
+attachments land on the pod's ephemeral disk and are **lost on restart**. For
+anything you intend to keep, replace that one key with the S3 pair
+(`TRUEPPM_DEFAULT_FILE_STORAGE` + `TRUEPPM_S3_BUCKET_NAME`) — see
+[Required secrets](#required-secrets-prod-refuses-to-boot-without-them).
 
 The bundled PostgreSQL and Valkey subcharts are for **dev / demo / CI only**. For
 production, disable both and point at managed services (see
@@ -25,11 +48,22 @@ flags:
   honored verbatim.
 - **Valkey auth is ON by default** (`valkey.auth.enabled: true`).
 - **No plaintext credentials in any Deployment.** `DATABASE_URL` and `REDIS_URL`
-  are built server-side from the generated credentials and injected via
-  `secretKeyRef` against the connection Secret. They are never rendered into a
-  Deployment manifest. The bundled subcharts source their password from the same
-  connection Secret, so the database server credential and the URL string can
-  never drift apart (no `--set` split-brain).
+  are *always* injected via `secretKeyRef` — on the bundled path, on the
+  managed-datastore path, and in the API, worker, beat, init, backup, and
+  demo-seed containers alike. They are never rendered into a Deployment, Job, or
+  CronJob manifest. With the bundled datastores the chart builds both URLs
+  server-side from the credentials it generated, and the subcharts source their
+  password from the same connection Secret, so the database server credential and
+  the URL string can never drift apart (no `--set` split-brain).
+
+  **Caveat for a managed datastore supplied as a URL string.** If you pass
+  `env.DATABASE_URL` as a plaintext string, the chart stores it in the
+  chart-owned connection Secret and injects it from there — so it stays out of
+  the Deployment, but it did pass through Helm on the way, and it therefore
+  persists in whatever held it: your values file, your shell history if you used
+  `--set`, and the Helm release Secret. To keep the credential out of Helm
+  entirely, point at a Secret you manage instead
+  ([Production](#production-managed-datastores)).
 - **Hardened containers.** The API and Celery worker run with
   `allowPrivilegeEscalation: false`, `readOnlyRootFilesystem: true`,
   `capabilities: { drop: [ALL] }`, `seccompProfile: RuntimeDefault`, and
@@ -89,7 +123,7 @@ kubectl get secret <release>-trueppm-connection \
 | `autoscaling.enabled` | `false` | Optional HPA for the API (and `autoscaling.worker.enabled` for the worker). Needs metrics-server. |
 | `dashboards.enabled` | `false` | Ship the starter Grafana dashboard as a labeled ConfigMap. |
 | `alerts.enabled` | `false` | Ship async/outbox `PrometheusRule` alerts. Requires the Prometheus Operator CRDs. |
-| `env.DATABASE_URL` / `env.REDIS_URL` | unset (built by chart) | Required only when the bundled datastores are disabled. `env.REDIS_URL` is not required when `valkey.sentinel.enabled` is true. |
+| `env.DATABASE_URL` / `env.REDIS_URL` | unset (built by chart) | Required when the bundled datastores are disabled, and **rejected** while they are enabled. Either a `secretKeyRef` map (preferred) or a URL string — see [Production](#production-managed-datastores). `env.REDIS_URL` is not required when `valkey.sentinel.enabled` is true. |
 | `valkey.sentinel.enabled` | `false` | **Experimental** (0.4). Use an external Valkey Sentinel topology. Requires `valkey.enabled: false`, `valkey.sentinel.nodes`, and `valkey.sentinel.masterName`. Not yet verified against a live quorum failover. |
 | `global.trueppm.connectionSecretName` | `""` (derived) | Override only if you renamed the connection Secret. |
 | `backup.enabled` | `false` | Opt-in scheduled `pg_dump` backup CronJob (see below). |
@@ -239,18 +273,72 @@ policy-enforcing CNI is present).
 
 To keep that posture coherent with the app's DB-encryption boot guard, the chart
 automatically sets `TRUEPPM_ALLOW_UNENCRYPTED_DB=true` **only** when the bundled
-database is in use **and** the NetworkPolicy is enabled. This is why a default
-`helm install` boots without crash-looping and **without** any operator being told
-to disable a security check by hand. If you disable the NetworkPolicy, the chart
-stops injecting that flag and a bundled plaintext database fails the boot guard —
-by design: an unprotected plaintext datastore on a flat pod network should fail
-closed.
+database is in use **and** the NetworkPolicy is enabled. This is why the bundled
+datastores satisfy the DB-encryption guard on their own, **without** any operator
+being told to disable a security check by hand. It clears that one guard only —
+the chart generates *datastore* credentials, but the *application* env secrets in
+[Required secrets](#required-secrets-prod-refuses-to-boot-without-them) still have
+to be supplied, and an install without them crash-loops in the migrate init
+container.
+
+If you disable the NetworkPolicy, the chart stops injecting that flag and a
+bundled plaintext database fails the boot guard — by design: an unprotected
+plaintext datastore on a flat pod network should fail closed.
 
 For anything beyond dev/demo, use managed datastores with TLS (below). When
 `postgresql.enabled=false` the chart injects no auto flag, so your external
 `DATABASE_URL` **must** carry `sslmode=require`.
 
 ## Production (managed datastores)
+
+`values-prod.yaml` disables the bundled `postgresql` and `valkey` subcharts. When
+they are disabled you **must** supply `env.DATABASE_URL` and `env.REDIS_URL`
+(point them at your managed services); the chart fails the render with a clear
+message otherwise. The inverse is also enforced: setting either one *while* the
+matching bundled datastore is enabled fails the render, because the chart-built
+URL always wins and your value would be silently ignored.
+
+There are two supported shapes. Both inject the URL by `secretKeyRef`, so neither
+puts a credential in a Deployment — they differ in whether the credential passes
+through Helm at all.
+
+### Recommended: a Secret you manage
+
+Create the Secret out of band (or with external-secrets / sealed-secrets), then
+point the chart at it. Helm never sees the URL, so it is absent from your values
+file, your shell history, and the Helm release Secret:
+
+```bash
+kubectl create secret generic trueppm-db \
+  --from-literal=url='postgres://user:pass@your-db:5432/trueppm?sslmode=require'
+kubectl create secret generic trueppm-cache \
+  --from-literal=url='redis://:pass@your-cache:6379'
+```
+
+```yaml
+# values-my-prod.yaml
+env:
+  DATABASE_URL:
+    secretKeyRef:
+      name: trueppm-db
+      key: url
+  REDIS_URL:
+    secretKeyRef:
+      name: trueppm-cache
+      key: url
+```
+
+```bash
+helm install trueppm packages/helm \
+  -f packages/helm/values-prod.yaml -f values-my-prod.yaml
+```
+
+Every container that needs the URL — API, Celery worker, Celery beat, the
+`migrate` / `bootstrap` init containers, and the backup CronJob — reads it
+straight from your Secret. The chart does not copy it into its own connection
+Secret.
+
+### Alternative: a URL string
 
 ```bash
 helm install trueppm packages/helm \
@@ -259,15 +347,19 @@ helm install trueppm packages/helm \
   --set env.REDIS_URL="redis://your-cache:6379"
 ```
 
-`values-prod.yaml` disables the bundled `postgresql` and `valkey` subcharts. When
-they are disabled you **must** supply `env.DATABASE_URL` and `env.REDIS_URL`
-(point them at your managed services); the chart fails the render with a clear
-message otherwise. The external `DATABASE_URL` **must** include `sslmode=require`
-— `settings.prod` refuses to boot on a plaintext external database. Only if TLS is
-already enforced at the network layer (service mesh / private encrypted link) set
-`env.TRUEPPM_ALLOW_UNENCRYPTED_DB=true` to downgrade that guard to a warning.
-Prefer injecting these via an external Secret rather than `--set` so they don't
-land in shell history.
+The chart stores the string in the chart-owned connection Secret and injects it
+from there, so it still never lands in a Deployment — but it passed through Helm,
+so it persists wherever it was held (the values file, `--set` in shell history,
+the Helm release Secret). Use the Secret form above if that matters to you.
+
+### TLS on the external database
+
+The external `DATABASE_URL` **must** include `sslmode=require` — `settings.prod`
+refuses to boot on a plaintext external database. The chart cannot check this for
+the `secretKeyRef` form (it never sees the value), so there the guard is the
+app's alone, at boot. Only if TLS is already enforced at the network layer
+(service mesh / private encrypted link) set `env.TRUEPPM_ALLOW_UNENCRYPTED_DB=true`
+to downgrade that guard to a warning.
 
 ## Required secrets (prod refuses to boot without them)
 
@@ -291,6 +383,11 @@ kubectl create secret generic trueppm-env \
   --from-literal=TRUEPPM_DEFAULT_FILE_STORAGE=storages.backends.s3.S3Storage \
   --from-literal=TRUEPPM_S3_BUCKET_NAME=trueppm-attachments
 ```
+
+That is the durable-storage form. The [Quickstart](#quickstart) substitutes
+`TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true` for the last two keys, which needs
+no bucket but keeps attachments on ephemeral disk — the right trade only while you
+are evaluating.
 
 The API image bundles the S3 backend, so those two keys are all an AWS S3 deploy
 needs — credentials resolve from IRSA or the instance profile. For MinIO or
