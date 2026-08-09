@@ -259,7 +259,33 @@ fi
 #    notes are the only place the operator is told. Assert BOTH directions: the
 #    warning fires on a bare install and stays silent once a source is configured,
 #    because a notice that always prints is a notice nobody reads.
-notes() { helm install trueppm-notes-probe "$CHART" --dry-run=client --set image.tag=latest "$@" 2>&1; }
+#    `helm install --dry-run` is the natural way to exercise NOTES.txt and does not
+#    work here: even with --dry-run=client it needs a reachable cluster, and this
+#    job has none. So the notice lives in the trueppm.bootGuardNotice helper and is
+#    rendered through a throwaway probe template copied into a scratch chart — the
+#    shipped logic, reachable offline. NOTES.txt itself is asserted to include it.
+grep -q 'trueppm.bootGuardNotice' "$CHART/templates/NOTES.txt" \
+  || fail "NOTES.txt does not include the trueppm.bootGuardNotice helper — the boot-guard warning below is rendered but never shown to the operator (#2812)"
+
+PROBE_DIR="$(mktemp -d)"
+# A second `trap ... EXIT` REPLACES the first rather than adding to it, so this one
+# has to clean up section 5's temp dir too or that directory leaks on every run.
+trap 'rm -rf "$np_split" "$PROBE_DIR"' EXIT
+cp -R "$CHART" "$PROBE_DIR/chart"
+cat > "$PROBE_DIR/chart/templates/zz-boot-guard-probe.yaml" <<'PROBE'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: boot-guard-notice-probe
+data:
+  notice: |
+{{ include "trueppm.bootGuardNotice" . | indent 4 }}
+PROBE
+
+notes() {
+  helm template trueppm "$PROBE_DIR/chart" --set image.tag=latest "$@" \
+    --show-only templates/zz-boot-guard-probe.yaml 2>&1
+}
 
 bare_notes="$(notes)"
 for key in SECRET_KEY ALLOWED_HOSTS INTEGRATION_ENCRYPTION_KEY TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE; do
