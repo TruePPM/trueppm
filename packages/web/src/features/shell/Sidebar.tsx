@@ -1346,6 +1346,19 @@ function ProjectViewsTier({
   // that bar indicator only renders while this card subtitle is hidden (collapsed
   // rail), so the two never show the methodology twice at once.
   const effectiveMethodology = project.data?.effective_methodology ?? 'HYBRID';
+  // Two forms of the same fact. The full phrase carries the #2619 "(workspace
+  // default)" qualifier and is ~230px wide at `text-xs` — wider than the entire
+  // rail, let alone the ~170px this card leaves for text — so it cannot be the
+  // *visible* string here at any rail width. It rides the line's `title` instead
+  // (rule 255), alongside the collapsed-rail `MethodologyIndicator` tooltip that
+  // already carries it. Omitting `inherited` degrades `methodologyStatusLabel` to
+  // the plain "Hybrid methodology" by design, which is what fits.
+  const methodologyFull = methodologyStatusLabel(
+    effectiveMethodology,
+    project.data?.inherited_methodology,
+  );
+  const methodologyShort = methodologyStatusLabel(effectiveMethodology);
+  const subtitleTitle = programName ? `${programName} · ${methodologyFull}` : methodologyFull;
   const OverviewIcon = VIEW_TAB_META[standaloneLeading].Icon;
   const closeDrawer = () => {
     if (isDrawer) onClose?.();
@@ -1373,18 +1386,23 @@ function ProjectViewsTier({
         />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-chrome-text-primary">{name}</p>
-          {/* Program name truncates first; the methodology stays `shrink-0` so the
-              "you are here / how it runs" signal is never clipped. */}
-          <p className="flex items-center gap-1 text-xs text-chrome-text-secondary">
-            {programName && <span className="truncate">{programName}</span>}
+          {/* Program name truncates first — it carries the heavier shrink factor, so
+              it gives up its width before the "how it runs" signal does. But the
+              methodology must still be able to truncate as a last resort: a `shrink-0`
+              span whose text exceeds the card simply overflows it, and the rail's
+              `overflow-hidden` then cuts the phrase off mid-word with nothing marking
+              it as truncated. `title` keeps the full line recoverable (rule 255). */}
+          <p
+            className="flex items-center gap-1 text-xs text-chrome-text-secondary"
+            title={subtitleTitle}
+          >
+            {programName && <span className="min-w-0 shrink-[9999] truncate">{programName}</span>}
             {programName && (
               <span aria-hidden="true" className="shrink-0">
                 ·
               </span>
             )}
-            <span className="shrink-0">
-              {methodologyStatusLabel(effectiveMethodology, project.data?.inherited_methodology)}
-            </span>
+            <span className="min-w-0 truncate">{methodologyShort}</span>
           </p>
         </div>
         <span role="img" aria-label={HEALTH_LABEL[health]} className="shrink-0">
