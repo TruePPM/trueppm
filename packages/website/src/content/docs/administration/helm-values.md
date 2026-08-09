@@ -25,7 +25,7 @@ may not be present.
 | `replicaCount` | `1` | API tier replica count. Raise to `2+` for production (the prod overlay sets 2). Request throughput scales with this because uvicorn runs one worker per pod by default. |
 | `image.repository` | `registry.gitlab.com/trueppm/trueppm/api` | API container image. |
 | `image.webRepository` | `registry.gitlab.com/trueppm/trueppm/web` | Web (nginx SPA) image; shares `tag`/`pullPolicy` with the API so a release deploys a matching pair. |
-| `image.tag` | `""` | Empty pins the chart to its own `appVersion` for reproducible rollbacks. Override per-deploy with a concrete tag. |
+| `image.tag` | `""` | Empty pins the chart to its own `appVersion` for reproducible rollbacks, resolving to `v<appVersion>` (e.g. `v0.4.0`) — released images are published under v-prefixed tags, so the `v` is part of the tag, not decoration. Override per-deploy with a concrete tag, which is used verbatim. |
 | `image.pullPolicy` | `IfNotPresent` | Standard Kubernetes pull policy. |
 
 ## Service and web tier
