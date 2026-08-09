@@ -110,12 +110,14 @@ workflow:
   rules:
     # Scheduled pipelines are permitted only for the Renovate runner
     # (RENOVATE == "true"), the nightly SonarCloud scan (SONAR_SCHEDULED ==
-    # "true"), and the nightly Keycloak SSO smoke (SSO_NIGHTLY == "true", #2274).
-    # Block any other scheduled trigger so a stray schedule can't spin up a full
-    # pipeline. Each permitted schedule runs on `main` and falls through to the
-    # branch rule below; the SSO schedule only matches sso:integration +
-    # ci:build-keycloak-image, so day-to-day MR/push pipelines are unaffected.
-    - if: '$CI_PIPELINE_SOURCE == "schedule" && $RENOVATE != "true" && $SONAR_SCHEDULED != "true" && $SSO_NIGHTLY != "true"'
+    # "true"), the nightly Keycloak SSO smoke (SSO_NIGHTLY == "true", #2274),
+    # and the nightly release-image existence check (REGISTRY_NIGHTLY == "true",
+    # #2803). Block any other scheduled trigger so a stray schedule can't spin up
+    # a full pipeline. Each permitted schedule runs on `main` and falls through
+    # to the branch rule below; the SSO schedule only matches sso:integration +
+    # ci:build-keycloak-image and the registry schedule only matches
+    # registry:release-images, so day-to-day MR/push pipelines are unaffected.
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $RENOVATE != "true" && $SONAR_SCHEDULED != "true" && $SSO_NIGHTLY != "true" && $REGISTRY_NIGHTLY != "true"'
       when: never
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -514,6 +516,11 @@ scripts:test:
   #     still fails on a real denial: a retry that swallowed both would convert
   #     the drill from flaky into useless, and a useless netpol drill is how
   #     #2560 shipped.
+  #   - check-release-images — the nightly release-image existence gate (#2803).
+  #     Its only job is to fail when an image is gone, and the registry it reads
+  #     is healthy every day it is not needed; a probe that quietly stopped
+  #     detecting absence would look identical to a healthy registry, which is
+  #     precisely the silence that let the reaped 0.3 images go unnoticed.
   # There is no other test harness for these scripts, so guard the logic
   # directly. Pinned python image (bash + python3), ~5s. The wt-reserve test
   # stages real throwaway git repos and runs scripts/wt against them, so this
@@ -542,6 +549,7 @@ scripts:test:
         - scripts/check-enterprise-imports.sh
         - scripts/check-suppression-issues.sh
         - scripts/helm-netpol-drill.sh
+        - scripts/check-release-images.sh
         - scripts/tests/rotate-scheduler-changelog.test.sh
         - scripts/tests/assemble-changelog.test.sh
         - scripts/tests/release-staging.test.sh
@@ -552,6 +560,7 @@ scripts:test:
         - scripts/tests/check-enterprise-imports.test.sh
         - scripts/tests/check-suppression-issues.test.sh
         - scripts/tests/helm-netpol-probe.test.sh
+        - scripts/tests/check-release-images.test.sh
         - .gitlab-ci.yml
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
@@ -566,6 +575,7 @@ scripts:test:
         - scripts/check-enterprise-imports.sh
         - scripts/check-suppression-issues.sh
         - scripts/helm-netpol-drill.sh
+        - scripts/check-release-images.sh
         - scripts/tests/rotate-scheduler-changelog.test.sh
         - scripts/tests/assemble-changelog.test.sh
         - scripts/tests/release-staging.test.sh
@@ -576,6 +586,7 @@ scripts:test:
         - scripts/tests/check-enterprise-imports.test.sh
         - scripts/tests/check-suppression-issues.test.sh
         - scripts/tests/helm-netpol-probe.test.sh
+        - scripts/tests/check-release-images.test.sh
         - .gitlab-ci.yml
   script:
     - bash scripts/tests/rotate-scheduler-changelog.test.sh
@@ -588,6 +599,7 @@ scripts:test:
     - bash scripts/tests/check-enterprise-imports.test.sh
     - bash scripts/tests/check-suppression-issues.test.sh
     - bash scripts/tests/helm-netpol-probe.test.sh
+    - bash scripts/tests/check-release-images.test.sh
 
 boundary:check:
   extends: .fast-job
@@ -4942,6 +4954,51 @@ web:publish:
     paths:
       - sbom/
     expire_in: never
+
+registry:release-images:
+  # Nightly proof that the latest v* release tag is still pullable (#2803).
+  #
+  # The project's container-registry cleanup policy ran with `name_regex: .*`
+  # and `name_regex_keep: null` — matching every tag, protecting none — and its
+  # daily sweep deleted the released api and web `v0.3.0-alpha.3` images. The
+  # publish jobs had succeeded weeks earlier and their pipeline is still green;
+  # nothing in CI reads the registry after a tag ships, so the only signal was a
+  # 404 nobody was looking at.
+  #
+  # This is why the check is scheduled rather than triggered: an image vanishing
+  # is not a diff event. There is no commit to review and no existing job that
+  # would turn red, so the only way to find out is to go and look, every night.
+  #
+  # NOT allow_failure. A self-hoster who cannot pull the version we told them to
+  # run has no install at all, so a missing release image is a release defect,
+  # not an advisory. The policy is also a project *setting* living outside this
+  # repo, which any future edit can silently regress — a yellow job here would
+  # reproduce exactly the silence that let #2803 sit unnoticed.
+  #
+  # Runs on MRs that touch the check itself so the harness is validated before
+  # merge; a green nightly proves nothing if the probe never worked.
+  stage: publish
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  services:
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    # The check resolves the newest v* tag from the clone, and the default
+    # shallow fetch of a single branch ref carries no tags at all — which the
+    # script reports as exit 2 (invocation error), not a missing image.
+    GIT_DEPTH: "0"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $REGISTRY_NIGHTLY == "true"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - scripts/check-release-images.sh
+        - scripts/tests/check-release-images.test.sh
+        - .gitlab-ci.yml
+  before_script:
+    - docker login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${CI_REGISTRY}"
+    - apk add --no-cache bash git
+  script:
+    - bash scripts/check-release-images.sh
 
 helm:publish:
   # Helm chart → GHCR OCI registry. GitLab Container Registry does not support
