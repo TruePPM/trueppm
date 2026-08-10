@@ -1072,6 +1072,11 @@ ci:mirror-playwright-base:
   # weekly schedule refreshes it. The cold pull is wrapped in exponential-backoff
   # retry since that one pull may still hit the throttle window; once pushed, the
   # mirror tag persists until the bump.
+  #
+  # `.gitlab-ci.yml` is in the rules because PLAYWRIGHT_BASE_TAG is declared here
+  # and now names the derived ci-integration tag too (#2825) — a pipeline that
+  # changes the variable has to build both tags, or the consumers reference an
+  # image nobody pushed.
   stage: lint
   image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   services:
@@ -1088,11 +1093,13 @@ ci:mirror-playwright-base:
         - packages/scheduler/pyproject.toml
         - packages/api/pyproject.toml
         - .gitlab/ci-images/integration.Dockerfile
+        - .gitlab-ci.yml
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/scheduler/pyproject.toml
         - packages/api/pyproject.toml
         - .gitlab/ci-images/integration.Dockerfile
+        - .gitlab-ci.yml
   before_script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
   script:
@@ -1136,6 +1143,22 @@ ci:build-integration-image:
   # never pulls from the throttled MCR endpoint. `needs: ci:mirror-playwright-base`
   # guarantees the mirror tag exists before the FROM is resolved; that gate is a
   # no-op in steady state, so the dependency costs nothing once mirrored.
+  #
+  # The tag carries $PLAYWRIGHT_BASE_TAG and must keep carrying it (#2825). This
+  # image was tagged `:noble` — a name that never changed when its contents did.
+  # Our runners pull `if-not-present`, so on the 1.62.1 bump each one served
+  # whatever `:noble` it had cached instead of the freshly pushed digest, and
+  # every web:integration spec died at `browserType.launch: Executable doesn't
+  # exist at /ms-playwright/chromium_headless_shell-<rev>` — npm's
+  # @playwright/test resolves the browser through a version-stamped path and
+  # never re-downloads, so a base/package mismatch is a hard failure. `needs:`
+  # does not help: it orders the jobs, but nothing makes a runner re-pull a tag
+  # it already holds. Version-stamping mints a tag name no runner can have
+  # cached, which is precisely why every playwright-base:$PLAYWRIGHT_BASE_TAG
+  # consumer (web:e2e, website:build, pages) survived the same pipeline. Do not
+  # "simplify" this back to a fixed tag; `pull_policy: always` is not an
+  # available substitute — these are self-hosted group runners and the job would
+  # be rejected unless their allowed_pull_policies is widened first.
   stage: lint
   image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   services:
@@ -1145,7 +1168,7 @@ ci:build-integration-image:
       artifacts: false
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
-    IMAGE: "$CI_REGISTRY_IMAGE/ci-integration:noble"
+    IMAGE: "$CI_REGISTRY_IMAGE/ci-integration:$PLAYWRIGHT_BASE_TAG"
     PLAYWRIGHT_BASE: "$CI_REGISTRY_IMAGE/playwright-base:$PLAYWRIGHT_BASE_TAG"
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
@@ -1154,11 +1177,13 @@ ci:build-integration-image:
         - packages/scheduler/pyproject.toml
         - packages/api/pyproject.toml
         - .gitlab/ci-images/integration.Dockerfile
+        - .gitlab-ci.yml
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/scheduler/pyproject.toml
         - packages/api/pyproject.toml
         - .gitlab/ci-images/integration.Dockerfile
+        - .gitlab-ci.yml
   before_script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
   script:
@@ -2442,7 +2467,7 @@ api:fuzz:
   # suppressing costs zero coverage and hides no defect.
   stage: test
   allow_failure: true
-  image: $CI_REGISTRY_IMAGE/ci-integration:noble
+  image: $CI_REGISTRY_IMAGE/ci-integration:$PLAYWRIGHT_BASE_TAG
   needs:
     - job: ci:build-integration-image
       optional: true
@@ -2625,7 +2650,7 @@ perf:load:
   # piggybacking on the nightly is the working equivalent of api:fuzz's cadence.
   stage: test
   allow_failure: true
-  image: $CI_REGISTRY_IMAGE/ci-integration:noble
+  image: $CI_REGISTRY_IMAGE/ci-integration:$PLAYWRIGHT_BASE_TAG
   needs:
     - job: ci:build-integration-image
       optional: true
@@ -3508,7 +3533,7 @@ web:integration:
   # only re-links the editable packages — no apt-get, no wheel downloads.
   # Mirrors the #640 ci-api / #651 ci-scheduler pattern.
   stage: test
-  image: $CI_REGISTRY_IMAGE/ci-integration:noble
+  image: $CI_REGISTRY_IMAGE/ci-integration:$PLAYWRIGHT_BASE_TAG
   needs:
     - job: ci:build-integration-image
       optional: true
@@ -3551,6 +3576,15 @@ web:integration:
         - packages/api/src/trueppm_api/core/auth_views.py
         - packages/api/src/trueppm_api/apps/sync/consumers.py
         - packages/api/src/trueppm_api/apps/workshops/consumers.py
+    # The image this job runs in, and the config that names it. Nothing
+    # validated web:integration before merge when only the image changed, which
+    # is how a stale-tag pull reached main and broke it for two pipelines
+    # (#2825); the Playwright bump that triggered it touched neither an auth nor
+    # a real-time surface, so none of the paths above matched.
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - .gitlab/ci-images/integration.Dockerfile
+        - .gitlab-ci.yml
   cache:
     # npm content cache (not node_modules — `npm ci` wipes it), so the runtime
     # `npm ci --prefer-offline` rebuilds with zero network on a warm cache (#1212).
@@ -3625,7 +3659,7 @@ sso:integration:
   # discovery/token/JWKS reachable, exactly as a self-hoster does for an in-cluster
   # IdP. The browser (Chromium in the job container) reaches keycloak:8080 too.
   stage: test
-  image: $CI_REGISTRY_IMAGE/ci-integration:noble
+  image: $CI_REGISTRY_IMAGE/ci-integration:$PLAYWRIGHT_BASE_TAG
   needs:
     - job: ci:build-integration-image
       optional: true

@@ -19,13 +19,29 @@ project's own container registry, not a self-hosted TruePPM deployment.
 |---|---|---|
 | `registry.gitlab.com/trueppm/trueppm/ci-api:py3.11` | `ci:build-api-image` | `.gitlab/ci-images/api.Dockerfile` |
 | `registry.gitlab.com/trueppm/trueppm/ci-scheduler:py3.11` | `ci:build-scheduler-image` | `.gitlab/ci-images/scheduler.Dockerfile` |
-| `registry.gitlab.com/trueppm/trueppm/ci-integration:noble` | `ci:build-integration-image` | `.gitlab/ci-images/integration.Dockerfile` |
+| `registry.gitlab.com/trueppm/trueppm/ci-integration:$PLAYWRIGHT_BASE_TAG` | `ci:build-integration-image` | `.gitlab/ci-images/integration.Dockerfile` |
 
 All three are rebuilt when their `Dockerfile` or the relevant `pyproject.toml` changes,
 plus on the weekly scheduled pipeline so the baked wheels stay current with security
-updates. The `ci-integration:noble` image layers Python, `libpq-dev`, `gcc`, and the
+updates. The `ci-integration` image layers Python, `libpq-dev`, `gcc`, and the
 scheduler/API dev dependencies on top of the Playwright base image; it is used by the
-`web:integration` job.
+`web:integration`, `api:fuzz`, `perf:load`, and `sso:integration` jobs.
+
+### Why `ci-integration` is version-stamped
+
+`ci-integration` is tagged with `$PLAYWRIGHT_BASE_TAG` (currently `v1.62.1-noble`),
+not with a fixed name, because it **carries browsers**. Our runners pull
+`if-not-present`, so a tag whose name never changes is served from whatever copy the
+runner already has — even minutes after a rebuild pushed a new digest to the same
+name. When the image was tagged `:noble`, the Playwright 1.62.1 bump broke `main` for
+two pipelines exactly this way: `web:integration` ran a stale cached image and every
+spec died at `browserType.launch: Executable doesn't exist`, because
+`@playwright/test` resolves the browser through a version-stamped path on disk and
+never re-downloads it (#2825). Stamping the version into the tag mints a name no
+runner can already hold, which forces a real pull.
+
+`ci-api` and `ci-scheduler` keep fixed tags: they carry only Python wheels, and a
+stale one costs a slower `pip install -e` rather than a hard failure.
 
 ## Why retention matters
 
@@ -35,6 +51,12 @@ untagged layers automatically, so they accumulate indefinitely. At one scheduled
 rebuild per week per image — plus `pyproject.toml` churn — the registry is tens of
 gigabytes deep within a single release cycle.
 
+A Playwright bump is the one case that behaves differently: it retires the whole
+`ci-integration` / `playwright-base` tag rather than orphaning a SHA under a reused
+one, so the superseded tag stays tagged and the `^v.*$` keep pattern below preserves
+it. Those are worth deleting by hand a release or two after a bump — they are large,
+and nothing reaps them.
+
 It is also a quiet supply-chain risk: a stale untagged SHA that a long-running MR
 pipeline still references can pin a vulnerable transitive dependency that the latest
 `:py3.11` tag has since dropped.
@@ -42,30 +64,58 @@ pipeline still references can pin a vulnerable transitive dependency that the la
 ## The cleanup policy
 
 GitLab's per-project **container registry cleanup policy** solves both problems by
-periodically deleting untagged images while keeping the most recent tagged ones. The
-policy is currently **disabled** on the project; enable it with these settings:
+periodically deleting old tags while keeping the most recent ones. It is **enabled**
+on the project and currently set to:
 
 | Setting | Value | Effect |
 |---|---|---|
 | `cadence` | `1d` | Run the cleanup daily |
-| `enabled` | `true` | Turn the policy on |
-| `keep_n` | `10` | Keep the 10 most recent matching images per repository |
-| `older_than` | `7d` | Only remove images older than 7 days |
-| `name_regex_delete` | `.*` | Consider every tag for deletion… |
-| `name_regex_keep` | `(py3\.11|noble)` | …but never delete the live `py3.11` or `noble` tags |
+| `enabled` | `true` | Policy is on |
+| `keep_n` | `10` | Keep the 10 most recent matching tags per repository |
+| `older_than` | `7d` | Only consider tags older than 7 days |
+| `name_regex` | `.*` | Consider every tag for deletion… |
+| `name_regex_keep` | `^v.*$\|^latest$` | …except release tags and `latest` |
 
 `older_than: 7d` is deliberately generous so an in-flight MR pipeline that pinned a
 now-untagged SHA has a week to finish before that layer is reaped.
 
-## Enabling the policy
-
-:::caution[Destructive — run once, as a maintainer]
-This permanently deletes untagged registry images. It is an outward-facing,
-one-time project-settings change; run it deliberately as a project maintainer or
-owner, not from a pipeline.
+:::danger[Do not narrow `name_regex_keep` without reading #2803]
+An earlier configuration used `keep_n: 1` with `name_regex_keep: null`, and the
+first daily sweep deleted the published `api:v0.3.0-alpha.3` and
+`web:v0.3.0-alpha.3` release images. `^v.*$` is what protects every `v*` release
+tag, and it is the reason this policy is worth being careful with: it lives in
+project settings, outside the repo, so nothing in a code review will catch a
+regression. #2803 tracks the nightly probe that fails red when a release image goes
+missing.
 :::
 
-Set it through the API with `glab`:
+This pattern is also what protects the version-stamped CI images: `ci-integration`
+and `playwright-base` are tagged `v1.62.1-noble`, which matches `^v.*$`. Keep the
+leading `v` if the tag scheme ever changes.
+
+The fixed-name tags — `ci-api:py3.11`, `ci-scheduler:py3.11`, `ci-wasm:1.85`,
+`ci-keycloak:26` — match no keep pattern and survive on `keep_n` alone, because each
+of those repositories holds only the one tag. That is thin protection: if one of
+them ever accumulates more than ten tags, the live tag becomes eligible for
+deletion, and the symptom is CI failing to pull an image with no code change to
+blame. Widening the keep pattern to cover them is worthwhile — just never at the
+cost of `^v.*$`.
+
+## Changing the policy
+
+:::caution[Destructive — run deliberately, as a maintainer]
+This permanently deletes registry images. It is an outward-facing project-settings
+change; run it as a project maintainer or owner, not from a pipeline, and re-read
+the warning above first.
+:::
+
+Read the current policy before changing it:
+
+```bash
+glab api projects/trueppm%2Ftrueppm | jq .container_expiration_policy
+```
+
+Set it through the API with `glab` — this writes the values in the table above:
 
 ```bash
 glab api --method PUT projects/trueppm%2Ftrueppm \
@@ -74,7 +124,7 @@ glab api --method PUT projects/trueppm%2Ftrueppm \
   -f 'container_expiration_policy_attributes[keep_n]=10' \
   -f 'container_expiration_policy_attributes[older_than]=7d' \
   -f 'container_expiration_policy_attributes[name_regex_delete]=.*' \
-  -f 'container_expiration_policy_attributes[name_regex_keep]=(py3\.11|noble)'
+  -f 'container_expiration_policy_attributes[name_regex_keep]=^v.*$|^latest$'
 ```
 
 The same settings are available in the GitLab UI under
