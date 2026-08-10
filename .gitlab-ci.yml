@@ -1565,19 +1565,25 @@ ci:build-deploy-images:
     - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
+  # The changes: list is the UNION of every drill that `needs:` this job —
+  # helm:install AND compose:prod (#2817). It has to be a superset: a
+  # compose-only MR that created compose:prod without this job would be a
+  # pipeline configuration error, not a skipped drill.
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
       allow_failure: true
     - if: '$CI_COMMIT_BRANCH == "main"'
-      changes:
+      changes: &deploy-drill-paths
         - packages/helm/**/*
         - scripts/helm-install-drill.sh
+        - scripts/prod-compose-drill.sh
+        - docker-compose.prod.yml
+        - init-prod.sh
+        - .env.example
+        - nginx/**/*
         - .gitlab-ci.yml
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-      changes:
-        - packages/helm/**/*
-        - scripts/helm-install-drill.sh
-        - .gitlab-ci.yml
+      changes: *deploy-drill-paths
   before_script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
   script:
@@ -1657,6 +1663,65 @@ helm:install:
     - until docker info >/dev/null 2>&1; do echo "waiting for dind..."; sleep 2; done
   script:
     - bash scripts/helm-install-drill.sh
+
+compose:prod:
+  # Production docker-compose BOOT drill (#2817): the runtime half of the
+  # prod-compose completeness fix (#2804, !1945), whose three fixes were all
+  # verified by `docker compose config` rendering and unit-level contract tests
+  # — nothing ever started the stack. A compose file renders green and
+  # crash-loops; a service is declared and never dispatches. This job boots the
+  # documented single-server path (init-prod.sh + docker-compose.prod.yml,
+  # unmodified) from a filled .env.example and asserts the api clears its three
+  # settings.prod boot guards, /api/v1/readyz goes ready through nginx,
+  # /api/v1/health/beat/ returns 200 (proving celery-beat actually heartbeats),
+  # and the stack survives `docker compose restart api`. Tears down with -v.
+  # See scripts/prod-compose-drill.sh for the full rationale.
+  #
+  # Mirrors helm:install (#2279), which already caught a real deploy regression
+  # (#2283); the prod compose path — the primary story the 0.4 operator on-ramp
+  # documents — had no equivalent. BLOCKING on MR + main for the same reason:
+  # `needs:` ci:build-deploy-images means it drills HEAD chart-equivalents
+  # against HEAD application code, so a red is a real deploy regression rather
+  # than version skew. Schedule stays advisory so a nightly infra blip on the
+  # shared runner is a signal, not a hard red.
+  #
+  # Not `interruptible`: a rebased push must not abort a half-created stack and
+  # leak its containers and volumes into the dind daemon.
+  #
+  # TLS/certbot is deliberately out of scope — it needs a real domain and ACME
+  # reachability on 80/443. That path stays a tag-day manual smoke (#2804).
+  stage: test
+  interruptible: false
+  timeout: 25m
+  image: docker:27@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  services:
+    - docker:27-dind@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce
+  needs:
+    - job: ci:build-deploy-images
+      artifacts: false
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_HOST: "tcp://docker:2376"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+    RELEASE_IMAGE_TAG: "$CI_COMMIT_SHA"
+    # The dind service publishes the stack's port 80 under this hostname, and it
+    # is also what lands in the Host header, so it must be in ALLOWED_HOSTS —
+    # the drill writes it there.
+    PROBE_HOST: "docker"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      allow_failure: true
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: *deploy-drill-paths
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: *deploy-drill-paths
+  before_script:
+    # docker-compose-plugin, curl and python3 are not in the docker:27 image.
+    - apk add --no-cache bash curl python3 docker-cli-compose
+    - until docker info >/dev/null 2>&1; do echo "waiting for dind..."; sleep 2; done
+  script:
+    - bash scripts/prod-compose-drill.sh
 
 helm:netpol:
   # Datastore NetworkPolicy ENFORCEMENT drill (#2560). See
