@@ -28,6 +28,10 @@ import type {
 } from '@/workers/cpmWorker.types';
 import { useDragStore } from '@/stores/dragStore';
 import { buildSubgraph } from '@/features/schedule/buildSubgraph';
+import {
+  isPinnedByActuals,
+  PINNED_DRAG_EXPLANATION,
+} from '@/features/schedule/pinnedByActuals';
 import { createCpmWorker } from '@/workers/createCpmWorker';
 import { isTypingInInput } from '@/hooks/useGlobalShortcut';
 
@@ -122,6 +126,17 @@ export function useDragCpm({
     const offDragTask = engine.on('drag-task', (ev) => {
       startDrag(ev.id);
       seqRef.current = 0;
+
+      // #2819: the bar under the cursor may be pinned by recorded actuals, in
+      // which case the server will re-pin it on the next CPM run and the drop
+      // will change nothing. PreviewOverlay says so visually; the overlay is
+      // aria-hidden (rule 27), so this is the only channel that reaches a
+      // screen reader — and it has to fire at drag START, because by drag end
+      // the user has already committed to a gesture that does nothing.
+      const dragged = tasksRef.current.find((t) => t.id === ev.id);
+      if (ariaLiveRef.current && dragged && isPinnedByActuals(dragged)) {
+        ariaLiveRef.current.textContent = PINNED_DRAG_EXPLANATION;
+      }
 
       const worker = workerRef.current;
       if (!worker) return;

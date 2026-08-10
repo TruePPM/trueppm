@@ -119,6 +119,32 @@ export const useDragStore = create<DragState>((set) => ({
   startBuilding: (taskId, ghostStart, ghostFinish) =>
     set({ phase: 'building', buildingTaskId: taskId, buildingStart: ghostStart, buildingFinish: ghostFinish }),
 
+  /**
+   * Leave 'building' phase — and ONLY that phase (#2819).
+   *
+   * This used to `set({ phase: 'idle', … })` unconditionally, which made it a
+   * global "cancel whatever is happening" switch under a name that promises the
+   * opposite. Its one caller is `useBuildGhostBar`, which every TaskListRow
+   * mounts: each row whose name cell is not in edit mode calls this on mount and
+   * again whenever the effect's deps change. So an active pointer drag or
+   * keyboard reschedule was reset to 'idle' by an unrelated row re-rendering —
+   * within a frame or two of starting, every time. That is why the drag preview
+   * never appeared to be missing anything: `previewResults` had no render site
+   * (the other half of #2819), and the phase that would have shown them did not
+   * survive a render pass either.
+   *
+   * Returning the state object unchanged when there is nothing to stop also
+   * keeps these per-row calls from waking every subscriber on every render.
+   */
   stopBuilding: () =>
-    set({ phase: 'idle', buildingTaskId: null, buildingStart: null, buildingFinish: null }),
+    set((s) => {
+      if (s.phase !== 'building' && s.buildingTaskId === null) return s;
+      return {
+        // A drag or keyboard reschedule is not this action's to end.
+        phase: s.phase === 'building' ? 'idle' : s.phase,
+        buildingTaskId: null,
+        buildingStart: null,
+        buildingFinish: null,
+      };
+    }),
 }));

@@ -4,6 +4,15 @@
  * reschedule (issue #34), and a dashed build ghost bar during inline name
  * editing in build mode (issue #344).
  *
+ * Mounted as canvas layer 4 by `CanvasScheduleTimeline`, above the ARIA
+ * overlay. Until #2819 it had no render site at all: it was written against
+ * the pre-canvas SVAR Gantt, which had no timeline header and no engine-owned
+ * scroll, so its row math (`rowIndex * ROW_HEIGHT`, a `scrollLeft` prop) could
+ * not be satisfied by the canvas host — and so the CPM worker's per-task
+ * `results` reached no visible surface. It now takes the engine directly and
+ * derives scales/scroll from it, the same integration shape as
+ * `ScheduleAriaOverlay` (design decision 54).
+ *
  * Design rules enforced here:
  * - Rule 23: ghost-fill / ghost-border tokens via style prop (dynamic values)
  * - Rule 24: "preview bars" terminology
@@ -17,13 +26,18 @@
  *   estimate — the server CPM run reconciles the authoritative dates on drop
  * - Rule 51: keyboard instruction strip rendered when isKeyboardMode is true
  * - Rule 52: origin ghost bar at original task position during keyboard reschedule
+ * - Issue #2819: a drag whose origin task is pinned by recorded actuals says so
+ *   while the gesture is live, instead of letting the bar snap back unexplained
  */
 
-import { useMemo, useEffect, useRef, useState } from 'react';
-import type { GanttScaleData } from '@/features/schedule/engine';
-import type { DragPreviewResult } from '@/types';
+import { useMemo, useEffect, useRef, useState, type RefObject } from 'react';
+import type { GanttEngine, GanttScaleData } from '@/features/schedule/engine';
+import type { DragPreviewResult, Task } from '@/types';
 import { useDragStore } from '@/stores/dragStore';
 import { dateToLeft } from '@/features/schedule/engine';
+import { ROW_HEIGHT, BAR_TOP_OFFSET, BAR_HEIGHT } from './engine/GanttHitIndex';
+import { HEADER_HEIGHT } from './scheduleConstants';
+import { isPinnedByActuals, PINNED_DRAG_EXPLANATION } from './pinnedByActuals';
 
 // Design tokens (defined in tailwind.config.ts / globals.css — applied via style prop per rule 10).
 // Ghost colors read the theme-aware --ghost-* channels (slate-500 on light,
@@ -39,24 +53,42 @@ const ORIGIN_BORDER = 'rgb(var(--ghost-border) / 0.95)';
 // Build ghost bar: dashed brand-accent (amber) border during inline name editing (#344)
 const BUILD_BORDER = 'var(--color-brand-accent, #E8A020)';
 
-const BAR_HEIGHT = 18; // rule 14: normal/critical/complete = 18px
-const ROW_HEIGHT = 28; // rule 15: task list row height
+/**
+ * Vertical placement of a ghost bar inside the clipped bars band.
+ *
+ * The band's own box already starts at HEADER_HEIGHT (see the render below), so
+ * this is row-relative and must NOT add the header again. `BAR_TOP_OFFSET` /
+ * `BAR_HEIGHT` come from `GanttHitIndex` — the same constants the renderer draws
+ * real bars with, so a ghost lands exactly on the bar it previews rather than
+ * near it.
+ */
+function barTop(rowIndex: number, scrollTop: number): number {
+  return rowIndex * ROW_HEIGHT - scrollTop + BAR_TOP_OFFSET;
+}
 
 interface PreviewBarProps {
   result: DragPreviewResult;
   scales: GanttScaleData;
   scrollLeft: number;
+  scrollTop: number;
   rowIndex: number;
   /** True if this bar has been visible for ≥ 400ms (controls CP badge, rule 26). */
   showCpBadge: boolean;
 }
 
-function PreviewBar({ result, scales, scrollLeft, rowIndex, showCpBadge }: PreviewBarProps) {
+function PreviewBar({
+  result,
+  scales,
+  scrollLeft,
+  scrollTop,
+  rowIndex,
+  showCpBadge,
+}: PreviewBarProps) {
   // dateToLeft returns canvas-origin coords (rule 57); subtract scrollLeft for viewport-relative
   const left = dateToLeft(result.earlyStart, scales) - scrollLeft;
   const right = dateToLeft(result.earlyFinish, scales) - scrollLeft;
   const width = Math.max(2, right - left);
-  const top = rowIndex * ROW_HEIGHT + (ROW_HEIGHT - BAR_HEIGHT) / 2;
+  const top = barTop(rowIndex, scrollTop);
 
   const borderColor = result.isCritical ? CRITICAL_BORDER : GHOST_BORDER;
 
@@ -93,6 +125,7 @@ interface OriginBarProps {
   originFinish: string;
   scales: GanttScaleData;
   scrollLeft: number;
+  scrollTop: number;
   rowIndex: number;
 }
 
@@ -100,12 +133,19 @@ interface OriginBarProps {
  * A static ghost bar at the task's pre-nudge position (rule 52).
  * Shown only during keyboard reschedule so the user has a visual anchor.
  */
-function OriginBar({ originStart, originFinish, scales, scrollLeft, rowIndex }: OriginBarProps) {
+function OriginBar({
+  originStart,
+  originFinish,
+  scales,
+  scrollLeft,
+  scrollTop,
+  rowIndex,
+}: OriginBarProps) {
   // dateToLeft returns canvas-origin coords (rule 57); subtract scrollLeft for viewport-relative
   const left = dateToLeft(originStart, scales) - scrollLeft;
   const right = dateToLeft(originFinish, scales) - scrollLeft;
   const width = Math.max(2, right - left);
-  const top = rowIndex * ROW_HEIGHT + (ROW_HEIGHT - BAR_HEIGHT) / 2;
+  const top = barTop(rowIndex, scrollTop);
 
   return (
     <div
@@ -130,14 +170,22 @@ interface BuildGhostBarProps {
   ghostFinish: string;
   scales: GanttScaleData;
   scrollLeft: number;
+  scrollTop: number;
   rowIndex: number;
 }
 
-function BuildGhostBar({ ghostStart, ghostFinish, scales, scrollLeft, rowIndex }: BuildGhostBarProps) {
+function BuildGhostBar({
+  ghostStart,
+  ghostFinish,
+  scales,
+  scrollLeft,
+  scrollTop,
+  rowIndex,
+}: BuildGhostBarProps) {
   const left = dateToLeft(ghostStart, scales) - scrollLeft;
   const right = dateToLeft(ghostFinish, scales) - scrollLeft;
   const width = Math.max(4, right - left);
-  const top = rowIndex * ROW_HEIGHT + (ROW_HEIGHT - BAR_HEIGHT) / 2;
+  const top = barTop(rowIndex, scrollTop);
 
   return (
     <div
@@ -156,25 +204,36 @@ function BuildGhostBar({ ghostStart, ghostFinish, scales, scrollLeft, rowIndex }
   );
 }
 
+/** Shared chip treatment for the three corner labels. */
+const CHIP_CLASS =
+  'absolute text-xs text-neutral-text-secondary bg-neutral-surface/80 px-1.5 py-0.5 rounded-chip';
+
 interface Props {
-  scales: GanttScaleData | null;
-  scrollLeft: number;
-  /** Ordered task ids as rendered in the task list — used to resolve row indices. */
-  taskIds: string[];
   /**
-   * Original start/finish of the task being keyboard-rescheduled (rule 52).
-   * Null during pointer drag (SVAR renders its own drag shadow in that case).
+   * The live engine. `scales` and `scrollLeft` are read from it rather than
+   * passed in, so this overlay cannot fall out of step with the canvas it
+   * floats over (design decision 54: the engine is the sole integration
+   * boundary). Null before the engine mounts — the overlay renders nothing.
    */
-  originTask?: { id: string; start: string; finish: string } | null;
+  engine: GanttEngine | null;
+  /** Tasks in rendered row order — resolves preview results to row indices. */
+  tasks: Task[];
+  /**
+   * The scroll container. `scrollTop` is read from it directly because the
+   * engine's `scroll` event carries only `scrollLeft` — the same arrangement
+   * `ScheduleAriaOverlay` uses.
+   */
+  containerRef: RefObject<HTMLDivElement | null>;
 }
 
 /**
- * Overlay div that sits above the SVAR Gantt canvas. Must be absolutely
+ * Overlay div that sits above the canvas layers. Must be absolutely
  * positioned and pointer-events-none (rule 27) so all pointer events pass
- * through to SVAR.
+ * through to the interaction canvas beneath it.
  */
-export function PreviewOverlay({ scales, scrollLeft, taskIds, originTask }: Props) {
+export function PreviewOverlay({ engine, tasks, containerRef }: Props) {
   const phase = useDragStore((s) => s.phase);
+  const draggedTaskId = useDragStore((s) => s.draggedTaskId);
   const previewResults = useDragStore((s) => s.previewResults);
   const overflowCount = useDragStore((s) => s.overflowCount);
   const isKeyboardMode = useDragStore((s) => s.isKeyboardMode);
@@ -185,6 +244,11 @@ export function PreviewOverlay({ scales, scrollLeft, taskIds, originTask }: Prop
   // Track when we entered 'dragging' phase to enforce the ≥ 400ms CP badge delay (rule 26)
   const dragStartRef = useRef<number | null>(null);
   const [showCpBadge, setShowCpBadge] = useState(false);
+  // Both scroll axes are state, not a ref read: a drag can auto-scroll the
+  // timeline, and a ghost bar positioned from a ref would stay behind at the
+  // pre-scroll offset until some unrelated re-render caught up.
+  const [scrollLeft, setScrollLeft] = useState(0);
+  const [scrollTop, setScrollTop] = useState(0);
 
   useEffect(() => {
     if (phase === 'dragging') {
@@ -198,94 +262,151 @@ export function PreviewOverlay({ scales, scrollLeft, taskIds, originTask }: Prop
     }
   }, [phase]);
 
+  // Horizontal scroll comes from the engine (rule 55: always unsubscribe);
+  // vertical from the container, which is the only thing that knows it.
+  useEffect(() => {
+    if (!engine) return;
+    setScrollLeft(engine.scrollLeft);
+    return engine.on('scroll', ({ scrollLeft: left }) => {
+      setScrollLeft(left);
+      if (containerRef.current) setScrollTop(containerRef.current.scrollTop);
+    });
+  }, [engine, containerRef]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const update = () => setScrollTop(container.scrollTop);
+    update();
+    container.addEventListener('scroll', update, { passive: true });
+    return () => container.removeEventListener('scroll', update);
+  }, [containerRef]);
+
   // Build row-index map from the ordered task list
   const rowIndexMap = useMemo(() => {
     const map = new Map<string, number>();
-    taskIds.forEach((id, i) => map.set(id, i));
+    tasks.forEach((t, i) => map.set(t.id, i));
     return map;
-  }, [taskIds]);
+  }, [tasks]);
+
+  const draggedTask = useMemo(
+    () => (draggedTaskId ? (tasks.find((t) => t.id === draggedTaskId) ?? null) : null),
+    [tasks, draggedTaskId],
+  );
+
+  /**
+   * The origin ghost bar (rule 52) is anchored to the dragged task's CURRENT
+   * start/finish, which is still its pre-nudge position: a keyboard reschedule
+   * previews in the worker and does not touch task data until commit. Pointer
+   * drags are excluded because the interaction canvas already paints its own
+   * drag shadow for the bar under the cursor.
+   */
+  const originTask = isKeyboardMode ? draggedTask : null;
+
+  /** #2819: the drop will not move this bar — the drag chrome should say so. */
+  const draggedIsPinned = draggedTask != null && isPinnedByActuals(draggedTask);
 
   const isVisible = phase === 'dragging' || phase === 'committing' || phase === 'building';
+  const scales = engine?.scales ?? null;
 
   if (!isVisible || !scales) return null;
 
   return (
     <div
       className="absolute inset-0 pointer-events-none"
-      aria-hidden="true"
-      // Rule 33: animate out only (opacity transition on exit, no entry animation)
       style={{
+        zIndex: 4,
+        // Rule 33: animate out only (opacity transition on exit, no entry animation)
         opacity: phase === 'committing' ? 0 : 1,
-        transition: phase === 'committing'
-          ? 'opacity 150ms ease-out'
-          : 'none',
+        transition: phase === 'committing' ? 'opacity 150ms ease-out' : 'none',
       }}
+      aria-hidden="true"
+      data-testid="preview-overlay"
     >
-      {/* Build ghost bar — dashed amber placeholder during inline name editing (#344) */}
-      {phase === 'building' && buildingTaskId && buildingStart && buildingFinish && (() => {
-        const rawIdx = rowIndexMap.get(buildingTaskId);
-        // Fall back to end of list when the task is newly created and not yet in taskIds
-        const rowIndex = rawIdx ?? taskIds.length;
-        return (
-          <BuildGhostBar
-            ghostStart={buildingStart}
-            ghostFinish={buildingFinish}
-            scales={scales}
-            scrollLeft={scrollLeft}
-            rowIndex={rowIndex}
-          />
-        );
-      })()}
+      {/* Bars band. Inset below the timeline header and clipped to it, so a ghost
+          for a row scrolled up under the header does not paint over the date
+          labels. Children are positioned relative to THIS box, which is why
+          barTop() is row-relative and adds no header offset. */}
+      <div
+        className="absolute left-0 right-0 bottom-0 overflow-hidden"
+        style={{ top: HEADER_HEIGHT }}
+      >
+        {/* Build ghost bar — dashed amber placeholder during inline name editing (#344) */}
+        {phase === 'building' && buildingTaskId && buildingStart && buildingFinish && (() => {
+          const rawIdx = rowIndexMap.get(buildingTaskId);
+          // Fall back to end of list when the task is newly created and not yet in tasks
+          const rowIndex = rawIdx ?? tasks.length;
+          return (
+            <BuildGhostBar
+              ghostStart={buildingStart}
+              ghostFinish={buildingFinish}
+              scales={scales}
+              scrollLeft={scrollLeft}
+              scrollTop={scrollTop}
+              rowIndex={rowIndex}
+            />
+          );
+        })()}
 
-      {/* Origin ghost bar — shows the task's pre-nudge position (rule 52) */}
-      {isKeyboardMode && originTask && (() => {
-        const rowIndex = rowIndexMap.get(originTask.id);
-        if (rowIndex === undefined) return null;
-        return (
-          <OriginBar
-            originStart={originTask.start}
-            originFinish={originTask.finish}
-            scales={scales}
-            scrollLeft={scrollLeft}
-            rowIndex={rowIndex}
-          />
-        );
-      })()}
+        {/* Origin ghost bar — shows the task's pre-nudge position (rule 52) */}
+        {originTask && (() => {
+          const rowIndex = rowIndexMap.get(originTask.id);
+          if (rowIndex === undefined) return null;
+          return (
+            <OriginBar
+              originStart={originTask.start}
+              originFinish={originTask.finish}
+              scales={scales}
+              scrollLeft={scrollLeft}
+              scrollTop={scrollTop}
+              rowIndex={rowIndex}
+            />
+          );
+        })()}
 
-      {previewResults.map((result) => {
-        const rowIndex = rowIndexMap.get(result.taskId);
-        if (rowIndex === undefined) return null;
-        return (
-          <PreviewBar
-            key={result.taskId}
-            result={result}
-            scales={scales}
-            scrollLeft={scrollLeft}
-            rowIndex={rowIndex}
-            showCpBadge={showCpBadge}
-          />
-        );
-      })}
+        {previewResults.map((result) => {
+          const rowIndex = rowIndexMap.get(result.taskId);
+          if (rowIndex === undefined) return null;
+          return (
+            <PreviewBar
+              key={result.taskId}
+              result={result}
+              scales={scales}
+              scrollLeft={scrollLeft}
+              scrollTop={scrollTop}
+              rowIndex={rowIndex}
+              showCpBadge={showCpBadge}
+            />
+          );
+        })}
+      </div>
 
-      {/* Estimate disclosure (issue #1493): the drag preview is a client-side
-          approximation (fixed Mon–Fri calendar, no custom-calendar/holiday
-          awareness) — label it so a slip or CP badge here reads as a
-          prediction, not the confirmed server result. */}
+      {/* Top-left disclosure. Normally the estimate label (issue #1493): the drag
+          preview is a client-side approximation (fixed Mon–Fri calendar, no
+          custom-calendar/holiday awareness), so a slip or CP badge here reads as
+          a prediction rather than the confirmed server result.
+
+          When the dragged bar is pinned by recorded actuals it is replaced by the
+          reason the drop will do nothing (#2819). The gesture is deliberately
+          left working — the API still accepts the PATCH, so suppressing it would
+          remove a write the server still offers — but saying this DURING the drag
+          is what the old behaviour lacked: the bar used to land at the drop,
+          because `_sync_early_start_to_planned` moves `early_start`
+          optimistically, and then snap back on the next CPM run with no
+          explanation anywhere. */}
       {phase === 'dragging' && (
         <div
-          className="absolute top-1 left-2 text-xs text-neutral-text-secondary bg-neutral-surface/80 px-1.5 py-0.5 rounded-chip"
+          className={`${CHIP_CLASS} top-1 left-2 ${draggedIsPinned ? '!bg-neutral-surface border border-semantic-at-risk text-semantic-at-risk' : ''}`}
           aria-hidden="true"
+          data-testid="preview-disclosure"
         >
-          Preview — server confirms on drop
+          {draggedIsPinned ? PINNED_DRAG_EXPLANATION : 'Preview — server confirms on drop'}
         </div>
       )}
 
       {/* "+N more affected" label (rule 32) */}
       {overflowCount > 0 && (
-        <div
-          className="absolute bottom-1 right-2 text-xs text-neutral-text-secondary bg-neutral-surface/80 px-1.5 py-0.5 rounded-chip"
-          aria-hidden="true"
-        >
+        <div className={`${CHIP_CLASS} bottom-1 right-2`} aria-hidden="true">
           +{overflowCount} more affected
         </div>
       )}
@@ -293,10 +414,7 @@ export function PreviewOverlay({ scales, scrollLeft, taskIds, originTask }: Prop
       {/* Instruction strip — pointer drag: "Esc to cancel" (rule 28);
           keyboard mode: full key legend (rule 51) */}
       {phase === 'dragging' && (
-        <div
-          className="absolute bottom-1 left-2 text-xs text-neutral-text-secondary bg-neutral-surface/80 px-1.5 py-0.5 rounded-chip"
-          aria-hidden="true"
-        >
+        <div className={`${CHIP_CLASS} bottom-1 left-2`} aria-hidden="true">
           {isKeyboardMode
             ? '← → Shift+arrow · d date · Enter confirm · Esc cancel'
             : 'Esc to cancel'}

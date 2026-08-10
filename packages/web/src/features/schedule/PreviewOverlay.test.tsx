@@ -1,12 +1,23 @@
+/**
+ * Unit coverage for the drag/keyboard preview overlay.
+ *
+ * Reworked in #2819 when the component gained a render site: it now takes the
+ * live `GanttEngine` and the ordered task array (the same integration shape as
+ * `ScheduleAriaOverlay`) rather than pre-resolved `scales`/`scrollLeft`/`taskIds`
+ * props, and it positions ghost bars against the canvas timeline header.
+ */
 import { render, screen, act } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { createRef } from 'react';
 import { PreviewOverlay } from './PreviewOverlay';
 import { useDragStore } from '@/stores/dragStore';
-import type { GanttScaleData } from '@/features/schedule/engine';
-import type { DragPreviewResult } from '@/types';
+import type { GanttEngine, GanttEngineEventMap, GanttScaleData } from '@/features/schedule/engine';
+import type { DragPreviewResult, Task } from '@/types';
+import { HEADER_HEIGHT } from './scheduleConstants';
+import { BAR_TOP_OFFSET, ROW_HEIGHT } from './engine/GanttHitIndex';
 
 // ---------------------------------------------------------------------------
-// Minimal scale data — covers 2025, week zoom (12px/day)
+// Fixtures
 // ---------------------------------------------------------------------------
 
 const DAY_MS = 86_400_000;
@@ -18,8 +29,60 @@ const SCALES: GanttScaleData = {
   pxPerMs: 12 / DAY_MS,
 };
 
-// Task IDs in render order
-const TASK_IDS = ['t1', 't2', 't3'];
+function makeTask(id: string, overrides: Partial<Task> = {}): Task {
+  return {
+    id,
+    projectId: 'p1',
+    name: id.toUpperCase(),
+    start: '2025-01-06',
+    finish: '2025-01-10',
+    duration: 5,
+    progress: 0,
+    parentId: null,
+    isCritical: false,
+    isComplete: false,
+    isSummary: false,
+    isMilestone: false,
+    ...overrides,
+  } as Task;
+}
+
+/** Tasks in render order — row index is position in this array. */
+const TASKS: Task[] = [makeTask('t1'), makeTask('t2'), makeTask('t3')];
+
+/**
+ * Minimal engine fake: exposes the three fields the overlay reads plus a
+ * synchronous `on`. `scales: null` models the pre-mount engine.
+ */
+function makeEngine(opts: { scales?: GanttScaleData | null; scrollLeft?: number } = {}) {
+  const listeners = new Map<string, Set<(payload: unknown) => void>>();
+  const fake = {
+    scales: opts.scales === undefined ? SCALES : opts.scales,
+    scrollLeft: opts.scrollLeft ?? 0,
+    selectedTaskIds: new Set<string>(),
+    on<K extends keyof GanttEngineEventMap>(
+      event: K,
+      handler: (payload: GanttEngineEventMap[K]) => void,
+    ) {
+      const set = listeners.get(event as string) ?? new Set();
+      set.add(handler as (payload: unknown) => void);
+      listeners.set(event as string, set);
+      return () => set.delete(handler as (payload: unknown) => void);
+    },
+    /** Test helper — mirrors GanttEngineImpl's scroll emit. */
+    emitScroll(scrollLeft: number) {
+      fake.scrollLeft = scrollLeft;
+      listeners.get('scroll')?.forEach((h) => h({ scrollLeft }));
+    },
+  };
+  return fake as unknown as GanttEngine & { emitScroll: (scrollLeft: number) => void };
+}
+
+function container() {
+  const ref = createRef<HTMLDivElement>();
+  ref.current = document.createElement('div');
+  return ref;
+}
 
 // A non-critical preview bar for t1
 const NORMAL_RESULT: DragPreviewResult = {
@@ -61,6 +124,22 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/** Render with the standard fixtures; `opts` overrides the engine. */
+function renderOverlay(opts: Parameters<typeof makeEngine>[0] = {}, tasks: Task[] = TASKS) {
+  const engine = makeEngine(opts);
+  const result = render(
+    <PreviewOverlay engine={engine} tasks={tasks} containerRef={container()} />,
+  );
+  return { ...result, engine };
+}
+
+/** Every ghost bar in the overlay, regardless of which band div holds it. */
+function dashedBars(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>('div')).filter(
+    (el) => el.style.borderStyle === 'dashed',
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -68,68 +147,99 @@ afterEach(() => {
 describe('PreviewOverlay', () => {
   describe('visibility', () => {
     it('renders nothing when phase is idle', () => {
-      const { container } = render(
-        <PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />,
-      );
-      expect(container.firstChild).toBeNull();
+      const { container: c } = renderOverlay();
+      expect(c.firstChild).toBeNull();
     });
 
-    it('renders nothing when scales are null', () => {
+    it('renders nothing when the engine has no scales yet', () => {
       useDragStore.getState().startDrag('t1');
       useDragStore.getState().updatePreview([NORMAL_RESULT], null, 0);
-      const { container } = render(
-        <PreviewOverlay scales={null} scrollLeft={0} taskIds={TASK_IDS} />,
+      const { container: c } = renderOverlay({ scales: null });
+      expect(c.firstChild).toBeNull();
+    });
+
+    it('renders nothing when the engine is null', () => {
+      useDragStore.getState().startDrag('t1');
+      const { container: c } = render(
+        <PreviewOverlay engine={null} tasks={TASKS} containerRef={container()} />,
       );
-      expect(container.firstChild).toBeNull();
+      expect(c.firstChild).toBeNull();
     });
 
     it('renders when phase is dragging with scales', () => {
       useDragStore.getState().startDrag('t1');
       useDragStore.getState().updatePreview([NORMAL_RESULT], null, 0);
-      render(<PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />);
-      // Container should be present (aria-hidden overlay)
-      expect(document.querySelector('[aria-hidden="true"]')).toBeInTheDocument();
+      renderOverlay();
+      expect(screen.getByTestId('preview-overlay')).toBeInTheDocument();
     });
 
     it('renders when phase is committing (animate-out)', () => {
       useDragStore.getState().startDrag('t1');
       useDragStore.getState().commitDrag();
-      const { container } = render(
-        <PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />,
-      );
-      expect(container.firstChild).not.toBeNull();
+      const { container: c } = renderOverlay();
+      expect(c.firstChild).not.toBeNull();
     });
   });
 
   describe('pointer events and accessibility (rule 27)', () => {
     it('root element is pointer-events-none and aria-hidden', () => {
       useDragStore.getState().startDrag('t1');
-      const { container } = render(
-        <PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />,
-      );
-      const overlay = container.firstChild as HTMLElement;
+      const overlay = renderOverlay().container.firstChild as HTMLElement;
       expect(overlay).toHaveAttribute('aria-hidden', 'true');
       expect(overlay.className).toContain('pointer-events-none');
+    });
+  });
+
+  describe('canvas alignment (#2819)', () => {
+    it('offsets ghost bars below the timeline header', () => {
+      useDragStore.getState().startDrag('t1');
+      useDragStore.getState().updatePreview([NORMAL_RESULT], null, 0);
+      const overlay = renderOverlay().container.firstChild as HTMLElement;
+
+      // The bars band is inset by the header height and clips to it, so a row
+      // scrolled up under the header cannot paint over the date labels.
+      const band = overlay.querySelector<HTMLElement>('div.overflow-hidden');
+      expect(band).not.toBeNull();
+      expect(band?.style.top).toBe(`${HEADER_HEIGHT}px`);
+
+      // Row 0's bar sits at the renderer's own bar offset within that band —
+      // NOT offset by the header a second time.
+      const bar = band?.firstElementChild as HTMLElement;
+      expect(bar.style.top).toBe(`${BAR_TOP_OFFSET}px`);
+    });
+
+    it('places a row-2 preview bar one ROW_HEIGHT per row down', () => {
+      useDragStore.getState().startDrag('t1');
+      useDragStore.getState().updatePreview([CRITICAL_RESULT], null, 0); // t2 = row 1
+      const overlay = renderOverlay().container.firstChild as HTMLElement;
+      const bar = overlay.querySelector<HTMLElement>('div.overflow-hidden > div');
+      expect(bar?.style.top).toBe(`${ROW_HEIGHT + BAR_TOP_OFFSET}px`);
+    });
+
+    it('re-positions horizontally when the engine scrolls', () => {
+      useDragStore.getState().startDrag('t1');
+      useDragStore.getState().updatePreview([NORMAL_RESULT], null, 0);
+      const { container: c, engine } = renderOverlay();
+      const before = (c.querySelector('div.overflow-hidden > div') as HTMLElement).style.left;
+
+      act(() => engine.emitScroll(120));
+
+      const after = (c.querySelector('div.overflow-hidden > div') as HTMLElement).style.left;
+      expect(Number.parseFloat(after)).toBeCloseTo(Number.parseFloat(before) - 120, 5);
     });
   });
 
   describe('animate-out (rule 33)', () => {
     it('has opacity 1 when dragging', () => {
       useDragStore.getState().startDrag('t1');
-      const { container } = render(
-        <PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />,
-      );
-      const overlay = container.firstChild as HTMLElement;
+      const overlay = renderOverlay().container.firstChild as HTMLElement;
       expect(overlay.style.opacity).toBe('1');
     });
 
     it('transitions to opacity 0 when committing', () => {
       useDragStore.getState().startDrag('t1');
       useDragStore.getState().commitDrag();
-      const { container } = render(
-        <PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />,
-      );
-      const overlay = container.firstChild as HTMLElement;
+      const overlay = renderOverlay().container.firstChild as HTMLElement;
       expect(overlay.style.opacity).toBe('0');
       expect(overlay.style.transition).toContain('opacity');
     });
@@ -140,7 +250,7 @@ describe('PreviewOverlay', () => {
       vi.useFakeTimers();
       useDragStore.getState().startDrag('t1');
       useDragStore.getState().updatePreview([CRITICAL_RESULT], null, 0);
-      render(<PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />);
+      renderOverlay();
       expect(screen.queryByText('CP')).toBeNull();
     });
 
@@ -148,7 +258,7 @@ describe('PreviewOverlay', () => {
       vi.useFakeTimers();
       useDragStore.getState().startDrag('t1');
       useDragStore.getState().updatePreview([CRITICAL_RESULT], null, 0);
-      render(<PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />);
+      renderOverlay();
       void act(() => vi.advanceTimersByTime(400));
       expect(screen.getByText('CP')).toBeInTheDocument();
     });
@@ -157,7 +267,7 @@ describe('PreviewOverlay', () => {
       vi.useFakeTimers();
       useDragStore.getState().startDrag('t1');
       useDragStore.getState().updatePreview([CRITICAL_RESULT], null, 0);
-      render(<PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />);
+      renderOverlay();
       void act(() => vi.advanceTimersByTime(399));
       expect(screen.queryByText('CP')).toBeNull();
     });
@@ -166,14 +276,11 @@ describe('PreviewOverlay', () => {
       vi.useFakeTimers();
       useDragStore.getState().startDrag('t1');
       useDragStore.getState().updatePreview([CRITICAL_RESULT], null, 0);
-      const { rerender } = render(
-        <PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />,
-      );
+      renderOverlay();
       void act(() => vi.advanceTimersByTime(400));
       expect(screen.getByText('CP')).toBeInTheDocument();
 
       void act(() => useDragStore.getState().cancelDrag());
-      rerender(<PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />);
       // Phase is idle → overlay not rendered → CP gone
       expect(screen.queryByText('CP')).toBeNull();
     });
@@ -184,7 +291,7 @@ describe('PreviewOverlay', () => {
       vi.useFakeTimers();
       useDragStore.getState().startDrag('t1');
       useDragStore.getState().updatePreview([CRITICAL_RESULT], null, 0);
-      render(<PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />);
+      renderOverlay();
       void act(() => vi.advanceTimersByTime(400));
       const badge = screen.getByText('CP');
       expect(badge.className).toContain('text-xs');
@@ -196,14 +303,14 @@ describe('PreviewOverlay', () => {
     it('shows "+N more affected" when overflowCount > 0', () => {
       useDragStore.getState().startDrag('t1');
       useDragStore.getState().updatePreview([NORMAL_RESULT], null, 7);
-      render(<PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />);
+      renderOverlay();
       expect(screen.getByText('+7 more affected')).toBeInTheDocument();
     });
 
     it('hides the overflow label when overflowCount = 0', () => {
       useDragStore.getState().startDrag('t1');
       useDragStore.getState().updatePreview([NORMAL_RESULT], null, 0);
-      render(<PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />);
+      renderOverlay();
       expect(screen.queryByText(/more affected/)).toBeNull();
     });
   });
@@ -211,13 +318,13 @@ describe('PreviewOverlay', () => {
   describe('instruction strip (rules 28, 51)', () => {
     it('shows "Esc to cancel" for pointer drag', () => {
       useDragStore.getState().startDrag('t1'); // isKeyboard defaults to false
-      render(<PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />);
+      renderOverlay();
       expect(screen.getByText('Esc to cancel')).toBeInTheDocument();
     });
 
     it('shows keyboard legend when isKeyboardMode is true (rule 51)', () => {
       useDragStore.getState().startDrag('t1', true);
-      render(<PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />);
+      renderOverlay();
       expect(
         screen.getByText('← → Shift+arrow · d date · Enter confirm · Esc cancel'),
       ).toBeInTheDocument();
@@ -226,7 +333,7 @@ describe('PreviewOverlay', () => {
     it('hides instruction strip when phase is committing', () => {
       useDragStore.getState().startDrag('t1');
       useDragStore.getState().commitDrag();
-      render(<PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />);
+      renderOverlay();
       expect(screen.queryByText('Esc to cancel')).toBeNull();
     });
   });
@@ -234,71 +341,103 @@ describe('PreviewOverlay', () => {
   describe('building phase ghost bar (#344)', () => {
     it('renders the overlay when phase is building', () => {
       useDragStore.getState().startBuilding('t1', '2025-01-06', '2025-01-10');
-      const { container } = render(
-        <PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />,
-      );
-      expect(container.firstChild).not.toBeNull();
+      const { container: c } = renderOverlay();
+      expect(c.firstChild).not.toBeNull();
     });
 
     it('renders a dashed build ghost bar for the building task', () => {
       useDragStore.getState().startBuilding('t1', '2025-01-06', '2025-01-10');
-      const { container } = render(
-        <PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />,
-      );
-      const overlay = container.firstChild as HTMLElement;
-      const dashedChild = Array.from(overlay.children).find(
-        (el) => (el as HTMLElement).style?.borderStyle === 'dashed',
-      );
-      expect(dashedChild).toBeDefined();
+      const overlay = renderOverlay().container.firstChild as HTMLElement;
+      expect(dashedBars(overlay)).toHaveLength(1);
     });
 
-    it('falls back to end-of-list row when buildingTaskId is not in taskIds', () => {
+    it('falls back to end-of-list row when buildingTaskId is not in tasks', () => {
       useDragStore.getState().startBuilding('t-new', '2025-01-06', '2025-01-10');
-      const { container } = render(
-        <PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />,
-      );
-      // Overlay should render (task not in list → falls back to row TASK_IDS.length)
-      expect(container.firstChild).not.toBeNull();
+      const overlay = renderOverlay().container.firstChild as HTMLElement;
+      const [bar] = dashedBars(overlay);
+      expect(bar.style.top).toBe(`${TASKS.length * ROW_HEIGHT + BAR_TOP_OFFSET}px`);
     });
   });
 
   describe('origin ghost bar (rule 52)', () => {
-    it('renders an origin bar in keyboard mode when originTask is provided', () => {
+    it('renders an origin bar at the dragged task position in keyboard mode', () => {
       useDragStore.getState().startDrag('t1', true);
-      const originTask = { id: 't1', start: '2025-01-06', finish: '2025-01-10' };
-      const { container } = render(
-        <PreviewOverlay
-          scales={SCALES}
-          scrollLeft={0}
-          taskIds={TASK_IDS}
-          originTask={originTask}
-        />,
-      );
-      // OriginBar uses a dashed border style (rule 52)
-      const overlay = container.firstChild as HTMLElement;
-      const dashedChild = Array.from(overlay.children).find((el) =>
-        (el as HTMLElement).style?.borderStyle === 'dashed',
-      );
-      expect(dashedChild).toBeDefined();
+      const overlay = renderOverlay().container.firstChild as HTMLElement;
+      // Row 0 (t1), dashed border per rule 52.
+      const [bar] = dashedBars(overlay);
+      expect(bar).toBeDefined();
+      expect(bar.style.top).toBe(`${BAR_TOP_OFFSET}px`);
     });
 
     it('does not render origin bar in pointer drag mode', () => {
+      // The interaction canvas paints its own drag shadow for the bar under the
+      // cursor, so a second ghost there would double it up.
       useDragStore.getState().startDrag('t1'); // pointer drag, isKeyboard = false
-      const originTask = { id: 't1', start: '2025-01-06', finish: '2025-01-10' };
-      const { container } = render(
-        <PreviewOverlay
-          scales={SCALES}
-          scrollLeft={0}
-          taskIds={TASK_IDS}
-          originTask={originTask}
-        />,
-      );
-      // No dashed-border child — origin bar is only shown in keyboard mode
-      const overlay = container.firstChild as HTMLElement;
-      const dashedChild = Array.from(overlay.children).find((el) =>
-        (el as HTMLElement).style?.borderStyle === 'dashed',
-      );
-      expect(dashedChild).toBeUndefined();
+      const overlay = renderOverlay().container.firstChild as HTMLElement;
+      expect(dashedBars(overlay)).toHaveLength(0);
+    });
+
+    it('renders no origin bar when the dragged task is not in the list', () => {
+      useDragStore.getState().startDrag('t-gone', true);
+      const overlay = renderOverlay().container.firstChild as HTMLElement;
+      expect(dashedBars(overlay)).toHaveLength(0);
+    });
+  });
+
+  describe('pinned-by-actuals disclosure (#2819)', () => {
+    const PINNED = /Recorded actuals set this task's dates/;
+
+    it('shows the estimate disclosure for an ordinary dragged task', () => {
+      useDragStore.getState().startDrag('t1');
+      renderOverlay();
+      expect(screen.getByText('Preview — server confirms on drop')).toBeInTheDocument();
+      expect(screen.queryByText(PINNED)).toBeNull();
+    });
+
+    it('explains that the drop will not move a task pinned by recorded actuals', () => {
+      const tasks = [makeTask('t1', { isComplete: true, actualStart: '2025-01-06' }), ...TASKS.slice(1)];
+      useDragStore.getState().startDrag('t1');
+      renderOverlay({}, tasks);
+      expect(screen.getByText(PINNED)).toBeInTheDocument();
+      expect(screen.queryByText('Preview — server confirms on drop')).toBeNull();
+    });
+
+    it('pins on an actual FINISH alone, with no actual start', () => {
+      const tasks = [makeTask('t1', { isComplete: true, actualFinish: '2025-01-10' }), ...TASKS.slice(1)];
+      useDragStore.getState().startDrag('t1');
+      renderOverlay({}, tasks);
+      expect(screen.getByText(PINNED)).toBeInTheDocument();
+    });
+
+    it('does NOT treat a task complete by progress alone as pinned', () => {
+      // Pinning is conditional on recorded actuals, not on completion: a task
+      // complete by `progress` with no actuals IS still network-scheduled and
+      // its drag genuinely moves it (#2819).
+      const tasks = [
+        makeTask('t1', { isComplete: true, progress: 100 }),
+        ...TASKS.slice(1),
+      ];
+      useDragStore.getState().startDrag('t1');
+      renderOverlay({}, tasks);
+      expect(screen.queryByText(PINNED)).toBeNull();
+      expect(screen.getByText('Preview — server confirms on drop')).toBeInTheDocument();
+    });
+
+    it('does not treat actuals on a not-yet-complete task as pinning', () => {
+      const tasks = [makeTask('t1', { isComplete: false, actualStart: '2025-01-06' }), ...TASKS.slice(1)];
+      useDragStore.getState().startDrag('t1');
+      renderOverlay({}, tasks);
+      expect(screen.queryByText(PINNED)).toBeNull();
+    });
+
+    it('carries the pinned state on a non-color channel as well as color', () => {
+      // WCAG 1.4.1: the amber tone is a reinforcement, the sentence is the signal.
+      const tasks = [makeTask('t1', { isComplete: true, actualStart: '2025-01-06' }), ...TASKS.slice(1)];
+      useDragStore.getState().startDrag('t1');
+      renderOverlay({}, tasks);
+      const chip = screen.getByTestId('preview-disclosure');
+      expect(chip.textContent).toMatch(PINNED);
+      expect(chip.className).toContain('border-semantic-at-risk');
     });
   });
 });
