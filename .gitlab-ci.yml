@@ -2684,6 +2684,17 @@ perf:load:
     # Pinned k6 binary (bump deliberately; the harness is version-tolerant).
     K6_VERSION: "0.50.0"
     PERF_VUS: "20"
+    # Size of the capacity fixture the task-list reads are measured against
+    # (#2816). 1,000 tasks is the ceiling of the published scale envelope
+    # (#2391 — "comfortable in the Schedule view to roughly 1,000 tasks"), so the
+    # nightly measures the endpoint at exactly the scale the docs claim is fine.
+    # `bulk_create` seeds this in seconds; raising it lengthens the job.
+    PERF_FIXTURE_TASKS: "1000"
+    PERF_FIXTURE_EDGE_RATIO: "1.2"
+    # Must match `seed_capacity`'s name for its first project — load.js resolves
+    # the target BY NAME, because with two projects seeded `results[0]` is
+    # whichever the list orders first.
+    PERF_PROJECT_NAME: "Capacity project 1"
   before_script:
     - *retry-fn
     # Image bakes scheduler[dev] + api[dev]; re-link editable. [binary] pulls
@@ -2703,6 +2714,25 @@ perf:load:
     - cd packages/api
     - python manage.py migrate --noinput
     - python manage.py seed_integration_fixtures
+    # Task-scale fixture (#2816). seed_integration_fixtures creates exactly ONE
+    # task, so before this the nightly's `task_list` p95 was the latency of
+    # serializing a single row — it could not detect an N+1, a dropped index, or a
+    # full-table scan, which is why #2767's 3.3x swing survived a 20-commit bisect.
+    #
+    # Minted, never committed: seed_capacity creates a real loginable account and a
+    # fixed credential in a tracked file is a secret-scanner finding however
+    # disposable the stack is (#2457). Nothing needs to log in as this owner — the
+    # harness authenticates as INTEGRATION_USER_EMAIL — so a throwaway value that
+    # exists only for the life of the job is sufficient. `--member-email` is what
+    # grants that identity access; project reads are membership-scoped, so without
+    # it the seeded fixture would be invisible and we would be back to one task.
+    - export TRUEPPM_CAPACITY_PASSWORD=$(python -c 'import secrets; print(secrets.token_urlsafe(16))')
+    - >
+      python manage.py seed_capacity
+      --projects 1
+      --tasks "$PERF_FIXTURE_TASKS"
+      --edge-ratio "$PERF_FIXTURE_EDGE_RATIO"
+      --member-email "$INTEGRATION_USER_EMAIL"
     # Start the Django ASGI server in the background.
     - >
       PYTHONPATH=src uvicorn trueppm_api.asgi:application
@@ -2727,6 +2757,7 @@ perf:load:
       -e BASE_URL=http://127.0.0.1:8000
       -e PERF_TOKEN="$PERF_TOKEN"
       -e PERF_VUS="$PERF_VUS"
+      -e PERF_PROJECT_NAME="$PERF_PROJECT_NAME"
       packages/api/perf/load.js
   artifacts:
     when: always

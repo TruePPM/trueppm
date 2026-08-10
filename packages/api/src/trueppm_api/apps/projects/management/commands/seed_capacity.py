@@ -93,12 +93,22 @@ class Command(BaseCommand):
             action="store_true",
             help="Delete the existing capacity program first (leaves other data alone).",
         )
+        parser.add_argument(
+            "--member-email",
+            default=None,
+            help=(
+                "Also grant an EXISTING user OWNER membership on every created "
+                "project. Lets a harness that authenticates as some other seeded "
+                "account read the capacity fixture."
+            ),
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         projects: int = options["projects"]
         tasks_per_project: int = options["tasks"]
         edge_ratio: float = options["edge_ratio"]
         breadth: int = options["breadth"]
+        member_email: str | None = options["member_email"]
 
         if tasks_per_project < 1 or projects < 1:
             raise CommandError("--projects and --tasks must both be >= 1.")
@@ -107,6 +117,9 @@ class Command(BaseCommand):
 
         rng = random.Random(RANDOM_SEED)
         owner = self._resolve_owner()
+        # Resolved BEFORE any writing starts: a typo here must not leave a seeded
+        # program the harness cannot read (see _resolve_member).
+        member = self._resolve_member(member_email)
 
         if options["reset"]:
             self._reset(owner)
@@ -119,6 +132,7 @@ class Command(BaseCommand):
             created_tasks, created_edges = self._build_project(
                 program=program,
                 owner=owner,
+                member=member,
                 index=index,
                 task_count=tasks_per_project,
                 edge_ratio=edge_ratio,
@@ -138,6 +152,8 @@ class Command(BaseCommand):
                 f"{program.code} ({program.id})."
             )
         )
+        if member is not None:
+            self.stdout.write(f"  also granted OWNER to {member.email}")
 
     # ──────────────────────────────────────────────────────────────────
     # Build steps
@@ -195,6 +211,29 @@ class Command(BaseCommand):
             owner.save(update_fields=["password"])
         return owner
 
+    def _resolve_member(self, email: str | None) -> Any | None:
+        """An EXISTING user to also grant membership to, or None.
+
+        Deliberately does not create the account. This flag exists so a harness
+        that authenticates as some *other* seeded identity can read the capacity
+        fixture — ``perf:load`` mints its JWT for ``seed_integration_fixtures``'
+        user and would otherwise get an empty task list, since project reads are
+        membership-scoped. Creating a missing user here would hand that harness a
+        brand-new account it has no password for, so a typo would surface as a
+        silently unreadable fixture — exactly the class of "the number measured
+        nothing" defect this seeding path was changed to fix (#2816). Fail instead.
+        """
+        if email is None:
+            return None
+        member = User.objects.filter(email=email).first()
+        if member is None:
+            raise CommandError(
+                f"--member-email {email!r} does not match an existing user. This "
+                "flag grants membership to an account another seeder already "
+                "created; it never creates one. Seed that user first."
+            )
+        return member
+
     def _reset(self, owner: Any) -> None:
         """Hard-delete the capacity program's *projects*, so a co-resident dev DB survives.
 
@@ -243,6 +282,7 @@ class Command(BaseCommand):
         *,
         program: Program,
         owner: Any,
+        member: Any | None,
         index: int,
         task_count: int,
         edge_ratio: float,
@@ -261,6 +301,12 @@ class Command(BaseCommand):
         ProjectMembership.objects.get_or_create(
             project=project, user=owner, defaults={"role": Role.OWNER}
         )
+        # Same reason as the owner's membership above: without a row here the
+        # requesting identity's project-scoped reads return 403/empty.
+        if member is not None and member.pk != owner.pk:
+            ProjectMembership.objects.get_or_create(
+                project=project, user=member, defaults={"role": Role.OWNER}
+            )
 
         # bulk_create bypasses save(), so nothing draws a sync delta cursor for
         # these rows — they would sit at sync_seq=0 and be invisible to the sync

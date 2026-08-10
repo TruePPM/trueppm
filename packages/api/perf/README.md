@@ -24,27 +24,67 @@ under concurrent load, which a query count can't.
 ## Endpoints covered
 
 Mirrors QA plan §9: project list (#1482 N+1 path), task list, program list, and
-the sync delta. The task/sync reads are data-driven off the first project the seed
-created — no hard-coded UUIDs.
+the sync delta. The task/sync reads are data-driven off the fixture — no
+hard-coded UUIDs.
+
+| Tag | Request |
+|---|---|
+| `project_list` | `GET /projects/` |
+| `program_list` | `GET /programs/` |
+| `task_list` | `GET /tasks/?project=<id>&page_size=200` — page 1, mirroring what `useScheduleTasks` actually requests |
+| `task_list_deep` | the same read at the **last** page, so the OFFSET cost in #2814 lands on the trend line |
+| `sync_delta` | `GET /projects/<id>/sync/` |
+
+## Fixture size is part of the measurement
+
+Read this before comparing any two runs.
+
+CI seeds **two** projects: `seed_integration_fixtures` (one task, the login and
+smoke fixture) and `seed_capacity` at `PERF_FIXTURE_TASKS` tasks. The harness
+targets the capacity project **by name** (`PERF_PROJECT_NAME`, default
+`Capacity project 1`), and the digest prints the row count it measured.
+
+Both of those are deliberate, and both are scar tissue from #2816:
+
+- Until then the script took `results[0]` of `/projects/`, which in CI was the
+  one-task fixture. **Every `task_list` number the nightly ever reported was the
+  latency of serializing a single row.** None of the three regression classes the
+  harness advertises was detectable at that size — on one row a dropped index and
+  a full-table scan produce the same plan, and an N+1 is one extra query. It is
+  why #2767's 3.3x swing survived a 20-commit bisect: no data-scale hypothesis can
+  move a one-row query, and the real cause was per-request fixed cost plus runner
+  contention.
+- With two projects seeded, `results[0]` is whichever the list happens to order
+  first — and !1953 has already changed task ordering once. Resolving by name
+  makes the target independent of that.
+
+If `PERF_PROJECT_NAME` does not match anything, the harness falls back to the
+first visible project and **says so loudly** in the job log. Treat that warning as
+"this run's `task_list` numbers are not comparable to any other night's", not as
+noise.
 
 ## Reading the output
 
 The run prints a digest to the job log and writes the full k6 metrics blob to
-`perf-summary.json` (kept as a CI artifact for 30 days):
+`perf-summary.json` (kept as a CI artifact for 30 days). Layout below; the
+latencies are **illustrative, not measured** — the two task rows have no published
+range yet (#2826):
 
 ```
 === TruePPM perf/load digest ===
 iterations:            259
 http_req_failed:       0.00%
+task_list fixture:     1000 tasks
 p95 all endpoints:     1812 ms  (aggregate — not gated)
 
 p95 by endpoint (ms):
   program_list     527  /   1500  ok
   project_list     651  /   1500  ok
   sync_delta       911  /     --  untracked
-  task_list       2225  /   2000  BREACH (+11%)
+  task_list        843  /     --  untracked
+  task_list_deep  1904  /     --  untracked
 
-RESULT: 1 threshold breach(es) — see above
+RESULT: all endpoint thresholds within budget
 ================================
 ```
 
@@ -53,15 +93,27 @@ threshold. **`p95 all endpoints` is an average across every endpoint and no
 threshold gates it** — it is printed for continuity only. Read the per-endpoint
 rows; those are what k6 exits non-zero on.
 
+`task_list fixture` is the row count behind the two task rows. A `task_list` p95
+is only comparable to another run's if both measured the same number of rows, so
+check this line before reading a jump as a regression.
+
 `ok` / `BREACH` come from k6's own threshold verdict rather than being re-derived
 from the value, so the digest can never disagree with the exit code.
 
 `untracked` means the endpoint is measured but has no budget. k6 only records a
 tagged submetric when a threshold references the tag, so an endpoint with no
 threshold is invisible — it produces no row, no artifact entry, and no trend.
-`sync_delta` is therefore given an always-true `p(95)>=0` threshold purely to
-materialize the submetric; give it a real budget once a few nightlies establish
-its range.
+Such endpoints are therefore given an always-true `p(95)>=0` threshold purely to
+materialize the submetric.
+
+Three rows are untracked today. `sync_delta` never had a budget. `task_list` and
+`task_list_deep` are untracked **as of #2816** and need one (#2826): the old
+`p(95)<2000` was calibrated to serializing one row, so carrying it onto a 200-row
+page would breach every night — and a tripwire that always fires is worse than
+none, which is exactly what made #2767 un-bisectable. Set a real budget from the
+observed range once a few nightlies have run against the new fixture; do not pick
+a round number, since a budget nobody derived from a measurement is
+indistinguishable from noise.
 
 ## Run it locally
 
@@ -69,18 +121,28 @@ its range.
 # 1. Boot the stack and seed fixtures (from repo root)
 make up
 docker compose exec api python manage.py seed_integration_fixtures
-# optionally load a larger sample for more representative task lists:
-#   docker compose exec api python manage.py load_sample_project --with-personas
 
-# 2. Mint a JWT for a seeded user
+# 2. Seed the task-scale fixture the task-list reads are measured against, and
+#    grant the account from step 1 access to it. Skipping this step leaves you
+#    measuring a ONE-task project — see "Fixture size is part of the measurement".
+export TRUEPPM_CAPACITY_PASSWORD=$(python3 -c \
+  'import secrets; print(secrets.token_urlsafe(16))')
+docker compose exec -e TRUEPPM_CAPACITY_PASSWORD api python manage.py seed_capacity \
+  --projects 1 --tasks 1000 --edge-ratio 1.2 --member-email '<seeded-email>'
+
+# 3. Mint a JWT for that seeded user
 TOKEN=$(curl -sf -X POST http://127.0.0.1:8000/api/v1/auth/token/ \
   -H 'Content-Type: application/json' \
   -d '{"username":"<seeded-email>","password":"<password>"}' \
   | python -c 'import sys,json; print(json.load(sys.stdin)["access"])')
 
-# 3. Run the harness
+# 4. Run the harness
 k6 run -e BASE_URL=http://127.0.0.1:8000 -e PERF_TOKEN="$TOKEN" packages/api/perf/load.js
 ```
+
+The harness looks for a project named `Capacity project 1` and warns loudly if it
+finds none, falling back to whatever project it can see. Override the name with
+`-e PERF_PROJECT_NAME='<name>'` to point it at a different fixture.
 
 Install k6 from <https://k6.io/docs/get-started/installation/> (Homebrew:
 `brew install k6`).
