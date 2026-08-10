@@ -139,8 +139,17 @@ services:
       # See the "Bundled-datastore posture" note above the api-init service.
       TRUEPPM_ALLOW_UNENCRYPTED_DB: "true"
       TRUEPPM_ADMIN_PASSWORD_FILE: /run/trueppm/admin_password
+      # Must match api-init's STATIC_ROOT, and the volume below must be the same
+      # one it collected into (#2828). WhiteNoise (base.py MIDDLEWARE) is what
+      # actually serves /static/ — nginx proxies the location straight here — so
+      # STATIC_ROOT has to point at the collected output in THIS container.
+      # Without both lines it falls back to BASE_DIR/staticfiles, which for the
+      # pip-installed package is not /app/staticfiles, and every admin-CSS and
+      # Swagger-UI asset 404s while api-init reports a clean collectstatic.
+      STATIC_ROOT: /app/staticfiles
     volumes:
       - admin_password:/run/trueppm
+      - static_files:/app/staticfiles
     depends_on:
       api-init:
         condition: service_completed_successfully
@@ -267,7 +276,15 @@ services:
       - ./certbot/conf:/etc/letsencrypt:ro
       - ./certbot/www:/var/www/certbot:ro
       - frontend_dist:/usr/share/nginx/html:ro
-      - static_files:/usr/share/nginx/html/static:ro
+      # NOTE: do NOT mount static_files at /usr/share/nginx/html/static (#2828).
+      # It nests inside the read-only frontend_dist mount above, and the web
+      # image's html root (the Vite dist output) has no `static/` directory — so
+      # runc must CREATE that mountpoint inside a mount it was just told is
+      # read-only, fails, and nginx never leaves `Created` while every other
+      # service reports healthy. `docker compose config` cannot see this; only a
+      # real boot can, which is what compose:prod (#2817) now does.
+      # The mount was dead anyway: all three templates proxy `location /static/`
+      # to http://api:8000, where WhiteNoise serves it.
     depends_on:
       web-build:
         condition: service_completed_successfully
