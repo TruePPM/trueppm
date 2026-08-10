@@ -108,3 +108,9 @@ packages/api/seed-imports/
 # status), then check-mermaid-rendered.sh scans it for the [ERROR] lines Astro
 # logs while still exiting 0. CI-local scratch; never committed.
 website-build.log
+
+# k6 perf/load metrics blob (#2816). `packages/api/perf/load.js` writes it to the
+# working directory on every run — a CI artifact there, repo-root scratch when the
+# harness is run locally per packages/api/perf/README.md. Machine-local and
+# meaningless off the run that produced it; never committed.
+perf-summary.json

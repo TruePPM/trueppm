@@ -210,3 +210,51 @@ def test_is_deterministic_across_runs() -> None:
 
     assert first == second
     assert first_durations == second_durations
+
+
+@pytest.mark.django_db
+def test_member_email_grants_owner_on_every_project() -> None:
+    """`perf:load` authenticates as a DIFFERENT seeded user than the capacity owner.
+
+    Project reads are membership-scoped, so without this grant the harness gets a
+    200 with an empty page and silently measures nothing — the #2816 failure mode
+    in a new costume.
+    """
+    other = get_user_model().objects.create_user(
+        username="ci@trueppm.test", email="ci@trueppm.test", password=TEST_PASSWORD
+    )
+    call_command("seed_capacity", tasks=5, projects=2, member_email=other.email)
+
+    memberships = ProjectMembership.objects.filter(user=other)
+    assert memberships.count() == 2
+    assert all(m.role == Role.OWNER for m in memberships)
+    # The capacity owner still gets its own grant — the flag adds, never replaces.
+    assert ProjectMembership.objects.filter(user__email=CAPACITY_OWNER_EMAIL).count() == 2
+
+
+@pytest.mark.django_db
+def test_member_email_rejects_an_unknown_user() -> None:
+    """A typo must fail loudly, not seed a fixture the harness cannot read."""
+    with pytest.raises(CommandError, match="does not match an existing user"):
+        call_command("seed_capacity", tasks=5, projects=1, member_email="nobody@trueppm.test")
+
+
+@pytest.mark.django_db
+def test_member_email_is_validated_before_anything_is_seeded() -> None:
+    """Fail before the write, so a bad flag cannot leave a half-built fixture behind."""
+    with pytest.raises(CommandError):
+        call_command("seed_capacity", tasks=5, projects=1, member_email="nobody@trueppm.test")
+
+    assert not Project.objects.filter(program__code=CAPACITY_PROGRAM_CODE).exists()
+    assert Task.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_member_email_matching_the_owner_is_not_double_granted() -> None:
+    """get_or_create would tolerate it; assert it rather than leave it to luck."""
+    call_command("seed_capacity", tasks=5, projects=1)
+    call_command(
+        "seed_capacity", tasks=5, projects=1, reset=True, member_email=CAPACITY_OWNER_EMAIL
+    )
+
+    assert ProjectMembership.objects.filter(user__email=CAPACITY_OWNER_EMAIL).count() == 1

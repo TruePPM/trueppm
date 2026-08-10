@@ -177,6 +177,13 @@ python manage.py seed_capacity --reset
 | `--edge-ratio <F>` | Dependency edges per task. `1.0` is a single forward chain; above `1.0` adds forward cross-links. CPM recompute cost is edge-driven, so this is the dimension that moves recompute time (default `1.0`) |
 | `--breadth <N>` | Children per WBS summary row, setting how deep the task hierarchy runs (default `12`) |
 | `--reset` | Delete the existing capacity program's projects first, leaving all other data alone |
+| `--member-email <EMAIL>` | Also grant an **existing** user `Owner` on every created project, so a harness that authenticates as some other seeded account can read the fixture. Fails if no such user exists — it never creates one |
+
+Reach for `--member-email` when the thing measuring the fixture signs in as somebody
+other than `capacity@trueppm.local`. Project reads are membership-scoped, so without a
+membership row the caller gets a `200` with an empty page and silently measures nothing.
+The nightly `perf:load` job uses it for exactly this reason: it authenticates as the
+account `seed_integration_fixtures` created, then seeds the capacity project alongside it.
 
 `TRUEPPM_CAPACITY_PASSWORD` is **required** and has no default — the command creates (or
 resets the password on) a real, loginable `capacity@trueppm.local` account the load driver
