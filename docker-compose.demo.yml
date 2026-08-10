@@ -148,6 +148,16 @@ services:
     pids_limit: 512
     environment:
       <<: *api-env
+      # Not in the *api-env anchor — api-init sets it separately, so this
+      # container would otherwise resolve a different STATIC_ROOT (#2828).
+      STATIC_ROOT: /app/staticfiles
+    # WhiteNoise in THIS container serves /static/ (nginx proxies the location
+    # here), so it needs the volume api-init collected into, at the same
+    # STATIC_ROOT — otherwise it resolves BASE_DIR/staticfiles, which for the
+    # pip-installed package is not /app/staticfiles, and every admin-CSS and
+    # Swagger-UI asset 404s while api-init reports a clean collectstatic (#2828).
+    volumes:
+      - demo_static_files:/app/staticfiles
     depends_on:
       demo-seed:
         condition: service_completed_successfully
@@ -180,20 +190,31 @@ services:
       - /var/cache/nginx
       - /var/run
       - /tmp
+      # The entrypoint renders the template here and `read_only: true` makes the
+      # image's own copy unwritable — same fault as the prod stack (#2828).
+      - /etc/nginx/conf.d
     ports:
       - "80:80"
     environment:
       DOMAIN: ${DOMAIN:-localhost}
-    command: >
-      /bin/sh -c
-      "envsubst '$${DOMAIN}'
-       < /etc/nginx/templates/default.conf.template
-       > /etc/nginx/conf.d/default.conf
-       && nginx -g 'daemon off;'"
+    # Explicit argv list, NOT a folded (`>`) scalar — see the identical note on
+    # docker-compose.prod.yml's nginx service (#2828). A continuation line
+    # indented deeper than the first keeps its newline, which handed the shell a
+    # script whose last line began with `&&`.
+    command:
+      - /bin/sh
+      - -c
+      - >-
+        envsubst '$${DOMAIN}' < /etc/nginx/templates/default.conf.template >
+        /etc/nginx/conf.d/default.conf && exec nginx -g 'daemon off;'
     volumes:
       - ./nginx/demo.conf.template:/etc/nginx/templates/default.conf.template:ro
       - demo_frontend_dist:/usr/share/nginx/html:ro
-      - demo_static_files:/usr/share/nginx/html/static:ro
+      # NOTE: demo_static_files is deliberately NOT mounted here (#2828). It
+      # would nest inside the read-only mount above, at a path the web image does
+      # not contain, and runc cannot create that mountpoint — nginx never leaves
+      # `Created`. demo.conf.template proxies /static/ to the api, where
+      # WhiteNoise serves it, so this mount was never read.
     depends_on:
       web-build:
         condition: service_completed_successfully
