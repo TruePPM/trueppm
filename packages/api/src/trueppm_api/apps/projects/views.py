@@ -6164,6 +6164,21 @@ class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
     queryset = Baseline.objects.filter(is_deleted=False)
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ["created_at", "name"]
+    # Deterministic default ordering for pagination (#2821 sweep).
+    #
+    # `Baseline.Meta.ordering = ["created_at"]` does NOT reach this endpoint:
+    # `get_queryset` annotates `task_count=Count("tasks")`, which gives the query
+    # a GROUP BY, and Django's compiler drops *Meta*-derived ordering whenever one
+    # is present. Same mechanism as the task list (#2807) and the sprint list
+    # (#2821) — found by sweeping the suite for DRF's UnorderedObjectListWarning.
+    #
+    # Restores the declared key rather than pinning `id`: baselines are a handful
+    # per project, so the sort above the aggregate is free at this cardinality,
+    # and creation order is the order the comparison UI reads them in. `id` is the
+    # tiebreak because two baselines captured in the same transaction share a
+    # `created_at` — which is exactly how the plan-vs-actual table would end up
+    # showing one twice.
+    ordering = ["created_at", "id"]
 
     def get_serializer_class(self) -> type:
         if self.action == "retrieve":
@@ -6397,6 +6412,27 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
     pagination_class = ScheduleFetchPagination
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ["dep_type"]
+    # Deterministic default ordering for pagination (#2821 sweep).
+    #
+    # A DIFFERENT root cause from the task (#2807) and sprint (#2821) lists, with
+    # the same consequence: those two declare `Meta.ordering` and lose it to a
+    # GROUP BY, whereas `Dependency.Meta` declares no ordering AT ALL — so this
+    # list has never had one, with or without annotations. DRF raised
+    # UnorderedObjectListWarning on every request.
+    #
+    # It matters most here. `pagination_class = ScheduleFetchPagination` exists so
+    # the Gantt's dependency walk fetches all pages in PARALLEL (#1519) — the same
+    # `fetchAllPagesParallel` path #2807 was about. Paginating an unordered
+    # relation means a query-plan change can serve one edge on two pages and drop
+    # another, which does not surface as a missing row in a list: it surfaces as
+    # a Gantt drawn with a duplicated arrow and a missing one, i.e. a schedule
+    # whose visible dependency network disagrees with the stored network.
+    #
+    # `id` rather than a semantic key: there is no GROUP BY on this queryset, so
+    # the choice is free either way, and `id` is the primary key — an index scan
+    # with no sort node, and stable under concurrent edge creation. Set on the
+    # viewset instead of `Dependency.Meta` so the fix needs no migration.
+    ordering = ["id"]
     # ``predecessor__project`` / ``successor__project`` are prefetched so the D5
     # ExternalTaskCard's ``project_name`` does not N+1 on a cross-project list.
     queryset = Dependency.objects.select_related(
@@ -11824,6 +11860,30 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
     serializer_class = SprintSerializer
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ["start_date", "finish_date", "name", "state"]
+    # Deterministic default ordering for pagination (#2821, same class as #2807).
+    #
+    # `Sprint.Meta.ordering = ["start_date", "name"]` does NOT reach this endpoint.
+    # `get_queryset` annotates `pending_count` and `wip_count` (two filtered
+    # aggregates over the same `tasks` relation), which give the query a GROUP BY,
+    # and Django's SQL compiler drops *Meta*-derived ordering whenever a GROUP BY
+    # is present (`if self._meta_ordering: order_by = None`). So the shipped list
+    # query emitted `LIMIT 50` with no ORDER BY at all — DRF raised
+    # UnorderedObjectListWarning, and page boundaries were plan-dependent: a plan
+    # flip could serve the same sprint on two pages and drop another entirely.
+    # An ordering set *here* is an explicit `.order_by()` applied by OrderingFilter,
+    # which the GROUP BY does not discard.
+    #
+    # Why this restores the model's declared key, where #2807 pinned `id` instead:
+    # that endpoint's sort sat above a GroupAggregate whose group key held four
+    # correlated SubPlans over a 4,000-row project, so any key the aggregate did not
+    # already emit forced a full materialization (5,753 ms vs 120 ms) — `id` was the
+    # only free option there. A sprint list is a different shape: it is scoped to one
+    # project and is tens of rows, `(project, start_date)` is indexed
+    # (`sprint_project_start_idx`), and the aggregate reads that same index — so the
+    # sort is free at this cardinality and there is no reason to serve a *less* useful
+    # order than the one the model declares. `id` is appended as the tiebreak because
+    # (start_date, name) carries no uniqueness constraint: two sprints may share both.
+    ordering = ["start_date", "name", "id"]
 
     def get_permissions(self) -> list[BasePermission]:
         # ADR-0186 §E: append the read-only MCP token guards around the
