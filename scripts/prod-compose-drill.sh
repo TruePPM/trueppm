@@ -180,9 +180,28 @@ set_env DJANGO_SUPERUSER_EMAIL "${ADMIN_EMAIL}"
 # recreates nginx against the now-correct source. Doing it this way keeps the
 # drill running the real init-prod.sh rather than a re-implementation of it.
 sync_checkout_to_daemon() {
+  # `rm -rf` the target first: once compose has started a service whose bind
+  # source is missing, the daemon holds a DIRECTORY at that path, and tar cannot
+  # extract a regular file over a directory — it fails and leaves the directory,
+  # which is exactly how this looked like it had not been fixed.
   tar -C "$PWD" -cf - nginx 2>/dev/null \
     | docker run --rm -i -v /:/host alpine:3 \
-        sh -c "mkdir -p '/host${PWD}' && tar -C '/host${PWD}' -xf -" >/dev/null
+        sh -c "rm -rf '/host${PWD}/nginx' && mkdir -p '/host${PWD}' && tar -C '/host${PWD}' -xf -" \
+    >/dev/null
+}
+
+# Fail fast and legibly if the sync did not land a real file. Without this the
+# drill spends 300 s polling readyz and then reports a timeout, which reads as a
+# slow application rather than a broken mount.
+assert_template_on_daemon() {
+  local kind
+  kind="$(docker run --rm -v /:/host alpine:3 sh -c \
+    "if [ -f '/host${PWD}/nginx/active.conf.template' ]; then echo file; \
+     elif [ -d '/host${PWD}/nginx/active.conf.template' ]; then echo directory; \
+     else echo missing; fi")"
+  [ "${kind}" = "file" ] || fail \
+    "nginx/active.conf.template is a ${kind} on the dind daemon, not a file — the \
+bind mount would resolve to it and nginx dies on 'envsubst: ... Is a directory'."
 }
 
 log "syncing bind-mount sources onto the dind daemon filesystem"
@@ -196,6 +215,7 @@ bash init-prod.sh
 # source. Re-sync and recreate it.
 log "re-syncing the rendered nginx template and recreating nginx"
 sync_checkout_to_daemon
+assert_template_on_daemon
 compose up -d --force-recreate nginx
 
 # ---- 3. the api cleared its import-time boot guards -------------------------
