@@ -550,6 +550,18 @@ docker compose -f docker-compose.prod.yml exec api \
   cat /run/trueppm/admin_password
 ```
 
+This exact path is drilled in CI. On any change to `docker-compose.prod.yml`,
+`init-prod.sh`, `.env.example`, or the nginx templates — plus a nightly schedule
+— a `compose:prod` job fills `.env.example` with generated values, runs
+`init-prod.sh` against images built from that commit, and fails the pipeline
+unless the API clears all three start-up guards, `/api/v1/readyz` reports ready
+through nginx, `/api/v1/health/beat/` returns 200 (which proves the scheduler is
+genuinely dispatching, not merely declared), and the stack survives restarting
+the API container. It is the Compose counterpart to the `helm:install` drill
+described under [Kubernetes with Helm](#kubernetes-with-helm). TLS renewal is **not** covered —
+it needs a real domain and ACME reachability, so it stays a release-day manual
+check.
+
 **systemd auto-start.** Create `/etc/systemd/system/trueppm.service`:
 
 ```ini

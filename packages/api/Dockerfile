@@ -92,11 +92,26 @@ COPY licenses /app/licenses
 # requires recipients to receive (#2632).
 COPY LICENSE /app/LICENSE
 
-# Create a non-root user (uid=1000) to run the application and pre-create
-# the staticfiles directory so collectstatic can write there at startup.
+# Create a non-root user (uid=1000) to run the application, and pre-create every
+# directory a named volume gets mounted onto.
+#
+# Pre-creating them is load-bearing, not tidiness: Docker seeds a fresh named
+# volume from the image's directory at that path, INCLUDING its ownership. A path
+# the image does not contain yields an empty, ROOT-owned volume that this
+# non-root user cannot write to.
+#
+#   /app/staticfiles  — collectstatic writes here at startup.
+#   /run/trueppm      — create_admin writes the generated admin password here
+#                       (#2830). Missing until now, so on the compose stack the
+#                       write failed with EACCES and the command fell back to
+#                       printing the credential on stdout — into container logs,
+#                       the exact disclosure the file-based handoff exists to
+#                       avoid — while the documented
+#                       `docker compose exec api cat /run/trueppm/admin_password`
+#                       could never succeed.
 RUN useradd --uid 1000 --no-create-home --shell /sbin/nologin trueppm && \
-    mkdir -p /app/staticfiles && \
-    chown trueppm /app/staticfiles
+    mkdir -p /app/staticfiles /run/trueppm && \
+    chown trueppm /app/staticfiles /run/trueppm
 
 ENV PATH="/venv/bin:$PATH"
 
