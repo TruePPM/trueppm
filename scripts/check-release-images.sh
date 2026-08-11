@@ -61,8 +61,17 @@ ACCEPTED_GAPS="${ACCEPTED_GAPS:-}"
 # than lexically, so v0.10.0 sorts above v0.9.0. Pre-release tags (v0.3.0-alpha.3)
 # sort below their own final release under this comparison, which is what we
 # want: once v0.3.0 exists, it is the thing operators are told to pull.
+#
+# `--count=1` rather than `git tag --list | head -n 1`: under `set -o pipefail`
+# the piped form dies with exit 141 once the tag list outgrows the pipe buffer,
+# because `head` closes the read end while `git` is still writing and the
+# resulting SIGPIPE becomes the pipeline's status. That failure is silent — it
+# aborts before the first echo, so the job reports no reason at all, and it is
+# indistinguishable from a registry outage. A gate whose whole purpose is to
+# make absence read red must not have a failure mode that reads like absence.
 resolve_latest_release_tag() {
-  git tag --list 'v*' --sort=-v:refname 2>/dev/null | head -n 1
+  git for-each-ref --count=1 --sort=-v:refname \
+    --format='%(refname:short)' 'refs/tags/v*' 2>/dev/null
 }
 
 # Exact "<image>:<tag>" match against ACCEPTED_GAPS — no globbing, so an

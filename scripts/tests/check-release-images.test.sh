@@ -139,6 +139,41 @@ check "picks v0.10.0 over v0.9.0 (version sort, not lexical)" \
   "$(grep -q "tag: v0.10.0" <<<"$OUT" && echo 0 || echo 1)"
 check "exits 0 for the resolved tag" "$([[ $RC -eq 0 ]] && echo 0 || echo 1)"
 
+# Tag resolution must not break on a repo with more tags than fit in a pipe
+# buffer. The original `git tag --list | head -n 1` died with exit 141 here:
+# `head` closed the pipe mid-write, and under `set -o pipefail` the SIGPIPE
+# became the script's status *before* the first echo — a completely silent
+# failure that looks exactly like the reaped-image outage this gate detects.
+# Three tags (above) cannot reproduce it; the list has to exceed ~64KB, so this
+# case builds one big enough to make the old form fail every time.
+echo "check-release-images: resolves the tag on a repo with thousands of tags"
+BIGREPO="$TMP/manytags"
+mkdir -p "$BIGREPO"
+git -C "$BIGREPO" init -q
+git -C "$BIGREPO" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+BIGSHA="$(git -C "$BIGREPO" rev-parse HEAD)"
+# Batched through update-ref: 6,000 individual `git tag` calls would dominate
+# the runtime of the whole suite. Long refnames push the listing past the pipe
+# buffer with fewer refs.
+awk -v sha="$BIGSHA" 'BEGIN {
+  for (i = 0; i < 6000; i++)
+    printf "create refs/tags/v0.%d.0-alpha.%d-padding-to-lengthen-the-refname %s\n", i / 100, i % 100, sha
+}' | git -C "$BIGREPO" update-ref --stdin
+BIGTAG="v0.59.0-alpha.99-padding-to-lengthen-the-refname"
+present "registry.example.com/trueppm/trueppm/api:$BIGTAG" \
+        "registry.example.com/trueppm/trueppm/web:$BIGTAG"
+set +e
+OUT="$(cd "$BIGREPO" && CI_REGISTRY_IMAGE="registry.example.com/trueppm/trueppm" \
+  RELEASE_IMAGE_PROBE="$TMP/probe.sh" PRESENT_FILE="$TMP/present" \
+  bash "$GATE" 2>&1)"
+RC=$?
+set -e
+check "does not die with SIGPIPE (141) resolving a large tag list" \
+  "$([[ $RC -ne 141 ]] && echo 0 || echo 1)"
+check "exits 0 having resolved the newest tag" "$([[ $RC -eq 0 ]] && echo 0 || echo 1)"
+check "resolved the version-sorted newest tag, not an arbitrary one" \
+  "$(grep -q "tag: $BIGTAG" <<<"$OUT" && echo 0 || echo 1)"
+
 # --- Image set is configurable ---------------------------------------------
 
 echo "check-release-images: RELEASE_IMAGES override"
