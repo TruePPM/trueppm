@@ -155,8 +155,48 @@ set_env TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE true
 set_env DJANGO_SUPERUSER_EMAIL "${ADMIN_EMAIL}"
 
 # ---- 2. boot through the documented entrypoint -----------------------------
+#
+# dind caveat, and the reason for sync_checkout_to_daemon below.
+#
+# `docker compose` runs in THIS container but the daemon runs in the dind
+# service, and a bind mount's SOURCE path is resolved by the daemon — on its own
+# filesystem, where our checkout does not exist. Docker's response to a missing
+# bind source is to create it, as a DIRECTORY. The nginx service is the only one
+# in this stack with bind mounts (its config template and the certbot webroots);
+# everything else uses named volumes, which live in the daemon and work fine.
+# So nginx alone came up with a directory where its template should be and
+# crash-looped on `envsubst: ... Is a directory`, while every other service
+# reported healthy.
+#
+# The fix is to place the checkout on the daemon's filesystem at the SAME
+# absolute path, so the relative sources in the compose file resolve to the real
+# files. `-v /:/host` from a throwaway container reaches the dind root. Only the
+# paths the compose file binds are copied — the certbot directories are
+# genuinely directories, so Docker auto-creating those is harmless and correct.
+#
+# This runs TWICE on purpose: once before init-prod.sh so the daemon has the
+# templates, and once after, because init-prod.sh's own `cp` of the selected
+# template lands on THIS container's filesystem. The trailing `up -d` then
+# recreates nginx against the now-correct source. Doing it this way keeps the
+# drill running the real init-prod.sh rather than a re-implementation of it.
+sync_checkout_to_daemon() {
+  tar -C "$PWD" -cf - nginx 2>/dev/null \
+    | docker run --rm -i -v /:/host alpine:3 \
+        sh -c "mkdir -p '/host${PWD}' && tar -C '/host${PWD}' -xf -" >/dev/null
+}
+
+log "syncing bind-mount sources onto the dind daemon filesystem"
+sync_checkout_to_daemon
+
 log "booting the stack via init-prod.sh (TLS_MODE=none)"
 bash init-prod.sh
+
+# init-prod.sh rendered nginx/active.conf.template on THIS filesystem; the daemon
+# still has the pre-render tree, so nginx is currently bound to a stale or absent
+# source. Re-sync and recreate it.
+log "re-syncing the rendered nginx template and recreating nginx"
+sync_checkout_to_daemon
+compose up -d --force-recreate nginx
 
 # ---- 3. the api cleared its import-time boot guards -------------------------
 log "waiting for api-init (migrate -> collectstatic -> create_admin)"
