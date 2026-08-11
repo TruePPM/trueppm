@@ -216,7 +216,10 @@ bash init-prod.sh
 log "re-syncing the rendered nginx template and recreating nginx"
 sync_checkout_to_daemon
 assert_template_on_daemon
-compose up -d --force-recreate nginx
+# --no-deps is essential: without it compose recreates nginx's dependency chain
+# too, which re-runs api-init — migrations, collectstatic AND the create_admin
+# bootstrap — in the middle of the drill. Only nginx's bind source changed.
+compose up -d --no-deps --force-recreate nginx
 
 # ---- 3. the api cleared its import-time boot guards -------------------------
 log "waiting for api-init (migrate -> collectstatic -> create_admin)"
