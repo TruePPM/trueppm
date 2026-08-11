@@ -14,6 +14,7 @@ Covers:
 
 from __future__ import annotations
 
+import itertools
 from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
@@ -26,7 +27,9 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
+    Baseline,
     Calendar,
+    Dependency,
     Label,
     LabelColor,
     Methodology,
@@ -854,4 +857,144 @@ def test_task_list_page_query_is_ordered(client: APIClient, project: Project) ->
         "unordered queryset is not stable, so the Schedule's parallel page fetch can "
         "return the same task twice and miss another. TaskViewSet.ordering supplies "
         "an explicit order_by that the GROUP BY cannot discard — see #2807."
+    )
+
+
+@pytest.mark.django_db
+def test_sprint_list_page_query_is_ordered(client: APIClient, project: Project) -> None:
+    """The paginated sprint list emits an ORDER BY, so pages partition the result set.
+
+    Same class as #2807, on a different endpoint (#2821): `Sprint.Meta.ordering`
+    does not survive `SprintViewSet.get_queryset`, which annotates `pending_count`
+    and `wip_count`. Those aggregates give the query a GROUP BY, and Django's
+    compiler discards *Meta*-derived ordering whenever one is present, so the
+    shipped query paginated an unordered relation — DRF flags that with
+    UnorderedObjectListWarning, and a plan flip can serve one sprint on two pages
+    while dropping another.
+
+    Asserts the property (the page query is ordered) rather than the sort key, so a
+    later change to *what* the default order is does not rewrite this guard.
+    """
+    for i in range(3):
+        Sprint.objects.create(
+            project=project,
+            name=f"S{i}",
+            start_date=date(2026, 4, 1 + i),
+            finish_date=date(2026, 4, 14 + i),
+            state=SprintState.PLANNED,
+        )
+
+    with CaptureQueriesContext(connection) as ctx:
+        r = client.get(f"/api/v1/projects/{project.pk}/sprints/")
+        assert r.status_code == 200, r.data
+
+    page_queries = [
+        q["sql"]
+        for q in ctx.captured_queries
+        if "LIMIT" in q["sql"]
+        and "projects_sprint" in q["sql"]
+        and "COUNT(*) FROM (" not in q["sql"]
+    ]
+    assert page_queries, "no paginated sprint query captured"
+    # The page fetch is the one carrying the pagination LIMIT; any other LIMIT in
+    # this statement belongs to a correlated subquery in the annotation set.
+    page_sql = max(page_queries, key=len)
+    assert "ORDER BY" in page_sql, (
+        "GET /projects/{id}/sprints/ paginated its result set with no ORDER BY. "
+        "Pagination over an unordered queryset is not stable, so a page fetch can "
+        "return the same sprint twice and miss another. SprintViewSet.ordering "
+        "supplies an explicit order_by that the GROUP BY cannot discard — see #2821."
+    )
+
+
+@pytest.mark.django_db
+def test_sprint_list_default_order_is_the_declared_key(client: APIClient, project: Project) -> None:
+    """The restored default order is the model's declared key, not insertion order.
+
+    The #2807 fix pinned `id` because a WBS sort above that endpoint's GroupAggregate
+    cost 5.7 s on a 4,000-task project. A sprint list is tens of project-scoped rows
+    over an indexed `(project, start_date)`, so it can afford — and should serve —
+    the order `Sprint.Meta` declares. Sprints are created here in reverse start-date
+    order so insertion order and the declared order disagree.
+    """
+    for i in (2, 1, 0):
+        Sprint.objects.create(
+            project=project,
+            name=f"S{i}",
+            start_date=date(2026, 4, 1 + i),
+            finish_date=date(2026, 4, 14 + i),
+            state=SprintState.PLANNED,
+        )
+
+    r = client.get(f"/api/v1/projects/{project.pk}/sprints/")
+    assert r.status_code == 200, r.data
+    assert [s["name"] for s in r.data["results"]] == ["S0", "S1", "S2"]
+
+
+@pytest.mark.django_db
+def test_dependency_list_page_query_is_ordered(client: APIClient, project: Project) -> None:
+    """The paginated dependency list emits an ORDER BY (#2821 sweep).
+
+    A different root cause from the task and sprint lists, with a worse blast
+    radius. Those declare `Meta.ordering` and lose it to a GROUP BY; `Dependency`
+    declares no ordering at all, so this list never had one. And it is the list
+    the Gantt walks with `ScheduleFetchPagination` in parallel (#1519) — so an
+    unstable page boundary does not read as a missing row, it draws a schedule
+    with one dependency arrow duplicated and another absent.
+    """
+    tasks = [
+        Task.objects.create(project=project, name=f"D{i}", duration=1, wbs_path=str(i + 1))
+        for i in range(4)
+    ]
+    for pred, succ in itertools.pairwise(tasks):
+        Dependency.objects.create(predecessor=pred, successor=succ, dep_type="FS")
+
+    with CaptureQueriesContext(connection) as ctx:
+        r = client.get(f"/api/v1/dependencies/?project={project.pk}")
+        assert r.status_code == 200, r.data
+
+    page_queries = [
+        q["sql"]
+        for q in ctx.captured_queries
+        if "LIMIT" in q["sql"]
+        and "projects_dependency" in q["sql"]
+        and "COUNT(*) FROM (" not in q["sql"]
+    ]
+    assert page_queries, "no paginated dependency query captured"
+    page_sql = max(page_queries, key=len)
+    assert "ORDER BY" in page_sql, (
+        "GET /dependencies/ paginated its result set with no ORDER BY. The Gantt "
+        "fetches every page of this list in parallel, so an unstable page boundary "
+        "renders a duplicated dependency arrow and drops another — see #2821."
+    )
+
+
+@pytest.mark.django_db
+def test_baseline_list_page_query_is_ordered(client: APIClient, project: Project) -> None:
+    """The paginated baseline list emits an ORDER BY (#2821 sweep).
+
+    Same mechanism as the sprint list: `Baseline.Meta.ordering` is discarded
+    because `get_queryset` annotates `task_count`, which gives the query a
+    GROUP BY.
+    """
+    for i in range(3):
+        Baseline.objects.create(project=project, name=f"B{i}")
+
+    with CaptureQueriesContext(connection) as ctx:
+        r = client.get(f"/api/v1/projects/{project.pk}/baselines/")
+        assert r.status_code == 200, r.data
+
+    page_queries = [
+        q["sql"]
+        for q in ctx.captured_queries
+        if "LIMIT" in q["sql"]
+        and "projects_baseline" in q["sql"]
+        and "COUNT(*) FROM (" not in q["sql"]
+    ]
+    assert page_queries, "no paginated baseline query captured"
+    page_sql = max(page_queries, key=len)
+    assert "ORDER BY" in page_sql, (
+        "GET /projects/{id}/baselines/ paginated its result set with no ORDER BY — "
+        "the `task_count` annotation's GROUP BY discards Baseline.Meta.ordering. "
+        "See #2821."
     )
