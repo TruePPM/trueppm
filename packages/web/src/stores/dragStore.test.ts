@@ -180,6 +180,49 @@ describe('dragStore', () => {
       expect(s.buildingFinish).toBeNull();
     });
 
+    it('stopBuilding does NOT cancel an active pointer drag (#2819)', () => {
+      // Its one caller, useBuildGhostBar, runs in EVERY TaskListRow: each row
+      // whose name cell is not being edited calls stopBuilding on mount and on
+      // every dep change. When this reset `phase` unconditionally, an unrelated
+      // row re-rendering ended the drag a frame or two after it started — which
+      // is why the drag preview state machine never survived long enough for
+      // anyone to notice PreviewOverlay was not mounted.
+      useDragStore.getState().startDrag('t1');
+      useDragStore.getState().stopBuilding();
+      const s = useDragStore.getState();
+      expect(s.phase).toBe('dragging');
+      expect(s.draggedTaskId).toBe('t1');
+    });
+
+    it('stopBuilding does NOT cancel an active keyboard reschedule (#2819)', () => {
+      useDragStore.getState().startDrag('t1', true);
+      useDragStore.getState().setKeyboardDelta(3);
+      useDragStore.getState().stopBuilding();
+      const s = useDragStore.getState();
+      expect(s.phase).toBe('dragging');
+      expect(s.isKeyboardMode).toBe(true);
+      expect(s.keyboardDelta).toBe(3);
+    });
+
+    it('stopBuilding is a no-op object-identity-wise when nothing is building', () => {
+      // Rows call this on every render pass; returning the same state object
+      // keeps those calls from waking every subscriber of the store.
+      const before = useDragStore.getState();
+      useDragStore.getState().stopBuilding();
+      expect(useDragStore.getState()).toBe(before);
+    });
+
+    it('stopBuilding still clears the ghost when the drag phase is committing', () => {
+      // Defensive: building fields must not survive into a phase that no longer
+      // renders them, even though the phase itself is not this action's to end.
+      useDragStore.getState().startBuilding('t-new', '2026-05-14', '2026-05-19');
+      useDragStore.setState({ phase: 'committing' });
+      useDragStore.getState().stopBuilding();
+      const s = useDragStore.getState();
+      expect(s.phase).toBe('committing');
+      expect(s.buildingTaskId).toBeNull();
+    });
+
     it('cancelDrag also resets building fields', () => {
       useDragStore.getState().startBuilding('t-new', '2026-05-14', '2026-05-19');
       useDragStore.getState().cancelDrag();

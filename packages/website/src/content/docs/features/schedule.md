@@ -457,6 +457,29 @@ Only dates **you** authored are marked. A teammate's edit arriving over the
 live channel updates the plan as it always has — see
 [Real-time collaboration](/features/real-time/).
 
+### What the preview shows while you drag
+
+You do not have to drop a bar to find out what it costs. While a drag or a
+keyboard reschedule is live, TruePPM paints **preview bars** — translucent
+ghosts on every downstream task the move would push, with a red frame and a
+**CP** badge on any task the move puts onto the critical path. A corner label
+reads *"Preview — server confirms on drop"*, because this is a browser-side
+estimate on a plain Monday–Friday week: it does not know the project's holiday
+exceptions, and the CPM pass on drop is what decides. At most ten ghosts are
+drawn at once; beyond that a **+N more affected** count tells you the blast
+radius is larger than what is on screen. Press **Esc** to back out with nothing
+changed.
+
+**A bar whose dates come from recorded actuals will not move.** Once a task is
+complete *and* carries a recorded actual start or finish, the scheduling engine
+takes it out of network logic entirely — its actuals are the truth, and the
+planned start is never consulted for it again. You can still grab such a bar,
+and the drag says so while you hold it: *"Recorded actuals set this task's
+dates — the drop won't move it."* Completion alone does not do this. A task
+marked 100% with no recorded actuals is still scheduled by the network and
+drags normally; it is the actuals, not the checkbox, that pin the dates. To
+move a pinned task, change its actual dates on the task itself.
+
 ## Forecast & sensitivity
 
 Below the timeline, a collapsible **Forecast & sensitivity** bar surfaces the Monte Carlo result inline. Collapsed, it shows a one-line summary (P50 · P80 · P95 · the top driver). Expanded, it has two columns:

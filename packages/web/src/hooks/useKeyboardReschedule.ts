@@ -196,6 +196,15 @@ export function useKeyboardReschedule({
 
       const task = tasksRef.current.find((t) => t.id === taskId);
       // Summary tasks and completed tasks cannot be rescheduled via keyboard.
+      //
+      // Note the asymmetry with the pointer path (#2819): pointer drag offers the
+      // gesture on any leaf, including one pinned by recorded actuals, and now
+      // explains during the drag that the drop will not move it. This gate is
+      // wider than pinning — it refuses every complete task, including one
+      // complete by `progress` alone with no actuals, which IS still
+      // network-scheduled and which the pointer path lets you move. Narrowing it
+      // to `isPinnedByActuals` would GRANT a capability rather than correct an
+      // explanation, so it is deliberately left alone here (#2827).
       if (!task || task.isSummary || task.isComplete) return;
 
       keyboardModeRef.current = true;

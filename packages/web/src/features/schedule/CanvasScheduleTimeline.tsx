@@ -1,11 +1,13 @@
 /**
  * Three-layer canvas Gantt timeline component.
  *
- * Renders three stacked <canvas> elements (bg / bars / interaction) plus a
- * transparent ScheduleAriaOverlay for accessibility (rule 67).
+ * Renders three stacked <canvas> elements (bg / bars / interaction) plus two
+ * transparent DOM overlays: ScheduleAriaOverlay for accessibility (rule 67) and
+ * PreviewOverlay for drag/keyboard-reschedule preview bars (#2819).
  *
  * The host div is `position: relative; width: 100%; height: 100%` so canvases
- * fill the available space. The aria overlay is z-index 3 (pointer-events: none).
+ * fill the available space. The aria overlay is z-index 3 and the preview
+ * overlay z-index 4 (both pointer-events: none).
  *
  * Design rules enforced:
  * - Rule 59: three-layer canvas stack, one responsibility each
@@ -23,6 +25,7 @@ import { useIsDark } from '@/hooks/useIsDark';
 import { useFiscalYearStartMonth } from '@/hooks/useFiscalYearStartMonth';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { ScheduleAriaOverlay } from './ScheduleAriaOverlay';
+import { PreviewOverlay } from './PreviewOverlay';
 
 interface CanvasScheduleTimelineProps {
   tasks: Task[];
@@ -179,6 +182,12 @@ export function CanvasScheduleTimeline({
         sprintBands={sprintBands}
         containerRef={containerRef}
       />
+      {/* Layer 4: drag/keyboard-reschedule preview bars (pointer-events: none).
+          Above the ARIA overlay so a ghost bar is never occluded by it; both are
+          transparent to pointer events, so stacking order is purely visual. This
+          is the render site the CPM worker's per-task results had been computed
+          for since #19 and never reached (#2819). */}
+      <PreviewOverlay engine={engine} tasks={tasks} containerRef={containerRef} />
     </div>
   );
 }
