@@ -28,6 +28,10 @@ import type { Task, TaskLink } from '@/types';
 import type { RecalcMessage, ResultMessage } from '@/workers/cpmWorker.types';
 import { useDragStore } from '@/stores/dragStore';
 import { buildSubgraph } from '@/features/schedule/buildSubgraph';
+import {
+  isPinnedByActuals,
+  PINNED_KEYBOARD_REFUSAL,
+} from '@/features/schedule/pinnedByActuals';
 import { nudgeWorkingDays } from '@/features/schedule/scheduleUtils';
 import { createCpmWorker } from '@/workers/createCpmWorker';
 import { isTypingInInput } from '@/hooks/useGlobalShortcut';
@@ -195,17 +199,38 @@ export function useKeyboardReschedule({
       if (!taskId) return;
 
       const task = tasksRef.current.find((t) => t.id === taskId);
-      // Summary tasks and completed tasks cannot be rescheduled via keyboard.
+      if (!task) return;
+
+      // A summary task's dates roll up from its children, so there is nothing
+      // here to move — the same reason the pointer path refuses it.
+      if (task.isSummary) {
+        e.preventDefault();
+        announce(`${task.name} is a summary task — its dates roll up from its children.`);
+        return;
+      }
+
+      // The refusal is keyed on recorded actuals, NOT on completion (#2827).
       //
-      // Note the asymmetry with the pointer path (#2819): pointer drag offers the
-      // gesture on any leaf, including one pinned by recorded actuals, and now
-      // explains during the drag that the drop will not move it. This gate is
-      // wider than pinning — it refuses every complete task, including one
-      // complete by `progress` alone with no actuals, which IS still
-      // network-scheduled and which the pointer path lets you move. Narrowing it
-      // to `isPinnedByActuals` would GRANT a capability rather than correct an
-      // explanation, so it is deliberately left alone here (#2827).
-      if (!task || task.isSummary || task.isComplete) return;
+      // Both server engines take a task out of network logic only when it is
+      // complete AND carries an actual (`_pinned_placement` / `pinned_placement`,
+      // ADR-0132), so a task complete by `progress` alone with no actuals is
+      // still fully network-scheduled and its dates still move. The pointer path
+      // reschedules exactly that task, so the old `isComplete` gate left the two
+      // input paths disagreeing about one task — a WCAG 2.1.1 gap on the class
+      // of task a keyboard user is most likely to be correcting.
+      //
+      // `isPinnedByActuals` is the shared client mirror of that server predicate
+      // (#2819); keeping both paths on the one helper is what stops them
+      // drifting apart again.
+      //
+      // Both refusals announce. Before this, the keypress was dropped in
+      // silence, so a screen-reader user pressing 'r' on a complete task got
+      // nothing — no movement and no reason.
+      if (isPinnedByActuals(task)) {
+        e.preventDefault();
+        announce(`${task.name}: ${PINNED_KEYBOARD_REFUSAL}`);
+        return;
+      }
 
       keyboardModeRef.current = true;
       origStartRef.current = task.start;

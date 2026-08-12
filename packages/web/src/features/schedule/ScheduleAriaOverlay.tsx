@@ -46,6 +46,7 @@ import { dateToLeft, dateToRight } from './engine';
 import { ROW_HEIGHT, BAR_TOP_OFFSET, BAR_HEIGHT } from './engine/GanttHitIndex';
 import { HEADER_HEIGHT } from './scheduleConstants';
 import { sprintBandByTaskId, type SprintBand } from './sprintBands';
+import { isPinnedByActuals } from './pinnedByActuals';
 
 const OVERSCAN_ROWS = 5;
 
@@ -179,12 +180,19 @@ interface ScheduleAriaOverlayProps {
 /**
  * Keyboard-reschedule is discoverable only if announced (#1031, WCAG 4.1.3):
  * a task can be rescheduled with the keyboard unless it is a summary rollup or
- * already complete (mirrors the gate in useKeyboardReschedule). When such a row
- * is focused, the polite live region names it and states the Enter convention
- * so a screen-reader user who doesn't know it can find it.
+ * pinned by recorded actuals. When such a row is focused, the polite live
+ * region names it and states the convention so a screen-reader user who doesn't
+ * know it can find it.
+ *
+ * This predicate MUST stay identical to `tryInitiate`'s in useKeyboardReschedule
+ * — it is the announcement of that gate, so a divergence either advertises a
+ * shortcut that does nothing or hides one that works. Both now read the shared
+ * `isPinnedByActuals` helper rather than each spelling the rule out (#2827):
+ * completion alone does not pin a task, and a task complete by progress with no
+ * actuals is reschedulable and must be announced as such.
  */
 export function rescheduleHint(task: Task): string | null {
-  if (task.isSummary || task.isComplete) return null;
+  if (task.isSummary || isPinnedByActuals(task)) return null;
   return `${task.name}. Press Enter to open details, Shift+Enter to reschedule via keyboard. Arrow keys to navigate rows.`;
 }
 

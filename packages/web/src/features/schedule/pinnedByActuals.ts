@@ -46,3 +46,15 @@ export function isPinnedByActuals(task: Pick<Task, 'isComplete' | 'actualStart' 
  */
 export const PINNED_DRAG_EXPLANATION =
   "Recorded actuals set this task's dates — the drop won't move it";
+
+/**
+ * The same verdict, phrased for the keyboard path (#2827).
+ *
+ * The drag sentence above names a gesture the keyboard user never performed —
+ * there is no drop to speak of when `r` is refused outright — so the two paths
+ * need two sentences. They stay in this one module rather than at their call
+ * sites for the reason above: the *reason* must not drift even when the wording
+ * differs, and a call site that hand-rolls its own phrasing is how it does.
+ */
+export const PINNED_KEYBOARD_REFUSAL =
+  "Recorded actuals set this task's dates — it can't be rescheduled. Change its actual dates instead.";
