@@ -1688,8 +1688,9 @@ compose:prod:
   # Not `interruptible`: a rebased push must not abort a half-created stack and
   # leak its containers and volumes into the dind daemon.
   #
-  # TLS/certbot is deliberately out of scope — it needs a real domain and ACME
-  # reachability on 80/443. That path stays a tag-day manual smoke (#2804).
+  # This job is the PLAIN-HTTP leg (TLS_MODE=none). compose:prod:tls below is
+  # its sibling and boots the TLS template; see that job for why the split
+  # exists (#2829).
   stage: test
   interruptible: false
   timeout: 25m
@@ -1718,10 +1719,42 @@ compose:prod:
       changes: *deploy-drill-paths
   before_script:
     # docker-compose-plugin, curl and python3 are not in the docker:27 image.
-    - apk add --no-cache bash curl python3 docker-cli-compose
+    # openssl is what init-prod.sh mints the self-signed lineage with in the
+    # TLS leg; it costs nothing here and keeps the two jobs on one before_script.
+    - apk add --no-cache bash curl python3 openssl docker-cli-compose
     - until docker info >/dev/null 2>&1; do echo "waiting for dind..."; sleep 2; done
   script:
     - bash scripts/prod-compose-drill.sh
+
+compose:prod:tls:
+  # The TLS leg of the prod compose boot drill (#2829).
+  #
+  # compose:prod boots `TLS_MODE=none`, which selects nginx/app-http.conf.template.
+  # `nginx/app.conf.template` — the TLS variant, and a genuinely DIFFERENT FILE —
+  # had therefore never been started by anything except a human on tag day. That
+  # is the same coverage the nginx service itself had before #2817, and #2828
+  # then found FOUR independently fatal faults in it, every one of which
+  # `docker compose config` and the structural contract tests rendered happily.
+  # Assuming the TLS variant is fine, given that base rate, is not a neutral
+  # assumption — which is the whole argument of #2829.
+  #
+  # `selfsigned` rather than `letsencrypt`: init-prod.sh mints the lineage with
+  # openssl, so this needs no domain, no ACME server, and no egress, while
+  # exercising the identical template, the identical certificate paths, and the
+  # identical nginx service. On top of what compose:prod already asserts, this
+  # leg adds HTTPS on :443, the :80 → :443 redirect, HSTS, and — the one that
+  # matters most — that `/.well-known/acme-challenge/` is served from the
+  # webroot over plain HTTP and is NOT swallowed by the redirect. That last
+  # assertion is the `certbot renew -a webroot` contract; break it and the
+  # certificate still issues, then fails to renew at ~60 days, with nothing in
+  # CI to say so.
+  #
+  # What is still uncovered, and stays a tag-day manual smoke: the `--standalone`
+  # first issuance and the standalone→webroot authenticator switch recorded in
+  # the renewal lineage. Both need a real ACME exchange (#2804).
+  extends: compose:prod
+  variables:
+    TLS_MODE: "selfsigned"
 
 helm:netpol:
   # Datastore NetworkPolicy ENFORCEMENT drill (#2560). See
