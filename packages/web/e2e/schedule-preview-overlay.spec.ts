@@ -13,9 +13,14 @@
  *   legend, and the rule-52 origin ghost bar anchors the pre-nudge position;
  * - error/exit state: Escape cancels and the overlay leaves.
  *
- * The pinned-by-actuals disclosure is exercised in
- * `src/features/schedule/PreviewOverlay.test.tsx` — it is reachable only by
- * pointer drag (the keyboard path refuses complete tasks outright), and a
+ * It also covers the #2827 gate, which is where the two input paths used to
+ * disagree. The keyboard refusal is keyed on recorded actuals, not on
+ * completion, so a task complete by `percent_complete` alone opens the overlay
+ * exactly as the pointer path moves it, and only a task the server would
+ * genuinely pin is refused — with an announcement, where it used to be silent.
+ *
+ * The in-drag pinned disclosure (the chrome painted *during* a pointer drag) is
+ * still exercised in `src/features/schedule/PreviewOverlay.test.tsx`, because a
  * canvas-coordinate mouse drag is not a stable e2e gesture.
  */
 import { test, expect } from './fixtures/coverage';
@@ -61,6 +66,21 @@ function task(id: string, name: string, start: string, finish: string, wbs: stri
 const FIXTURE_TASKS = [
   task('pv1', 'Foundation', '2026-04-06', '2026-04-10', '1'),
   task('pv2', 'Framing', '2026-04-13', '2026-04-17', '2'),
+  // The #2827 pair. `isComplete` is derived from `percent_complete >= 100`
+  // (useScheduleTasks), so these two differ ONLY in whether an actual is
+  // recorded — which is precisely the server's `_pinned_placement` predicate.
+  {
+    ...task('pv3', 'Site survey', '2026-04-06', '2026-04-10', '3'),
+    percent_complete: 100,
+    status: 'COMPLETE',
+  },
+  {
+    ...task('pv4', 'Permit filing', '2026-04-06', '2026-04-10', '4'),
+    percent_complete: 100,
+    status: 'COMPLETE',
+    actual_start: '2026-04-06',
+    actual_finish: '2026-04-10',
+  },
 ];
 
 test.describe('Schedule preview overlay (#2819)', () => {
@@ -135,5 +155,30 @@ test.describe('Schedule preview overlay (#2819)', () => {
 
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('preview-overlay')).toHaveCount(0);
+  });
+
+  test('a complete task with NO actuals is keyboard-reschedulable (#2827)', async ({ page }) => {
+    // The parity case. The server schedules this task through the network
+    // (`_pinned_placement` returns None without an actual) and the pointer path
+    // already moves it, so the keyboard must reach it too — that asymmetry was
+    // the WCAG 2.1.1 gap.
+    await page.getByRole('option', { name: /Site survey/ }).focus();
+    await page.keyboard.press('r');
+
+    await expect(page.getByTestId('preview-overlay')).toBeVisible();
+  });
+
+  test('a complete task pinned by actuals is refused, and says why (#2827)', async ({ page }) => {
+    await page.getByRole('option', { name: /Permit filing/ }).focus();
+    await page.keyboard.press('r');
+
+    // No reschedule mode: recorded actuals set this task's dates, so a nudge
+    // would preview a placement the server re-pins on commit.
+    await expect(page.getByTestId('preview-overlay')).toHaveCount(0);
+    // …and the refusal is announced. Before #2827 the keypress was dropped in
+    // silence, which is the half of the gap a narrower gate alone would leave.
+    await expect(page.locator('[aria-live="assertive"]')).toHaveText(
+      /Permit filing:.*Recorded actuals set this task's dates/,
+    );
   });
 });

@@ -477,17 +477,30 @@ describe('ScheduleAriaOverlay keyboard edges', () => {
     );
   });
 
-  it('stays silent when moving onto a summary or completed row (#1031)', () => {
+  it('stays silent when moving onto a summary or pinned row (#1031, #2827)', () => {
     const tasks = [
       makeTask('t1', 'Design'),
       makeTask('t2', 'Phase rollup', { isSummary: true }),
-      makeTask('t3', 'Shipped', { isComplete: true }),
+      // Pinned means complete AND carrying an actual (#2827) — completion alone
+      // leaves the task network-scheduled and therefore reschedulable.
+      makeTask('t3', 'Shipped', { isComplete: true, actualFinish: '2026-04-20' }),
     ];
     mount({ tasks });
     fireEvent.keyDown(cellFor('Design'), { key: 'ArrowDown' });
     expect(screen.getByRole('status')).toHaveTextContent('');
     fireEvent.keyDown(cellFor('Phase rollup'), { key: 'ArrowDown' });
     expect(screen.getByRole('status')).toHaveTextContent('');
+  });
+
+  it('announces a complete row that carries no actuals (#2827)', () => {
+    // It is still scheduled through the network and the keyboard can move it,
+    // so withholding the hint would hide a shortcut that works.
+    const tasks = [makeTask('t1', 'Design'), makeTask('t2', 'Site survey', { isComplete: true })];
+    mount({ tasks });
+    fireEvent.keyDown(cellFor('Design'), { key: 'ArrowDown' });
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Site survey. Press Enter to open details, Shift+Enter to reschedule via keyboard.',
+    );
   });
 
   it('does nothing at the top and bottom edges of the grid', () => {

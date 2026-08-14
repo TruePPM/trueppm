@@ -480,6 +480,11 @@ marked 100% with no recorded actuals is still scheduled by the network and
 drags normally; it is the actuals, not the checkbox, that pin the dates. To
 move a pinned task, change its actual dates on the task itself.
 
+**The keyboard path draws the same line.** Pressing `Shift`+`Enter` or `r` on a
+pinned task does not start a reschedule, and says why — the same sentence the
+drag shows, announced to a screen reader. A task complete with no recorded
+actuals starts a keyboard reschedule normally, exactly as it drags normally.
+
 ## Forecast & sensitivity
 
 Below the timeline, a collapsible **Forecast & sensitivity** bar surfaces the Monte Carlo result inline. Collapsed, it shows a one-line summary (P50 · P80 · P95 · the top driver). Expanded, it has two columns:
@@ -516,7 +521,7 @@ The document is rasterized **entirely in your browser** (html-to-image + jsPDF) 
 
 ## Accessibility
 
-The canvas is `aria-hidden="true"`; a transparent DOM overlay (`ScheduleAriaOverlay`) provides the WCAG 2.1 grid structure (`role="grid"` → `role="row"` → `role="gridcell"`). Roving tabindex; `engine.scrollToDate()` is called before `.focus()` so virtualized rows scroll into view before keyboard focus lands. In the grid, `↑`/`↓` move between tasks and `Home`/`End` jump to the first and last task (each row is a single cell, so there is no horizontal cell navigation); `Enter` on a reschedulable task starts the keyboard reschedule described above (`←`/`→` nudge, `Enter` confirms, `Esc` cancels), and `Space` selects a task without rescheduling.
+The canvas is `aria-hidden="true"`; a transparent DOM overlay (`ScheduleAriaOverlay`) provides the WCAG 2.1 grid structure (`role="grid"` → `role="row"` → `role="gridcell"`). Roving tabindex; `engine.scrollToDate()` is called before `.focus()` so virtualized rows scroll into view before keyboard focus lands. In the grid, `↑`/`↓` move between tasks and `Home`/`End` jump to the first and last task (each row is a single cell, so there is no horizontal cell navigation); `Shift`+`Enter` or `r` on a reschedulable task starts the keyboard reschedule described above (`←`/`→` nudge, `Enter` confirms, `Esc` cancels) — plain `Enter` opens the task drawer — and `Space` selects a task without rescheduling. Every task the pointer can drag is reachable this way: the keyboard refuses only summary tasks and tasks pinned by recorded actuals, and it announces which of the two it hit rather than ignoring the keypress.
 
 ## Schedule deep-link
 

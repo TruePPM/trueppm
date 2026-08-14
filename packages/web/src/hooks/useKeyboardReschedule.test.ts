@@ -9,6 +9,7 @@ import type {
   GanttScaleData,
 } from '@/features/schedule/engine';
 import { createCpmWorker } from '@/workers/createCpmWorker';
+import { PINNED_KEYBOARD_REFUSAL } from '@/features/schedule/pinnedByActuals';
 import type { ResultMessage } from '@/workers/cpmWorker.types';
 import type { Task, TaskLink } from '@/types';
 
@@ -399,25 +400,67 @@ describe('useKeyboardReschedule', () => {
       expect(keyboardModeRef.current).toBe(false);
     });
 
-    it('refuses to reschedule a summary task', () => {
+    it('refuses to reschedule a summary task, and says why', () => {
       const engine = new ControllableEngine();
-      const { keyboardModeRef } = renderReschedule(engine, {
+      const { keyboardModeRef, ariaAssertiveRef } = renderReschedule(engine, {
         tasks: [makeTask({ isSummary: true })],
       });
       act(() => engine.emit('selection-change', { taskIds: ['t1'] }));
       press('Enter', { shiftKey: true });
       expect(keyboardModeRef.current).toBe(false);
       expect(useDragStore.getState().phase).toBe('idle');
+      expect(ariaAssertiveRef.current?.textContent).toContain('summary task');
     });
 
-    it('refuses to reschedule a completed task', () => {
+    // The #2827 pair. The gate mirrors the server's `_pinned_placement`
+    // (ADR-0132), which pins a task out of network logic only when it is
+    // complete AND carries an actual — so completion alone must NOT refuse.
+    it.each([
+      ['an actual start', { actualStart: '2025-01-06' }],
+      ['an actual finish', { actualFinish: '2025-01-10' }],
+      ['both actuals', { actualStart: '2025-01-06', actualFinish: '2025-01-10' }],
+    ])('refuses a complete task pinned by %s, and says why', (_label, actuals) => {
       const engine = new ControllableEngine();
-      const { keyboardModeRef } = renderReschedule(engine, {
-        tasks: [makeTask({ isComplete: true })],
+      const { keyboardModeRef, ariaAssertiveRef } = renderReschedule(engine, {
+        tasks: [makeTask({ isComplete: true, ...actuals })],
       });
       act(() => engine.emit('selection-change', { taskIds: ['t1'] }));
       press('Enter', { shiftKey: true });
       expect(keyboardModeRef.current).toBe(false);
+      expect(useDragStore.getState().phase).toBe('idle');
+      // The keyboard phrasing, not the drag one — nothing was dropped here, so
+      // "the drop won't move it" would name a gesture the user never made.
+      expect(ariaAssertiveRef.current?.textContent).toBe(
+        `Design phase: ${PINNED_KEYBOARD_REFUSAL}`,
+      );
+    });
+
+    it('reschedules a complete task that carries NO actuals (#2827)', () => {
+      // Complete by `progress` alone: the server still schedules it through the
+      // network and the pointer path still moves it, so the keyboard must too.
+      const engine = new ControllableEngine();
+      const { keyboardModeRef, ariaAssertiveRef } = renderReschedule(engine, {
+        tasks: [makeTask({ isComplete: true, progress: 100 })],
+      });
+      act(() => engine.emit('selection-change', { taskIds: ['t1'] }));
+      press('Enter', { shiftKey: true });
+      expect(keyboardModeRef.current).toBe(true);
+      expect(useDragStore.getState().phase).toBe('dragging');
+      expect(useDragStore.getState().draggedTaskId).toBe('t1');
+      expect(ariaAssertiveRef.current?.textContent).toContain(
+        'Keyboard reschedule: Design phase',
+      );
+    });
+
+    it('refuses a pinned task on "r" as well as Shift+Enter', () => {
+      const engine = new ControllableEngine();
+      const { keyboardModeRef } = renderReschedule(engine, {
+        tasks: [makeTask({ isComplete: true, actualStart: '2025-01-06' })],
+      });
+      act(() => engine.emit('selection-change', { taskIds: ['t1'] }));
+      press('r');
+      expect(keyboardModeRef.current).toBe(false);
+      expect(useDragStore.getState().phase).toBe('idle');
     });
 
     it('refuses when the selected id is not in the task list', () => {
