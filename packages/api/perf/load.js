@@ -86,11 +86,36 @@ export const options = {
     // non-zero if any threshold is breached; the CI job is `allow_failure: true`,
     // so a breach surfaces as a warning + artifact, never a red merge gate.
     http_req_failed: ["rate<0.01"],
-    "http_req_duration{endpoint:project_list}": ["p(95)<1500"],
-    "http_req_duration{endpoint:program_list}": ["p(95)<1500"],
-    // TODO(#2826): both task rows ship untracked and need a budget derived from
-    // the first ~5 nightlies against the 1,000-task fixture.
+    // TODO(#2826): all four endpoint rows ship untracked and need a budget
+    // derived from the first ~5 nightlies against the 1,000-task fixture.
     //
+    // The two list rows carried `p(95)<1500` until the 2026-08-14 nightly broke
+    // them both (2570 / 2610 ms) on a day whose only commit touched the sprint,
+    // dependency and baseline viewsets — neither of these endpoints. They are
+    // untracked for the same reason the task rows are, one step removed: #2816
+    // did not change what these two request, it changed what they now QUEUE
+    // BEHIND. This is a closed loop — 20 VUs run the five requests in sequence
+    // against a single uvicorn process — so once the task reads went from ~1 ms
+    // (one row) to 8–50 s (a 200-row page), a list request's p95 became mostly
+    // the wait for whatever heavy read is in front of it. Measured p95 over the
+    // four post-#2816 nightlies:
+    //
+    //   program_list  251 / 740 / 183 / 2570      (08-11 / 12 / 13 / 14)
+    //   project_list  431 / 979 / 352 / 2610
+    //
+    // A 14x spread with no relevant code change, and 1500 sits inside it. Note
+    // the coupling runs the wrong way for a latency budget: 08-14 was the night
+    // the task reads were FASTEST (7811 ms vs 32743), which let 50 iterations
+    // through instead of 24 — so more list requests landed, at higher
+    // concurrency, and their p95 went up. Iterations and latency are the same
+    // variable here (#2767), which is why a threshold on the light endpoints
+    // reports the harness's own throughput and not the endpoint's cost.
+    //
+    // Re-baseline all four together, and prefer decoupling the light reads into
+    // their own scenario window over widening the number — a wider budget on a
+    // contention-coupled metric buys a quieter nightly, not a better signal.
+    "http_req_duration{endpoint:project_list}": [UNTRACKED_EXPR],
+    "http_req_duration{endpoint:program_list}": [UNTRACKED_EXPR],
     // The previous `p(95)<2000` is deleted rather than carried over because it was
     // calibrated to serializing ONE row (#2816). Against a 200-row page it would
     // breach every single night, and a tripwire that always fires is worse than no
