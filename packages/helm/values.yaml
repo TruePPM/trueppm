@@ -92,6 +92,52 @@ web:
   # annotation. The demo overlay deliberately ignores this and pins 1M: a
   # read-only demo has no legitimate large upload.
   maxBodySize: 50M
+  # Security response headers on everything the web tier serves (#2849).
+  #
+  # These are NOT redundant with Django's XFrameOptionsMiddleware,
+  # SECURE_CONTENT_TYPE_NOSNIFF, or core.csp.ContentSecurityPolicyMiddleware.
+  # Django only decorates responses DJANGO produces — the API. index.html and
+  # every JS bundle are served straight off disk by this nginx and never reach
+  # Django, so without the directives below the document that runs the entire
+  # application carries no framing, MIME-sniff, or CSP protection at all. That
+  # was the state of this chart before 0.4 while BOTH compose paths set four
+  # headers — and Helm is the path the docs recommend for production.
+  #
+  # Every value is a knob rather than a hardcoded string because operators
+  # front this tier with their own ingress, WAF, or CDN: a CSP that breaks the
+  # app is worse than no CSP, and an operator who cannot loosen it will delete
+  # the whole block. Set a value to "" to omit that header entirely.
+  #
+  # Parity with the compose templates (nginx/app.conf.template) is asserted by
+  # scripts/check-nginx-security-headers.sh — change a default here and the
+  # gate will tell you which sibling path drifted.
+  securityHeaders:
+    # false omits every header below. Only reasonable when a trusted upstream
+    # (ingress-nginx `configuration-snippet`, a WAF, a CDN edge) sets the same
+    # set — nginx cannot merge headers, so duplicates are the usual reason.
+    enabled: true
+    # Clickjacking: the SPA is never legitimately framed. DENY, not SAMEORIGIN.
+    frameOptions: DENY
+    # Stops a browser from re-typing a response as a script.
+    contentTypeOptions: nosniff
+    # Matches nginx/app.conf.template verbatim. `connect-src` includes ws:/wss:
+    # for the Channels real-time collaboration socket; `style-src` needs
+    # 'unsafe-inline' while the build still emits inline critical CSS. Widen
+    # this if you host fonts/images off-origin or add an analytics endpoint.
+    contentSecurityPolicy: >-
+      default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
+      img-src 'self' data: blob:; connect-src 'self' ws: wss:; font-src 'self';
+      frame-ancestors 'none'
+    # HSTS. EMPTY BY DEFAULT, unlike the compose TLS template — and deliberately.
+    # In the chart's default topology TLS terminates at the Ingress and this
+    # nginx speaks plain HTTP, so the header would be set by a tier that has no
+    # way to know whether the edge is actually HTTPS; most ingress controllers
+    # (ingress-nginx included) already emit HSTS themselves, and nginx cannot
+    # deduplicate a header the upstream also set. Turn it on only when this tier
+    # IS the TLS edge, and note that includeSubDomains binds every sibling
+    # subdomain of the apex you serve from:
+    #   strictTransportSecurity: "max-age=63072000; includeSubDomains"
+    strictTransportSecurity: ""
 
 # Chart-managed Ingress + edge TLS (#1714). Off by default: the ingress class,
 # hostnames, and certificate source are cluster-specific, so a default-on ingress

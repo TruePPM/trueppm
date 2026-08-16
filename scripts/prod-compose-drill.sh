@@ -388,6 +388,23 @@ nginx is not serving the webroot certbot renews through — the certificate woul
     "the HTTPS response carries no Strict-Transport-Security header — nginx/app.conf.template's add_header did not survive."
 fi
 
+# ---- 4a2. the SPA DOCUMENT carries the security headers ---------------------
+# The runtime half of scripts/check-nginx-security-headers.sh (#2849). That gate
+# reads the configs statically; this proves the directives actually reach the
+# wire on the document that runs the application. It matters that the probe is
+# `/` and not an /api/ path: Django's XFrameOptions / SECURE_CONTENT_TYPE_NOSNIFF
+# / CSP middleware would make an API response pass while index.html — served off
+# disk by nginx, never touching Django — carried nothing at all. Runs in both TLS
+# modes, since app.conf.template and app-http.conf.template both set these three.
+log "asserting the SPA document carries the security response headers"
+spa_headers="$("${CURL[@]}" -o /dev/null -D - "${BASE_URL}/" 2>/dev/null)"
+for hdr in x-frame-options x-content-type-options content-security-policy; do
+  printf '%s\n' "${spa_headers}" | grep -qi "^${hdr}:" || fail \
+    "GET / carries no ${hdr} header — the document running the whole SPA is unprotected, and no Django setting can fix it because nginx serves index.html off disk (#2849)."
+done
+printf '%s\n' "${spa_headers}" | grep -qi "^content-security-policy:.*frame-ancestors 'none'" || fail \
+  "the SPA document's Content-Security-Policy has no \`frame-ancestors 'none'\` (#2849)."
+
 # ---- 4b. collected static actually reaches the process that serves it -------
 # nginx PROXIES /static/ to the api, where WhiteNoise serves STATIC_ROOT — so
 # this asserts the whole chain: api-init's collectstatic wrote the shared volume,

@@ -110,6 +110,11 @@ kubectl get secret <release>-trueppm-connection \
 | `web.adminAccess.enabled` | `true` | Render the `/admin/` proxy; `false` returns `404` instead. |
 | `web.adminAccess.allowCIDRs` | `[]` | Sources allowed to reach `/admin/`. **Empty = deny all** — port-forward to the API Service instead ([Reaching Django admin](https://trueppm.com/administration/security/#reaching-django-admin)). Only binds while `web.enabled` is true. |
 | `web.adminAccess.rateLimit.*` | `5r/m`, burst `2` | nginx `limit_req` on the admin login surface (no DRF throttle covers Django admin). |
+| `web.securityHeaders.enabled` | `true` | Send `X-Frame-Options` / `X-Content-Type-Options` / CSP on everything the web tier serves. Django's middleware cannot do this — `index.html` and the JS bundles come off disk from nginx and never reach Django. Set `false` only when a trusted upstream already sets the same headers (nginx cannot deduplicate them). |
+| `web.securityHeaders.frameOptions` | `DENY` | `X-Frame-Options` value. |
+| `web.securityHeaders.contentTypeOptions` | `nosniff` | `X-Content-Type-Options` value. |
+| `web.securityHeaders.contentSecurityPolicy` | `default-src 'self'; …; frame-ancestors 'none'` | CSP for the SPA document, matching `nginx/app.conf.template`. Tunable because a CSP that breaks the app is worse than none — widen it for off-origin fonts/images or a split-origin API ([SPA security headers](https://trueppm.com/administration/helm-values/#spa-security-headers)). |
+| `web.securityHeaders.strictTransportSecurity` | `""` (off) | HSTS. Off by default: TLS terminates at the Ingress in the default topology and most controllers emit HSTS themselves. Set `"max-age=63072000; includeSubDomains"` when this tier *is* your TLS edge. |
 | `celeryWorker.concurrency` | `2` | **Pinned** prefork pool size. Unset, Celery's `cpu_count()` reads the node's cores, not the cgroup limit, and OOM-kills the worker. |
 | `celeryWorker.maxTasksPerChild` | `100` | Recycle prefork children to bound RSS growth on long tasks; `0` disables. |
 | `celeryWorker.extraArgs` | `[]` | Extra `celery worker` flags, appended in order. |

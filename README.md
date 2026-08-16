@@ -334,6 +334,15 @@ GitLab registry or build the Helm chart from source.
 | Web image | `registry.gitlab.com/trueppm/trueppm/web` (GitLab Container Registry) |
 | Helm chart | install from source (`packages/helm`) — public OCI (`oci://ghcr.io/trueppm/charts/trueppm`) planned with GHCR (#939) |
 
+The web image's baked nginx config is a **fail-closed default, not a deployment**:
+it serves the SPA with the standard security headers and returns `404` for
+`/admin/`, because a directly-run image has no operator input with which to
+restrict it. Every documented path mounts its own config over the baked one —
+Helm via the chart's ConfigMap (`web.adminAccess`, `web.securityHeaders`), Docker
+Compose via `nginx/*.conf.template` — and that is where `/admin/` is opted back
+in. To reach Django admin against a directly-run image, port-forward or tunnel to
+the **API** container instead of publishing the path on the web tier.
+
 ## Maintainer
 
 **Kelly Hair** — [GitLab](https://gitlab.com/kellyhair) · [LinkedIn](https://www.linkedin.com/in/kellyhair) · [kelly@trueppm.com](mailto:kelly@trueppm.com)

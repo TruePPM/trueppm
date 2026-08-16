@@ -63,8 +63,15 @@ data:
 
         # Keep the public demo out of every search index.
         add_header X-Robots-Tag           "noindex, nofollow, noarchive" always;
+        # Non-negotiable on the demo, so these are literals rather than
+        # web.securityHeaders knobs: the demo is a public, unauthenticated host
+        # under our own DNS, and an operator has no legitimate reason to relax
+        # its headers. The CSP is nginx/demo.conf.template's, which differs from
+        # production in one way — `connect-src 'self'` with no ws:/wss:, because
+        # the read-only share pages open no live-collaboration socket (#2849).
         add_header X-Frame-Options        "DENY" always;
         add_header X-Content-Type-Options "nosniff" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
 
         # Read-only demo: no large upload is ever legitimate. Deliberately
         # ignores web.maxBodySize — the production branch raises that ceiling to
@@ -73,8 +80,15 @@ data:
 
         # Belt-and-braces alongside X-Robots-Tag. Exact match outranks the SPA
         # fallback, so a crawler gets a real robots.txt rather than index.html.
+        #
+        # `default_type`, NOT `add_header Content-Type`: nginx's add_header is
+        # replace-not-append across levels, so ANY add_header inside a location
+        # discards every server-level one — this block would have served the
+        # only non-SPA document on the host with no X-Robots-Tag, no framing
+        # protection, and no CSP (#2849). default_type sets the content type
+        # without touching the header set.
         location = /robots.txt {
-            add_header Content-Type text/plain;
+            default_type text/plain;
             return 200 "User-agent: *\nDisallow: /\n";
         }
 
@@ -153,6 +167,31 @@ data:
         # redirect is built from $server_port, leaks the internal container port
         # and downgrades the scheme behind a TLS-terminating ingress.
         absolute_redirect off;
+
+        {{- if .Values.web.securityHeaders.enabled }}
+
+        # Security response headers (#2849). Django's XFrameOptions /
+        # SECURE_CONTENT_TYPE_NOSNIFF / CSP middleware only decorate responses
+        # DJANGO produces; index.html and every JS bundle come off disk here and
+        # never reach Django. Before 0.4 this branch set NONE of these while both
+        # compose templates set four — so the recommended production path served
+        # the document running the whole application unframed-protected and with
+        # no CSP. Values are knobs (web.securityHeaders.*) because operators
+        # front this with their own ingress/WAF and a CSP that breaks the app is
+        # worse than no CSP; `always` so they survive 4xx/5xx responses too.
+        {{- with .Values.web.securityHeaders.frameOptions }}
+        add_header X-Frame-Options        "{{ . }}" always;
+        {{- end }}
+        {{- with .Values.web.securityHeaders.contentTypeOptions }}
+        add_header X-Content-Type-Options "{{ . }}" always;
+        {{- end }}
+        {{- with .Values.web.securityHeaders.contentSecurityPolicy }}
+        add_header Content-Security-Policy "{{ . | trim | replace "\n" " " }}" always;
+        {{- end }}
+        {{- with .Values.web.securityHeaders.strictTransportSecurity }}
+        add_header Strict-Transport-Security "{{ . }}" always;
+        {{- end }}
+        {{- end }}
 
         # Transport upload ceiling (#2604). nginx defaults to 1m, which is under
         # every application cap (MS Project 50 / Jira 25 / CSV 10 MB) — so an
