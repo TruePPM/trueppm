@@ -78,6 +78,45 @@ cm_mount="$(echo "$WEB_DEP" | yq '.spec.template.spec.containers[0].volumeMounts
 [ "$cm_mount" = "default.conf" ] \
   || fail "web deployment does not mount the nginx ConfigMap over /etc/nginx/conf.d/default.conf"
 
+# 4b. The SPA document must ship security response headers ON A DEFAULT INSTALL
+#     (#2849). Django's XFrameOptions / SECURE_CONTENT_TYPE_NOSNIFF / CSP
+#     middleware only decorate responses DJANGO produces; index.html and every
+#     JS bundle are served off disk by this nginx and never reach Django. Before
+#     0.4 this branch set NONE of them while both compose templates set four —
+#     so Helm, the path the docs recommend for production, was the weakest.
+#
+#     Asserted on the DEFAULT render specifically: web.securityHeaders.* is
+#     operator-tunable by design (a CSP that breaks the app is worse than none),
+#     so what has to be pinned is that the shipped default is the secure one.
+#     scripts/check-nginx-security-headers.sh compares this render against the
+#     four sibling nginx configs; this keeps the headline invariant visible in
+#     the chart's own contract test.
+for hdr in \
+  'add_header X-Frame-Options        "DENY" always;' \
+  'add_header X-Content-Type-Options "nosniff" always;'; do
+  echo "$web_upstream" | grep -qF "$hdr" \
+    || fail "web nginx ConfigMap does not set '$hdr' on a default install — the SPA document carries no such protection, and Django cannot add it (#2849)"
+done
+echo "$web_upstream" | grep -q 'add_header Content-Security-Policy .*always;' \
+  || fail "web nginx ConfigMap sets no Content-Security-Policy on a default install (#2849)"
+echo "$web_upstream" | grep -q "frame-ancestors 'none'" \
+  || fail "web nginx ConfigMap's default CSP has no \`frame-ancestors 'none'\` (#2849)"
+
+#     …and the knob must actually be a knob: an operator behind their own WAF
+#     has to be able to replace the CSP or drop the set entirely, or they will
+#     delete the block instead of tuning it.
+custom_csp="$(helm template trueppm "$CHART" --set image.tag=latest \
+  --set "web.securityHeaders.contentSecurityPolicy=default-src 'self' https://cdn.example" \
+  --show-only templates/web/configmap.yaml | yq '.data["default.conf"]')"
+echo "$custom_csp" | grep -q "default-src 'self' https://cdn.example" \
+  || fail "web.securityHeaders.contentSecurityPolicy is not honored — the CSP is effectively hardcoded (#2849)"
+
+off_csp="$(helm template trueppm "$CHART" --set image.tag=latest \
+  --set web.securityHeaders.enabled=false \
+  --show-only templates/web/configmap.yaml | yq '.data["default.conf"]')"
+echo "$off_csp" | grep -q 'add_header X-Frame-Options' \
+  && fail "web.securityHeaders.enabled=false still renders headers (#2849)"
+
 # 5. NetworkPolicy allow-lists must cover every datastore client (#2560).
 #
 #    The datastore policies allow ingress by `app.kubernetes.io/component`. A
@@ -532,6 +571,7 @@ echo "  - init order: migrate -> bootstrap"
 echo "  - operator envFrom secret reaches migrate, bootstrap, and api"
 echo "  - shared admin-password emptyDir mounted by bootstrap ($boot_mount) and api ($api_mount)"
 echo "  - web nginx proxies to release-scoped trueppm-api (baked compose 'api' host overridden)"
+echo "  - web nginx ships X-Frame-Options + nosniff + a frame-ancestors CSP by default, and web.securityHeaders.* still overrides/disables them"
 echo "  - all $np_checked datastore-client bindings are covered by the NetworkPolicy allow-lists"
 echo "  - production nginx /admin/ fails closed (deny all + limit_req; allow precedes deny)"
 echo "  - celery worker pins --concurrency=$wc_n and honors concurrency/extraArgs overrides"

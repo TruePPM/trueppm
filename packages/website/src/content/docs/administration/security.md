@@ -7,7 +7,7 @@ documentedFor: "0.4"
 ## Authentication
 
 :::note[Ships in 0.4]
-Three items on this page ship in **TruePPM 0.4**, the first beta, and are **not**
+Five items on this page ship in **TruePPM 0.4**, the first beta, and are **not**
 in `v0.3.0-alpha.3`, the latest release:
 
 - **Session-only "Remember me"** — in 0.3 the checkbox is present but inert; every
@@ -16,6 +16,13 @@ in `v0.3.0-alpha.3`, the latest release:
   `SECRET_KEY`, so the rotate-to-sign-everyone-out lever below rotates session
   and CSRF signing with it.
 - **Per-account login lockout** — in 0.3 only the per-IP login throttle exists.
+- **A denied-by-default `/admin/` on the web tier** — in 0.3 the Helm chart
+  proxies Django admin unrestricted and unthrottled, and `web.adminAccess` does
+  not exist. On 0.3 restrict `/admin/` at your own edge.
+- **SPA security headers on the Helm and published-image paths** — in 0.3 only
+  the Docker Compose templates set `X-Frame-Options`, `X-Content-Type-Options`,
+  and a CSP on the SPA document; a Helm install serves it with none of them, and
+  the published `web` image proxies `/admin/` wide open. Both are fixed in 0.4.
 
 Everything else on this page describes 0.3 behavior and is current.
 :::
@@ -133,6 +140,27 @@ Operators serving the SPA from a different origin than the API, or behind a
 proxy that rewrites origins, must add that origin (and its `wss://` origin) to
 `CSP_CONNECT_SRC` — otherwise the browser blocks the connection. See
 [Configuration](/administration/configuration/#split-origin-deploys).
+
+### The SPA document is a separate control
+
+Django's CSP, `X-Frame-Options`, and `X-Content-Type-Options` middleware decorate
+responses **Django** produces — the API. The SPA's `index.html` and its
+JavaScript bundles are served off disk by nginx and never reach Django, so a
+correctly-configured API does **not** protect the document that runs the
+application. Those headers are set by whichever nginx config your deployment
+uses, and every shipped path sets the same baseline:
+
+| Deployment path | Where the headers are set |
+|---|---|
+| Helm | `web.securityHeaders.*` — see [SPA security headers](/administration/helm-values/#spa-security-headers) |
+| Docker Compose (TLS) | `nginx/app.conf.template`, plus `Strict-Transport-Security` |
+| Docker Compose (HTTP) | `nginx/app-http.conf.template` |
+| Published `web` image, run directly | baked `packages/web/nginx.conf` |
+
+If you replace the web tier with your own nginx, CDN, or object-store hosting,
+those headers become yours to set — nothing in the application can add them.
+`scripts/check-nginx-security-headers.sh` (CI job `nginx:headers`) asserts the
+shipped configs never drift apart on this baseline.
 
 ## HTTPS
 

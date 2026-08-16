@@ -297,7 +297,17 @@ helm-metric-names-check: ## Fail if the Helm chart's PromQL names a series the a
 	@# publishes. Stdlib Python over two chart files, milliseconds.
 	@python3 scripts/check-helm-metric-names.py .
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check demo-readonly-check helm-metric-names-check playwright-pins-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+nginx-headers-check: ## Fail if the five nginx configs disagree on the hardening baseline (#2849)
+	@# The SPA is served from five separate nginx configs across three trees, and
+	@# nothing compared them until #2849: the Helm production branch — the path
+	@# the docs recommend — rendered the SPA with no security headers at all
+	@# while both compose paths set four, and the image-baked config still
+	@# proxied /admin/ unthrottled after #2569 hardened the rendered siblings.
+	@# bash + awk over four files plus two helm renders; seconds. The helm halves
+	@# are skipped (loudly) when helm is not on PATH — CI always has it.
+	@bash scripts/check-nginx-security-headers.sh
+
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check demo-readonly-check helm-metric-names-check nginx-headers-check playwright-pins-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/

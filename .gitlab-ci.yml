@@ -1378,6 +1378,42 @@ helm:metric-names:
     - python3 scripts/check-helm-metric-names.py --self-test
     - python3 scripts/check-helm-metric-names.py .
 
+nginx:headers:
+  extends: .fast-job
+  # All five nginx configs must agree on one hardening baseline (#2849).
+  #
+  # TruePPM serves the SPA from five separate nginx configs — two compose
+  # templates, the public-demo template, the config baked into the published web
+  # image, and the chart's web ConfigMap (prod + demo branches) — and until this
+  # job nothing compared them to each other. Two defects fell straight out of
+  # that gap: the Helm production branch rendered the SPA with ZERO security
+  # response headers while both compose paths set four (and Helm is the path the
+  # docs recommend for production), and the image-baked config still proxied
+  # /admin/ wide open and unthrottled long after #2569 hardened the three
+  # *rendered* configs. Same shape both times — a fix applied at its instances,
+  # with nothing enumerating the instances as a set.
+  #
+  # Rules are deliberately unconditional rather than *rules-helm: the five halves
+  # of this contract live in three different trees (nginx/, packages/web/,
+  # packages/helm/), so the drift can be introduced from any of them and a
+  # change-gated job would miss the direction it was not scoped to. bash + awk
+  # over four files plus two `helm template` renders; seconds, no cluster.
+  stage: lint
+  image:
+    name: alpine/helm:3.14.0@sha256:a90798c9c2b671e3546b10db1ae0b845f9abccc9f9ff79b34744a1ba146b67ed
+    entrypoint: [""]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash grep sed
+  script:
+    # Self-test first: this gate's failure mode is a GREEN pipeline over a
+    # silently-unhardened deployment path, so "it passed" is not evidence that it
+    # can still fail. The self-test replays both #2849 shapes as fixtures.
+    - bash scripts/check-nginx-security-headers.sh --self-test
+    - bash scripts/check-nginx-security-headers.sh
+
 api:lint:
   extends: .fast-job
   stage: lint
@@ -1498,6 +1534,12 @@ helm:template:
     - |
       grep -q 'X-Robots-Tag' /tmp/rendered-demo.yaml \
         || { echo "DEMO REGRESSION: noindex header missing"; exit 1; }
+    # The demo serves the SPA to the public internet with no login in front of
+    # it, so its header set is not optional and not operator-tunable (#2849).
+    # nginx:headers proves all five configs agree; this pins the demo's own.
+    - |
+      grep -q "frame-ancestors 'none'" /tmp/rendered-demo.yaml \
+        || { echo "DEMO REGRESSION: the public demo SPA has no Content-Security-Policy (#2849)"; exit 1; }
     # The PRODUCTION render needs the same scrutiny the demo render gets above.
     # Asserting /admin/ only on the demo render is exactly how #2569 shipped: the
     # production block proxied Django admin unrestricted and unthrottled — against
