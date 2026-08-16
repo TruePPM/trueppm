@@ -75,11 +75,11 @@ export function LoadSampleButton({ variant = 'hero' }: LoadSampleButtonProps) {
           isHeader
             ? `h-9 rounded-control border border-brand-primary px-4 text-sm font-medium text-brand-primary
                hover:bg-brand-primary-light
-               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+               focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
                disabled:opacity-60`
             : `h-10 rounded-control border border-brand-primary px-5 text-sm font-medium text-brand-primary
                hover:bg-brand-primary-light
-               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+               focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
                disabled:opacity-60`
         }
       >

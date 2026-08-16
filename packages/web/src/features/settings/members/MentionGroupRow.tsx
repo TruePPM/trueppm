@@ -135,7 +135,7 @@ export function MentionGroupRow({
             onClick={() => setExpanded((v) => !v)}
             aria-expanded={expanded}
             aria-label={`${expanded ? 'Collapse' : 'Manage'} @${group.name}`}
-            className="shrink-0 rounded border border-neutral-border px-2 py-1 text-xs font-medium text-neutral-text-secondary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            className="shrink-0 rounded border border-neutral-border px-2 py-1 text-xs font-medium text-neutral-text-secondary hover:bg-neutral-surface-raised focus:outline-none focus:ring-2 focus:ring-brand-primary"
           >
             {expanded ? 'Close' : 'Manage'}
           </button>

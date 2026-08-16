@@ -135,7 +135,7 @@ function SavedViewMeta({ summary }: { summary: ReturnType<typeof summarizeSavedV
   return (
     <span
       aria-hidden="true"
-      className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] font-normal
+      className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs font-normal
         text-neutral-text-secondary"
     >
       {summary.segments.map((seg, i) => (

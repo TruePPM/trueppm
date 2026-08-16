@@ -1020,7 +1020,7 @@ export function WorkspaceEmailPage() {
                 aria-expanded={showAdvanced}
                 aria-controls={advancedPanelId}
                 onClick={() => setShowAdvanced((v) => !v)}
-                className="flex min-h-11 items-center gap-1 rounded-control px-1 -ml-1 text-[13px] font-medium text-neutral-text-primary hover:text-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 md:min-h-0"
+                className="flex min-h-11 items-center gap-1 rounded-control px-1 -ml-1 text-[13px] font-medium text-neutral-text-primary hover:text-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 md:min-h-0"
               >
                 {showAdvanced ? (
                   <ChevronDownIcon className="h-4 w-4" aria-hidden="true" />

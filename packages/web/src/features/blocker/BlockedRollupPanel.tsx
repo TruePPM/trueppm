@@ -73,7 +73,7 @@ export function BlockedRollupPanel(props: Props) {
         onClick={() => setOpen((o) => !o)}
         aria-expanded={expanded}
         className="flex w-full items-center gap-2 px-4 py-3 text-left
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         <span className="text-sm font-semibold text-neutral-text-primary">{title}</span>
         <span className="tppm-mono text-xs text-neutral-text-secondary">({count})</span>

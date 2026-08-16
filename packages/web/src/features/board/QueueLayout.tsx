@@ -399,7 +399,7 @@ function QueueRowOverflow({
         // 24×24 (rule 204 — extend the hit area, not the glyph).
         className="group absolute right-0 top-1/2 -translate-y-1/2 inline-flex items-center justify-center
           rounded-control
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset"
+          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset"
         style={{ width: 44, height: 44 }}
       >
         <span

@@ -114,7 +114,7 @@ export function FlowAnalyticsPanel({ projectId, boardCadence }: Props) {
         aria-expanded={open}
         aria-controls={bodyId}
         data-testid="flow-analytics-toggle"
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-neutral-text-secondary hover:bg-chrome-row-hover focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-neutral-text-secondary hover:bg-chrome-row-hover focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
       >
         <span aria-hidden="true" className={`transition-transform ${open ? 'rotate-90' : ''}`}>
           ▸

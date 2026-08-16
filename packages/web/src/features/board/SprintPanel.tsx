@@ -233,7 +233,7 @@ function BurndownDisclosure({ sprintId, storageKey }: { sprintId: string; storag
         aria-expanded={open}
         aria-controls={bodyId}
         data-testid="sprint-burndown-toggle"
-        className="flex w-full min-h-[44px] items-center gap-2 rounded-control px-1 py-1 text-left text-xs font-semibold uppercase tracking-wide text-neutral-text-secondary hover:bg-chrome-row-hover focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+        className="flex w-full min-h-[44px] items-center gap-2 rounded-control px-1 py-1 text-left text-xs font-semibold uppercase tracking-wide text-neutral-text-secondary hover:bg-chrome-row-hover focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
       >
         <span aria-hidden="true" className={`transition-transform ${open ? 'rotate-90' : ''}`}>
           ▸
@@ -381,8 +381,8 @@ function Header({
         aria-label={isOpen ? `Collapse ${iterationLower} panel` : `Expand ${iterationLower} panel`}
         className="flex-shrink-0 w-11 h-11 rounded-control flex items-center justify-center
           text-neutral-text-secondary hover:bg-chrome-row-hover
-          focus-visible:ring-2 focus-visible:ring-brand-primary
-          focus-visible:ring-offset-1 focus-visible:outline-none"
+          focus:ring-2 focus:ring-brand-primary
+          focus:ring-offset-1 focus:outline-none"
       >
         <ChevronIcon open={isOpen} />
       </button>

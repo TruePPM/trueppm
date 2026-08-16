@@ -187,7 +187,7 @@ function HashRow({ label, value }: { label: string; value: string }) {
             type="button"
             onClick={() => void copy()}
             aria-label={`Copy ${label}`}
-            className="shrink-0 rounded-control border border-neutral-border px-1.5 py-0.5 text-[11px] font-medium text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            className="shrink-0 rounded-control border border-neutral-border px-1.5 py-0.5 text-xs font-medium text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           >
             {copied ? (
               <CheckIcon

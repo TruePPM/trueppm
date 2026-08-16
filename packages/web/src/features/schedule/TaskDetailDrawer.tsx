@@ -1306,7 +1306,7 @@ function DrawerContent({
           {conflictLabels.length > 0 && (
             <p
               role="alert"
-              className="px-4 py-2 border-t border-semantic-at-risk/40 bg-semantic-at-risk/10 text-xs text-semantic-at-risk"
+              className="px-4 py-2 border-t border-semantic-at-risk/40 bg-semantic-at-risk-bg text-xs text-semantic-at-risk"
             >
               {formatConflictLabels(conflictLabels)} changed elsewhere since you started editing —
               saving will overwrite {conflictLabels.length > 1 ? 'those changes' : 'that change'}.

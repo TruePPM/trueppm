@@ -26,11 +26,21 @@
 #   3b. inline `rgba(0,0,0,α)` color values — the "black on blue" antipattern
 #      (issue 1638): a fixed black value that renders invisible on the dark navy
 #      surfaces. The #-hex ratchet (check 2) does not see these. RATCHET.
-#   4b. sub-floor type outside the sanctioned settings tree — `text-[10px]` (rule 50
-#      floor is text-xs/12px; rule 118 carves out `features/settings/` only) and
-#      `text-[9px]` or smaller ANYWHERE (prohibited with no exception). ZERO
-#      RATCHET: two decorative, `aria-hidden` occurrences predate the check (see
-#      BASELINE_TINY_TEXT). New code adds zero (#2433).
+#   4b. sub-floor type outside the sanctioned carve-outs — every `text-[Npx]` below
+#      the text-xs/12px floor (rule 50). `features/settings/` may use 10px/11px
+#      (rule 118) and the global StatusBar may use 11px (rule 45); `text-[9px]` or
+#      smaller is prohibited ANYWHERE. RATCHET: two decorative, `aria-hidden`
+#      occurrences predate the check (see BASELINE_TINY_TEXT). New code adds zero
+#      (#2433). The 11px case was UNMATCHABLE by this pattern until #2858.
+#   4d. a resting `bg-semantic-{state}/N` opacity tint where rule 8b requires the
+#      pre-computed `-bg` token — the two are different HUES, not different alphas
+#      (see sem_tint_offenders). Interaction-state washes (`hover:`, `focus:`, …)
+#      are legitimate opacity and are stripped before counting. ZERO TOLERANCE
+#      (#2858); the check did not exist before it.
+#   4e. a query destructure taking `isLoading` but never `error`/`isError`, which
+#      renders a failed fetch as an empty surface (rule 246). RATCHET — the "is this
+#      a primary surface?" judgement is not mechanizable, but the population size is,
+#      and nobody was counting it across #1764/#1937/#1942/#2858.
 #   4c. a bare text node as a `<Suspense fallback>` — rule 248 wants a skeleton that
 #      mirrors the surface's shape, never a naked "Loading…" line, so the layout
 #      does not jump when the chunk lands. ZERO TOLERANCE (#2431/#2433).
@@ -113,7 +123,17 @@ BASELINE_BLACK=7
 #     by rule 158; the program name is the accessible signal).
 # A zero-tolerance gate here would have failed every unrelated MR on day one, so
 # this ratchets like its siblings above.
+# NOTE the pattern this baseline counts was WIDENED at #2858 — it now matches
+# `text-[11px]` too, which it never could before (see TINY_TEXT_PAT). The count
+# nevertheless stayed at 2: the ten 11px sites the widened pattern exposed were all
+# raised to `text-xs` in the same commit, and the two named survivors below are the
+# only ones left. Do not read the unchanged number as "nothing was wrong".
 BASELINE_TINY_TEXT=2
+# Unhandled query errors (rule 246, check 4e). 62 on `main` at #2858; RosterPage's
+# fix takes it to 61. RATCHET, not zero tolerance — see query_error_offenders for why
+# the "is this a primary surface?" question is not decidable here, and why counting
+# the population is the part that was actually missing.
+BASELINE_QUERY_ERROR=61
 
 EXCLUDE='\.test\.|\.spec\.|\.stories\.'
 
@@ -217,15 +237,180 @@ black_rgba_count() {
   g -rIE "rgba\(0, ?0, ?0, ?[0-9]?\.[0-9]" \
     "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null | g -vE "$EXCLUDE" | wc -l | tr -d ' '
 }
-# Sub-floor type. `text-[10px]` is permitted ONLY inside features/settings (the
-# compact-admin density carve-out, rule 118); `text-[9px]` and below are prohibited
-# everywhere, settings included. Both are a WCAG 1.4.3 risk, which is why the
-# exception is a named tree rather than a per-component judgement call.
-tiny_text_offenders() {
-  g -rInE "text-\[([0-9]|10)px\]" "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null \
-    | g -vE "$EXCLUDE" \
-    | g -vE "^$WEB_SRC/features/settings/.*text-\[10px\]"
+# Sub-floor type. The type floor is `text-xs` (12px, rule 50), so EVERY arbitrary
+# pixel size below it is matched — 0–9px, 10px and 11px. Two named carve-outs:
+# `features/settings/` may use `text-[10px]`/`text-[11px]` (rule 118's compact-admin
+# density) and the global StatusBar may use `text-[11px]` (rule 45). `text-[9px]` and
+# below are prohibited everywhere, settings included. All are a WCAG 1.4.3 risk,
+# which is why the exceptions are named files/trees, not per-component judgement.
+#
+# THE 11px HOLE (#2858). This pattern read `text-\[([0-9]|10)px\]` from the day it
+# was written — a single digit, or the literal "10". It could not match `text-[11px]`
+# in ANY file, in ANY tree, which is why that exact class needed six dedicated sweeps
+# (#434, #650, #1023, #1229, #1332, #2043) and came back a seventh time with the gate
+# reporting green throughout. The alternation now spells the two-digit cases out.
+# The self-test below exists because a widened pattern that silently narrows again is
+# indistinguishable from a clean tree: this gate has already been that once.
+TINY_TEXT_PAT='text-\[(1[01]|[0-9])px\]'
+# Shared by the scan and its self-test so the two can never diverge. Input is
+# `path:line:content` (grep -rIn form).
+#   1. tests/specs/stories (the global EXCLUDE);
+#   2. a line that STARTS as a comment — prose naming the class is documentation,
+#      not a style (e.g. BulkEditSheet's "text-xs, not text-[11px]" rationale). A
+#      className never begins a `//`, `*`, `/*` or `{/*` line, so this cannot mask
+#      a real offender;
+#   3. rule 118 — settings may use 10px/11px (but not 9px and below);
+#   4. rule 45 — the global StatusBar may use 11px.
+tiny_text_filter() {
+  g -vE "$EXCLUDE" \
+    | g -vE "^[^:]+:[0-9]+:[[:space:]]*(//|\*|/\*|\{/\*)" \
+    | g -vE "^$WEB_SRC/features/settings/.*text-\[1[01]px\]" \
+    | g -vE "^$WEB_SRC/features/shell/StatusBar\.tsx:[0-9]+:.*text-\[11px\]"
 }
+tiny_text_offenders() {
+  g -rInE "$TINY_TEXT_PAT" "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null \
+    | tiny_text_filter
+}
+
+# Rule 8b: a semantic status tint is the pre-computed `bg-semantic-{state}-bg`
+# token, never the opacity modifier `bg-semantic-{state}/N`. The two are NOT the
+# same color with different alpha — verified against globals.css:
+#   · warning  — base is `133 77 14` (#854D0E, the AA-safe *text* color) in light
+#     and `250 204 21` (#FACC15, yellow) in dark, while --sem-warning-bg is
+#     rgba(217,119,6,…) (#D97706 brand amber) light and rgba(251,146,60,…) (orange)
+#     dark. A DIFFERENT HUE in BOTH modes. globals.css says so itself: "Brand amber
+#     #D97706 lives only in --sem-warning-bg."
+#   · on-track — base `49 111 87` (sage-700) vs --sem-on-track-bg rgba(62,140,109,…)
+#     (#3E8C6D brand fill) in light: also a different RGB.
+#   · at-risk / critical — same RGB, but the `-bg` alpha is mode-specific (e.g.
+#     0.08 light / 0.15 dark) against the single fixed alpha a `/N` applies to both.
+# So the modifier form silently renders the wrong color, not merely a weaker one.
+#
+# NO CHECK FOR THIS EXISTED (#2858) — the pattern reached 7 resting fills before a
+# human read them off the tree by hand.
+#
+# What makes it decidable: an INTERACTION-STATE variant (`hover:`, `focus:`, …) IS
+# legitimate opacity — a hover wash on a destructive text button, or `/90` darkening
+# a solid critical button, are the codebase's normal idiom and rule 8b does not
+# reach them (it governs resting badge/pill/card fills). Those variants are stripped
+# first, so only a BARE, resting `bg-semantic-{state}/N` survives. On the tree at
+# #2858 that separated exactly the 7 real offenders from 32 legitimate hover washes.
+SEM_TINT_PAT='bg-semantic-(critical|warning|on-track|at-risk|success)/[0-9]'
+SEM_TINT_VARIANT_STRIP='s/(hover|focus|focus-visible|focus-within|active|group-hover|group-focus|peer-hover|peer-focus|disabled|enabled|aria-[a-z-]+|data-\[[^]]*\]):bg-semantic-[a-z-]+\/[0-9]+//g'
+sem_tint_filter() {
+  g -vE "$EXCLUDE" | sed -E "$SEM_TINT_VARIANT_STRIP" | g -E "$SEM_TINT_PAT"
+}
+sem_tint_offenders() {
+  g -rInE "$SEM_TINT_PAT" "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null \
+    | sem_tint_filter
+}
+
+# Rule 246: a TanStack Query destructure that takes `isLoading` but never `error`
+# or `isError` renders a failed fetch as an empty (or perpetually-skeletal) surface,
+# indistinguishable from "nothing here yet".
+#
+# This is a RATCHET, and deliberately so. #1764 (Board/Overview), #1937 (SprintsView),
+# #1942 (RiskRegisterView) and #2858 (RosterPage) each fixed the identical bug on one
+# more page, because nothing counted the population. Nothing here can decide whether a
+# given call site is a "primary data surface" (which rule 246 governs) or a small
+# inline widget whose parent owns the error — that is a semantic judgement no grep and
+# no AST selector can make, which is exactly why a zero-tolerance form of this check
+# would be noise and get deleted. What it CAN do is make the population a published
+# number that may not grow: a new page that ignores `error` fails the gate, and the
+# only way past is to handle it or to raise the baseline in review.
+#
+# Coverage: single-line destructures. That is not a compromise on this tree — an
+# equivalent AST sweep (esquery `ObjectPattern:has(isLoading):not(:has(error))` under
+# a `use[A-Z]*()` initializer) returned the same 63 sites at #2858, because multi-line
+# query destructures are not a style anyone here writes.
+# NOT anchored to start-of-line: `grep -rInE` matches file CONTENT, but the self-test
+# feeds the `path:line:content` shape the scan emits, and a `^` would silently never
+# match there — a self-test that cannot fail is the failure mode this file already had.
+QUERY_ERROR_PAT='\b(const|let)[[:space:]]+\{[^}]*\bisLoading\b[^}]*\}[[:space:]]*=[[:space:]]*use[A-Z][A-Za-z0-9_]*\('
+# React's own primitives also match `use[A-Z]` — `const { options, isLoading } =
+# useMemo(…)` is a derived value, not a query, and has no `error` to handle.
+query_error_filter() {
+  g -vE "$EXCLUDE" \
+    | g -vE "=[[:space:]]*use(Memo|Callback|State|Reducer|Ref|Context|Effect)\(" \
+    | g -vE "\bisError\b|\berror\b"
+}
+query_error_offenders() {
+  g -rInE "$QUERY_ERROR_PAT" "$WEB_SRC" --include="*.tsx" 2>/dev/null | query_error_filter
+}
+
+# Self-test for the three pattern+filter pipelines above. Same contract as
+# hex_pat_self_test: a ratchet whose pattern matches nothing reports 0 and PASSES,
+# so a narrowed pattern disarms the check silently instead of failing it — which is
+# literally what the 11px hole did for six sweeps. Fixtures run in BOTH directions:
+# a violating line that must survive the filter, and a sanctioned line that must not.
+# Input is the `path:line:content` shape the real scans produce.
+pipeline_self_test() {
+  local rc=0 s
+  # -- tiny text: MUST be reported --
+  for s in \
+    'packages/web/src/components/linkPresentation.tsx:61:  className="text-[11px] font-medium"' \
+    'packages/web/src/features/assets/AssetsPage.tsx:515:  className="px-1.5 text-[11px]"' \
+    'packages/web/src/features/settings/X.tsx:9:  className="text-[9px]"' \
+    'packages/web/src/features/shell/StatusBar.tsx:1:  className="text-[10px]"' \
+    'packages/web/src/features/foo/Bar.tsx:3:  className="text-[10px]"'; do
+    printf '%s\n' "$s" | g -E "$TINY_TEXT_PAT" | tiny_text_filter | grep -q . \
+      || { echo "::error:: tiny-text pipeline MISSED an offender: $s" >&2; rc=1; }
+  done
+  # -- tiny text: MUST NOT be reported --
+  for s in \
+    'packages/web/src/features/settings/X.tsx:9:  className="text-[11px]"' \
+    'packages/web/src/features/settings/X.tsx:9:  className="text-[10px]"' \
+    'packages/web/src/features/shell/StatusBar.tsx:124:  className="text-[11px]"' \
+    'packages/web/src/features/schedule/BulkEditSheet.tsx:446:        {/* text-xs, not text-[11px]: rationale */}' \
+    'packages/web/src/features/foo/Bar.spec.ts:3:  expect(x).toContain("text-[11px]")' \
+    'packages/web/src/features/foo/Bar.tsx:3:  className="text-[12px]"'; do
+    printf '%s\n' "$s" | g -E "$TINY_TEXT_PAT" | tiny_text_filter | grep -q . \
+      && { echo "::error:: tiny-text pipeline COUNTED a sanctioned line: $s" >&2; rc=1; }
+  done
+  # -- semantic tint: MUST be reported (bare, resting fills) --
+  for s in \
+    'packages/web/src/a/M.tsx:135:  className="border-semantic-warning/40 bg-semantic-warning/10 px-3"' \
+    'packages/web/src/a/T.tsx:17:  Yours: "bg-semantic-success/10 text-semantic-success"' \
+    'packages/web/src/a/C.tsx:37:  <span className="block h-full bg-semantic-critical/60" />' \
+    'packages/web/src/a/R.tsx:35:  className="rounded-full bg-semantic-on-track/15"'; do
+    printf '%s\n' "$s" | g -E "$SEM_TINT_PAT" | sem_tint_filter | grep -q . \
+      || { echo "::error:: semantic-tint pipeline MISSED an offender: $s" >&2; rc=1; }
+  done
+  # -- semantic tint: MUST NOT be reported --
+  for s in \
+    'packages/web/src/a/P.tsx:233:  className="text-semantic-critical hover:bg-semantic-critical/5"' \
+    'packages/web/src/a/D.tsx:115:  className="bg-semantic-critical hover:bg-semantic-critical/90"' \
+    'packages/web/src/a/R.tsx:61:  ? "bg-semantic-at-risk-bg hover:bg-semantic-at-risk/10"' \
+    'packages/web/src/a/A.tsx:9:  className="focus-visible:bg-semantic-critical/5"' \
+    'packages/web/src/a/B.tsx:9:  className="bg-semantic-at-risk-bg text-semantic-at-risk"' \
+    'packages/web/src/a/B.test.tsx:9:  expect(c).toContain("bg-semantic-warning/10")'; do
+    printf '%s\n' "$s" | g -E "$SEM_TINT_PAT" | sem_tint_filter | grep -q . \
+      && { echo "::error:: semantic-tint pipeline COUNTED a legitimate line: $s" >&2; rc=1; }
+  done
+  # -- unhandled query error: MUST be reported --
+  for s in \
+    'packages/web/src/features/roster/RosterPage.tsx:21:  const { data: roster = [], isLoading } = useProjectResourcePool(projectId);' \
+    'packages/web/src/a/X.tsx:4:  const { data, isLoading } = useThing(id);'; do
+    printf '%s\n' "$s" | g -E "$QUERY_ERROR_PAT" | query_error_filter | grep -q . \
+      || { echo "::error:: query-error pipeline MISSED an offender: $s" >&2; rc=1; }
+  done
+  # -- unhandled query error: MUST NOT be reported --
+  for s in \
+    'packages/web/src/a/X.tsx:4:  const { data, isLoading, isError, refetch } = useThing(id);' \
+    'packages/web/src/a/X.tsx:4:  const { data, isLoading, error } = useThing(id);' \
+    'packages/web/src/a/X.tsx:4:  const { open, setOpen } = useDisclosure();' \
+    'packages/web/src/a/X.tsx:61:  const { options, isLoading } = useMemo(() => build(), []);' \
+    'packages/web/src/a/X.test.tsx:4:  const { data, isLoading } = useThing(id);'; do
+    printf '%s\n' "$s" | g -E "$QUERY_ERROR_PAT" | query_error_filter | grep -q . \
+      && { echo "::error:: query-error pipeline COUNTED a handled/irrelevant line: $s" >&2; rc=1; }
+  done
+  return $rc
+}
+if ! pipeline_self_test; then
+  echo "design-system-v2: a check pipeline is broken — refusing to report counts it cannot be trusted to produce." >&2
+  exit 1
+fi
+
 # A Suspense fallback that is a DOM element wrapping immediate text — i.e. a bare
 # "Loading…" line where rule 248 requires a shape-mirroring skeleton.
 bare_suspense_fallback_offenders() {
@@ -250,8 +435,10 @@ black=$(black_rgba_count)
 dark_chrome=$(dark_chrome_offenders | wc -l | tr -d ' ')
 tiny_text=$(tiny_text_offenders | wc -l | tr -d ' ')
 bare_suspense=$(bare_suspense_fallback_offenders | wc -l | tr -d ' ')
+sem_tint=$(sem_tint_offenders | wc -l | tr -d ' ')
+query_error=$(query_error_offenders | wc -l | tr -d ' ')
 
-echo "design-system-v2: hex=$hex (≤$BASELINE_HEX) · arbitrary-color=$arb (≤$BASELINE_ARBITRARY) · shadow=$shadow (≤$BASELINE_SHADOW) · black-rgba=$black (≤$BASELINE_BLACK) · dark-chrome=$dark_chrome (=0) · tiny-text=$tiny_text (≤$BASELINE_TINY_TEXT) · bare-suspense=$bare_suspense (=0)"
+echo "design-system-v2: hex=$hex (≤$BASELINE_HEX) · arbitrary-color=$arb (≤$BASELINE_ARBITRARY) · shadow=$shadow (≤$BASELINE_SHADOW) · black-rgba=$black (≤$BASELINE_BLACK) · dark-chrome=$dark_chrome (=0) · tiny-text=$tiny_text (≤$BASELINE_TINY_TEXT) · bare-suspense=$bare_suspense (=0) · semantic-tint=$sem_tint (=0) · query-error-unhandled=$query_error (≤$BASELINE_QUERY_ERROR)"
 
 if (( arb > BASELINE_ARBITRARY )); then
   {
@@ -326,6 +513,26 @@ if (( bare_suspense > 0 )); then
     bare_suspense_fallback_offenders | sed 's/^/    /'
   } >&2
   fail=1
+fi
+
+if (( sem_tint > 0 )); then
+  {
+    echo "::error:: $sem_tint resting bg-semantic-{state}/N tint(s) (rule 8b) — use the pre-computed -bg token."
+    echo "  bg-semantic-warning/10 is NOT bg-semantic-warning-bg: the base token is the AA-safe TEXT color and the -bg token is the brand fill, a different hue in both modes (globals.css). Swap to bg-semantic-{state}-bg, or bg-semantic-{state} at full strength for a solid indicator. Interaction-state washes (hover:/focus:/…) are exempt. Offenders:"
+    sem_tint_offenders | sed 's/^/    /'
+  } >&2
+  fail=1
+fi
+
+if (( query_error > BASELINE_QUERY_ERROR )); then
+  {
+    echo "::error:: $query_error query destructure(s) taking isLoading but never error/isError (baseline $BASELINE_QUERY_ERROR, rule 246)."
+    echo "  A failed fetch then renders as an empty or perpetually-skeletal surface — indistinguishable from 'nothing here yet' (#1764/#1937/#1942/#2858). Destructure error/isError and render <QueryErrorState/>. Offenders:"
+    query_error_offenders | sed 's/^/    /'
+  } >&2
+  fail=1
+elif (( query_error < BASELINE_QUERY_ERROR )); then
+  echo "::notice:: unhandled query errors dropped to $query_error — lower BASELINE_QUERY_ERROR in $(basename "$0") to $query_error to lock the gain."
 fi
 
 if (( fail )); then

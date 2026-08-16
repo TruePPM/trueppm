@@ -32,7 +32,7 @@ export function ResetPasswordDonePage() {
 /** Circular green success check. */
 function SuccessBadge() {
   return (
-    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-semantic-on-track/15 text-semantic-on-track">
+    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-semantic-on-track-bg text-semantic-on-track">
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path
           d="M5 12.5l4.5 4.5L19 7"

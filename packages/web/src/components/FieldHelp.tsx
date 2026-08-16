@@ -116,7 +116,7 @@ export function FieldHelp({ label, intro, options, body, docHref, docLabel = 'Le
         aria-expanded={open}
         aria-controls={open ? popoverId : undefined}
         onClick={() => setOpen((v) => !v)}
-        className={`relative inline-flex h-5 w-5 items-center justify-center rounded before:absolute before:-inset-3 before:content-[''] hover:text-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 ${
+        className={`relative inline-flex h-5 w-5 items-center justify-center rounded before:absolute before:-inset-3 before:content-[''] hover:text-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 ${
           open ? 'text-brand-primary' : 'text-neutral-text-secondary'
         }`}
       >

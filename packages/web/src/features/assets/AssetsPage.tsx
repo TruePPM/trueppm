@@ -512,7 +512,7 @@ function AssetRightSlot({ item }: { item: AssetItem }) {
   if (item.kind === 'file') {
     return (
       <span
-        className="inline-flex items-center rounded-chip bg-neutral-surface-sunken px-1.5 py-0.5 text-[11px] font-medium text-neutral-text-secondary"
+        className="inline-flex items-center rounded-chip bg-neutral-surface-sunken px-1.5 py-0.5 text-xs font-medium text-neutral-text-secondary"
         aria-label="Asset type: file"
       >
         File

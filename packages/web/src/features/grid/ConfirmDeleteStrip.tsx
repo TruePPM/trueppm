@@ -34,7 +34,7 @@ export function ConfirmDeleteStrip({ count, isDeleting, onConfirm, onCancel }: C
         <span className="ml-1.5 text-xs text-neutral-text-secondary">You can undo this.</span>
         {!isDeleting && (
           <span aria-hidden="true" className="block h-0.5 mt-0.5 rounded-full bg-neutral-surface-sunken overflow-hidden">
-            <span className="block h-full rounded-full bg-semantic-critical/60" style={{ animation: 'shrink-bar 5s linear forwards' }} />
+            <span className="block h-full rounded-full bg-semantic-critical" style={{ animation: 'shrink-bar 5s linear forwards' }} />
           </span>
         )}
       </span>

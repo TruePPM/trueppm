@@ -132,7 +132,7 @@ export function MoveProgramDialog({
 
         {/* Moving a project is program-shaping — it reassigns rollup ownership and
             re-scopes visibility to the target program's members. Warn before the move. */}
-        <p className="mb-4 rounded-control border border-semantic-warning/40 bg-semantic-warning/10 px-3 py-2 text-[11px] leading-snug text-neutral-text-secondary">
+        <p className="mb-4 rounded-control border border-semantic-warning/40 bg-semantic-warning-bg px-3 py-2 text-[11px] leading-snug text-neutral-text-secondary">
           Moving this project changes which program rolls it up and who can see it. Its dependencies
           on sibling projects in the old program are cleared.
         </p>

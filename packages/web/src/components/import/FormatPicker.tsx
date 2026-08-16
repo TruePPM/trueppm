@@ -129,7 +129,7 @@ export function FormatPicker({
                 <span className="font-medium">.json</span>{' '}
                 <span className="text-neutral-text-secondary">Canonical TruePPM seed</span>
               </span>
-              <span className="text-xs font-medium text-semantic-success">Supported</span>
+              <span className="text-xs font-medium text-semantic-on-track">Supported</span>
             </div>
           </div>
           <p className="mt-2 rounded-card border border-neutral-border bg-neutral-surface-raised p-3 text-xs text-neutral-text-secondary">
@@ -153,7 +153,7 @@ export function FormatPicker({
                 <span className="font-medium">.xml</span>{' '}
                 <span className="text-neutral-text-secondary">MS Project XML (MSPDI)</span>
               </span>
-              <span className="text-xs font-medium text-semantic-success">Supported</span>
+              <span className="text-xs font-medium text-semantic-on-track">Supported</span>
             </div>
             {(
               [
@@ -187,7 +187,7 @@ export function FormatPicker({
             aria-expanded={guidanceOpen}
             aria-controls={GUIDANCE_ID}
             className="mt-1 text-left text-xs font-medium text-brand-primary
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              focus:outline-none focus:ring-2 focus:ring-brand-primary"
           >
             {guidanceOpen ? '▾' : '▸'} How do I get an .xml file from MS Project?
           </button>

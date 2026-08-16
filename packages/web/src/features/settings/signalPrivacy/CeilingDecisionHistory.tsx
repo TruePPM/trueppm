@@ -53,7 +53,7 @@ export function CeilingDecisionHistory({ projectId }: CeilingDecisionHistoryProp
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 rounded px-3 py-2 text-[12px] font-medium text-neutral-text-secondary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        className="flex w-full items-center gap-2 rounded px-3 py-2 text-[12px] font-medium text-neutral-text-secondary hover:bg-neutral-surface-sunken focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         <span aria-hidden="true">{open ? '▾' : '▸'}</span>
         Decision history

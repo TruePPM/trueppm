@@ -24,6 +24,21 @@ import type { Locator } from '@playwright/test';
  * Assertions compare box-shadow before vs. after focus (Tailwind `ring-*` renders
  * as a box-shadow), so a baseline shadow on the control cannot mask the result:
  * the test asserts the ring is *added* (or not) by pointer focus, not its absolute value.
+ *
+ * SCOPE — read this before treating a green run as coverage (#2858). These two cases
+ * prove the *premise* of rule 4/214: that the browser really does withhold the ring
+ * from a `focus-visible:` control on pointer focus, and really does paint it for a
+ * `focus:` one. They do NOT sweep the tree, and cannot: a behavioral spec can only
+ * reach controls on the routes it navigates, and these two are hardcoded. Treating
+ * them as the regression guard is exactly how seven `focus-visible:` triggers landed
+ * inside the trees #2042/#2166 had already converted while this spec stayed green.
+ *
+ * The sweep now lives in `packages/web/eslint.config.js` as
+ * `NO_FOCUS_VISIBLE_ON_TRIGGER` — an AST selector over every `<button>` carrying
+ * `aria-haspopup`/`aria-expanded`, with `features/schedule/` exempted per rule 137,
+ * and both-direction fixtures in `src/test/standaloneTriggerFocusRule.test.ts`. The
+ * two mechanisms are complements: the lint rule finds every offender but cannot
+ * observe a browser; this spec observes the browser but finds nothing on its own.
  */
 
 const PROJECT_ID = 'e2e-focusring-0000-0000-0000-000000002292';

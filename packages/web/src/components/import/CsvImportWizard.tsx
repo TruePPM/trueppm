@@ -67,7 +67,7 @@ function StepRail({ step }: { step: Step }) {
             <span
               // The step number/check is the shape signal; color never carries
               // the state alone (rule 12).
-              className={`inline-flex h-5 w-5 items-center justify-center rounded-full border text-[11px] font-medium
+              className={`inline-flex h-5 w-5 items-center justify-center rounded-full border text-xs font-medium
                 ${
                   state === 'done'
                     ? 'border-semantic-on-track bg-semantic-on-track text-neutral-text-inverse'

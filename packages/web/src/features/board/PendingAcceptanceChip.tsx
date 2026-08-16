@@ -232,7 +232,7 @@ function InteractivePendingChip({
           CHIP_SURFACE,
           // Invisible ≥44px touch target without visually enlarging the chip.
           "before:absolute before:inset-[-12px] before:content-['']",
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+          'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
         ].join(' ')}
       >
         <RadioDotIcon aria-hidden="true" filled={false} className="h-2.5 w-2.5 shrink-0" />

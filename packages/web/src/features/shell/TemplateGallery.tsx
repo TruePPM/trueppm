@@ -14,7 +14,7 @@ import { useRovingTabIndex } from '@/hooks/useRovingTabIndex';
 const CHIP_CLASS: Record<string, string> = {
   Workspace: 'bg-brand-primary/10 text-brand-primary border-brand-primary/30',
   Community: 'bg-neutral-surface-raised text-neutral-text-secondary border-neutral-border',
-  Yours: 'bg-semantic-success/10 text-semantic-success border-semantic-success/30',
+  Yours: 'bg-semantic-on-track-bg text-semantic-on-track border-semantic-on-track/30',
 };
 
 export interface TemplateGalleryProps {

@@ -254,7 +254,7 @@ export function ProjectCalendarsPage() {
                   onClick={() => setPickerOpen((v) => !v)}
                   aria-expanded={pickerOpen}
                   aria-haspopup="dialog"
-                  className="mt-2 flex h-[42px] w-full items-center justify-center gap-1.5 rounded-control border border-dashed border-neutral-border text-[13px] font-medium text-neutral-text-secondary hover:border-brand-primary hover:text-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                  className="mt-2 flex h-[42px] w-full items-center justify-center gap-1.5 rounded-control border border-dashed border-neutral-border text-[13px] font-medium text-neutral-text-secondary hover:border-brand-primary hover:text-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
                 >
                   <PlusIcon aria-hidden="true" />
                   Add calendar
