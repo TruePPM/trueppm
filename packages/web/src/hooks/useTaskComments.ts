@@ -11,6 +11,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { PaginatedResponse } from '@/api/types';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { optimisticListAppend } from '@/lib/optimisticCache';
 import type { CommentAcknowledgement, CommentReaction, TaskComment } from '@/types';
 
 const commentsKey = (taskId: string | null) => ['task-comments', taskId];
@@ -73,9 +74,8 @@ export function useCreateComment() {
       return res.data;
     },
     onMutate: async ({ taskId, body, parentId }) => {
-      const queryKey = ['task-comments', taskId];
+      const queryKey = commentsKey(taskId);
       await queryClient.cancelQueries({ queryKey });
-      const previous = queryClient.getQueryData<TaskComment[]>(queryKey);
       const optimisticId = `optimistic-${Date.now()}`;
       const optimistic: TaskComment = {
         id: optimisticId,
@@ -96,7 +96,9 @@ export function useCreateComment() {
         has_my_reaction: false,
         my_reaction_id: null,
       };
-      queryClient.setQueryData<TaskComment[]>(queryKey, [...(previous ?? []), optimistic]);
+      // Absent thread cache means "not loaded", not "no comments" — appending to
+      // a manufactured [] would blank a populated thread until the refetch (#2862).
+      const previous = optimisticListAppend<TaskComment>(queryClient, queryKey, optimistic);
       return { previous, optimisticId };
     },
     onError: (_err, { taskId }, context) => {

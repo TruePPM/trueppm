@@ -169,6 +169,42 @@ describe('useCreateNote', () => {
     });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['task-notes', 't1'] });
   });
+
+  it('leaves an absent log cache absent instead of writing a one-note list (#2862)', async () => {
+    // useProjectWebSocket invalidates ['task-notes', taskId] on a collaborator's
+    // note, and `cancelQueries` is awaited — so `onMutate` can find the entry
+    // gone. Appending to a manufactured [] would blank the rest of the log.
+    const qc = newQc();
+    postMock.mockReturnValue(new Promise(() => {}));
+    const { result } = renderHook(() => useCreateNote(), { wrapper: makeWrapper(qc) });
+
+    act(() => {
+      result.current.mutate({ projectId: 'p1', taskId: 't1', body: 'raced' });
+    });
+
+    await waitFor(() => expect(postMock).toHaveBeenCalled());
+    expect(qc.getQueryData<TaskNote[]>(['task-notes', 't1'])).toBeUndefined();
+  });
+
+  it('does not collapse the log when an invalidation lands mid-onMutate (#2862)', async () => {
+    const qc = newQc();
+    qc.setQueryData(['task-notes', 't1'], [baseNote]);
+    postMock.mockReturnValue(new Promise(() => {}));
+    const { result } = renderHook(() => useCreateNote(), { wrapper: makeWrapper(qc) });
+
+    const realCancel = qc.cancelQueries.bind(qc);
+    qc.cancelQueries = (async (...args: Parameters<typeof realCancel>) => {
+      await realCancel(...args);
+      qc.removeQueries({ queryKey: ['task-notes', 't1'] });
+    }) as typeof qc.cancelQueries;
+
+    act(() => {
+      result.current.mutate({ projectId: 'p1', taskId: 't1', body: 'raced' });
+    });
+
+    await waitFor(() => expect(postMock).toHaveBeenCalled());
+    expect(qc.getQueryData<TaskNote[]>(['task-notes', 't1'])).toBeUndefined();
+  });
 });
 
 describe('useUpdateNote', () => {

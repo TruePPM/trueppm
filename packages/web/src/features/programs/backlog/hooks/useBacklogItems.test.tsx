@@ -159,12 +159,36 @@ describe('patchBacklogCache / readBacklogCache', () => {
     expect(readBacklogCache(qc, PROGRAM)![0].status).toBe('ARCHIVED');
   });
 
-  it('passes an empty list to the updater when the cache is cold', () => {
+  it('skips the updater entirely when the cache is cold (#2862)', () => {
+    // Was: "passes an empty list to the updater" — which is precisely the bug.
+    // A cold cache means "the backlog has not loaded", never "this program has
+    // no backlog items", and four call sites share this one seam. Writing the
+    // updater's output over a cold entry publishes that lie: a single pulled row
+    // replaces the whole intake pool until the next fetch lands.
     const qc = freshClient();
+    let updaterRan = false;
+
     patchBacklogCache(qc, PROGRAM, (items) => {
-      expect(items).toEqual([]);
+      updaterRan = true;
       return items;
     });
-    expect(readBacklogCache(qc, PROGRAM)).toEqual([]);
+
+    expect(updaterRan).toBe(false);
+    expect(readBacklogCache(qc, PROGRAM)).toBeUndefined();
+  });
+
+  it('does not collapse the list when the entry is dropped mid-patch (#2862)', () => {
+    // The race: the entry is present when a mutation snapshots it and gone by
+    // the time the optimistic write runs. The write reads the cache functionally,
+    // so it observes the removal rather than resurrecting stale rows.
+    const qc = freshClient();
+    qc.setQueryData(backlogKeys.items(PROGRAM), seed);
+    const snapshot = readBacklogCache(qc, PROGRAM);
+    qc.removeQueries({ queryKey: backlogKeys.items(PROGRAM) });
+
+    patchBacklogCache(qc, PROGRAM, (items) => items.filter((i) => i.id !== 'BI-1'));
+
+    expect(snapshot).toEqual(seed);
+    expect(readBacklogCache(qc, PROGRAM)).toBeUndefined();
   });
 });

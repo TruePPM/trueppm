@@ -37,6 +37,8 @@ These rules are enforced at review time. Violations block merge.
 
 1. **No drop shadows anywhere** — use `border border-neutral-border` for separation instead of `shadow-*`
 
+299. **Every optimistic edit to a cached *list* goes through `optimisticListUpdate` / `optimisticListAppend` (`src/lib/optimisticCache.ts`) — never `setQueryData(key, [...(previous ?? []), row])` or `(prev ?? []).map/filter` by hand.** A cache entry that is momentarily absent means "not loaded right now", never "this collection is empty". Defaulting it to `[]` and writing the result back replaces a populated list with the single row the user just added — a real race, not a theoretical one: `cancelQueries` is awaited, and a `useProjectWebSocket` collaboration invalidate, an offline reconnect flush, or the mutation's own `onSuccess` can clear the entry inside that window. The helpers skip the updater entirely on a nullish entry *and* read the cache functionally at write time (so an invalidation landing between the snapshot and the write is observed, not overwritten); they still return the snapshot for `onError` rollback. Defaulting a row's own nested field (`t.labels ?? []`) is unrelated and fine. This class was fixed instance-by-instance on the board (#2717) and then found again on six sibling sites (#2862), so it is now machine-checked: the conformance block in `src/lib/optimisticCache.test.ts` source-scans every `setQueryData` call in the tree and fails on a bare identifier defaulted to `[]`/`{}`. Do not hand-enumerate the hooks — hand-enumeration is what let the class survive.
+
 ## Accessibility floors
 
 *Non-negotiable minimums. A surface that misses one is not shippable.*

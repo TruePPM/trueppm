@@ -10,6 +10,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { toast } from '@/components/Toast';
 import type { ToastAction } from '@/components/Toast/toastStore';
+import { optimisticListUpdate } from '@/lib/optimisticCache';
 import type { PinnedItem } from '@/api/types';
 
 export const PINNED_KEY = ['me', 'pinned'] as const;
@@ -117,16 +118,17 @@ export function useTogglePin() {
       await qc.cancelQueries({ queryKey: PINNED_KEY });
       const { listKeys, detailKey } = cacheKeys(vars.kind, vars.id);
 
-      const snapshot = {
-        pinned: qc.getQueryData<PinnedItem[]>(PINNED_KEY),
-        // Snapshot by prefix so the rollback also restores the program *detail*
-        // entry, which is a prefix-extension of the program list key.
-        lists: listKeys.flatMap((key) => qc.getQueriesData({ queryKey: key })),
-        detail: qc.getQueryData(detailKey),
-      };
+      // Snapshot by prefix so the rollback also restores the program *detail*
+      // entry, which is a prefix-extension of the program list key. Taken before
+      // any write, so a rollback restores the pre-mutation state exactly.
+      const lists = listKeys.flatMap((key) => qc.getQueriesData({ queryKey: key }));
+      const detail = qc.getQueryData(detailKey);
 
-      qc.setQueryData<PinnedItem[]>(PINNED_KEY, (prev) => {
-        const rest = (prev ?? []).filter((p) => !(p.kind === vars.kind && p.id === vars.id));
+      // An absent pins cache means "not loaded", not "nothing pinned" — building
+      // the next rail from a manufactured [] would drop every other pin off the
+      // rail until the settle refetch (#2862).
+      const pinned = optimisticListUpdate<PinnedItem>(qc, PINNED_KEY, (prev) => {
+        const rest = prev.filter((p) => !(p.kind === vars.kind && p.id === vars.id));
         if (!vars.next) return rest;
         const optimistic: PinnedItem = {
           kind: vars.kind,
@@ -142,7 +144,7 @@ export function useTogglePin() {
       });
 
       patchIsPinned(qc, listKeys, detailKey, vars.id, vars.next);
-      return snapshot;
+      return { pinned, lists, detail };
     },
 
     onSuccess: (_data, vars) => {

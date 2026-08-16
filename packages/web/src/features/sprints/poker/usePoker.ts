@@ -10,6 +10,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { toast } from '@/components/Toast/toast';
+import { optimisticListUpdate } from '@/lib/optimisticCache';
 import type { PokerSession } from '@/types';
 
 export const pokerKey = (sprintId: string) => ['poker', sprintId];
@@ -82,10 +83,12 @@ export function useCastVote() {
     onMutate: async ({ sprintId, sessionId, value, comment }) => {
       const key = pokerKey(sprintId);
       await qc.cancelQueries({ queryKey: key });
-      const previous = qc.getQueryData<PokerSession[]>(key);
-      // Flip the caller's own card immediately; the server's authoritative row replaces it.
-      qc.setQueryData<PokerSession[]>(key, (rows) =>
-        (rows ?? []).map((s) =>
+      // Flip the caller's own card immediately; the server's authoritative row
+      // replaces it. An absent round cache means "not loaded", not "no rounds":
+      // a `poker_session_updated` broadcast invalidates this exact key mid-vote,
+      // and mapping over a manufactured [] would empty the table (#2862).
+      const previous = optimisticListUpdate<PokerSession>(qc, key, (rows) =>
+        rows.map((s) =>
           s.id === sessionId ? { ...s, my_vote: { value, comment: comment ?? '' } } : s,
         ),
       );
