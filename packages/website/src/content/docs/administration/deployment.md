@@ -558,9 +558,27 @@ unless the API clears all three start-up guards, `/api/v1/readyz` reports ready
 through nginx, `/api/v1/health/beat/` returns 200 (which proves the scheduler is
 genuinely dispatching, not merely declared), and the stack survives restarting
 the API container. It is the Compose counterpart to the `helm:install` drill
-described under [Kubernetes with Helm](#kubernetes-with-helm). TLS renewal is **not** covered —
-it needs a real domain and ACME reachability, so it stays a release-day manual
-check.
+described under [Kubernetes with Helm](#kubernetes-with-helm).
+
+A sibling `compose:prod:tls` job boots the same stack a second time with
+`TLS_MODE=selfsigned`, which is what puts the HTTPS nginx template — a different
+file from the plain-HTTP one, and previously started by nothing but a human on
+release day — under a real boot. On top of the checks above it asserts that HTTPS
+serves the app on 443, that port 80 redirects to it, that HSTS is set, and that
+`/.well-known/acme-challenge/` is served from the webroot over plain HTTP rather
+than swallowed by the redirect. That last one is the contract `certbot renew
+-a webroot` depends on: break it and your certificate still issues, then quietly
+fails to renew about 60 days later.
+
+What CI still cannot cover is the ACME exchange itself — the first `--standalone`
+issuance and the authenticator switch recorded in the renewal lineage both need a
+real domain. **If you run `TLS_MODE=letsencrypt`, verify the first renewal
+manually** rather than waiting for expiry to tell you:
+
+```bash
+docker compose -f docker-compose.prod.yml run --rm certbot \
+  renew --dry-run -a webroot --webroot-path=/var/www/certbot
+```
 
 **systemd auto-start.** Create `/etc/systemd/system/trueppm.service`:
 

@@ -35,10 +35,23 @@
 # CI-only env var read by the prod file — because an override is exactly where a
 # drift between "what the drill boots" and "what an operator boots" would hide.
 #
-# TLS/certbot is out of scope: it needs a real domain and ports 80/443 reachable
-# from the ACME servers. TLS_MODE=none exercises the same api/celery/beat/nginx
-# wiring over the app-http template; the renewal path stays a tag-day manual
-# smoke, documented in #2804.
+# TLS is a PARAMETER of this drill, not an exclusion (#2829). `TLS_MODE=none`
+# (the default) boots nginx/app-http.conf.template; `TLS_MODE=selfsigned` boots
+# nginx/app.conf.template — the TLS variant, a genuinely different file — and
+# adds three assertions the plain-HTTP leg structurally cannot make:
+#
+#   6. HTTPS serves the app on :443 from the certificate init-prod.sh minted;
+#   7. plain HTTP redirects to HTTPS (301), so the :80 server block works;
+#   8. `/.well-known/acme-challenge/` is served FROM THE WEBROOT over plain
+#      HTTP and is NOT swallowed by that redirect — which is precisely the
+#      assumption `certbot renew -a webroot` depends on, and the one that would
+#      otherwise fail silently at ~60 days with the certificate already issued.
+#
+# `TLS_MODE=letsencrypt` remains out of scope: it needs a real domain and ACME
+# reachability. What is left uncovered after the selfsigned leg is narrow and
+# worth naming — the `--standalone` first issuance in init-prod.sh, and the
+# authenticator switch from standalone to webroot recorded in the renewal
+# lineage. Those stay a tag-day manual smoke (#2804).
 #
 # Expects a working Docker daemon (dind in CI) with docker compose v2, curl, and
 # python3 on PATH. Registry auth via $CI_REGISTRY{,_USER,_PASSWORD} in CI.
@@ -53,14 +66,55 @@ PROD_COMPOSE_FILE="${PROD_COMPOSE_FILE:-docker-compose.prod.yml}"
 # value would point `down -v` straight at the dev stack's postgres_data. In CI
 # the daemon is a throwaway dind, so this costs nothing there and is the only
 # thing standing between a local run and someone's development database.
-export COMPOSE_PROJECT_NAME="trueppm-prod-drill"
 REGISTRY="${CI_REGISTRY:-registry.gitlab.com}"
 IMAGE_REPO="${IMAGE_REPO:-${REGISTRY}/trueppm/trueppm}"
 RELEASE_IMAGE_TAG="${RELEASE_IMAGE_TAG:-latest}"
 # Host the drill reaches the published nginx port on. In CI the dind service is
 # addressable as `docker`; locally the daemon publishes on the loopback.
 PROBE_HOST="${PROBE_HOST:-docker}"
-BASE_URL="http://${PROBE_HOST}"
+
+# Which TLS posture to drill (#2829). `none` is the original mode and stays the
+# default so an unparameterized run is unchanged.
+#
+# `selfsigned` is what gets `nginx/app.conf.template` — the TLS variant, a
+# DIFFERENT FILE from the app-http template `none` boots — under a real boot for
+# the first time. It is the whole point of this parameter: #2828 found four
+# independently fatal faults in the one nginx service CI actually started, and
+# every one of them was invisible to `docker compose config` and to the
+# structural contract tests. The TLS template had had exactly as much real-boot
+# coverage as that service did, which is none.
+#
+# `letsencrypt` is deliberately NOT drillable here: it needs a real domain and
+# ACME reachability on :80. What `selfsigned` still proves about it is the part
+# that breaks silently at day ~60 — that nginx serves `/.well-known/acme-challenge/`
+# from the webroot the certbot service renews through (`-a webroot`), rather than
+# swallowing it in the HTTPS redirect. Issuance-vs-renewal authenticator drift
+# remains a tag-day manual smoke.
+TLS_MODE="${TLS_MODE:-none}"
+case "${TLS_MODE}" in
+  none|selfsigned) ;;
+  *) echo "TLS_MODE must be 'none' or 'selfsigned' for the drill (got '${TLS_MODE}')" >&2; exit 2 ;;
+esac
+
+# One compose project PER MODE, so the two drills can run as sibling CI jobs (or
+# back to back locally) without `down -v` in one reaping the other's stack.
+export COMPOSE_PROJECT_NAME="trueppm-prod-drill-${TLS_MODE}"
+
+if [ "${TLS_MODE}" = "none" ]; then
+  BASE_URL="http://${PROBE_HOST}"
+  # An array rather than a string: `set -u` plus word-splitting makes an empty
+  # scalar expand to an empty ARGUMENT, which curl reads as a URL and rejects.
+  CURL=(curl -s)
+else
+  BASE_URL="https://${PROBE_HOST}"
+  # The certificate is self-signed by construction, so verification failing is
+  # the expected state, not a finding. `-k` is scoped to this drill and never
+  # reaches an operator's stack.
+  CURL=(curl -s -k)
+fi
+# Plain-HTTP base, used in TLS mode to assert the :80 server block's two jobs:
+# redirect everything, EXCEPT the ACME challenge.
+HTTP_BASE_URL="http://${PROBE_HOST}"
 # The api's readiness ceiling. Migrations against an empty database dominate this.
 READY_TIMEOUT="${READY_TIMEOUT:-300}"
 # beat-heartbeat runs on a 30 s period (settings/base.py CELERY_BEAT_SCHEDULE), so
@@ -99,6 +153,10 @@ teardown() {
   log "tearing down (down -v)"
   compose down -v --remove-orphans >/dev/null 2>&1 || true
   rm -f .env nginx/active.conf.template
+  # init-prod.sh mints the self-signed lineage into the checkout, and the ACME
+  # probe below writes a challenge file next to it. Both are generated artefacts
+  # containing a private key — leave neither behind for a later `git add -A`.
+  rm -rf certbot
   return "${status}"
 }
 trap teardown EXIT
@@ -140,7 +198,11 @@ set_env() {
 }
 
 set_env DOMAIN "${PROBE_HOST}"
-set_env TLS_MODE none
+# The self-signed lineage is minted at CN=${DOMAIN} and nginx resolves its
+# certificate path from the same variable, so DOMAIN and PROBE_HOST have to be
+# the one name — a mismatch is a file-not-found at nginx start, not a name
+# warning (the drill passes `-k`, so hostname mismatch alone would go unnoticed).
+set_env TLS_MODE "${TLS_MODE}"
 # ALLOWED_HOSTS carries every name the probes and the nginx proxy_set_header Host
 # can present. A miss here is a 400 from Django that reads like a routing bug.
 set_env ALLOWED_HOSTS "${PROBE_HOST},localhost,127.0.0.1"
@@ -184,9 +246,29 @@ sync_checkout_to_daemon() {
   # source is missing, the daemon holds a DIRECTORY at that path, and tar cannot
   # extract a regular file over a directory — it fails and leaves the directory,
   # which is exactly how this looked like it had not been fixed.
-  tar -C "$PWD" -cf - nginx 2>/dev/null \
+  #
+  # In TLS mode `certbot/` joins the payload (#2829). Its subdirectories are
+  # genuinely directories, so Docker auto-creating them is harmless — but their
+  # CONTENTS are not: `certbot/conf/live/${DOMAIN}/{fullchain,privkey}.pem` is
+  # the certificate init-prod.sh just minted on THIS filesystem, and nginx reads
+  # it from the daemon's. Without this, nginx starts against an empty directory
+  # and dies on "cannot load certificate ... No such file or directory" — the
+  # #2828 failure shape exactly, one mount over.
+  #
+  # `certbot/` only joins once init-prod.sh has created it — this function also
+  # runs BEFORE that, to place the templates, and tar exits non-zero on a
+  # missing member.
+  local paths=(nginx)
+  if [ "${TLS_MODE}" != "none" ] && [ -d certbot ]; then
+    paths+=(certbot)
+  fi
+  # One `rm -rf` taking every path, not one per path: `rm -rf a rm -rf b` is a
+  # single command whose argument list contains the literal word `rm`.
+  local targets
+  targets="$(printf "'/host${PWD}/%s' " "${paths[@]}")"
+  tar -C "$PWD" -cf - "${paths[@]}" 2>/dev/null \
     | docker run --rm -i -v /:/host alpine:3 \
-        sh -c "rm -rf '/host${PWD}/nginx' && mkdir -p '/host${PWD}' && tar -C '/host${PWD}' -xf -" \
+        sh -c "rm -rf ${targets} && mkdir -p '/host${PWD}' && tar -C '/host${PWD}' -xf -" \
     >/dev/null
 }
 
@@ -207,7 +289,7 @@ bind mount would resolve to it and nginx dies on 'envsubst: ... Is a directory'.
 log "syncing bind-mount sources onto the dind daemon filesystem"
 sync_checkout_to_daemon
 
-log "booting the stack via init-prod.sh (TLS_MODE=none)"
+log "booting the stack via init-prod.sh (TLS_MODE=${TLS_MODE})"
 bash init-prod.sh
 
 # init-prod.sh rendered nginx/active.conf.template on THIS filesystem; the daemon
@@ -246,15 +328,65 @@ fi
 # ---- 4. readiness through nginx --------------------------------------------
 log "waiting for GET /api/v1/readyz to report ready at ${BASE_URL}"
 deadline=$(( $(date +%s) + READY_TIMEOUT ))
-until [ "$(curl -s -o /dev/null -w '%{http_code}' "${BASE_URL}/api/v1/readyz")" = "200" ]; do
+until [ "$("${CURL[@]}" -o /dev/null -w '%{http_code}' "${BASE_URL}/api/v1/readyz")" = "200" ]; do
   [ "$(date +%s)" -lt "${deadline}" ] || {
-    curl -s "${BASE_URL}/api/v1/readyz" | sed 's/^/  /' >&2 || true
+    "${CURL[@]}" "${BASE_URL}/api/v1/readyz" | sed 's/^/  /' >&2 || true
     fail "/api/v1/readyz did not go ready within ${READY_TIMEOUT}s"
   }
   sleep 3
 done
-readyz="$(curl -s "${BASE_URL}/api/v1/readyz")"
+readyz="$("${CURL[@]}" "${BASE_URL}/api/v1/readyz")"
 echo "${readyz}" | grep -q '"status": *"ok"' || fail "readyz 200 but status is not ok: ${readyz}"
+
+# ---- 4a. the TLS server blocks (#2829) --------------------------------------
+# Only reachable in TLS mode, and this is the half of nginx/app.conf.template
+# that app-http.conf.template does not have at all. Reaching readyz over https
+# above already proved the certificate loads and the :443 block proxies; these
+# three assert the :80 block, whose entire job is the ACME handshake plus the
+# redirect — and which is the part a certificate renewal depends on 60 days
+# after anyone last looked at it.
+if [ "${TLS_MODE}" != "none" ]; then
+  log "asserting plain HTTP redirects to HTTPS"
+  redirect_code="$("${CURL[@]}" -o /dev/null -w '%{http_code}' "${HTTP_BASE_URL}/")"
+  [ "${redirect_code}" = "301" ] || fail \
+    "GET ${HTTP_BASE_URL}/ returned ${redirect_code}, not 301 — the :80 server block is not redirecting to HTTPS."
+  redirect_target="$("${CURL[@]}" -o /dev/null -w '%{redirect_url}' "${HTTP_BASE_URL}/")"
+  case "${redirect_target}" in
+    https://*) ;;
+    *) fail "plain HTTP redirected to '${redirect_target}', which is not an https:// URL" ;;
+  esac
+
+  # THE renewal assertion. `certbot renew -a webroot` writes its challenge token
+  # into /var/www/certbot/.well-known/acme-challenge/ and the ACME server fetches
+  # it over PLAIN HTTP on :80 — so this path must be served from the webroot and
+  # must NOT be caught by the redirect above. Nothing else in CI covers it: the
+  # certificate is already issued by then, so the failure is invisible until the
+  # lineage expires. Writing the token by hand is what removes the need for an
+  # ACME server to test it at all.
+  log "asserting the ACME challenge webroot is served over plain HTTP (certbot -a webroot)"
+  challenge_token="drill-$(date +%s)"
+  # Written STRAIGHT INTO the daemon's filesystem, not here-then-synced.
+  #
+  # nginx is already running with ./certbot/www bind-mounted, and a bind mount
+  # follows the INODE: `sync_checkout_to_daemon` starts with `rm -rf`, so calling
+  # it now would unlink the directory nginx holds and recreate a new one at the
+  # same path. nginx would keep the old, now-orphaned inode and see an empty
+  # webroot — the probe would fail against a stack that is actually fine, which
+  # is a worse outcome than not testing it. Adding one file touches no inode
+  # nginx depends on.
+  docker run --rm -v /:/host alpine:3 sh -c "
+    mkdir -p '/host${PWD}/certbot/www/.well-known/acme-challenge' &&
+    printf '%s' '${challenge_token}' > '/host${PWD}/certbot/www/.well-known/acme-challenge/${challenge_token}'" \
+    >/dev/null || fail "could not write the ACME challenge token onto the daemon filesystem"
+  challenge_body="$("${CURL[@]}" "${HTTP_BASE_URL}/.well-known/acme-challenge/${challenge_token}")"
+  [ "${challenge_body}" = "${challenge_token}" ] || fail \
+    "GET ${HTTP_BASE_URL}/.well-known/acme-challenge/${challenge_token} returned '${challenge_body}', not the token. \
+nginx is not serving the webroot certbot renews through — the certificate would issue, then fail to renew at ~60 days. See #2829."
+
+  log "asserting HSTS is set on the HTTPS response"
+  "${CURL[@]}" -o /dev/null -D - "${BASE_URL}/" 2>/dev/null | grep -qi '^strict-transport-security:' || fail \
+    "the HTTPS response carries no Strict-Transport-Security header — nginx/app.conf.template's add_header did not survive."
+fi
 
 # ---- 4b. collected static actually reaches the process that serves it -------
 # nginx PROXIES /static/ to the api, where WhiteNoise serves STATIC_ROOT — so
@@ -265,7 +397,7 @@ echo "${readyz}" | grep -q '"status": *"ok"' || fail "readyz 200 but status is n
 # stylesheet is the probe because it is present in every collectstatic output
 # regardless of which optional apps are installed.
 log "asserting /static/ serves the collected assets"
-static_code="$(curl -s -o /dev/null -w '%{http_code}' "${BASE_URL}/static/admin/css/base.css")"
+static_code="$("${CURL[@]}" -o /dev/null -w '%{http_code}' "${BASE_URL}/static/admin/css/base.css")"
 [ "${static_code}" = "200" ] || fail \
   "GET /static/admin/css/base.css returned ${static_code}, not 200 — collectstatic output is not reaching WhiteNoise (admin CSS and the Swagger UI / ReDoc assets are broken). See #2828."
 
@@ -279,7 +411,7 @@ admin_password="$(compose exec -T api cat /run/trueppm/admin_password | tr -d '\
 [ -n "${admin_password}" ] || fail "admin password file was empty — create_admin did not write it"
 
 log "obtaining an admin JWT"
-token="$(curl -s -X POST "${BASE_URL}/api/v1/auth/token/" \
+token="$("${CURL[@]}" -X POST "${BASE_URL}/api/v1/auth/token/" \
   -H 'Content-Type: application/json' \
   -d "{\"username\":\"${ADMIN_USERNAME}\",\"password\":\"${admin_password}\"}" \
   | python3 -c 'import json,sys; print(json.load(sys.stdin).get("access",""))')"
@@ -287,11 +419,11 @@ token="$(curl -s -X POST "${BASE_URL}/api/v1/auth/token/" \
 
 log "waiting for GET /api/v1/health/beat/ to return 200 (proves celery-beat dispatches)"
 deadline=$(( $(date +%s) + BEAT_TIMEOUT ))
-until [ "$(curl -s -o /dev/null -w '%{http_code}' \
+until [ "$("${CURL[@]}" -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer ${token}" \
             "${BASE_URL}/api/v1/health/beat/")" = "200" ]; do
   [ "$(date +%s)" -lt "${deadline}" ] || {
-    curl -s -H "Authorization: Bearer ${token}" "${BASE_URL}/api/v1/health/beat/" | sed 's/^/  /' >&2 || true
+    "${CURL[@]}" -H "Authorization: Bearer ${token}" "${BASE_URL}/api/v1/health/beat/" | sed 's/^/  /' >&2 || true
     compose logs --tail=60 celery-beat 2>&1 | sed 's/^/  /' >&2 || true
     fail "/api/v1/health/beat/ never returned 200 within ${BEAT_TIMEOUT}s — celery-beat is declared but not dispatching"
   }
@@ -306,7 +438,7 @@ done
 log "restarting the api container"
 compose restart api
 deadline=$(( $(date +%s) + READY_TIMEOUT ))
-until [ "$(curl -s -o /dev/null -w '%{http_code}' "${BASE_URL}/api/v1/readyz")" = "200" ]; do
+until [ "$("${CURL[@]}" -o /dev/null -w '%{http_code}' "${BASE_URL}/api/v1/readyz")" = "200" ]; do
   [ "$(date +%s)" -lt "${deadline}" ] || fail "/api/v1/readyz did not recover within ${READY_TIMEOUT}s after restarting api"
   sleep 3
 done

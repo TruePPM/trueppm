@@ -267,3 +267,197 @@ def test_nginx_serves_the_acme_challenge_webroot(services: dict[str, Any]) -> No
     read_by_nginx = [v for v in services["nginx"]["volumes"] if "/var/www/certbot" in v]
     assert written_by_certbot, "certbot has no webroot volume to write challenges into"
     assert read_by_nginx, "nginx cannot serve the ACME challenge certbot writes"
+
+
+# ---------------------------------------------------------------------------
+# The TLS variant of the nginx config (#2829)
+#
+# `nginx/app.conf.template` is selected by init-prod.sh whenever TLS_MODE is not
+# `none`, and it is a DIFFERENT FILE from the `app-http` template CI boots. Until
+# #2829 it had exactly as much real-boot coverage as the nginx service had before
+# #2817: none. `compose:prod:tls` now boots it under TLS_MODE=selfsigned; these
+# are the cheap structural half, and they assert the cross-file agreements a boot
+# cannot cover cheaply — the ones between a template, the compose volumes, and
+# init-prod.sh, each of which is edited on its own.
+# ---------------------------------------------------------------------------
+
+_NGINX_DIR = Path(__file__).resolve().parents[3] / "nginx"
+_TLS_TEMPLATE = _NGINX_DIR / "app.conf.template"
+_HTTP_TEMPLATE = _NGINX_DIR / "app-http.conf.template"
+
+# The variable list passed to envsubst by the nginx service's command. Anything
+# else spelled `${...}` in a template is left as a literal by envsubst.
+_ENVSUBST_VARS = {"DOMAIN"}
+
+_TEMPLATE_VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+@pytest.fixture(scope="module")
+def tls_template() -> str:
+    return _TLS_TEMPLATE.read_text()
+
+
+def test_tls_template_substitutes_only_variables_envsubst_is_given(tls_template: str) -> None:
+    """A `${VAR}` the nginx command does not name reaches nginx as a literal.
+
+    The service renders with `envsubst '$${DOMAIN}'`, and envsubst given an
+    explicit list substitutes ONLY that list — which is deliberate, because the
+    template is also full of nginx's own `$host` / `$request_uri` runtime
+    variables that must survive. The failure mode is asymmetric and quiet: add a
+    `${CERTBOT_EMAIL}` or `${API_UPSTREAM}` to this template and nginx receives
+    the two-brace string verbatim, which is a config-parse error at start (or,
+    worse, a path that silently never matches). `docker compose config` renders
+    it happily either way.
+    """
+    referenced = set(_TEMPLATE_VAR.findall(tls_template))
+    unsubstituted = referenced - _ENVSUBST_VARS
+    assert not unsubstituted, (
+        f"nginx/app.conf.template references {sorted(unsubstituted)}, which the "
+        "nginx service's `envsubst '$${DOMAIN}'` will not substitute — nginx would "
+        "receive the literal string. Add the variable to the envsubst list in "
+        "docker-compose.prod.yml, or stop referencing it. See #2829."
+    )
+
+
+def test_tls_template_reads_the_certificate_init_prod_writes(
+    tls_template: str, services: dict[str, Any]
+) -> None:
+    """The certificate path is agreed by three files that are never edited together.
+
+    init-prod.sh writes the lineage to `certbot/conf/live/$DOMAIN/`, the nginx
+    service mounts `./certbot/conf` at `/etc/letsencrypt`, and this template
+    names `/etc/letsencrypt/live/${DOMAIN}/…`. Any one of the three can move on
+    its own; the result is nginx dying on "cannot load certificate", which is a
+    total outage on the TLS path and invisible on the plain-HTTP one CI boots.
+    """
+    for pem in ("fullchain.pem", "privkey.pem"):
+        assert f"/etc/letsencrypt/live/${{DOMAIN}}/{pem}" in tls_template, (
+            f"the TLS template does not read /etc/letsencrypt/live/${{DOMAIN}}/{pem}"
+        )
+    mounted = [v for v in services["nginx"]["volumes"] if v.split(":")[1] == "/etc/letsencrypt"]
+    assert mounted, "nginx does not mount the certificate store at /etc/letsencrypt"
+    assert mounted[0].startswith("./certbot/conf:"), (
+        f"nginx mounts {mounted[0]} at /etc/letsencrypt, but init-prod.sh writes the "
+        "lineage to ./certbot/conf — the certificate nginx loads is not the one that "
+        "was issued"
+    )
+    init = _INIT_PROD.read_text()
+    assert "certbot/conf/live/" in init, (
+        "init-prod.sh no longer writes the lineage under certbot/conf/live/, so the "
+        "path this template reads is stale"
+    )
+
+
+def test_tls_template_serves_the_acme_challenge_over_plain_http(tls_template: str) -> None:
+    """Renewal is a plain-HTTP fetch, so the :80 block cannot redirect it away.
+
+    `certbot renew -a webroot` writes a token under /var/www/certbot and the ACME
+    server fetches it on port 80. A template whose :80 server does nothing but
+    `return 301 https://…` would pass every other check here, serve traffic
+    perfectly, and then fail to renew ~60 days later — long after the change that
+    caused it. The ACME location must therefore exist, and must be rooted at the
+    directory the certbot service writes into.
+    """
+    challenge = tls_template.split("location /.well-known/acme-challenge/")
+    assert len(challenge) == 2, (
+        "the TLS template has no /.well-known/acme-challenge/ location, so a "
+        "webroot renewal has nothing to fetch. See #2829."
+    )
+    # The block body, up to its closing brace.
+    body = challenge[1].split("}")[0]
+    assert "root /var/www/certbot" in body, (
+        "the ACME challenge location is not rooted at /var/www/certbot, the webroot "
+        f"the certbot service renews through. Block body was: {body!r}"
+    )
+
+
+def test_tls_template_redirects_everything_else_to_https(tls_template: str) -> None:
+    """The corollary of the test above: the redirect must still be there.
+
+    Asserting only that the ACME location exists would be satisfied by a :80
+    block that serves the whole site in plain HTTP.
+    """
+    assert "return 301 https://" in tls_template, (
+        "the TLS template's :80 server does not redirect to HTTPS"
+    )
+
+
+@pytest.mark.parametrize(
+    ("setting", "why"),
+    [
+        (
+            "client_max_body_size 50M",
+            "a smaller cap rejects a valid .mpp upload with a bare 413 before the app "
+            "can name the limit (#2604)",
+        ),
+        (
+            "proxy_pass         http://api:8000",
+            "the /api/ location must proxy to the api service",
+        ),
+        (
+            "location /static/",
+            "collected static is served by WhiteNoise behind this proxy (#2828)",
+        ),
+        (
+            "allow 127.0.0.1",
+            "/admin/ is restricted to loopback at the nginx layer",
+        ),
+    ],
+)
+def test_tls_template_keeps_the_properties_the_http_template_has(
+    tls_template: str, setting: str, why: str
+) -> None:
+    """Both templates carry these, and only one of them is exercised by CI.
+
+    Every property here was established on the plain-HTTP path — the upload cap
+    by a real defect (#2604), the /static/ proxy by #2828's dead mount. They are
+    trivially easy to fix in the template someone is looking at and miss in the
+    one they are not, and the TLS template is always the one they are not.
+    """
+    assert setting in tls_template, f"nginx/app.conf.template lost `{setting}` — {why}"
+    assert setting in _HTTP_TEMPLATE.read_text(), (
+        f"nginx/app-http.conf.template lost `{setting}` — {why}"
+    )
+
+
+def test_certbot_shares_the_certificate_store_with_nginx(services: dict[str, Any]) -> None:
+    """A renewal nginx cannot see is a renewal that never happened.
+
+    The renewal service writes the new certificate into its OWN /etc/letsencrypt.
+    If that is not the same host directory nginx mounts, certbot reports success
+    every 12 hours, the files on disk are current, and nginx keeps serving the
+    expired one — the most deceptive shape this failure can take, because every
+    log line says the renewal worked.
+    """
+    certbot_store = [
+        v.split(":")[0]
+        for v in services["certbot"]["volumes"]
+        if v.split(":")[1] == "/etc/letsencrypt"
+    ]
+    nginx_store = [
+        v.split(":")[0]
+        for v in services["nginx"]["volumes"]
+        if v.split(":")[1] == "/etc/letsencrypt"
+    ]
+    assert certbot_store, "certbot does not mount a certificate store at /etc/letsencrypt"
+    assert nginx_store, "nginx does not mount a certificate store at /etc/letsencrypt"
+    assert certbot_store[0] == nginx_store[0], (
+        f"certbot renews into {certbot_store[0]} but nginx reads {nginx_store[0]} — "
+        "renewals would succeed silently while nginx serves the expired certificate"
+    )
+
+
+def test_certbot_can_write_the_store_and_the_webroot(services: dict[str, Any]) -> None:
+    """certbot's two mounts must be writable; nginx's may be read-only.
+
+    A `:ro` on either of certbot's mounts turns every renewal into a permission
+    error 12 hours at a time. This is the mirror of the nginx read-only posture,
+    which is correct there and fatal here — so the two services genuinely need
+    opposite assertions on the same two paths.
+    """
+    for volume in services["certbot"]["volumes"]:
+        target = volume.split(":")[1]
+        if target in ("/etc/letsencrypt", "/var/www/certbot"):
+            assert not volume.endswith(":ro"), (
+                f"certbot mounts {target} read-only — it cannot renew into it"
+            )
