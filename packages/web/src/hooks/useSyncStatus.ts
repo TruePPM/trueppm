@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useMutationState, useQueryClient } from '@tanstack/react-query';
-import type { Mutation } from '@tanstack/react-query';
+import type { Mutation, QueryClient } from '@tanstack/react-query';
+import { queryClient as appQueryClient } from '@/lib/queryClient';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useSyncStatusStore } from '@/stores/syncStatusStore';
 import { useWsConnectionStore } from '@/stores/wsConnectionStore';
@@ -157,6 +158,29 @@ export function usePendingWriteCount(): number {
     if (m.clientRejected) continue;
     // `pending` covers both paused (offline-queued) and in-flight writes.
     if (m.status === 'pending') count += 1;
+  }
+  return count;
+}
+
+/**
+ * Non-reactive read of the same at-risk write set {@link usePendingWriteCount}
+ * exposes, for callers that cannot use a hook (#2834).
+ *
+ * `RouteErrorBoundary` needs this count to decide whether its Reload / Go-to-home
+ * actions would silently discard queued work — and it can render *outside* the
+ * `QueryClientProvider`, because that provider is mounted by `AppShell` and the
+ * root-level boundary fires precisely when AppShell did not mount (or has just
+ * been torn down). A hook would throw there, so read the app's module-level
+ * client directly. The `client` parameter exists for tests; production callers
+ * pass nothing.
+ */
+export function getPendingWriteCount(client: QueryClient = appQueryClient): number {
+  let count = 0;
+  for (const mutation of client.getMutationCache().getAll()) {
+    // Mirror usePendingWriteCount exactly: a 4xx client rejection is surfaced
+    // inline and never retried, so it is not work a reload would lose (#1945).
+    if (isClientRejection(mutation.state.error)) continue;
+    if (mutation.state.status === 'pending') count += 1;
   }
   return count;
 }

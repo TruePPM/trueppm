@@ -1,7 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouteError } from 'react-router';
 import { WarningIcon } from '@/components/Icons';
 import { Button } from '@/components/Button';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { getPendingWriteCount } from '@/hooks/useSyncStatus';
 import { reportError } from '@/lib/telemetry';
 
 /**
@@ -14,6 +16,86 @@ import { reportError } from '@/lib/telemetry';
 function isChunkLoadError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
   return /dynamically imported module|loading chunk .* failed|failed to fetch/i.test(message);
+}
+
+/** Which recovery action the user asked for; both leave the current document. */
+type RecoveryAction = 'reload' | 'home';
+
+/** Performs the recovery for real. Every path here discards in-memory state. */
+function performRecovery(action: RecoveryAction): void {
+  if (action === 'reload') {
+    window.location.reload();
+  } else {
+    window.location.href = '/';
+  }
+}
+
+/**
+ * Interrupting confirmation shown when a recovery action would throw away queued
+ * offline writes (#2834).
+ *
+ * `PendingWritesGuard`'s `beforeunload` prompt is the app's normal protection,
+ * but it is mounted *inside* `AppShell` — so on the one screen whose whole job is
+ * to offer a reload, it may already be gone. This dialog is the second,
+ * independent gate: the boundary asks the write queue itself rather than trusting
+ * a guard that the same crash may have unmounted.
+ *
+ * `role="alertdialog"` (the action interrupts), and it owns its own
+ * `useFocusTrap` — it is mounted bare on the error surface with no parent modal
+ * to contain focus (rule 206/245). The safe action ("Stay on this page") is first
+ * in the DOM so the trap's default seat is never the destructive button.
+ */
+function DiscardPendingWritesDialog({
+  action,
+  count,
+  onCancel,
+  onDiscard,
+}: {
+  action: RecoveryAction;
+  count: number;
+  onCancel: () => void;
+  onDiscard: () => void;
+}) {
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel);
+  const plural = count === 1 ? 'change' : 'changes';
+  const verb = action === 'reload' ? 'Reloading' : 'Leaving this page';
+
+  return (
+    <div
+      ref={trapRef}
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="discard-pending-writes-title"
+      aria-describedby="discard-pending-writes-body"
+      tabIndex={-1}
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay px-4 focus:outline-none motion-safe:animate-scrim-fade"
+      onPointerDown={(e) => {
+        if (e.target === e.currentTarget) onCancel();
+      }}
+    >
+      <div className="w-full max-w-sm rounded-card border border-neutral-border bg-neutral-surface p-5 text-left motion-safe:animate-modal-scale-in">
+        <h2
+          id="discard-pending-writes-title"
+          className="mb-2 text-sm font-semibold text-neutral-text-primary"
+        >
+          {count} unsynced {plural} would be lost
+        </h2>
+        <p id="discard-pending-writes-body" className="mb-4 text-xs text-neutral-text-secondary">
+          {count === 1 ? 'A change you made has' : `${count} changes you made have`} not reached the
+          server yet, and {count === 1 ? 'it is' : 'they are'} only stored in this tab. {verb} now
+          discards {count === 1 ? 'it' : 'them'} for good.
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button variant="primary" onClick={onCancel}>
+            Stay on this page
+          </Button>
+          <Button variant="secondary" onClick={onDiscard}>
+            {action === 'reload' ? 'Reload anyway' : 'Go to home anyway'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -46,6 +128,10 @@ function isChunkLoadError(error: unknown): boolean {
 export function RouteErrorBoundary() {
   const error = useRouteError();
   const headingRef = useRef<HTMLHeadingElement>(null);
+  // Non-null while a recovery action is waiting on the discard confirmation.
+  const [confirming, setConfirming] = useState<{ action: RecoveryAction; count: number } | null>(
+    null,
+  );
 
   // Preserve the developer signal without ever showing it to a user. Guard the
   // console call so SSR/headless render paths without a console don't throw.
@@ -67,6 +153,19 @@ export function RouteErrorBoundary() {
   }, [error]);
 
   const chunkFailure = isChunkLoadError(error);
+
+  // Both recovery actions leave the document, which discards TanStack Query's
+  // in-memory paused/in-flight mutation queue. Ask the queue at click time — the
+  // count is read here, not via a hook, because this surface can render outside
+  // the QueryClientProvider (see getPendingWriteCount).
+  function requestRecovery(action: RecoveryAction) {
+    const count = getPendingWriteCount();
+    if (count > 0) {
+      setConfirming({ action, count });
+      return;
+    }
+    performRecovery(action);
+  }
 
   const title = chunkFailure ? "Couldn't finish loading" : 'Something went wrong';
   const description = chunkFailure
@@ -94,18 +193,21 @@ export function RouteErrorBoundary() {
         {description}
       </p>
       <div className="mt-5 flex items-center gap-2">
-        <Button variant="primary" onClick={() => window.location.reload()}>
+        <Button variant="primary" onClick={() => requestRecovery('reload')}>
           Reload
         </Button>
-        <Button
-          variant="secondary"
-          onClick={() => {
-            window.location.href = '/';
-          }}
-        >
+        <Button variant="secondary" onClick={() => requestRecovery('home')}>
           Go to home
         </Button>
       </div>
+      {confirming && (
+        <DiscardPendingWritesDialog
+          action={confirming.action}
+          count={confirming.count}
+          onCancel={() => setConfirming(null)}
+          onDiscard={() => performRecovery(confirming.action)}
+        />
+      )}
     </div>
   );
 }
