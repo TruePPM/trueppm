@@ -17,6 +17,7 @@ import {
 } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { useProgramProjects } from '@/hooks/useProgramProjects';
+import { optimisticListUpdate } from '@/lib/optimisticCache';
 import { fromApiItem, toMemberProject, type ApiBacklogItem } from '../api';
 import type { BacklogItem, MemberProject } from '../types';
 
@@ -67,15 +68,18 @@ export function useMemberProjects(programId: string | undefined): { data: Member
 /**
  * Apply an in-place edit to the cached item list — the single seam every
  * optimistic mutation funnels through.
+ *
+ * No-ops when the list is not cached: an absent entry means "not loaded right
+ * now", never "this program's backlog is empty", and four call sites share this
+ * one seam, so defaulting to `[]` here would blank the whole intake pool from
+ * any of them (#2862).
  */
 export function patchBacklogCache(
   queryClient: QueryClient,
   programId: string | undefined,
   updater: (items: BacklogItem[]) => BacklogItem[],
 ): void {
-  queryClient.setQueryData<BacklogItem[]>(backlogKeys.items(programId), (prev) =>
-    updater(prev ?? []),
-  );
+  optimisticListUpdate<BacklogItem>(queryClient, backlogKeys.items(programId), updater);
 }
 
 /** Snapshot for optimistic rollback. */

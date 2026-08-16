@@ -152,6 +152,49 @@ describe('useCreateComment', () => {
     const cached = qc.getQueryData<TaskComment[]>(['task-comments', 't1']);
     expect(cached).toEqual([baseComment]);
   });
+
+  it('leaves an absent thread cache absent instead of writing a one-comment list (#2862)', async () => {
+    // `cancelQueries` is awaited, and useProjectWebSocket invalidates
+    // ['task-comments', taskId] on a collaborator's post — so `onMutate` can find
+    // the entry gone. Defaulting it to [] and appending would replace a rendered
+    // 12-comment thread with just this author's own optimistic row.
+    const qc = newQc();
+    postMock.mockReturnValue(new Promise(() => {})); // pending → hold the optimistic state
+    const { result } = renderHook(() => useCreateComment(), { wrapper: makeWrapper(qc) });
+
+    act(() => {
+      result.current.mutate({ projectId: 'p1', taskId: 't1', body: 'raced' });
+    });
+
+    await waitFor(() => expect(postMock).toHaveBeenCalled());
+    expect(qc.getQueryData<TaskComment[]>(['task-comments', 't1'])).toBeUndefined();
+  });
+
+  it('does not collapse the thread when an invalidation lands mid-onMutate (#2862)', async () => {
+    // The race itself: the entry exists when `onMutate` snapshots it and is gone
+    // by the time the optimistic write runs. The write must observe the *current*
+    // cache, not resurrect the snapshot minus every row it never saw.
+    const qc = newQc();
+    qc.setQueryData(['task-comments', 't1'], [baseComment]);
+    postMock.mockReturnValue(new Promise(() => {}));
+    const { result } = renderHook(() => useCreateComment(), { wrapper: makeWrapper(qc) });
+
+    const realCancel = qc.cancelQueries.bind(qc);
+    qc.cancelQueries = (async (...args: Parameters<typeof realCancel>) => {
+      await realCancel(...args);
+      // Stand in for the WS-driven invalidate clearing the entry in the window.
+      qc.removeQueries({ queryKey: ['task-comments', 't1'] });
+    }) as typeof qc.cancelQueries;
+
+    act(() => {
+      result.current.mutate({ projectId: 'p1', taskId: 't1', body: 'raced' });
+    });
+
+    await waitFor(() => expect(postMock).toHaveBeenCalled());
+    const cached = qc.getQueryData<TaskComment[]>(['task-comments', 't1']);
+    // Either untouched or absent — never a one-row list that ate the thread.
+    expect(cached).toBeUndefined();
+  });
 });
 
 describe('useUpdateComment', () => {

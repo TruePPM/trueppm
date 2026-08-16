@@ -144,4 +144,46 @@ describe('useCreateRiskComment (optimistic)', () => {
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['risk-comments', 'risk-1'] });
   });
+
+  it('leaves an absent thread cache absent instead of writing a one-comment list (#2862)', async () => {
+    // `cancelQueries` is awaited, so an invalidation (a collaborator's comment,
+    // this mutation's own settle) can clear the entry inside the window. Appending
+    // to a manufactured [] would replace a populated thread with just this row.
+    postMock.mockReturnValue(new Promise(() => {}));
+    const qc = freshClient();
+
+    const { result } = renderHook(() => useCreateRiskComment(), {
+      wrapper: makeWrapper(qc),
+    });
+
+    act(() => {
+      result.current.mutate({ projectId: 'proj-1', riskId: 'risk-1', message: 'raced' });
+    });
+
+    await waitFor(() => expect(postMock).toHaveBeenCalled());
+    expect(qc.getQueryData<RiskComment[]>(key)).toBeUndefined();
+  });
+
+  it('does not collapse the thread when an invalidation lands mid-onMutate (#2862)', async () => {
+    postMock.mockReturnValue(new Promise(() => {}));
+    const qc = freshClient();
+    qc.setQueryData(key, [existingComment]);
+
+    const realCancel = qc.cancelQueries.bind(qc);
+    qc.cancelQueries = (async (...args: Parameters<typeof realCancel>) => {
+      await realCancel(...args);
+      qc.removeQueries({ queryKey: key });
+    }) as typeof qc.cancelQueries;
+
+    const { result } = renderHook(() => useCreateRiskComment(), {
+      wrapper: makeWrapper(qc),
+    });
+
+    act(() => {
+      result.current.mutate({ projectId: 'proj-1', riskId: 'risk-1', message: 'raced' });
+    });
+
+    await waitFor(() => expect(postMock).toHaveBeenCalled());
+    expect(qc.getQueryData<RiskComment[]>(key)).toBeUndefined();
+  });
 });

@@ -209,6 +209,46 @@ describe('useCastVote', () => {
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: pokerKey('sp1') });
   });
+
+  it('leaves an absent round cache absent instead of writing [] (#2862)', async () => {
+    // A `poker_session_updated` broadcast invalidates this exact key, and
+    // `cancelQueries` is awaited — so `onMutate` can find the entry gone.
+    // Mapping over a manufactured [] wrote an empty table over the live one.
+    postMock.mockReturnValueOnce(new Promise(() => {}));
+    const qc = makeQC();
+    const { result } = renderHook(() => useCastVote(), { wrapper: makeWrapper(qc) });
+
+    act(() => {
+      result.current.mutate({ sprintId: 'sp1', sessionId: 's1', value: 8 });
+    });
+
+    await waitFor(() => expect(postMock).toHaveBeenCalled());
+    expect(qc.getQueryData<PokerSession[]>(pokerKey('sp1'))).toBeUndefined();
+  });
+
+  it('does not empty the table when an invalidation lands mid-onMutate (#2862)', async () => {
+    postMock.mockReturnValueOnce(new Promise(() => {}));
+    const qc = makeQC();
+    qc.setQueryData<PokerSession[]>(pokerKey('sp1'), [
+      makeSession({ id: 's1' }),
+      makeSession({ id: 's2' }),
+    ]);
+
+    const realCancel = qc.cancelQueries.bind(qc);
+    qc.cancelQueries = (async (...args: Parameters<typeof realCancel>) => {
+      await realCancel(...args);
+      qc.removeQueries({ queryKey: pokerKey('sp1') });
+    }) as typeof qc.cancelQueries;
+
+    const { result } = renderHook(() => useCastVote(), { wrapper: makeWrapper(qc) });
+    act(() => {
+      result.current.mutate({ sprintId: 'sp1', sessionId: 's1', value: 8 });
+    });
+
+    await waitFor(() => expect(postMock).toHaveBeenCalled());
+    // Absent, never an empty table written over the live one.
+    expect(qc.getQueryData<PokerSession[]>(pokerKey('sp1'))).toBeUndefined();
+  });
 });
 
 describe('session actions (reveal / reopen / cancel)', () => {

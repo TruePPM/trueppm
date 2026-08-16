@@ -177,6 +177,49 @@ describe('useTogglePin — optimistic cache patching', () => {
     });
     expect(qc.getQueryData(['programs', 'g2', 'projects'])).toBe(otherRows);
   });
+
+  it('leaves an absent pins cache absent instead of writing a one-pin rail (#2862)', async () => {
+    // An absent PINNED_KEY entry means "the rail has not loaded", never "nothing
+    // is pinned". Building the next rail from a manufactured [] would drop every
+    // other pin until the settle refetch — and the row patches below still land,
+    // so the star flips on the surface while the rail shows one item.
+    postMock.mockResolvedValue({ data: {} });
+    const qc = newClient();
+    qc.setQueryData(['projects'], { items: [{ id: 'p1', isPinned: false }], count: 1 });
+
+    const { result } = renderHook(() => useTogglePin(), { wrapper: makeWrapper(qc) });
+    act(() => result.current.mutate({ kind: 'project', id: 'p1', name: 'Alpha', next: true }));
+
+    await waitFor(() => {
+      const cached = qc.getQueryData<{ items: { isPinned: boolean }[] }>(['projects']);
+      expect(cached?.items[0]?.isPinned).toBe(true);
+    });
+    expect(qc.getQueryData(PINNED_KEY)).toBeUndefined();
+  });
+
+  it('does not collapse the rail when an invalidation lands mid-onMutate (#2862)', async () => {
+    postMock.mockResolvedValue({ data: {} });
+    const qc = newClient();
+    qc.setQueryData(PINNED_KEY, [
+      { kind: 'project', id: 'old-a', name: 'A' },
+      { kind: 'project', id: 'old-b', name: 'B' },
+    ]);
+
+    const realCancel = qc.cancelQueries.bind(qc);
+    qc.cancelQueries = (async (...args: Parameters<typeof realCancel>) => {
+      await realCancel(...args);
+      // Stand in for a concurrent invalidate clearing the entry in the window
+      // between the snapshot read and the optimistic write.
+      qc.removeQueries({ queryKey: PINNED_KEY });
+    }) as typeof qc.cancelQueries;
+
+    const { result } = renderHook(() => useTogglePin(), { wrapper: makeWrapper(qc) });
+    act(() => result.current.mutate({ kind: 'project', id: 'new', name: 'Newer', next: true }));
+
+    await waitFor(() => expect(postMock).toHaveBeenCalled());
+    // Absent, not a one-row rail that ate the two existing pins.
+    expect(qc.getQueryData<{ id: string }[]>(PINNED_KEY)).toBeUndefined();
+  });
 });
 
 describe('useTogglePin — failure handling', () => {

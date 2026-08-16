@@ -16,6 +16,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { PaginatedResponse } from '@/api/types';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { optimisticListAppend } from '@/lib/optimisticCache';
 import type { TaskNote } from '@/types';
 
 export const notesKey = (taskId: string | null) => ['task-notes', taskId];
@@ -73,7 +74,6 @@ export function useCreateNote() {
     onMutate: async ({ taskId, body }) => {
       const queryKey = notesKey(taskId);
       await queryClient.cancelQueries({ queryKey });
-      const previous = queryClient.getQueryData<TaskNote[]>(queryKey);
       const optimisticId = `optimistic-${Date.now()}`;
       const optimistic: TaskNote = {
         id: optimisticId,
@@ -90,7 +90,8 @@ export function useCreateNote() {
         deleted_at: null,
         deleted_by: null,
       };
-      queryClient.setQueryData<TaskNote[]>(queryKey, [...(previous ?? []), optimistic]);
+      // Absent log cache means "not loaded", not "no notes" — see #2862.
+      const previous = optimisticListAppend<TaskNote>(queryClient, queryKey, optimistic);
       return { previous, optimisticId };
     },
     onError: (_err, { taskId }, context) => {

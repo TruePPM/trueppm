@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { Risk, RiskComment, PaginatedResponse } from '@/api/types';
+import { optimisticListAppend } from '@/lib/optimisticCache';
 import { useCurrentUser } from './useCurrentUser';
 
 export interface CreateRiskPayload {
@@ -173,7 +174,6 @@ export function useCreateRiskComment() {
     onMutate: async ({ riskId, message }) => {
       const queryKey = ['risk-comments', riskId];
       await queryClient.cancelQueries({ queryKey });
-      const previous = queryClient.getQueryData<RiskComment[]>(queryKey);
       const optimisticId = `optimistic-${Date.now()}`;
       const optimistic: RiskComment = {
         id: optimisticId,
@@ -183,7 +183,8 @@ export function useCreateRiskComment() {
         message,
         created_at: new Date().toISOString(),
       };
-      queryClient.setQueryData<RiskComment[]>(queryKey, [...(previous ?? []), optimistic]);
+      // Absent thread cache means "not loaded", not "no comments" — see #2862.
+      const previous = optimisticListAppend<RiskComment>(queryClient, queryKey, optimistic);
       return { previous, optimisticId };
     },
     onError: (_err, variables, context) => {
