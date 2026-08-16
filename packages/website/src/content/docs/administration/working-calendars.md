@@ -1,6 +1,7 @@
 ---
 title: Working Calendars
 description: Set the working-day calendar at the workspace, program, and project scope, with parent-to-child inheritance and an Enterprise lock-down policy.
+documentedFor: "0.4"
 ---
 
 A project's **working calendar** — its working days, hours per day, timezone, and

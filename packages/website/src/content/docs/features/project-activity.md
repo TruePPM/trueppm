@@ -1,6 +1,7 @@
 ---
 title: Project Activity
 description: A single project-wide "what changed" feed that aggregates every change across tasks, sprints, risks, dependencies, and project settings into one newest-first, filterable, deep-linkable stream.
+documentedFor: "0.4"
 ---
 
 :::note[Ships in 0.4 (beta)]

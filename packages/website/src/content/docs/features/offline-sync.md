@@ -1,6 +1,7 @@
 ---
 title: "Offline Sync"
 description: "WatermelonDB-compatible delta protocol with soft-delete tombstones for mobile clients."
+documentedFor: "0.4"
 ---
 
 TruePPM's mobile client uses [WatermelonDB](https://watermelondb.dev/) as a local SQLite database. The sync endpoint provides a two-way delta protocol compatible with WatermelonDB's `synchronize()` helper: `GET` pulls server changes since a watermark, and `POST` uploads a batch of local task mutations.

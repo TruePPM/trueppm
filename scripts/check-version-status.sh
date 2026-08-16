@@ -31,14 +31,47 @@
 #   2  invocation / setup error (e.g. roadmap missing)
 #
 # Modes:
-#   bash scripts/check-version-status.sh             # scan the docs tree
-#   bash scripts/check-version-status.sh --self-test # synthesize fixtures, assert
+#   bash scripts/check-version-status.sh                  # scan the docs tree
+#   bash scripts/check-version-status.sh --self-test      # synthesize fixtures, assert
+#   bash scripts/check-version-status.sh --update-baseline # re-record the declaration
+#                                                          # baseline (#2846, below)
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROADMAP_DEFAULT="packages/website/src/content/docs/overview/roadmap.md"
 DOCS_ROOT_DEFAULT="packages/website/src/content/docs"
+BASELINE_DEFAULT="packages/website/docs-declaration-baseline.txt"
+
+# Directories whose pages describe *user-visible product behavior*, and are
+# therefore the ones a self-hoster reads as "what my install does". These are
+# the only trees the declaration-coverage ratchet below applies to; explanation
+# trees (architecture/, contributing/, overview/) describe design, not features.
+DECLARATION_DIRS="features administration getting-started"
+
+# Portable sha256 of a file's contents. alpine/busybox has sha256sum; macOS has
+# shasum only.
+file_hash() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  else
+    shasum -a 256 "$1" | cut -d' ' -f1
+  fi
+}
+
+# Does this page declare `documentedFor:` in its front matter?
+page_declares() {
+  sed -n '1,/^---[[:space:]]*$/{ /^documentedFor:/p; }' "$1" 2>/dev/null | grep -q .
+}
+
+# Every behavior page under DECLARATION_DIRS, relative to docs_root, sorted.
+declaration_pages() {
+  local docs_root="$1" d
+  for d in $DECLARATION_DIRS; do
+    [ -d "$docs_root/$d" ] || continue
+    find "$docs_root/$d" -type f \( -name '*.md' -o -name '*.mdx' \) 2>/dev/null
+  done | sed "s#^$docs_root/##" | sort
+}
 
 # Extract the set of shipped major.minor versions from the roadmap's
 # "## Shipped" section. Reads "### 0.X" headers until the next "## " heading.
@@ -62,9 +95,123 @@ version_gt() {
   if [ "$a_min" -gt "$b_min" ]; then echo 1; else echo 0; fi
 }
 
-# Run the scan. Args: <roadmap> <docs_root>. Returns 1 on violations.
+# ── Declaration coverage ratchet (#2846) ────────────────────────────────────
+#
+# The pairing check below is only armed on a page that DECLARES documentedFor.
+# A page that documents an unreleased feature and declares nothing is invisible
+# to it — the script's own comment says so. That residual hole is not
+# theoretical: it produced #807, then #2608 (four pages, fixed 2026-07-30), then
+# #2846 on features/board.md and features/interface.md seventeen days later. The
+# pages got fixed each time; nothing ever asked the author the question.
+#
+# No regex can read prose and decide whether it describes shipped behavior — so
+# this does not try. It makes *omission* loud instead of silent, by ratchet:
+#
+#   A page under DECLARATION_DIRS either declares `documentedFor`, or its exact
+#   current contents are recorded in packages/website/docs-declaration-baseline.txt.
+#
+# Editing a non-declaring page changes its hash, which fails the gate until the
+# author either declares the version the page documents, or re-baselines with
+# `--update-baseline` — an explicit, one-line, reviewable statement in the diff
+# that says "I checked; this edit documents nothing that is unreleased".
+#
+# Be clear about what this buys and what it does not. It cannot stop a wrong
+# answer: `--update-baseline` is one command, and an author who rubber-stamps it
+# gets exactly the outcome we have today. What it removes is the *silence* —
+# under the old gate, adding four paragraphs of unreleased behavior to board.md
+# produced no signal at any point in the pipeline. The seeded baseline is
+# explicitly a grandfathered snapshot, NOT a review: nobody has verified that
+# the pages in it describe only shipped behavior, and the file must not be read
+# as if somebody had. It arms on the next edit to each of them.
+#
+# Sets RATCHET_VIOLATIONS. Returns 0 normally, 2 on a setup error (missing
+# baseline file) — a count and an invocation error must not share an exit code.
+RATCHET_VIOLATIONS=0
+declaration_ratchet() {
+  local docs_root="$1" baseline="$2"
+  local viol=0 rel want have
+  RATCHET_VIOLATIONS=0
+
+  if [ ! -f "$baseline" ]; then
+    echo "ERROR: declaration baseline not found at: $baseline" >&2
+    echo "       Regenerate it with: bash scripts/check-version-status.sh --update-baseline" >&2
+    return 2
+  fi
+
+  while IFS= read -r rel; do
+    [ -z "$rel" ] && continue
+    have="$(awk -v p="$rel" '$1==p{print $2}' "$baseline" | head -n 1)"
+    if page_declares "$docs_root/$rel"; then
+      # A declaring page is governed by the pairing check above; a leftover
+      # baseline line for it would rot into a permanent allowlist entry.
+      if [ -n "$have" ]; then
+        echo "VIOLATION: $rel declares documentedFor but still has a baseline entry" >&2
+        echo "    Drop its line from $baseline (or run --update-baseline)." >&2
+        viol=$((viol + 1))
+      fi
+      continue
+    fi
+    want="$(file_hash "$docs_root/$rel")"
+    if [ -z "$have" ]; then
+      echo "VIOLATION: $rel has no \"documentedFor\" and no declaration baseline entry" >&2
+      echo "    Every page under: $DECLARATION_DIRS describes what a reader's install does." >&2
+      echo "    Declare the version it documents, or record it with --update-baseline." >&2
+      viol=$((viol + 1))
+    elif [ "$have" != "$want" ]; then
+      echo "VIOLATION: $rel changed and does not declare \"documentedFor\"" >&2
+      echo "    If this edit documents behavior that is NOT in the latest release, add" >&2
+      echo "      documentedFor: \"0.X\"   plus a :::note[Ships in 0.X] callout." >&2
+      echo "    If it documents only shipped behavior, re-record it:" >&2
+      echo "      bash scripts/check-version-status.sh --update-baseline" >&2
+      viol=$((viol + 1))
+    fi
+  done <<< "$(declaration_pages "$docs_root")"
+
+  # A baseline line whose page is gone is dead weight that hides nothing but
+  # makes the file harder to trust.
+  while IFS= read -r rel; do
+    [ -z "$rel" ] && continue
+    if [ ! -f "$docs_root/$rel" ]; then
+      echo "VIOLATION: $baseline lists $rel, which no longer exists" >&2
+      viol=$((viol + 1))
+    fi
+  done <<< "$(awk 'NF && $1 !~ /^#/ {print $1}' "$baseline")"
+
+  RATCHET_VIOLATIONS="$viol"
+  return 0
+}
+
+# Rewrite the baseline from the current tree. Deliberately a separate, explicit
+# invocation: the one-line diff it produces is the whole signal.
+update_baseline() {
+  local docs_root="$1" baseline="$2" rel
+  {
+    echo "# Declaration-coverage baseline (#2846) — see scripts/check-version-status.sh."
+    echo "#"
+    echo "# Pages under: $DECLARATION_DIRS that carry NO \"documentedFor\" front-matter key,"
+    echo "# with the sha256 of the contents they had when they were last recorded here."
+    echo "# Editing one of these pages breaks its hash and fails docs:version-accuracy"
+    echo "# until the author either declares the version the page documents or re-runs"
+    echo "#   bash scripts/check-version-status.sh --update-baseline"
+    echo "#"
+    echo "# This file is a GRANDFATHERED SNAPSHOT, not a review. No one has verified that"
+    echo "# these pages describe only shipped behavior. Its purpose is to arm the gate on"
+    echo "# the NEXT edit to each of them. A page leaves this file for good the moment it"
+    echo "# declares documentedFor."
+    echo "#"
+    echo "# Regenerate, never hand-edit."
+    while IFS= read -r rel; do
+      [ -z "$rel" ] && continue
+      page_declares "$docs_root/$rel" && continue
+      printf '%s %s\n' "$rel" "$(file_hash "$docs_root/$rel")"
+    done <<< "$(declaration_pages "$docs_root")"
+  } > "$baseline"
+  echo "Wrote $(awk 'NF && $1 !~ /^#/' "$baseline" | wc -l | tr -d ' ') baseline entries to $baseline"
+}
+
+# Run the scan. Args: <roadmap> <docs_root> [baseline]. Returns 1 on violations.
 run_scan() {
-  local roadmap="$1" docs_root="$2"
+  local roadmap="$1" docs_root="$2" baseline="${3:-}"
 
   if [ ! -f "$roadmap" ]; then
     echo "ERROR: roadmap source of truth not found at: $roadmap" >&2
@@ -220,6 +367,15 @@ run_scan() {
     done <<< "$callout_vers"
   done <<< "$files"
   violations=$((violations + fm_violations))
+
+  # Declaration coverage (#2846) — only when a baseline path is supplied, so the
+  # tense/pairing fixtures above keep testing exactly what they were written for.
+  if [ -n "$baseline" ]; then
+    if ! declaration_ratchet "$docs_root" "$baseline"; then
+      return 2
+    fi
+    violations=$((violations + RATCHET_VIOLATIONS))
+  fi
 
   echo ""
   echo "Shipped versions (from roadmap): $(echo "$shipped" | tr '\n' ' ')(highest: $highest)"
@@ -459,6 +615,79 @@ title: Email
 This page documents functionality added in **TruePPM 0.2**.
 :::' || return 1
 
+  # -- Declaration coverage ratchet (#2846) ----------------------------------
+  # The hole the two checks above cannot see: a page that documents unreleased
+  # behavior in plain present tense and declares NOTHING. Three occurrences so
+  # far (#807, #2608, #2846). These cases assert the ratchet arms on the edit.
+  ratchet_case() { # ratchet_case <name> <expect-pass|expect-fail> <setup-fn>
+    local name="$1" expect="$2" setup="$3"
+    local dir="$tmp/rt-$name"
+    mkdir -p "$dir/features"
+    cp "$docs/overview/roadmap.md" "$dir/"
+    "$setup" "$dir"
+    if run_scan "$dir/roadmap.md" "$dir" "$dir/baseline.txt" >/dev/null 2>&1; then
+      if [ "$expect" = "expect-pass" ]; then
+        echo "SELF-TEST OK: ratchet $name accepted."
+      else
+        echo "SELF-TEST FAILED: ratchet $name was accepted and should not be." >&2
+        return 1
+      fi
+    else
+      if [ "$expect" = "expect-fail" ]; then
+        echo "SELF-TEST OK: ratchet $name correctly rejected."
+      else
+        echo "SELF-TEST FAILED: ratchet $name was rejected and should not be." >&2
+        return 1
+      fi
+    fi
+  }
+
+  # A behavior page with no documentedFor, recorded exactly as it stands.
+  _rt_recorded() {
+    printf 'Click **Share** to generate a public link.\n' > "$1/features/page.md"
+    printf '# baseline\nfeatures/page.md %s\n' "$(file_hash "$1/features/page.md")" \
+      > "$1/baseline.txt"
+  }
+  ratchet_case "recorded-unchanged" expect-pass _rt_recorded || return 1
+
+  # The whole point: the SAME page, edited. The edit is what arms the gate.
+  _rt_edited() {
+    _rt_recorded "$1"
+    printf 'Click **Share** to generate a public link.\nNow with cross-program search.\n' \
+      > "$1/features/page.md"
+  }
+  ratchet_case "recorded-then-edited" expect-fail _rt_edited || return 1
+
+  # A brand-new behavior page that declares nothing and was never recorded.
+  _rt_unrecorded() {
+    printf 'Click **Share** to generate a public link.\n' > "$1/features/page.md"
+    printf '# baseline\n' > "$1/baseline.txt"
+  }
+  ratchet_case "unrecorded" expect-fail _rt_unrecorded || return 1
+
+  # Declaring a version is the way OUT of the baseline -- and a page must not be
+  # in both, or the entry rots into a permanent allowlist line.
+  _rt_declared_clean() {
+    printf -- '---\ntitle: Sharing\ndocumentedFor: "0.2"\n---\n\nShare links.\n' \
+      > "$1/features/page.md"
+    printf '# baseline\n' > "$1/baseline.txt"
+  }
+  ratchet_case "declared-not-in-baseline" expect-pass _rt_declared_clean || return 1
+
+  _rt_declared_stale_entry() {
+    printf -- '---\ntitle: Sharing\ndocumentedFor: "0.2"\n---\n\nShare links.\n' \
+      > "$1/features/page.md"
+    printf '# baseline\nfeatures/page.md %s\n' "$(file_hash "$1/features/page.md")" \
+      > "$1/baseline.txt"
+  }
+  ratchet_case "declared-with-stale-entry" expect-fail _rt_declared_stale_entry || return 1
+
+  # A line for a page that no longer exists is dead weight.
+  _rt_orphan_entry() {
+    printf '# baseline\nfeatures/gone.md deadbeef\n' > "$1/baseline.txt"
+  }
+  ratchet_case "orphan-baseline-entry" expect-fail _rt_orphan_entry || return 1
+
   return 0
 }
 
@@ -470,7 +699,12 @@ main() {
   cd "$REPO_ROOT"
   local roadmap="${ROADMAP_OVERRIDE:-$ROADMAP_DEFAULT}"
   local docs_root="${DOCS_ROOT_OVERRIDE:-$DOCS_ROOT_DEFAULT}"
-  run_scan "$roadmap" "$docs_root"
+  local baseline="${BASELINE_OVERRIDE:-$BASELINE_DEFAULT}"
+  if [ "${1:-}" = "--update-baseline" ]; then
+    update_baseline "$docs_root" "$baseline"
+    return $?
+  fi
+  run_scan "$roadmap" "$docs_root" "$baseline"
 }
 
 main "$@"

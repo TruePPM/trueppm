@@ -1,6 +1,7 @@
 ---
 title: WebSocket API
 description: Real-time collaboration events over WebSocket — channels, event taxonomy, and the workshop protocol.
+documentedFor: "0.8"
 ---
 
 TruePPM pushes real-time collaboration events over WebSocket. OpenAPI 3.0 cannot
@@ -17,11 +18,23 @@ There are two endpoints, both scoped to a single project by its UUID.
 `{project_id}` is the project's UUID. Use `wss://` against a TLS deployment and
 `ws://` only for local development.
 
-> **Program-scoped channels are planned.** A `ws/v1/programs/{program_id}/`
-> endpoint will land in a future release (#836) to push program-scoped events in
-> real time. It did **not** ship in 0.3 — program-scoped events will be
-> delivered over WebSocket in a later release. Subscribe to the per-project
-> channels in the meantime.
+:::caution[Ships in 0.8 — program-scoped channels; the five `program_*` events are not deliverable today]
+There is no `ws/v1/programs/{program_id}/` endpoint, and no client can subscribe to a
+program's channel group. The server does emit five program lifecycle events —
+`program_closed`, `program_reopened`, `program_deleted`, `program_split`, and
+`program_sponsorship_transferred` — but it fans them out on the group
+`project_{program_id}`, and **nothing in the product can join that group**: the only WS
+routes are the two project endpoints above, and `ProjectConsumer` resolves membership
+against `ProjectMembership`, which a program UUID never matches. A handshake against a
+program UUID is closed with `4003`.
+
+So the five events below are **listed for completeness of the event taxonomy, not as a
+subscribable surface**. Do not build a program-lifecycle subscriber against them — it
+will connect to nothing. The channel that makes them deliverable is tracked as
+[#836](https://gitlab.com/trueppm/trueppm/-/issues/836) and is sequenced for **0.8**.
+Until then, subscribe to each member project's channel and refetch the program on the
+project-level events you care about (the web app does exactly this).
+:::
 
 ## Authentication
 
@@ -136,8 +149,10 @@ The set is open-ended and grows as features land; current event types include:
   `member_removed`, `mention_group_changed`, `project_updated`,
   `project_archived`, `project_unarchived`, `project_restored`,
   `project_transferred`, `project_deleted`, `project_hard_deleted`
-- **Programs**: `program_closed`, `program_reopened`, `program_deleted`,
-  `program_split`, `program_sponsorship_transferred`
+- **Programs** — ⚠️ **not deliverable** until the program channel ships in 0.8 (#836);
+  emitted by the server but no client can subscribe, see the caution above:
+  `program_closed`, `program_reopened`, `program_deleted`, `program_split`,
+  `program_sponsorship_transferred`
 - **Task suggestions**: `suggestion_created`, `suggestion_declined`,
   `suggestion_revoked` (decline/revoke carry only the suggestion + task id — never
   the actor — a silent state reconciliation, not a callout)
@@ -266,7 +281,7 @@ adding it to that frozen set. Events with no webhook counterpart are marked
 | `api_token_revoked` | **WS-only** |
 | `demo_toggled` | **WS-only** |
 | `milestone_forecast_updated` | **WS-only** |
-| `program_sponsorship_transferred` | **WS-only** |
+| `program_sponsorship_transferred` | **WS-only** — ⚠️ **not deliverable** until 0.8 (#836) |
 | `workshop_started` | **WS-only** |
 | `workshop_ended` | **WS-only** |
 | `backlog_reranked` | **WS-only** |
@@ -279,10 +294,10 @@ adding it to that frozen set. Events with no webhook counterpart are marked
 | `milestone_rollup_updated` | **WS-only** |
 | `phases_reordered` | **WS-only** |
 | `queue_reordered` | **WS-only** |
-| `program_closed` | **WS-only** |
-| `program_reopened` | **WS-only** |
-| `program_deleted` | **WS-only** |
-| `program_split` | **WS-only** |
+| `program_closed` | **WS-only** — ⚠️ **not deliverable** until 0.8 (#836) |
+| `program_reopened` | **WS-only** — ⚠️ **not deliverable** until 0.8 (#836) |
+| `program_deleted` | **WS-only** — ⚠️ **not deliverable** until 0.8 (#836) |
+| `program_split` | **WS-only** — ⚠️ **not deliverable** until 0.8 (#836) |
 | `risk_created` | **WS-only** |
 | `risk_updated` | **WS-only** |
 | `risk_deleted` | **WS-only** |

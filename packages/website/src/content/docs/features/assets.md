@@ -1,6 +1,7 @@
 ---
 title: Assets
 description: A single Assets surface that aggregates every task's files and external links across a project — or across a program's projects — into one newest-first, filterable feed. Answer "what specs, PRs, and reference docs exist here?" without opening tasks one at a time.
+documentedFor: "0.4"
 ---
 
 :::note[Ships in 0.4 (beta)]

@@ -1,6 +1,7 @@
 ---
 title: Calendars
 description: Working-day calendars define which days and hours count toward task durations, so the schedule reflects real availability — weekends, holidays, and part-time hours included.
+documentedFor: "0.4"
 ---
 
 A **calendar** defines which days are working days and how many hours a working day holds.

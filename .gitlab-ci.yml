@@ -863,6 +863,16 @@ docs:version-accuracy:
   # first be discovered mid-release, editing the docs tree by hand. The two are
   # composed — a banner phrasing must be one both recognize — so they belong in
   # one job. Needs python3 for the removal script's line-range surgery. ~5s.
+  #
+  # Also runs the declaration-coverage ratchet (#2846): a page under features/,
+  # administration/ or getting-started/ either declares `documentedFor`, or its
+  # contents are hash-recorded in packages/website/docs-declaration-baseline.txt.
+  # Editing a non-declaring page breaks the hash and fails here, so the author
+  # must either name the version the page documents or re-record it with
+  # `bash scripts/check-version-status.sh --update-baseline`. This is the third
+  # occurrence of the class (#807 → #2608 → #2846) and the first time anything
+  # asks the question at all; the tense regex is structurally blind to a page
+  # that describes an unreleased feature and names no version.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:
@@ -874,6 +884,34 @@ docs:version-accuracy:
     - bash scripts/check-version-status.sh
     - bash scripts/check-version-status.sh --self-test
     - bash scripts/remove-ships-in-callouts.sh --self-test
+
+docs:ws-event-reachability:
+  extends: .fast-job
+  # WebSocket event reachability gate (#2846). The published WS event taxonomy
+  # is read by integrators as a subscribable surface. Five program_* events were
+  # listed there for months that no client can receive: they fan out on the
+  # channel group `project_{program_id}`, and neither of the codebase's two
+  # group_add() call sites can produce that group, so a subscriber gets a 4003
+  # close and no debugging on their side fixes it.
+  #
+  # The gate classifies each event by the *type of the id* its
+  # broadcast_board_event() call site fans out on — not by its name — and
+  # requires an undeliverable one to carry a "not deliverable" marker on every
+  # taxonomy bullet and table row. It inverts once routing.py serves
+  # ws/v1/programs/ (#836, 0.8): the markers then become the reversed claim and
+  # must come off, which is the check that turns red on the release that makes
+  # the docs wrong. Also asserts every event named in the taxonomy table exists
+  # in FROZEN_WS_EVENT_TYPES. ~2s.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache bash grep sed findutils python3
+  script:
+    - bash scripts/check-ws-event-reachability.sh
+    - bash scripts/check-ws-event-reachability.sh --self-test
 
 docs:adr-status:
   extends: .fast-job

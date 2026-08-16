@@ -1,6 +1,7 @@
 ---
 title: Configuration
 description: Environment variables and settings for TruePPM.
+documentedFor: "0.4"
 ---
 
 All configuration is via environment variables. For local development, `docker-compose.yml` sets sensible defaults.

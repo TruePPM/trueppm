@@ -1,6 +1,7 @@
 ---
 title: Board (Kanban)
 description: Kanban board with a backlog rail, phase swimlanes, and configurable working columns for tracking task execution within a project or sprint.
+documentedFor: "0.4"
 ---
 
 The **Board** tab is the primary execution surface in TruePPM. It presents the project's tasks as cards in a Kanban layout and stays in sync with the Schedule view via WebSocket — moving a card here updates the task's status everywhere.
@@ -23,6 +24,90 @@ Dragging a card from the backlog into a working column commits it (status change
 
 The legacy `ON_HOLD` status is kept for data compatibility with pre-0.1 projects but does not appear as a column; on the board it is treated like Backlog for drag guards.
 
+## The board grid
+
+:::note[Ships in 0.4]
+Everything in this section — fixed-width scrolling columns, sticky headers, collapsing
+a column to a stub, and phase-lane focus mode — lands with the board viewability
+overhaul in **0.4**. On `0.3.0-alpha.3` the working columns share the available width
+and squeeze as you add more, the header row scrolls away with the cards, and there is
+no way to collapse a column or narrow the board to a single phase lane.
+:::
+
+### Fixed-width columns that scroll
+
+Working columns are **fixed-width tracks**. A board with more columns than fit does not
+squeeze them thinner — it scrolls horizontally, so a card is the same size on a
+four-column board and a nine-column one.
+
+- Track width follows the **Zoom** stepper, not Density: **Small** 208px, **Normal**
+  (the default) 272px, **Large** 336px, with the phase sidebar narrowing alongside it.
+  Density changes what a card renders; zoom changes how much board fits on screen.
+- **Resize one column** by dragging the right edge of its header. The handle is a
+  keyboard-operable separator: focus it and press <kbd>←</kbd> / <kbd>→</kbd> to nudge,
+  <kbd>Shift</kbd> + arrow for a coarse step. Widths are clamped to **200–800px**.
+- A resized width is remembered **per browser**, not per project and not on the server,
+  so it follows you around this browser and nobody else sees it.
+- On a screen narrower than 768px the [mobile layout](#mobile) takes over and this grid
+  does not apply.
+
+### Sticky headers
+
+The grid pins its chrome so you never lose your place in a long board:
+
+- The **column header row** stays pinned to the top as you scroll down.
+- The **phase sidebar** stays pinned to the left as you scroll sideways.
+- The corner cell between them — labelled **Phase** — is pinned on both axes.
+
+Each column header carries, left to right: a status dot, the column label, the count of
+cards in that column **across the whole board**, and then a WIP trend arrow, an
+**At limit** / **Over limit** chip, the WIP badge, the collapse button, and the resize
+handle. The breach chip appears whenever a column is at or over its limit, whether or
+not **Show WIP limits** is switched on in the **More⋯** menu — a breach is not something
+you should have to opt into seeing.
+
+### Collapse a column to a stub
+
+Press the **«** button in a column header (*"Collapse In Progress column"*) to fold that
+column down to a 34px **stub** with its label turned on its side and its card count.
+Click the stub to expand it again.
+
+- A collapsed column is **still a drop target** — drag a card onto the stub to move it
+  there without expanding anything first.
+- The stub keeps its signals: the count reads `6/5` when the column breaches its WIP
+  limit, and a colored left edge marks a stub that is hiding at least one of *your*
+  cards.
+- A banner above the grid says how many columns are collapsed (*"2 columns collapsed"*)
+  and, when relevant, *"1 of your card hidden"* with a one-click **Expand columns
+  containing your cards**. A **1 over WIP** chip opens a **WIP limit status** popover
+  listing the breaching collapsed columns; <kbd>Esc</kbd> closes it and returns focus to
+  the chip. **Expand all →** restores every column.
+- There is deliberately **no floor** — you can collapse every column at once. The banner
+  is always the way back.
+- Which columns are collapsed is remembered **per project in this browser only**. It is
+  not stored on the server, so it does not follow you to another device and never
+  changes what a teammate sees.
+
+### Focus one phase lane
+
+Each phase lane's header carries a crosshair toggle — *"Focus on Foundation"* — that
+hides every other lane so you can work one phase of the WBS at a time.
+
+- Focus **supersedes every other lens**: with a lane focused, My tasks, at-risk,
+  due-soon, and critical-path lenses do not add lanes back.
+- A banner reads **Focused on *Foundation* · other lanes hidden** with an **Exit
+  focus →** button.
+- Focus lives in the URL as `?focus=<phase id>`, so a focused board is a **shareable
+  link** that survives a refresh, and the browser **Back** button exits it. Pressing the
+  same lane's crosshair again also exits.
+- If the link points at a phase that no longer exists, the board simply shows every lane
+  rather than rendering empty.
+
+Lane **focus** and lane **collapse** are separate controls on the same header: collapse
+folds one lane away and leaves the rest, focus hides everything except one.
+
+Neither column collapse nor lane focus has a keyboard shortcut.
+
 ## Board cards
 
 Each card shows:
@@ -41,6 +126,13 @@ Each card shows:
 - **CPI badge** — cost performance index when cost data is available (board batch 4)
 
 ### Card health signal
+
+:::note[Ships in 0.4]
+The worst-offender health badge described in this section is **not in the latest
+release**. On `0.3.0-alpha.3` a card still shows its delivery chips — float, dwell,
+SPI, CPI, cost — stacked side by side, with no consolidated badge and no expand /
+collapse behavior.
+:::
 
 0.4 will consolidate a card's stacked delivery chips — float, dwell, SPI, CPI, cost — into a single **worst-offender badge** that surfaces the one highest-severity signal at a glance. The severity order is derived from objective delivery state, never from PM priority rank:
 

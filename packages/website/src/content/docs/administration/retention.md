@@ -1,6 +1,7 @@
 ---
 title: Outbox & Record Retention
 description: How TruePPM bounds its transactional outbox and audit tables with purges, and how to tune, run on demand, or disable each retention window.
+documentedFor: "0.4"
 ---
 
 
