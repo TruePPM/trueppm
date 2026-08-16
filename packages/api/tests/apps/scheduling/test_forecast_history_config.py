@@ -220,3 +220,177 @@ class TestPurgeRespectsWorkspaceCap:
             MonteCarloRun.objects.filter(pk=run.pk).update(taken_at=base - timedelta(days=i))
         _do_monte_carlo_run_purge()
         assert MonteCarloRun.objects.filter(project=project).count() == 1
+
+
+# ===========================================================================
+# Attribution-audience WIRE contract (#2841)
+#
+# Every test above sets ``mc_history_attribution_audience`` directly on the
+# model, so none of them ever crossed the serializer — which is how a client
+# that PATCHed the SCREAMING_CASE member names shipped green. These tests pin
+# the wire casing itself: the lowercase TextChoices values are the contract,
+# and the uppercase spelling must stay a 400 rather than silently succeed.
+# ===========================================================================
+
+WS_URL = "/api/v1/workspace/"
+AUDIENCE_FIELD = "mc_history_attribution_audience"
+WIRE_VALUES = ("admin_owner", "scheduler_plus", "none")
+
+
+@pytest.fixture
+def ws_admin(db: object) -> object:
+    return User.objects.create_user(username="fh_ws_admin", password="pw", is_superuser=True)
+
+
+@pytest.mark.django_db
+class TestAttributionAudienceWireValues:
+    """The enum's wire spelling is lowercase on every scope that accepts it."""
+
+    def test_text_choices_are_lowercase(self) -> None:
+        assert tuple(MCAttributionAudience.values) == WIRE_VALUES
+
+    def test_openapi_enum_matches_text_choices(self) -> None:
+        """The published schema is the client's reference — keep the two identical.
+
+        ``docs/api/openapi.json`` is what a client transcribes from, and
+        ``packages/web/src/api/types.ts`` is hand-maintained with no drift gate
+        (#2609/#2633). Asserting the schema against the source enum makes a
+        re-cased choice fail here instead of at a user's PATCH.
+        """
+        import json
+        from pathlib import Path
+
+        here = Path(__file__).resolve()
+        candidate = next(
+            (
+                p / "docs" / "api" / "openapi.json"
+                for p in here.parents
+                if (p / "docs" / "api" / "openapi.json").exists()
+            ),
+            None,
+        )
+        assert candidate is not None, "Could not locate docs/api/openapi.json above the test file."
+        schema = json.loads(candidate.read_text())
+        published = schema["components"]["schemas"]["McHistoryAttributionAudienceEnum"]["enum"]
+        assert tuple(published) == WIRE_VALUES
+
+
+@pytest.mark.django_db
+class TestProjectAudienceRoundTrip:
+    @pytest.mark.parametrize("value", WIRE_VALUES)
+    def test_patch_accepts_wire_value_and_reads_back(self, project: Project, value: str) -> None:
+        user = User.objects.create_user(username=f"fh_pa_{value}", password="pw")
+        client = _client(user, project, Role.ADMIN)
+
+        res = client.patch(
+            f"/api/v1/projects/{project.pk}/", {AUDIENCE_FIELD: value}, format="json"
+        )
+        assert res.status_code == 200, res.content
+        assert res.data[AUDIENCE_FIELD] == value
+
+        project.refresh_from_db()
+        assert project.mc_history_attribution_audience == value
+
+        # The persisted override survives a fresh read — this is the half the
+        # uppercase union broke on read, leaving the <select> with nothing chosen.
+        read = client.get(f"/api/v1/projects/{project.pk}/")
+        assert read.status_code == 200
+        assert read.data[AUDIENCE_FIELD] == value
+        assert read.data[f"effective_{AUDIENCE_FIELD}"] == value
+
+    @pytest.mark.parametrize("value", ["ADMIN_OWNER", "SCHEDULER_PLUS", "NONE"])
+    def test_patch_rejects_uppercase_spelling(self, project: Project, value: str) -> None:
+        """The #2841 regression: an uppercase member is not a valid choice."""
+        user = User.objects.create_user(username=f"fh_pu_{value}", password="pw")
+        client = _client(user, project, Role.ADMIN)
+
+        res = client.patch(
+            f"/api/v1/projects/{project.pk}/", {AUDIENCE_FIELD: value}, format="json"
+        )
+        assert res.status_code == 400, res.content
+        assert AUDIENCE_FIELD in res.data
+
+        project.refresh_from_db()
+        assert project.mc_history_attribution_audience is None  # unchanged
+
+    def test_patch_null_clears_the_override(self, project: Project) -> None:
+        user = User.objects.create_user(username="fh_pnull", password="pw")
+        client = _client(user, project, Role.ADMIN)
+        project.mc_history_attribution_audience = MCAttributionAudience.NONE
+        project.save()
+
+        res = client.patch(f"/api/v1/projects/{project.pk}/", {AUDIENCE_FIELD: None}, format="json")
+        assert res.status_code == 200, res.content
+        project.refresh_from_db()
+        assert project.mc_history_attribution_audience is None
+
+    def test_patch_rejects_blank(self, project: Project) -> None:
+        """`""` matches no member and must not fall through to the default."""
+        user = User.objects.create_user(username="fh_pblank", password="pw")
+        client = _client(user, project, Role.ADMIN)
+
+        res = client.patch(f"/api/v1/projects/{project.pk}/", {AUDIENCE_FIELD: ""}, format="json")
+        assert res.status_code == 400, res.content
+
+
+@pytest.mark.django_db
+class TestProgramAudienceRoundTrip:
+    @pytest.mark.parametrize("value", WIRE_VALUES)
+    def test_patch_accepts_wire_value_and_reads_back(self, program: Program, value: str) -> None:
+        from trueppm_api.apps.access.models import ProgramMembership
+
+        user = User.objects.create_user(username=f"fh_gr_{value}", password="pw")
+        ProgramMembership.objects.create(program=program, user=user, role=Role.ADMIN)
+        client = APIClient()
+        client.force_authenticate(user=user)
+
+        res = client.patch(
+            f"/api/v1/programs/{program.pk}/", {AUDIENCE_FIELD: value}, format="json"
+        )
+        assert res.status_code == 200, res.content
+        assert res.data[AUDIENCE_FIELD] == value
+
+        program.refresh_from_db()
+        assert program.mc_history_attribution_audience == value
+        assert client.get(f"/api/v1/programs/{program.pk}/").data[AUDIENCE_FIELD] == value
+
+    def test_patch_rejects_uppercase_spelling(self, program: Program) -> None:
+        from trueppm_api.apps.access.models import ProgramMembership
+
+        user = User.objects.create_user(username="fh_gu", password="pw")
+        ProgramMembership.objects.create(program=program, user=user, role=Role.ADMIN)
+        client = APIClient()
+        client.force_authenticate(user=user)
+
+        res = client.patch(
+            f"/api/v1/programs/{program.pk}/", {AUDIENCE_FIELD: "ADMIN_OWNER"}, format="json"
+        )
+        assert res.status_code == 400, res.content
+        program.refresh_from_db()
+        assert program.mc_history_attribution_audience is None
+
+
+@pytest.mark.django_db
+class TestWorkspaceAudienceRoundTrip:
+    @pytest.mark.parametrize("value", WIRE_VALUES)
+    def test_patch_accepts_wire_value_and_reads_back(self, ws_admin: object, value: str) -> None:
+        client = APIClient()
+        client.force_authenticate(user=ws_admin)
+
+        res = client.patch(WS_URL, {AUDIENCE_FIELD: value}, format="json")
+        assert res.status_code == 200, res.content
+        assert res.data[AUDIENCE_FIELD] == value
+        assert Workspace.load().mc_history_attribution_audience == value
+        assert client.get(WS_URL).data[AUDIENCE_FIELD] == value
+
+    def test_patch_rejects_uppercase_spelling(self, ws_admin: object) -> None:
+        client = APIClient()
+        client.force_authenticate(user=ws_admin)
+
+        res = client.patch(WS_URL, {AUDIENCE_FIELD: "SCHEDULER_PLUS"}, format="json")
+        assert res.status_code == 400, res.content
+        assert AUDIENCE_FIELD in res.data
+        # The workspace root is non-nullable — it keeps its prior value.
+        assert Workspace.load().mc_history_attribution_audience == (
+            MCAttributionAudience.ADMIN_OWNER
+        )

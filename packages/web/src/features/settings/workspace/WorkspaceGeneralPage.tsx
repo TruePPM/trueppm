@@ -104,7 +104,7 @@ export function WorkspaceGeneralPage() {
   const [mcHistoryEnabled, setMcHistoryEnabled] = useState(true);
   const [mcHistoryRetentionCap, setMcHistoryRetentionCap] = useState(100);
   const [mcHistoryAttributionAudience, setMcHistoryAttributionAudience] =
-    useState<MCAttributionAudience>('ADMIN_OWNER');
+    useState<MCAttributionAudience>('admin_owner');
   const [mcHistoryOverridePolicy, setMcHistoryOverridePolicy] =
     useState<MCHistoryOverridePolicy>('suggest');
   // Duration-change percent policy (ADR-0151, issue 1254) — workspace is the non-null root.
@@ -132,7 +132,7 @@ export function WorkspaceGeneralPage() {
     iterationLabelPolicy: 'suggest' as IterationLabelPolicy,
     mcHistoryEnabled: true,
     mcHistoryRetentionCap: 100,
-    mcHistoryAttributionAudience: 'ADMIN_OWNER' as MCAttributionAudience,
+    mcHistoryAttributionAudience: 'admin_owner' as MCAttributionAudience,
     mcHistoryOverridePolicy: 'suggest' as MCHistoryOverridePolicy,
     taskDurationChangePercentPolicy: 'keep' as DurationChangePercentPolicy,
     taskDurationChangePercentOverridePolicy: 'suggest' as 'inherit' | 'suggest' | 'enforce',

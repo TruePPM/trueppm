@@ -185,11 +185,17 @@ export type ProjectDefaultView = 'SCHEDULE' | 'BOARD' | 'TABLE' | 'OVERVIEW';
 
 /**
  * Who may see the per-run attribution (which member triggered a Monte Carlo run)
- * on the forecast-history list (ADR-0144, issue 1232). `ADMIN_OWNER` preserves the
- * historical default exactly; `SCHEDULER_PLUS` widens it to Scheduler and above;
- * `NONE` hides attribution from everyone. Inheritable Workspace → Program → Project.
+ * on the forecast-history list (ADR-0144, issue 1232). `admin_owner` preserves the
+ * historical default exactly; `scheduler_plus` widens it to Scheduler and above;
+ * `none` hides attribution from everyone. Inheritable Workspace → Program → Project.
+ *
+ * The members are the **wire** values — Django's `MCAttributionAudience` TextChoices,
+ * surfaced as `McHistoryAttributionAudienceEnum` in `docs/api/openapi.json`. They were
+ * transcribed here in TypeScript's usual SCREAMING_CASE union style, which the
+ * serializer's `ChoiceField` rejects with a 400 on write and matches nothing on read
+ * (#2841). Do not re-case them: this file is hand-maintained (#2609) with no drift gate.
  */
-export type MCAttributionAudience = 'ADMIN_OWNER' | 'SCHEDULER_PLUS' | 'NONE';
+export type MCAttributionAudience = 'admin_owner' | 'scheduler_plus' | 'none';
 
 /**
  * Workspace policy for downstream forecast-history overrides (ADR-0144). Shares

@@ -93,10 +93,10 @@ const SEED_PROJECT = {
   mc_history_attribution_audience: null,
   effective_mc_history_enabled: true,
   effective_mc_history_retention_cap: 100,
-  effective_mc_history_attribution_audience: 'ADMIN_OWNER',
+  effective_mc_history_attribution_audience: 'admin_owner',
   inherited_mc_history_enabled: true,
   inherited_mc_history_retention_cap: 100,
-  inherited_mc_history_attribution_audience: 'ADMIN_OWNER',
+  inherited_mc_history_attribution_audience: 'admin_owner',
   task_duration_change_percent_policy: null,
   effective_task_duration_change_percent_policy: 'keep',
   inherited_task_duration_change_percent_policy: 'keep',
@@ -463,7 +463,7 @@ describe('ProjectGeneralPage', () => {
     fireEvent.click(within(attrGroup).getByText(/^override$/i));
 
     fireEvent.change(screen.getByRole('combobox', { name: /run attribution visible to/i }), {
-      target: { value: 'NONE' },
+      target: { value: 'none' },
     });
 
     await act(async () => {
@@ -471,7 +471,40 @@ describe('ProjectGeneralPage', () => {
     });
 
     expect(mutateAsync).toHaveBeenCalledWith(
-      expect.objectContaining({ mc_history_attribution_audience: 'NONE' }),
+      expect.objectContaining({ mc_history_attribution_audience: 'none' }),
+    );
+  });
+
+  it('offers the wire spelling of every attribution option (#2841)', () => {
+    // The serializer's ChoiceField accepts only the lowercase TextChoices values.
+    // A SCREAMING_CASE option value 400s on write, so pin the <option> values.
+    renderPage();
+
+    const attrGroup = screen.getByRole('radiogroup', {
+      name: /run attribution visible to/i,
+    });
+    fireEvent.click(within(attrGroup).getByText(/^override$/i));
+
+    const select = screen.getByRole('combobox', { name: /run attribution visible to/i });
+    expect(
+      within(select)
+        .getAllByRole('option')
+        .map((o) => (o as HTMLOptionElement).value),
+    ).toEqual(['admin_owner', 'scheduler_plus', 'none']);
+  });
+
+  it('renders a persisted attribution override as the selected option (#2841)', () => {
+    // The read half of the same bug: the API returns `scheduler_plus`, which
+    // matched none of the uppercase option values, so the <select> showed nothing.
+    useProject.mockReturnValue({
+      data: { ...SEED_PROJECT, mc_history_attribution_audience: 'scheduler_plus' },
+    });
+    renderPage();
+
+    const select = screen.getByRole('combobox', { name: /run attribution visible to/i });
+    expect(select).toHaveValue('scheduler_plus');
+    expect(within(select).getByRole('option', { selected: true })).toHaveTextContent(
+      /schedulers and above/i,
     );
   });
 

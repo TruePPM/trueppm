@@ -64,10 +64,10 @@ function makeProject(overrides: Record<string, unknown> = {}) {
     mc_history_attribution_audience: null,
     effective_mc_history_enabled: true,
     effective_mc_history_retention_cap: 100,
-    effective_mc_history_attribution_audience: 'ADMIN_OWNER',
+    effective_mc_history_attribution_audience: 'admin_owner',
     inherited_mc_history_enabled: true,
     inherited_mc_history_retention_cap: 100,
-    inherited_mc_history_attribution_audience: 'ADMIN_OWNER',
+    inherited_mc_history_attribution_audience: 'admin_owner',
     // Attachment policy (ADR-0153). Own overrides null = inherit; effective is the
     // resolved value; inherited is what the parent would supply.
     attachments_enabled: null,

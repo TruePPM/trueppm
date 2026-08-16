@@ -34,7 +34,7 @@ const WS: WorkspaceSettings = {
   iterationLabelOverridePolicy: 'suggest',
   mcHistoryEnabled: true,
   mcHistoryRetentionCap: 100,
-  mcHistoryAttributionAudience: 'ADMIN_OWNER',
+  mcHistoryAttributionAudience: 'admin_owner',
   mcHistoryOverridePolicy: 'suggest',
   taskDurationChangePercentPolicy: 'keep',
   taskDurationChangePercentOverridePolicy: 'suggest',

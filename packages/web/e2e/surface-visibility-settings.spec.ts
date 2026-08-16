@@ -102,7 +102,7 @@ async function baseSetup(page: Page) {
         iteration_label_override_policy: 'suggest',
         mc_history_enabled: true,
         mc_history_retention_cap: 100,
-        mc_history_attribution_audience: 'ADMIN_OWNER',
+        mc_history_attribution_audience: 'admin_owner',
         mc_history_override_policy: 'suggest',
         methodology: 'WATERFALL',
         methodology_override_policy: 'suggest',

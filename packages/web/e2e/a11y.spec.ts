@@ -219,7 +219,7 @@ async function setupShell(page: import('@playwright/test').Page): Promise<void> 
         iteration_label_override_policy: 'suggest',
         mc_history_enabled: true,
         mc_history_retention_cap: 50,
-        mc_history_attribution_audience: 'SCHEDULER_PLUS',
+        mc_history_attribution_audience: 'scheduler_plus',
         mc_history_override_policy: 'suggest',
         task_duration_change_percent_policy: 'confirm',
         task_duration_change_percent_override_policy: 'suggest',

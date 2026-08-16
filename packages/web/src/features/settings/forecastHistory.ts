@@ -4,13 +4,13 @@ import type { MCAttributionAudience } from '@/api/types';
 /**
  * Attribution-audience options for the forecast-history settings group
  * (ADR-0144, issue 1232). Shared across the Workspace, Program, and Project settings
- * pages so the labels never fork. `ADMIN_OWNER` preserves today's behavior.
+ * pages so the labels never fork. `admin_owner` preserves today's behavior.
  */
 export const MC_ATTRIBUTION_OPTIONS: ReadonlyArray<InheritableSelectOption<MCAttributionAudience>> =
   [
-    { value: 'ADMIN_OWNER', label: 'Admins & owners' },
-    { value: 'SCHEDULER_PLUS', label: 'Schedulers and above' },
-    { value: 'NONE', label: 'No one' },
+    { value: 'admin_owner', label: 'Admins & owners' },
+    { value: 'scheduler_plus', label: 'Schedulers and above' },
+    { value: 'none', label: 'No one' },
   ];
 
 /** Help text shared by the attribution control on all three scopes. */
