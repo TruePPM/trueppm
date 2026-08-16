@@ -72,6 +72,31 @@ failure of its HTTP status class.
 | `invalid_token` | The password-reset uid+token pair is bad, unknown, or expired | — |
 | `weak_password` | The new password failed validation | `messages` |
 | `pin_limit_reached` | Pinning this project/program would exceed the account's configured pin cap | — |
+| `invalid_graph_input` | The submitted dependency graph is malformed and cannot be interpreted | — |
+| `self_reference` | A task in the graph depends on itself | `offending` |
+| `cyclic_dependency` | The dependencies form a cycle | `offending` |
+| `subtree_too_large` | The targeted subtree exceeds the per-request cascade cap | `matched`, `max` |
+
+`invalid_graph_input` is refused as a **whole batch**: a malformed graph has no
+identified cycle path, so there is no principled subset of edges to reject.
+
+`self_reference` and `cyclic_dependency` carry `offending` — the node ids
+implicated. For `self_reference` that is the single offending id; for
+`cyclic_dependency` it is the ordered cycle path with the first id repeated at
+the end:
+
+```json
+{
+  "code": "cyclic_dependency",
+  "detail": "The dependency graph contains a cycle.",
+  "offending": ["A", "B", "A"]
+}
+```
+
+`subtree_too_large` carries `matched` (how many descendants the request would
+have touched) and `max` (the cap), so a client can say how far over the limit it
+is without parsing the sentence in `detail`. Both are **strings**, not numbers —
+DRF renders a validation detail through `ErrorDetail`, a `str` subclass.
 
 ### 403 — refused by policy
 

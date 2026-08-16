@@ -397,6 +397,23 @@ class NotificationPreferenceViewSet(
             raise PermissionDenied("Cannot modify another user's preferences.")
         serializer.save()
 
+    @extend_schema(
+        summary="Apply a notification preference preset",
+        # Every field of the inferred contract was wrong (#2840). Without this,
+        # drf-spectacular fell back to the viewset's NotificationPreferenceSerializer
+        # for BOTH sides: it declared a request of {event_type, channel, enabled}
+        # (the body is {"preset": …}) and a single-object 200 (the handler returns
+        # the whole matrix, many=True — a JSON array).
+        request=inline_serializer(
+            name="NotificationPreferencePresetRequest",
+            fields={"preset": serializers.ChoiceField(choices=["signal_only", "everything"])},
+        ),
+        responses={200: NotificationPreferenceSerializer(many=True)},
+    )
+    # The bare-array response also needs the view's paginator cleared, or
+    # drf-spectacular re-wraps this many=True declaration into the list route's
+    # envelope. That is done at the as_view() call in urls.py — this app routes by
+    # hand, so @action initkwargs are never applied. See the note there.
     @action(detail=False, methods=["post"], url_path="apply-preset")
     def apply_preset(self, request: Request) -> Response:
         """Apply a wholesale preference preset (#855) and return the new matrix.

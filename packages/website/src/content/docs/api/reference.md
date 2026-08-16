@@ -839,8 +839,8 @@ workflow and error codes.
 | GET | `/api/v1/dependencies/{id}/` | Retrieve |
 | PUT / PATCH | `/api/v1/dependencies/{id}/` | Update |
 | DELETE | `/api/v1/dependencies/{id}/` | Soft-delete |
-| POST | `/api/v1/dependencies/{id}/accept/` | Accept a pending cross-project edge (downstream Resource Manager+) |
-| POST | `/api/v1/dependencies/{id}/reject/` | Reject (soft-delete) a pending cross-project edge |
+| POST | `/api/v1/dependencies/{id}/accept/` | Accept a pending cross-project edge (downstream Resource Manager+) — **no body** |
+| POST | `/api/v1/dependencies/{id}/reject/` | Reject (soft-delete) a pending cross-project edge — **no body** |
 
 Predecessor and successor may belong to the **same project** or to two projects in the **same [program](/features/programs/)**. Cross-**program** edges return `HTTP 400` (the [Enterprise boundary](/license/) is unchanged). A cross-project edge whose successor sits in a project the creator cannot schedule is created **pending**: it is inert until the downstream project's Resource Manager+ accepts it via `accept/`. Once accepted, the program's schedule recomputes across the boundary so floats and criticality are program-true on every member project's own schedule (not only the [program schedule view](/features/program-schedule/)).
 
@@ -879,7 +879,8 @@ exceed the OSS simulation cap or the request returns `402`. See
 | POST | `/api/v1/resources/` | Create |
 | GET | `/api/v1/resources/{id}/` | Retrieve |
 | PUT / PATCH | `/api/v1/resources/{id}/` | Update |
-| DELETE | `/api/v1/resources/{id}/` | Soft-delete |
+| DELETE | `/api/v1/resources/{id}/` | Soft-delete (deactivate) |
+| POST | `/api/v1/resources/{id}/restore/` | Reactivate a deactivated resource — **no body**; `400` if it is not deactivated |
 | GET | `/api/v1/resources/{id}/assignments/` | Cross-project task assignments for one resource (org admin only) |
 
 The resource catalog is readable by any authenticated user, so the `email` field
@@ -1281,6 +1282,103 @@ the corresponding `task_relation_*` events — and note that `task_link_*` is a
 **different, unrelated** family (external Jira/GitHub/GitLab links via the
 [integrations](#integrations) surface below), not a naming variant of this one.
 
+### Program backlog
+
+The program backlog is the intake pool for a program: ideas and requests live
+here until one is **pulled** into a specific project's backlog as a task.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET / POST | `/api/v1/programs/{program_pk}/backlog-items/` | List / create (filters: `?item_type=`, `?status=`, repeatable `?tags=`, fuzzy `?q=`) |
+| GET / PATCH / DELETE | `/api/v1/programs/{program_pk}/backlog-items/{id}/` | Retrieve, edit, archive, or soft-delete one item |
+| POST | `/api/v1/programs/{program_pk}/backlog-items/{id}/pull/` | Pull a `PROPOSED` item into a project's backlog |
+
+`pull` takes the target project, not a backlog item:
+
+```json
+{ "project_id": "9c2d0f7e-…" }
+```
+
+It responds `201` with a **two-key envelope** — the task it created and the item
+it transitioned, so a client needs no follow-up read:
+
+```json
+{ "task": { … }, "backlog_item": { … } }
+```
+
+The created task lands in the project backlog (`status=BACKLOG`, no sprint);
+`pull` never assigns a sprint. `?status=` defaults to `PROPOSED` on list, so the
+default read is the active pool. The caller needs program-write **and** Team
+Member+ on the target project — program authority alone cannot drop a task into
+a project. A `project_id` outside this program returns `400`; an item that is no
+longer `PROPOSED` returns `409`.
+
+### Mention groups
+
+A user-defined `@mention` group is a named alias for a curated set of people, so
+a comment can address `@design-review` instead of five usernames. Groups are
+scoped to a **project** or to a **program**; the two surfaces are mirrors of each
+other and take identical payloads.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET / POST | `/api/v1/projects/{project_pk}/mention-groups/` | List / create a project group |
+| GET / PATCH / DELETE | `/api/v1/projects/{project_pk}/mention-groups/{id}/` | Retrieve, rename, or soft-delete one |
+| POST | `/api/v1/projects/{project_pk}/mention-groups/{id}/add-member/` | Add one member to the roster |
+| POST | `/api/v1/projects/{project_pk}/mention-groups/{id}/remove-member/` | Remove one member from the roster |
+| POST | `/api/v1/projects/{project_pk}/mention-groups/{id}/mute/` | Mute the group **for yourself** |
+| POST | `/api/v1/projects/{project_pk}/mention-groups/{id}/unmute/` | Unmute it for yourself |
+| GET / POST | `/api/v1/programs/{program_pk}/mention-groups/` | The program-scoped mirror of the whole table above |
+
+**`add-member` and `remove-member` take a body**, and it is required:
+
+```json
+{ "user": "9c2d0f7e-…" }
+```
+
+The response to all four actions is the group's read shape — `id`, `name`,
+`members` (user summaries), `member_count`, and `muted_by_me`, the per-user
+override reflecting whether *the calling user* has muted it. Omitting `user`
+returns `400 {"user": "This field is required."}`; naming someone who is not a
+member of the project (or, for a program group, of any project in the program)
+is likewise a `400`, because a non-member would be filtered out at mention
+resolution anyway.
+
+**`mute` and `unmute` take no body.** They act on the caller's own subscription
+only — there is no way to mute a group on someone else's behalf.
+
+Roles differ per action. On a project group: Admin+ creates, renames, and
+deletes; Resource Manager+ curates the roster; **any** member mutes or unmutes.
+On a program group the lifecycle actions are Owner-only and roster curation is
+Admin+. A group in an archived project or a closed program is read-only.
+
+### Notification preferences
+
+The per-user notification matrix is one row per `(event_type, channel)` pair.
+The first `GET` lazily backfills the default matrix for a user who has none.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/me/notification-preferences/` | Your full matrix (paginated) |
+| PATCH | `/api/v1/me/notification-preferences/{id}/` | Toggle one row — only `enabled` is writable |
+| POST | `/api/v1/me/notification-preferences/apply-preset/` | Apply a preset across the whole matrix |
+
+`apply-preset` takes a preset name, not a preference row:
+
+```json
+{ "preset": "signal_only" }
+```
+
+`signal_only` turns in-app on for the two attention-worthy events (a task being
+blocked, a due date moving) and turns every other pair off — the escape from a
+noisy default without auditing the grid cell by cell. `everything` restores the
+shipped defaults. Any other value returns `400`.
+
+The response is the **full rewritten matrix as a bare JSON array**, not the
+paginated `{count, results}` envelope the list route returns and not a single
+preference object — apply the array to your local state directly rather than
+refetching.
+
 ### User search
 
 | Method | Path | Description |
@@ -1300,7 +1398,7 @@ Throttled at `user_search` (60/min per user — see
 
 `GET /api/v1/import-templates/csv/` serves the same downloadable CSV template
 used by the in-app import wizard, for scripted use — see
-[CSV import](/features/csv-import/#download-the-template).
+[CSV import](/features/csv-import-export/#download-the-template).
 
 ### Integrations
 
