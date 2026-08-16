@@ -347,6 +347,44 @@ class TestMonteCarloEndpoint:
         if r.data["cpm_finish"] is not None:
             assert date.fromisoformat(r.data["p50"]) >= date.fromisoformat(r.data["cpm_finish"])
 
+    def test_simulation_honors_actual_start_floor(
+        self,
+        member_client: APIClient,
+        project: Project,
+    ) -> None:
+        """#2833: MC must honor actual_start as a start-no-earlier-than floor too.
+
+        The sibling of the planned-start case above, and the same failure shape:
+        the MC input carried ``actual_start`` all along, but the engine's Monte
+        Carlo floor helper merged only the SNET pin and the data date, so work
+        that actually began after the data date was simulated from the data date.
+        Unlike the SNET pin this floor is invisible in the request — it comes from
+        recorded progress — which is why it went unnoticed for as long as it did.
+        """
+        project.status_date = date(2026, 1, 30)  # Friday — the data date
+        project.save(update_fields=["status_date"])
+        began = date(2026, 2, 9)  # Monday, well after the data date
+        Task.objects.create(
+            project=project,
+            name="Underway",
+            duration=20,
+            percent_complete=50,
+            actual_start=began,
+        )
+
+        r = member_client.post(
+            f"/api/v1/projects/{project.pk}/monte-carlo/",
+            {"n_simulations": 100},
+            format="json",
+        )
+        assert r.status_code == 200
+
+        # Deterministic network (no PERT/velocity) → every run is identical.
+        assert r.data["p50"] == r.data["p80"] == r.data["p95"]
+        # 50% of a 20-day task leaves 10 working days, laid forward from the day
+        # work actually began — not from the data date ten days earlier.
+        assert date.fromisoformat(r.data["p50"]) == date(2026, 2, 20)
+
 
 @pytest.mark.django_db
 class TestMonteCarloProgressAware:

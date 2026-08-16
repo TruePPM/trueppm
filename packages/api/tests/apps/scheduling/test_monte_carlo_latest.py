@@ -11,6 +11,7 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project, Task
+from trueppm_api.apps.scheduling.views import mc_latest_cache_key
 
 User = get_user_model()
 
@@ -216,7 +217,57 @@ class TestMonteCarloLatest:
         # band widens monotonically (p95 finishes no earlier than p50).
         for key in ("p50", "p80", "p95"):
             assert isinstance(delta[key], int)
+            # The SIGN is the contract, not just the type (#2833). A negative delta
+            # is a probabilistic finish EARLIER than the deterministic spine — the
+            # forecast claiming a date CPM has already ruled out, which is the one
+            # direction a risk premium can never legitimately take. This assertion
+            # was missing while the field was exercised, so the API layer stayed
+            # green through a scheduler bug that made every percentile negative.
+            assert delta[key] >= 0, f"delta_vs_cpm[{key}] = {delta[key]} precedes the CPM finish"
         assert delta["p50"] <= delta["p95"]
+
+    def test_delta_vs_cpm_stays_non_negative_for_in_progress_work(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        """Regression (#2833): in-progress work floors the forecast at its actual start.
+
+        ``monte_carlo()`` never received the ``actual_start`` early-start floor the
+        deterministic pass has applied since #2621, so a task that actually started
+        *after* the data date was simulated from the data date instead — and every
+        percentile came back earlier than the CPM finish the very same API had just
+        persisted. Driving both passes through their own endpoints keeps this an
+        independent check of the API layer rather than a restatement of the
+        scheduler's own suite: the two regress separately.
+        """
+        project.status_date = date(2026, 1, 30)  # Friday — the last status report
+        project.save(update_fields=["status_date"])
+        Task.objects.create(
+            project=project,
+            name="Underway",
+            duration=20,
+            percent_complete=50,
+            # Work began more than a week after the data date, so nothing but the
+            # actual-start floor can place it correctly.
+            actual_start=date(2026, 2, 9),  # Monday
+            # The CPM spine the deterministic pass persists for exactly this input:
+            # 10 remaining working days laid forward from 9-Feb. `cpm_finish` is the
+            # max persisted early_finish, so this is what the delta is measured
+            # against; `test_simulation_honors_actual_start_floor` pins the same
+            # date straight off the engine, so a drift breaks that test, not this
+            # one's premise.
+            early_start=date(2026, 2, 9),
+            early_finish=date(2026, 2, 20),
+        )
+
+        member_client.post(self.mc_url(project.pk), {"n_simulations": 200}, format="json")
+        data = member_client.get(self.url(project.pk)).json()
+
+        assert data["cpm_finish"] == "2026-02-20"
+        for key in ("p50", "p80", "p95"):
+            assert data["delta_vs_cpm"][key] >= 0, (
+                f"{key} finishes {-data['delta_vs_cpm'][key]} days before the CPM spine "
+                f"{data['cpm_finish']} — the forecast under-reports risk"
+            )
 
     def test_confidence_curve_is_cumulative_and_tops_out_at_100(
         self, member_client: APIClient, project: Project
@@ -326,7 +377,7 @@ class TestMonteCarloLatest:
         self._scheduled_task(project)
         member_client.post(self.mc_url(project.pk), {"n_simulations": 200}, format="json")
 
-        entry = cache.get(f"mc_latest:{project.pk}")
+        entry = cache.get(mc_latest_cache_key(project.pk))
         assert entry is not None
         assert PREMIUM_KEYS.isdisjoint(entry)
 
@@ -345,7 +396,9 @@ class TestMonteCarloLatest:
 
         self._scheduled_task(project)
         member_client.post(self.mc_url(project.pk), {"n_simulations": 200}, format="json")
-        cpm_finish = _dt.date.fromisoformat(cache.get(f"mc_latest:{project.pk}")["cpm_finish"])
+        cpm_finish = _dt.date.fromisoformat(
+            cache.get(mc_latest_cache_key(project.pk))["cpm_finish"]
+        )
 
         monkeypatch.setattr(
             dj_timezone, "localdate", lambda *a, **kw: cpm_finish - _dt.timedelta(days=30)

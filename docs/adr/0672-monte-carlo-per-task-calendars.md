@@ -94,6 +94,12 @@ offset→date machinery then applies unchanged.
   precisely the CPM finish date, so the parity tests assert `monte_carlo()`
   against `schedule()` across all four dependency types at zero, positive, and
   negative lag, in both calendar directions. Any wrong-calendar snap breaks it.
+  *(Amended by #2833: exact equality holds except for an in-progress task whose
+  `actual_start` falls on a non-working day. The working-day index has no offset
+  for that date, so its early-start floor snaps forward and the finish can land
+  up to one working day late — deliberately, since the only other stand-in
+  reports* earlier *than CPM. The oracle relation there is `monte_carlo() >=
+  schedule()`; see the `_mc_es_floors` docstring.)*
 - **Cost.** One index and one ordinal array per distinct calendar, plus one
   column-wise conversion before the maximum — all only on the multi-calendar
   path. The `MAX_LAG_DELTA_CELLS` cap now also bounds cross-calendar fan-out,

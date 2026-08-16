@@ -354,7 +354,8 @@ class MonteCarloRun(models.Model):
     task_count = models.PositiveIntegerField(null=True, blank=True)
     # The full per-run distribution payload — the same
     # ``{histogram_buckets, confidence_curve, sensitivity}`` shape written to the
-    # ``mc_latest:<pk>`` cache (#1231, ADR-0144). Persisted so the histogram +
+    # ``mc_latest`` cache (#1231, ADR-0144; key built by
+    # ``views.mc_latest_cache_key``). Persisted so the histogram +
     # tornado survive cache expiry and a past run stays re-viewable.
     #
     # Nullable with NO backfill: pre-0143 runs have no stored distribution and the

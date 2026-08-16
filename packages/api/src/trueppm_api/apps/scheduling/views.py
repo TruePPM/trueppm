@@ -89,6 +89,32 @@ from trueppm_api.workflows.services import start_workflow
 
 logger = logging.getLogger(__name__)
 
+# Version token in the Monte Carlo read-cache key. Bump it in the same commit as
+# any engine change that moves the percentiles for an unchanged project.
+#
+# The entry lives for 24 hours (ADR-0144, #1231) and nothing else invalidates it —
+# not a task edit, not a deploy, since the cache declares no KEY_PREFIX/VERSION and
+# the key carried only the project pk. So an engine correctness fix would keep
+# serving its own pre-fix numbers to `GET /monte-carlo/latest/`, to the MCP
+# forecast tool, and to the derivation ("why") endpoint for a full day after
+# rollout, from a payload with no signal that it is stale. Bumping the token
+# retires the old keyspace at deploy instead (#2833).
+#
+# This does NOT reach the persisted `MonteCarloRun` fallback that serves once the
+# TTL expires: those rows carry no engine-version column, so a project whose last
+# run predates a fix and is never re-run keeps reporting the old answer.
+MC_LATEST_CACHE_VERSION = 2
+
+
+def mc_latest_cache_key(pk: object) -> str:
+    """Read-cache key for a project's latest Monte Carlo forecast.
+
+    One definition for the write, both reads, and the tests. Three duplicated
+    f-strings is how a version bump gets applied to two of them.
+    """
+    return f"mc_latest:v{MC_LATEST_CACHE_VERSION}:{pk}"
+
+
 # Upper bound on how many parked tasks a single bulk requeue/drop touches, so a
 # "drop all" / "requeue all" over a large filtered set cannot unbounded-load the
 # DB or storm the broker (ADR-0210 §4). Overridable via settings for large
@@ -644,7 +670,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         # row below so history stays re-derivable after the fact.
         "status_date": mc_status_date.isoformat(),
     }
-    cache.set(f"mc_latest:{pk}", result_dict, timeout=86400)
+    cache.set(mc_latest_cache_key(pk), result_dict, timeout=86400)
 
     # Persist a forecast-drift history row (ADR-0175, #961) only for Scheduler+
     # callers; the read is Member-level but the attributed write is not (#1502).
@@ -737,7 +763,7 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
         """
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
-        cached = cache.get(f"mc_latest:{pk}")
+        cached = cache.get(mc_latest_cache_key(pk))
         if cached is not None:
             # Added time is layered on at read time, never taken from the entry — the
             # entry has no premium keys to take (ADR-0698 §2). A cached forecast can be
@@ -2151,7 +2177,7 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
         refreshes the cache but persists no attributed row, and the derivation is
         part of the open read surface, so it must see cache-only forecasts.
         """
-        cached = cache.get(f"mc_latest:{pk}")
+        cached = cache.get(mc_latest_cache_key(pk))
         if cached is not None:
             return Response(
                 {

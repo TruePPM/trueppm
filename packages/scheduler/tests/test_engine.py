@@ -1361,6 +1361,201 @@ class TestMonteCarloPlannedStart:
             schedule(p)
 
 
+class TestMonteCarloActualStartFloor:
+    """MC floors in-progress work at its recorded ``actual_start`` (#2833).
+
+    ``schedule()`` has floored an in-progress task at its actual start since
+    #2621 (ADR-0132 §2), but ``_mc_es_floors`` merged only the SNET pin and the
+    data date. Every percentile was therefore computed against an early window
+    the deterministic pass had already rejected, and P95 could land *before* the
+    plain CPM finish — a risk tool under-reporting risk.
+    """
+
+    @staticmethod
+    def _in_progress_project(actual_start: date, *, pct: float = 50.0) -> Project:
+        """One 20-day task, half done, started later than the data date."""
+        p = make_project(
+            tasks=[task("A", "A", 20, actual_start=actual_start, percent_complete=pct)],
+            start=date(2026, 7, 1),
+        )
+        p.status_date = date(2026, 7, 31)
+        return p
+
+    def test_p95_not_before_cpm_finish(self) -> None:
+        """The reported repro: data date 31-Jul, actually started 10-Aug at 50%.
+
+        Pre-fix ``schedule()`` finished 21-Aug while every percentile came back
+        13-Aug — six working days of risk silently erased.
+        """
+        p = self._in_progress_project(date(2026, 8, 10))
+        cpm = schedule(p)
+        mc = monte_carlo(p, runs=200, seed=7)
+        assert cpm.project_finish == date(2026, 8, 21)
+        assert mc.p95 >= cpm.project_finish
+        # No duration uncertainty, so the simulation collapses onto CPM exactly.
+        assert mc.p50 == mc.p80 == mc.p95 == cpm.project_finish
+
+    def test_actual_start_floor_beats_snet_pin_and_data_date(self) -> None:
+        """The floor is a three-way maximum, and the actual start is the latest leg.
+
+        Both other floors are set *earlier* than the actual start here, so only a
+        helper that merges all three lands on the deterministic answer.
+        """
+        p = self._in_progress_project(date(2026, 8, 10))
+        p.tasks[0].planned_start = date(2026, 7, 20)  # SNET, earlier than the actual
+        cpm = schedule(p)
+        mc = monte_carlo(p, runs=100, seed=3)
+        assert cpm.tasks[0].early_start == date(2026, 8, 10)
+        assert mc.p50 == cpm.project_finish
+
+    @pytest.mark.parametrize("actual", [date(2026, 8, 15), date(2026, 8, 16)])
+    def test_non_working_actual_rounds_toward_more_risk(self, actual: date) -> None:
+        """A weekend actual can only push MC *later* than CPM, never earlier.
+
+        ``schedule()`` works in scalar dates and honors a weekend actual verbatim;
+        the MC working-day index holds working days only, so the date has no
+        offset and a neighbour has to stand in. The offset below would read the
+        start a working day early and walk SS/SF successors — and a task whose
+        remaining work fits in its start day — back before work demonstrably
+        began, which is exactly the under-reporting #2833 was. So it snaps
+        forward: at most one working day late, never early.
+        """
+        p = self._in_progress_project(actual)
+        cpm = schedule(p)
+        mc = monte_carlo(p, runs=100, seed=1)
+        assert mc.p50 == mc.p95 >= cpm.project_finish
+        # Bounded: the stand-in is the adjacent working day, not an open-ended pad.
+        assert (mc.p95 - cpm.project_finish).days <= 3
+
+    def test_actual_start_before_project_start_is_ignored(self) -> None:
+        """An actual at or before project start floors nothing — project start already does."""
+        p = make_project(
+            tasks=[task("A", "A", 4, actual_start=date(2026, 2, 2), percent_complete=25.0)],
+        )
+        cpm = schedule(p)
+        mc = monte_carlo(p, runs=50, seed=0)
+        assert mc.p50 == mc.p95 == cpm.project_finish
+
+    def test_floor_cascades_to_successors(self) -> None:
+        """A late actual on a predecessor pushes its FS successor in MC too."""
+        p = make_project(
+            tasks=[
+                task("A", "A", 6, actual_start=date(2026, 3, 16), percent_complete=50.0),
+                task("B", "B", 3),
+            ],
+            dependencies=[Dependency("A", "B")],
+        )
+        cpm = schedule(p)
+        mc = monte_carlo(p, runs=100, seed=5)
+        assert cpm.tasks[0].early_start == date(2026, 3, 16)
+        assert mc.p50 == cpm.project_finish
+
+    def test_completed_task_actual_start_does_not_double_floor(self) -> None:
+        """A complete task is pinned out of network logic and never reads this floor.
+
+        ``_completed_dates`` already resolves its verbatim window at FULL duration
+        (ADR-0136); adding the remaining-work floor on top would contradict it.
+        """
+        p = make_project(
+            tasks=[
+                task(
+                    "A",
+                    "A",
+                    5,
+                    actual_start=date(2026, 3, 16),
+                    actual_finish=date(2026, 3, 20),
+                    percent_complete=100.0,
+                ),
+            ],
+        )
+        cpm = schedule(p)
+        mc = monte_carlo(p, runs=50, seed=0)
+        assert cpm.project_finish == date(2026, 3, 20)
+        assert mc.p50 == mc.p95 == cpm.project_finish
+
+
+class TestMcEsFloorsUnit:
+    """Direct unit coverage of ``_mc_es_floors`` — the helper that lost the floor."""
+
+    @staticmethod
+    def _floors(p: Project) -> dict[str, float]:
+        """Build the helper's per-calendar index arguments the way ``monte_carlo`` does."""
+        from trueppm_scheduler.engine import _build_working_day_index, _mc_es_floors
+
+        task_map = {t.id: t for t in p.tasks}
+        cal_of = {t.id: p.calendar for t in p.tasks}
+        cal_key_of = {t.id: id(p.calendar) for t in p.tasks}
+        index = _build_working_day_index(p.start_date, p.calendar, 400)
+        wd_index_by_cal = {id(p.calendar): index}
+        offset_of_by_cal = {id(p.calendar): {d: i for i, d in enumerate(index)}}
+        return _mc_es_floors(p, task_map, cal_of, cal_key_of, offset_of_by_cal, wd_index_by_cal)
+
+    def test_actual_start_wins_over_snet_and_data_date(self) -> None:
+        """An actual later than both the SNET pin and the data date sets the floor."""
+        p = make_project(
+            tasks=[
+                task(
+                    "A",
+                    "A",
+                    10,
+                    planned_start=date(2026, 3, 9),  # SNET, one week in
+                    actual_start=date(2026, 3, 23),  # three weeks in — the latest
+                    percent_complete=30.0,
+                ),
+            ],
+        )
+        p.status_date = date(2026, 3, 16)  # data date, two weeks in
+        index = _build_index(p)
+        # 2-Mar is offset 0, so 23-Mar (three working weeks later) is offset 15.
+        assert index[15] == date(2026, 3, 23)
+        assert self._floors(p) == {"A": 15.0}
+
+    def test_data_date_still_wins_when_it_is_later(self) -> None:
+        """The actual start is additional to the other floors, not a replacement."""
+        p = make_project(
+            tasks=[task("A", "A", 10, actual_start=date(2026, 3, 9), percent_complete=30.0)],
+        )
+        p.status_date = date(2026, 3, 23)
+        assert self._floors(p) == {"A": 15.0}
+
+    def test_non_working_actual_snaps_to_the_next_working_day(self) -> None:
+        """A Saturday actual encodes as the following Monday's offset.
+
+        The index holds working days only, so the weekend date has no offset of
+        its own and a neighbour stands in. It is the one *after*, deliberately:
+        the offset below is earlier than the day work began, and reporting a
+        forecast earlier than the deterministic pass is the failure #2833 was.
+        """
+        p = make_project(
+            tasks=[task("A", "A", 6, actual_start=date(2026, 3, 21), percent_complete=50.0)],
+        )
+        index = _build_index(p)
+        assert index[15] == date(2026, 3, 23)  # the Monday after
+        assert self._floors(p) == {"A": 15.0}
+
+    def test_complete_task_takes_no_actual_start_floor(self) -> None:
+        p = make_project(
+            tasks=[
+                task(
+                    "A",
+                    "A",
+                    5,
+                    actual_start=date(2026, 3, 23),
+                    actual_finish=date(2026, 3, 27),
+                    percent_complete=100.0,
+                ),
+            ],
+        )
+        assert self._floors(p) == {}
+
+
+def _build_index(p: Project) -> list[date]:
+    """The working-day index ``TestMcEsFloorsUnit`` asserts offsets against."""
+    from trueppm_scheduler.engine import _build_working_day_index
+
+    return _build_working_day_index(p.start_date, p.calendar, 400)
+
+
 # ---------------------------------------------------------------------------
 # Progress-aware forecasting (ADR-0132)
 # ---------------------------------------------------------------------------

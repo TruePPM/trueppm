@@ -435,16 +435,24 @@ def test_percent_complete_finite_in_or_out_of_range_is_clamped_not_rejected(pct:
     not rejected — only non-finite / non-numeric input breaks the contract. Both
     passes must therefore accept every value here without raising.
 
-    The two passes need not agree on the finish: a task clamped to complete
-    (``pct >= 100``) carries zero remaining work, so monte_carlo (which forecasts
-    *remaining* duration) finishes at the project start while the deterministic CPM
-    finish is start + duration. The invariant that always holds is that the
-    percentiles are monotone and never exceed the deterministic finish."""
+    The two passes must also agree on the finish. This fixture has no duration
+    uncertainty, so every run is identical and the simulation collapses onto the
+    CPM date for every clamp value — including ``pct >= 100``, where the task is
+    laid out at its FULL duration by both passes rather than collapsing to zero
+    remaining work (ADR-0136, #2572).
+
+    Asserted as equality on purpose. This used to read ``mc.p95 <=
+    result.project_finish``, describing the relation as "the percentiles never
+    exceed the deterministic finish" — the *opposite* direction of the invariant
+    ``test_contract_fuzz.test_monte_carlo_never_precedes_cpm`` now pins
+    (``p50 >= project_finish``, #2833). Both passed only because this fixture
+    lands on equality, so the contradiction was invisible; a simulation that
+    finishes *before* CPM is the under-reporting bug, not a property to assert."""
     project = _one_task_project(percent_complete=pct)
     result = schedule(project)
     mc = monte_carlo(project, runs=16, seed=1, max_runs=None, max_tasks=None)
     assert result.project_finish is not None
-    assert mc.p50 <= mc.p80 <= mc.p95 <= result.project_finish
+    assert mc.p50 == mc.p80 == mc.p95 == result.project_finish
 
 
 # ---------------------------------------------------------------------------
