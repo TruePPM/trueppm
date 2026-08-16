@@ -87,6 +87,17 @@ Deactivating a user sets `auth.User.is_active = false` atomically inside the sam
 database transaction — the user is immediately locked out of authentication. To
 restore access, set their status back to `active`.
 
+In the same transaction, deactivating (or removing) a member also revokes every
+personal access token they own and blacklists all of their outstanding refresh
+tokens. Disabling the account alone would end only the session and JWT path,
+leaving a long-lived personal token — which need never expire — working at the
+member's pre-departure permissions. Revocation is durable: reactivation restores
+login but does not restore the tokens.
+
+Project- and program-scoped API tokens are org assets: they are neither revoked
+nor rejected, and keep authenticating after their minter is deactivated, so a
+team's CI is not broken by an unrelated person's off-boarding.
+
 ### Last-Owner guard
 
 The workspace must always have at least one user with the Owner role. Attempting

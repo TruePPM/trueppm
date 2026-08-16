@@ -11,14 +11,19 @@ tokens and the deleted-creator → AnonymousUser fallback.
 
 from __future__ import annotations
 
+import itertools
 from datetime import timedelta
+from typing import Any
 
 import pytest
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.utils import timezone
+from django.utils.module_loading import import_string
 from rest_framework import exceptions
-from rest_framework.test import APIRequestFactory
+from rest_framework.request import Request as DRFRequest
+from rest_framework.test import APIClient, APIRequestFactory
 
 from trueppm_api.apps.projects.authentication import (
     TOKEN_PREFIX,
@@ -264,3 +269,198 @@ class TestOwnerScopedApiTokenAuthentication:
         _mint(owner=owner, project=None, created_by=creator, revoked_at=timezone.now())
         with pytest.raises(exceptions.AuthenticationFailed):
             OwnerScopedApiTokenAuthentication().authenticate(_request(f"Bearer {_RAW_TOKEN}"))
+
+
+# --- #2832: a disabled account's tokens must stop authenticating -------------
+
+_token_counter = itertools.count(1)
+
+
+def _drf_request(authorization: str | None = None) -> DRFRequest:
+    """Wrap a factory request in a DRF ``Request``.
+
+    ``SessionAuthentication`` reads ``request._request.user``, which only exists on
+    the DRF wrapper — the bare factory request the other tests use would raise
+    ``AttributeError`` there rather than exercising the guard.
+    """
+    return DRFRequest(_request(authorization))
+
+
+def _build_personal_access_token_request(user: Any) -> DRFRequest:
+    """Mint a fresh owner-scoped PAT for ``user`` and present it as a Bearer header."""
+    raw = TOKEN_PREFIX + f"{next(_token_counter):064x}"
+    ApiToken.objects.create(
+        name="Off-boarding PAT",
+        owner=user,
+        token_prefix=raw[len(TOKEN_PREFIX) :][:8],
+        token_hash=sha256_hex(raw),
+    )
+    return _drf_request(f"Bearer {raw}")
+
+
+def _build_jwt_request(user: Any) -> DRFRequest:
+    from rest_framework_simplejwt.tokens import AccessToken
+
+    return _drf_request(f"Bearer {AccessToken.for_user(user)}")
+
+
+def _build_session_request(user: Any) -> DRFRequest:
+    """A GET request carrying the user the auth middleware would have attached.
+
+    Setting ``request.user`` directly is what ``AuthenticationMiddleware`` does; a
+    GET is a CSRF-safe method, so DRF's ``enforce_csrf`` accepts it and the only
+    thing left standing between the request and the user is the ``is_active``
+    guard this test is about.
+    """
+    request = _drf_request()
+    request._request.user = user
+    return request
+
+
+#: One credential builder per entry in ``DEFAULT_AUTHENTICATION_CLASSES``. Keyed by
+#: dotted path so a newly added authenticator has no entry and fails the test loudly
+#: rather than silently going uncovered.
+_CREDENTIAL_BUILDERS = {
+    "trueppm_api.apps.projects.authentication.OwnerScopedApiTokenAuthentication": (
+        _build_personal_access_token_request
+    ),
+    "rest_framework_simplejwt.authentication.JWTAuthentication": _build_jwt_request,
+    "rest_framework.authentication.SessionAuthentication": _build_session_request,
+}
+
+_DEFAULT_AUTHENTICATORS = list(settings.REST_FRAMEWORK["DEFAULT_AUTHENTICATION_CLASSES"])
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("dotted_path", _DEFAULT_AUTHENTICATORS)
+def test_every_default_authenticator_refuses_an_inactive_user(dotted_path: str) -> None:
+    """Regression guard for #2832 — the whole point of this file's inactive-user block.
+
+    The defect was not that one authenticator lacked a check; it was that the
+    authenticators in the *same* chain DISAGREED about a disabled account. simplejwt
+    rejected an inactive user while the PAT class had zero ``is_active`` references,
+    so off-boarding killed the session path and left long-lived personal credentials
+    fully live. Asserting the property on the PAT class alone would let the pair
+    diverge again the moment a third authenticator is added.
+
+    Parametrized over the live setting rather than a hard-coded list, so adding an
+    authenticator without proving this property fails here.
+    """
+    build = _CREDENTIAL_BUILDERS.get(dotted_path)
+    assert build is not None, (
+        f"{dotted_path} is in DEFAULT_AUTHENTICATION_CLASSES but has no credential "
+        "builder in _CREDENTIAL_BUILDERS. Add one — every authenticator in the default "
+        "chain must be proven to refuse a user whose account has been disabled (#2832)."
+    )
+    authenticator = import_string(dotted_path)()
+    slug = dotted_path.rsplit(".", 1)[-1].lower()
+
+    # Vacuity guard: prove the credential really does authenticate an ACTIVE user
+    # first, or "it refused" below would be satisfied by a broken credential.
+    active = User.objects.create_user(username=f"active_{slug}", password="pw")
+    accepted = authenticator.authenticate(build(active))
+    assert accepted is not None, f"{dotted_path} rejected a valid credential for an active user"
+    assert accepted[0] == active
+
+    inactive = User.objects.create_user(username=f"inactive_{slug}", password="pw", is_active=False)
+    try:
+        refused = authenticator.authenticate(build(inactive))
+    except exceptions.AuthenticationFailed:
+        return  # refused by raising — the PAT and JWT shape
+    # SessionAuthentication refuses by deferring (None) rather than raising; both are
+    # refusals, and both leave the request unauthenticated. What must never happen is
+    # the authenticator handing the disabled account back as request.user.
+    assert refused is None, f"{dotted_path} authenticated a user with is_active=False"
+
+
+@pytest.mark.django_db
+class TestInactiveOwnerRejected:
+    """The PAT half of the #2832 invariant, at the class level."""
+
+    def test_personal_token_of_inactive_owner_rejected(self, creator: object) -> None:
+        owner = User.objects.create_user(username="offboarded", password="pw")
+        _mint(owner=owner, project=None, created_by=creator)
+        # Sanity: live while the account is active.
+        assert ProjectApiTokenAuthentication().authenticate(_request(f"Bearer {_RAW_TOKEN}"))
+
+        owner.is_active = False
+        owner.save(update_fields=["is_active"])
+        with pytest.raises(exceptions.AuthenticationFailed):
+            ProjectApiTokenAuthentication().authenticate(_request(f"Bearer {_RAW_TOKEN}"))
+
+    def test_owner_scoped_class_rejects_inactive_owner(self, creator: object) -> None:
+        owner = User.objects.create_user(username="offboarded2", password="pw", is_active=False)
+        _mint(owner=owner, project=None, created_by=creator)
+        with pytest.raises(exceptions.AuthenticationFailed):
+            OwnerScopedApiTokenAuthentication().authenticate(_request(f"Bearer {_RAW_TOKEN}"))
+
+    def test_project_token_survives_its_minters_deactivation(self, project: Project) -> None:
+        """An ORG token is not the minter's credential and must keep authenticating.
+
+        Pins the scope of the guard, not an oversight in it. A project/program token
+        draws its authority from its own scope plus ``IsTokenForProject``; ``created_by``
+        is attribution. Refusing it — or downgrading it to ``AnonymousUser``, which the
+        token-only views' ``IsAuthenticated`` turns into a 403 — would break a team's CI
+        the moment an unrelated colleague is off-boarded, contradicting the ``owner=user``
+        scoping of the revocation this branch adds and the docs that describe it.
+        """
+        minter = User.objects.create_user(username="ex_minter", password="pw", is_active=False)
+        _mint(project=project, created_by=minter)
+        result = ProjectApiTokenAuthentication().authenticate(_request(f"Bearer {_RAW_TOKEN}"))
+        assert result is not None
+        user, _ = result
+        assert user == minter
+
+    def test_program_token_survives_its_minters_deactivation(self) -> None:
+        program = Program.objects.create(name="Prog")
+        minter = User.objects.create_user(username="ex_minter2", password="pw", is_active=False)
+        _mint(program=program, project=None, created_by=minter)
+        result = ProjectApiTokenAuthentication().authenticate(_request(f"Bearer {_RAW_TOKEN}"))
+        assert result is not None
+        assert result[0] == minter
+
+    def test_refusal_audit_row_names_the_disabled_account(self, creator: object) -> None:
+        # The 401 body stays generic, but the internal AgentAction row must not claim a
+        # revocation that never happened — a responder would chase a phantom.
+        from trueppm_api.apps.agents.models import AgentAction, AgentActionRefusalReason
+
+        owner = User.objects.create_user(username="offboarded4", password="pw", is_active=False)
+        _mint(owner=owner, project=None, created_by=creator)
+        with pytest.raises(exceptions.AuthenticationFailed):
+            ProjectApiTokenAuthentication().authenticate(_request(f"Bearer {_RAW_TOKEN}"))
+        row = AgentAction.objects.filter(refusal_reason=AgentActionRefusalReason.IDENTITY).first()
+        assert row is not None
+        assert "disabled" in row.summary
+
+    def test_refused_token_is_not_stamped_as_used(self, creator: object) -> None:
+        # last_used_at means "this credential successfully authenticated". A refused
+        # request must leave it untouched, exactly as a revoked/expired token does.
+        owner = User.objects.create_user(username="offboarded3", password="pw", is_active=False)
+        token = _mint(owner=owner, project=None, created_by=creator)
+        with pytest.raises(exceptions.AuthenticationFailed):
+            ProjectApiTokenAuthentication().authenticate(_request(f"Bearer {_RAW_TOKEN}"))
+        token.refresh_from_db()
+        assert token.last_used_at is None
+
+    def test_deleted_creator_anonymous_fallback_still_works(self, project: Project) -> None:
+        # AnonymousUser.is_active is False, so a naive check would have killed the
+        # documented SET_NULL fallback. It must still authenticate.
+        _mint(project=project, created_by=None)
+        result = ProjectApiTokenAuthentication().authenticate(_request(f"Bearer {_RAW_TOKEN}"))
+        assert result is not None
+        assert isinstance(result[0], AnonymousUser)
+
+    def test_endpoint_reachable_by_pat_returns_401_once_owner_is_deactivated(
+        self, creator: object
+    ) -> None:
+        """End-to-end: the failure scenario in #2832, through the real URL stack."""
+        owner = User.objects.create_user(username="pat_e2e", password="pw")
+        _mint(owner=owner, project=None, created_by=creator)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {_RAW_TOKEN}")
+
+        assert client.get("/api/v1/projects/").status_code == 200
+
+        owner.is_active = False
+        owner.save(update_fields=["is_active"])
+        assert client.get("/api/v1/projects/").status_code == 401

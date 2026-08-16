@@ -464,6 +464,47 @@ def _apply_member_role_change(
     return role_changed_from
 
 
+def _revoke_offboarded_credentials(target: Any) -> None:
+    """Cut off every long-lived credential of a member being off-boarded (#2832).
+
+    ``is_active = False`` alone terminates only the session/JWT path. A Personal
+    Access Token is a *separate*, long-lived bearer of the same authority, and its
+    ``expires_at`` is optional — a ``legacy:full`` PAT minted without one never
+    retires by itself. Off-boarding is the control an operator relies on to
+    terminate access, and the visible signal (the browser session dying) made it
+    look complete while ``curl -H "Authorization: Bearer <PAT>"`` kept returning
+    200 at the member's full pre-departure permissions, indefinitely.
+
+    Revocation is **durable and one-way**: reactivating the member does not
+    un-revoke anything, and nothing else in the codebase clears ``revoked_at``.
+    That is deliberate. Tokens minted before a departure have been outside the
+    organization's control in the interim (a laptop, a CI secret store, a
+    personal script), so restoring them would restore credentials of unknown
+    provenance; a returning member mints new ones. This mirrors the password-reset
+    path (``core/password_reset.py``), which revokes for the same reason.
+
+    Scope: personal (``owner=target``) tokens and refresh tokens only.
+    ``revoke_all_personal_access_tokens`` deliberately leaves project- and
+    program-scoped tokens alone — those are org assets minted *by* the departing
+    member for a team's integration, not their personal credentials, and killing
+    them would break a team's CI on an unrelated person's off-boarding.
+
+    Both writes are plain DB updates and run **inside** the caller's
+    ``transaction.atomic()`` block, not under ``transaction.on_commit()``: they
+    must roll back with a failed deactivation, and there is no external
+    side effect that would justify deferring past commit. Deferring would open a
+    window in which the deactivation is committed but the credentials are still
+    live — precisely the state this function exists to prevent.
+    """
+    from trueppm_api.apps.access.services import (
+        revoke_all_personal_access_tokens,
+        revoke_all_refresh_tokens,
+    )
+
+    revoke_all_refresh_tokens(target)
+    revoke_all_personal_access_tokens(target)
+
+
 def _apply_member_status_change(
     *, membership: WorkspaceMembership, new_status: Any, target: Any
 ) -> None:
@@ -479,6 +520,11 @@ def _apply_member_status_change(
     # authenticate, and reactivation restores login.
     target.is_active = new_status != MemberStatus.DEACTIVATED
     target.save(update_fields=["is_active"])
+    if new_status == MemberStatus.DEACTIVATED:
+        # Deactivation only — the reactivation branch deliberately has no inverse
+        # (see _revoke_offboarded_credentials): revocation is durable, and a
+        # returning member mints new tokens.
+        _revoke_offboarded_credentials(target)
 
 
 def _apply_member_availability(*, membership: WorkspaceMembership, data: dict[str, Any]) -> None:
@@ -623,6 +669,11 @@ class WorkspaceMemberDetailView(IdempotencyMixin, APIView):
             membership.save()
             target.is_active = False
             target.save(update_fields=["is_active"])
+            # Removal is a deactivation here, so it must cut off the same long-lived
+            # credentials the PATCH deactivate path does (#2832) — otherwise "remove
+            # from workspace," the strongest off-boarding action the UI offers, would
+            # be the weaker of the two.
+            _revoke_offboarded_credentials(target)
 
             # Audit inside the same transaction so the row rolls back with a
             # failed deactivation (ADR-0157). "Removed" here is a deactivation —

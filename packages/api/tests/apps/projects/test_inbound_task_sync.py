@@ -204,6 +204,31 @@ def test_valid_token_updates_last_used_at(project: Project, admin_user: Any) -> 
     assert token.last_used_at is not None
 
 
+@pytest.mark.django_db
+def test_token_still_syncs_after_its_minter_is_deactivated(
+    project: Project, admin_user: Any
+) -> None:
+    """#2832: off-boarding a colleague must not break the team's CI integration.
+
+    The workspace off-boarding path revokes only ``owner=`` personal tokens, and the
+    authenticator's disabled-account guard is scoped to ``is_personal`` for the same
+    reason. This asserts the promise end-to-end, through the real permission stack —
+    the authenticator returning a tuple is not enough, because ``IsAuthenticated`` runs
+    after it and would turn a downgraded/anonymous principal into a 403 that the
+    unit-level assertion could never see.
+    """
+    _token, raw = _mint_token(project, admin_user)
+    admin_user.is_active = False
+    admin_user.save(update_fields=["is_active"])
+
+    resp = _bearer(APIClient(), raw).post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-9", "name": "Issue 9"},
+        format="json",
+    )
+    assert resp.status_code == 201
+
+
 # ---------------------------------------------------------------------------
 # Upsert behavior
 # ---------------------------------------------------------------------------

@@ -124,11 +124,6 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
             self._mark_identity_refusal(request)
             raise exceptions.AuthenticationFailed(_INVALID_TOKEN_DETAIL)
 
-        # last_used_at is updated in a single UPDATE so we don't perturb the
-        # token's server_version or audit_history.  The audit row for the
-        # specific use is written by the view (which holds the URL kwargs).
-        ProjectApiToken.objects.filter(pk=token.pk).update(last_used_at=timezone.now())
-
         # request.user resolution (ADR-0214):
         #   - Personal Access Token → the ``owner`` (the acting user). Because
         #     request.user becomes the owner, ALL downstream DRF object-level RBAC
@@ -139,7 +134,65 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
         #     minted the integration.
         #   - Neither present (a project/program token whose SET_NULL minter was
         #     deleted) → AnonymousUser.
-        user = token.owner or token.created_by or AnonymousUser()
+        resolved = token.owner or token.created_by
+
+        # Disabled-account handling (#2832). The invariant: a credential that derives
+        # its authority from a human must stop working when that human's account is
+        # disabled. Every other authenticator in DEFAULT_AUTHENTICATION_CLASSES already
+        # held it — simplejwt rejects an inactive user by default and DRF's
+        # SessionAuthentication checks ``user.is_active`` — while this class had no
+        # ``is_active`` reference at all, so off-boarding a member killed their sessions
+        # and JWTs and left every Personal Access Token they had minted live, bearing
+        # their full pre-departure authority. ``IsAuthenticated`` cannot close that:
+        # ``User.is_authenticated`` is unconditionally True.
+        #
+        # This is defense in depth, not the primary control — the workspace off-boarding
+        # paths revoke the tokens outright (apps/workspace/views.py). It catches accounts
+        # disabled by some *other* path (Django admin, a management command, a future
+        # SSO/SCIM deprovision), which never touch ``revoked_at``.
+        #
+        # The guard is scoped to ``is_personal`` on purpose, and the scope is the whole
+        # design decision — read this before widening it:
+        #
+        #   * A **personal** token IS the human's credential. It exists to act as them
+        #     and inherits their permissions wholesale, so disabling the account has to
+        #     kill it. That is #2832.
+        #   * A **project/program** token is an ORG asset. Its authority comes from its
+        #     own project/program scope plus ``IsTokenForProject``; ``created_by`` is
+        #     history attribution for whoever minted it, not the source of its rights.
+        #     Rejecting it would kill a team's CI the moment an unrelated colleague is
+        #     off-boarded — the very outcome ``revoke_all_personal_access_tokens``'s
+        #     ``owner=user`` scoping (and the off-boarding path that calls it) exists to
+        #     avoid. Downgrading to ``AnonymousUser`` instead is no better: both
+        #     token-only views pair ``IsTokenForProject`` with ``IsAuthenticated``, so an
+        #     anonymous principal 403s there — same broken pipeline, different status
+        #     code. Leaving these tokens alone is therefore the only option that keeps
+        #     the promise the revocation scope makes.
+        #
+        # Residual, pre-existing and deliberately NOT closed here: on the MCP-readable
+        # surface a project/program token still resolves ``request.user`` to its minter,
+        # so a deactivated minter's memberships still drive that read-only RBAC. That is
+        # a property of ADR-0214's attribution model, not of off-boarding, and narrowing
+        # it belongs with the MCP guards rather than in the shared base authenticator.
+        #
+        # The refusal is placed BEFORE the ``last_used_at`` stamp below so a refused
+        # request leaves no trace of "use" on the token, exactly as a revoked or expired
+        # token does — the stamp means "this credential successfully authenticated," and
+        # it would be misleading on a token that did not.
+        if token.is_personal and resolved is not None and not resolved.is_active:
+            # Same refusal path as a dead token: identical generic 401, same audit
+            # bounding, so a caller cannot distinguish "owner disabled" from "revoked"
+            # from "never existed" — anti-enumeration is unchanged.
+            self._audit_identity_refusal(request, raw_token)
+            self._mark_identity_refusal(request)
+            raise exceptions.AuthenticationFailed(_INVALID_TOKEN_DETAIL)
+
+        # last_used_at is updated in a single UPDATE so we don't perturb the
+        # token's server_version or audit_history.  The audit row for the
+        # specific use is written by the view (which holds the URL kwargs).
+        ProjectApiToken.objects.filter(pk=token.pk).update(last_used_at=timezone.now())
+
+        user = resolved or AnonymousUser()
         return (user, token)
 
     def _mark_identity_refusal(self, request: Request) -> None:
@@ -168,7 +221,12 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
         )
 
     def _audit_identity_refusal(self, request: Request, raw_token: str) -> None:
-        """Record a refused/identity AgentAction for a real-but-dead token, at most once.
+        """Record a refused/identity AgentAction for a real-but-unusable token, at most once.
+
+        "Unusable" is either a dead token (revoked/expired/soft-deleted) or a live token
+        whose owning account has been disabled (#2832) — both are a real credential being
+        presented after it stopped conferring authority, and both are bounded by the
+        number of tokens ever minted.
 
         Runs on the authentication-failure path, inside the request's ATOMIC_REQUESTS
         transaction, before ``AuthenticationFailed`` is raised (DRF turns that into a 401
@@ -216,6 +274,16 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
         ).exists():
             return
 
+        # Name the actual refusal class. A responder reading this row for a token whose
+        # owner was disabled would otherwise hunt for a revocation that never happened —
+        # the row is internal-only (the 401 body stays generic), so it costs no
+        # enumeration signal to be accurate here.
+        summary = (
+            "Rejected an API token whose owning account is disabled"
+            if dead.owner is not None and not dead.owner.is_active
+            else "Rejected a revoked/expired/deleted API token"
+        )
+
         xff = request.META.get("HTTP_X_FORWARDED_FOR")
         source_ip = xff.split(",")[0].strip() if xff else request.META.get("REMOTE_ADDR")
         try:
@@ -232,7 +300,7 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
                 # token_identity refusal; an identity rejection carries no schedule impact.
                 refusal_constraint=RefusalConstraint.TOKEN_IDENTITY,
                 payload_hash=hash_request_payload(request),
-                summary="Rejected a revoked/expired/deleted API token",
+                summary=summary,
                 source_ip=source_ip,
             )
         except Exception:
