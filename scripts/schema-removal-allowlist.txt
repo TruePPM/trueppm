@@ -96,3 +96,14 @@ schema:PaginatedSampleCatalogEntryList
 # The response body is unchanged and both paths are unchanged — only the
 # unsatisfiable, now-unreferenced component is dropped, as in #2127 and #2515.
 schema:PaginatedWebhookDeliveryList
+
+# #2840 — POST /me/notification-preferences/apply-preset/ carried no
+# @extend_schema, so drf-spectacular guessed its requestBody from the viewset's
+# NotificationPreferenceSerializer. That guess was the ONLY reference to the
+# non-patched write component: the endpoint's real body is {"preset": …}
+# (now NotificationPreferencePresetRequestRequest), and the only other write on
+# this surface is a PATCH, which uses PatchedNotificationPreferenceRequest. So
+# the component described a request no endpoint has ever accepted. No path is
+# removed and no response body changes — only the phantom component, as in
+# #2127, #2515 and #2583.
+schema:NotificationPreferenceRequest
