@@ -9,6 +9,7 @@ docstrings on the (de)serialization surface.
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import date, timedelta
 
 import pytest
@@ -126,6 +127,200 @@ class TestDegenerateInputContract:
         # A consumer can now catch any scheduler-originated failure with one type.
         with pytest.raises(SchedulerError):
             schedule(_empty_project())
+
+
+_EXPECTED_FIELD_ORDER: dict[str, list[str]] = {
+    "Calendar": [
+        "working_days",
+        "exceptions",
+        "hours_per_day",
+        "timezone",
+        "_exc_index",
+        "_exc_src",
+    ],
+    "CycleCheck": ["cycle"],
+    "DateRange": ["start", "end"],
+    "Dependency": ["predecessor_id", "successor_id", "dep_type", "lag"],
+    "Derivation": [
+        "task_id",
+        "task_name",
+        "quantity",
+        "value",
+        "pass_",
+        "is_critical",
+        "binding",
+        "contributions",
+    ],
+    "DerivationContribution": [
+        "kind",
+        "source_task_id",
+        "source_task_name",
+        "dep_type",
+        "lag_days",
+        "imposed_date",
+        "calendar_days_added",
+        "slack_days",
+        "is_binding",
+    ],
+    "DrivingEdge": ["predecessor_id", "successor_id", "dep_type"],
+    "MonteCarloResult": [
+        "project_id",
+        "runs",
+        "p50",
+        "p80",
+        "p95",
+        "distribution",
+        "sensitivity",
+    ],
+    "Project": [
+        "id",
+        "name",
+        "start_date",
+        "tasks",
+        "dependencies",
+        "calendar",
+        "velocity_samples",
+        "sprint_length_days",
+        "status_date",
+        "calendars",
+    ],
+    "ScheduleResult": [
+        "project_id",
+        "project_start",
+        "project_finish",
+        "tasks",
+        "critical_path",
+        "driving_edges",
+    ],
+    "SummaryExpansion": ["tasks", "dependencies"],
+    "Task": [
+        "id",
+        "name",
+        "duration",
+        "planned_start",
+        "planned_finish",
+        "early_start",
+        "early_finish",
+        "late_start",
+        "late_finish",
+        "total_float",
+        "free_float",
+        "is_critical",
+        "percent_complete",
+        "actual_start",
+        "actual_finish",
+        "optimistic_duration",
+        "most_likely_duration",
+        "pessimistic_duration",
+        "delivery_mode",
+        "story_points",
+        "calendar_id",
+        # Appended (#2836) rather than grouped with the other CPM-computed
+        # dates, so 0.3.0a3's positional order is preserved exactly.
+        "scheduled_start",
+    ],
+    "TaskSensitivity": ["task_id", "index"],
+}
+
+
+class TestDataclassFieldOrderContract:
+    """Field order of every exported dataclass is a positional contract (#2836).
+
+    ``Task`` and friends are plain, non-``kw_only`` dataclasses exported in
+    ``__all__``, so their declaration order *is* the positional signature every
+    PyPI consumer binds against. Nothing else catches a mid-sequence insertion:
+    dataclasses do no runtime type validation, so a consumer passing the old
+    positional order gets **no** ``TypeError`` — the arguments simply land in the
+    wrong fields and propagate into float and criticality output as a confident,
+    wrong answer. ``Task.scheduled_start`` was inserted between ``late_finish``
+    and ``total_float`` and shifted the twelve fields after it; that is the bug
+    this class exists to make impossible to repeat.
+
+    **New fields append.** If one of these assertions fails because you added a
+    field, move it to the end of the class and append its name to the list here.
+    Do not simply paste the new order in: that would re-freeze a break.
+    Reordering or removing a field is a major-version change and needs a
+    ``### Changed`` entry in ``packages/scheduler/CHANGELOG.md``.
+
+    Private, ``init=False`` bookkeeping fields (``Calendar._exc_index`` /
+    ``_exc_src``) are pinned too — they consume no positional slot, but pinning
+    the full ``dataclasses.fields()`` order keeps this a single, unambiguous
+    statement of what the class declares.
+    """
+
+    def test_every_exported_dataclass_is_pinned_here(self) -> None:
+        """A newly exported dataclass must be added to the map, not skipped.
+
+        Without this, a new dataclass would join ``__all__`` with no order
+        contract at all and the guard would silently stop covering it.
+        """
+        exported = {
+            name
+            for name in ts.__all__
+            if dataclasses.is_dataclass(obj := getattr(ts, name)) and isinstance(obj, type)
+        }
+        assert exported == set(_EXPECTED_FIELD_ORDER), (
+            "Exported dataclasses and the pinned field-order map disagree; "
+            f"unpinned={sorted(exported - set(_EXPECTED_FIELD_ORDER))}, "
+            f"stale={sorted(set(_EXPECTED_FIELD_ORDER) - exported)}"
+        )
+
+    @pytest.mark.parametrize("name", sorted(_EXPECTED_FIELD_ORDER))
+    def test_field_order_matches_the_published_positional_contract(self, name: str) -> None:
+        cls = getattr(ts, name)
+        actual = [f.name for f in dataclasses.fields(cls)]
+        assert actual == _EXPECTED_FIELD_ORDER[name], (
+            f"{name} field order changed — this is a positional break for every "
+            "consumer constructing it positionally, and dataclasses raise no "
+            "TypeError to warn them. Append new fields at the end instead."
+        )
+
+
+class TestPositionalConstruction:
+    """A positionally-constructed Task must schedule identically (#2836)."""
+
+    def test_positional_and_keyword_task_agree_on_float(self) -> None:
+        # The exact shape a 0.3.0a3 consumer writes: ten positional arguments,
+        # the tenth being total_float. Under the mid-sequence insertion that
+        # tenth argument bound to scheduled_start instead — no exception, just a
+        # wrong total_float, free_float and is_critical out of schedule().
+        positional = Task(
+            "t1",
+            "Build",
+            timedelta(days=5),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            timedelta(days=2),
+            timedelta(days=1),
+            False,
+            50.0,
+        )
+        keyword = Task(
+            id="t1",
+            name="Build",
+            duration=timedelta(days=5),
+            total_float=timedelta(days=2),
+            free_float=timedelta(days=1),
+            is_critical=False,
+            percent_complete=50.0,
+        )
+        assert positional == keyword
+        assert positional.total_float == timedelta(days=2)
+        assert positional.free_float == timedelta(days=1)
+        assert positional.percent_complete == 50.0
+        # The inserted field must not have swallowed a positional slot.
+        assert positional.scheduled_start is None
+
+        def _floats(t: Task) -> tuple[timedelta, timedelta, bool]:
+            result = schedule(Project(id="p", name="P", start_date=date(2026, 1, 5), tasks=[t]))
+            out = result.tasks[0]
+            return out.total_float, out.free_float, out.is_critical
+
+        assert _floats(positional) == _floats(keyword)
 
 
 class TestEnumCasingContract:

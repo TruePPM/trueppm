@@ -29,7 +29,9 @@ change between releases. Pin an exact version (e.g.
   cites that actual; otherwise the citation is the calendar-aware full-duration
   back-off from `early_finish`. See the ADR for the full per-state derivation
   table and the `scheduled_start > duration`-when-`actual_start`-is-set
-  behavior, which is deliberate.
+  behavior, which is deliberate. It is declared **last** in the `Task` field
+  list, so `Task`'s positional signature is unchanged from 0.3.0a3 — see the
+  `### Changed` note below for why that placement is load-bearing.
 - The public API is now property-fuzzed in CI: every input to `schedule()`,
   `monte_carlo()`, `find_cycle()`, `expand_summary_dependencies()`, and
   `Project.from_json()` either succeeds or raises a documented `SchedulerError`
@@ -41,6 +43,21 @@ change between releases. Pin an exact version (e.g.
 
 ### Changed
 
+- **`Task.scheduled_start` is declared last, so `Task`'s positional field order
+  is identical to 0.3.0a3.** While unreleased, the new field sat between
+  `late_finish` and `total_float`, which shifted the twelve fields after it by
+  one positional slot. Because dataclasses perform no runtime type validation,
+  a consumer constructing `Task` positionally would have received **no
+  `TypeError`** — a `timedelta` intended for `total_float` would simply have
+  been stored in `scheduled_start`, `total_float` would have taken the old
+  `free_float` argument, and the wrong values would have propagated silently
+  into `schedule()`'s float and criticality output. Moving the field to the end
+  of the class keeps the addition genuinely additive for anyone pinned to
+  0.3.0a3. Field order in an exported, non-`kw_only` dataclass is part of this
+  package's public contract; new fields append. The order of every dataclass in
+  `__all__` is now pinned by `tests/test_public_surface.py`, so the next
+  mid-sequence insertion fails at test time rather than in a consumer's
+  schedule (#2836).
 - **`Calendar.exceptions` is now an immutable `tuple` of frozen `DateRange`s.**
   Any iterable is still accepted at construction, so `Calendar(exceptions=[...])`
   — including the whole `from_dict` / `from_json` path — is unchanged. What is no
