@@ -124,6 +124,29 @@ This does **not** touch project or program API tokens — those are shared team
 assets minted by a project or program admin, not personal credentials, so a
 password change never breaks a team's CI integration.
 
+## Off-boarding revokes every PAT
+
+:::note[Ships in 0.4]
+Automatic revocation on deactivation or removal ships in **TruePPM 0.4**. In
+`v0.3.0-alpha.3` (the latest release), deactivating a member disables their login
+but leaves their personal access tokens usable — revoke them by hand.
+:::
+
+When a workspace Admin **deactivates** a member or **removes** them from the
+workspace, all of that member's personal access tokens are revoked and all of
+their sessions are signed out, in the same transaction that disables the account.
+Off-boarding is the control an operator relies on to terminate access, so it has
+to cut long-lived credentials too — not only the browser session, which is the
+only part of it a departing user's access visibly loses.
+
+Revocation is **durable and one-way**. Reactivating a member restores their
+login, but it does not un-revoke their tokens: those tokens were outside the
+organization's control while the member was gone, so a returning member creates
+new ones.
+
+As with a password change, project and program API tokens are left alone — they
+are shared team assets, and they keep working through an off-boarding.
+
 ## Security notes
 
 - A PAT is a **full-authority** bearer of your account. Treat it like a password:

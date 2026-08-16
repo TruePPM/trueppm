@@ -9,7 +9,8 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Project
+from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
+from trueppm_api.apps.projects.models import ApiToken, Project
 from trueppm_api.apps.workspace.models import (
     MemberStatus,
     Workspace,
@@ -459,3 +460,164 @@ def test_members_list_is_cursor_paginated_and_query_bounded(
     assert resp.data["next"] is not None  # more pages remain
     # Cursor pagination intentionally omits the expensive total COUNT.
     assert "count" not in resp.data
+
+
+# --- #2832: off-boarding must revoke long-lived credentials ------------------
+
+
+def _mint_pat(user: object, raw: str) -> ApiToken:
+    """Mint an owner-scoped Personal Access Token for ``user``."""
+    return ApiToken.objects.create(
+        name="Personal",
+        owner=user,
+        token_prefix=raw[len(TOKEN_PREFIX) :][:8],
+        token_hash=sha256_hex(raw),
+    )
+
+
+def _outstanding_refresh_token(user: object) -> object:
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    return RefreshToken.for_user(user)
+
+
+def _blacklisted_count(user: object) -> int:
+    from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
+
+    return BlacklistedToken.objects.filter(token__user=user).count()
+
+
+@pytest.mark.django_db
+def test_deactivate_revokes_personal_access_tokens_and_refresh_tokens(
+    superadmin: object, member: object
+) -> None:
+    """#2832: ``is_active = False`` alone left every PAT live and unexpiring."""
+    pat = _mint_pat(member, TOKEN_PREFIX + ("a" * 64))
+    _outstanding_refresh_token(member)
+
+    resp = _client(superadmin).patch(
+        _detail(member), {"status": MemberStatus.DEACTIVATED}, format="json"
+    )
+    assert resp.status_code == 200
+
+    pat.refresh_from_db()
+    assert pat.revoked_at is not None
+    assert _blacklisted_count(member) == 1
+
+
+@pytest.mark.django_db
+def test_delete_revokes_personal_access_tokens_and_refresh_tokens(
+    superadmin: object, member: object
+) -> None:
+    """Removal is a deactivation here, so it must cut the same credentials (#2832)."""
+    pat = _mint_pat(member, TOKEN_PREFIX + ("b" * 64))
+    _outstanding_refresh_token(member)
+
+    assert _client(superadmin).delete(_detail(member)).status_code == 204
+
+    pat.refresh_from_db()
+    assert pat.revoked_at is not None
+    assert _blacklisted_count(member) == 1
+
+
+@pytest.mark.django_db
+def test_reactivation_does_not_restore_revoked_tokens(superadmin: object, member: object) -> None:
+    """Revocation is durable and one-way — a returning member mints new tokens (#2832).
+
+    A token that was outside the organization's control during the absence must not
+    silently become valid again when the account is re-enabled.
+    """
+    pat = _mint_pat(member, TOKEN_PREFIX + ("c" * 64))
+    admin = _client(superadmin)
+
+    assert (
+        admin.patch(
+            _detail(member), {"status": MemberStatus.DEACTIVATED}, format="json"
+        ).status_code
+        == 200
+    )
+    pat.refresh_from_db()
+    revoked_at = pat.revoked_at
+    assert revoked_at is not None
+
+    assert (
+        admin.patch(_detail(member), {"status": MemberStatus.ACTIVE}, format="json").status_code
+        == 200
+    )
+    member.refresh_from_db()
+    assert member.is_active is True  # login is restored...
+    pat.refresh_from_db()
+    assert pat.revoked_at == revoked_at  # ...the token is not
+
+
+@pytest.mark.django_db
+def test_self_deactivation_revokes_the_actors_own_credentials(db: object) -> None:
+    """Self-edits are exempt from the peer guard, so an Admin can off-board themselves.
+
+    The revocation then destroys the credentials of the very request serving it. That is
+    intended — a member stepping away should not keep a live PAT — but it is a surprising
+    enough sequence to pin, so a later refactor cannot quietly exempt the actor.
+    """
+    ws = Workspace.load()
+    actor = User.objects.create_user(username="adm_self", password="pw")
+    # A second Owner-tier account so the last-Owner strand guard does not fire first.
+    other = User.objects.create_user(username="own_self", password="pw")
+    WorkspaceMembership.objects.create(workspace=ws, user=actor, role=WorkspaceRole.ADMIN)
+    WorkspaceMembership.objects.create(workspace=ws, user=other, role=WorkspaceRole.OWNER)
+    pat = _mint_pat(actor, TOKEN_PREFIX + ("f" * 64))
+
+    resp = _client(actor).patch(_detail(actor), {"status": MemberStatus.DEACTIVATED}, format="json")
+    assert resp.status_code == 200
+
+    pat.refresh_from_db()
+    assert pat.revoked_at is not None
+
+
+@pytest.mark.django_db
+def test_forbidden_deactivation_does_not_revoke_tokens(db: object) -> None:
+    """The peer/higher-role guard fires BEFORE the revocation, and it is atomic (#2832).
+
+    Revocation is irreversible, so "an Admin cannot deactivate a peer Admin" has to mean
+    the peer's credentials survive the attempt — not merely that the response is a 403.
+    """
+    ws = Workspace.load()
+    actor = User.objects.create_user(username="adm_rev_a", password="pw")
+    peer = User.objects.create_user(username="adm_rev_b", password="pw")
+    WorkspaceMembership.objects.create(workspace=ws, user=actor, role=WorkspaceRole.ADMIN)
+    WorkspaceMembership.objects.create(workspace=ws, user=peer, role=WorkspaceRole.ADMIN)
+    pat = _mint_pat(peer, TOKEN_PREFIX + ("e" * 64))
+
+    assert (
+        _client(actor)
+        .patch(_detail(peer), {"status": MemberStatus.DEACTIVATED}, format="json")
+        .status_code
+        == 403
+    )
+    assert _client(actor).delete(_detail(peer)).status_code == 403
+
+    pat.refresh_from_db()
+    assert pat.revoked_at is None
+    peer.refresh_from_db()
+    assert peer.is_active is True
+
+
+@pytest.mark.django_db
+def test_deactivate_leaves_project_scoped_tokens_alone(superadmin: object, member: object) -> None:
+    """Scope discipline: a project token is an org asset, not the member's credential.
+
+    Revoking it on an unrelated person's off-boarding would break the team's CI.
+    """
+    project = Project.objects.create(name="P", start_date=date(2026, 1, 1))
+    raw = TOKEN_PREFIX + ("d" * 64)
+    org_token = ApiToken.objects.create(
+        name="CI",
+        project=project,
+        created_by=member,
+        token_prefix=raw[len(TOKEN_PREFIX) :][:8],
+        token_hash=sha256_hex(raw),
+    )
+
+    assert _client(superadmin).delete(_detail(member)).status_code == 204
+
+    org_token.refresh_from_db()
+    assert org_token.revoked_at is None

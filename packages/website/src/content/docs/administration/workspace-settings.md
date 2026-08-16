@@ -210,6 +210,38 @@ Deactivating a user sets `auth.User.is_active = false` atomically inside the sam
 database transaction — the user is immediately locked out of authentication. To
 restore access, set their status back to `active`.
 
+#### Off-boarding also revokes long-lived credentials
+
+:::note[Ships in 0.4]
+Credential revocation on deactivate/remove ships in **TruePPM 0.4**. In
+`v0.3.0-alpha.3` (the latest release), deactivation disables the account but
+leaves the member's personal access tokens live — revoke them by hand from their
+token list before treating an off-boarding as complete.
+:::
+
+Deactivating a member — and removing one, which is a deactivation here — also, in
+the same transaction:
+
+- **revokes every personal access token they own**, so a script still holding one
+  starts failing with `401` on its next request; and
+- **signs out every device**, by blacklisting all of their outstanding refresh
+  tokens.
+
+Without this, disabling the account would terminate only the session and JWT
+path. A personal access token is a separate, long-lived bearer of the same
+authority, and one minted without an expiry never retires on its own — so an
+off-boarded member would keep full API access at their pre-departure permissions
+indefinitely.
+
+Revocation is **durable**: setting the member back to `active` restores their
+login but does not un-revoke their tokens. A returning member creates new ones.
+
+Project- and program-scoped API tokens are org assets rather than personal
+credentials. They are neither revoked nor rejected, and keep authenticating even
+when the member who minted them is deactivated — a token's authority comes from
+its own project or program scope, not from that person's account, so off-boarding
+one person never breaks a team's CI integration.
+
 ### Last-Owner guard
 
 The workspace must always have at least one user with the Owner role. Attempting
