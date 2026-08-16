@@ -94,6 +94,43 @@ Using the research results, evaluate each finding against the checklist below. P
 - [ ] No dependencies with known CVEs of severity High or Critical
 - [ ] License audit: no GPL/AGPL dependencies in Apache 2.0 codebase
 
+## Peer-path divergence — check the set, not the instance
+
+The highest-yield structural check in this codebase: **when several implementations sit
+behind one abstraction, verify they agree on every security-relevant decision.** A control
+enforced by one member and silently omitted by its peer is the shape of most auth findings
+here, and it is invisible from either file alone — each looks internally coherent.
+
+Enumerate the set from the live registry (the settings list, the router's children, the
+resolver's choices), never from a hand-written list, then check each member against the
+same question:
+
+- **Authentication classes** — does each refuse a disabled/deleted principal? A 0.4 blocker:
+  the JWT class honored the account's active flag by library default, its token sibling in
+  the same `DEFAULT_AUTHENTICATION_CLASSES` never consulted it, and off-boarding revoked
+  neither. Session, token, and JWT classes may refuse via *different mechanisms* (raising vs
+  returning `None`) — assert the **invariant** ("never returns a disabled principal"), not
+  the mechanism.
+- **Termination paths** — every way an identity can be revoked (deactivate, remove, delete,
+  role downgrade, membership removal) must revoke *every* credential class it should: session,
+  refresh token, long-lived API token, live WebSocket, and durable public grants such as
+  share links. Build the matrix of {termination path} × {credential class} and find the
+  empty cells. Cells are routinely missed because each path was written when fewer
+  credential classes existed.
+- **Deployment renderings** — the same config rendered by chart, compose, and a baked image
+  will drift. Check the *recommended production path* explicitly; it is frequently the least
+  hardened, because hardening lands on whichever rendering the reporter was using.
+- **Read vs write gates on the same resource** — a policy enforced when serving is not
+  necessarily enforced when minting, and vice versa.
+
+**Scope a termination guard to the credential's actual authority.** Not every credential
+derives authority from a human account: an org- or project-scoped token is an asset of the
+project, and revoking it because its minter left breaks unrelated automation. Getting this
+wrong converts a security fix into an outage. Decide per credential class whether authority
+is personal or organizational, and record the reasoning in the code.
+
+Report the denominator: "checked N members of the set, M diverged."
+
 ## Output Format
 
 For each finding:

@@ -79,6 +79,24 @@ Uniformity or Sustainability rates MEDIUM or LOW.
 
 These are concrete patterns derived from prior pre-release audit findings that surfaced after merge. Run each grep against the touched files in `packages/web/src/`. Any match is a HIGH severity finding unless explicitly justified.
 
+> **Run these greps yourself. Do not substitute "the CI gate is green" for running them.**
+> The sub-12px entry below has always included `text-[11px]` in its grep. The CI gate
+> implementing the same rule matched only `0-9px` and `10px` — it was structurally
+> incapable of reporting an `11px` violation, in any file, in any tree. **Six remediation
+> sweeps (#434, #650, #1023, #1229, #1332, #2043) ran against that blind gate and came back
+> green**, and 10 fresh violations accumulated behind it (#2858).
+>
+> The general form, and the most valuable thing this section can teach: **a rule stated in
+> prose and a gate implementing it are two artifacts that drift, and the gate's green output
+> is not evidence about the rule.** When a violation you can see by eye is not being
+> reported, suspect the gate before doubting the finding — then read the gate's pattern
+> against the rule it claims to enforce. Three of these entries had this defect at 0.4: one
+> regex that could not express its rule, one regression spec that sampled two hardcoded
+> controls where the rule is universal, and one pattern with no gate at all.
+>
+> When you fix a violation in any entry below, also confirm the corresponding gate would
+> have caught it — and if it would not, widening the gate belongs in the same MR.
+
 - **`focus:` vs `focus-visible:` gate** — the permitted form on standalone interactive controls is `focus:ring-...`. `focus-visible:` produces *invisible* focus indicators in Firefox and desktop Safari for pointer-driven focus on standalone buttons, dropdown triggers, tab controls, modal tabs, accordion headers, and inline confirm rows. Reserve `focus-visible:` for elements that receive programmatic focus from drag-and-drop libraries or keyboard-only flows. Grep: `grep -rn "focus-visible:" packages/web/src/`. Flag every match on a standalone interactive control as HIGH.
 - **Sub-12px informational text gate** — every piece of *informational* text (stats, timestamps, identifiers, badge counts, shortcut hints) must be ≥12px / `text-xs`. Sub-12px sizes are reserved for decorative single-glyph indicators (e.g. `aria-hidden` chevrons) where meaning is carried by an adjacent label or `title`. **Two standing exceptions — do not flag these:** (a) files under `features/settings/` use the compact admin density of `packages/web/CLAUDE.md` rule 118, where `text-[11px]` and `text-[10px]` are permitted; (b) the `EnterpriseBadge` component is *required* by rule 121 to render at `text-[10px]`. The exception floor is `text-[10px]` — `text-[9px]` and smaller are prohibited everywhere, including settings. Grep: `grep -rnE 'text-\[(9|10|11)px\]' packages/web/src/`; before flagging a `[10px]`/`[11px]` match, confirm it is *outside* `features/settings/` and not the `EnterpriseBadge`. Any `text-[9px]` or below is HIGH regardless of location.
 - **Raw color-token gate** — Design System v1.0 uses semantic tokens. Raw Tailwind shades like `bg-blue-500`, `text-red-700`, `border-amber-400` indicate token drift on touched files. Grep: `grep -rnE '\b(bg|text|border|ring)-(blue|red|amber|emerald|sky|slate|gray)-[0-9]{3}\b' packages/web/src/`. Flag matches that should be a semantic token (`bg-primary`, `text-error`, `border-warning`, etc.).

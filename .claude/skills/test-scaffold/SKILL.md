@@ -65,6 +65,46 @@ Stale mocks silently pass `tsc` — they break only at runtime. When scaffolding
 - For every fixture using model factory kwargs: grep the model definition first
 - For every assertion on UI copy: grep the component for the actual current string
 
+## Watch the guard fail first
+
+A test written after the fix, that has only ever been seen to pass, proves nothing about
+whether it can detect the defect. It may be asserting something unrelated, its fixture may
+never reach the failing branch, or its data generator may filter out every input that would
+trip it.
+
+**For any test whose purpose is to prevent a specific defect from recurring, run it against
+the pre-fix code and confirm it fails.** Stash the source change (not the test), run, and
+record the before/after in the MR. If reverting is impractical, construct the failing input
+directly and assert the test catches it.
+
+This is not ceremony. In a single 0.4 fix batch it caught:
+- an invariant test that **passed against a provably broken engine**, because it reused an
+  adversarial data generator whose examples were ~92% rejected by validation before ever
+  reaching the code under test
+- a scanner whose own pattern was mis-anchored and matched nothing
+- a CI gate whose regex could not express the rule it claimed to enforce, which had been
+  reporting green across six separate remediation sweeps
+
+State the before/after counts explicitly. "Fails against `origin/main` with N findings,
+passes here with 0" is the claim; "added a regression test" is not.
+
+## Scaffolding for a defect class, not a defect
+
+When the test exists because a bug was found, scaffold for the **class**:
+
+- **Enumerate the set, assert over all of it.** If the bug was one route, one authenticator,
+  one serializer, or one engine pass, parametrize over every member — ideally derived from
+  the live registry (the settings list, the router's children, `__all__`) rather than a
+  hand-copied list, so a member added later is covered automatically and a member added
+  without a fixture fails loudly.
+- **Assert the relationship, not just the value.** Where two code paths must agree —
+  two engines, two authenticators, a deterministic pass and its probabilistic sibling, a
+  declared schema and an actual response — the durable test asserts the *invariant between
+  them*. A 0.4 blocker survived ~99% line coverage because every test checked each path in
+  isolation and none checked that they agreed.
+- **Guard against vacuous passes.** A parametrized or scanning test that matches zero cases
+  passes silently. Assert a non-zero denominator.
+
 ## Output
 
 For each scaffolded test file, produce:
