@@ -171,7 +171,7 @@ defaulted in the script itself. Current entries:
 
 | Image:tag | Reason | Issue |
 |---|---|---|
-| `api:v0.3.0-alpha.3` | Trivy HIGH CVEs disclosed after the tag was cut fall outside the tag's `cryptography<49` pin ceiling; rebuilding can never pass the scan. Accepted rather than backported — superseded by `v0.4.0-alpha.1`. | #2822 |
+| `api:v0.3.0-alpha.3` | Trivy HIGH CVEs disclosed after the tag was cut fall outside the tag's `cryptography<49` pin ceiling; rebuilding can never pass the scan. Accepted rather than backported — superseded by `v0.4.0-beta.1`. | #2822 |
 
 An entry matches one exact tag, so it does not widen if a new release tag is
 cut — remove it once the tag it names is no longer the newest resolvable `v*`

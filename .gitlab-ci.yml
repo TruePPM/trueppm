@@ -5089,7 +5089,7 @@ registry:release-images:
     # cryptography>=48.0.1,<49, which now carries two HIGH CVEs disclosed
     # after the tag was cut, and the tag's own pin ceiling makes the fix
     # unreachable from that ref. Decision (#2822): accept the permanent gap
-    # for this one pre-0.4 tag rather than backport — v0.4.0-alpha.1, cut
+    # for this one pre-0.4 tag rather than backport — v0.4.0-beta.1, cut
     # once the beta-readiness batch lands, is the release operators should be
     # pointed to. Remove this entry once v0.3.0-alpha.3 is no longer the
     # latest resolvable v* tag (it self-obsoletes then, but the line goes
