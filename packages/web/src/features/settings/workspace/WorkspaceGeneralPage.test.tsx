@@ -35,7 +35,7 @@ const WS: WorkspaceSettings = {
   iterationLabelOverridePolicy: 'suggest',
   mcHistoryEnabled: true,
   mcHistoryRetentionCap: 100,
-  mcHistoryAttributionAudience: 'ADMIN_OWNER',
+  mcHistoryAttributionAudience: 'admin_owner',
   mcHistoryOverridePolicy: 'suggest',
   taskDurationChangePercentPolicy: 'prorate',
   taskDurationChangePercentOverridePolicy: 'suggest',
@@ -174,7 +174,7 @@ describe('WorkspaceGeneralPage — forecast history', () => {
     ).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByRole('spinbutton', { name: 'Run history limit' })).toHaveValue(100);
     expect(screen.getByRole('combobox', { name: 'Run attribution visible to' })).toHaveValue(
-      'ADMIN_OWNER',
+      'admin_owner',
     );
   });
 

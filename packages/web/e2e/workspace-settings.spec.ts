@@ -39,9 +39,13 @@ const WORKSPACE = {
   // so the General page renders plain (non-inheritable) controls seeded from these.
   mc_history_enabled: true,
   mc_history_retention_cap: 100,
-  mc_history_attribution_audience: 'ADMIN_OWNER',
+  mc_history_attribution_audience: 'admin_owner',
   mc_history_override_policy: 'suggest',
 };
+
+// The wire spelling of MCAttributionAudience (#2841) — Django TextChoices values,
+// lowercase. The TS union carried SCREAMING_CASE, which the serializer 400s.
+const MC_AUDIENCE_WIRE_VALUES: readonly string[] = ['admin_owner', 'scheduler_plus', 'none'];
 
 const MEMBER = {
   id: 'u1',
@@ -220,7 +224,7 @@ test.describe('Workspace General page', () => {
     await expect(keepToggle).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByRole('spinbutton', { name: 'Run history limit' })).toHaveValue('100');
     await expect(page.getByRole('combobox', { name: 'Run attribution visible to' })).toHaveValue(
-      'ADMIN_OWNER',
+      'admin_owner',
     );
 
     // The workspace-only override policy renders the Lock option as a disabled
@@ -232,6 +236,62 @@ test.describe('Workspace General page', () => {
     await expect(keepToggle).toHaveAttribute('aria-checked', 'false');
     await page.getByRole('button', { name: 'Save changes', exact: true }).click();
     await expect.poll(() => patchBody).toMatchObject({ mc_history_enabled: false });
+  });
+
+  test('forecast history — attribution audience round-trips select → save → reload (#2841)', async ({
+    page,
+  }) => {
+    await setup(page);
+
+    // Stateful route: the PATCH mutates the record the GETs serve, so the reload
+    // reads back what was actually written. A stateless mock would re-serve the
+    // seed and pass even if the client sent a value the API rejects.
+    const stored: Record<string, unknown> = { ...WORKSPACE };
+    let patchBody: Record<string, unknown> | undefined;
+    await page.route('**/api/v1/workspace/', async (r) => {
+      if (r.request().method() === 'PATCH') {
+        patchBody = r.request().postDataJSON() as Record<string, unknown>;
+        const audience = patchBody.mc_history_attribution_audience;
+        // Mirror the serializer's ChoiceField: only the lowercase TextChoices
+        // values are accepted. The uppercase spelling this control used to send
+        // must fail the spec here rather than silently "pass" against a mock.
+        if (audience !== undefined && !MC_AUDIENCE_WIRE_VALUES.includes(audience as string)) {
+          await r.fulfill({
+            status: 400,
+            contentType: 'application/json',
+            body: pj({
+              mc_history_attribution_audience: [
+                `"${JSON.stringify(audience)}" is not a valid choice.`,
+              ],
+            }),
+          });
+          return;
+        }
+        Object.assign(stored, patchBody);
+        await r.fulfill({ status: 200, contentType: 'application/json', body: pj(stored) });
+        return;
+      }
+      await r.fulfill({ status: 200, contentType: 'application/json', body: pj(stored) });
+    });
+
+    await page.goto('/settings/general');
+
+    const audienceSelect = page.getByRole('combobox', { name: 'Run attribution visible to' });
+    await expect(audienceSelect).toHaveValue('admin_owner');
+
+    await audienceSelect.selectOption('none');
+    await expect(audienceSelect).toHaveValue('none');
+
+    await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+    await expect.poll(() => patchBody).toMatchObject({ mc_history_attribution_audience: 'none' });
+
+    // The persisted value survives a full reload and re-renders as selected —
+    // the read half of #2841, where the returned wire value matched no <option>.
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Forecast history' })).toBeVisible();
+    await expect(page.getByRole('combobox', { name: 'Run attribution visible to' })).toHaveValue(
+      'none',
+    );
   });
 
   test('golden path — PATCH dispatched when Save is triggered via name change', async ({
@@ -1214,13 +1274,41 @@ const SYS_HEALTH = {
   components: [
     { key: 'outbox', label: 'Outbox dispatcher', status: 'ok', state_label: 'Healthy', meta: '' },
     { key: 'beat', label: 'Celery Beat', status: 'ok', state_label: 'Live', meta: '' },
-    { key: 'dead_letter', label: 'Dead-letter alerting', status: 'warn', state_label: '2 parked', meta: '' },
-    { key: 'notify', label: 'Notification dispatcher', status: 'ok', state_label: 'Draining', meta: '' },
-    { key: 'retention_purge', label: 'Retention purge', status: 'unknown', state_label: 'No telemetry', meta: '' },
+    {
+      key: 'dead_letter',
+      label: 'Dead-letter alerting',
+      status: 'warn',
+      state_label: '2 parked',
+      meta: '',
+    },
+    {
+      key: 'notify',
+      label: 'Notification dispatcher',
+      status: 'ok',
+      state_label: 'Draining',
+      meta: '',
+    },
+    {
+      key: 'retention_purge',
+      label: 'Retention purge',
+      status: 'unknown',
+      state_label: 'No telemetry',
+      meta: '',
+    },
   ],
-  beat: { last_heartbeat: '2026-05-25T11:59:52Z', seconds_since: 8, stale: false, stale_threshold_seconds: 120 },
+  beat: {
+    last_heartbeat: '2026-05-25T11:59:52Z',
+    seconds_since: 8,
+    stale: false,
+    stale_threshold_seconds: 120,
+  },
   scheduled_tasks: [],
-  dead_letter: { parked: 2, oldest_age_seconds: 8400, top_cause: 'ConnectionError', by_status: { dead: 2 } },
+  dead_letter: {
+    parked: 2,
+    oldest_age_seconds: 8400,
+    top_cause: 'ConnectionError',
+    by_status: { dead: 2 },
+  },
   retention: [],
   telemetry: {
     enabled: true,
@@ -1275,13 +1363,34 @@ const SYS_RETENTION = {
       bytes: 480_000_000,
     },
   ],
-  schedule: { frequency: 'daily', time_of_day_utc: '02:00:00', day_of_week: null, on_failure: 'continue' },
+  schedule: {
+    frequency: 'daily',
+    time_of_day_utc: '02:00:00',
+    day_of_week: null,
+    on_failure: 'continue',
+  },
   runs: [],
 };
 
 const SYS_TRASH = [
-  { id: 't1', name: 'Orion', code: 'ORN', deleted_by_name: 'AK', deleted_at: '2026-05-20T10:00:00Z', days_remaining: 25, can_restore: true },
-  { id: 't2', name: 'Gemini', code: null, deleted_by_name: 'AK', deleted_at: '2026-05-21T10:00:00Z', days_remaining: 26, can_restore: false },
+  {
+    id: 't1',
+    name: 'Orion',
+    code: 'ORN',
+    deleted_by_name: 'AK',
+    deleted_at: '2026-05-20T10:00:00Z',
+    days_remaining: 25,
+    can_restore: true,
+  },
+  {
+    id: 't2',
+    name: 'Gemini',
+    code: null,
+    deleted_by_name: 'AK',
+    deleted_at: '2026-05-21T10:00:00Z',
+    days_remaining: 26,
+    can_restore: false,
+  },
 ];
 
 async function setupWithSystem(page: Page) {
@@ -1349,9 +1458,11 @@ test.describe('Workspace settings — System group is part of the scroll surface
 
     // Trash is now the LAST scroll section — before, the scroll dead-ended at
     // Archive/Delete and System was unreachable.
-    const trashRail = page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', {
-      name: 'Trash',
-    });
+    const trashRail = page
+      .getByRole('navigation', { name: 'Settings sections' })
+      .getByRole('button', {
+        name: 'Trash',
+      });
     await expect(trashRail).not.toHaveAttribute('aria-current', 'true');
 
     await scroll.evaluate((el) => {

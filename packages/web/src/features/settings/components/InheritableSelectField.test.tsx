@@ -6,12 +6,12 @@ import {
   type InheritableSelectOption,
 } from './InheritableSelectField';
 
-type Audience = 'ADMIN_OWNER' | 'SCHEDULER_PLUS' | 'NONE';
+type Audience = 'admin_owner' | 'scheduler_plus' | 'none';
 
 const OPTIONS: ReadonlyArray<InheritableSelectOption<Audience>> = [
-  { value: 'ADMIN_OWNER', label: 'Admins & owners' },
-  { value: 'SCHEDULER_PLUS', label: 'Schedulers and above' },
-  { value: 'NONE', label: 'No one' },
+  { value: 'admin_owner', label: 'Admins & owners' },
+  { value: 'scheduler_plus', label: 'Schedulers and above' },
+  { value: 'none', label: 'No one' },
 ];
 
 const base = {
@@ -27,7 +27,7 @@ describe('InheritableSelectField', () => {
         {...base}
         value={null}
         onChange={vi.fn()}
-        inherited="ADMIN_OWNER"
+        inherited="admin_owner"
         canEdit
       />,
     );
@@ -42,14 +42,14 @@ describe('InheritableSelectField', () => {
     render(
       <InheritableSelectField
         {...base}
-        value="NONE"
+        value="none"
         onChange={vi.fn()}
-        inherited="ADMIN_OWNER"
+        inherited="admin_owner"
         canEdit
       />,
     );
     expect(screen.getByRole('combobox', { name: 'Run attribution visible to' })).toHaveValue(
-      'NONE',
+      'none',
     );
   });
 
@@ -60,12 +60,12 @@ describe('InheritableSelectField', () => {
         {...base}
         value={null}
         onChange={onChange}
-        inherited="SCHEDULER_PLUS"
+        inherited="scheduler_plus"
         canEdit
       />,
     );
     await userEvent.click(screen.getByRole('radio', { name: /override/i }));
-    expect(onChange).toHaveBeenCalledWith('SCHEDULER_PLUS');
+    expect(onChange).toHaveBeenCalledWith('scheduler_plus');
   });
 
   it('emits null when "Inherit" is chosen while overriding', async () => {
@@ -73,9 +73,9 @@ describe('InheritableSelectField', () => {
     render(
       <InheritableSelectField
         {...base}
-        value="NONE"
+        value="none"
         onChange={onChange}
-        inherited="ADMIN_OWNER"
+        inherited="admin_owner"
         canEdit
       />,
     );
@@ -88,9 +88,9 @@ describe('InheritableSelectField', () => {
     render(
       <InheritableSelectField
         {...base}
-        value="ADMIN_OWNER"
+        value="admin_owner"
         onChange={onChange}
-        inherited="ADMIN_OWNER"
+        inherited="admin_owner"
         canEdit
       />,
     );
@@ -98,7 +98,7 @@ describe('InheritableSelectField', () => {
       screen.getByRole('combobox', { name: 'Run attribution visible to' }),
       'No one',
     );
-    expect(onChange).toHaveBeenCalledWith('NONE');
+    expect(onChange).toHaveBeenCalledWith('none');
   });
 
   describe('read-only (canEdit=false)', () => {
@@ -108,7 +108,7 @@ describe('InheritableSelectField', () => {
           {...base}
           value={null}
           onChange={vi.fn()}
-          inherited="ADMIN_OWNER"
+          inherited="admin_owner"
           canEdit={false}
         />,
       );
@@ -120,9 +120,9 @@ describe('InheritableSelectField', () => {
       render(
         <InheritableSelectField
           {...base}
-          value="NONE"
+          value="none"
           onChange={vi.fn()}
-          inherited="ADMIN_OWNER"
+          inherited="admin_owner"
           scopeNoun="project"
           canEdit={false}
         />,

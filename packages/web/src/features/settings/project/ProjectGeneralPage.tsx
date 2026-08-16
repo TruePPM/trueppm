@@ -841,7 +841,7 @@ export function ProjectGeneralPage() {
             <InheritableSelectField
               value={mcHistoryAttributionAudience}
               onChange={setMcHistoryAttributionAudience}
-              inherited={project?.inherited_mc_history_attribution_audience ?? 'ADMIN_OWNER'}
+              inherited={project?.inherited_mc_history_attribution_audience ?? 'admin_owner'}
               options={MC_ATTRIBUTION_OPTIONS}
               inheritFromLabel="the program or workspace default"
               ariaLabel="Run attribution visible to"
