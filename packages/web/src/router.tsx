@@ -1,4 +1,10 @@
-import { createBrowserRouter, Navigate, Outlet, useNavigate } from 'react-router';
+import {
+  createBrowserRouter,
+  Navigate,
+  Outlet,
+  useNavigate,
+  type RouteObject,
+} from 'react-router';
 import { lazy, Suspense, useEffect } from 'react';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { safeLandingPath } from '@/features/me/landing';
@@ -366,7 +372,31 @@ function RootLayout() {
   );
 }
 
-export const router = createBrowserRouter([
+/**
+ * Gives every route rendered into `AppShell`'s `<Outlet>` the shell-preserving
+ * `errorElement` (#2834) — so protection is the default and a newly added route
+ * inherits it rather than having to opt in.
+ *
+ * Why this is a helper and not seven pasted `errorElement:` lines. Issue 1654
+ * added the boundary by hand to `projects/:projectId` and `programs/:programId`;
+ * every route added since (My Work, My Assets, Timesheet, the notification inbox,
+ * `me/settings/*`, the org resource catalog, the programs list) silently missed
+ * it, because omission was the default. Without a boundary at this level the
+ * throw bubbles to the `RequireAuth` net, which unmounts `AppShell` — and with it
+ * `PendingWritesGuard`, whose `beforeunload` handler is the only thing standing
+ * between the error screen's Reload button and the in-memory write queue.
+ *
+ * A route that declares its own `errorElement` keeps it: the two issue-1654
+ * bindings are deliberate, closer boundaries, and a nested shell (ProjectShell,
+ * ProgramShell) is a better place to catch than the app shell.
+ */
+function shellRoutes(children: RouteObject[]): RouteObject[] {
+  return children.map((route) =>
+    route.errorElement ? route : { ...route, errorElement: <RouteErrorBoundary /> },
+  );
+}
+
+export const routes: RouteObject[] = [
   {
     element: <RootLayout />,
     children: [
@@ -485,7 +515,10 @@ export const router = createBrowserRouter([
           {
             path: '/',
             element: <AppShell />,
-            children: [
+            // Every child below is wrapped by `shellRoutes` so a render throw or a
+            // failed lazy chunk is caught *inside* AppShell's Outlet — the sidebar,
+            // TopBar and (critically) PendingWritesGuard stay mounted (#2834).
+            children: shellRoutes([
               // Project-scoped routes — projectId in path for shareable URLs (ADR-0030)
               {
                 path: 'projects/:projectId',
@@ -1220,7 +1253,7 @@ export const router = createBrowserRouter([
                 element: <NotFoundPage />,
                 handle: { title: 'Page Not Found' } satisfies RouteHandle,
               },
-            ],
+            ]),
           },
         ],
       },
@@ -1234,4 +1267,6 @@ export const router = createBrowserRouter([
       },
     ],
   },
-]);
+];
+
+export const router = createBrowserRouter(routes);

@@ -1,8 +1,18 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { createMemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 import { RouteErrorBoundary } from './RouteErrorBoundary';
+
+// The boundary asks the write queue directly (it can render outside the
+// QueryClientProvider), so the count is what a test needs to drive. `vi.hoisted`
+// keeps the handle out of the TDZ the mock factory would otherwise hit.
+const pending = vi.hoisted(() => ({ count: 0 }));
+vi.mock('@/hooks/useSyncStatus', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useSyncStatus')>();
+  return { ...actual, getPendingWriteCount: () => pending.count };
+});
 
 /**
  * Renders a route whose element throws `message`, with RouteErrorBoundary wired
@@ -19,15 +29,26 @@ function renderThrowing(message: string) {
 }
 
 let errorSpy: MockInstance;
+let reload: ReturnType<typeof vi.fn<() => void>>;
+let fakeLocation: { reload: () => void; href: string; pathname: string };
+const realLocation = window.location;
 
 beforeEach(() => {
   // React and React Router both log caught errors to console.error; silence the
   // noise but keep the spy so we can assert our own developer-signal log fires.
   errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  pending.count = 0;
+  // jsdom neither implements `location.reload()` nor tolerates an `href`
+  // assignment (it logs "Not implemented: navigation"), so swap the whole object
+  // out for a recorder and restore it after each test.
+  reload = vi.fn();
+  fakeLocation = { reload, href: '', pathname: '/me/timesheet' };
+  Object.defineProperty(window, 'location', { configurable: true, value: fakeLocation });
 });
 
 afterEach(() => {
   errorSpy.mockRestore();
+  Object.defineProperty(window, 'location', { configurable: true, value: realLocation });
 });
 
 describe('RouteErrorBoundary', () => {
@@ -80,5 +101,114 @@ describe('RouteErrorBoundary', () => {
       (call: unknown[]) => typeof call[0] === 'string' && call[0].includes('[RouteErrorBoundary]'),
     );
     expect(loggedOurTag).toBe(true);
+  });
+});
+
+/**
+ * The recovery actions leave the document, which discards TanStack Query's
+ * in-memory write queue (#2834). `PendingWritesGuard`'s `beforeunload` prompt is
+ * the normal protection, but it is mounted inside `AppShell` — exactly what a
+ * crash can tear down — so the boundary asks the queue itself rather than
+ * trusting a guard that may already be gone.
+ */
+describe('RouteErrorBoundary — discarding queued writes (#2834)', () => {
+  it('reloads immediately when nothing is queued', async () => {
+    pending.count = 0;
+    renderThrowing('boom');
+
+    await userEvent.click(screen.getByRole('button', { name: /^Reload$/ }));
+
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  it('navigates home immediately when nothing is queued', async () => {
+    pending.count = 0;
+    renderThrowing('boom');
+
+    await userEvent.click(screen.getByRole('button', { name: /Go to home/i }));
+
+    expect(fakeLocation.href).toBe('/');
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  it('interrupts Reload with a confirmation naming the queued writes', async () => {
+    pending.count = 3;
+    renderThrowing('boom');
+
+    await userEvent.click(screen.getByRole('button', { name: /^Reload$/ }));
+
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(screen.getByText('3 unsynced changes would be lost')).toBeInTheDocument();
+    expect(screen.getByText(/only stored in this tab/i)).toBeInTheDocument();
+    // Nothing has been discarded yet.
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('uses singular copy for a single queued write', async () => {
+    pending.count = 1;
+    renderThrowing('boom');
+
+    await userEvent.click(screen.getByRole('button', { name: /^Reload$/ }));
+
+    expect(screen.getByText('1 unsynced change would be lost')).toBeInTheDocument();
+  });
+
+  it('seats focus on the safe action, never the discard button (rule 206)', async () => {
+    pending.count = 2;
+    renderThrowing('boom');
+
+    await userEvent.click(screen.getByRole('button', { name: /^Reload$/ }));
+
+    expect(screen.getByRole('button', { name: 'Stay on this page' })).toHaveFocus();
+  });
+
+  it('“Stay on this page” dismisses the prompt and reloads nothing', async () => {
+    pending.count = 2;
+    renderThrowing('boom');
+
+    await userEvent.click(screen.getByRole('button', { name: /^Reload$/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Stay on this page' }));
+
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(reload).not.toHaveBeenCalled();
+    // The error surface itself is still there — staying must not strand the user.
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+  });
+
+  it('Escape dismisses the prompt without discarding', async () => {
+    pending.count = 2;
+    renderThrowing('boom');
+
+    await userEvent.click(screen.getByRole('button', { name: /^Reload$/ }));
+    await userEvent.keyboard('{Escape}');
+
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('“Reload anyway” proceeds once the user has been told', async () => {
+    pending.count = 2;
+    renderThrowing('boom');
+
+    await userEvent.click(screen.getByRole('button', { name: /^Reload$/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Reload anyway' }));
+
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('interrupts Go-to-home too, with its own wording and confirmation', async () => {
+    pending.count = 2;
+    renderThrowing('boom');
+
+    await userEvent.click(screen.getByRole('button', { name: /Go to home/i }));
+
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    expect(screen.getByText(/Leaving this page now discards them/i)).toBeInTheDocument();
+    expect(fakeLocation.href).toBe('');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Go to home anyway' }));
+    expect(fakeLocation.href).toBe('/');
   });
 });
