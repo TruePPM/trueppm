@@ -144,17 +144,6 @@ class Task:
     late_start: date | None = None
     late_finish: date | None = None
 
-    # Span start (ADR-0752). ``early_start`` means the *remaining-work window*
-    # for an in-progress task (ADR-0132); ``scheduled_start`` means the task's
-    # whole span instead, so a bar/consumer that wants "where does this task's
-    # work begin" never has to branch on task state. See
-    # :func:`trueppm_scheduler.engine._compute_scheduled_start` for the
-    # per-state derivation table. ``scheduled_finish`` is deliberately NOT a
-    # field here — it is always identical to ``early_finish`` (remaining work
-    # ends when the task ends), so a second stored/computed date would just be
-    # a copy; callers that want it read ``early_finish`` under that name.
-    scheduled_start: date | None = None
-
     # Float
     total_float: timedelta = field(default_factory=timedelta)
     free_float: timedelta = field(default_factory=timedelta)
@@ -196,6 +185,26 @@ class Task:
     # with no matching entry — means "use the pass-level calendar", so every
     # existing single-calendar document schedules byte-for-byte as before.
     calendar_id: str | None = None
+
+    # Span start (ADR-0752). ``early_start`` means the *remaining-work window*
+    # for an in-progress task (ADR-0132); ``scheduled_start`` means the task's
+    # whole span instead, so a bar/consumer that wants "where does this task's
+    # work begin" never has to branch on task state. See
+    # :func:`trueppm_scheduler.engine._compute_scheduled_start` for the
+    # per-state derivation table. ``scheduled_finish`` is deliberately NOT a
+    # field here — it is always identical to ``early_finish`` (remaining work
+    # ends when the task ends), so a second stored/computed date would just be
+    # a copy; callers that want it read ``early_finish`` under that name.
+    #
+    # Declared LAST, out of its thematic group, on purpose (#2836). Field order
+    # in an exported, non-``kw_only`` dataclass is a positional contract for
+    # every PyPI consumer that constructs a ``Task`` positionally, and this field
+    # was originally inserted between ``late_finish`` and ``total_float`` — which
+    # silently re-bound the twelve fields after it with no ``TypeError``, because
+    # dataclasses do no runtime type validation. New fields append; they never
+    # slot in mid-sequence. ``tests/test_public_surface.py`` pins the order so the
+    # next insertion fails at test time rather than in a consumer's schedule.
+    scheduled_start: date | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the task to a JSON-safe dict.
