@@ -78,8 +78,8 @@ task_list fixture:     1000 tasks
 p95 all endpoints:     1812 ms  (aggregate — not gated)
 
 p95 by endpoint (ms):
-  program_list     527  /   1500  ok
-  project_list     651  /   1500  ok
+  program_list     527  /     --  untracked
+  project_list     651  /     --  untracked
   sync_delta       911  /     --  untracked
   task_list        843  /     --  untracked
   task_list_deep  1904  /     --  untracked
@@ -106,14 +106,32 @@ threshold is invisible — it produces no row, no artifact entry, and no trend.
 Such endpoints are therefore given an always-true `p(95)>=0` threshold purely to
 materialize the submetric.
 
-Three rows are untracked today. `sync_delta` never had a budget. `task_list` and
-`task_list_deep` are untracked **as of #2816** and need one (#2826): the old
-`p(95)<2000` was calibrated to serializing one row, so carrying it onto a 200-row
-page would breach every night — and a tripwire that always fires is worse than
-none, which is exactly what made #2767 un-bisectable. Set a real budget from the
-observed range once a few nightlies have run against the new fixture; do not pick
-a round number, since a budget nobody derived from a measurement is
-indistinguishable from noise.
+**Every endpoint row is untracked today**, and `#2826` is where they get budgets
+back. `sync_delta` never had one. `task_list` and `task_list_deep` lost theirs in
+**#2816**: the old `p(95)<2000` was calibrated to serializing one row, so carrying
+it onto a 200-row page would breach every night — and a tripwire that always fires
+is worse than none, which is exactly what made #2767 un-bisectable.
+
+`program_list` and `project_list` lost their `p(95)<1500` for the same reason one
+step removed. #2816 did not change what those two request; it changed what they
+queue behind. The scenario is a closed loop — 20 VUs issue the five requests in
+sequence against a single uvicorn process — so once the task reads went from ~1 ms
+to 8–50 s, a list request's p95 became mostly the wait for the heavy read in front
+of it. Over the four post-#2816 nightlies `program_list` ran 251 / 740 / 183 /
+2570 ms and `project_list` 431 / 979 / 352 / 2610 ms, a 14x spread with no
+relevant code change, and the 2026-08-14 breach that prompted this landed on a day
+whose only commit touched three unrelated viewsets. The coupling also runs the
+wrong way for a latency budget: the breach night was the one where the task reads
+were *fastest*, which let 50 iterations through instead of 24 — more list
+requests, higher concurrency, higher p95. Iterations and latency are the same
+variable here (#2767).
+
+So the harness currently gates only `http_req_failed`, and the endpoint rows are
+pure trend lines. When setting budgets in #2826, derive each from the observed
+range rather than picking a round number — a budget nobody measured is
+indistinguishable from noise. For the two list rows, prefer decoupling them into
+their own scenario window over simply widening the number: a wider budget on a
+contention-coupled metric buys a quieter nightly, not a better signal.
 
 ## Run it locally
 
