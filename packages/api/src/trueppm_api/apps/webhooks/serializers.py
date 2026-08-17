@@ -34,16 +34,33 @@ class WebhookSerializer(serializers.ModelSerializer[Webhook]):
     supplied it must be at least :data:`MIN_WEBHOOK_SECRET_LENGTH` non-whitespace
     characters.
 
-    The ``events`` field is validated against the known event type choices.
+    ``secret_set`` is the read-side counterpart: a boolean saying whether a secret
+    is stored. The secret itself is encrypted at rest and there is no API path that
+    reads the plaintext back.
+
+    The ``events`` field is validated against the known event type choices and is
+    **required** — there is no "subscribe to everything" shorthand, so omitting it
+    returns 400 rather than creating a silently empty subscription.
+
+    ``consecutive_failures``, ``last_failure_at``, ``last_failure_reason``,
+    ``disabled_at`` and ``disabled_reason`` are read-only delivery health, written
+    only by the delivery task. ``disabled_at`` is set solely by the automatic
+    failure guard, so a subscription an admin paused by hand is distinguishable from
+    one TruePPM gave up on. PATCHing ``is_active`` back to true clears the record.
     """
 
     events = serializers.ListField(
         child=serializers.ChoiceField(choices=WebhookEventType.choices),
         allow_empty=False,
     )
-    # required=False so the secret may be omitted and auto-generated. Still
-    # write_only (Meta.extra_kwargs) so it never appears in normal reads; the
-    # one-time create echo is handled explicitly in to_representation.
+    # Mirrors SsoProviderPolicySerializer / BoardAutomationSerializer — the
+    # repo-wide shape for "a secret exists, and that is all you may know" (#2885).
+    # Reads the Webhook.secret_set property, which tests the stored ciphertext.
+    secret_set = serializers.BooleanField(read_only=True)
+    # required=False so the secret may be omitted and auto-generated. write_only so
+    # it never appears in normal reads; the one-time create echo is handled
+    # explicitly in to_representation. There is no model field behind it any more —
+    # it writes through the Webhook.secret property, which encrypts.
     secret = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -63,16 +80,34 @@ class WebhookSerializer(serializers.ModelSerializer[Webhook]):
             "program",
             "url",
             "secret",
+            "secret_set",
             "events",
             "format",
             "is_active",
+            "consecutive_failures",
+            "last_failure_at",
+            "last_failure_reason",
+            "disabled_at",
+            "disabled_reason",
             "created_at",
             "created_by",
         ]
-        read_only_fields = ["id", "project", "program", "created_at", "created_by"]
-        extra_kwargs = {
-            "secret": {"write_only": True},
-        }
+        read_only_fields = [
+            "id",
+            "project",
+            "program",
+            "created_at",
+            "created_by",
+            # Delivery health is written only by the delivery task (#2884) — a
+            # client cannot fake a healthy webhook or clear the auto-disable
+            # record. Re-enabling is done by PATCHing is_active, which resets the
+            # counters in update() below.
+            "consecutive_failures",
+            "last_failure_at",
+            "last_failure_reason",
+            "disabled_at",
+            "disabled_reason",
+        ]
 
     def validate_secret(self, value: str) -> str:
         """Enforce a minimum length / reject whitespace-only secrets (#893).
@@ -120,6 +155,24 @@ class WebhookSerializer(serializers.ModelSerializer[Webhook]):
         # in the create response only. Reads of a refetched instance never see it.
         self._created_secret = instance.secret
         return instance
+
+    def update(self, instance: Webhook, validated_data: dict[str, Any]) -> Webhook:
+        """Reactivating a webhook clears the automatic failure record (#2884).
+
+        The consecutive-failure guard deactivates a subscription whose endpoint has
+        been failing terminally. Re-enabling it must reset the counter in the same
+        write: otherwise the very next failure lands on an already-at-threshold
+        counter and the guard re-disables the webhook immediately, so an admin who
+        has genuinely fixed the receiver can never get out of the disabled state.
+        """
+        reactivating = validated_data.get("is_active") is True and not instance.is_active
+        if reactivating:
+            instance.consecutive_failures = 0
+            instance.last_failure_at = None
+            instance.last_failure_reason = ""
+            instance.disabled_at = None
+            instance.disabled_reason = ""
+        return super().update(instance, validated_data)
 
     def to_representation(self, instance: Webhook) -> dict[str, Any]:
         """Echo the secret once on create; never on any other read (#893)."""

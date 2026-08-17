@@ -35,7 +35,13 @@ from trueppm_api.apps.access.permissions import (
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Program, Project
-from trueppm_api.apps.webhooks.models import Webhook, WebhookDelivery
+from trueppm_api.apps.webhooks.dispatch import build_delivery_body
+from trueppm_api.apps.webhooks.models import (
+    PING_EVENT_TYPE,
+    Webhook,
+    WebhookDelivery,
+    _next_delivery_sequence,
+)
 from trueppm_api.apps.webhooks.serializers import (
     WebhookDeliverySerializer,
     WebhookSerializer,
@@ -169,12 +175,34 @@ class WebhookViewSet(
     )
     @action(detail=True, methods=["post"], url_path="test")
     def test_ping(self, request: Request, **kwargs: object) -> Response:
-        """Send a test ping event to the webhook URL."""
+        """Send a test ping to the webhook URL.
+
+        The ping takes exactly the same path as a real delivery: it renders through
+        the subscription's registered format, is signed identically, and consumes a
+        sequence number with a matching ``_meta.sequence``. A test therefore fails
+        wherever a real delivery would, and never shows up as a gap in the
+        consumer's sequence counter.
+
+        Returns 202 with the ``delivery_id``. That acknowledges the *enqueue*, not
+        the receiver's answer — read the ``deliveries`` action back for that row's
+        terminal ``status`` and ``response_status`` to learn what the receiver said.
+        """
+        # Building the ping inline (rather than through the provider) was how a
+        # slack-format webhook — the UI default — got sent a body Slack rejects with
+        # 400 invalid_payload while the API reported success on the 202 (#2884).
         webhook = self.get_object()
+        sequence = _next_delivery_sequence(webhook.pk)
+        body = build_delivery_body(
+            webhook,
+            PING_EVENT_TYPE,
+            {"event": PING_EVENT_TYPE, "webhook_id": str(webhook.pk)},
+            sequence,
+        )
         delivery = WebhookDelivery.objects.create(
             webhook=webhook,
-            event_type="ping",
-            payload={"event": "ping", "webhook_id": str(webhook.pk)},
+            event_type=PING_EVENT_TYPE,
+            payload=body,
+            sequence_number=sequence,
         )
         # Defer dispatch until the delivery row is committed so the task never
         # races against an uncommitted row.  If the broker is down the delay()

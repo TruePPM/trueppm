@@ -582,6 +582,78 @@ def test_test_ping_deferred_via_on_commit(
 
 
 @pytest.mark.django_db
+def test_test_ping_renders_through_the_subscription_format(
+    admin_client: APIClient, project: Project, user: object
+) -> None:
+    """A slack-format ping is a Slack message, not the inline stub body (#2884).
+
+    The modal defaults ``format`` to ``slack``, so this was the *default* path:
+    Slack requires ``text``/``blocks``/``attachments`` and answers 400
+    ``invalid_payload`` to ``{"event": "ping", "webhook_id": ...}``. The test
+    therefore "passed" on the 202 while the equivalent real delivery failed.
+    """
+    slack_hook = Webhook.objects.create(
+        project=project,
+        url="https://hooks.slack.com/services/x",
+        secret="s" * 40,
+        events=["task.created"],
+        format="slack",
+        created_by=user,
+    )
+    from trueppm_api.apps.webhooks import tasks as wh_tasks
+
+    with patch.object(wh_tasks.deliver_webhook, "delay", MagicMock()):
+        resp = admin_client.post(f"/api/v1/projects/{project.pk}/webhooks/{slack_hook.pk}/test/")
+
+    assert resp.status_code == 202
+    delivery = WebhookDelivery.objects.get(pk=resp.data["delivery_id"])
+    assert "text" in delivery.payload
+    assert "Test ping" in delivery.payload["text"]
+    assert len(delivery.payload["attachments"]) == 1
+    assert "event" not in delivery.payload
+
+
+@pytest.mark.django_db
+def test_test_ping_carries_the_meta_envelope(
+    admin_client: APIClient, project: Project, webhook: Webhook
+) -> None:
+    """The ping's ``_meta.sequence`` equals its ``sequence_number`` (#2884 §4).
+
+    The documented contract is that the header, ``_meta.sequence``, and the delivery
+    record's ``sequence_number`` are always identical. The ping used to allocate a
+    real sequence number with no ``_meta`` at all, so a consumer doing the
+    documented in-body gap detection saw the counter jump on every Test click —
+    phantom lost-event alarms.
+    """
+    from trueppm_api.apps.webhooks import tasks as wh_tasks
+
+    with patch.object(wh_tasks.deliver_webhook, "delay", MagicMock()):
+        resp = admin_client.post(f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/test/")
+
+    delivery = WebhookDelivery.objects.get(pk=resp.data["delivery_id"])
+    assert delivery.sequence_number >= 1
+    assert delivery.payload["_meta"]["sequence"] == delivery.sequence_number
+
+
+@pytest.mark.django_db
+def test_test_ping_does_not_skip_a_sequence_number(
+    admin_client: APIClient, project: Project, webhook: Webhook
+) -> None:
+    """Consecutive pings are contiguous — one allocation per delivery, not two."""
+    from trueppm_api.apps.webhooks import tasks as wh_tasks
+
+    sequences = []
+    with patch.object(wh_tasks.deliver_webhook, "delay", MagicMock()):
+        for _ in range(3):
+            resp = admin_client.post(f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/test/")
+            sequences.append(
+                WebhookDelivery.objects.get(pk=resp.data["delivery_id"]).sequence_number
+            )
+
+    assert sequences == [1, 2, 3]
+
+
+@pytest.mark.django_db
 def test_test_ping_broker_unavailable_delivery_stays_pending(
     admin_client: APIClient,
     project: Project,

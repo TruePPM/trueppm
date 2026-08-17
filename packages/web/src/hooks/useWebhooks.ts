@@ -39,6 +39,21 @@ export interface ApiWebhook {
   events: string[];
   format: string;
   is_active: boolean;
+  /** Whether a signing secret is stored. The secret itself is never readable. */
+  secret_set: boolean;
+  /**
+   * Present ONLY in the 201 create response, which echoes an auto-generated
+   * secret exactly once (#893). Absent from every list/retrieve body — do not
+   * write code that expects to read it back.
+   */
+  secret?: string;
+  /** Terminal delivery failures since the last success (#2884). */
+  consecutive_failures: number;
+  last_failure_at: string | null;
+  last_failure_reason: string;
+  /** Set when the automatic failure guard deactivated the subscription (#2884). */
+  disabled_at: string | null;
+  disabled_reason: string;
   created_at: string;
   created_by: string | null;
 }
@@ -139,6 +154,43 @@ export function useDeleteWebhook(scope: IntegrationScope) {
       void qc.invalidateQueries({ queryKey: webhooksKey(scope) });
       void qc.invalidateQueries({ queryKey: [`${scope.kind}-integrations-summary`, scope.id] });
     },
+  });
+}
+
+/**
+ * Poll one webhook's delivery log until `deliveryId` reaches a terminal status.
+ *
+ * The test-ping endpoint answers 202 with a `delivery_id` — it acknowledges the
+ * *enqueue*, not the receiver's response. Reporting that 202 as "Sent ✓" is what
+ * made the admin's only diagnostic tool claim success on a delivery that was
+ * guaranteed to fail (#2884). This hook closes the loop by reading back the real
+ * `status` / `response_status` the receiver produced.
+ *
+ * Polling stops as soon as the row leaves `pending`, so a healthy webhook costs
+ * one or two requests. The delivery log is cursor-paginated newest-first, and a
+ * just-created delivery is always on the first page.
+ */
+export function useWebhookTestResult(
+  scope: IntegrationScope,
+  webhookId: string,
+  deliveryId: string | null,
+) {
+  return useQuery<ApiWebhookDelivery | null, Error>({
+    queryKey: [...webhooksKey(scope), webhookId, 'test-result', deliveryId],
+    queryFn: async () => {
+      const res = await apiClient.get<PaginatedResponse<ApiWebhookDelivery>>(
+        `${basePath(scope)}${webhookId}/deliveries/`,
+      );
+      return res.data.results.find((d) => d.id === deliveryId) ?? null;
+    },
+    enabled: !!deliveryId,
+    // `null` (row not on the page yet) keeps polling: the create and the first
+    // read can race, and giving up would report "no result" for a live delivery.
+    refetchInterval: (query) => {
+      const row = query.state.data;
+      return row && row.status !== 'pending' ? false : 1000;
+    },
+    retry: false,
   });
 }
 

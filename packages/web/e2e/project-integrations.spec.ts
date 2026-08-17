@@ -42,6 +42,12 @@ const WEBHOOK = {
   events: ['task.created'],
   format: 'slack',
   is_active: true,
+  secret_set: true,
+  consecutive_failures: 0,
+  last_failure_at: null,
+  last_failure_reason: '',
+  disabled_at: null,
+  disabled_reason: '',
   created_at: '2026-05-20T12:00:00Z',
   created_by: null,
 };
@@ -145,9 +151,79 @@ test.describe('Project Integrations — CRUD UI', () => {
     const dialog = page.getByRole('dialog', { name: 'New webhook' });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText('task.assigned')).toBeVisible();
-    // The new 0.2 events carry a "new" badge.
+    // Every backend event is offered, not just the task cohort — the picker
+    // shipped 11 of 19 for two releases (#2883). A pytest gate
+    // (test_web_event_catalog_covers_every_backend_event) binds events.ts to
+    // WebhookEventType; these spot-checks assert the picker actually renders them.
+    await expect(dialog.getByText('sprint.closed', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('risk.escalated', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('baseline.captured', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('comment.created', { exact: true })).toBeVisible();
+    // The most recent cohort carries a "new" badge.
     await expect(dialog.getByText('new').first()).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'Create webhook' })).toBeVisible();
+  });
+
+  test('preserves a subscription the picker cannot render (#2883)', async ({ page }) => {
+    // The regression this guards: the modal narrowed a saved webhook to its own
+    // catalog and PATCHed the narrowed list, so editing an API-created webhook
+    // silently deleted the subscriptions the picker did not know about.
+    const WIDE = { ...WEBHOOK, events: ['task.created', 'portfolio.rebalanced'] };
+    await commonRoutes(page, [FIXTURE_PROJECT]);
+    await listRoutes(page, { webhooks: [WIDE], tokens: [] });
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/webhooks/${WIDE.id}/`, (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj(WIDE) }),
+    );
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/integrations`);
+    await page.getByRole('button', { name: 'Edit' }).first().click();
+
+    const dialog = page.getByRole('dialog', { name: 'Edit webhook' });
+    await expect(dialog.getByText('Other subscriptions')).toBeVisible();
+    await expect(dialog.getByText('2 selected')).toBeVisible();
+
+    const patchReq = page.waitForRequest(
+      (req) => req.url().includes(`/webhooks/${WIDE.id}/`) && req.method() === 'PATCH',
+    );
+    await dialog.getByRole('button', { name: 'Save changes' }).click();
+    const body = (await (await patchReq).postDataJSON()) as { events: string[] };
+    expect(body.events).toContain('portfolio.rebalanced');
+  });
+
+  test('generates a signing secret and shows it exactly once (#2885)', async ({ page }) => {
+    await commonRoutes(page, [FIXTURE_PROJECT]);
+    await listRoutes(page, { webhooks: [], tokens: [] });
+
+    let postBody: Record<string, unknown> = {};
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/webhooks/`, async (r) => {
+      if (r.request().method() === 'POST') {
+        postBody = r.request().postDataJSON() as Record<string, unknown>;
+        await r.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: pj({ ...WEBHOOK, id: 'wh-new', secret: 'generated-256-bit-value' }),
+        });
+        return;
+      }
+      await r.fulfill({ status: 200, contentType: 'application/json', body: page1([]) });
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/integrations`);
+    await page.getByRole('button', { name: 'New webhook' }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'New webhook' });
+    await dialog.getByPlaceholder('hooks.slack.com/services').fill('https://example.com/hooks/ci');
+    await dialog.getByText('task.assigned', { exact: true }).click();
+    // Generation is the default, so no secret field is even rendered.
+    await expect(dialog.getByPlaceholder('whsec_')).toBeHidden();
+    await dialog.getByRole('button', { name: 'Create webhook' }).click();
+
+    // The 201 echoes the secret once — the modal must show it, not discard it.
+    await expect(page.getByRole('heading', { name: 'Webhook created' })).toBeVisible();
+    await expect(page.getByLabel('Generated signing secret')).toHaveValue(
+      'generated-256-bit-value',
+    );
+    expect(postBody).not.toHaveProperty('secret');
   });
 
   test('creates a webhook — POST dispatched and the new row appears', async ({ page }) => {
@@ -175,7 +251,11 @@ test.describe('Project Integrations — CRUD UI', () => {
 
     const dialog = page.getByRole('dialog', { name: 'New webhook' });
     await dialog.getByPlaceholder('hooks.slack.com/services').fill('https://example.com/hooks/ci');
-    await dialog.getByPlaceholder('whsec_').fill('whsec_supersecret');
+    // Opt out of the generated secret to exercise the hand-typed path. The value
+    // must clear the 32-character server floor, which the modal now checks
+    // client-side (#2885).
+    await dialog.getByLabel(/Generate a secret for me/).uncheck();
+    await dialog.getByPlaceholder('whsec_').fill(`whsec_${'a'.repeat(40)}`);
     await dialog.getByText('task.assigned', { exact: true }).click(); // subscribe to ≥1 event
 
     const postReq = page.waitForRequest(

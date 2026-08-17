@@ -18,6 +18,58 @@ logger = logging.getLogger(__name__)
 _BROKER_ERRORS = (KombuOperationalError, ConnectionError, redis_lib.ConnectionError)
 
 
+def build_delivery_body(
+    webhook: Any,
+    event_type: str,
+    payload: dict[str, Any],
+    sequence: int,
+    project_id: str | None = None,
+) -> dict[str, Any]:
+    """Render ``payload`` for ``webhook``'s format and add the ``_meta`` envelope.
+
+    The single place a delivery body is constructed. It exists because the
+    "Send test" action used to build its ping inline as
+    ``{"event": "ping", "webhook_id": ...}`` — skipping the renderer entirely and
+    omitting ``_meta`` — while the real dispatch path did both (#2884). A
+    ``slack``-format subscription (the modal's default) therefore rejected the test
+    body with 400 ``invalid_payload``, so the admin's only diagnostic tool reported
+    success on a guaranteed failure, and the ping still consumed a sequence number
+    with no ``_meta.sequence`` to match, breaking the documented "always identical"
+    invariant and firing phantom gap alarms on every Test click.
+
+    Args:
+        webhook: The subscription being delivered to (supplies ``format``).
+        event_type: The event type, including the reserved ``ping``.
+        payload: The domain payload to render.
+        sequence: The already-allocated per-subscription sequence number. Passed in
+            rather than allocated here because ``render()`` runs before the delivery
+            row exists, and the stored row must equal the wire body (ADR-0083).
+        project_id: Project the event belongs to, when known. Falls back to the
+            webhook's own project so a program-scoped ping still carries a scope.
+
+    Returns:
+        The exact dict to persist as ``WebhookDelivery.payload`` and POST verbatim.
+    """
+    from trueppm_api.apps.integrations.registry import (
+        OUTGOING_CHANNEL_PROVIDERS,
+        OutgoingChannelEvent,
+    )
+
+    scope_id = project_id or (str(webhook.project_id) if webhook.project_id else "")
+    event = OutgoingChannelEvent(event_type=event_type, project_id=scope_id, payload=payload)
+    # An un-registered format (e.g. an Enterprise provider after a downgrade)
+    # degrades to the raw payload rather than 500ing — matches
+    # ProviderRegistry.get() returning None by design.
+    provider_cls = OUTGOING_CHANNEL_PROVIDERS.get(webhook.format)
+    rendered = provider_cls().render(event) if provider_cls is not None else payload
+    # ``_meta`` is a reserved top-level namespace (ADR-0089): the generic body is a
+    # flat domain dict, so a bare ``sequence`` key could collide with a future event
+    # field, and Slack ignores an unknown ``_meta`` key — one uniform rule covers
+    # every format. A fresh dict so the shared rendered/payload object is never
+    # mutated across the fan-out.
+    return {**rendered, "_meta": {"sequence": sequence}}
+
+
 def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any]) -> None:
     """Query matching active webhooks and enqueue a delivery task for each.
 
@@ -32,10 +84,6 @@ def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any])
     """
     from django.db.models import Q
 
-    from trueppm_api.apps.integrations.registry import (
-        OUTGOING_CHANNEL_PROVIDERS,
-        OutgoingChannelEvent,
-    )
     from trueppm_api.apps.projects.models import Project
     from trueppm_api.apps.webhooks.models import (
         Webhook,
@@ -59,32 +107,20 @@ def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any])
         events__contains=[event_type],
     )
 
-    event = OutgoingChannelEvent(event_type=event_type, project_id=str(project_id), payload=payload)
-
     for webhook in webhooks:
         # Render per-webhook: each subscription may have a different format
         # (one project can have a Slack webhook and a generic JSON webhook on
         # the same event). The rendered dict is frozen onto the delivery row,
         # so deliver_webhook posts it verbatim and the row is the audit record
-        # of exactly what was sent. An un-registered format (e.g. an Enterprise
-        # provider after a downgrade) degrades to the raw payload rather than
-        # 500ing — matches ProviderRegistry.get() returning None by design.
-        provider_cls = OUTGOING_CHANNEL_PROVIDERS.get(webhook.format)
-        rendered = provider_cls().render(event) if provider_cls is not None else payload
-        # Surface the per-subscription sequence (#664) in the delivered body so a
-        # consumer can do self-contained, in-body gap detection without reading the
-        # X-TruePPM-Webhook-Sequence header (#715, ADR-0089). It goes under a reserved
-        # top-level ``_meta`` namespace, not a bare ``sequence`` key: the ``generic``
-        # body is a flat domain dict, so a bare key could collide with a future event
-        # field; Slack ignores the unknown ``_meta`` key, so one uniform rule covers
-        # every format. render() runs before the row exists, so we pre-allocate the
-        # number and pass it to create() as both the body value and ``sequence_number``
-        # — WebhookDelivery.save()'s lazy-allocation guard then no-ops, keeping this a
-        # single write where the stored row equals the wire body (ADR-0083 audit
-        # invariant). A fresh dict is built so the shared rendered/event.payload object
-        # is never mutated across the fan-out.
+        # of exactly what was sent.
+        #
+        # render() runs before the row exists, so we pre-allocate the sequence
+        # number (#664) and pass it to create() as both the body value and
+        # ``sequence_number`` — WebhookDelivery.save()'s lazy-allocation guard then
+        # no-ops, keeping this a single write where the stored row equals the wire
+        # body (ADR-0083 audit invariant).
         sequence = _next_delivery_sequence(webhook.id)
-        body = {**rendered, "_meta": {"sequence": sequence}}
+        body = build_delivery_body(webhook, event_type, payload, sequence, str(project_id))
         delivery = WebhookDelivery.objects.create(
             webhook=webhook,
             event_type=event_type,

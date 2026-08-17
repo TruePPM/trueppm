@@ -2,12 +2,26 @@
  * Create/edit modal for a webhook (#638 / #600).
  *
  * Left: the form (endpoint URL, format picker, signing secret, event picker).
- * Right: a live Slack-renderer preview when format=slack, plus the recent
+ * Right: an example of the Slack render when format=slack, plus the recent
  * delivery log when editing an existing webhook.
  *
  * Only `slack` and `generic` formats are selectable — the others are shown
- * disabled (Enterprise). The event picker lists exactly the 11 real OSS events;
- * the four added in 0.2 carry a "new" badge.
+ * disabled (Enterprise). The event picker lists every event the backend can fire
+ * (see `events.ts`, which a pytest gate binds to `WebhookEventType`).
+ *
+ * Two invariants this file exists to hold (#2883 / #2885):
+ *
+ * 1. **A save never drops a subscription the picker did not render.** The modal
+ *    used to narrow `webhook.events` to its own catalog on load and PATCH the
+ *    narrowed list, so an admin who opened an API-created webhook to fix a URL
+ *    typo silently deleted eight real subscriptions — with a success toast and no
+ *    diff. Unrendered ids are now carried through the save and shown in their own
+ *    section, so a future catalog gap degrades to "not selectable here", never to
+ *    "deleted on save".
+ * 2. **The strongest secret is the default one.** Requiring a hand-typed secret
+ *    steered every admin toward the weakest value they could invent; the API's
+ *    auto-generate path was unreachable from the UI and its one-time echo was
+ *    discarded. Generate is now the default and the returned value is shown once.
  */
 
 import { useState, type ReactNode } from 'react';
@@ -23,6 +37,13 @@ import {
 import { WEBHOOK_EVENT_CATALOG, WEBHOOK_FORMATS, ALL_WEBHOOK_EVENT_IDS } from './events';
 import { CloseIcon } from '@/components/Icons';
 
+/**
+ * Server-side floor from `MIN_WEBHOOK_SECRET_LENGTH` (#893). Checked client-side
+ * so a plausible human value ("whsec_hunter2") is rejected with a sentence the
+ * admin can act on, instead of round-tripping to a raw DRF error string.
+ */
+const MIN_SECRET_LENGTH = 32;
+
 export interface WebhookEditorModalProps {
   scope: IntegrationScope;
   /** When set, the modal edits this webhook; otherwise it creates a new one. */
@@ -36,21 +57,40 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
   const [url, setUrl] = useState(webhook?.url ?? '');
   const [format, setFormat] = useState(webhook?.format ?? 'slack');
   const [secret, setSecret] = useState('');
-  const [events, setEvents] = useState<Set<string>>(
-    () => new Set(webhook?.events.filter((e) => ALL_WEBHOOK_EVENT_IDS.includes(e)) ?? []),
-  );
+  // Generate-on-create is the default: omitting `secret` makes the server mint a
+  // 256-bit value, which is strictly stronger than anything typed into a form.
+  const [generateSecret, setGenerateSecret] = useState(!isEdit);
+  // Every id the saved webhook is subscribed to, INCLUDING ids this build has no
+  // catalog entry for. Deliberately unfiltered — see invariant 1 in the file
+  // docstring.
+  const [events, setEvents] = useState<Set<string>>(() => new Set(webhook?.events ?? []));
   const [formError, setFormError] = useState<string | null>(null);
+  /** The one-time secret echo from a 201, shown once and never retrievable again. */
+  const [createdSecret, setCreatedSecret] = useState<string | null>(null);
 
   const create = useCreateWebhook(scope);
   const update = useUpdateWebhook(scope);
   const saving = create.isPending || update.isPending;
 
+  // Subscriptions this build cannot render a checkbox for. Rendered in their own
+  // section so they are visible and can be removed deliberately — the point is
+  // that removal must be a decision, not a side effect of pressing Save.
+  const unknownEvents = (webhook?.events ?? []).filter(
+    (id) => !ALL_WEBHOOK_EVENT_IDS.includes(id),
+  );
+
   // Trap focus and route Escape to close (guarded while saving, matching the
   // backdrop-dismiss guard). The hook seats initial focus on the first focusable
-  // and restores focus to the trigger on close.
-  const trapRef = useFocusTrap<HTMLDivElement>(true, () => {
-    if (!saving) onClose();
-  });
+  // and restores focus to the trigger on close. `focusKey` re-seats focus when the
+  // modal swaps to the created-secret panel, whose controls replace the form's
+  // (#1776 — without it focus drops to <body> and Tab escapes the modal).
+  const trapRef = useFocusTrap<HTMLDivElement>(
+    true,
+    () => {
+      if (!saving) onClose();
+    },
+    createdSecret === null ? 'form' : 'created',
+  );
 
   function toggleEvent(id: string) {
     setEvents((prev) => {
@@ -64,7 +104,11 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
   function validate(): string | null {
     if (!/^https:\/\//i.test(url.trim())) return 'Endpoint URL must start with https://';
     if (events.size === 0) return 'Select at least one event to subscribe to.';
-    if (!isEdit && secret.trim().length === 0) return 'A signing secret is required.';
+    const typed = secret.trim();
+    if (!isEdit && !generateSecret && typed.length === 0) return 'A signing secret is required.';
+    if (typed.length > 0 && typed.length < MIN_SECRET_LENGTH) {
+      return `A signing secret must be at least ${MIN_SECRET_LENGTH} characters. Leave it blank and use "Generate a secret for me" to get a strong one.`;
+    }
     return null;
   }
 
@@ -86,8 +130,23 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
       );
     } else {
       create.mutate(
-        { url: url.trim(), events: eventList, format, secret: secret.trim() },
-        { onSuccess: onSaved, onError: (e) => setFormError(extractError(e)) },
+        {
+          url: url.trim(),
+          events: eventList,
+          format,
+          // Omitted entirely when generating: the server only auto-generates when
+          // the field is absent or blank.
+          ...(generateSecret ? {} : { secret: secret.trim() }),
+        },
+        {
+          onSuccess: (created) => {
+            // The 201 echoes the secret exactly once (#893). Show it rather than
+            // discard it — there is no read path to it afterwards.
+            if (created.secret) setCreatedSecret(created.secret);
+            else onSaved();
+          },
+          onError: (e) => setFormError(extractError(e)),
+        },
       );
     }
   }
@@ -111,15 +170,17 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
               id="webhook-editor-title"
               className="text-[15px] font-semibold text-neutral-text-primary outline-none"
             >
-              {isEdit ? 'Edit webhook' : 'New webhook'}
+              {createdSecret !== null ? 'Webhook created' : isEdit ? 'Edit webhook' : 'New webhook'}
             </h2>
             <p className="text-[12px] text-neutral-text-secondary mt-0.5">
-              Fires whenever a subscribed event happens in this {scope.kind}.
+              {createdSecret !== null
+                ? 'Copy the signing secret now — it is shown once.'
+                : `Fires whenever a subscribed event happens in this ${scope.kind}.`}
             </p>
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={createdSecret !== null ? onSaved : onClose}
             disabled={saving}
             aria-label="Close"
             className="text-neutral-text-secondary hover:text-neutral-text-primary text-lg leading-none px-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
@@ -128,139 +189,208 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
           </button>
         </div>
 
-        <div className="grid md:grid-cols-[1.2fr_1fr] gap-5 p-5">
-          {/* Left: form */}
-          <div className="space-y-4">
-            <Field label="Endpoint URL" hint="HTTPS only.">
-              <input
-                type="url"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://hooks.slack.com/services/…"
-                className="tppm-mono w-full h-8 px-2 text-[13px] border border-neutral-border rounded bg-neutral-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-              />
-            </Field>
+        {createdSecret !== null ? (
+          <CreatedSecretPanel secret={createdSecret} onDone={onSaved} />
+        ) : (
+          <>
+            <div className="grid md:grid-cols-[1.2fr_1fr] gap-5 p-5">
+              {/* Left: form */}
+              <div className="space-y-4">
+                <Field label="Endpoint URL" hint="HTTPS only.">
+                  <input
+                    type="url"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    placeholder="https://hooks.slack.com/services/…"
+                    className="tppm-mono w-full h-8 px-2 text-[13px] border border-neutral-border rounded bg-neutral-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                  />
+                </Field>
 
-            <Field
-              label="Format"
-              hint="Slack renders a Block-Kit message; Generic sends the raw JSON envelope."
-            >
-              <div className="flex flex-wrap gap-1.5">
-                {WEBHOOK_FORMATS.map((f) => {
-                  const active = format === f.value;
-                  return (
-                    <button
-                      key={f.value}
-                      type="button"
-                      disabled={!f.available}
-                      aria-pressed={active}
-                      onClick={() => f.available && setFormat(f.value)}
-                      title={f.hint}
-                      className={[
-                        'h-7 px-3 rounded text-[12px] font-medium border',
-                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                        active
-                          ? 'bg-sage-500 text-navy-900 border-sage-600'
-                          : 'border-neutral-border text-neutral-text-secondary hover:text-neutral-text-primary',
-                        !f.available ? 'opacity-40 cursor-not-allowed' : '',
-                      ].join(' ')}
-                    >
-                      {f.label}
-                      {!f.available && <span className="ml-1 text-[11px]">Enterprise</span>}
-                    </button>
-                  );
-                })}
-              </div>
-            </Field>
-
-            <Field
-              label={isEdit ? 'Signing secret (leave blank to keep current)' : 'Signing secret'}
-              hint="HMAC-SHA256 of the body. Verify before trusting payloads."
-            >
-              <input
-                type="text"
-                value={secret}
-                onChange={(e) => setSecret(e.target.value)}
-                placeholder={isEdit ? '••••••••  (unchanged)' : 'whsec_…'}
-                className="tppm-mono w-full h-8 px-2 text-[13px] border border-neutral-border rounded bg-neutral-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-              />
-            </Field>
-
-            <div>
-              <div className="text-[13px] font-medium text-neutral-text-primary mb-1">Events</div>
-              <div className="text-[12px] text-neutral-text-secondary mb-2">
-                {events.size} selected
-              </div>
-              <div className="space-y-3">
-                {WEBHOOK_EVENT_CATALOG.map((group) => (
-                  <fieldset key={group.category}>
-                    <legend className="text-[11px] uppercase tracking-wide font-semibold text-neutral-text-secondary mb-1">
-                      {group.category}
-                    </legend>
-                    <div className="border border-neutral-border rounded overflow-hidden">
-                      {group.events.map((ev, i) => (
-                        <label
-                          key={ev.id}
+                <Field
+                  label="Format"
+                  hint="Slack sends a message with an attachment (also works with Discord and Mattermost); Generic sends the raw JSON envelope."
+                >
+                  <div className="flex flex-wrap gap-1.5">
+                    {WEBHOOK_FORMATS.map((f) => {
+                      const active = format === f.value;
+                      return (
+                        <button
+                          key={f.value}
+                          type="button"
+                          disabled={!f.available}
+                          aria-pressed={active}
+                          onClick={() => f.available && setFormat(f.value)}
+                          title={f.hint}
                           className={[
-                            'flex items-center gap-2 px-3 py-1.5 text-[13px] cursor-pointer hover:bg-neutral-surface-sunken',
-                            i ? 'border-t border-neutral-border/55' : '',
+                            'h-7 px-3 rounded text-[12px] font-medium border',
+                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                            active
+                              ? 'bg-sage-500 text-navy-900 border-sage-600'
+                              : 'border-neutral-border text-neutral-text-secondary hover:text-neutral-text-primary',
+                            !f.available ? 'opacity-40 cursor-not-allowed' : '',
                           ].join(' ')}
                         >
-                          <input
-                            type="checkbox"
-                            checked={events.has(ev.id)}
-                            onChange={() => toggleEvent(ev.id)}
-                            className="accent-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-                          />
-                          <span className="tppm-mono text-[11px] text-neutral-text-secondary">
-                            {ev.id}
-                          </span>
-                          <span className="text-neutral-text-primary">· {ev.label}</span>
-                          {ev.isNew && (
-                            <span className="ml-auto text-[11px] font-semibold text-navy-900 bg-sage-500 rounded px-1.5 py-0.5">
-                              new
-                            </span>
-                          )}
-                        </label>
-                      ))}
-                    </div>
-                  </fieldset>
-                ))}
+                          {f.label}
+                          {!f.available && <span className="ml-1 text-[11px]">Enterprise</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Field>
+
+                <div>
+                  <div className="text-[13px] font-medium text-neutral-text-primary mb-1">
+                    {isEdit ? 'Signing secret (leave blank to keep current)' : 'Signing secret'}
+                  </div>
+                  {!isEdit && (
+                    <label className="flex items-center gap-2 text-[12px] text-neutral-text-primary mb-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={generateSecret}
+                        onChange={(e) => setGenerateSecret(e.target.checked)}
+                        className="accent-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                      />
+                      Generate a secret for me (recommended — 256 bits, shown once)
+                    </label>
+                  )}
+                  {!(generateSecret && !isEdit) && (
+                    <input
+                      type="text"
+                      value={secret}
+                      onChange={(e) => setSecret(e.target.value)}
+                      placeholder={isEdit ? '••••••••  (unchanged)' : 'whsec_…'}
+                      aria-label="Signing secret"
+                      className="tppm-mono w-full h-8 px-2 text-[13px] border border-neutral-border rounded bg-neutral-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                    />
+                  )}
+                  <span className="block text-[11px] text-neutral-text-secondary mt-1">
+                    HMAC-SHA256 of the timestamp and body. Minimum {MIN_SECRET_LENGTH} characters.
+                    Verify before trusting payloads.
+                  </span>
+                </div>
+
+                <div>
+                  <div className="text-[13px] font-medium text-neutral-text-primary mb-1">
+                    Events
+                  </div>
+                  <div className="text-[12px] text-neutral-text-secondary mb-2">
+                    {events.size} selected
+                  </div>
+                  <div className="space-y-3">
+                    {WEBHOOK_EVENT_CATALOG.map((group) => (
+                      <fieldset key={group.category}>
+                        <legend className="text-[11px] uppercase tracking-wide font-semibold text-neutral-text-secondary mb-1">
+                          {group.category}
+                        </legend>
+                        <div className="border border-neutral-border rounded overflow-hidden">
+                          {group.events.map((ev, i) => (
+                            <label
+                              key={ev.id}
+                              className={[
+                                'flex items-center gap-2 px-3 py-1.5 text-[13px] cursor-pointer hover:bg-neutral-surface-sunken',
+                                i ? 'border-t border-neutral-border/55' : '',
+                              ].join(' ')}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={events.has(ev.id)}
+                                onChange={() => toggleEvent(ev.id)}
+                                className="accent-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                              />
+                              <span className="tppm-mono text-[11px] text-neutral-text-secondary">
+                                {ev.id}
+                              </span>
+                              <span className="text-neutral-text-primary">· {ev.label}</span>
+                              {ev.isNew && (
+                                <span className="ml-auto text-[11px] font-semibold text-navy-900 bg-sage-500 rounded px-1.5 py-0.5">
+                                  new
+                                </span>
+                              )}
+                            </label>
+                          ))}
+                        </div>
+                      </fieldset>
+                    ))}
+
+                    {unknownEvents.length > 0 && (
+                      <fieldset>
+                        <legend className="text-[11px] uppercase tracking-wide font-semibold text-neutral-text-secondary mb-1">
+                          Other subscriptions
+                        </legend>
+                        <p className="text-[11px] text-neutral-text-secondary mb-1">
+                          Registered through the API and not listed above. They stay subscribed
+                          unless you clear them here.
+                        </p>
+                        <div className="border border-neutral-border rounded overflow-hidden">
+                          {unknownEvents.map((id, i) => (
+                            <label
+                              key={id}
+                              className={[
+                                'flex items-center gap-2 px-3 py-1.5 text-[13px] cursor-pointer hover:bg-neutral-surface-sunken',
+                                i ? 'border-t border-neutral-border/55' : '',
+                              ].join(' ')}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={events.has(id)}
+                                onChange={() => toggleEvent(id)}
+                                className="accent-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                              />
+                              <span className="tppm-mono text-[11px] text-neutral-text-secondary">
+                                {id}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      </fieldset>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Right: example render + deliveries */}
+              <div className="space-y-4">
+                {format === 'slack' && <SlackExample />}
+                {isEdit && webhook && (
+                  <>
+                    {webhook.disabled_at && (
+                      <DisabledNotice
+                        reason={webhook.disabled_reason}
+                        failures={webhook.consecutive_failures}
+                      />
+                    )}
+                    <RecentDeliveries scope={scope} webhookId={webhook.id} />
+                  </>
+                )}
               </div>
             </div>
-          </div>
 
-          {/* Right: preview + deliveries */}
-          <div className="space-y-4">
-            {format === 'slack' && <SlackPreview />}
-            {isEdit && webhook && <RecentDeliveries scope={scope} webhookId={webhook.id} />}
-          </div>
-        </div>
+            {formError && (
+              <div className="px-5 pb-2 text-[12px] text-semantic-critical" role="alert">
+                {formError}
+              </div>
+            )}
 
-        {formError && (
-          <div className="px-5 pb-2 text-[12px] text-semantic-critical" role="alert">
-            {formError}
-          </div>
+            <div className="px-5 py-3 border-t border-neutral-border flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={saving}
+                className="h-8 px-3 rounded border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={saving}
+                className="h-8 px-3 rounded bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              >
+                {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create webhook'}
+              </button>
+            </div>
+          </>
         )}
-
-        <div className="px-5 py-3 border-t border-neutral-border flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            className="h-8 px-3 rounded border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={saving}
-            className="h-8 px-3 rounded bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-          >
-            {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create webhook'}
-          </button>
-        </div>
       </div>
     </div>
   );
@@ -276,12 +406,92 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
-/** Representative Slack render of a task.assigned event (static preview). */
-function SlackPreview() {
+/**
+ * The one-time secret echo (#2885). The API returns the generated secret in the
+ * 201 body and never again — discarding it, as this modal used to, left the admin
+ * with a webhook they could not verify signatures for.
+ */
+function CreatedSecretPanel({ secret, onDone }: { secret: string; onDone: () => void }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="p-5 space-y-4">
+      <div
+        className="border border-semantic-at-risk/55 bg-semantic-at-risk/10 rounded p-3 text-[12px] text-neutral-text-primary"
+        role="alert"
+      >
+        This is the only time the signing secret is shown. Store it in your receiver&apos;s
+        configuration now — it cannot be retrieved later, only rotated.
+      </div>
+      <div>
+        <span className="block text-[13px] font-medium text-neutral-text-primary mb-1">
+          Signing secret
+        </span>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            readOnly
+            value={secret}
+            aria-label="Generated signing secret"
+            className="tppm-mono flex-1 min-w-0 h-8 px-2 text-[13px] border border-neutral-border rounded bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              // Clipboard access can be denied (insecure context, permissions);
+              // the value stays selectable in the field either way.
+              void navigator.clipboard?.writeText(secret).then(
+                () => setCopied(true),
+                () => setCopied(false),
+              );
+            }}
+            className="h-8 px-3 shrink-0 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          >
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+      </div>
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={onDone}
+          className="h-8 px-3 rounded bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Surfaces the automatic failure guard (#2884). Without this the subscription
+ * simply stopped firing and the admin's only clue was a grey status dot.
+ */
+function DisabledNotice({ reason, failures }: { reason: string; failures: number }) {
+  return (
+    <div
+      className="border border-semantic-critical/55 bg-semantic-critical/10 rounded p-3 text-[12px] text-neutral-text-primary"
+      role="status"
+    >
+      <span className="block font-semibold mb-0.5">Deliveries paused automatically</span>
+      {reason || `Deactivated after ${failures} consecutive failed deliveries.`} Fix the receiver,
+      then re-enable this webhook to resume deliveries.
+    </div>
+  );
+}
+
+/**
+ * A representative Slack render of a `task.assigned` event.
+ *
+ * Static by design and labelled as an example, not a live preview: rendering
+ * faithfully would mean reimplementing the server-side renderer in TypeScript,
+ * and a second implementation that drifts is worse than an honest sample (#2885).
+ */
+function SlackExample() {
   return (
     <div>
       <div className="text-[11px] uppercase tracking-wide font-semibold text-neutral-text-secondary mb-2">
-        Slack renderer preview
+        Slack render example
       </div>
       {/* The hex colors below are deliberate Slack-message fidelity (Slack's own
           palette), not TruePPM chrome — intentionally exempt from web CLAUDE.md
@@ -309,6 +519,9 @@ function SlackPreview() {
           </div>
         </div>
       </div>
+      <p className="text-[11px] text-neutral-text-secondary mt-1.5">
+        Example only — the fields shown depend on the event type.
+      </p>
     </div>
   );
 }
@@ -321,7 +534,10 @@ function RecentDeliveries({ scope, webhookId }: { scope: IntegrationScope; webho
         Recent deliveries
       </div>
       {isLoading ? (
-        <div className="h-16 bg-neutral-surface-sunken rounded motion-safe:animate-pulse" aria-busy="true" />
+        <div
+          className="h-16 bg-neutral-surface-sunken rounded motion-safe:animate-pulse"
+          aria-busy="true"
+        />
       ) : !deliveries || deliveries.length === 0 ? (
         <p className="text-[12px] text-neutral-text-secondary">No deliveries yet.</p>
       ) : (

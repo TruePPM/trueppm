@@ -31,7 +31,7 @@ infrastructure, never synced to mobile):
 | `id` | UUIDField PK | |
 | `project` | FK → Project (CASCADE) | Per-project scope |
 | `url` | URLField(max_length=2048) | Delivery target |
-| `secret` | CharField(max_length=255) | HMAC-SHA256 signing key, stored encrypted at rest via `django-fernet-fields` or plain text in OSS (no PII) |
+| `secret` | CharField(max_length=255) | HMAC-SHA256 signing key, stored encrypted at rest via `django-fernet-fields` or plain text in OSS (no PII) — **superseded, see the Amendment below** |
 | `events` | ArrayField(CharField) | e.g. `["task.created", "task.updated"]` |
 | `is_active` | BooleanField(default=True) | Soft disable without deleting |
 | `created_at` | DateTimeField(auto_now_add) | |
@@ -193,3 +193,25 @@ detect gaps and reorder. It is the outbound counterpart to inbound sync ordering
    already set, so retries (which re-`save()` the same row) never re-number it.
 8. Dead-letter / failure handling: unchanged — a permanently failed delivery
    retains its allocated sequence, so a consumer still sees the gap.
+
+## Amendment — 2026-08-17 (#2885, ADR-0837)
+
+**The `secret` row above is superseded.** It offered "encrypted at rest … *or plain
+text in OSS*", and OSS took the second branch: `secret` shipped as a plaintext
+`CharField` and stayed that way through 0.3, which made it the only plaintext secret
+in the product. The parenthetical justification "(no PII)" was the wrong test — the
+secret is not personal data, it is the *signing key*, so a database dump or a
+read-only SQL finding yielded everything an attacker needs to forge accepted
+deliveries at every registered receiver.
+
+As of #2885 the field is `secret_ciphertext = BinaryField`, Fernet-encrypted through
+`apps/integrations/encryption.py` — the same mechanism as every sibling secret
+(`IntegrationCredential`, the inbound git webhook secret, SSO `client_secret`, the
+workspace SMTP password). It is read and written through a `Webhook.secret` property,
+so call sites are unchanged, and existing rows were encrypted by a data migration.
+The at-rest choice is no longer optional and no longer edition-dependent.
+
+The signing recipe in this ADR is likewise extended, not replaced, by **ADR-0837**:
+deliveries now also carry a timestamped `X-TruePPM-Signature-V2`, because the
+body-only HMAC specified here verifies forever and cannot detect a replay. The
+body-only header keeps being emitted through a deprecation window closing at 1.0.

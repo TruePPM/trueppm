@@ -14,6 +14,7 @@ import {
   useWebhooks,
   useDeleteWebhook,
   useTestWebhook,
+  useWebhookTestResult,
   type ApiWebhook,
   type IntegrationScope,
 } from '@/hooks/useWebhooks';
@@ -24,39 +25,14 @@ export interface WebhooksManagerProps {
   scope: IntegrationScope;
 }
 
-/** How long the "tested" confirmation stays lit on a webhook row. */
-const TEST_FLASH_MS = 3000;
-
-/**
- * Updater that clears the "tested" flash for `id` — unless another webhook has
- * since been tested and claimed the flag, in which case the newer flash wins and
- * this stale timer must not cancel it.
- *
- * Module-scope so the timeout below doesn't have to nest the updater as a fifth
- * function level (Sonar S2004).
- */
-function clearedIfStill(id: string) {
-  return (current: string | null) => (current === id ? null : current);
-}
 
 export function WebhooksManager({ scope }: WebhooksManagerProps) {
   const { data: webhooks, isLoading, isError, refetch } = useWebhooks(scope);
   const del = useDeleteWebhook(scope);
-  const test = useTestWebhook(scope);
 
   const [editing, setEditing] = useState<ApiWebhook | null>(null);
   const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<ApiWebhook | null>(null);
-  const [testedId, setTestedId] = useState<string | null>(null);
-
-  function handleTest(wh: ApiWebhook) {
-    test.mutate(wh.id, {
-      onSuccess: () => {
-        setTestedId(wh.id);
-        window.setTimeout(() => setTestedId(clearedIfStill(wh.id)), TEST_FLASH_MS);
-      },
-    });
-  }
 
   return (
     <SettingsCard>
@@ -129,23 +105,21 @@ export function WebhooksManager({ scope }: WebhooksManagerProps) {
                   </span>
                   <span className="text-[11px] text-neutral-text-secondary">
                     {wh.events.length} event{wh.events.length === 1 ? '' : 's'}
+                    {wh.consecutive_failures > 0 && (
+                      <>
+                        {' · '}
+                        <span className="text-semantic-critical">
+                          {wh.disabled_at
+                            ? `paused after ${wh.consecutive_failures} failures`
+                            : `${wh.consecutive_failures} recent failure${wh.consecutive_failures === 1 ? '' : 's'}`}
+                        </span>
+                      </>
+                    )}
                   </span>
                 </span>
                 <FormatPill format={wh.format} />
                 <div className="flex items-center gap-1 shrink-0">
-                  <RowButton onClick={() => handleTest(wh)} disabled={test.isPending}>
-                    {testedId === wh.id ? (
-                      <>
-                        Sent
-                        <CheckIcon
-                          className="inline-block h-3 w-3 align-[-0.125em] ml-1"
-                          aria-hidden="true"
-                        />
-                      </>
-                    ) : (
-                      'Test'
-                    )}
-                  </RowButton>
+                  <TestButton scope={scope} webhook={wh} />
                   <RowButton onClick={() => setEditing(wh)}>Edit</RowButton>
                   <RowButton onClick={() => setConfirmDelete(wh)} variant="danger">
                     Delete
@@ -188,6 +162,64 @@ export function WebhooksManager({ scope }: WebhooksManagerProps) {
   );
 }
 
+/**
+ * "Test" button that reports the receiver's real answer, not the enqueue ack.
+ *
+ * The old implementation flipped to "Sent ✓" in the POST's `onSuccess` with no
+ * `onError` and no read-back. Since the ping also skipped the format renderer, a
+ * Slack-format webhook — the modal's default — was guaranteed to fail with 400
+ * `invalid_payload` while the UI reported success (#2884). Both halves are fixed:
+ * the ping now renders through the subscription's provider server-side, and this
+ * button polls the delivery row until it reaches a terminal status.
+ *
+ * A component per row (rather than state lifted into the manager) so each row owns
+ * its own poll — hooks cannot be called in a loop.
+ */
+function TestButton({ scope, webhook }: { scope: IntegrationScope; webhook: ApiWebhook }) {
+  const test = useTestWebhook(scope);
+  const [deliveryId, setDeliveryId] = useState<string | null>(null);
+  const { data: delivery } = useWebhookTestResult(scope, webhook.id, deliveryId);
+
+  // Gated on `deliveryId`: a cached row from an earlier test must not make the
+  // button read "Delivered" before this click has produced anything.
+  const settled = !!deliveryId && !!delivery && delivery.status !== 'pending';
+  const failed = settled && delivery.status === 'failed';
+
+  let label: ReactNode = 'Test';
+  if (test.isPending) label = 'Sending…';
+  else if (test.isError) label = 'Failed';
+  else if (deliveryId && !settled) label = 'Waiting…';
+  else if (failed) label = `Failed ${delivery.response_status ?? ''}`.trim();
+  else if (settled)
+    label = (
+      <>
+        Delivered
+        <CheckIcon className="inline-block h-3 w-3 align-[-0.125em] ml-1" aria-hidden="true" />
+      </>
+    );
+
+  return (
+    <RowButton
+      onClick={() => {
+        setDeliveryId(null);
+        test.reset();
+        test.mutate(webhook.id, {
+          onSuccess: (data) => setDeliveryId(data.delivery_id),
+        });
+      }}
+      disabled={test.isPending || (!!deliveryId && !settled)}
+      variant={failed || test.isError ? 'danger' : 'default'}
+      title={
+        failed
+          ? `The receiver rejected this delivery with HTTP ${delivery.response_status ?? 'error'}.`
+          : undefined
+      }
+    >
+      {label}
+    </RowButton>
+  );
+}
+
 function StatusDot({ active }: { active: boolean }) {
   return (
     <span
@@ -220,17 +252,20 @@ function RowButton({
   onClick,
   disabled,
   variant = 'default',
+  title,
 }: {
   children: ReactNode;
   onClick: () => void;
   disabled?: boolean;
   variant?: 'default' | 'danger';
+  title?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className={[
         'h-6 px-2 text-[11px] font-medium rounded border border-neutral-border hover:bg-neutral-surface-sunken disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
