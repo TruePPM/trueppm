@@ -25,6 +25,25 @@ export function gitAutomationKey(projectId: string) {
 // API shapes (match GitAutomationConfigSerializer / rotate-secret response)
 // ---------------------------------------------------------------------------
 
+/**
+ * Outcome of the most recent inbound delivery (#2882).
+ *
+ * Deliberately a plain `string`, not a union: the server owns this vocabulary and
+ * grows it with the event taxonomy, so a narrowed union here would make an
+ * API-side addition a compile error in the client and — worse — tempt an
+ * exhaustive `switch` that renders nothing for a value it has never seen. The
+ * known tokens are:
+ *
+ * - refused before the signature check (the caller saw only an opaque 404, so an
+ *   admin reading this row is the sole way to tell which it was): `no_automation`,
+ *   `automation_disabled`, `no_secret`, `unknown_provider`, `secret_unreadable`,
+ *   `bad_signature`
+ * - verified, then not acted on: `malformed_payload`, `ignored`, `draft`,
+ *   `duplicate`, `no_url`, `no_link`, `noop_forward_only`
+ * - a card moved: `opened_review`, `merged_complete`
+ */
+export type GitDeliveryOutcome = string;
+
 export interface GitAutomationConfig {
   enabled: boolean;
   secret_set: boolean;
@@ -32,6 +51,14 @@ export interface GitAutomationConfig {
   configured_by: string | null;
   secret_set_at: string | null;
   updated_at: string;
+  /**
+   * Last-delivery diagnostics. Optional in the type, not because the server omits
+   * them, but because an older API build does — and the card has to degrade to its
+   * previous "no information" state rather than render `undefined`.
+   */
+  last_delivery_at?: string | null;
+  last_delivery_outcome?: GitDeliveryOutcome;
+  last_delivery_provider?: string;
 }
 
 /** Rotate response = the one-time plaintext secret plus the webhook URL. */

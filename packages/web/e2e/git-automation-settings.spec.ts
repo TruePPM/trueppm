@@ -140,6 +140,54 @@ test.describe('Git-event automation settings', () => {
     );
   });
 
+  test('surfaces the last delivery outcome and what to do about it', async ({ page }) => {
+    // #2882: before this row, a webhook that verified and matched nothing returned
+    // 200, logged nothing, and showed nothing here — so "I followed every step and
+    // no card moves" had no answer on any surface an operator can reach.
+    await commonRoutes(page);
+    await page.route(`**/api/v1/integrations/projects/${PROJECT_ID}/git-automation/`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({
+          ...CONFIG_NO_SECRET,
+          enabled: true,
+          secret_set: true,
+          secret_set_at: '2026-08-01T00:00:00Z',
+          last_delivery_at: '2026-08-17T09:30:00Z',
+          last_delivery_outcome: 'no_link',
+          last_delivery_provider: 'github',
+        }),
+      }),
+    );
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/integrations`);
+
+    const section = page.locator('[data-testid="git-automation-manager"]');
+    await expect(section.getByRole('heading', { name: 'Git-event automation' })).toBeVisible();
+    const delivery = section.locator('[data-testid="git-last-delivery"]');
+    await expect(delivery).toContainText('No task is linked to that pull/merge request');
+    await expect(delivery).toContainText('External links');
+  });
+
+  test('says plainly when no delivery has arrived yet', async ({ page }) => {
+    await commonRoutes(page);
+    await page.route(`**/api/v1/integrations/projects/${PROJECT_ID}/git-automation/`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ ...CONFIG_NO_SECRET, last_delivery_at: null, last_delivery_outcome: '' }),
+      }),
+    );
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/integrations`);
+
+    const section = page.locator('[data-testid="git-automation-manager"]');
+    await expect(section.locator('[data-testid="git-last-delivery-empty"]')).toContainText(
+      'No webhook delivery received yet',
+    );
+  });
+
   test('shows an error + Retry when the config load fails', async ({ page }) => {
     await commonRoutes(page);
     await page.route(`**/api/v1/integrations/projects/${PROJECT_ID}/git-automation/`, (r) =>

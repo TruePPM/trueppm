@@ -1430,7 +1430,7 @@ used by the in-app import wizard, for scripted use — see
 | GET | `/api/v1/me/external-items/` | Your cached external work items, for the My Work external section |
 | GET / PUT | `/api/v1/integrations/projects/{project_id}/git-automation/` | A project's Git-event board-automation config (Admin+, ADR-0158) |
 | POST | `/api/v1/integrations/projects/{project_id}/git-automation/rotate-secret/` | Rotate the webhook signing secret |
-| POST | `/api/v1/integrations/projects/{project_id}/git-webhook/` | Inbound Git-event receiver (unauthenticated by session; verified by the rotatable secret) |
+| POST | `/api/v1/integrations/projects/{project_id}/git-webhook/` | Inbound Git-event receiver (unauthenticated by session; verified by the rotatable secret). Every refusal before signature verification — no automation, disabled, no secret, unknown provider, bad signature — returns the **same** `404`, so the endpoint cannot be used to discover which projects have automation configured; bodies over 1 MB get a `413` |
 
 The org-wide, admin-configured, bidirectional Integration Hub is Enterprise;
 everything in this table is the OSS carve-out — a personal, one-way credential
@@ -1568,6 +1568,7 @@ return `429` with the same `Retry-After` envelope shown above.
 | `share_mint` | 20/min (`TRUEPPM_THROTTLE_SHARE_MINT_RATE`) | Minting a public board/schedule share link |
 | `share_access` | 60/min (`TRUEPPM_THROTTLE_SHARE_ACCESS_RATE`) | Resolving a public share link |
 | `telemetry_test` | 6/min | Telemetry test-export probe |
+| `git_webhook_ip` | 600/min (`TRUEPPM_THROTTLE_GIT_WEBHOOK_IP_RATE`) | Inbound Git webhook receiver, per client IP — stacks with `GitWebhookThrottle` below |
 
 **Hand-rolled throttle classes** (custom windows/keys DRF's scope rates can't express):
 
@@ -1578,7 +1579,7 @@ return `429` with the same `Retry-After` envelope shown above.
 | `TokenIssuanceThrottle` | 5/min (`TRUEPPM_TOKEN_ISSUANCE_PER_MINUTE`) | Minting any API token, per user |
 | `TaskAttachmentUploadThrottle` | 60/min | Task-attachment upload, per user |
 | `SyncUploadThrottle` | 60/min per (project, user) **and** 120/min per user | Offline sync push — fails **closed** (429) on a Redis outage, the one throttle in this table that does |
-| `GitWebhookThrottle` | 120/min | Inbound Git webhook receiver, per project |
+| `GitWebhookThrottle` | 120/min | Inbound Git webhook receiver, per project — the caller picks the project ID out of the URL, so this is stacked with the per-IP `git_webhook_ip` scope above and neither bounds the endpoint alone |
 | `TaskLinkRefreshThrottle` | 30/min | Manual task-link refresh, per user |
 | `MentionRateThrottle` | 100/hour and 1000/day | Comment `@mention` fan-out, per user (both windows apply) |
 

@@ -277,9 +277,90 @@ class GitAutomationConfigSerializer(serializers.Serializer[Any]):
     configured_by = serializers.UUIDField(allow_null=True)
     secret_set_at = serializers.DateTimeField(allow_null=True)
     updated_at = serializers.DateTimeField(allow_null=True)
+    # Last-delivery diagnostics (#2882). Before these, a webhook that failed or
+    # matched nothing was invisible on every surface an operator can reach: the
+    # receiver logged nothing, every non-auth outcome was a 200 so the provider
+    # showed a green check, and the settings card had no error state at all. These
+    # three are what the "Last delivery" row on that card reads.
+    last_delivery_at = serializers.DateTimeField(allow_null=True)
+    last_delivery_outcome = serializers.CharField(allow_blank=True)
+    last_delivery_provider = serializers.CharField(allow_blank=True)
 
 
 class GitAutomationUpdateSerializer(serializers.Serializer[Any]):
     """Write payload for toggling Git-event automation (project-admin only)."""
 
     enabled = serializers.BooleanField()
+
+
+class GitAutomationSecretSerializer(serializers.Serializer[Any]):
+    """One-time rotate-secret response (``201``) for ``.../rotate-secret/``.
+
+    Declared so the published schema stops describing this endpoint as
+    "200: No response body" — it returns **201** with a plaintext secret that is
+    never retrievable again, which is precisely the shape an integrator has to know
+    in advance (#2882).
+    """
+
+    secret = serializers.CharField()
+    webhook_url = serializers.CharField()
+    secret_set_at = serializers.DateTimeField(allow_null=True)
+
+
+#: Raw OpenAPI schema for the inbound receiver's ``200`` body (#2882).
+#:
+#: The published schema declared all four Git endpoints as "200: No response body",
+#: while the receiver actually returns four distinct shapes and a ``reason`` enum that
+#: was discoverable only by reading Python. Expressed as a raw schema rather than a
+#: ``Serializer`` for one blunt reason: the body carries a ``from`` key, and ``from``
+#: is a Python keyword, so it cannot be a serializer class attribute. Renaming the
+#: wire field to suit the tooling would be the tail wagging the dog.
+GIT_WEBHOOK_RESULT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "matched": {
+            "type": "boolean",
+            "description": "A task in this project is linked to the PR/MR in the payload.",
+        },
+        "moved": {"type": "boolean", "description": "The linked card's status changed."},
+        "task": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": True,
+            "description": "The matched task, when there was one.",
+        },
+        "from": {"type": "string", "nullable": True, "description": "Board status before."},
+        "to": {"type": "string", "nullable": True, "description": "Board status after."},
+        "ignored": {
+            "type": "string",
+            "description": (
+                "The provider's own event name, present when the event is not one this "
+                "receiver acts on."
+            ),
+        },
+        "reason": {
+            "type": "string",
+            "enum": [
+                "draft",
+                "duplicate",
+                "no_url",
+                "no_link",
+                "noop_forward_only",
+                "opened_review",
+                "merged_complete",
+            ],
+            "description": (
+                "draft: a draft/WIP pull/merge request opened — deliberately does not "
+                "promote the card, the promotion happens when it is marked ready for "
+                "review. duplicate: a provider redelivery of an event already "
+                "processed. no_url: the payload carried no pull/merge request URL. "
+                "no_link: no task in this project has a link pointing at this PR/MR, so "
+                "there is no card to move — this is the most common reason a correctly "
+                "configured webhook moves nothing. noop_forward_only: the card is "
+                "already at or past the target status. opened_review / merged_complete: "
+                "a card moved."
+            ),
+        },
+    },
+    "required": ["matched", "moved"],
+}

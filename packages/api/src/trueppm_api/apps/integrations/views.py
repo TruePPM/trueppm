@@ -18,6 +18,7 @@ Credentials URL contract:
 
 from __future__ import annotations
 
+import logging
 import secrets
 from typing import TYPE_CHECKING, Any, cast
 
@@ -25,7 +26,7 @@ from django.db import transaction
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
@@ -52,10 +53,12 @@ from .git_automation_services import apply_git_event_to_card
 from .models import BoardAutomation, IntegrationCredential, TaskLink
 from .registry import TASK_LINK_PROVIDERS
 from .serializers import (
+    GIT_WEBHOOK_RESULT_SCHEMA,
     CredentialSummarySerializer,
     CredentialUpsertSerializer,
     CredentialVerificationErrorSerializer,
     GitAutomationConfigSerializer,
+    GitAutomationSecretSerializer,
     GitAutomationUpdateSerializer,
     TaskLinkCredentialRequiredSerializer,
     TaskLinkSerializer,
@@ -86,6 +89,36 @@ _VERIFY_FAILURE_DETAIL: dict[str | None, str] = {
     "provider_timeout": "Verifying this token with the provider timed out. Try again.",
     "blocked_host": ("The host URL is not allowed — it resolves to a private or internal address."),
 }
+
+logger = logging.getLogger(__name__)
+
+# ── Inbound Git-webhook delivery outcomes (#2882) ────────────────────────────
+# The vocabulary written to ``BoardAutomation.last_delivery_outcome`` and logged by
+# the receiver. Pre-verification outcomes are what an operator cannot otherwise see
+# at all: every one of them returns the same opaque 404 to the caller (#2881), so
+# this record and the receiver log are the *only* places the reason survives.
+# Post-verification outcomes duplicate the ``reason`` already in the 200 body, which
+# only the provider's delivery log shows — the record is what puts them in front of
+# the admin who is asking "why didn't my card move?".
+GIT_DELIVERY_DISABLED = "automation_disabled"
+GIT_DELIVERY_NO_SECRET = "no_secret"
+GIT_DELIVERY_UNKNOWN_PROVIDER = "unknown_provider"
+GIT_DELIVERY_SECRET_UNREADABLE = "secret_unreadable"
+GIT_DELIVERY_BAD_SIGNATURE = "bad_signature"
+GIT_DELIVERY_MALFORMED = "malformed_payload"
+GIT_DELIVERY_IGNORED = "ignored"
+GIT_DELIVERY_DUPLICATE = "duplicate"
+
+# Body cap for the inbound Git webhook, enforced *before* the body is buffered.
+# Without it the only bound was the global 100 MB ``DATA_UPLOAD_MAX_MEMORY_SIZE``,
+# so an anonymous caller could push 20 MB at a project UUID that has no automation
+# at all and have it fully accepted before the 404 (#2881). A ``pull_request`` /
+# ``merge_request` payload is tens of kilobytes; GitHub itself caps a delivery at
+# 25 MB. 1 MB leaves two orders of magnitude of headroom over real traffic while
+# taking the amplification factor from 100 MB to 1 MB. Not operator-tunable on
+# purpose — an operator has no legitimate reason to widen it, and every knob on an
+# unauthenticated path is a knob that can be widened by mistake.
+_WEBHOOK_MAX_BODY_BYTES = 1 * 1024 * 1024
 
 
 @extend_schema(tags=["me"])
@@ -501,16 +534,106 @@ def _git_webhook_url(request: Request, project_pk: Any) -> str:
     )
 
 
-@extend_schema(tags=["integrations"])
+class _WebhookRefusal(Exception):
+    """A pre-verification refusal and the reason for it (#2881).
+
+    Internal control flow, never surfaced: the receiver catches it and answers with
+    the one uniform 404 that every refusal shares, after recording ``outcome`` where
+    only a project admin can read it.
+    """
+
+    def __init__(
+        self, outcome: str, automation_id: Any = None, provider: str | None = None
+    ) -> None:
+        super().__init__(outcome)
+        self.outcome = outcome
+        # ``None`` when there is no row to record against (no project, or automation
+        # never configured at all) — then the receiver log is the only record.
+        self.automation_id = automation_id
+        self.provider = provider
+
+
+def _record_git_delivery(automation_id: Any, provider: str | None, outcome: str) -> None:
+    """Stamp the last-delivery diagnostics on a ``BoardAutomation`` row (#2882).
+
+    A queryset ``.update()`` rather than ``instance.save()`` on purpose: ``save()``
+    would fire ``auto_now`` on ``updated_at``, and that field means "an admin last
+    changed this config" — a webhook arriving must not look like a config change on
+    the settings card. One UPDATE, no model state reload, no signals.
+    """
+    BoardAutomation.objects.filter(pk=automation_id).update(
+        last_delivery_at=timezone.now(),
+        last_delivery_outcome=outcome[:32],
+        last_delivery_provider=(provider or "")[:16],
+    )
+
+
+def _webhook_body_within_cap(request: Request) -> bool:
+    """Whether the request body is inside :data:`_WEBHOOK_MAX_BODY_BYTES`.
+
+    Checks the declared ``Content-Length`` **first**, so an oversized delivery is
+    refused without buffering it — that is the whole point, since the old code read
+    ``request.body`` as its first statement and therefore allocated up to the global
+    100 MB cap before it even knew whether the project had automation. Both providers
+    always send ``Content-Length``; the ``request.body`` length check behind it is the
+    net for a chunked or header-less caller, where measuring the bytes that actually
+    arrived is the only option available (same trade-off as the seed-import reader).
+    """
+    try:
+        declared = int(request.META.get("CONTENT_LENGTH") or 0)
+    except (TypeError, ValueError):
+        declared = 0
+    if declared > _WEBHOOK_MAX_BODY_BYTES:
+        return False
+    return len(request.body) <= _WEBHOOK_MAX_BODY_BYTES
+
+
+@extend_schema(
+    tags=["integrations"],
+    request=None,
+    responses={
+        200: GIT_WEBHOOK_RESULT_SCHEMA,
+        400: OpenApiResponse(description="Malformed webhook payload (signature verified)."),
+        404: OpenApiResponse(
+            description=(
+                "The uniform refusal for every pre-verification failure — no automation, "
+                "disabled, no secret set, unrecognized provider, or an invalid signature. "
+                "Deliberately indistinguishable so the endpoint cannot be used to discover "
+                "which projects have automation configured."
+            )
+        ),
+        413: OpenApiResponse(description="Payload above the 1 MB webhook body cap."),
+    },
+)
 class GitWebhookIngestView(IdempotencyMixin, APIView):
     """Inbound Git-event receiver — ``POST .../{project_pk}/git-webhook/`` (#329, ADR-0158).
 
     The OSS Git-event board-card auto-move receiver. **The signature is the gate** —
     this endpoint is unauthenticated-by-session (``AllowAny``); a GitHub
     ``X-Hub-Signature-256`` HMAC or a GitLab ``X-Gitlab-Token`` over the project's
-    secret is what authorizes the call. A bad/missing signature is a hard 401, and
-    a project without enabled automation is a 404 so the endpoint never reveals
-    which projects have automation configured.
+    secret is what authorizes the call.
+
+    **Every pre-verification refusal is the same bare 404** — no automation row, a
+    disabled toggle, no secret set, an unrecognized provider, an undecryptable
+    secret, and a bad or missing signature are byte-for-byte indistinguishable to the
+    caller. This is stricter than the original design, which used 404 for
+    "not configured" and 401 for "bad signature" and so published exactly the fact
+    the 404 existed to hide: with a project UUID (which every project Viewer has,
+    straight out of the SPA URL) a 401 meant *automation is enabled and a secret is
+    set*, admin-only state that ``GitAutomationConfigView`` gates at Owner/Admin. A
+    non-ASCII byte in the signature header made it worse still by raising an
+    unhandled ``TypeError``, so a 500 read as the same disclosure (#2881).
+
+    The refusal *reason* is not thrown away — it goes to the structured receiver log
+    and to ``BoardAutomation.last_delivery_*``, which the admin-only config GET
+    returns and the settings card renders. Both require the reader to already be an
+    Owner/Admin of that project, which is the difference that matters.
+
+    Two refusals stay distinct on purpose, because neither depends on project state
+    and so neither can leak it: **413** for a body over
+    :data:`_WEBHOOK_MAX_BODY_BYTES` (checked before the body is buffered at all) and
+    **429** from the throttles. Post-verification responses are informative too — the
+    caller has already proven it holds the secret, so there is nothing left to hide.
 
     OSS boundary (ADR-0097 carve-out, mirroring ADR-0148): a single project-scoped,
     off-by-default, one-way Git→card receiver. No org connector, no OAuth, no
@@ -518,7 +641,7 @@ class GitWebhookIngestView(IdempotencyMixin, APIView):
     multi-provider bidirectional Integration Hub remains Enterprise.
     """
 
-    from .throttles import GitWebhookThrottle
+    from .throttles import GitWebhookIpThrottle, GitWebhookThrottle
 
     # Exempt from the HTTP idempotency model: an inbound webhook carries no JWT user
     # to key the Idempotency-Key store on. Replay safety comes from two purpose-built
@@ -527,50 +650,101 @@ class GitWebhookIngestView(IdempotencyMixin, APIView):
     idempotency_exempt = True
     authentication_classes: list[type] = []
     permission_classes = [AllowAny]
-    throttle_classes = [GitWebhookThrottle]
+    # STACKED, and both are needed. The per-project bucket keys on a ``project_pk``
+    # the caller picks out of the URL, so rotating it defeated the limit entirely;
+    # the per-IP bucket closes that. Declaring ``throttle_classes`` here also
+    # replaces ``DEFAULT_THROTTLE_CLASSES``, which is why the global anon throttle
+    # never applied and the per-IP class has to be named explicitly (#2881).
+    throttle_classes = [GitWebhookThrottle, GitWebhookIpThrottle]
+
+    def _authorize(
+        self, request: Request, project_pk: str, raw_body: bytes
+    ) -> tuple[BoardAutomation, str, str]:
+        """Resolve the automation row, provider, and secret, or raise ``_WebhookRefusal``.
+
+        Every failure funnels through one exception type carrying its own outcome
+        token, which is what makes the indistinguishability property hold by
+        construction: there is a single ``Response`` literal for all six refusals
+        instead of six that have to stay in sync with each other.
+        """
+        # Fetch the row regardless of ``enabled`` so a disabled toggle and a missing
+        # secret can be *recorded* (they are the two most common "I followed every
+        # step and nothing moves" causes) even though both still answer 404. Scope
+        # out soft-deleted projects.
+        automation = (
+            BoardAutomation.objects.filter(
+                project_id=project_pk,
+                project__is_deleted=False,
+            )
+            .select_related("project")
+            .first()
+        )
+        provider = git_webhook_auth.detect_provider(request.headers)
+
+        if automation is None:
+            # Nothing to record against — no project, or automation never touched.
+            raise _WebhookRefusal("no_automation", provider=provider)
+        if not automation.enabled:
+            raise _WebhookRefusal(GIT_DELIVERY_DISABLED, automation.pk, provider)
+        if not automation.has_secret:
+            raise _WebhookRefusal(GIT_DELIVERY_NO_SECRET, automation.pk, provider)
+        if provider is None:
+            raise _WebhookRefusal(GIT_DELIVERY_UNKNOWN_PROVIDER, automation.pk, provider)
+
+        try:
+            secret = decrypt_secret(automation.secret_ciphertext)
+        except CredentialEncryptionError as exc:
+            # Secret unreadable (key rotated without re-encrypt) → cannot verify.
+            raise _WebhookRefusal(GIT_DELIVERY_SECRET_UNREADABLE, automation.pk, provider) from exc
+
+        try:
+            git_webhook_auth.verify_signature(provider, secret, raw_body, request.headers)
+        except git_webhook_auth.WebhookSignatureError as exc:
+            raise _WebhookRefusal(GIT_DELIVERY_BAD_SIGNATURE, automation.pk, provider) from exc
+
+        return automation, provider, secret
 
     def post(self, request: Request, project_pk: str) -> Response:
         from .throttles import claim_webhook_delivery
+
+        # Bound the body BEFORE anything reads or allocates it.
+        if not _webhook_body_within_cap(request):
+            logger.warning("git webhook refused: project=%s reason=payload_too_large", project_pk)
+            return Response(
+                {"detail": "Webhook payload too large."},
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
 
         # Read the raw body BEFORE touching request.data — the HMAC must be checked
         # against the exact bytes the provider signed, and accessing request.data
         # consumes the stream.
         raw_body = request.body
 
-        # 404 (not 401) when there is no enabled automation: do not leak which
-        # projects have it configured. Scope out soft-deleted projects too.
-        automation = (
-            BoardAutomation.objects.filter(
-                project_id=project_pk,
-                enabled=True,
-                project__is_deleted=False,
-            )
-            .select_related("project")
-            .first()
-        )
-        if automation is None or not automation.has_secret:
-            raise Http404
-
-        provider = git_webhook_auth.detect_provider(request.headers)
-        if provider is None:
-            raise Http404
-
         try:
-            secret = decrypt_secret(automation.secret_ciphertext)
-        except CredentialEncryptionError:
-            # Secret unreadable (key rotated without re-encrypt) → cannot verify.
-            return Response(
-                {"detail": "Signature verification unavailable."},
-                status=status.HTTP_401_UNAUTHORIZED,
+            automation, provider, _secret = self._authorize(request, project_pk, raw_body)
+        except _WebhookRefusal as refusal:
+            if refusal.automation_id is not None:
+                _record_git_delivery(refusal.automation_id, refusal.provider, refusal.outcome)
+            logger.warning(
+                "git webhook refused: project=%s provider=%s reason=%s",
+                project_pk,
+                refusal.provider or "unknown",
+                refusal.outcome,
             )
+            # Returned, NOT ``raise Http404``. DRF's exception handler calls
+            # ``set_rollback()`` for every APIException, and ``ATOMIC_REQUESTS`` is on
+            # — so raising here would roll the delivery record back out of existence
+            # and the whole diagnostic surface would silently record nothing. The body
+            # is byte-identical to what DRF's ``NotFound`` renders.
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        try:
-            git_webhook_auth.verify_signature(provider, secret, raw_body, request.headers)
-        except git_webhook_auth.WebhookSignatureError:
-            return Response({"detail": "Invalid signature."}, status=status.HTTP_401_UNAUTHORIZED)
-
+        # --- Past the gate: the caller holds the secret, so be informative. -------
         payload = request.data
         if not isinstance(payload, dict):
+            _record_git_delivery(automation.pk, provider, GIT_DELIVERY_MALFORMED)
+            logger.warning(
+                "git webhook malformed payload: project=%s provider=%s", project_pk, provider
+            )
             return Response(
                 {"detail": "Malformed webhook payload."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -578,22 +752,45 @@ class GitWebhookIngestView(IdempotencyMixin, APIView):
 
         envelope = git_webhook_auth.parse_envelope(provider, request.headers, payload)
         if envelope.event is None:
-            # A configured-but-irrelevant event (push, comment, draft, close). Not an
-            # error — return 2xx so the provider does not retry.
-            return Response(
-                {"matched": False, "moved": False, "ignored": envelope.raw_event_name},
-                status=status.HTTP_200_OK,
-            )
+            # A configured-but-irrelevant event (push, comment, close) or a draft/WIP
+            # open, which deliberately does not promote the card. Not an error —
+            # return 2xx so the provider does not retry. ``reason`` distinguishes the
+            # two, because "I opened a draft and nothing happened" is a question
+            # someone will ask and the answer should not require reading Python.
+            outcome = envelope.ignored_reason or GIT_DELIVERY_IGNORED
+            _record_git_delivery(automation.pk, provider, outcome)
+            body: dict[str, Any] = {
+                "matched": False,
+                "moved": False,
+                "ignored": envelope.raw_event_name,
+            }
+            if envelope.ignored_reason:
+                body["reason"] = envelope.ignored_reason
+            return Response(body, status=status.HTTP_200_OK)
 
         # Idempotency: a provider redelivery of the same event is a no-op. The
         # forward-only guard in the service is a second, Redis-independent layer.
         if not claim_webhook_delivery(project_pk, envelope.delivery_key):
+            _record_git_delivery(automation.pk, provider, GIT_DELIVERY_DUPLICATE)
             return Response(
                 {"matched": False, "moved": False, "reason": "duplicate"},
                 status=status.HTTP_200_OK,
             )
 
         result = apply_git_event_to_card(automation, provider, envelope.event, envelope.pr_url)
+        _record_git_delivery(automation.pk, provider, result.reason)
+        if not result.matched:
+            # ``no_url`` / ``no_link``: the delivery verified but matched nothing.
+            # This is THE silent failure of the feature — the provider shows a green
+            # check and no card moves, because matching needs a TaskLink on the task
+            # pointing at the exact PR/MR URL and nobody created one.
+            logger.warning(
+                "git webhook matched no task: project=%s provider=%s event=%s reason=%s",
+                project_pk,
+                provider,
+                envelope.event,
+                result.reason,
+            )
         return Response(
             {
                 "matched": result.matched,
@@ -607,7 +804,7 @@ class GitWebhookIngestView(IdempotencyMixin, APIView):
         )
 
 
-@extend_schema(tags=["integrations"])
+@extend_schema(tags=["integrations"], responses={200: GitAutomationConfigSerializer})
 class GitAutomationConfigView(IdempotencyMixin, APIView):
     """``GET|PUT /api/v1/integrations/projects/{project_pk}/git-automation/`` — config (#329).
 
@@ -633,6 +830,9 @@ class GitAutomationConfigView(IdempotencyMixin, APIView):
             "configured_by": automation.configured_by_id,
             "secret_set_at": automation.secret_set_at,
             "updated_at": automation.updated_at,
+            "last_delivery_at": automation.last_delivery_at,
+            "last_delivery_outcome": automation.last_delivery_outcome,
+            "last_delivery_provider": automation.last_delivery_provider,
         }
 
     def _get_or_init(self, project_pk: str) -> BoardAutomation:
@@ -658,7 +858,11 @@ class GitAutomationConfigView(IdempotencyMixin, APIView):
         return Response(data)
 
 
-@extend_schema(tags=["integrations"])
+@extend_schema(
+    tags=["integrations"],
+    request=None,
+    responses={201: GitAutomationSecretSerializer},
+)
 class GitAutomationRotateSecretView(IdempotencyMixin, APIView):
     """``POST .../git-automation/rotate-secret/`` — mint a new webhook secret (#329).
 

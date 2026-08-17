@@ -1489,6 +1489,17 @@ REST_FRAMEWORK = {
         # outbound canary/reachability probe to the configured OTLP collector;
         # scoped-throttled so it can't be used to hammer the collector.
         "telemetry_test": env("TRUEPPM_THROTTLE_TELEMETRY_TEST_RATE", default=_STRICT_ABUSE_RATE),
+        # Inbound Git-event webhook receiver, per client IP (#2881,
+        # integrations.throttles.GitWebhookIpThrottle). The receiver's other
+        # throttle keys on the project UUID *from the URL*, so rotating that UUID
+        # minted a fresh bucket per request and the endpoint was effectively
+        # unbounded for an anonymous caller. Deliberately loose: a provider delivers
+        # from a small pool of shared egress addresses, so every repo on the install
+        # lands in ONE bucket and a tight limit would throttle honest traffic across
+        # unrelated projects. 600/min (10/s) sits far above any realistic aggregate
+        # PR/MR event rate while still bounding a single source. Env-tunable for an
+        # install with unusually heavy Git traffic.
+        "git_webhook_ip": env("TRUEPPM_THROTTLE_GIT_WEBHOOK_IP_RATE", default="600/min"),
     },
 }
 

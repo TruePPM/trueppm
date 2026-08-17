@@ -322,6 +322,31 @@ class BoardAutomation(models.Model):
         blank=True,
         related_name="+",
     )
+    # --- Last-delivery diagnostics (#2882) ---------------------------------------
+    # A failed webhook used to be invisible to everyone: every non-auth outcome was
+    # a 200, the receiver logged nothing, and the only diagnostic surface was the
+    # provider's own Recent Deliveries tab — outside the operator's reach. An
+    # operator could complete every documented setup step, get a green check from
+    # GitHub, and have zero cards ever move with nothing anywhere saying why (a
+    # missing TaskLink is the most common cause and looks identical to success).
+    #
+    # These three fields are that missing consumer, read back by the admin-only
+    # config GET and rendered on the settings card. Deliberately the *last* delivery
+    # on the existing config row rather than an append-only attempt table: the
+    # receiver is anonymous and rate-bounded, so an unbounded history table on that
+    # path is a storage-growth surface an attacker controls, while a single
+    # overwritten row answers the question an operator actually asks ("what happened
+    # to the delivery I just triggered?"). The write goes through a queryset
+    # ``.update()`` so it never touches ``updated_at`` — that field means "config
+    # last changed" and a webhook does not change config.
+    last_delivery_at = models.DateTimeField(null=True, blank=True)
+    # A ``GIT_DELIVERY_*`` outcome token from ``git_delivery_outcomes``. Free-text
+    # CharField rather than ``choices``: the vocabulary is owned by the receiver and
+    # grows with the event taxonomy, and a stale ``choices`` list would turn adding
+    # an outcome into a migration.
+    last_delivery_outcome = models.CharField(max_length=32, blank=True, default="")
+    last_delivery_provider = models.CharField(max_length=16, blank=True, default="")
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

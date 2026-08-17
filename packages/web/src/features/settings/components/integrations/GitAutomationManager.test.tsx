@@ -460,3 +460,94 @@ describe('GitAutomationManager — one-time reveal panel', () => {
     expect(screen.queryByDisplayValue('THE_RAW_WEBHOOK_SECRET')).not.toBeInTheDocument();
   });
 });
+
+describe('GitAutomationManager — last delivery (#2882)', () => {
+  it('states plainly that nothing has arrived yet, and names the prerequisite', () => {
+    // The honest empty state. Rendering a neutral "Last delivery: —" here would read
+    // as "no problems", which the server has made no claim about.
+    loaded({ enabled: true, secret_set: true });
+    render(<GitAutomationManager projectId="p-1" />);
+    expect(screen.getByTestId('git-last-delivery-empty')).toHaveTextContent(
+      /No webhook delivery received yet/i,
+    );
+    expect(screen.getByTestId('git-last-delivery-empty')).toHaveTextContent(/External links/i);
+    expect(screen.queryByTestId('git-last-delivery')).not.toBeInTheDocument();
+  });
+
+  it('surfaces the unmatched-delivery failure that used to be invisible', () => {
+    // no_link is the defining silent failure: the provider shows a green check, the
+    // API returns 200, and no card moves. This row is the only place it surfaces.
+    loaded({
+      enabled: true,
+      secret_set: true,
+      last_delivery_at: '2026-08-17T09:30:00Z',
+      last_delivery_outcome: 'no_link',
+      last_delivery_provider: 'github',
+    });
+    render(<GitAutomationManager projectId="p-1" />);
+    const row = screen.getByTestId('git-last-delivery');
+    expect(row).toHaveTextContent(/No task is linked to that pull\/merge request/i);
+    expect(row).toHaveTextContent(/github/);
+    // The actionable next step, not just the diagnosis.
+    expect(row).toHaveTextContent(/Files → External links/i);
+  });
+
+  it('surfaces a rejected signature, which the caller only ever saw as a 404', () => {
+    loaded({
+      enabled: true,
+      secret_set: true,
+      last_delivery_at: '2026-08-17T09:30:00Z',
+      last_delivery_outcome: 'bad_signature',
+      last_delivery_provider: 'gitlab',
+    });
+    render(<GitAutomationManager projectId="p-1" />);
+    expect(screen.getByTestId('git-last-delivery')).toHaveTextContent(/Signature rejected/i);
+    expect(screen.getByTestId('git-last-delivery')).toHaveTextContent(/Rotate the secret/i);
+  });
+
+  it('explains a draft as deliberate rather than broken', () => {
+    loaded({
+      enabled: true,
+      secret_set: true,
+      last_delivery_at: '2026-08-17T09:30:00Z',
+      last_delivery_outcome: 'draft',
+      last_delivery_provider: 'github',
+    });
+    render(<GitAutomationManager projectId="p-1" />);
+    const row = screen.getByTestId('git-last-delivery');
+    expect(row).toHaveTextContent(/Draft pull\/merge request ignored/i);
+    expect(row).toHaveTextContent(/Mark it ready for review/i);
+  });
+
+  it('confirms a successful move', () => {
+    loaded({
+      enabled: true,
+      secret_set: true,
+      last_delivery_at: '2026-08-17T09:30:00Z',
+      last_delivery_outcome: 'opened_review',
+      last_delivery_provider: 'github',
+    });
+    render(<GitAutomationManager projectId="p-1" />);
+    expect(screen.getByTestId('git-last-delivery')).toHaveTextContent(/Card moved to Review/i);
+  });
+
+  it('renders an outcome token it has never seen instead of blanking the row', () => {
+    // The server owns this vocabulary and will grow it. An unknown token must
+    // degrade to itself — a silent empty row would be the original bug again.
+    loaded({
+      enabled: true,
+      secret_set: true,
+      last_delivery_at: '2026-08-17T09:30:00Z',
+      last_delivery_outcome: 'some_future_outcome',
+      last_delivery_provider: 'github',
+    });
+    render(<GitAutomationManager projectId="p-1" />);
+    expect(screen.getByTestId('git-last-delivery')).toHaveTextContent('some_future_outcome');
+  });
+
+  it('degrades to the empty state when an older API omits the fields entirely', () => {
+    loaded({ enabled: true, secret_set: true });
+    render(<GitAutomationManager projectId="p-1" />);
+    expect(screen.getByTestId('git-last-delivery-empty')).toBeInTheDocument();
+  });
+});
