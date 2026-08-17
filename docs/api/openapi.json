@@ -23284,7 +23284,10 @@
                                                     "initiated_by": "sarah",
                                                     "requested_at": "2026-05-28T14:03:00Z",
                                                     "status": "succeeded",
-                                                    "task_count": 142
+                                                    "task_count": 142,
+                                                    "warnings": [
+                                                        "Not imported: deadline dates (TruePPM has no deadline field) — set on 6 of 142 tasks."
+                                                    ]
                                                 }
                                             ]
                                         },
@@ -23293,7 +23296,7 @@
                                 }
                             }
                         },
-                        "description": "Recent import-request provenance rows for the project, newest first: {results: [{id, filename, initiated_by, requested_at, status, task_count}]}. Rows are purged after 7 days."
+                        "description": "Recent import-request provenance rows for the project, newest first: {results: [{id, filename, initiated_by, requested_at, status, task_count, warnings}]}. `warnings` lists everything the import did not carry over — MS Project constraints, deadlines, baselines, priority, work and cost have no TruePPM column and are reported here with per-family task counts. Rows are purged after 7 days."
                     },
                     "404": {
                         "content": {

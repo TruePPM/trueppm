@@ -5,7 +5,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from trueppm_api.apps.msproject.dataclasses import CalendarData, ProjectData, TaskData
+from trueppm_api.apps.msproject.dataclasses import (
+    CONSTRAINT_TYPES_APPLIED_AS_SNET,
+    CalendarData,
+    ProjectData,
+    TaskData,
+)
 from trueppm_api.apps.sync.sequence import allocate_for_projects
 
 if TYPE_CHECKING:
@@ -458,13 +463,40 @@ def _build_task_object(
         status=task_status,
         percent_complete=effective_percent,
         notes=td.notes,
-        planned_start=td.start if td.start else None,
+        planned_start=_resolve_planned_start(td),
+        actual_start=td.actual_start,
+        actual_finish=td.actual_finish,
         optimistic_duration=opt,
         most_likely_duration=ml,
         pessimistic_duration=pess,
         estimate_status=est_status,
         short_id=f"{short_id_seq:08X}",
     )
+
+
+def _resolve_planned_start(td: TaskData) -> str | None:
+    """Choose the SNET floor for an imported task: its constraint date, else Start.
+
+    ``Task.planned_start`` is documented as *start no earlier than*, applied by
+    the CPM forward pass — which is exactly what an MSPDI
+    ``<ConstraintType>4</ConstraintType>`` plus ``<ConstraintDate>`` means. So
+    when the file carries one of the codes TruePPM can express, the **constraint
+    date wins over ``<Start>``** (#2891).
+
+    That precedence is the point of the fix rather than a detail. ``<Start>`` is
+    MS Project's *computed* schedule date; the constraint date is the commitment
+    the PM made. Reading only ``<Start>`` meant a task whose commitment differed
+    from its current computed start silently lost the commitment, and TruePPM then
+    rescheduled from CPM alone — producing dates the PM could not defend at the
+    next governance review.
+
+    In the overwhelmingly common case the two agree (MS Project sets SNET
+    automatically when a start is typed in), so this changes nothing; it matters
+    precisely when they diverge, which is when the commitment is load-bearing.
+    """
+    if td.constraint_type in CONSTRAINT_TYPES_APPLIED_AS_SNET and td.constraint_date is not None:
+        return td.constraint_date
+    return td.start or None
 
 
 def _maybe_shift_project_start(project_id: str, data: ProjectData, summary: dict[str, Any]) -> None:

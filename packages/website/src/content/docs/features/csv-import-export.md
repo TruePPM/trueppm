@@ -124,8 +124,14 @@ required — every column below is optional except the task name. Download the
 [known-good template](#download-the-template) if you want a target shape to
 paste into.
 
-This is the single reference for every header the importer recognizes — there
-is only one alias table, so it can't drift from itself:
+The commonest spellings, per field. This table is **hand-copied from the
+importer's alias map and is not exhaustive** — a previous version of this page
+claimed it could not drift from itself, and by the time anyone checked it was
+missing fourteen aliases (#2892). For the authoritative list, read
+`available_fields` in the preview response
+([`POST …/import/csv/preview/`](#1-preview--nothing-is-saved)), which the wizard's
+own column dropdown is built from. And you never need the list at all: any header
+the importer does not recognize is one you can map by hand on step 2.
 
 | TruePPM field | Header spellings recognized |
 |---|---|
@@ -248,12 +254,26 @@ compute. Fix the loop in the sheet and re-upload.
 
 **Percent complete** accepts `50`, `50%`, or Excel's native `0.5`.
 
+**Either decimal convention works.** `3.5` and `3,5` both mean three and a half
+days, and `0,5` means 50 % complete exactly as `0.5` does. Where a separator is
+genuinely ambiguous the importer resolves it by convention: a comma with exactly
+three digits after it is thousands grouping (`1,500` is fifteen hundred), a
+period is always a decimal point (`1.500` is 1.5), and when both appear the last
+one is the decimal mark (`1.234,56` and `1,234.56` are both 1234.56).
+
 **Dates** are read as `YYYY-MM-DD` unambiguously. For slash dates the importer
 scans the **whole file** before deciding: if any row is unambiguously
 day-first (`13/04/2026` cannot be a month), every slash date is read day-first.
 With no evidence either way it assumes month/day/year and **tells you which
 convention it used** in the import warnings — a silently-guessed date order is
 a data-integrity bug, not a formatting detail.
+
+There is currently **no way to override that guess**, in the wizard or on the
+endpoint. If your file's slash dates are all ambiguous (every day ≤ 12) and they
+are day-first, they will import as month-first: write the dates as `YYYY-MM-DD`
+before uploading, which is never ambiguous. A `date_format` parameter and a
+matching control are tracked as
+[#2926](https://gitlab.com/trueppm/trueppm/-/issues/2926).
 
 ## The wizard
 
@@ -535,6 +555,18 @@ TruePPM always writes comma-delimited files on purpose. Adapting the separator t
 each machine would mean the same file meant different things on different
 computers — which is exactly what disqualifies CSV as an authoritative format.
 
+### Your file imports as gibberish, or is refused
+
+Excel's **"Unicode Text (\*.txt)"** export writes UTF-16, not UTF-8. TruePPM reads
+it correctly when it carries a byte-order mark, which Excel adds. A UTF-16 file
+saved *without* that mark is indistinguishable from Windows-1252 bytes, so the
+importer **refuses it** with "the decoded content contains NUL bytes" rather than
+importing every cell with a NUL between each letter. Re-save as **CSV UTF-8** and
+upload again.
+
+The same refusal covers a `.xlsx` renamed to `.csv`, and any other binary file
+that reaches the CSV reader.
+
 ### Excel changed your data
 
 Opening a CSV in Excel and saving it can silently alter the contents: leading
@@ -565,7 +597,8 @@ Every CSV TruePPM writes or reads follows the same rules
 | | |
 |---|---|
 | **Separator** | Comma |
-| **Encoding** | UTF-8. A byte-order mark is accepted on import (Excel adds one) |
+| **Encoding** | UTF-8 written. On import, a byte-order mark decides the encoding — UTF-8, UTF-16 and UTF-32 marks are all honored, so Excel's "Unicode Text" export reads correctly. Without a mark the importer tries UTF-8 then the Windows-1252 / Latin-1 fallbacks, and **refuses** the file if the result is not readable text rather than importing mojibake |
+| **Decimal mark** | Period or comma; see [Dates, durations and percentages](#dates-durations-and-percentages) |
 | **Line endings** | CRLF written; either accepted |
 | **Quoting** | Fields containing a comma, quote, or newline are wrapped in `"`; embedded quotes are doubled |
 | **First row** | Column headers. Their **order doesn't matter** on import — only their names |

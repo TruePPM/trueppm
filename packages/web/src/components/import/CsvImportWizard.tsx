@@ -965,6 +965,29 @@ function ResultStep({
 
   const canUndo = terminal && !failed && !undone && tasksCreated + parkedCount > 0;
 
+  // The button has advertised "(⌘Z)" since #2756 and nothing ever listened for
+  // it (#2892). A label naming a shortcut that does not exist is worse than no
+  // label: the user tries it, an import they wanted gone stays, and they have no
+  // reason to look for the button. Bound here rather than at the dialog root so
+  // it exists only while the undo is actually available — `canUndo` already
+  // encodes terminal / not-failed / not-already-undone / something-was-created.
+  //
+  // Keyed on `e.key`, which is correct for a Meta/Ctrl combo: Option composition
+  // (web/CLAUDE.md rule 294) is what forces `e.code` for Alt+letter bindings, and
+  // ⌘/Ctrl leave the letter alone. Shift+⌘Z is excluded — that is redo, and there
+  // is nothing to redo here.
+  useEffect(() => {
+    if (!canUndo || undoPending) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key.toLowerCase() !== 'z' || e.shiftKey) return;
+      if (!e.metaKey && !e.ctrlKey) return;
+      e.preventDefault();
+      onUndo();
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [canUndo, undoPending, onUndo]);
+
   return (
     <div className="flex flex-col gap-3">
       <p aria-live="polite" className="text-sm text-neutral-text-primary">

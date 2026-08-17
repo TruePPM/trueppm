@@ -29,6 +29,7 @@ re-upload of the whole file. See ``_append_review_branch``.
 
 from __future__ import annotations
 
+import codecs
 import contextlib
 import csv
 import io
@@ -114,9 +115,49 @@ _CSV_EXTENSIONS = {"csv", "tsv", "txt"}
 _XLSX_EXTENSIONS = {"xlsx", "xlsm"}
 SUPPORTED_EXTENSIONS = _CSV_EXTENSIONS | _XLSX_EXTENSIONS
 
-# Text encodings tried in order. utf-8-sig first so a BOM written by Excel is
-# consumed rather than becoming part of the first header ("﻿Name").
+# Text encodings tried in order when the upload carries no byte-order mark.
+# utf-8-sig first so a BOM written by Excel is consumed rather than becoming part
+# of the first header ("﻿Name"). cp1252 and latin-1 are lossy fallbacks: they map
+# almost every byte and therefore never raise, so a wrong guess reaching them
+# produces mojibake rather than an error. `_reject_undecodable` is what stops
+# that (#2892).
 _ENCODINGS = ("utf-8-sig", "utf-8", "cp1252", "latin-1")
+
+#: Byte-order marks mapped to the codec that consumes them, longest mark first.
+#:
+#: Order is load-bearing, not cosmetic: ``BOM_UTF32_LE`` is ``BOM_UTF16_LE``
+#: followed by two NUL bytes, so testing the 2-byte UTF-16 mark first would
+#: classify every UTF-32 file as UTF-16. The named codecs ("utf-16", "utf-32")
+#: rather than the endian-specific ones are deliberate — they consume the mark,
+#: which the ``-le``/``-be`` variants leave in the text as U+FEFF.
+#:
+#: This exists because Excel's "Unicode Text (*.txt)" export and a great many
+#: Windows tools emit BOM-marked UTF-16. Without it, cp1252 decoded those bytes
+#: without raising, the NUL-interleaved mojibake headers still matched their
+#: aliases at ``confidence="exact"``, and the wizard rendered a fully-green
+#: mapping over a file it had comprehensively misread (#2892).
+_BOM_ENCODINGS: tuple[tuple[bytes, str], ...] = (
+    (codecs.BOM_UTF32_LE, "utf-32"),
+    (codecs.BOM_UTF32_BE, "utf-32"),
+    (codecs.BOM_UTF8, "utf-8-sig"),
+    (codecs.BOM_UTF16_LE, "utf-16"),
+    (codecs.BOM_UTF16_BE, "utf-16"),
+)
+
+#: How much of a decoded upload the undecodable-text guard inspects. The check is
+#: a ratio over a prefix rather than the whole string so its cost is constant for
+#: a 100 MB workbook; a decode wrong enough to matter is wrong from byte one.
+_DECODE_SAMPLE_CHARS = 65_536
+
+#: Share of control characters (excluding tab / CR / LF) above which a decode is
+#: treated as failed rather than merely odd. A real spreadsheet export carries
+#: essentially none; anything at this level means the bytes were run through the
+#: wrong codec.
+_MAX_NON_PRINTABLE_RATIO = 0.2
+
+#: Advice appended to every decode refusal. Named once so the wizard, the tests,
+#: and the docs quote the same sentence.
+_ENCODING_ADVICE = "Re-save the file as UTF-8 CSV (in Excel: File → Save As → CSV UTF-8)."
 
 _TRUEY = {"y", "yes", "true", "t", "1", "x", "on"}
 
@@ -128,7 +169,12 @@ _PREDECESSOR_RE = re.compile(
     re.IGNORECASE,
 )
 
-_DURATION_RE = re.compile(r"(-?\d+(?:\.\d+)?)")
+#: The first numeric run in a cell, separators included so ``_parse_decimal`` can
+#: decide which of them is the decimal mark. Deliberately greedy over ``.`` and
+#: ``,``: the previous pattern (``-?\d+(?:\.\d+)?``) stopped at the first comma,
+#: so a European "3,5" matched only "3" and a 3.5-day task imported as 3 days
+#: with no warning of any kind (#2892).
+_NUMBER_RE = re.compile(r"-?\d[\d.,]*")
 
 _SLASH_DATE_RE = re.compile(r"^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$")
 
@@ -285,15 +331,88 @@ def _extension(filename: str) -> str:
     return filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
 
+def _encoding_from_bom(content: bytes) -> str | None:
+    """Name the codec a leading byte-order mark declares, or ``None``.
+
+    A BOM is the one piece of encoding evidence that is not a guess, so it wins
+    outright over the ``_ENCODINGS`` ladder — which cannot be trusted to reach the
+    right answer, because its lossy tail decodes anything.
+    """
+    for bom, encoding in _BOM_ENCODINGS:
+        if content.startswith(bom):
+            return encoding
+    return None
+
+
+def _reject_undecodable(text: str) -> None:
+    """Refuse text that decoded without raising but plainly decoded wrong.
+
+    The hazard the ``_ENCODINGS`` ladder creates is not a missing codec — it is
+    that cp1252 and latin-1 map nearly every byte, so a wrong guess *succeeds*.
+    UTF-16 read as cp1252 yields NUL-interleaved mojibake; because
+    ``normalize_header`` strips non-alphanumerics before matching, those headers
+    still matched their aliases at ``confidence="exact"`` and the wizard reported
+    a certain mapping at the moment it was certainly wrong (#2892).
+
+    So the guard is on the *output*: a spreadsheet export contains no NUL and
+    essentially no other control characters, and either signal means the bytes
+    went through the wrong codec. Raising here is strictly better than importing
+    the mojibake, because a refusal names the fix and mojibake names nothing.
+
+    Raises:
+        CsvImportError: The decoded text cannot be spreadsheet text.
+    """
+    sample = text[:_DECODE_SAMPLE_CHARS]
+    if "\x00" in sample:
+        raise CsvImportError(
+            "The file could not be read as text — the decoded content contains NUL "
+            "bytes, which means it is not in the encoding it appears to be (a "
+            f"UTF-16 file saved without a byte-order mark does this). {_ENCODING_ADVICE}"
+        )
+    if not sample:
+        return
+    # Tab, CR and LF are structural in delimited text; every other control
+    # character is evidence of a bad decode.
+    non_printable = sum(1 for ch in sample if ch < " " and ch not in "\t\r\n")
+    if non_printable / len(sample) > _MAX_NON_PRINTABLE_RATIO:
+        raise CsvImportError(
+            "The file could not be read as text — most of it is not readable "
+            "characters, so it is either binary or in an unexpected encoding. "
+            f"{_ENCODING_ADVICE}"
+        )
+
+
 def _decode(content: bytes) -> str:
+    """Decode an uploaded delimited-text file, refusing a decode that went wrong.
+
+    Raises:
+        CsvImportError: No codec produced usable spreadsheet text.
+    """
+    bom_encoding = _encoding_from_bom(content)
+    if bom_encoding is not None:
+        try:
+            text = content.decode(bom_encoding)
+        except UnicodeDecodeError as exc:
+            raise CsvImportError(
+                f"The file declares a {bom_encoding} byte-order mark but does not "
+                f"decode as {bom_encoding}. {_ENCODING_ADVICE}"
+            ) from exc
+        _reject_undecodable(text)
+        return text
+
     for encoding in _ENCODINGS:
         try:
-            return content.decode(encoding)
+            text = content.decode(encoding)
         except UnicodeDecodeError:
             continue
+        # Deliberately not "try the next codec": the remaining codecs are the
+        # lossy ones, and they produce the same mojibake from the same bytes.
+        # A failed decode has to become an error, not a quieter guess.
+        _reject_undecodable(text)
+        return text
     # latin-1 maps every byte, so this is unreachable in practice; keep the
     # explicit raise so a future edit to _ENCODINGS cannot silently return None.
-    raise CsvImportError("Could not decode the file as text. Save it as UTF-8 CSV.")
+    raise CsvImportError(f"Could not decode the file as text. {_ENCODING_ADVICE}")
 
 
 def _read_csv_rows(content: bytes) -> tuple[list[list[str]], list[str]]:
@@ -441,15 +560,80 @@ def _parse_date(raw: str, day_first: bool) -> date | None:
     return None
 
 
+def _parse_decimal(text: str) -> tuple[float, bool] | None:
+    """Read the first number in a cell under either decimal convention.
+
+    Returns ``(value, had_fraction)``, or ``None`` when the cell holds no number.
+    ``had_fraction`` reports whether a decimal mark was actually present, which is
+    what ``_parse_percent`` needs to tell Excel's native 0..1 fraction ("0,5",
+    "0.5") from an already-scaled percentage ("50").
+
+    Why this is not a ``str.replace(",", ".")``: both marks group as well as
+    separate, so the rules below resolve which role each one is playing.
+
+    - **Both marks present** — the *last* one is the decimal mark and the other is
+      grouping. This is unambiguous in every locale: ``1.234,56`` and ``1,234.56``
+      both mean 1234.56.
+    - **One mark, repeated** — grouping. ``1.234.567`` is not a number with two
+      decimal points.
+    - **One comma, exactly three trailing digits** — grouping. ``1,500`` reads as
+      fifteen hundred, the US convention this project writes in.
+    - **One period, exactly three trailing digits** — decimal, so ``1.500`` stays
+      1.5 exactly as it parsed before this function existed. The asymmetry with
+      the comma rule is the point: it keeps every previously-correct US file
+      parsing identically, so fixing the European case regresses nothing.
+    - **Any other single mark** — decimal. ``3,5`` is three and a half.
+
+    A genuinely ambiguous cell is therefore resolved by convention rather than
+    left to truncate in silence, which is what ``_DURATION_RE`` used to do (#2892).
+    """
+    match = _NUMBER_RE.search(text)
+    if not match:
+        return None
+    # The pattern guarantees a leading digit (after an optional sign), so the
+    # rstrip below can only remove trailing separators — "5," becomes "5".
+    token = match.group(0).rstrip(".,")
+    negative = token.startswith("-")
+    digits = token.lstrip("-")
+    dots = digits.count(".")
+    commas = digits.count(",")
+
+    decimal_mark: str | None
+    if dots and commas:
+        decimal_mark = "." if digits.rindex(".") > digits.rindex(",") else ","
+    elif dots > 1 or commas > 1:
+        decimal_mark = None
+    elif commas == 1:
+        decimal_mark = None if len(digits.split(",")[1]) == 3 else ","
+    elif dots == 1:
+        decimal_mark = "."
+    else:
+        decimal_mark = None
+
+    if decimal_mark is None:
+        normalized = digits.replace(".", "").replace(",", "")
+        had_fraction = False
+    else:
+        grouping = "," if decimal_mark == "." else "."
+        normalized = digits.replace(grouping, "").replace(decimal_mark, ".")
+        had_fraction = True
+
+    try:
+        value = float(normalized)
+    except ValueError:
+        return None
+    return (-value if negative else value), had_fraction
+
+
 def _parse_duration(raw: str) -> float | None:
-    """Read a duration cell as working days ("5", "5d", "5 days", "3.5")."""
+    """Read a duration cell as working days ("5", "5d", "5 days", "3.5", "3,5")."""
     text = (raw or "").strip()
     if not text:
         return None
-    match = _DURATION_RE.search(text)
-    if not match:
+    parsed = _parse_decimal(text)
+    if parsed is None:
         return None
-    value = float(match.group(1))
+    value, _ = parsed
     # "8h"/"16 hrs" is an effort column in hours, not days. Convert on the
     # standard 8-hour day rather than importing an 8-day task.
     if re.search(r"\b(h|hr|hrs|hour|hours)\b", text, re.IGNORECASE):
@@ -465,13 +649,16 @@ def _parse_percent(raw: str) -> float | None:
     if not text:
         return None
     had_sign = "%" in text
-    match = _DURATION_RE.search(text)
-    if not match:
+    parsed = _parse_decimal(text)
+    if parsed is None:
         return None
-    value = float(match.group(1))
-    # A bare "0.5" with a decimal point and no % sign is a fraction (Excel's
-    # native percent storage); "50%" and "50" are already percentages.
-    if not had_sign and 0.0 < value <= 1.0 and "." in match.group(1):
+    value, had_fraction = parsed
+    # A bare "0.5" (or "0,5") with a decimal mark and no % sign is a fraction —
+    # Excel's native percent storage. "50%" and "50" are already percentages.
+    # The test is `had_fraction`, not `"." in <matched text>`: keying it on the
+    # literal period meant a European "0,5" could never take this branch, so a
+    # half-finished task imported as 0 % complete (#2892).
+    if not had_sign and 0.0 < value <= 1.0 and had_fraction:
         value *= 100.0
     return max(0.0, min(100.0, value))
 

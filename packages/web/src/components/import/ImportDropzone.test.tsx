@@ -8,7 +8,7 @@ function setup(overrides: Partial<Parameters<typeof ImportDropzone>[0]> = {}) {
   const onReject = vi.fn();
   render(
     <ImportDropzone
-      accept={['.mpp', '.xml']}
+      accept={['.csv', '.xlsx']}
       maxSizeMb={50}
       file={null}
       onSelect={onSelect}
@@ -29,7 +29,7 @@ describe('<ImportDropzone>', () => {
   it('renders the empty state with accepted formats and size cap', () => {
     setup();
     expect(screen.getByText('Drag a file here, or browse…')).toBeInTheDocument();
-    expect(screen.getByText('.mpp, .xml · up to 50 MB')).toBeInTheDocument();
+    expect(screen.getByText('.csv, .xlsx · up to 50 MB')).toBeInTheDocument();
     // The dropzone mark is a house SVG, not the 📂 emoji it replaced.
     const zone = screen.getByRole('button', { name: /Choose file or drag one here/ });
     expect(zone.querySelector('svg')).toBeTruthy();
@@ -38,7 +38,7 @@ describe('<ImportDropzone>', () => {
 
   it('accepts a valid file via drop', () => {
     const { onSelect, onReject } = setup();
-    const file = new File(['<Project/>'], 'plan.xml', { type: 'application/xml' });
+    const file = new File(['a,b'], 'plan.csv', { type: 'text/csv' });
     drop(file);
     expect(onSelect).toHaveBeenCalledWith(file);
     expect(onReject).not.toHaveBeenCalled();
@@ -46,14 +46,14 @@ describe('<ImportDropzone>', () => {
 
   it('rejects an unsupported extension', () => {
     const { onSelect, onReject } = setup();
-    drop(new File(['x'], 'plan.xlsx', { type: 'application/vnd.ms-excel' }));
+    drop(new File(['x'], 'plan.docx', { type: 'application/octet-stream' }));
     expect(onSelect).not.toHaveBeenCalled();
-    expect(onReject).toHaveBeenCalledWith(expect.stringContaining('.mpp, .xml only'));
+    expect(onReject).toHaveBeenCalledWith(expect.stringContaining('.csv, .xlsx only'));
   });
 
   it('rejects a file over the size cap', () => {
     const { onSelect, onReject } = setup({ maxSizeMb: 1 });
-    const big = new File(['x'], 'plan.xml', { type: 'application/xml' });
+    const big = new File(['x'], 'plan.csv', { type: 'text/csv' });
     Object.defineProperty(big, 'size', { value: 2 * 1024 * 1024 });
     drop(big);
     expect(onSelect).not.toHaveBeenCalled();
@@ -62,9 +62,9 @@ describe('<ImportDropzone>', () => {
 
   it('shows the selected file with a Remove control', () => {
     const { onClear } = setup({
-      file: new File(['<Project/>'], 'plan.xml', { type: 'application/xml' }),
+      file: new File(['a,b'], 'plan.csv', { type: 'text/csv' }),
     });
-    const name = screen.getByText('plan.xml');
+    const name = screen.getByText('plan.csv');
     expect(name).toBeInTheDocument();
     // The file mark is a house SVG, not the 📄 emoji it replaced.
     const card = name.closest('div')?.parentElement as HTMLElement;
@@ -76,9 +76,9 @@ describe('<ImportDropzone>', () => {
 
   it('announces the selected file to assistive tech', () => {
     setup();
-    drop(new File(['<Project/>'], 'plan.xml', { type: 'application/xml' }));
+    drop(new File(['a,b'], 'plan.csv', { type: 'text/csv' }));
     // The persistent polite region voices the selection (no visual focus change).
-    expect(screen.getByText('plan.xml selected, 10 B')).toBeInTheDocument();
+    expect(screen.getByText('plan.csv selected, 3 B')).toBeInTheDocument();
   });
 
   it('highlights on drag-over and announces "Drop to upload"', () => {

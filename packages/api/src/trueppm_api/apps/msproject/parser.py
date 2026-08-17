@@ -10,12 +10,14 @@ import subprocess
 import tempfile
 import threading
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from datetime import date
 
 from defusedxml.ElementTree import fromstring as _safe_fromstring
 from django.conf import settings
 
 from trueppm_api.apps.msproject.dataclasses import (
+    CONSTRAINT_TYPES_APPLIED_AS_SNET,
     AssignmentData,
     CalendarData,
     CalendarExceptionData,
@@ -69,6 +71,90 @@ _MPXJ_TIMEOUT = 120
 # resource-leveling and allocation math, so we bound it rather than let inf/NaN
 # or an astronomical figure poison those computations.
 _MAX_UNITS = 1_000.0
+
+# MSPDI <ConstraintType> codes and their MS Project names (#2891). Used in the
+# import warnings, so an operator reading "12 tasks carry Finish No Later Than"
+# sees the term their own plan uses.
+MSPDI_CONSTRAINT_NAMES: dict[int, str] = {
+    0: "As Soon As Possible",
+    1: "As Late As Possible",
+    2: "Must Start On",
+    3: "Must Finish On",
+    4: "Start No Earlier Than",
+    5: "Start No Later Than",
+    6: "Finish No Earlier Than",
+    7: "Finish No Later Than",
+}
+
+#: The one code whose partial mapping needs saying out loud (see
+#: ``CONSTRAINT_TYPES_APPLIED_AS_SNET`` in ``dataclasses``).
+_CONSTRAINT_TYPE_PARTIALLY_APPLIED = 2
+
+#: Codes that cost the operator nothing when dropped: MSPDI's default, and any
+#: code we actually apply.
+_CONSTRAINT_TYPES_NOT_A_LOSS: frozenset[int] = frozenset({0}) | CONSTRAINT_TYPES_APPLIED_AS_SNET
+
+#: MS Project's default task priority. MSPDI writes ``<Priority>`` on *every*
+#: task, so the warning has to key on a value the PM actually changed — otherwise
+#: every import reports a loss that did not happen.
+_MSPDI_DEFAULT_PRIORITY = 500
+
+
+def _int_or_none(raw: str) -> int | None:
+    """Read an integer element's text, or ``None`` when it is absent/unparseable."""
+    try:
+        return int((raw or "").strip())
+    except ValueError:
+        return None
+
+
+def _is_nonzero_msp_amount(raw: str) -> bool:
+    """True when an MSPDI duration or currency value carries a real quantity.
+
+    MS Project writes ``<Work>PT0H0M0S</Work>`` and ``<Cost>0</Cost>`` on tasks
+    that have neither, so "the element is present" is not evidence the PM entered
+    anything. Any digit other than zero is.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return False
+    return any(ch.isdigit() and ch != "0" for ch in text)
+
+
+#: MSPDI task elements TruePPM has no column for, as
+#: ``(element name, warning phrase, "is this value meaningful?")``. Each entry is
+#: a **deliberate** non-import, and the warning is the entire mechanism by which
+#: the operator learns that — the importer previously dropped all of them with
+#: ``warnings == []``, so a plan that round-tripped came back subtly different
+#: with nothing said (#2891).
+#:
+#: The third element exists because a full MS Project export writes ``Priority``,
+#: ``Work`` and ``Cost`` on every row whether or not the PM set them. Counting
+#: those defaults as dropped data would bury the families that *were* set under
+#: noise, and a warning nobody can act on trains people to ignore the list. So
+#: each predicate answers "did this file actually carry something here?".
+#:
+#: Order is the order the warnings appear in the summary: schedule commitments
+#: first, then the estimating fields.
+_UNMAPPED_TASK_FIELDS: tuple[tuple[str, str, Callable[[str], bool]], ...] = (
+    ("Deadline", "deadline dates (TruePPM has no deadline field)", bool),
+    (
+        "Baseline",
+        "baselines (capture a TruePPM baseline after the import lands instead)",
+        bool,
+    ),
+    (
+        "Priority",
+        "task priority (MS Project's 0-1000 weight has no TruePPM equivalent)",
+        lambda raw: _int_or_none(raw) not in (None, _MSPDI_DEFAULT_PRIORITY),
+    ),
+    (
+        "Work",
+        "work / effort hours (TruePPM schedules on duration, not effort)",
+        _is_nonzero_msp_amount,
+    ),
+    ("Cost", "cost figures (TruePPM tracks no task cost)", _is_nonzero_msp_amount),
+)
 
 
 class MsProjectImportError(ValueError):
@@ -201,7 +287,13 @@ def _time_to_minutes(raw: str) -> int | None:
 
 
 def _iso_date_or_none(raw: str) -> str | None:
-    """Take the ``YYYY-MM-DD`` prefix of an MSPDI datetime, or None if malformed."""
+    """Take the ``YYYY-MM-DD`` prefix of an MSPDI datetime, or None if malformed.
+
+    Also the gate on MS Project's "no value" sentinels — ``NA`` and an empty
+    element both fail ``fromisoformat`` and come back as None, which is what lets
+    ``<ActualStart>NA</ActualStart>`` stay unset rather than landing in
+    ``Task.actual_start`` as a fabricated date (#2891).
+    """
     candidate = raw.strip()[:10]
     try:
         date.fromisoformat(candidate)
@@ -694,9 +786,102 @@ def _parse_one_task(
         optimistic_duration_days=opt_days,
         most_likely_duration_days=ml_days,
         pessimistic_duration_days=pess_days,
+        constraint_type=_int_or_none(_child_text(task_el, ns, "ConstraintType")),
+        constraint_date=_iso_date_or_none(_child_text(task_el, ns, "ConstraintDate")),
+        actual_start=_iso_date_or_none(_child_text(task_el, ns, "ActualStart")),
+        actual_finish=_iso_date_or_none(_child_text(task_el, ns, "ActualFinish")),
         predecessor_links=_parse_predecessor_links(task_el, ns),
         resource_assignments=task_assignments.get(uid, []),
     )
+
+
+def _warn_unmapped_task_fields(tasks_el: ET.Element, ns: str, warnings: list[str]) -> None:
+    """Report every field family the import does **not** carry over, with counts.
+
+    This is the whole of #2891's "minimum for beta": before it, an MSPDI carrying
+    constraints, deadlines, baselines, priorities, work and cost imported with
+    ``ProjectData.warnings == []``. A PM migrating a plan got dates TruePPM had
+    recomputed from scratch, believed they were the dates they had committed to,
+    and found out at the next governance review.
+
+    Counts rather than a flat list of names, because "3 of 480 tasks" and "412 of
+    480 tasks" are different decisions for the operator: the first is a note, the
+    second means the migration needs a plan.
+
+    Scans the raw XML rather than the parsed ``TaskData`` deliberately — most of
+    these families have no dataclass field to inspect, and adding one per family
+    purely to count it would imply the importer does something with it.
+    """
+    task_elements = tasks_el.findall(f"{ns}Task")
+    total = len(task_elements)
+    if not total:
+        return
+
+    for element_name, phrase, is_meaningful in _UNMAPPED_TASK_FIELDS:
+        count = sum(
+            1
+            for task_el in task_elements
+            if _carries_value(task_el, ns, element_name, is_meaningful)
+        )
+        if count:
+            warnings.append(f"Not imported: {phrase} — set on {count} of {total} tasks.")
+
+    _warn_unmapped_constraints(task_elements, ns, total, warnings)
+
+
+def _carries_value(
+    task_el: ET.Element, ns: str, element_name: str, is_meaningful: Callable[[str], bool]
+) -> bool:
+    """True when a task element carries a value worth reporting as dropped.
+
+    ``<Baseline>`` is a container (its data lives in child ``<Start>`` /
+    ``<Finish>`` elements, not in its own text), so presence-with-children counts
+    as a value; every other family is judged on its text by its own predicate.
+    """
+    child = task_el.find(f"{ns}{element_name}")
+    if child is None:
+        return False
+    if len(child):
+        return True
+    return is_meaningful(child.text or "")
+
+
+def _warn_unmapped_constraints(
+    task_elements: list[ET.Element], ns: str, total: int, warnings: list[str]
+) -> None:
+    """Report constraint codes TruePPM cannot express, grouped by MS Project name.
+
+    Split out from the table-driven families above because a constraint is not
+    all-or-nothing: two of the eight codes land on ``Task.planned_start`` and the
+    rest have no home, so the warning has to name *which* ones were lost. A
+    single "constraints were dropped" line would be wrong for the file whose
+    constraints were all SNET and carried across perfectly.
+    """
+    unmapped: dict[int, int] = {}
+    partially_applied = 0
+    for task_el in task_elements:
+        code = _int_or_none(_child_text(task_el, ns, "ConstraintType"))
+        if code is None:
+            continue
+        if code == _CONSTRAINT_TYPE_PARTIALLY_APPLIED:
+            partially_applied += 1
+        elif code not in _CONSTRAINT_TYPES_NOT_A_LOSS:
+            unmapped[code] = unmapped.get(code, 0) + 1
+
+    for code in sorted(unmapped):
+        name = MSPDI_CONSTRAINT_NAMES.get(code, f"code {code}")
+        warnings.append(
+            f"Not imported: '{name}' constraints — set on {unmapped[code]} of "
+            f"{total} tasks. TruePPM models only start-no-earlier-than, so these "
+            "tasks are scheduled from their dependencies alone."
+        )
+    if partially_applied:
+        name = MSPDI_CONSTRAINT_NAMES[_CONSTRAINT_TYPE_PARTIALLY_APPLIED]
+        warnings.append(
+            f"Partially imported: '{name}' constraints on {partially_applied} of "
+            f"{total} tasks became start-no-earlier-than dates. The start is "
+            "pinned; TruePPM cannot also stop the task starting later."
+        )
 
 
 def _parse_tasks(
@@ -711,6 +896,10 @@ def _parse_tasks(
     tasks_el = root.find(f"{ns}Tasks")
     if tasks_el is None:
         return tasks
+    # Before building anything: account for what this file carries that the
+    # import will not (#2891). Runs first so the "what was dropped" lines lead
+    # the summary rather than trailing the per-task notes.
+    _warn_unmapped_task_fields(tasks_el, ns, warnings)
     for task_el in tasks_el.findall(f"{ns}Task"):
         td = _parse_one_task(task_el, ns, pert_role_to_field_id, task_assignments, warnings)
         if td is not None:

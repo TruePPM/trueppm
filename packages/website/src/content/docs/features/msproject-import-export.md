@@ -1,6 +1,7 @@
 ---
 title: MS Project import & export
-description: Create a project from a Microsoft Project file, import tasks into an existing project, export to MS Project XML, round-trip three-point / PERT estimates, and review import history.
+description: Create a project from a Microsoft Project file, import tasks into an existing project, export to MS Project XML, round-trip three-point / PERT estimates, review import history, and see exactly which fields do not survive the trip.
+documentedFor: "0.4"
 ---
 
 :::note[Added in 0.2 (alpha)]
@@ -21,9 +22,22 @@ TruePPM treats Microsoft Project as a peer interchange format. You can:
 - **Round-trip PERT three-point estimates** for Monte Carlo.
 - **See the import history** on a project's Overview ("Imported from … on … by …").
 
-Two file formats are supported on import: human-readable **`.xml`** (MSPDI; always supported), and binary **`.mpp`** when the server has the optional MPXJ / Java toolchain installed. Export is always `.xml`.
+:::note[Ships in 0.4 — constraint and actual-date import, and `.xml`-only file pickers]
+Two changes on this page land in **TruePPM 0.4**, the first beta. On
+`0.3.0-alpha.3` and earlier: MS Project **constraint dates and actual start /
+finish dates are not imported at all** and nothing tells you so, and the
+import-into-existing dialog offers `.mpp` alongside `.xml` even though the
+reference image cannot parse it. Everything else on this page describes shipped
+behavior.
+:::
 
-This page is organized by what you want to do. Start with the in-app flow, drop down to the REST API when you need automation, then consult the field-coverage tables for round-trip semantics.
+**`.xml` (MSPDI) is the import format**, in both file pickers and on both
+endpoints. Binary **`.mpp`** is accepted by the API *only* on a deployment where
+an operator has installed the optional MPXJ / Java toolchain — the reference
+image bundles neither, so `.mpp` is not offered in the UI. Export is always
+`.xml`. See [`.mpp` — what actually works](#mpp--what-actually-works).
+
+This page is organized by what you want to do. Start with the in-app flow, drop down to the REST API when you need automation, then consult the field-coverage tables for round-trip semantics — including [what is *not* carried over](#what-the-import-does-not-carry-over), which for a migrating plan is the more important table.
 
 ## Create a project from a file
 
@@ -35,7 +49,7 @@ The fastest path for migrating a schedule into TruePPM. Two entry points open th
 In the dialog:
 
 1. Pick a **format**. **TruePPM** is reserved for an upcoming native bundle and is currently disabled. **MS Project** is selected by default.
-2. Pick a **file type**. **`.xml`** is enabled; **`.mpp`** and **`.mpx`** are visually present but disabled (see callout below). Click **"How do I get an .xml file from MS Project?"** for inline guidance — *"In MS Project (desktop): File → Save As, choose XML Format (*.xml), then Save."*
+2. Pick a **file type**. **`.xml`** is enabled; **`.mpp`** and **`.mpx`** are visually present but disabled (see [`.mpp` — what actually works](#mpp--what-actually-works)). Click **"How do I get an .xml file from MS Project?"** for inline guidance — *"In MS Project (desktop): File → Save As, choose XML Format (*.xml), then Save."*
 3. Drop the `.xml` file on the dropzone (or click to browse) and confirm.
 
 You're navigated to the new project immediately. While the worker parses the file in the background, the project name is provisionally derived from the filename and the start date is today. Once the import finishes, both are **overwritten from the file header** and the schedule refreshes. The TopBar shows a quiet background-task indicator for the duration; a failed parse stays **terminal** — the project record remains so you can retry or delete it without losing the upload trail.
@@ -46,14 +60,31 @@ Assigning the new project to an existing **program** requires program **Admin**
 on that program (matches the standard "New project" rules).
 :::
 
-:::caution[`.mpp` and `.mpx` are disabled by design]
-The file-type picker currently disables `.mpp` (binary MS Project) and `.mpx`
-(legacy / ProjectLibre) imports. The server can still accept `.mpp` if the
-MPXJ / Java toolchain is installed (see
-[Configuration → `.mpp` and Java](/administration/msproject-configuration/#mpp-and-java)),
-but the in-app flow gates on file type to keep the experience predictable.
-Use **File → Save As → XML Format** in MS Project and upload the `.xml`.
-:::
+### `.mpp` — what actually works
+
+Three surfaces used to give three different answers to "can I upload a `.mpp`?".
+Here is the single one, top to bottom:
+
+| Surface | `.mpp` | Why |
+|---|---|---|
+| Create-from-import file-type picker | Disabled, labelled "Not yet supported" | First-class `.mpp` import is [#128](https://gitlab.com/trueppm/trueppm/-/issues/128), sequenced for 0.6 |
+| Import-into-existing dropzone | Rejected before upload | Ships in 0.4 — it previously accepted `.mpp` and showed a caveat banner |
+| `POST …/import/msproject/` (REST) | **Accepted** | The operator escape hatch, unchanged |
+| Reference Docker image | Cannot parse it | Bundles neither the MPXJ JAR nor a JRE |
+
+So on a stock deployment a `.mpp` uploaded through the API returns `202`, and the
+worker then fails with `"MPXJ JAR not found"`. That reason has nowhere to surface
+today ([#2714](https://gitlab.com/trueppm/trueppm/-/issues/2714)), which is why
+the file pickers no longer offer a path that ends there.
+
+To enable `.mpp` on your own deployment, install the toolchain and point
+`MPXJ_JAR_PATH` at the JAR — see
+[Configuration → `.mpp` and Java](/administration/msproject-configuration/#mpp-and-java).
+`MPXJ_JAR_PATH` is a settings-module value with no environment-variable binding.
+Even then, the *UI* stays `.xml`-only until 0.6; the escape hatch is the API.
+
+Otherwise: **File → Save As → XML Format** in MS Project and upload the `.xml`.
+Nothing TruePPM reads is lost in that conversion.
 
 ## Import tasks into an existing project
 
@@ -61,7 +92,7 @@ Use this when the destination project already exists. From the project's **Sched
 
 1. Open the **Project actions** (`···`) overflow menu in the toolbar.
 2. Choose **Import from MS Project…**.
-3. Drop a `.xml` (or `.mpp`, if the server supports it) file on the dropzone.
+3. Drop a `.xml` file on the dropzone. A `.mpp` is rejected here with the Save-As-XML instruction; see [`.mpp` — what actually works](#mpp--what-actually-works).
 4. Confirm. The modal shows **"Import started"** and closes.
 
 The import runs **asynchronously** — the worker parses the file in the background and the **schedule refreshes once it finishes**. There is no live per-import progress bar yet ([#61](https://gitlab.com/trueppm/trueppm/-/issues/61)).
@@ -162,13 +193,18 @@ curl -H "Authorization: Bearer $JWT" \
 #       "requested_at": "2026-05-28T13:11:54Z",
 #       "initiated_by": 17,
 #       "initiated_by_username": "marcus",
-#       "task_count": 28
+#       "task_count": 28,
+#       "warnings": [
+#         "Not imported: deadline dates (TruePPM has no deadline field) — set on 6 of 28 tasks."
+#       ]
 #     }
 #   ]
 # }
 ```
 
 `task_count` is read from the linked Celery task's result summary, so it stays `null` until the import worker writes its summary (PENDING / DISPATCHED rows) and for parse failures (DEAD rows). `initiated_by_username` is `null` if the originating user was later deleted — the `ImportRequest` row survives the user purge.
+
+`warnings` is read from the same summary and is `[]` for a queued or failed import. It is where an automated migration checks whether the file lost anything — see [What the import does not carry over](#what-the-import-does-not-carry-over).
 
 ## Import formats
 
@@ -211,7 +247,17 @@ curl -H "Authorization: Bearer $JWT" \
 | `<Milestone>` | `Task.is_milestone` | ✅ Mapped | `1` → `is_milestone=True`; milestone duration is always imported as 0 |
 | `<PercentComplete>` | `Task.percent_complete` | ✅ Mapped | Integer 0–100 (same scale both sides) |
 | `<Notes>` | `Task.notes` | ✅ Mapped | Free-text notes |
-| `<Start>` | `Task.planned_start` | ✅ Mapped | Date portion only; time component ignored |
+| `<Start>` | `Task.planned_start` | ✅ Mapped | Date portion only; time component ignored. A `<ConstraintDate>` on a supported constraint type wins over this — see the next two rows. |
+| `<ConstraintType>` | `Task.planned_start` (codes 2, 4 only) | 🟡 Partial | `4` Start No Earlier Than is exactly `planned_start`'s meaning and is carried across. `2` Must Start On becomes the same start floor **and warns**, because TruePPM cannot also stop the task starting later. `0` As Soon As Possible is TruePPM's own default. `1` ALAP, `3` Must Finish On, `5` SNLT, `6` FNET and `7` FNLT have no TruePPM equivalent and are reported in the import warnings with a task count. |
+| `<ConstraintDate>` | `Task.planned_start` | 🟡 Partial | Read only alongside a code TruePPM applies (2 or 4). This is the date the PM *committed to*, so it takes precedence over the computed `<Start>` — importing the computed date instead was how a migrated plan quietly lost its commitments. |
+| `<ActualStart>` | `Task.actual_start` | ✅ Mapped | Date portion only. `NA` and unparseable values import as empty rather than as a date. |
+| `<ActualFinish>` | `Task.actual_finish` | ✅ Mapped | Date portion only. |
+| `<Deadline>` | — | ⬜ Ignored | TruePPM has no deadline field. Reported in the import warnings with a task count. |
+| `<Baseline>` | — | ⬜ Ignored | Reported with a count. Capture a [TruePPM baseline](/features/baselines/) after the import lands instead — it will then reflect the imported dates. |
+| `<Priority>` | — | ⬜ Ignored | MS Project's 0–1000 weight is not `Task.priority_rank`, which is an ordinal position. Reported with a count when the value is not the 500 default. |
+| `<Work>` | — | ⬜ Ignored | TruePPM schedules on duration, not effort. Reported with a count when non-zero. |
+| `<Cost>` | — | ⬜ Ignored | TruePPM tracks no task cost. Reported with a count when non-zero. |
+| `<ActualDuration>` / `<RemainingDuration>` | — | ⬜ Ignored | Derived from `duration` and `percent_complete` after CPM. |
 | `<PredecessorLink>/<PredecessorUID>` | `Dependency.predecessor` | ✅ Mapped | |
 | `<PredecessorLink>/<Type>` | `Dependency.dep_type` | ✅ Mapped | 0→FF, 1→FS, 2→SF, 3→SS |
 | `<PredecessorLink>/<LinkLag>` | `Dependency.lag` | ✅ Mapped | Tenths-of-minutes → working days (4800 = 1 day) |
@@ -315,6 +361,38 @@ TruePPM imports and exports this convention on both create-from-import and impor
 
 When importing resources, TruePPM first searches for an existing `Resource` record with a name that matches case-insensitively. If a match is found the existing record is reused (no duplicate created). If no match exists, a new `Resource` record is created.
 
+## What the import does not carry over
+
+TruePPM's schedule is computed — durations, dependencies and a calendar produce
+the dates. Several MS Project fields describe things TruePPM has no column for,
+so they are not imported. Every one of them is **reported** in the import
+`warnings` with a per-family task count, so a migration can be checked rather
+than assumed:
+
+| Not imported | Why | Do this instead |
+|---|---|---|
+| Constraint types other than Start No Earlier Than and Must Start On | `Task.planned_start` is a start-no-earlier-than floor and is the only constraint TruePPM models | Express a finish commitment as a milestone with a predecessor, or track it outside the schedule |
+| `<Deadline>` | No deadline field | Same — a milestone is the closest equivalent |
+| `<Baseline>` blocks | TruePPM baselines are captured from the live schedule, not imported | Capture a [baseline](/features/baselines/) once the import lands |
+| `<Priority>` (0–1000 weight) | `Task.priority_rank` is an ordinal position within the project, not a weight — mapping one onto the other would invent an ordering | Re-rank on the board after import |
+| `<Work>` / `<Cost>` | TruePPM schedules on duration and tracks no task cost | Keep effort and cost in the system that owns them |
+
+A "Must Start On" constraint is the one partial case: its date becomes the task's
+start floor and the import says so, because TruePPM enforces the "no earlier"
+half and cannot enforce the "no later" half.
+
+:::caution[Exported `<Start>` is a computed date — re-importing promotes it]
+Export writes each task's CPM `early_start` as `<Start>`, and per
+[ADR-0132](/architecture/decisions/) that is a *remaining-work* date on a
+partially-complete task, not the date work began. Since 0.4 the export also
+writes `<ConstraintType>`/`<ConstraintDate>` for any task with a
+`planned_start`, so a TruePPM → MS Project → TruePPM round trip preserves the
+commitment rather than replacing it with whatever CPM had computed. A file
+exported by **0.3 or earlier** carries no constraint, so re-importing it still
+turns computed starts into committed ones — re-export from 0.4 before you round
+trip. The same caveat applies to the [CSV path](/features/csv-import-export/).
+:::
+
 ## Import warnings
 
 The import summary includes a `warnings` list for non-fatal issues:
@@ -330,6 +408,9 @@ The import summary includes a `warnings` list for non-fatal issues:
 | Calendar exception adds working time | `"Calendar '{name}': working-time exception '{exception}' is not supported and was skipped"` |
 | File calendar conflicts with the project's configured calendar | `"File calendar '{name}' differs from the project's configured calendar '{name}'; the project calendar was kept — imported dates may shift"` |
 | Project `CalendarUID` not found among base calendars | `"Project calendar UID {uid} not found among the file's base calendars; project calendar left unchanged"` |
+| A field family TruePPM has no column for | `"Not imported: {what} — set on {n} of {total} tasks."` (see [What the import does not carry over](#what-the-import-does-not-carry-over)) |
+| A constraint type TruePPM cannot express | `"Not imported: '{MS Project name}' constraints — set on {n} of {total} tasks. TruePPM models only start-no-earlier-than, so these tasks are scheduled from their dependencies alone."` |
+| A Must Start On constraint | `"Partially imported: 'Must Start On' constraints on {n} of {total} tasks became start-no-earlier-than dates. The start is pinned; TruePPM cannot also stop the task starting later."` |
 
 The import summary also includes two counts you can use to confirm three-point coverage at a glance:
 
@@ -340,7 +421,13 @@ The import summary also includes two counts you can use to confirm three-point c
 
 TruePPM exports projects to MS Project XML 2003+ format. All tasks, dependencies, resources, and assignments are written. Fields exported per task:
 
-`UID`, `ID`, `Name`, `Duration` (hours), `Start`, `Finish`, `OutlineNumber`, `OutlineLevel`, `Milestone`, `PercentComplete`, `Notes`, `PredecessorLink` (with `Type` and `LinkLag`), and the four PERT `ExtendedAttribute` values when three-point estimates are present (see above).
+`UID`, `ID`, `Name`, `Duration` (hours), `Start`, `Finish`, `OutlineNumber`, `OutlineLevel`, `Milestone`, `PercentComplete`, `Notes`, `ConstraintType`, `ConstraintDate` (when the task has a `planned_start`), `ActualStart` / `ActualFinish` (when set), `PredecessorLink` (with `Type` and `LinkLag`), and the four PERT `ExtendedAttribute` values when three-point estimates are present (see above).
+
+`ConstraintType` is always written: `4` (Start No Earlier Than) with the task's
+`planned_start` as `ConstraintDate`, or `0` (As Soon As Possible) when the task
+has no start floor. Omitting it would let MS Project infer a constraint from the
+computed `<Start>` — the same computed-becomes-committed promotion described in
+the caution above, in the other direction.
 
 Resources: `UID`, `ID`, `Name`, `MaxUnits`.
 Assignments: `UID`, `TaskUID`, `ResourceUID`, `Units`.

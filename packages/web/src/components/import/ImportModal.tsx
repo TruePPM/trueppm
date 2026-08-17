@@ -55,8 +55,6 @@ export function ImportModal({ projectId, onClose }: Props) {
         : 'picking';
   const dialogRef = useFocusTrap<HTMLDivElement>(true, onClose, phase);
 
-  const isMpp = file?.name.toLowerCase().endsWith('.mpp') ?? false;
-
   function handleSelect(picked: File) {
     setRejectMsg(null);
     importMut.reset();
@@ -192,19 +190,24 @@ export function ImportModal({ projectId, onClose }: Props) {
                 />
 
                 {rejectMsg && (
-                  <p role="alert" className="text-xs text-semantic-critical">
-                    {rejectMsg}
-                  </p>
-                )}
-
-                {/* .mpp requires the server's MPXJ (Java) toolchain; not all
-                    deployments ship it. Warn rather than block — the API still
-                    accepts .mpp where the toolchain is present. */}
-                {isMpp && (
-                  <p className="rounded-card border border-semantic-warning/40 bg-semantic-warning-bg p-2 text-xs text-neutral-text-secondary">
-                    .mpp import needs the MS Project toolchain on the server. If the import fails,
-                    open the file in MS Project and save it as XML, then upload the .xml instead.
-                  </p>
+                  <>
+                    <p role="alert" className="text-xs text-semantic-critical">
+                      {rejectMsg}
+                    </p>
+                    {/* The rejected file here is nearly always a .mpp or .mpx, so
+                        the rejection is the moment to give the conversion recipe —
+                        this is the same disclosure `ImportProjectModal` opens on a
+                        reject, and it replaces the post-selection caveat banner
+                        that went away with `.mpp` itself (#2891). That banner told
+                        the user the import "needs the MS Project toolchain on the
+                        server", which is unactionable from the browser and, on the
+                        reference image, never true. */}
+                    <p className="rounded-card border border-semantic-warning/40 bg-semantic-warning-bg p-2 text-xs text-neutral-text-secondary">
+                      TruePPM imports MS Project XML. In MS Project (desktop):{' '}
+                      <strong>File → Save As</strong>, choose <strong>XML Format (*.xml)</strong>,
+                      then upload that file here.
+                    </p>
+                  </>
                 )}
               </div>
 

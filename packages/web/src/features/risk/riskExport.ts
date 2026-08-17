@@ -1,22 +1,14 @@
 import type { Risk } from '@/api/types';
 import { localTodayIso } from '@/lib/localDate';
+import { downloadCsv, escapeField } from '@/utils/exportCsv';
 
-// A leading `=`, `+`, `-`, `@`, tab, or CR is how Excel/Sheets/LibreOffice decide a cell
-// is a formula rather than literal text. Several of these columns (owner, trigger,
-// contingency, description) are free-text and user-supplied, so an unneutralized value
-// would execute as a formula on open (OWASP CSV injection).
-const FORMULA_PREFIX_CHARS = new Set(['=', '+', '-', '@', '\t', '\r']);
-
-// RFC 4180 quoting: wrap in double-quotes if the value contains commas, double-quotes, or newlines.
-// Embedded double-quotes are doubled. A leading formula-trigger character is neutralized with a
-// leading `'` before quoting is decided, so the two protections compose correctly.
+// Widen the shared guard to this module's cell types — several risk columns are
+// numeric or nullable. Escaping itself is delegated, never reimplemented: this
+// file used to carry a byte-identical copy of `escapeField`'s formula-prefix set
+// and quoting rules, and a duplicated injection guard is a hazard in its own
+// right (#2892 found the third copy of the #2762 class already drifted).
 function csvCell(value: string | number | null | undefined): string {
-  const raw = value == null ? '' : String(value);
-  const s = raw.length > 0 && FORMULA_PREFIX_CHARS.has(raw[0]) ? `'${raw}` : raw;
-  if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
-    return `"${s.replaceAll('"', '""')}"`;
-  }
-  return s;
+  return escapeField(value == null ? '' : String(value));
 }
 
 // Format YYYY-MM-DD as "MMM D, YYYY" for human readability in the export.
@@ -99,14 +91,5 @@ export function exportRisksToCSV(risks: Risk[], projectSlug: string): void {
   // in UTC, since the file is often filed as same-day evidence.
   const today = localTodayIso();
   const filename = `risks-${projectSlug}-${today}.csv`;
-  const csv = generateRisksCSV(risks);
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+  downloadCsv(generateRisksCSV(risks), filename);
 }
