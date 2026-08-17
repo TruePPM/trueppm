@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -504,3 +505,156 @@ def test_team_member_list_read_gets_full_per_voter_detail(project: Project, team
     assert len(row["votes"]) == 1  # the proposer's implicit approve is visible to the team
     assert row["votes"][0]["choice"] == "approve"
     assert row["can_vote"] is True
+
+
+# --------------------------------------------------------------------------- #
+# Live-update broadcasts (#2845)
+# --------------------------------------------------------------------------- #
+
+
+def _bcast_events(mock: Any) -> list[str]:
+    return [c.args[1] for c in mock.call_args_list]
+
+
+def test_opening_a_proposal_broadcasts_the_transition(
+    project: Project, team: Team, django_capture_on_commit_callbacks: Any
+) -> None:
+    """The ceiling-raise UI is a real multi-user vote and emitted nothing before #2845.
+
+    ``useSignalPrivacy`` has a 60s/30s ``staleTime`` and no ``refetchInterval``, so a
+    proposal opened by one member was invisible to the others until they navigated.
+    The architecturally equivalent feature — Planning Poker — broadcasts on every
+    open/vote/reveal/commit.
+    """
+    sm = _team_member(project, team, "sm", sm=True)
+    _team_member(project, team, "dev2")
+
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event", MagicMock()) as bcast,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        resp = _client(sm).post(
+            _raise_url(project),
+            {"signal": "velocity", "ceiling": "program_shared"},
+            format="json",
+        )
+    assert resp.status_code == 202, resp.data
+    assert "signal_ceiling_proposal_changed" in _bcast_events(bcast)
+
+
+def test_a_vote_that_does_not_settle_broadcasts_the_tally(
+    project: Project, team: Team, django_capture_on_commit_callbacks: Any
+) -> None:
+    """An OPEN-leaving vote emits ``signal_ceiling_vote_cast``.
+
+    ``_emit_proposal_changed`` only fires on a *status* change, so without this a
+    vote that moved the count but not the outcome was silent — and the running count
+    is exactly what the other voters are watching.
+    """
+    sm = _team_member(project, team, "sm", sm=True)
+    _team_member(project, team, "dev2")
+    _team_member(project, team, "dev3")
+    _team_member(project, team, "dev4")
+
+    proposal_id = (
+        _client(sm)
+        .post(
+            _raise_url(project), {"signal": "velocity", "ceiling": "program_shared"}, format="json"
+        )
+        .data["id"]
+    )
+
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event", MagicMock()) as bcast,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        resp = _client(_team_member(project, team, "dev5")).post(
+            _vote_url(project, proposal_id), {"choice": "reject"}, format="json"
+        )
+    assert resp.status_code == 200, resp.data
+    assert resp.data["status"] == CeilingRaiseStatus.OPEN
+    events = _bcast_events(bcast)
+    assert "signal_ceiling_vote_cast" in events
+    # The status did not change, so no transition event should be emitted.
+    assert "signal_ceiling_proposal_changed" not in events
+
+
+def test_a_settling_vote_broadcasts_the_transition_not_the_vote(
+    project: Project, team: Team, django_capture_on_commit_callbacks: Any
+) -> None:
+    """When the tally settles the proposal, the status event already tells the story.
+
+    Emitting both would make every client re-read twice for one decision.
+    """
+    sm = _team_member(project, team, "sm", sm=True)
+    dev = _team_member(project, team, "dev2")
+
+    proposal_id = (
+        _client(sm)
+        .post(
+            _raise_url(project), {"signal": "velocity", "ceiling": "program_shared"}, format="json"
+        )
+        .data["id"]
+    )
+
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event", MagicMock()) as bcast,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        resp = _client(dev).post(
+            _vote_url(project, proposal_id), {"choice": "approve"}, format="json"
+        )
+    assert resp.data["status"] == CeilingRaiseStatus.RATIFIED
+    events = _bcast_events(bcast)
+    assert "signal_ceiling_proposal_changed" in events
+    assert "signal_ceiling_vote_cast" not in events
+    # Ratifying applies the ceiling, which is itself a policy write.
+    assert "signal_privacy_changed" in events
+
+
+def test_no_broadcast_payload_carries_a_vote_or_a_voter(
+    project: Project, team: Team, django_capture_on_commit_callbacks: Any
+) -> None:
+    """Payloads stay ID-only — the privacy gate is REST-side, and must stay there."""
+    sm = _team_member(project, team, "sm", sm=True)
+    dev = _team_member(project, team, "dev2")
+
+    with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event", MagicMock()) as bcast:
+        with django_capture_on_commit_callbacks(execute=True):
+            proposal_id = (
+                _client(sm)
+                .post(
+                    _raise_url(project),
+                    {"signal": "velocity", "ceiling": "program_shared"},
+                    format="json",
+                )
+                .data["id"]
+            )
+        # A second capture block, not a combined `with`: the propose and the vote must
+        # commit separately or the vote runs before the proposal row is durable.
+        with django_capture_on_commit_callbacks(execute=True):
+            _client(dev).post(_vote_url(project, proposal_id), {"choice": "approve"}, format="json")
+
+    for call in bcast.call_args_list:
+        payload = call.args[2]
+        assert "voter" not in payload and "voter_id" not in payload
+        assert "choice" not in payload and "votes" not in payload
+        assert "approve_count" not in payload and "reject_count" not in payload
+
+
+def test_a_ratchet_to_team_broadcasts_the_policy_change(
+    project: Project, team: Team, django_capture_on_commit_callbacks: Any
+) -> None:
+    """``ratchet_down_to_team`` is the SM panic button; it must reach live clients."""
+    sm = _team_member(project, team, "sm", sm=True)
+    solo_policy = svc.get_or_create_policy(project)
+    svc.raise_signal_ceiling(solo_policy, "velocity", SignalAudience.TEAM_SM_PM, actor=sm)
+    svc.set_signal_audience(solo_policy, "velocity", SignalAudience.TEAM_SM_PM, actor=sm)
+
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event", MagicMock()) as bcast,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        svc.ratchet_down_to_team(solo_policy, actor=sm)
+
+    assert "signal_privacy_changed" in _bcast_events(bcast)

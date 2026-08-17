@@ -15,6 +15,7 @@ Covers:
 from __future__ import annotations
 
 from datetime import date
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -525,3 +526,92 @@ def test_editing_program_default_calendar_recomputes_inheriting_project(
 
     assert resp.status_code == 200
     assert ScheduleRequest.objects.filter(project=inheriting).exists()
+
+
+# --------------------------------------------------------------------------- #
+# Live-update broadcast on the calendar surface (#2845)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.django_db(transaction=True)
+def test_editing_a_calendar_broadcasts_to_every_affected_project(
+    program_calendar: Calendar, project_calendar: Calendar
+) -> None:
+    """Calendar edits reach live clients — the Calendar screen had no signal at all.
+
+    Calendar is documented as a shared org-level resource, exactly the kind two
+    admins have open at once, and the whole surface emitted nothing: there was no
+    ``calendar_*`` event in ``FROZEN_WS_EVENT_TYPES``. Task-date movement did reach
+    clients via the recompute's ``cpm_complete`` / ``task_dates_updated``, but the
+    calendar's own definition (name, working days, hours/day, holidays) did not.
+
+    The broadcast set is by construction the recompute set — both come out of
+    ``_enqueue_calendar_recalc`` — so an overriding project must be excluded from
+    both.
+    """
+    prog = Program.objects.create(name="Prog", calendar=program_calendar)
+    inheriting = _project(name="Inheriting", program=prog, calendar=None)
+    overriding = _project(name="Overriding", program=prog, calendar=project_calendar)
+    admin = User.objects.create_user(username="orgadmin_bcast", password="pw", is_superuser=True)
+
+    client = APIClient()
+    client.force_authenticate(user=admin)
+    with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event", MagicMock()) as bcast:
+        resp = client.patch(
+            f"/api/v1/calendars/{program_calendar.id}/", {"working_days": 15}, format="json"
+        )
+    assert resp.status_code == 200
+
+    calendar_events = [
+        c.args for c in bcast.call_args_list if c.args[1] == "project_calendar_changed"
+    ]
+    broadcast_to = {args[0] for args in calendar_events}
+    assert str(inheriting.pk) in broadcast_to
+    assert str(overriding.pk) not in broadcast_to
+    assert all(args[2] == {"id": args[0]} for args in calendar_events)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_adding_a_holiday_exception_broadcasts_to_affected_projects(
+    program_calendar: Calendar,
+) -> None:
+    """A CalendarException write is an aggregate write on its Calendar — same signal."""
+    prog = Program.objects.create(name="Prog", calendar=program_calendar)
+    inheriting = _project(name="Inheriting", program=prog, calendar=None)
+    admin = User.objects.create_user(username="orgadmin_exc", password="pw", is_superuser=True)
+
+    client = APIClient()
+    client.force_authenticate(user=admin)
+    with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event", MagicMock()) as bcast:
+        resp = client.post(
+            f"/api/v1/calendars/{program_calendar.id}/exceptions/",
+            {"name": "Shutdown", "exc_start": "2026-07-01", "exc_end": "2026-07-03"},
+            format="json",
+        )
+    assert resp.status_code == 201, resp.data
+    assert str(inheriting.pk) in {
+        c.args[0] for c in bcast.call_args_list if c.args[1] == "project_calendar_changed"
+    }
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_metadata_only_calendar_edit_broadcasts_nothing(program_calendar: Calendar) -> None:
+    """A name-only PATCH is not a working-time change, so it must not fan out.
+
+    ``perform_update`` deliberately skips the recompute when neither ``working_days``
+    nor ``hours_per_day`` moved, to avoid a wasted recalc pass on every bound project.
+    The broadcast rides the same decision, so a no-op edit cannot make every client
+    re-read either.
+    """
+    prog = Program.objects.create(name="Prog", calendar=program_calendar)
+    _project(name="Inheriting", program=prog, calendar=None)
+    admin = User.objects.create_user(username="orgadmin_meta", password="pw", is_superuser=True)
+
+    client = APIClient()
+    client.force_authenticate(user=admin)
+    with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event", MagicMock()) as bcast:
+        resp = client.patch(
+            f"/api/v1/calendars/{program_calendar.id}/", {"name": "Renamed"}, format="json"
+        )
+    assert resp.status_code == 200
+    assert not [c for c in bcast.call_args_list if c.args[1] == "project_calendar_changed"]
