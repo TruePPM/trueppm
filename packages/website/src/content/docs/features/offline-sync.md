@@ -50,7 +50,7 @@ Any project member (Viewer+) may call this endpoint.
 - `deleted` — string IDs of soft-deleted rows (tombstones)
 - `timestamp` — high-water mark to adopt as `since` **after** the delta is fully drained. Pinned when the session's first page is served, so it is identical on every page of that session
 - `next_cursor` — opaque continuation token, or `null` when the delta is exhausted
-- `has_more` — `true` while more pages remain for this `since` session
+- `has_more` — **deprecated, removed in 0.5** — `true` while more pages remain for this `since` session. Exactly equivalent to `next_cursor !== null`; loop on the cursor instead
 
 ## Pagination
 
@@ -58,8 +58,16 @@ The pull is **cursor-paginated** so a cold start (`since=0`) on a large project 
 
 1. Request the first page with `since` (no `cursor`).
 2. Apply the page's `changes`.
-3. If `has_more` is `true`, request again with the same `since` and the returned `next_cursor`.
-4. When `has_more` is `false` (`next_cursor` is `null`), the session is complete — adopt `timestamp` as the `since` for the next sync.
+3. If `next_cursor` is non-null, request again with the same `since` and that cursor.
+4. When `next_cursor` is `null`, the session is complete — adopt `timestamp` as the `since` for the next sync.
+
+:::caution[`has_more` is deprecated]
+`has_more` still ships and still means what it says, but it is redundant with
+`next_cursor !== null` and **will be removed in 0.5**. Branch on `next_cursor`, as
+the loop above now does. A client that branches on `has_more` will read `undefined`
+after the removal, treat it as false, and stop after the first page — a partial sync
+that reports itself as complete.
+:::
 
 The cursor is a **compound keyset** on `(collection, sync_seq, id)`, not a scalar `sync_seq` ceiling. Rows written together share a `sync_seq`, and a scalar cursor could not split a page between two rows of the same value without either dropping rows or leaving the page unbounded. Keying on the row `id` (a unique UUID) as a tiebreak makes every page boundary unambiguous — **no row is skipped and no row is duplicated**, even when thousands of rows share a value. Because the cursor only ever increases, a row edited mid-session moves forward in the stream and is either delivered later or re-delivered under upsert — never lost.
 
@@ -69,7 +77,7 @@ The cursor is a **compound keyset** on `(collection, sync_seq, id)`, not a scala
 
 That pinning is what makes step 4 sound. Collections are drained in a fixed order, so once the cursor has passed a collection the session can no longer deliver anything written into it. If each page recomputed the checkpoint, the last page would report a value **above** such a mid-drain write, and the client adopting it would filter that row out of every future pull — the edit would be lost silently, with no error and no retry path. Holding the checkpoint at the first page's value errs the safe way instead: the mid-drain row stays above the adopted `since` and arrives on the next pull, and any row the session *did* deliver above the pin is simply re-delivered under upsert.
 
-The practical rule for clients is unchanged — keep `since` constant, loop until `has_more` is `false`, then adopt `timestamp`. Because the pin lives in the cursor, a continuation token from an older server is rejected with a `400`; restart the drain at the same `since`, which loses nothing.
+The practical rule for clients is unchanged — keep `since` constant, loop until `next_cursor` is `null`, then adopt `timestamp`. Because the pin lives in the cursor, a continuation token from an older server is rejected with a `400`; restart the drain at the same `since`, which loses nothing.
 
 Retro rows are visibility-filtered (ADR-0071): a Viewer pulling a project whose retros are **team-only** does not receive the retro's raw notes or action-item text — those rows are excluded at the queryset level, and tombstones are delivered for visibility-removed rows so the local database drops them.
 
@@ -210,7 +218,7 @@ await synchronize({
         dst.deleted.push(...bucket.deleted);
       }
       timestamp = page.timestamp;
-      cursor = page.has_more ? page.next_cursor : null;
+      cursor = page.next_cursor;
     } while (cursor);
     return { changes: merged, timestamp };
   },

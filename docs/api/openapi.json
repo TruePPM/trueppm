@@ -761,7 +761,7 @@
                 }
             }
         },
-        "/api/v1/admin/failed-tasks/drop_all/": {
+        "/api/v1/admin/failed-tasks/drop-all/": {
             "post": {
                 "operationId": "v1_admin_failed_tasks_drop_all_create",
                 "description": "Bulk-drop the current filter set, bounded (ADR-0210 §4).\n\nApplies the inspector's ``get_queryset`` filters, excludes already-dismissed\nrows, and dismisses at most ``FAILED_TASK_BULK_ACTION_MAX`` (oldest-first) in\na single bounded ``UPDATE`` — no per-row loop. ``capped`` signals more remain.",
@@ -822,7 +822,7 @@
                 }
             }
         },
-        "/api/v1/admin/failed-tasks/requeue_all/": {
+        "/api/v1/admin/failed-tasks/requeue-all/": {
             "post": {
                 "operationId": "v1_admin_failed_tasks_requeue_all_create",
                 "description": "Bulk-requeue the current filter set, bounded (ADR-0210 §4).\n\nApplies the inspector's ``get_queryset`` filters, restricts to actionable\n(``dead``/``pending_retry``) tasks, and processes at most\n``FAILED_TASK_BULK_ACTION_MAX`` (oldest-first). ``capped`` in the response\nsignals that more remain and the operator should repeat.",
@@ -57594,7 +57594,7 @@
                     },
                     "has_more": {
                         "type": "boolean",
-                        "description": "True while more pages remain for this `since` session."
+                        "description": "DEPRECATED — removed in 0.5. True while more pages remain for this `since` session. Exactly equivalent to `next_cursor is not null`; loop on that instead. Announced here rather than removed in 0.4 (#2842) because a client following the published drain loop would read `undefined`, treat it as false, and silently stop after page one — missing data presented as a complete sync."
                     }
                 },
                 "required": [

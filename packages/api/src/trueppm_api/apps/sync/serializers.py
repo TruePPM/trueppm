@@ -508,7 +508,14 @@ class SyncPullResponseSerializer(serializers.Serializer):  # type: ignore[type-a
         ),
     )
     has_more = serializers.BooleanField(
-        help_text="True while more pages remain for this `since` session.",
+        help_text=(
+            "DEPRECATED — removed in 0.5. True while more pages remain for this "
+            "`since` session. Exactly equivalent to `next_cursor is not null`; loop "
+            "on that instead. Announced here rather than removed in 0.4 (#2842) "
+            "because a client following the published drain loop would read "
+            "`undefined`, treat it as false, and silently stop after page one — "
+            "missing data presented as a complete sync."
+        ),
     )
 
 

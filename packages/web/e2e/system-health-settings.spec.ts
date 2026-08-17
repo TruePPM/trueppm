@@ -237,14 +237,14 @@ async function setup(
     const path = new URL(route.request().url()).pathname;
     const method = route.request().method();
     if (method === 'POST') {
-      if (path.endsWith('/requeue_all/')) {
+      if (path.endsWith('/requeue-all/')) {
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
           body: pj({ processed: failedTasks.length, matched: failedTasks.length, capped: false }),
         });
       }
-      if (path.endsWith('/drop_all/')) {
+      if (path.endsWith('/drop-all/')) {
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
