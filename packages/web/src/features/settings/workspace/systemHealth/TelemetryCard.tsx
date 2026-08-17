@@ -467,25 +467,51 @@ function SignalHealthRow({
  * covers the inline consolidated-settings rendering, which deliberately does not
  * (#2298 — no background poll wedged into a form-editing page), and gives any
  * operator a way to re-read on demand.
+ *
+ * Busy state is tracked LOCALLY off the click, never from the query's `isFetching`
+ * (rule 303). The routed page polls every 10 s, and `isFetching` is true for a poll
+ * tick as much as for a click — binding it to `disabled` would disable the control
+ * every 10 s, and a browser blurs a focused element the instant it becomes disabled,
+ * so a keyboard user resting on the button would lose focus on a timer.
  */
-function LiveRefreshButton({
-  onRefresh,
-  isRefreshing,
-}: {
-  onRefresh: () => void;
-  isRefreshing?: boolean;
-}) {
+function LiveRefreshButton({ onRefresh }: { onRefresh: () => void | Promise<unknown> }) {
+  const [pending, setPending] = useState(false);
+  const [announcement, setAnnouncement] = useState('');
+
+  const handleClick = () => {
+    setAnnouncement('');
+    const result = onRefresh();
+    if (!(result instanceof Promise)) {
+      setAnnouncement('Live export stats refreshed.');
+      return;
+    }
+    setPending(true);
+    void result.finally(() => {
+      setPending(false);
+      setAnnouncement('Live export stats refreshed.');
+    });
+  };
+
   return (
-    <button
-      type="button"
-      onClick={onRefresh}
-      disabled={isRefreshing}
-      aria-label="Refresh live export stats"
-      className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[11px] font-semibold text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-60"
-    >
-      <RefreshIcon spinning={isRefreshing} />
-      {isRefreshing ? 'Refreshing…' : 'Refresh'}
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={pending}
+        aria-label="Refresh live export stats"
+        className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[11px] font-semibold text-neutral-text-primary hover:bg-neutral-surface-sunken focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
+      >
+        <RefreshIcon spinning={pending} />
+        {pending ? 'Refreshing…' : 'Refresh'}
+      </button>
+      {/* The strip's numbers change in place, so a sighted user sees the update and a
+          screen-reader user would not. Announced only for a USER-initiated refresh —
+          putting aria-live on the strip itself would re-announce on every 10 s poll
+          tick, which is worse than silence. */}
+      <span className="sr-only" role="status" aria-live="polite">
+        {announcement}
+      </span>
+    </>
   );
 }
 
@@ -497,11 +523,9 @@ function LiveRefreshButton({
 function LiveStrip({
   live,
   onRefresh,
-  isRefreshing,
 }: {
   live: SystemHealthTelemetryLive;
-  onRefresh?: () => void;
-  isRefreshing?: boolean;
+  onRefresh?: () => void | Promise<unknown>;
 }) {
   if (!live.available) {
     return (
@@ -512,7 +536,7 @@ function LiveStrip({
             Live export stats are unavailable — the metrics store (Valkey) is unreachable. The
             configuration below is unaffected.
           </span>
-          {onRefresh ? <LiveRefreshButton onRefresh={onRefresh} isRefreshing={isRefreshing} /> : null}
+          {onRefresh ? <LiveRefreshButton onRefresh={onRefresh} /> : null}
         </div>
       </div>
     );
@@ -532,7 +556,7 @@ function LiveStrip({
           <span className="text-[11px] text-neutral-text-secondary">
             {live.pods_reporting} pod{live.pods_reporting === 1 ? '' : 's'} reporting
           </span>
-          {onRefresh ? <LiveRefreshButton onRefresh={onRefresh} isRefreshing={isRefreshing} /> : null}
+          {onRefresh ? <LiveRefreshButton onRefresh={onRefresh} /> : null}
         </div>
       </div>
 
@@ -820,12 +844,14 @@ function GuidedSetup() {
 export function TelemetryCard({
   telemetry,
   onRefresh,
-  isRefreshing,
 }: {
   telemetry: SystemHealthTelemetry;
-  /** Re-read the live export strip on demand. Omit to render no refresh control. */
-  onRefresh?: () => void;
-  isRefreshing?: boolean;
+  /**
+   * Re-read the live export strip on demand. Omit to render no refresh control.
+   * Return the refetch promise and the button shows a busy state until it settles;
+   * do NOT pass a separate `isFetching` flag (rule 303).
+   */
+  onRefresh?: () => void | Promise<unknown>;
 }) {
   const status = telemetryStatus(telemetry);
 
@@ -850,7 +876,7 @@ export function TelemetryCard({
             </div>
           ) : null}
           {status === 'exporting' ? (
-            <LiveStrip live={telemetry.live} onRefresh={onRefresh} isRefreshing={isRefreshing} />
+            <LiveStrip live={telemetry.live} onRefresh={onRefresh} />
           ) : null}
           <ConfigSummary telemetry={telemetry} />
           <Signals telemetry={telemetry} />

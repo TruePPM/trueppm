@@ -38,7 +38,7 @@ const NAV_GROUPS = buildWorkspaceNavGroups({ linked: true });
  * both renderings additionally get a manual refresh control on the strip itself.
  */
 export function ObservabilitySection({ poll = false }: { poll?: boolean } = {}) {
-  const { data, isLoading, error, refetch, isFetching } = useSystemHealth({ poll });
+  const { data, isLoading, error, refetch } = useSystemHealth({ poll });
 
   const is403 = error !== null && axios.isAxiosError(error) && error.response?.status === 403;
 
@@ -70,11 +70,10 @@ export function ObservabilitySection({ poll = false }: { poll?: boolean } = {}) 
             )}
           </div>
         ) : (
-          <TelemetryCard
-            telemetry={data!.telemetry}
-            onRefresh={() => void refetch()}
-            isRefreshing={isFetching}
-          />
+          // Hand the card the refetch PROMISE, not `isFetching` — the polled query
+          // reports isFetching on every 10 s tick, and a control disabled on a timer
+          // ejects keyboard focus (rule 303). The card tracks its own busy state.
+          <TelemetryCard telemetry={data!.telemetry} onRefresh={() => refetch()} />
         )}
       </div>
     </>

@@ -7,7 +7,7 @@
  * the tests never hit the network; card state is driven by the telemetry fixture
  * plus the mocked mutation result — matching the component's honest-state model.
  */
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TelemetryCard } from './TelemetryCard';
 import type {
@@ -248,12 +248,45 @@ describe('TelemetryCard — live export strip (#2109)', () => {
     expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 
-  it('disables the refresh control while a fetch is in flight', () => {
+  // Rule 303: busy state is USER-initiated only. The routed Observability page polls
+  // every 10s, and TanStack Query reports `isFetching` for a poll tick as much as for
+  // a click — so binding `disabled` to it would disable the button on a timer, and a
+  // browser blurs a focused element the moment it becomes disabled. The card therefore
+  // derives busy from the promise the click returned, and nothing else.
+  it('is busy only while the click it made is in flight, never on a poll tick', async () => {
+    let settle: () => void = () => {};
+    const onRefresh = vi.fn(() => new Promise<void>((resolve) => (settle = resolve)));
     const live = makeLive({ items_per_window: 1204 }, { items_per_window: 340 });
-    render(
-      <TelemetryCard telemetry={makeTelemetry({ live })} onRefresh={vi.fn()} isRefreshing />,
-    );
-    expect(screen.getByRole('button', { name: 'Refresh live export stats' })).toBeDisabled();
+    render(<TelemetryCard telemetry={makeTelemetry({ live })} onRefresh={onRefresh} />);
+    const button = screen.getByRole('button', { name: 'Refresh live export stats' });
+
+    // Idle before any click — a poll happening in the background must not touch it.
+    expect(button).not.toBeDisabled();
+
+    fireEvent.click(button);
+    expect(button).toBeDisabled();
+
+    // `act` flushes the resolved promise's `.finally` and the resulting re-render.
+    await act(() => {
+      settle();
+      return Promise.resolve();
+    });
+    expect(button).not.toBeDisabled();
+  });
+
+  it('announces the refresh to a screen reader once the refetch settles', async () => {
+    const onRefresh = vi.fn(() => Promise.resolve());
+    const live = makeLive({ items_per_window: 1204 }, { items_per_window: 340 });
+    render(<TelemetryCard telemetry={makeTelemetry({ live })} onRefresh={onRefresh} />);
+    // The strip's numbers change in place, so only a live region tells a
+    // screen-reader user anything happened. It is deliberately NOT on the strip
+    // itself, which would re-announce on every background poll tick.
+    expect(screen.getByRole('status')).toHaveTextContent('');
+    await act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Refresh live export stats' }));
+      return Promise.resolve();
+    });
+    expect(screen.getByRole('status')).toHaveTextContent('Live export stats refreshed.');
   });
 
   it('renders no refresh control when the caller supplies no handler', () => {
