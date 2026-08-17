@@ -737,6 +737,14 @@ class AuditEventType(models.TextChoices):
     MEMBER_ADDED = "member_added", "Member added"
     MEMBER_REMOVED = "member_removed", "Member removed"
     MEMBER_ROLE_CHANGED = "member_role_changed", "Member role changed"
+    # #2867. A status-only PATCH used to flip is_active and a membership status —
+    # annoying, fully reversible, low audit value. Since #2832 it also revokes the
+    # target's refresh tokens and Personal Access Tokens, and that revocation is
+    # deliberately durable: reactivation does not restore them. The action's blast
+    # radius changed and its audit treatment did not, so one Admin could permanently
+    # destroy another member's credentials with the log holding no evidence — while
+    # the DELETE path, which does strictly less, recorded MEMBER_REMOVED.
+    MEMBER_STATUS_CHANGED = "member_status_changed", "Member status changed"
     OWNERSHIP_TRANSFERRED = "ownership_transferred", "Ownership transferred"
     PROJECT_CREATED = "project_created", "Project created"
     PROJECT_DELETED = "project_deleted", "Project deleted"

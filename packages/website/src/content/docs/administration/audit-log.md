@@ -28,12 +28,22 @@ recorded:
 |---|---|---|---|
 | `member_added` | A user accepts an invite and joins the workspace | The new member | `role`, `source` |
 | `member_role_changed` | An Owner/Admin changes a member's workspace role | The member | `old_role`, `new_role` |
-| `member_removed` | An Owner/Admin deactivates a member | The member | `role` |
+| `member_status_changed` | An Owner/Admin deactivates or reactivates a member | The member | `old_status`, `new_status`, `credentials_revoked` |
+| `member_removed` | An Owner/Admin removes a member from the workspace | The member | `role` |
 | `ownership_transferred` | The Owner transfers workspace ownership | The new owner | `new_owner_user_id` |
 | `project_created` | A project is created | The project | — |
 | `project_deleted` | A project is deleted (soft or hard) | The project | `mode` (`soft`/`hard`) |
 | `workspace_settings_changed` | Workspace General settings are saved | The workspace | `fields` (the names of the fields that changed) |
 | `workspace_export_triggered` | A workspace export is started | The export job | — |
+
+:::caution[Deactivation is irreversible for credentials]
+Deactivating a member revokes their refresh tokens and Personal Access Tokens,
+and that revocation is **durable** — reactivating the account does not restore
+them, and a returning member mints new ones. `member_status_changed` records
+`credentials_revoked: true` on the deactivation so the log answers the question a
+later support conversation will actually ask: *the account is enabled again, so
+why is their integration still 401-ing?*
+:::
 
 On a soft delete, the project's members also receive an in-app
 [project-delete notification](/features/task-collaboration/#project-delete-notification)

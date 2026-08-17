@@ -507,14 +507,20 @@ def _revoke_offboarded_credentials(target: Any) -> None:
 
 def _apply_member_status_change(
     *, membership: WorkspaceMembership, new_status: Any, target: Any
-) -> None:
-    """Apply a status change, guarding the last Owner and syncing the login flag."""
+) -> Any:
+    """Apply a status change, guarding the last Owner and syncing the login flag.
+
+    Returns the **prior** status when it actually changed, else ``None`` — the caller
+    audits on that, so a PATCH that re-sends the current status writes no audit row
+    (#2867), matching how ``_apply_member_role_change`` gates ``MEMBER_ROLE_CHANGED``.
+    """
     if (
         new_status == MemberStatus.DEACTIVATED
         and membership.role == WorkspaceRole.OWNER
         and services.would_strand_workspace(target.pk)
     ):
         raise ValidationError({"detail": "Cannot deactivate the last Owner of the workspace."})
+    status_changed_from = membership.status if membership.status != new_status else None
     membership.status = new_status
     # Sync the Django account active flag so a deactivated member cannot
     # authenticate, and reactivation restores login.
@@ -525,6 +531,7 @@ def _apply_member_status_change(
         # (see _revoke_offboarded_credentials): revocation is durable, and a
         # returning member mints new tokens.
         _revoke_offboarded_credentials(target)
+    return status_changed_from
 
 
 def _apply_member_availability(*, membership: WorkspaceMembership, data: dict[str, Any]) -> None:
@@ -604,14 +611,37 @@ class WorkspaceMemberDetailView(IdempotencyMixin, APIView):
                     target=target,
                 )
 
+            status_changed_from: Any = None
             if new_status is not None:
-                _apply_member_status_change(
+                status_changed_from = _apply_member_status_change(
                     membership=membership, new_status=new_status, target=target
                 )
 
             _apply_member_availability(membership=membership, data=data)
 
             membership.save()
+
+            # Audit a real status change (#2867) inside the same transaction, so a
+            # rolled-back deactivation leaves no audit row. Recorded separately from
+            # the role change because a PATCH may carry either or both, and because
+            # this is the destructive one: since #2832 a deactivation revokes the
+            # target's refresh tokens and PATs durably, so a status-only PATCH is
+            # irreversible and previously recorded nothing at all — while DELETE,
+            # which does strictly less, recorded MEMBER_REMOVED. `credentials_revoked`
+            # is what a later support conversation needs: "account re-enabled,
+            # credentials NOT restored" is a real state and this is its evidence.
+            if status_changed_from is not None:
+                services.record_audit_event(
+                    event_type=AuditEventType.MEMBER_STATUS_CHANGED,
+                    actor=request.user,
+                    target_type="member",
+                    target_label=services._actor_label(target),
+                    metadata={
+                        "old_status": MemberStatus(status_changed_from).label,
+                        "new_status": MemberStatus(membership.status).label,
+                        "credentials_revoked": new_status == MemberStatus.DEACTIVATED,
+                    },
+                )
 
             # Audit a real role change (ADR-0157) inside the same transaction so
             # it rolls back with a failed save. A status-only PATCH leaves

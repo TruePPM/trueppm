@@ -192,6 +192,97 @@ def test_patch_status_only_does_not_log_role_change(owner: object, member: objec
     assert not AuditEvent.objects.filter(event_type=AuditEventType.MEMBER_ROLE_CHANGED).exists()
 
 
+# ---------------------------------------------------------------------------
+# A status-only PATCH is destructive since #2832 — it must be audited (#2867)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_patch_deactivate_logs_status_change_naming_the_revocation(
+    owner: object, member: object
+) -> None:
+    """Before #2867 this recorded NOTHING, while DELETE — which does strictly less —
+    recorded MEMBER_REMOVED. Since #2832 a deactivation durably revokes the target's
+    refresh tokens and PATs, so one Admin could permanently destroy another member's
+    credentials with the log holding no evidence it happened.
+    """
+    WorkspaceMembership.objects.create(
+        workspace=Workspace.load(), user=member, role=WorkspaceRole.MEMBER
+    )
+    resp = _client(owner).patch(
+        _member_detail(member), {"status": MemberStatus.DEACTIVATED}, format="json"
+    )
+    assert resp.status_code == 200, resp.data
+
+    event = AuditEvent.objects.get(event_type=AuditEventType.MEMBER_STATUS_CHANGED)
+    assert event.actor_id == owner.pk
+    assert event.target_label == "m@x.io"
+    assert event.metadata["new_status"] == "Deactivated"
+    # The evidence a later support conversation needs: "account re-enabled,
+    # credentials NOT restored" is a real state, and this is what records it.
+    assert event.metadata["credentials_revoked"] is True
+
+
+@pytest.mark.django_db
+def test_patch_reactivate_logs_a_non_destructive_status_change(
+    owner: object, member: object
+) -> None:
+    """Reactivation is audited too, and is explicitly marked as restoring nothing."""
+    WorkspaceMembership.objects.create(
+        workspace=Workspace.load(),
+        user=member,
+        role=WorkspaceRole.MEMBER,
+        status=MemberStatus.DEACTIVATED,
+    )
+    member.is_active = False
+    member.save(update_fields=["is_active"])
+
+    resp = _client(owner).patch(
+        _member_detail(member), {"status": MemberStatus.ACTIVE}, format="json"
+    )
+    assert resp.status_code == 200, resp.data
+    event = AuditEvent.objects.get(event_type=AuditEventType.MEMBER_STATUS_CHANGED)
+    assert event.metadata["old_status"] == "Deactivated"
+    assert event.metadata["new_status"] == "Active"
+    assert event.metadata["credentials_revoked"] is False
+
+
+@pytest.mark.django_db
+def test_patch_resending_the_current_status_logs_nothing(owner: object, member: object) -> None:
+    """A no-op PATCH writes no audit row, mirroring how the role change is gated."""
+    WorkspaceMembership.objects.create(
+        workspace=Workspace.load(),
+        user=member,
+        role=WorkspaceRole.MEMBER,
+        status=MemberStatus.ACTIVE,
+    )
+    _client(owner).patch(_member_detail(member), {"status": MemberStatus.ACTIVE}, format="json")
+    assert not AuditEvent.objects.filter(event_type=AuditEventType.MEMBER_STATUS_CHANGED).exists()
+
+
+@pytest.mark.django_db
+def test_a_rolled_back_deactivation_leaves_no_audit_row(owner: object, member: object) -> None:
+    """The audit write is inside the same transaction as the status change.
+
+    Asserted by making the credential revocation blow up: the whole PATCH must
+    roll back, leaving neither the status change nor its audit row.
+    """
+    from unittest.mock import patch as mock_patch
+
+    WorkspaceMembership.objects.create(
+        workspace=Workspace.load(), user=member, role=WorkspaceRole.MEMBER
+    )
+    target = "trueppm_api.apps.workspace.views._revoke_offboarded_credentials"
+    with mock_patch(target, side_effect=RuntimeError("boom")), pytest.raises(RuntimeError):
+        _client(owner).patch(
+            _member_detail(member), {"status": MemberStatus.DEACTIVATED}, format="json"
+        )
+
+    assert not AuditEvent.objects.filter(event_type=AuditEventType.MEMBER_STATUS_CHANGED).exists()
+    member.refresh_from_db()
+    assert member.is_active is True
+
+
 @pytest.mark.django_db
 def test_delete_member_logs_removed(owner: object, member: object) -> None:
     WorkspaceMembership.objects.create(
