@@ -184,15 +184,30 @@ class WorkshopConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
             logger.warning("workshop relay: rate limit exceeded for user %s", self._user.pk)
             return
 
-        # Overwrite rather than setdefault — prevents clients from spoofing
-        # another user's identity by supplying their own user_id/display_name.
-        content["user_id"] = str(self._user.pk)
-        content["display_name"] = self._display_name
+        # Normalize the relayed frame into the SAME {event_type, payload} envelope
+        # that broadcast_workshop_event pushes (#2843). This channel previously
+        # carried two structurally incompatible shapes — flat {type, user_id, …} for
+        # relayed frames and {event_type, payload} for server-pushed events — both
+        # stamped with the same WS_PROTOCOL_VERSION. One integer cannot version two
+        # envelopes: a backward-incompatible change to either would have to bump the
+        # version for clients of the other.
+        #
+        # Safe to do now rather than at a version bump: the channel has one consumer
+        # (BoardView), which branches on ``event_type`` only, so relayed frames were
+        # never matchable client-side in the first place. The client's own ``type``
+        # discriminator becomes ``event_type``; everything else becomes the payload.
+        #
+        # Identity is set on the payload by overwrite rather than setdefault —
+        # a client must not be able to spoof another user by supplying its own
+        # user_id / display_name.
+        payload = {k: v for k, v in content.items() if k != "type"}
+        payload["user_id"] = str(self._user.pk)
+        payload["display_name"] = self._display_name
         await self.channel_layer.group_send(
             self.group_name,
             {
                 "type": "workshop.event",
-                "content": content,
+                "content": {"event_type": event_type, "payload": payload},
                 "sender": self.channel_name,
             },
         )
@@ -230,13 +245,14 @@ class WorkshopConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         """Handle channel layer messages of type 'workshop.event'.
 
         Stamps ``protocol_version`` onto every outgoing workshop frame here — the
-        single chokepoint for both shapes this channel carries: relayed client
-        frames (``receive_json`` → flat ``{type, user_id, …}``) and server-pushed
-        events (``broadcast_workshop_event`` → ``{event_type, payload}``). The
-        workshop channel was previously unversioned and dual-shaped; sharing
+        single chokepoint for the channel's one shape. Both sources now produce
+        ``{event_type, payload}``: relayed client frames are normalized into it by
+        ``receive_json``, and server-pushed events are built as it by
+        ``broadcast_workshop_event`` (#2843). Sharing
         ``sync.broadcast.WS_PROTOCOL_VERSION`` means a client can branch on the
-        same wire version it reads off ``board.event`` (#1355, #1325). A copy is
-        sent so the shared channel-layer ``event`` dict is never mutated.
+        same wire version it reads off ``board.event`` (#1355, #1325), and that
+        version now describes exactly one envelope. A copy is sent so the shared
+        channel-layer ``event`` dict is never mutated.
         """
         if event.get("sender") == self.channel_name:
             return

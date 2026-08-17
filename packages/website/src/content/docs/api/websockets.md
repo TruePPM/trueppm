@@ -172,6 +172,12 @@ than rely on having seen every event. Event payloads are intentionally minimal
 (usually `{ "id": "<uuid>" }` or a small id set) — fetch the resource for the
 full state.
 
+An event's payload may be richer at some emitting sites than others, but **all
+sites emitting a given `event_type` share at least one key**, so one handler can
+always read every emission of an event it subscribes to. For the task events
+(`task_created`, `task_updated`) that key is always `id`. This is enforced by a
+conformance test over every broadcast call site, not by convention.
+
 The `task_updated` event carries a richer **field-level delta** (ADR-0152):
 
 ```json
@@ -361,3 +367,32 @@ its `ALLOWED_EVENT_TYPES` allow-list; the seven accepted client message types ar
 
 The server also broadcasts `participant_joined` / `participant_left` as
 participants connect and disconnect.
+
+### Frame shape
+
+A client **sends** a flat frame with a top-level `type`:
+
+```json
+{ "type": "cursor_move", "x": 120, "y": 48 }
+```
+
+Everything the channel **delivers** — whether it originated as a server-pushed
+event or as a peer's relayed frame — arrives in one envelope:
+
+```json
+{
+  "event_type": "cursor_move",
+  "payload": { "x": 120, "y": 48, "user_id": "<uuid>", "display_name": "Ana" },
+  "protocol_version": 1
+}
+```
+
+The sender's `type` becomes `event_type`; everything else becomes the `payload`.
+`user_id` and `display_name` are stamped **server-side** on every relayed frame
+and overwrite anything the client supplied, so a participant cannot relay under
+another identity.
+
+This matches the board channel's `{event_type, payload, protocol_version}` shape,
+so one client can branch on `event_type` across both sockets — and it means
+`protocol_version` describes exactly one envelope on this channel, which is what
+makes it usable as a version at all.

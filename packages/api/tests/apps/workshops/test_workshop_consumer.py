@@ -243,7 +243,12 @@ def _ready_consumer(user: object, project: Project) -> WorkshopConsumer:
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_receive_relays_known_event_type(user_obj: object, project: Project) -> None:
-    """A known-type, in-size, under-limit frame is relayed (golden path)."""
+    """A known-type, in-size, under-limit frame is relayed (golden path).
+
+    #2843: the relayed frame is normalized into the same ``{event_type, payload}``
+    envelope ``broadcast_workshop_event`` pushes. The channel previously carried two
+    structurally incompatible shapes under one ``protocol_version``.
+    """
     consumer = _ready_consumer(user_obj, project)
     with patch.object(consumer, "_allow_relay", new=AsyncMock(return_value=True)):
         await consumer.receive_json({"type": "cursor_move", "x": 1, "y": 2})
@@ -251,9 +256,40 @@ async def test_receive_relays_known_event_type(user_obj: object, project: Projec
     consumer.channel_layer.group_send.assert_awaited_once()
     args = consumer.channel_layer.group_send.await_args
     relayed = args.args[1]["content"]
-    assert relayed["type"] == "cursor_move"
+    assert relayed["event_type"] == "cursor_move"
+    assert relayed["payload"]["x"] == 1
+    assert relayed["payload"]["y"] == 2
+    # The client's own discriminator does not survive into the payload — it IS the
+    # event_type now, and leaving a duplicate would invite the shapes to re-diverge.
+    assert "type" not in relayed["payload"]
     # Identity is stamped server-side, not trusted from the client.
-    assert relayed["user_id"] == str(user_obj.pk)  # type: ignore[attr-defined]
+    assert relayed["payload"]["user_id"] == str(user_obj.pk)  # type: ignore[attr-defined]
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_relayed_and_pushed_frames_share_one_envelope(
+    user_obj: object, project: Project
+) -> None:
+    """Both frame sources on this socket produce ``{event_type, payload}`` (#2843).
+
+    One ``protocol_version`` integer cannot version two envelopes: bumping it for a
+    breaking change to either shape would signal a change to clients of the other.
+    This asserts the socket now has exactly one shape to version.
+    """
+    consumer = _ready_consumer(user_obj, project)
+    with patch.object(consumer, "_allow_relay", new=AsyncMock(return_value=True)):
+        await consumer.receive_json({"type": "cursor_move", "x": 1})
+    relayed = consumer.channel_layer.group_send.await_args.args[1]["content"]
+
+    consumer.send_json = AsyncMock()  # type: ignore[method-assign]
+    await consumer.workshop_event(
+        {"content": {"event_type": "participant_joined", "payload": {"user_id": "u1"}}}
+    )
+    pushed = consumer.send_json.await_args.args[0]
+
+    assert set(relayed) == {"event_type", "payload"}
+    assert set(pushed) == {"event_type", "payload", "protocol_version"}
 
 
 @pytest.mark.django_db

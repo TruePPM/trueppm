@@ -13,10 +13,27 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { fetchWsTicket } from '@/api/wsTicket';
 
+/**
+ * A frame received from the workshop channel. Both sources — server-pushed events
+ * and peer-relayed client frames — arrive in this one `{event_type, payload}`
+ * envelope (#2843); the socket previously multiplexed two incompatible shapes
+ * under a single `protocol_version`, so a relayed frame carried a flat `type`
+ * discriminator that no handler here could match.
+ */
 export interface WorkshopEvent {
+  event_type: string;
+  payload: {
+    user_id?: string;
+    display_name?: string;
+    [key: string]: unknown;
+  };
+  protocol_version?: number;
+}
+
+/** A frame sent TO the channel. The server reads `type` and normalizes it into
+ *  `event_type` on relay, so the outbound shape is unchanged. */
+export interface WorkshopSendFrame {
   type: string;
-  user_id?: string;
-  display_name?: string;
   [key: string]: unknown;
 }
 
@@ -39,7 +56,7 @@ export function useWorkshopSocket(
   onEventRef.current = onEvent;
 
   // Stable send function that the caller can use to dispatch events.
-  const [send] = useState(() => (msg: WorkshopEvent) => {
+  const [send] = useState(() => (msg: WorkshopSendFrame) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(msg));
     }

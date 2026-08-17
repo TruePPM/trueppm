@@ -136,10 +136,16 @@ def promote_retro_action_item(
         suggested_user_id = locked.assignee_id
 
         def _on_commit_dispatch() -> None:
+            # Same ``id``-omission defect as the carryover ``task_updated`` below
+            # (#2843), found by the payload-shape guard rather than by the audit:
+            # every other ``task_created`` site emits ``{"id": ...}``, and a client
+            # keying on ``payload.id`` cannot see this one at all. ``task_id`` stays
+            # for one release; drop it after 0.5.
             broadcast_board_event(
                 project_id,
                 "task_created",
                 {
+                    "id": task_id,
                     "task_id": task_id,
                     "source": "retrospective",
                     "retro_id": retro_id,
@@ -231,10 +237,24 @@ def pull_carryover_item_to_sprint(
         sprint_id = str(target_locked.pk)
 
         def _broadcast_carryover() -> None:
+            # ``id`` is the task identity every other ``task_updated`` site emits and
+            # the only one websockets.md documents (#2843). This was the single site
+            # in the tree using ``task_id``, which made the frontend's
+            # ``typeof payload.id === 'string' ? payload.id : null`` resolve to null:
+            # the ADR-0152 per-task version dedup was skipped and the history
+            # invalidation widened from one task to the whole project.
+            #
+            # ``task_id`` is kept alongside for one release in case anything reads
+            # it; drop it after 0.5.
             broadcast_board_event(
                 project_id,
                 "task_updated",
-                {"task_id": task_id, "sprint_id": sprint_id, "source": "retro_carryover"},
+                {
+                    "id": task_id,
+                    "task_id": task_id,
+                    "sprint_id": sprint_id,
+                    "source": "retro_carryover",
+                },
             )
 
         transaction.on_commit(_broadcast_carryover)
