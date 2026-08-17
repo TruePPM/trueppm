@@ -17,6 +17,12 @@ import { CheckIcon } from '@/components/Icons';
  * matching state — most importantly `sso_no_member`, the "verified at your IdP
  * but not a member of this workspace" case.
  *
+ * ERROR_COPY must cover **every** code `services.OIDCError` can carry, plus the
+ * view-level ones. Four backend codes fell through to the generic "Something went
+ * wrong" for months (#2876) — including `email_unverified`, which is a policy
+ * outcome whose generic copy told the user to "try again", something that could
+ * never work.
+ *
  * Sits outside RequireAuth (a public route) because a not-yet-member arriving
  * with `sso_no_member` has no session — RequireAuth would bounce them to /login
  * and swallow the error before it could be shown.
@@ -61,6 +67,43 @@ const ERROR_COPY: Record<string, ErrorCopy> = {
     subtitle:
       'Single sign-on is not set up for this workspace. Sign in with your email and password, or ask an admin to configure SSO.',
     code: 'SSO_NOT_CONFIGURED',
+  },
+  // The account exists and is a member — it has been switched off. Deliberately
+  // distinct from sso_no_member: telling a deactivated member to ask for an invite
+  // sends them down a path that cannot resolve it (#2875).
+  sso_account_disabled: {
+    title: 'Your account is deactivated',
+    subtitle:
+      'Your identity provider signed you in, but this TruePPM account has been deactivated, so sign-in was refused. Ask a workspace admin to reactivate it.',
+    code: 'SSO_ACCOUNT_DISABLED',
+  },
+  // A *policy* outcome, not a fault. The generic copy told the user to "try again",
+  // which can never work — the fix is at the identity provider (#2876).
+  email_unverified: {
+    title: 'Your email address is not verified',
+    subtitle:
+      'Your identity provider did not confirm that your email address is verified, and TruePPM requires a verified address before it will link an account. Verify your email with your provider, then sign in again.',
+    code: 'SSO_EMAIL_UNVERIFIED',
+  },
+  // The state an operator lands in before setting TRUEPPM_EGRESS_ALLOWLISTED_HOSTS
+  // for an in-cluster IdP. Naming the provider side is what makes it actionable.
+  provider_unreachable: {
+    title: "We couldn't reach your identity provider",
+    subtitle:
+      'TruePPM could not complete the exchange with your identity provider — it did not respond, or outbound access to it is blocked. This is a server-side configuration issue: ask an admin to check the provider with Test connection.',
+    code: 'SSO_PROVIDER_UNREACHABLE',
+  },
+  invalid_id_token: {
+    title: "We couldn't verify your identity provider's response",
+    subtitle:
+      'The identity token from your provider did not pass verification, so no session was created. Retrying is unlikely to help — ask an admin to check the provider configuration (issuer, client ID, and signing keys).',
+    code: 'SSO_INVALID_ID_TOKEN',
+  },
+  token_exchange_failed: {
+    title: 'Your identity provider declined the sign-in',
+    subtitle:
+      'Your provider refused to exchange the sign-in code — usually a client ID or client secret that no longer matches, or an expired code. Start again from the sign-in screen; if it keeps failing, ask an admin to check the provider credentials.',
+    code: 'SSO_TOKEN_EXCHANGE_FAILED',
   },
 };
 

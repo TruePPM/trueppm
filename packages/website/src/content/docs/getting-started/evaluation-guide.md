@@ -37,7 +37,7 @@ when they ship:
 |---|---|
 | **Read-only MCP server** | Point any MCP client (Claude Desktop, Cursor, Zed) at your self-hosted instance and ask the live schedule real questions — critical path, sprint status, the risk register, and a **non-mutating Monte Carlo what-if** ("slip this task three days — when do we ship?"). Every answer is computed server-side by the same CPM/Monte Carlo engine the UI uses — never guessed by a model, never leaving your box. Read-only by design |
 | **Read-only share links** | Mint a tokenized, expiring, revocable public link to a schedule or board view — read-only, rate-limited, and disableable workspace-wide — so a schedule can travel beyond its own instance without handing over a login |
-| **Basic single sign-on (OIDC / OAuth2)** | Point TruePPM at your own identity provider (Keycloak, Authentik, Authelia, Zitadel, Google, GitHub, GitLab) and your whole team logs in through it — self-hosted, login-only, no paywall. Identity *governance* (SAML 2.0, SCIM, LDAP/AD directory sync) stays in the enterprise edition |
+| **Basic single sign-on (OIDC / OAuth2)** | Point TruePPM at your own identity provider and your whole team logs in through it — built-in presets for Keycloak, Authentik, Zitadel, Okta, Auth0, Microsoft Entra ID, Google, GitLab and GitHub, plus Generic OIDC for any other standards-compliant provider such as Authelia — self-hosted, login-only, no paywall. Identity *governance* (SAML 2.0, SCIM, LDAP/AD directory sync) stays in the enterprise edition |
 
 ## What makes the demo data realistic
 

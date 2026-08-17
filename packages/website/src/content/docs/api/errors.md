@@ -244,9 +244,18 @@ https://ppm.example.com/auth/complete?error=invalid_state
 | `invalid_id_token` | `400` | The ID token failed signature or claim validation |
 | `email_unverified` | `403` | The provider reports the account's email as unverified |
 | `sso_no_member` | `403` | The authenticated identity maps to no workspace member |
+| `sso_account_disabled` | `403` | The identity maps to a member whose account has been deactivated. Distinct from `sso_no_member`: the account exists and is a member, so the remedy is reactivation, not an invite |
 | `provider_unreachable` | `502` | The provider's discovery or JWKS endpoint could not be reached |
 
 These codes never carry token material or PII.
+
+The admin provider-configuration endpoints under `/api/v1/workspace/sso/providers/`
+are ordinary JSON APIs, not redirects, and add two conflicts:
+
+| Code / status | Meaning |
+|---------------|---------|
+| `409` on `POST …/providers/` | A provider of that type is already configured. The provider type is its identity, so each type can be configured only once |
+| `409` with `code: sso_removal_locks_out_members` on `DELETE …/providers/{slug}/` | Removing the provider would leave members with no way to sign in at all — no password and no other configured provider. The body carries `locked_out_account_count`. Re-send with `?confirm_lockout=true` to proceed anyway |
 
 ## Warning codes are not errors
 

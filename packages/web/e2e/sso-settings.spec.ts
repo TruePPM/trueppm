@@ -51,6 +51,8 @@ const KEYCLOAK = {
   allow_password_signin_enforced: false,
   secret_set: true,
   redirect_uri: 'https://app.truescope.io/api/v1/auth/oidc/callback/',
+  linked_account_count: 0,
+  locked_out_account_count: 0,
   created_at: '2026-07-11T00:00:00Z',
   updated_at: '2026-07-11T00:00:00Z',
 };
@@ -224,5 +226,39 @@ test.describe('Workspace Single sign-on — admin (multi-provider)', () => {
       .click();
 
     await expect.poll(() => deleteFired).toBe(true);
+  });
+
+  test('remove: the dialog names the stranded members and sends the confirm flag', async ({
+    page,
+  }) => {
+    // #2874 — the old copy told these users they "fall back to password sign-in".
+    // They cannot: an SSO-created account has an unusable password, so the
+    // password-reset email is never sent. The admin has to see the count, and the
+    // server 409s the DELETE without the acknowledgement.
+    const stranded = { ...KEYCLOAK, linked_account_count: 4, locked_out_account_count: 3 };
+    await setup(page, [stranded]);
+    let deleteUrl = '';
+    // Query-tolerant pattern: the confirmed DELETE carries ?confirm_lockout=true.
+    await page.route('**/api/v1/workspace/sso/providers/keycloak/**', async (r) => {
+      const req = r.request();
+      if (req.method() === 'DELETE') {
+        deleteUrl = req.url();
+        await r.fulfill({ status: 204, body: '' });
+        return;
+      }
+      await r.fulfill({ status: 200, contentType: 'application/json', body: pj(stranded) });
+    });
+    await page.goto('/settings#sso');
+
+    await expect(page.getByText('SSO sign-in is live')).toBeVisible();
+    await page.getByRole('button', { name: 'Remove' }).click();
+
+    const dialog = page.getByRole('alertdialog', { name: /Remove Acme SSO\?/ });
+    await expect(dialog).toContainText('3 members sign in only through this provider');
+    await expect(dialog).toContainText('not be able to sign in at all');
+    await expect(dialog).not.toContainText('fall back to password sign-in');
+
+    await dialog.getByRole('button', { name: 'Remove provider' }).click();
+    await expect.poll(() => deleteUrl).toContain('confirm_lockout=true');
   });
 });

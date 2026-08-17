@@ -273,3 +273,110 @@ def test_password_login_blocked_by_registered_policy(db: object) -> None:
         TOKEN, {"username": "pw_blocked", "password": "secret-pw-123"}, format="json"
     )
     assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# callback — a deactivated account must not be minted a session (#2875)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_callback_refuses_a_deactivated_account_and_mints_no_session(
+    provider_ctx: Any, fake_discovery: None, patch_jwks: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The whole point of the finding: no refresh cookie for a revoked account.
+
+    Asserting the redirect code alone would not prove it — the regression was that
+    the handshake *completed* and issued a fresh refresh token after the admin
+    revoked the member, so the cookie's absence is the invariant under test.
+    """
+    user = User.objects.create(username="alice", email="alice@example.com")
+    user.set_unusable_password()
+    user.save(update_fields=["password"])
+    SocialAccount.objects.create(
+        user=user, provider="generic", uid="sub-off", extra_data={"iss": ISSUER}
+    )
+    user.is_active = False
+    user.save(update_fields=["is_active"])
+
+    result = services.start_login(provider_ctx, redirect_uri="http://testserver" + CALLBACK)
+    stored = cache.get(services._STATE_KEY_PREFIX + result.state)
+    set_token_endpoint(
+        monkeypatch,
+        id_token=make_id_token(nonce=stored["nonce"], sub="sub-off", email="alice@example.com"),
+    )
+
+    client = api_client()
+    client.cookies[_STATE_COOKIE_NAME] = result.state
+    resp = client.get(CALLBACK, {"code": "auth-code", "state": result.state})
+
+    assert resp.status_code == 302
+    assert "error=sso_account_disabled" in resp["Location"]
+    assert settings.AUTH_REFRESH_COOKIE_NAME not in resp.cookies
+
+
+@pytest.mark.django_db
+def test_callback_refuses_a_deactivated_account_before_linking_by_email(
+    provider_ctx: Any, fake_discovery: None, patch_jwks: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A first-time SSO sign-in by a deactivated local user must not create a binding."""
+    user = User.objects.create_user(
+        username="bob", email="bob@example.com", password="long-enough-9", is_active=False
+    )
+
+    result = services.start_login(provider_ctx, redirect_uri="http://testserver" + CALLBACK)
+    stored = cache.get(services._STATE_KEY_PREFIX + result.state)
+    set_token_endpoint(
+        monkeypatch,
+        id_token=make_id_token(nonce=stored["nonce"], sub="sub-bob", email=user.email),
+    )
+
+    client = api_client()
+    client.cookies[_STATE_COOKIE_NAME] = result.state
+    resp = client.get(CALLBACK, {"code": "auth-code", "state": result.state})
+
+    assert "error=sso_account_disabled" in resp["Location"]
+    assert settings.AUTH_REFRESH_COOKIE_NAME not in resp.cookies
+    assert not SocialAccount.objects.filter(uid="sub-bob").exists()
+
+
+@pytest.mark.django_db
+def test_callback_github_refuses_a_deactivated_account(
+    github_ctx: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The guard lives in ``resolve_user``, so the GitHub OAuth2 branch inherits it."""
+    user = User.objects.create(username="mona", email="mona@example.com", is_active=False)
+    user.set_unusable_password()
+    user.save(update_fields=["password"])
+    SocialAccount.objects.create(
+        user=user, provider="github", uid="314", extra_data={"iss": services.GITHUB_ISSUER}
+    )
+
+    result = services.start_login(github_ctx, redirect_uri="http://testserver" + CALLBACK)
+    stub_github_egress(
+        monkeypatch,
+        user={"id": 314, "login": "octocat", "name": "Mona"},
+        emails=[{"email": "mona@example.com", "primary": True, "verified": True}],
+    )
+    client = api_client()
+    client.cookies[_STATE_COOKIE_NAME] = result.state
+    resp = client.get(CALLBACK, {"code": "auth-code", "state": result.state})
+
+    assert "error=sso_account_disabled" in resp["Location"]
+    assert settings.AUTH_REFRESH_COOKIE_NAME not in resp.cookies
+
+
+@pytest.mark.django_db
+def test_every_sso_login_path_consults_is_active(
+    provider_ctx: Any, fake_discovery: None, patch_jwks: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression guard for the class #2861 named: assert the reference EXISTS.
+
+    #2832 fixed the Personal Access Token authenticator and ``apps/sso`` was never
+    visited, so ``grep -rn is_active packages/api/src/trueppm_api/apps/sso/``
+    returned nothing at all. A behavioral test proves today's paths; this proves the
+    module has not silently lost the check to a refactor.
+    """
+    import inspect
+
+    assert "is_active" in inspect.getsource(services)

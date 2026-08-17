@@ -51,6 +51,8 @@ const KEYCLOAK: SsoProvider = {
   allow_password_signin: true,
   allow_password_signin_enforced: false,
   secret_set: true,
+  linked_account_count: 0,
+  locked_out_account_count: 0,
   redirect_uri: 'https://app.acme.io/api/v1/auth/oidc/callback/',
   created_at: '2026-07-11T00:00:00Z',
   updated_at: '2026-07-11T00:00:00Z',

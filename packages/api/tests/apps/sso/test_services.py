@@ -347,9 +347,12 @@ def test_validate_id_token_wrong_issuer(patch_jwks: None) -> None:
 
 
 def test_validate_id_token_expired(patch_jwks: None) -> None:
+    # Expired by more than ``_ID_TOKEN_LEEWAY_SECONDS`` (#2875): validation now
+    # allows a minute of clock skew, so a token 10 s past ``exp`` is deliberately
+    # still accepted and would no longer exercise the expiry branch.
     import time
 
-    token = make_id_token(extra={"exp": int(time.time()) - 10})
+    token = make_id_token(extra={"exp": int(time.time()) - services._ID_TOKEN_LEEWAY_SECONDS - 10})
     with pytest.raises(services.OIDCIDTokenError):
         services.validate_id_token(
             unsaved_oidc_ctx(), discovery_doc(), token, expected_nonce="n0nce"
@@ -718,6 +721,10 @@ def test_oidc_error_subclass_codes_are_stable() -> None:
         403,
     )
     assert (services.OIDCNoMember.code, services.OIDCNoMember.http_status) == ("sso_no_member", 403)
+    assert (services.OIDCAccountDisabled.code, services.OIDCAccountDisabled.http_status) == (
+        "sso_account_disabled",
+        403,
+    )
     assert (
         services.OIDCProviderUnreachable.code,
         services.OIDCProviderUnreachable.http_status,
@@ -1305,3 +1312,278 @@ def test_check_reachability_github_blocked_reports_detail(
     assert result["ok"] is False
     assert result["error"] == "github_unreachable"
     assert "blocked host" in result["detail"]
+
+
+# ---------------------------------------------------------------------------
+# JWKS caching + kid-miss refetch (#2875 item 3)
+# ---------------------------------------------------------------------------
+
+
+def _counting_jwks(monkeypatch: pytest.MonkeyPatch, documents: list[Any]) -> list[str]:
+    """Serve ``documents`` in order for successive JWKS fetches; return a call log.
+
+    The last document is repeated once exhausted, so a test can assert "no further
+    request happened" by checking the log length rather than by exhausting a stub.
+    """
+    calls: list[str] = []
+
+    def _get(url: str, **kwargs: Any) -> Any:
+        calls.append(url)
+        index = min(len(calls) - 1, len(documents) - 1)
+        return _egress_response(payload=documents[index])
+
+    monkeypatch.setattr(services.egress, "get", _get)
+    monkeypatch.setattr(services.egress, "assert_url_allowed", lambda url: None)
+    return calls
+
+
+def test_jwks_is_cached_across_logins(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One outbound JWKS fetch, not one per sign-in (#2875)."""
+    from .conftest import JWKS
+
+    calls = _counting_jwks(monkeypatch, [JWKS])
+    token = make_id_token()
+    for _ in range(3):
+        services._signing_key_for(f"{ISSUER}/jwks", token)
+    assert len(calls) == 1
+
+
+def test_jwks_refetched_once_when_the_cached_document_lacks_the_kid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A rotated ``kid`` must trigger a refetch, not fail until the TTL expires."""
+    from .conftest import JWKS
+
+    stale = {"keys": [{**JWKS["keys"][0], "kid": "old-key"}]}
+    calls = _counting_jwks(monkeypatch, [stale, JWKS])
+    # The token must name a ``kid`` or the selector matches any signing key and the
+    # rotation is invisible. Only the unverified header is read here, so an HS256
+    # envelope is enough (same technique as the unknown-kid test above).
+    rotated = jwt.encode({"sub": "x"}, "irrelevant", algorithm="HS256", headers={"kid": "test-key"})
+    pre_rotation = jwt.encode(
+        {"sub": "x"}, "irrelevant", algorithm="HS256", headers={"kid": "old-key"}
+    )
+
+    # Warm the cache with the pre-rotation document (one fetch, no retry: cold).
+    assert services._signing_key_for(f"{ISSUER}/jwks", pre_rotation).key_id == "old-key"
+    assert len(calls) == 1
+
+    # Now the IdP has rotated. The cached document misses, so exactly one refetch.
+    key = services._signing_key_for(f"{ISSUER}/jwks", rotated)
+    assert key.key_id == "test-key"
+    assert len(calls) == 2
+
+
+def test_jwks_kid_miss_on_a_cold_cache_does_not_double_fetch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The document just fetched IS current — retrying would re-request the same bytes.
+
+    This also bounds the outbound cost of replaying an unknown ``kid``: one request,
+    not two, per attempt on a cold cache.
+    """
+    from .conftest import JWKS
+
+    calls = _counting_jwks(monkeypatch, [JWKS])
+    token = jwt.encode({"sub": "x"}, "irrelevant", algorithm="HS256", headers={"kid": "nope"})
+    with pytest.raises(services.OIDCIDTokenError):
+        services._signing_key_for(f"{ISSUER}/jwks", token)
+    assert len(calls) == 1
+
+
+def test_jwks_cache_is_keyed_per_uri(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two providers must not share one cached key set."""
+    from .conftest import JWKS
+
+    calls = _counting_jwks(monkeypatch, [JWKS])
+    token = make_id_token()
+    services._signing_key_for(f"{ISSUER}/jwks", token)
+    services._signing_key_for("https://other.example.com/jwks", token)
+    assert len(calls) == 2
+
+
+# ---------------------------------------------------------------------------
+# Clock-skew leeway (#2875 item 4)
+# ---------------------------------------------------------------------------
+
+
+def test_validate_id_token_tolerates_an_idp_clock_slightly_ahead(patch_jwks: None) -> None:
+    """``iat``/``nbf`` in the near future is clock skew, not an attack (#2875).
+
+    With PyJWT's default ``leeway=0`` this raised ImmatureSignatureError and the user
+    saw an undiagnosable failure against a correctly configured IdP.
+    """
+    import time
+
+    now = int(time.time())
+    token = make_id_token(extra={"iat": now + 20, "nbf": now + 20, "exp": now + 300})
+    claims = services.validate_id_token(
+        unsaved_oidc_ctx(), discovery_doc(), token, expected_nonce="n0nce"
+    )
+    assert claims["sub"] == "idp-subject-1"
+
+
+def test_validate_id_token_still_rejects_a_clock_beyond_the_leeway(patch_jwks: None) -> None:
+    import time
+
+    now = int(time.time())
+    skew = services._ID_TOKEN_LEEWAY_SECONDS + 30
+    token = make_id_token(extra={"iat": now + skew, "nbf": now + skew, "exp": now + 300 + skew})
+    with pytest.raises(services.OIDCIDTokenError):
+        services.validate_id_token(
+            unsaved_oidc_ctx(), discovery_doc(), token, expected_nonce="n0nce"
+        )
+
+
+# ---------------------------------------------------------------------------
+# is_active on the SSO path (#2875 item 1)
+# ---------------------------------------------------------------------------
+
+
+def _sso_only_user(*, email: str = "alice@example.com", active: bool = True) -> Any:
+    user = User.objects.create(username=email.split("@")[0], email=email, is_active=active)
+    user.set_unusable_password()
+    user.save(update_fields=["password"])
+    return user
+
+
+@pytest.mark.django_db
+def test_resolve_user_refuses_a_deactivated_durable_binding() -> None:
+    """The SSO callback was the only login path that never consulted ``is_active``."""
+    ctx = make_oidc_ctx()
+    user = _sso_only_user(active=False)
+    SocialAccount.objects.create(
+        user=user, provider="generic", uid="sub-1", extra_data={"iss": ISSUER}
+    )
+    with pytest.raises(services.OIDCAccountDisabled):
+        services.resolve_user(ctx, {"sub": "sub-1", "email": user.email, "email_verified": True})
+
+
+@pytest.mark.django_db
+def test_resolve_user_refuses_a_deactivated_account_on_the_email_link_path() -> None:
+    """Branch 3 (link by verified email) must refuse too — and write no binding."""
+    ctx = make_oidc_ctx()
+    user = _sso_only_user(active=False)
+    with pytest.raises(services.OIDCAccountDisabled):
+        services.resolve_user(ctx, {"sub": "sub-new", "email": user.email, "email_verified": True})
+    assert not SocialAccount.objects.filter(uid="sub-new").exists()
+
+
+@pytest.mark.django_db
+def test_resolve_user_admits_a_reactivated_account() -> None:
+    """The refusal tracks the flag, so reactivation restores SSO login with no extra step."""
+    ctx = make_oidc_ctx()
+    user = _sso_only_user(active=False)
+    SocialAccount.objects.create(
+        user=user, provider="generic", uid="sub-1", extra_data={"iss": ISSUER}
+    )
+    user.is_active = True
+    user.save(update_fields=["is_active"])
+    resolved, created = services.resolve_user(
+        ctx, {"sub": "sub-1", "email": user.email, "email_verified": True}
+    )
+    assert resolved.pk == user.pk
+    assert created is False
+
+
+@pytest.mark.django_db
+def test_refused_disabled_login_is_logged_without_pii(caplog: pytest.LogCaptureFixture) -> None:
+    """Repeated SSO attempts on a revoked account are the signal after an off-boarding.
+
+    A log line, not an ``AuditEvent`` row: the caller is unauthenticated here, so an
+    audit write per attempt would be an amplification vector. The record must carry
+    no email and no token material.
+    """
+    ctx = make_oidc_ctx()
+    user = _sso_only_user(email="alice@example.com", active=False)
+    SocialAccount.objects.create(
+        user=user, provider="generic", uid="sub-1", extra_data={"iss": ISSUER}
+    )
+    with (
+        caplog.at_level("WARNING", logger="trueppm.sso"),
+        pytest.raises(services.OIDCAccountDisabled),
+    ):
+        services.resolve_user(ctx, {"sub": "sub-1", "email": user.email, "email_verified": True})
+
+    record = next(r for r in caplog.records if "deactivated" in r.getMessage())
+    message = record.getMessage()
+    assert str(user.pk) in message
+    assert "generic" in message
+    assert user.email not in message
+
+
+def test_account_disabled_code_is_distinct_from_no_member() -> None:
+    """The two need different remedies, so they must not collapse into one code.
+
+    Reusing ``sso_no_member`` would tell a deactivated member to ask for an invite
+    they already have. (The exact spelling is pinned in the contract test above.)
+    """
+    assert services.OIDCAccountDisabled.code != services.OIDCNoMember.code
+    assert issubclass(services.OIDCAccountDisabled, services.OIDCError)
+
+
+# ---------------------------------------------------------------------------
+# Removal impact (#2874 B)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_removal_impact_counts_only_credential_less_sole_bindings() -> None:
+    make_oidc_ctx()
+    jit = _sso_only_user(email="jit@example.com")
+    SocialAccount.objects.create(user=jit, provider="generic", uid="a", extra_data={"iss": ISSUER})
+    with_password = User.objects.create_user(
+        username="pw", email="pw@example.com", password="long-enough-9"
+    )
+    SocialAccount.objects.create(
+        user=with_password, provider="generic", uid="b", extra_data={"iss": ISSUER}
+    )
+
+    impact = services.removal_impact(["generic"])["generic"]
+    assert impact.linked_accounts == 2
+    assert impact.locked_out_accounts == 1
+
+
+@pytest.mark.django_db
+def test_removal_impact_spares_a_user_bound_to_a_second_configured_provider() -> None:
+    """A surviving binding to another configured provider IS another way in."""
+    make_oidc_ctx()
+    make_github_ctx()
+    jit = _sso_only_user(email="jit@example.com")
+    SocialAccount.objects.create(user=jit, provider="generic", uid="a", extra_data={"iss": ISSUER})
+    SocialAccount.objects.create(
+        user=jit, provider="github", uid="7", extra_data={"iss": services.GITHUB_ISSUER}
+    )
+
+    impact = services.removal_impact(["generic", "github"])
+    assert impact["generic"].locked_out_accounts == 0
+    assert impact["github"].locked_out_accounts == 0
+
+
+@pytest.mark.django_db
+def test_removal_impact_ignores_bindings_of_unconfigured_providers() -> None:
+    """A leftover row for a provider that no longer exists is not a sign-in method."""
+    make_oidc_ctx()
+    jit = _sso_only_user(email="jit@example.com")
+    SocialAccount.objects.create(user=jit, provider="generic", uid="a", extra_data={"iss": ISSUER})
+    SocialAccount.objects.create(
+        user=jit, provider="okta", uid="b", extra_data={"iss": "https://gone.example.com"}
+    )
+    assert services.removal_impact(["generic"])["generic"].locked_out_accounts == 1
+
+
+@pytest.mark.django_db
+def test_removal_impact_is_two_queries_for_any_number_of_providers(
+    django_assert_num_queries: Any,
+) -> None:
+    """The admin list page must not scale its query count with the registry."""
+    make_oidc_ctx()
+    make_github_ctx()
+    with django_assert_num_queries(2):
+        services.removal_impact(["generic", "github"])
+
+
+@pytest.mark.django_db
+def test_removal_impact_of_no_slugs_queries_nothing(django_assert_num_queries: Any) -> None:
+    with django_assert_num_queries(0):
+        assert services.removal_impact([]) == {}

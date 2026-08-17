@@ -127,8 +127,28 @@ _STATE_TTL_SECONDS = getattr(settings, "OIDC_STATE_TTL_SECONDS", 300)
 # is invisible for hours.
 _DISCOVERY_TTL_SECONDS = getattr(settings, "OIDC_DISCOVERY_TTL_SECONDS", 3600)
 
+# JWKS documents change only when the IdP rotates keys, so re-fetching one on
+# every single login is pure added latency plus an avoidable outbound request per
+# sign-in. Shorter than the discovery TTL on purpose: the kid-miss refetch in
+# ``_signing_key_for`` already makes a *newly added* key visible immediately, so
+# the only thing the TTL bounds is how long a *withdrawn* key stays trusted — and
+# that window should be minutes, not an hour.
+_JWKS_TTL_SECONDS = getattr(settings, "OIDC_JWKS_TTL_SECONDS", 600)
+
+# Clock-skew allowance when validating an ID token's time claims. 60 seconds is
+# the conventional OIDC/JWT allowance (RFC 7519 §4.1.4 explicitly provides for
+# "some small leeway"; the mainstream IdP SDKs default to a minute). With the
+# PyJWT default of 0 an IdP whose clock is even a second ahead of ours issues
+# tokens we reject as not-yet-valid, which surfaces to the user as an
+# undiagnosable login failure on a correctly configured provider. It is held to
+# one minute rather than the several some libraries allow because the same
+# allowance symmetrically extends how long an *expired* token stays acceptable,
+# and an ID token is consumed once, immediately after issuance.
+_ID_TOKEN_LEEWAY_SECONDS = 60
+
 _STATE_KEY_PREFIX = "oidc:state:"
 _DISCOVERY_KEY_PREFIX = "oidc:discovery:"
+_JWKS_KEY_PREFIX = "oidc:jwks:"
 
 # Accept header for provider metadata / JWKS / token-endpoint fetches.
 _ACCEPT_JSON = "application/json"
@@ -183,6 +203,19 @@ class OIDCEmailUnverified(OIDCError):
 
 class OIDCNoMember(OIDCError):
     code = "sso_no_member"
+    http_status = 403
+
+
+class OIDCAccountDisabled(OIDCError):
+    """The identity resolved to a local account that has been deactivated (#2875).
+
+    Distinct from :class:`OIDCNoMember` because the remedy is different: the user
+    *is* a member, their account was switched off. Telling them to ask for an
+    invite (the ``sso_no_member`` copy) would send them down a path that cannot
+    resolve it.
+    """
+
+    code = "sso_account_disabled"
     http_status = 403
 
 
@@ -500,16 +533,27 @@ def exchange_code(
     return payload
 
 
-def _signing_key_for(jwks_uri: str, id_token: str) -> PyJWK:
-    """Fetch the JWKS through the SSRF-guarded egress and return the signing key.
+def _fetch_jwks(jwks_uri: str, *, force_refresh: bool = False) -> tuple[dict[str, Any], bool]:
+    """Fetch the JWKS through the SSRF-guarded egress, cached. Returns ``(doc, was_cached)``.
 
     PyJWT's ``PyJWKClient`` is deliberately **not** used: it fetches the JWKS with
     urllib's default opener, which follows redirects and re-resolves DNS *after*
     any point-in-time host check — a TOCTOU/redirect SSRF bypass of the egress
     chokepoint. Fetching the JWKS ourselves via ``egress.get`` keeps every
     outbound call on the redirect-disabled, allow-listed path (ADR-0187 Boundary 6
-    / SSRF), then we select the key locally by the token's ``kid``.
+    / SSRF).
+
+    ``was_cached`` is returned rather than kept private because it is what lets
+    the caller decide whether a ``kid`` miss is worth a second request: on a cold
+    cache the document in hand *is* the IdP's current one, so retrying would just
+    fetch the same bytes again.
     """
+    cache_key = _JWKS_KEY_PREFIX + jwks_uri
+    if not force_refresh:
+        cached = cache.get(cache_key)
+        if isinstance(cached, dict):
+            return cached, True
+
     try:
         egress.assert_url_allowed(jwks_uri)
         resp = egress.get(jwks_uri, headers={"Accept": _ACCEPT_JSON})
@@ -523,14 +567,22 @@ def _signing_key_for(jwks_uri: str, id_token: str) -> PyJWK:
     data = resp.json()
     if not isinstance(data, dict) or not data.get("keys"):
         raise OIDCIDTokenError("jwks document is empty or malformed")
+    cache.set(cache_key, data, _JWKS_TTL_SECONDS)
+    return data, False
+
+
+def _select_signing_key(data: dict[str, Any], id_token: str) -> PyJWK | None:
+    """Pick the key from a JWKS document that signed ``id_token``, or ``None``.
+
+    Matches PyJWKClient's selection: the token's ``kid`` (when present) against a
+    signing-use key. ``public_key_use`` is "sig" or absent for signing keys.
+    """
     try:
         jwk_set = PyJWKSet.from_dict(data)
         header = jwt.get_unverified_header(id_token)
     except (PyJWKError, PyJWKSetError, jwt.InvalidTokenError, ValueError) as exc:
         raise OIDCIDTokenError(f"could not parse jwks or token header: {exc}") from exc
 
-    # Match PyJWKClient's selection: the token's ``kid`` (when present) against a
-    # signing-use key. ``public_key_use`` is "sig" or absent for signing keys.
     kid = header.get("kid")
     candidates = [
         key
@@ -538,9 +590,28 @@ def _signing_key_for(jwks_uri: str, id_token: str) -> PyJWK:
         if getattr(key, "public_key_use", None) in ("sig", None)
         and (kid is None or key.key_id == kid)
     ]
-    if not candidates:
+    return candidates[0] if candidates else None
+
+
+def _signing_key_for(jwks_uri: str, id_token: str) -> PyJWK:
+    """Return the JWKS key that signed ``id_token``, refetching on a ``kid`` miss.
+
+    A ``kid`` the cached document does not carry is the signature of an IdP that
+    rotated its signing keys after we cached — a routine operator action. Failing
+    outright there would break every login until the TTL expired even though the
+    correct key is one request away, so a miss forces exactly one cache-bypassing
+    refetch before giving up. The retry is bounded to the cached case (see
+    ``_fetch_jwks``) so an unknown ``kid`` cannot be replayed to drive two
+    outbound requests per attempt.
+    """
+    data, was_cached = _fetch_jwks(jwks_uri)
+    key = _select_signing_key(data, id_token)
+    if key is None and was_cached:
+        data, _ = _fetch_jwks(jwks_uri, force_refresh=True)
+        key = _select_signing_key(data, id_token)
+    if key is None:
         raise OIDCIDTokenError("no matching signing key in jwks")
-    return candidates[0]
+    return key
 
 
 def validate_id_token(
@@ -551,7 +622,8 @@ def validate_id_token(
     Verifies the RS256/ES256 signature against the discovered JWKS (fetched
     through the SSRF-guarded egress, never PyJWKClient's own socket), and enforces
     ``iss == issuer``, ``aud == client_id``, ``exp``/``iat`` presence, and
-    ``nonce`` equality with the value bound at login. We keep this rather than
+    ``nonce`` equality with the value bound at login. Time claims are checked with
+    ``_ID_TOKEN_LEEWAY_SECONDS`` of clock-skew tolerance. We keep this rather than
     delegating to allauth's verification (control 4). Any failure raises
     :class:`OIDCIDTokenError`.
     """
@@ -564,6 +636,7 @@ def validate_id_token(
             algorithms=_ALLOWED_ID_TOKEN_ALGS,
             audience=ctx.client_id,
             issuer=ctx.issuer,
+            leeway=_ID_TOKEN_LEEWAY_SECONDS,
             options={"require": ["exp", "iat", "aud", "iss"]},
         )
     except jwt.InvalidTokenError as exc:
@@ -748,6 +821,48 @@ def _unique_username(email: str) -> str:
     return candidate
 
 
+def _require_active(user: Any, ctx: ProviderContext) -> Any:
+    """Refuse a resolved-but-deactivated account before a session is minted (#2875).
+
+    ``User.is_active = False`` **is** the deactivation mechanism —
+    ``workspace/views.py::_apply_member_status_change`` sets it as the thing that
+    stops a member logging in — and every other credential path in the auth chain
+    honors it: simplejwt rejects an inactive user, DRF's ``SessionAuthentication``
+    checks the flag, and the Personal Access Token authenticator was taught to in
+    #2832. The SSO callback was the one login path with no reference to it at all,
+    so a revoked account ran the entire handshake and was issued a **fresh refresh
+    token after the admin revoked it**.
+
+    ``JWTAuthentication`` refuses the inactive user on every subsequent request, so
+    this is defense in depth rather than privilege escalation. It still has to be
+    fixed here: a login that reports success and is then 401ed on every call is
+    indistinguishable from a broken install, and the refusal belongs where the
+    credential is issued rather than where it is spent.
+
+    Only the two branches that resolve a **pre-existing** user need this. The
+    auto-create branch builds the user in this request, so it is active by
+    construction — guarding it would be dead code.
+
+    The refusal is **logged, not audited**. Repeated SSO attempts against a revoked
+    account is exactly the signal an operator wants after an off-boarding, and
+    before this fix there was nothing distinctive to record because the login simply
+    succeeded. It is a log line rather than an ``AuditEvent`` row because the caller
+    is unauthenticated at this point: an audit row per attempt would let anyone who
+    can drive the callback write unbounded rows, the same amplification the Personal
+    Access Token authenticator bounds deliberately. The record carries the user's
+    primary key, never their email or any token material.
+    """
+    if not user.is_active:
+        logger.warning(
+            "sso login refused: account is deactivated (user_id=%s provider=%s issuer=%s)",
+            user.pk,
+            ctx.slug,
+            ctx.issuer,
+        )
+        raise OIDCAccountDisabled("account is deactivated")
+    return user
+
+
 @transaction.atomic
 def resolve_user(ctx: ProviderContext, claims: dict[str, Any]) -> tuple[Any, bool]:
     """Resolve (and possibly create/link) the local user for a validated identity.
@@ -775,6 +890,10 @@ def resolve_user(ctx: ProviderContext, claims: dict[str, Any]) -> tuple[Any, boo
        user + one ``WorkspaceMembership`` at the resolved role, bind the identity.
     5. Otherwise → :class:`OIDCNoMember`.
 
+    Branches 1 and 3 additionally refuse a **deactivated** account with
+    :class:`OIDCAccountDisabled` (see :func:`_require_active`, #2875) — the SSO
+    callback was the one login path that never consulted ``is_active``.
+
     Returns ``(user, created)``. Wrapped in a transaction so a half-created
     user/membership/identity never persists.
     """
@@ -790,8 +909,10 @@ def resolve_user(ctx: ProviderContext, claims: dict[str, Any]) -> tuple[Any, boo
     # mutable email. The (provider=slug, uid=subject) row is only trusted when its
     # stored issuer matches the current provider issuer: a slug repointed to a new
     # issuer must not resolve a colliding ``sub`` to the old issuer's user (takeover
-    # defense). On mismatch, fall through to the verified-email path. For GitHub the
-    # issuer is the fixed GITHUB_ISSUER constant, so bindings still match.
+    # defense). On mismatch we **fail closed** below rather than falling through to
+    # the verified-email path, because allauth's (provider, uid) unique key means a
+    # second binding under the new issuer could not be created anyway. For GitHub
+    # the issuer is the fixed GITHUB_ISSUER constant, so bindings still match.
     account = (
         SocialAccount.objects.select_related("user")
         .filter(provider=provider_key, uid=subject)
@@ -799,7 +920,7 @@ def resolve_user(ctx: ProviderContext, claims: dict[str, Any]) -> tuple[Any, boo
     )
     if account is not None:
         if account.extra_data.get("iss") == issuer:
-            return account.user, False
+            return _require_active(account.user, ctx), False
         # (provider=slug, uid=subject) is already bound to a DIFFERENT issuer. We
         # must never resolve to the old issuer's user (cross-issuer sub-collision
         # takeover), and — because allauth's SocialAccount key is (provider, uid),
@@ -818,6 +939,10 @@ def resolve_user(ctx: ProviderContext, claims: dict[str, Any]) -> tuple[Any, boo
     # 3. Link to an existing local account (only when unambiguous).
     existing = list(User.objects.filter(email__iexact=email)[:2])
     if len(existing) == 1:
+        # Checked BEFORE the binding is written: a refused login must not leave a
+        # SocialAccount row behind, or reactivating the member later would silently
+        # skip the verified-email link step that created it.
+        _require_active(existing[0], ctx)
         SocialAccount.objects.create(
             user=existing[0], provider=provider_key, uid=subject, extra_data={"iss": issuer}
         )
@@ -871,6 +996,107 @@ def resolve_user(ctx: ProviderContext, claims: dict[str, Any]) -> tuple[Any, boo
 
 
 # ---------------------------------------------------------------------------
+# Removal impact — what an admin is about to break (#2874)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RemovalImpact:
+    """What removing one provider costs, surfaced to the admin before they confirm.
+
+    ``locked_out_accounts`` is the number that matters: members whose **only**
+    sign-in method is this provider's binding.
+    """
+
+    linked_accounts: int
+    locked_out_accounts: int
+
+
+def removal_impact(slugs: list[str]) -> dict[str, RemovalImpact]:
+    """Per-slug removal impact for every slug in ``slugs`` (#2874).
+
+    Why this has to exist: the DELETE path purges the provider's ``SocialAccount``
+    rows, and that purge is **load-bearing** — it is exactly what lets users
+    re-link by verified email when an admin follows the documented remove-and-re-add
+    route to move a provider to a new issuer. Keeping the rows instead would leave
+    every binding stamped with the old ``iss``, and ``resolve_user`` would fail
+    them closed forever.
+
+    The cost of that purge is a member who has no other credential.
+    :func:`resolve_user` calls ``set_unusable_password()`` on every JIT-created
+    user, and ``core/password_reset.py`` gates the request path on
+    ``has_usable_password()`` — so an SSO-only account receives the
+    anti-enumeration 200 and no email. Until the provider (or another configured
+    provider that admits their email domain) is set up again they cannot sign in by
+    any route, and no admin set-password endpoint exists. That is a real,
+    unrecoverable-by-self-service state, so the admin has to be given the number
+    before they confirm it.
+
+    "No other sign-in method" means: no usable local password, **and** no surviving
+    binding to any *other* still-configured provider. Deactivated accounts are
+    excluded — they cannot sign in either way, so counting them would inflate the
+    warning and train admins to ignore it.
+
+    Costs **two queries regardless of how many providers are configured**: the
+    bindings and the credential-less user set are each fetched once and paired in
+    Python, rather than running a per-slug aggregate that would make the admin list
+    page's query count scale with the registry.
+    """
+    from allauth.socialaccount.models import SocialAccount
+    from django.contrib.auth.hashers import UNUSABLE_PASSWORD_PREFIX
+    from django.db.models import Q
+
+    wanted = list(slugs)
+    if not wanted:
+        return {}
+
+    # Scope the bindings to *configured* providers: a leftover row for a provider
+    # that no longer exists is not a sign-in method, so it must not count as the
+    # "other" credential that makes a user safe to strand.
+    configured = list(SsoProviderPolicy.objects.values_list("slug", flat=True))
+    bindings = list(
+        SocialAccount.objects.filter(provider__in=configured).values_list("user_id", "provider")
+    )
+
+    per_user: dict[Any, set[str]] = {}
+    for user_id, provider in bindings:
+        per_user.setdefault(user_id, set()).add(provider)
+
+    # The DB-pushable subset of ``has_usable_password()``: the two shapes this
+    # codebase actually produces — ``set_unusable_password()``'s "!"-prefixed
+    # sentinel and an empty column. Django additionally treats a hash no hasher can
+    # parse as unusable; such a value would be missed here, which under-counts (the
+    # admin is warned about fewer members than are really stranded) rather than
+    # over-counts. Accepted: no code path in this repo writes a malformed hash, and
+    # pulling every bound user into Python to call ``has_usable_password()`` would
+    # trade a real per-request cost for a state that cannot occur.
+    credential_less = set(
+        User.objects.filter(
+            Q(password="") | Q(password__startswith=UNUSABLE_PASSWORD_PREFIX),
+            pk__in=list(per_user),
+            is_active=True,
+        ).values_list("pk", flat=True)
+    )
+
+    linked = dict.fromkeys(wanted, 0)
+    locked_out = dict.fromkeys(wanted, 0)
+    for user_id, providers in per_user.items():
+        sole_binding = len(providers) == 1
+        strands = sole_binding and user_id in credential_less
+        for provider in providers:
+            if provider not in linked:
+                continue
+            linked[provider] += 1
+            if strands:
+                locked_out[provider] += 1
+
+    return {
+        slug: RemovalImpact(linked_accounts=linked[slug], locked_out_accounts=locked_out[slug])
+        for slug in wanted
+    }
+
+
+# ---------------------------------------------------------------------------
 # Test connection (admin)
 # ---------------------------------------------------------------------------
 
@@ -896,6 +1122,12 @@ def _check_oidc_reachability(issuer_url: str) -> dict[str, Any]:
         return {"ok": False, "issuer": issuer_url, "error": exc.code, "detail": str(exc)}
 
     jwks_uri = doc.get("jwks_uri", "")
+    # Deliberately its own egress call rather than ``_fetch_jwks``: "Test
+    # connection" must prove the endpoint is reachable *now* (a cached hit would
+    # report a healthy provider whose keys endpoint has since died), and it must
+    # not populate the login path's cache from a probe. It also keeps the probe's
+    # own error taxonomy, which folds a non-200 into ``jwks_empty`` — for an admin
+    # "the keys are not usable" and "the keys are not there" need the same fix.
     try:
         egress.assert_url_allowed(jwks_uri)
         jwks_resp = egress.get(jwks_uri, headers={"Accept": _ACCEPT_JSON})
