@@ -84,10 +84,16 @@ A personal token is minted with one of two scopes:
   expiry no more than 365 days out, so a leaked read credential is self-limiting
   and cannot be minted as effectively non-expiring.
 
-When you create a read-only AI token, the one-time reveal also shows a
-ready-to-paste `claude_desktop_config.json` snippet built from it — copy that
-straight into your MCP client and skip the manual setup. See
-[Connect your MCP client](/features/mcp-connect/) for the full walkthrough.
+When you create a read-only AI token, the one-time reveal also shows the two
+steps to connect: the `pip install trueppm-mcp` command that puts the server on
+your PATH, and a ready-to-paste `claude_desktop_config.json` snippet built from
+the token. Run the first, copy the second into your MCP client, and skip the
+manual setup. See [Connect your MCP client](/features/mcp-connect/) for the full
+walkthrough, including Cursor and Zed.
+
+Read-only AI tokens are **personal only**. The project and program **Settings →
+Integrations** pages mint `legacy:full` inbound-sync tokens and do not offer this
+scope — a token minted there has no owner, and the MCP read surface refuses it.
 
 ## The 10-token cap
 

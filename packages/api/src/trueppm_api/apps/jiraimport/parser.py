@@ -70,6 +70,11 @@ def _map_status(item: Element) -> str | None:
     return _STATUS_MAP.get(raw)
 
 
+# ``Task.percent_complete`` is a 0-100 percent, not a 0-1 fraction (#1759,
+# #2889). Named rather than inlined so the scale is stated once and the
+# cross-importer scale test can assert against the same constant.
+_COMPLETE_PERCENT = 100.0
+
 # Jira stores the original estimate in seconds; convert on the nominal
 # working-day length from the unit seam (#2290) rather than a bare ``8 * 60 * 60``
 # so a 0.5 canonical-unit change re-homes in one place. A per-instance
@@ -276,10 +281,19 @@ def _build_task(
     # A terminal status (Done/Closed → COMPLETE, or Review) means the work is
     # 100% delivered, but the basic Jira XML export carries no percent field, so
     # bulk_create would persist COMPLETE at 0% — an incoherent card and a task
-    # the Monte Carlo completion check still treats as unstarted. Set the
-    # fraction the FloatField stores (1.0 == 100%, matching the MS Project
-    # parser's raw/100; the 0-100 storage correction is tracked as #1759).
-    percent = 1.0 if mapped_status in (TaskStatus.COMPLETE.value, TaskStatus.REVIEW.value) else 0.0
+    # the Monte Carlo completion check still treats as unstarted.
+    #
+    # ``Task.percent_complete`` is a 0-100 percent (validators [0,100]; EVM/SPI
+    # and the rollup SQL read it as one), so write 100.0, not a 0-1 fraction
+    # (#2889). This is the same defect #1759 fixed on the MS Project side: a
+    # fraction written straight into the 0-100 field landed a delivered issue at
+    # 1%, so every progress ring, Gantt fill and parent rollup disagreed with the
+    # board column it came from. Both importers are now on the one 0-100 scale.
+    percent = (
+        _COMPLETE_PERCENT
+        if mapped_status in (TaskStatus.COMPLETE.value, TaskStatus.REVIEW.value)
+        else 0.0
+    )
     return TaskData(
         uid=key_to_uid[key],
         name=_issue_name(item, key)[:512],

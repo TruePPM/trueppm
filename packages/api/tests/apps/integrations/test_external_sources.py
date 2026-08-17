@@ -9,6 +9,8 @@ assert the source's request/response mapping and the untrusted-DTO hardening.
 
 from __future__ import annotations
 
+import urllib.parse
+
 import pytest
 
 from trueppm_api.apps.integrations import external_sources, http
@@ -276,3 +278,143 @@ def test_server_verify_invalid_token_on_401(monkeypatch: pytest.MonkeyPatch) -> 
     )
     assert result.ok is False
     assert result.reason == "invalid_token"
+
+
+# ---------------------------------------------------------------------------
+# The "Projects" filter narrows the pull (#2888)
+# ---------------------------------------------------------------------------
+#
+# ``config["project_keys"]`` used to be collected, validated, persisted, echoed
+# back and documented as scoping the pull while nothing read it — so a contributor
+# who named two keys to keep a third engagement out of a shared tool still mirrored
+# every assigned issue from every project. These tests assert the *consumer*: the
+# keys reach the JQL on the wire, and they cannot be widened away by a custom JQL.
+
+
+def _captured_jql(url: str) -> str:
+    """Pull the decoded ``jql`` parameter back off a captured search URL."""
+    query = urllib.parse.urlparse(url).query
+    return urllib.parse.parse_qs(query)["jql"][0]
+
+
+def _stub_search(monkeypatch: pytest.MonkeyPatch, captured: dict[str, str]) -> None:
+    def _get(
+        url: str, *, headers: dict[str, str] | None = None, **k: object
+    ) -> http.EgressResponse:
+        captured["url"] = url
+        return _resp(200, _SEARCH_BODY)
+
+    monkeypatch.setattr(http, "get", _get)
+
+
+def test_fetch_scopes_default_jql_to_selected_projects(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The keys land in the query Jira actually receives, ahead of the ORDER BY."""
+    captured: dict[str, str] = {}
+    _stub_search(monkeypatch, captured)
+
+    JiraSource().fetch_assigned_items(
+        base_url="https://acme.atlassian.net",
+        secret="tok",
+        config={"account_email": "p@acme.io", "project_keys": ["RIV", "BAY"]},
+    )
+
+    jql = _captured_jql(captured["url"])
+    assert jql == (
+        "(assignee = currentUser() AND statusCategory != Done) "
+        'AND project IN ("RIV", "BAY") ORDER BY updated DESC'
+    )
+
+
+def test_fetch_ands_project_keys_onto_a_custom_jql(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A custom JQL cannot widen the project filter past what the owner selected.
+
+    The user's own query is parenthesized, so an ``OR`` inside it cannot escape the
+    ``AND project IN (...)`` — ``a OR b AND project IN (…)`` would otherwise bind
+    the AND tighter and pull every ``a``.
+    """
+    captured: dict[str, str] = {}
+    _stub_search(monkeypatch, captured)
+
+    JiraSource().fetch_assigned_items(
+        base_url="https://acme.atlassian.net",
+        secret="tok",
+        config={
+            "account_email": "p@acme.io",
+            "jql": "assignee = currentUser() OR reporter = currentUser()",
+            "project_keys": ["RIV"],
+        },
+    )
+
+    jql = _captured_jql(captured["url"])
+    assert jql == ('(assignee = currentUser() OR reporter = currentUser()) AND project IN ("RIV")')
+
+
+def test_fetch_without_project_keys_is_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ "Leave blank for all" — no keys means no clause, not an empty IN ()."""
+    captured: dict[str, str] = {}
+    _stub_search(monkeypatch, captured)
+
+    JiraSource().fetch_assigned_items(
+        base_url="https://acme.atlassian.net",
+        secret="tok",
+        config={"account_email": "p@acme.io", "project_keys": []},
+    )
+
+    assert _captured_jql(captured["url"]) == external_sources._DEFAULT_JIRA_JQL
+
+
+def test_fetch_rejects_an_invalid_stored_project_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A key that cannot be a Jira project key fails the pull, loudly.
+
+    Dropping it instead would silently *widen* what leaves Jira — the exact wrong
+    belief #2888 was about. A stored row can carry one (it predates the serializer
+    rule, or came from a direct API call), and the key is interpolated into JQL.
+    """
+    captured: dict[str, str] = {}
+    _stub_search(monkeypatch, captured)
+
+    with pytest.raises(ExternalSourceError):
+        JiraSource().fetch_assigned_items(
+            base_url="https://acme.atlassian.net",
+            secret="tok",
+            config={"account_email": "p@acme.io", "project_keys": ['RIV") OR project IN ("SECRET']},
+        )
+    # Nothing was requested — the guard runs before the token is on the wire.
+    assert "url" not in captured
+
+
+def test_compose_jql_ignores_an_order_by_inside_a_quoted_literal() -> None:
+    """A quoted ``order by`` in the filter is data, not the sort clause.
+
+    Splitting on it would move the project constraint after the user's text and
+    produce a query Jira rejects.
+    """
+    composed = external_sources._compose_jql(
+        'summary ~ "order by rank" ORDER BY created ASC', ["RIV"]
+    )
+    assert composed == '(summary ~ "order by rank") AND project IN ("RIV") ORDER BY created ASC'
+
+
+def test_compose_jql_handles_a_sort_only_query() -> None:
+    """A JQL that is nothing but a sort still gets a well-formed WHERE clause."""
+    assert (
+        external_sources._compose_jql("ORDER BY updated DESC", ["riv"])
+        == 'project IN ("RIV") ORDER BY updated DESC'
+    )
+
+
+def test_compose_jql_dedupes_and_upper_cases() -> None:
+    """Keys are canonicalized so the clause matches the echoed, stored value."""
+    assert external_sources._compose_jql("assignee = currentUser()", ["riv", "RIV", " bay "]) == (
+        '(assignee = currentUser()) AND project IN ("RIV", "BAY")'
+    )
+
+
+def test_compose_jql_ignores_a_non_list_config_value() -> None:
+    """A malformed stored value is treated as "no selection", not as a crash."""
+    assert external_sources._compose_jql("assignee = currentUser()", "RIV") == (
+        "assignee = currentUser()"
+    )
+    assert external_sources._compose_jql("assignee = currentUser()", None) == (
+        "assignee = currentUser()"
+    )

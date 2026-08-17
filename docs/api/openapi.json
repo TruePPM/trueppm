@@ -46227,7 +46227,7 @@
             },
             "ExternalConnectionUpsertRequest": {
                 "type": "object",
-                "description": "Payload for ``PUT /me/connections/{source}/`` (connect or update).\n\n``secret`` is the user's own API token / PAT (write-only, never echoed).\n``base_url`` is the source host — Jira Cloud ``https://<tenant>.atlassian.net``\nor a self-hosted Jira Data Center / Server host — allow-listed downstream.\n``deployment`` (``cloud`` default | ``server``) selects the Cloud vs DC/Server\nAPI + auth shape. ``account_email`` (Cloud Basic auth only) + ``jql`` +\n``project_keys`` are stored in the credential's ``config`` — the source reads\nthem at pull time.",
+                "description": "Payload for ``PUT /me/connections/{source}/`` (connect or update).\n\n``secret`` is the user's own API token / PAT (write-only, never echoed).\n``base_url`` is the source host — Jira Cloud ``https://<tenant>.atlassian.net``\nor a self-hosted Jira Data Center / Server host — allow-listed downstream.\n``deployment`` (``cloud`` default | ``server``) selects the Cloud vs DC/Server\nAPI + auth shape. ``account_email`` (Cloud Basic auth only) + ``jql`` +\n``project_keys`` are stored in the credential's ``config`` — the source reads\nthem at pull time. ``jql`` selects what to pull; ``project_keys`` narrows it\nand is **ANDed onto** the query, whether that query is the default or a\ncustom ``jql``, so the project filter can only ever restrict the pull.",
                 "properties": {
                     "secret": {
                         "type": "string",

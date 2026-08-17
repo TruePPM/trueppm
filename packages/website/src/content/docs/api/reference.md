@@ -145,6 +145,14 @@ task-sync with their normal credentials, so every inbound push is attributable
 to a minted token. A token whose project does not match the URL returns `401`
 (not `403`) so callers cannot enumerate project existence.
 
+The only scope this endpoint mints is **`legacy:full`**. Sending
+`{"scopes": ["mcp:read"]}` to `POST /api/v1/projects/{id}/api-tokens/` (or the
+program equivalent) is a `400`: a token minted at project or program scope has no
+owner, and the MCP read surface accepts owner-scoped (personal) tokens only, so
+such a token could read nothing at all. Mint MCP credentials from
+[`POST /api/v1/me/api-tokens/`](#personal-access-tokens-apiv1meapi-tokens-adr-0214)
+instead.
+
 ### Personal Access Tokens (`/api/v1/me/api-tokens/`, ADR-0214)
 
 ```http

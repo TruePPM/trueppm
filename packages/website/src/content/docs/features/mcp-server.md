@@ -63,14 +63,16 @@ flowchart LR
 The server is configured entirely from the environment — no config file on disk.
 It authenticates with a **personal access token** (`tppm_<64-hex>`) carrying the
 **`mcp:read` scope**. The read surface accepts only owner-scoped (personal)
-tokens — a project- or program-scoped token is rejected here — so the credential
-reads only what your role permits and nothing beyond it.
+tokens — so the credential reads only what your role permits and nothing beyond
+it. The project and program Integrations pages mint inbound-sync tokens and do
+not offer this scope.
 
 The fastest way to connect: **Personal Settings → API tokens → Create token**,
 then choose the **"Read-only for AI assistants"** scope (`mcp:read`) and **set an
 expiry** (required for `mcp:read`). The reveal dialog shows the raw token once,
-plus a ready-to-paste `claude_desktop_config.json` snippet built from it — copy
-that straight into your client and skip the manual assembly below.
+plus the `pip install trueppm-mcp` command and a ready-to-paste
+`claude_desktop_config.json` snippet built from it — run the first, copy the
+second into your client, and skip the manual assembly below.
 
 | Variable | Required | Description |
 |----------|----------|-------------|

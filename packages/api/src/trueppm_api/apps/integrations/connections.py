@@ -15,7 +15,9 @@ Isolation & security posture (ADR-0097 §3 / §Threat Model → Resolution):
   the token is ever put on the wire in the verify ping (#902 ordering).
 
 This surface reuses ``IntegrationCredential`` (ADR-0097 §2) with the row's
-``config`` carrying ``{account_email, jql, project_keys, status}``. It does
+``config`` carrying ``{account_email, jql, project_keys, status}`` — both ``jql``
+and ``project_keys`` are read by the source at pull time, the latter ANDed onto
+the query so it can only narrow what leaves the provider (#2888). It does
 **not** call ``IntegrationCredential.upsert`` — that validates ``provider``
 against ``TASK_LINK_PROVIDERS`` (where ``jira`` is reserved Enterprise), whereas
 an external source validates against the distinct ``EXTERNAL_TASK_SOURCES``
@@ -48,6 +50,7 @@ from .external_sources import (
     DEPLOYMENT_CLOUD,
     EXTERNAL_TASK_SOURCES,
     JIRA_DEPLOYMENTS,
+    JIRA_PROJECT_KEY_RE,
     ExternalTaskSource,
 )
 from .models import ExternalWorkItem, IntegrationCredential
@@ -90,7 +93,9 @@ class ExternalConnectionUpsertSerializer(serializers.Serializer[Any]):
     ``deployment`` (``cloud`` default | ``server``) selects the Cloud vs DC/Server
     API + auth shape. ``account_email`` (Cloud Basic auth only) + ``jql`` +
     ``project_keys`` are stored in the credential's ``config`` — the source reads
-    them at pull time.
+    them at pull time. ``jql`` selects what to pull; ``project_keys`` narrows it
+    and is **ANDed onto** the query, whether that query is the default or a
+    custom ``jql``, so the project filter can only ever restrict the pull.
     """
 
     secret = serializers.CharField(
@@ -116,6 +121,30 @@ class ExternalConnectionUpsertSerializer(serializers.Serializer[Any]):
         if not value.strip():
             raise serializers.ValidationError("Secret must not be blank.")
         return value
+
+    def validate_project_keys(self, value: list[str]) -> list[str]:
+        """Normalize + reject anything that is not a Jira project key (#2888).
+
+        These keys are composed into the JQL the pull worker sends, so a value
+        carrying a quote or a parenthesis could rewrite the filter it is meant to
+        narrow. Rejecting at mint time gives the user an inline message on the
+        connect wizard rather than a connection that fails on its first pull.
+        Upper-cased and de-duplicated so the stored value matches what the wizard
+        shows and what the query will carry.
+        """
+        cleaned: dict[str, None] = {}
+        for raw in value:
+            key = raw.strip()
+            if not key:
+                continue
+            if not JIRA_PROJECT_KEY_RE.match(key):
+                raise serializers.ValidationError(
+                    f"{key!r} is not a valid project key. Use the short key Jira "
+                    "shows on an issue (letters, digits and underscores, starting "
+                    "with a letter) — for example RIV."
+                )
+            cleaned.setdefault(key.upper(), None)
+        return list(cleaned)
 
     def validate_base_url(self, value: str) -> str:
         if "://" not in value:

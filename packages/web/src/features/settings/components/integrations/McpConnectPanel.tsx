@@ -1,24 +1,37 @@
 /**
- * Shared MCP "connect an AI assistant" reveal panel (#1481, #1846).
+ * MCP "connect an AI assistant" reveal panel (#1481, #1846).
  *
- * Rendered inside the one-time raw-token reveal for an `mcp:read` token, from
- * BOTH the project/program Integrations token surface (`ApiTokensManager`) and
- * the Personal Access Tokens page (`PersonalAccessTokensPage`). It was extracted
- * from `ApiTokensManager` so both surfaces share one implementation — the MCP
- * read surface admits only owner-scoped (personal) tokens
- * (`TokenIsOwnerScoped`, #1712), so the personal page is the canonical mint path
- * the docs point evaluators at, and it must offer the identical copy-paste
- * affordance rather than a second copy of it.
+ * Rendered inside the one-time raw-token reveal for an `mcp:read` token on the
+ * Personal Access Tokens page (`PersonalAccessTokensPage`) — the only surface that
+ * mints one. The MCP read surface admits owner-scoped (personal) tokens only
+ * (`TokenIsOwnerScoped`, #1712), so the project/program Integrations page no longer
+ * offers the scope and no longer renders this panel: the config it produced there
+ * 401'd the MCP server at boot (#2890).
  *
  * The snippet's shape is the single source of truth for the config: the command
  * is `trueppm-mcp`, the env vars are `TRUEPPM_API_URL` (the instance origin; the
  * server appends `/api/v1`) and `TRUEPPM_API_TOKEN`. Keep it in step with
  * `docs/administration/mcp-server.md` and the `trueppm-mcp` package.
+ *
+ * The install line is part of the affordance, not decoration (#2890): the config
+ * names a `trueppm-mcp` executable, and a client told only to "add this and restart"
+ * gets command-not-found on the restart. `pip install trueppm-mcp` matches what
+ * `features/mcp-connect.md` and the package README tell people to run.
  */
 
 import { useState } from 'react';
 import { MCP_EXAMPLE_PROMPTS } from '@/lib/mcpExamplePrompts';
 import { CheckIcon } from '@/components/Icons';
+
+/**
+ * How to get the `trueppm-mcp` executable the generated config invokes.
+ *
+ * `pip` rather than `uvx`: the config's `"command": "trueppm-mcp"` needs the
+ * executable on PATH, which `pip install` gives and `uvx` (a run-time fetcher)
+ * does not. Kept as an exported constant so a unit test can pin it against the
+ * package name and the docs.
+ */
+export const MCP_INSTALL_COMMAND = 'pip install trueppm-mcp';
 
 /**
  * Instance base URL the MCP server points at, derived from the browser origin.
@@ -96,8 +109,28 @@ export function McpConnectPanel({ token, onClose }: { token: string; onClose: ()
         </span>
         <span className="h-px flex-1 bg-neutral-border/55" />
       </div>
+      <p className="text-[12px] text-neutral-text-secondary mb-1.5">
+        <span className="font-medium text-neutral-text-primary">1.</span> Install the server, so
+        your client has something to launch:
+      </p>
+      <div className="flex items-start gap-2 mb-3">
+        <pre
+          role="group"
+          aria-label="Install command"
+          className="tppm-mono flex-1 overflow-x-auto whitespace-pre px-3 py-2 text-[12px] border border-neutral-border rounded bg-neutral-surface-sunken text-neutral-text-primary"
+        >
+          {MCP_INSTALL_COMMAND}
+        </pre>
+        <CopyButton
+          value={MCP_INSTALL_COMMAND}
+          label="Copy"
+          accessibleName="Copy install command"
+        />
+      </div>
+
       <p className="text-[12px] text-neutral-text-secondary mb-2">
-        Add this to your MCP client&apos;s config — for Claude Desktop that&apos;s{' '}
+        <span className="font-medium text-neutral-text-primary">2.</span> Add this to your MCP
+        client&apos;s config — for Claude Desktop that&apos;s{' '}
         <span className="tppm-mono">claude_desktop_config.json</span> — then restart the client.
       </p>
 

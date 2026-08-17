@@ -105,6 +105,19 @@ describe('ExternalSourceConnectDialog', () => {
     );
   });
 
+  it('says the project keys narrow the chosen filter, not replace it (#2888)', () => {
+    // The old copy ("to limit the import") was a privacy-scoping claim no code
+    // honored. It is honored now — the backend ANDs the keys onto the query — and
+    // the help text has to say which of the two it does, because "limit" reads
+    // equally as "instead of" and a user who reads it that way believes their
+    // other Jira projects are excluded when they are not.
+    render(<ExternalSourceConnectDialog source={JIRA} onDismiss={vi.fn()} />);
+    fillCredentials();
+    fireEvent.click(screen.getByRole('button', { name: /Continue/i }));
+    expect(screen.getByText(/Narrows whatever you chose above/i)).toBeInTheDocument();
+    expect(screen.getByText(/Leave blank for all/i)).toBeInTheDocument();
+  });
+
   it('Server/DC mode hides Account email and connects with a Bearer PAT (no email)', () => {
     connectMutate.mockImplementation((_input, opts) => opts?.onSuccess?.());
     render(<ExternalSourceConnectDialog source={JIRA} onDismiss={vi.fn()} />);

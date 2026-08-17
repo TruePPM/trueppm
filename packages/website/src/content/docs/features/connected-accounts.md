@@ -156,7 +156,11 @@ field limits (custom fields are excluded there too).
     / private-network-only Data Center host is not yet supported).
 
   Then choose **what to pull** — the issues assigned to you (recommended) or a
-  specific **JQL** filter — and, optionally, limit it to named **projects**. TruePPM
+  specific **JQL** filter — and, optionally, limit it to named **projects**. The
+  project keys **narrow** whichever filter you chose: they are combined with it
+  (`AND`), never substituted for it, so naming `RIV, BAY` means nothing outside
+  those two projects is pulled even if your own JQL would have matched it. Leave
+  the field blank to pull from every project you have access to. TruePPM
   verifies the token against Jira before storing it (encrypted), so a wrong,
   expired, wrong-scope, or non-allow-listed-host credential is rejected up front
   with a clear message and **nothing is saved**.
