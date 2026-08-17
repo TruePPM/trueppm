@@ -99,6 +99,22 @@ change between releases. Pin an exact version (e.g.
 
 ### Fixed
 
+- **`monte_carlo()` never applied the `actual_start` early-start floor, so every
+  percentile on an in-progress project could land *earlier* than the `schedule()`
+  finish** — a risk forecast under-reporting risk. `_forward_pass` has floored work
+  already underway at its recorded actual start since ADR-0132 §2, but the Monte
+  Carlo floor helper merged only the `planned_start` (SNET) pin and the data date,
+  so a task that actually began after the data date was simulated from the data
+  date instead — sampling a window CPM had already rejected. With a data date of
+  31-Jul, a 20-day task 50% done that actually started 10-Aug, `schedule()`
+  finished 21-Aug while P50, P80 and P95 all came back 13-Aug. The floor is now a
+  three-way maximum (SNET pin, data date, actual start), matching the deterministic
+  pass. A *non-working* actual is snapped forward to the next working day here
+  while `schedule()` keeps it verbatim: the Monte Carlo working-day index holds
+  working days only, so the date has no offset of its own, and snapping forward is
+  the only stand-in that can report at most one working day *late* rather than
+  early. Reachable from any consumer that records progress, including callers who
+  never set `status_date` at all (#2833).
 - **`monte_carlo()` ignored the `planned_start` floor and every predecessor
   constraint on a task complete by `percent_complete` alone, so its percentiles
   could land *earlier* than the `schedule()` finish** — a risk forecast

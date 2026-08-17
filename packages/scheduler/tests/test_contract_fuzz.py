@@ -18,6 +18,14 @@ unvalidated) and #1453 (``monte_carlo`` seed unvalidated) — are now fixed, so 
 adversarial vectors are folded directly into the broad strategies below:
 ``percent_complete`` draws non-finite floats and ``monte_carlo`` draws bad seeds,
 both of which must now yield a clean ``InvalidScheduleInput``.
+
+One property here is not about exceptions at all:
+:func:`test_monte_carlo_never_precedes_cpm` binds ``monte_carlo()``'s output to
+``schedule()``'s. Nothing asserted any relationship between the two passes, which
+is how #2833 — a Monte Carlo floor the deterministic pass had and the simulation
+did not — survived ~99% line coverage. It runs against its own
+:func:`_plausible_projects` strategy rather than the adversarial one, because an
+input the engine *rejects* proves nothing about the two passes agreeing.
 """
 
 from __future__ import annotations
@@ -26,7 +34,7 @@ import json
 import signal
 from collections.abc import Callable
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Any
 
 import pytest
@@ -263,6 +271,132 @@ def test_direct_object_api_conforms(project: Project, seed: object) -> None:
         "monte_carlo",
         lambda: monte_carlo(project, runs=24, seed=seed, max_runs=None, max_tasks=None),  # type: ignore[arg-type]
     )
+
+
+_PLAUSIBLE_ANCHOR = date(2026, 3, 2)  # Monday
+# Dates within a working year either side of the anchor: far enough to straddle
+# the data date, the SNET pin, and every actual, but nowhere near the engine's
+# span caps — an input rejected by validation proves nothing about the two passes
+# agreeing, and the adversarial ``_projects()`` space is rejected almost always.
+_plausible_date = st.dates(min_value=date(2025, 9, 1), max_value=date(2027, 3, 1))
+_opt_plausible_date = st.none() | _plausible_date
+
+
+@st.composite
+def _plausible_tasks(draw: st.DrawFn, tid: str) -> Task:
+    """A task in the value ranges a real project uses, with no duration uncertainty.
+
+    Every field that feeds an ES floor is drawn (``planned_start``,
+    ``actual_start``, ``actual_finish``, ``percent_complete``); the three-point
+    estimates and the velocity signal are deliberately left unset so the
+    simulation has nothing to vary — see :func:`test_monte_carlo_never_precedes_cpm`.
+
+    The actuals are drawn as a coherent pair (finish at or after start, and only
+    ever alongside one) because ``schedule()`` rejects the incoherent combinations
+    outright, and a rejected input tells this invariant nothing.
+    """
+    actual_start = draw(_opt_plausible_date)
+    actual_finish = None
+    if actual_start is not None:
+        actual_finish = draw(
+            st.none() | st.dates(min_value=actual_start, max_value=date(2027, 6, 1))
+        )
+    return Task(
+        id=tid,
+        name="t",
+        duration=timedelta(days=draw(st.integers(min_value=0, max_value=40))),
+        planned_start=draw(_opt_plausible_date),
+        # 100.0 included so the complete-by-percent branch is covered too.
+        percent_complete=draw(st.floats(min_value=0.0, max_value=100.0)),
+        actual_start=actual_start,
+        actual_finish=actual_finish,
+    )
+
+
+@st.composite
+def _plausible_projects(draw: st.DrawFn) -> Project:
+    """A schedulable project: real-world value ranges, no duration uncertainty.
+
+    The adversarial ``_projects()`` strategy exists to prove the *exception*
+    contract, and it earns that by generating inputs the engine rejects — which
+    makes it nearly useless for an *output* invariant, since a rejected input
+    never produces a pair of results to compare (a first cut of this strategy
+    reused its duplicate-id and self-edge draws and put only ~8% of examples
+    through the forward pass, so the property passed on an engine that was
+    provably broken). This one trades that breadth for inputs that reach the
+    forward pass, while keeping every field that can floor an early start in play.
+    """
+    n = draw(st.integers(min_value=1, max_value=6))
+    ids = [f"t{i}" for i in range(n)]
+    tasks = [draw(_plausible_tasks(tid)) for tid in ids]
+
+    # Only forward edges (i < j) and at most one per ordered pair: cycles and
+    # duplicate dependencies are both rejected by validation, and neither is what
+    # this property is probing.
+    pairs = [(ids[i], ids[j]) for i in range(n) for j in range(i + 1, n)]
+    chosen = draw(st.lists(st.sampled_from(pairs), max_size=6, unique=True)) if pairs else []
+    deps = [
+        Dependency(
+            predecessor_id=u,
+            successor_id=v,
+            dep_type=draw(st.sampled_from(list(DependencyType))),
+            lag=timedelta(days=draw(st.integers(min_value=-5, max_value=15))),
+        )
+        for u, v in chosen
+    ]
+
+    return Project(
+        id="p",
+        name="p",
+        start_date=_PLAUSIBLE_ANCHOR,
+        tasks=tasks,
+        dependencies=deps,
+        # A five-day week plus a handful of holidays: enough calendar texture for a
+        # non-working actual (the case the offset index cannot represent directly).
+        calendar=Calendar(
+            working_days=0b0011111,
+            exceptions=[
+                DateRange(d, d) for d in draw(st.lists(_plausible_date, max_size=4, unique=True))
+            ],
+        ),
+        status_date=draw(_opt_plausible_date),
+    )
+
+
+@given(project=_plausible_projects())
+def test_monte_carlo_never_precedes_cpm(project: Project) -> None:
+    """``monte_carlo()`` must never forecast a finish EARLIER than ``schedule()``.
+
+    Nothing in this suite asserted any relationship between the two passes, which
+    is the structural reason #2833 survived ~99% line coverage: ``monte_carlo()``
+    never received the ``actual_start`` early-start floor ``schedule()`` has
+    applied since #2621, so it sampled from a window CPM had already rejected and
+    P95 could land *before* the deterministic finish. A risk tool that
+    under-reports risk fails silently and plausibly, so the binding is asserted
+    here as a property rather than only at the one instance that was found.
+
+    P50 is the tightest leg of the assertion (P80 and P95 are >= it by
+    construction), and the direction is one-way: a *later* percentile is the risk
+    premium the deterministic pass cannot express and is entirely legitimate.
+
+    Both calls must reach the same verdict on validity — if one raises a
+    documented ``SchedulerError`` the input never had a comparable pair, and there
+    is nothing to bind.
+    """
+    try:
+        with _time_limit(HANG_SECONDS):
+            cpm = schedule(project)
+            mc = monte_carlo(project, runs=16, seed=11, max_runs=None, max_tasks=None)
+    except SchedulerError:
+        return
+    except _Timeout as exc:  # pragma: no cover - guarded by the conformance tests
+        raise AssertionError(f"monte_carlo/schedule pair: HANG — {exc}") from exc
+
+    assert mc.p50 >= cpm.project_finish, (
+        f"monte_carlo P50 {mc.p50} precedes the deterministic CPM finish "
+        f"{cpm.project_finish} — the simulation sampled a window schedule() rejected"
+    )
+    assert mc.p50 <= mc.p80 <= mc.p95, "percentiles must be monotonically non-decreasing"
 
 
 @given(value=_json_values)

@@ -253,7 +253,7 @@ def risk_premium_for_forecast_payload(
 ) -> RiskPremium:
     """Derive the premium from a cached Monte Carlo forecast dict.
 
-    The 24-hour ``mc_latest:{pk}`` cache entry is written by the live-run path and read
+    The 24-hour ``mc_latest`` cache entry is written by the live-run path and read
     back long after the fact, so the premium is computed *here*, on read, rather than
     stored — see :func:`risk_premium_from_values` on why a frozen ``ratio`` goes wrong.
 

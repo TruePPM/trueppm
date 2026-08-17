@@ -205,6 +205,16 @@ def test_deterministic_projects_with_actuals_simulate_to_the_cpm_finish(seed: in
     velocity signal, so every run is identical and ``monte_carlo()`` must land
     exactly on ``schedule().project_finish``. Actuals are drawn on *any* weekday
     including weekends, which is what exercises the verbatim-date paths.
+
+    Scope note before widening this generator: it only ever stamps ``actual_start``
+    on tasks it has already marked 100% complete, and the strict equality below
+    depends on that. An *in-progress* task with a non-working ``actual_start`` is
+    the one case Monte Carlo cannot reproduce exactly — the working-day offset
+    index has no offset for the date, so the floor snaps forward and the finish
+    can land up to one working day late, deliberately (see ``_mc_es_floors``,
+    #2833). Draw that here and the assertion must relax to ``>=``, which is the
+    property ``test_contract_fuzz.test_monte_carlo_never_precedes_cpm`` already
+    covers over exactly that space.
     """
     rng = random.Random(seed)
     n = rng.randint(2, 6)

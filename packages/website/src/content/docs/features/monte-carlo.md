@@ -230,6 +230,15 @@ progresses, the simulation will:
 - **Anchor remaining work at a data date.** Not-started and remaining work will
   be scheduled no earlier than the project's **status date**, so the forecast
   never places future work in the past.
+- **Floor in-progress work at its recorded actual start.** A task that actually
+  began *after* the data date will be forecast from the day it really started,
+  not from the status date — actuals are truth and are never smoothed back to an
+  earlier slot in the network. This is the same floor the deterministic CPM
+  schedule applies, so the Monte Carlo band can never claim a finish date the
+  Gantt has already ruled out. *(This floor lands in 0.4. Up to and including
+  0.3 the forecast anchors in-progress work at the data date alone, so a project
+  whose work started later than its last status report can read percentiles
+  earlier than its own CPM finish — re-run those forecasts after upgrading.)*
 
 A new optional `status_date` field on the project (`GET`/`PATCH
 /api/v1/projects/<id>/`) will set that anchor. When it is left null the forecast

@@ -2983,7 +2983,13 @@ def _mc_es_floors(
     offset_of_by_cal: dict[int, dict[date, int]],
     wd_index_by_cal: dict[int, list[date]],
 ) -> dict[str, float]:
-    """Merge each task's SNET pin and the data-date floor into one ES lower bound.
+    """Merge each task's SNET pin, recorded actual start, and the data-date floor.
+
+    The deterministic forward pass builds an in-progress task's ES from a three-way
+    maximum — the data date, the ``planned_start`` (SNET) pin, and the recorded
+    ``actual_start`` — before folding in network logic. This is the Monte Carlo
+    counterpart, and it must apply all three or the simulation samples from a window
+    CPM has already excluded.
 
     ``planned_start`` (SNET) floors mirror the deterministic forward pass (#1068): a
     pinned task may not start before its pin regardless of network logic. A pin at or
@@ -2991,8 +2997,32 @@ def _mc_es_floors(
     to cover the furthest pin, so the lookup is total. The data date floors all
     not-yet-finished work — nothing remaining can be sampled before "as of now".
 
-    Both are ES lower bounds on the same task, so they merge here and the forward pass
-    reads a single number.
+    ``actual_start`` floors work already underway at where it actually began
+    (ADR-0132 §2 / #2621) — actuals are truth and are never smoothed back to an
+    earlier network slot. It was missing here for as long as the deterministic floor
+    existed, so every percentile on an in-progress project was computed against an
+    early window ``schedule()`` had already rejected and P95 could land *before* the
+    plain CPM finish — a risk tool under-reporting risk (#2833). Only not-yet-complete
+    tasks take it, exactly as in the deterministic pass: a complete task is pinned out
+    of network logic entirely (:func:`_completed_dates`) and never reads this floor.
+
+    **A non-working actual is snapped forward here, and the deterministic pass leaves
+    it verbatim.** That is a deliberate, one-directional divergence, not an oversight.
+    ``_forward_pass`` works in scalar dates and can hold a Saturday actual; this index
+    holds working days only, so the date has no offset and *some* neighbour has to
+    stand in for it. Neither neighbour is exact: the offset below reproduces
+    ``ES + duration`` for a finish-anchored (FS/FF) successor but reads the start
+    itself a working day early, which walks an SS/SF successor — and the terminal
+    finish of a task whose remaining work fits in its start day — back before the day
+    work demonstrably began. Snapping forward can only ever report *later* than the
+    deterministic pass, by at most one working day. A risk forecast may round toward
+    more risk; it may never round toward less, which is the whole failure mode #2833
+    was. Representing the date exactly needs the scalar-date treatment completed tasks
+    get (:func:`_completed_edge_constraints`), and that rests on a run-invariant
+    window an in-progress task does not have.
+
+    All three are ES lower bounds on the same task, so they merge here and the forward
+    pass reads a single number.
     """
 
     def _snap_offset(d: date, tid: str) -> float:
@@ -3010,6 +3040,12 @@ def _mc_es_floors(
             floor = _snap_offset(t.planned_start, t.id)
         if status_date is not None and status_date > project.start_date:
             floor = max(floor, _snap_offset(status_date, t.id))
+        if (
+            t.actual_start is not None
+            and t.actual_start > project.start_date
+            and not _is_complete(t)
+        ):
+            floor = max(floor, _snap_offset(t.actual_start, t.id))
         if floor:
             es_floor[t.id] = floor
     return es_floor
@@ -3037,15 +3073,16 @@ def _mc_progress_state(
     Completed tasks are pinned to a constant offset pair (not re-sampled) and carry
     their verbatim ``(early_start, early_finish)`` dates for the scalar
     constraint/floor paths; in-progress tasks record their fixed elapsed portion so
-    only the remaining work carries uncertainty; SNET pins and the data date floor
-    every not-yet-finished task. None of these vary across runs, so they are
-    computed once.
+    only the remaining work carries uncertainty; SNET pins, recorded actual starts,
+    and the data date floor every not-yet-finished task. None of these vary across
+    runs, so they are computed once.
 
     Per-task calendars (#1385): every offset here is expressed in the *owning
     task's* working-day space, because that is the space its column of the forward
-    pass lives in. ``es_floor`` therefore merges the SNET pin and the data-date
-    floor per task rather than carrying a single project-wide status floor — with
-    mixed calendars the same data date snaps to a different offset in each one.
+    pass lives in. ``es_floor`` therefore merges the SNET pin, the actual start,
+    and the data-date floor per task rather than carrying a single project-wide
+    status floor — with mixed calendars the same data date snaps to a different
+    offset in each one.
     ``completed_dates`` is the exception that proves the rule: it is scalar
     ``date`` space precisely so it is calendar-neutral and can cross an edge into
     a successor on a different working week.
@@ -3355,9 +3392,15 @@ def monte_carlo(
     The CPM network is evaluated `runs` times with sampled durations.
     All 4 dependency types are handled, ``planned_start`` is honored as the
     same start-no-earlier-than floor the deterministic pass applies,
-    and zero-duration milestones occupy their start day exactly as in
-    :func:`schedule` — a fully deterministic project (no estimates,
-    no velocity signal) simulates to precisely the CPM finish date.
+    in-progress work is floored at its recorded ``actual_start`` as
+    :func:`schedule` floors it (ADR-0132 §2, #2833), and zero-duration
+    milestones occupy their start day exactly as in :func:`schedule` — a fully
+    deterministic project (no estimates, no velocity signal) simulates to
+    precisely the CPM finish date. The one exception is an ``actual_start``
+    recorded on a *non-working* day, which the working-day index cannot
+    represent: it snaps to the next working day, so such a project simulates to
+    at most one working day *after* its CPM finish, never before (never before
+    is the invariant; see :func:`_mc_es_floors`).
 
     Per-task calendars (ADR-0120 D3) are honored, on the same rule
     :func:`schedule` applies: a task's duration expands on its own calendar, and

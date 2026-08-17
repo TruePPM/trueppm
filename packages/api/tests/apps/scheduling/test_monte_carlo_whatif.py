@@ -18,6 +18,7 @@ from rest_framework.throttling import ScopedRateThrottle
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project, Task
 from trueppm_api.apps.scheduling.models import MonteCarloRun, ProjectForecastSnapshot
+from trueppm_api.apps.scheduling.views import mc_latest_cache_key
 
 User = get_user_model()
 
@@ -187,7 +188,7 @@ class TestWhatIfNonMutating:
         cache stays empty."""
         assert MonteCarloRun.objects.count() == 0
         assert ProjectForecastSnapshot.objects.count() == 0
-        cache_key = f"mc_latest:{project.pk}"
+        cache_key = mc_latest_cache_key(project.pk)
         assert cache.get(cache_key) is None
 
         r = member_client.get(
