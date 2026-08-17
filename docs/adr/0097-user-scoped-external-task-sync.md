@@ -56,12 +56,28 @@ class ExternalTaskSource(ABC):
     requires_credential: ClassVar[bool] = True
 
     @abstractmethod
-    def fetch_assigned_items(self, *, credential, config) -> list[ExternalWorkItemDTO]:
+    def fetch_assigned_items(
+        self, *, base_url: str, secret: str, config: dict[str, Any]
+    ) -> list[ExternalWorkItemDTO]:
         """Read-only. Return the items currently assigned to the credential's owner."""
 
-    def verify_credential(self, *, credential, config) -> VerifyResult:
+    def verify_credential(self, *, base_url: str, secret: str, config) -> VerifyResult:
         return VerifyResult(ok=True, reason="unverified")  # additive default
 ```
+
+> **Signature corrected 2026-08-16 (#2859).** As drafted, both methods took a
+> single `credential` object. As **shipped**, the credential is split into
+> `base_url` + `secret`, for a security reason documented at
+> `apps/integrations/external_sources.py:19-24`: the caller decrypts the PAT once
+> at the boundary and passes the plaintext `secret` in, so a source implementation
+> never sees ciphertext or the DB row and the encryption surface stays inside
+> `apps/integrations`. The `base_url` is allow-listed before the token goes on the
+> wire.
+>
+> The code is right and this block was stale. It mattered because Python's ABC
+> machinery checks override **presence, not signature**: a provider written from
+> the draft signature passes `issubclass` at registration and raises `TypeError`
+> at the first fetch — a failure that surfaces in production, not at startup.
 
 OSS registers `jira` (and may add `github`) in `IntegrationsConfig.ready()`. Enterprise registers additional *sources* (`servicenow`, `azure_devops`) in its own `AppConfig.ready()`. Adding a source key is additive (non-breaking); renaming/removing a key or changing the ABC signature is a major-version bump. **The Enterprise bidirectional Integration Hub is an orthogonal subsystem — it does not register against this interface and is unaffected.** This is what makes the shape forward-stable for question 6.
 

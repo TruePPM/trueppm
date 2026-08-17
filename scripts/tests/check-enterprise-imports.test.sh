@@ -94,6 +94,49 @@ TSX
 run_gate
 check "typescript dynamic import fails" "$([ "$RC" -eq 1 ] && echo 0 || echo 1)"
 
+# --- Must FAIL: a dependency-manifest entry (#2859) --------------------------
+#
+# Harder than an import: it makes the proprietary package a declared dependency
+# of the Apache 2.0 distribution, so an install pulls it whether or not any OSS
+# line imports it. Manifests matched none of the source globs, so before #2859
+# the gate could not see any of these.
+
+stage api/pyproject.toml <<'TOML'
+[project]
+dependencies = [
+    "django>=5.2",
+    "trueppm-enterprise>=1.0",
+]
+TOML
+run_gate
+check "pyproject dependency entry fails" "$([ "$RC" -eq 1 ] && echo 0 || echo 1)"
+check "pyproject hit names the manifest" "$(echo "$OUT" | grep -q 'pyproject.toml' && echo 0 || echo 1)"
+
+stage web/package.json <<'JSON'
+{
+  "dependencies": {
+    "@trueppm/enterprise-web": "^1.0.0",
+    "trueppm-enterprise": "^1.0.0"
+  }
+}
+JSON
+run_gate
+check "package.json dependency entry fails" "$([ "$RC" -eq 1 ] && echo 0 || echo 1)"
+
+stage api/requirements-prod.txt <<'TXT'
+django==5.2
+trueppm-enterprise==1.0
+TXT
+run_gate
+check "requirements.txt entry fails" "$([ "$RC" -eq 1 ] && echo 0 || echo 1)"
+
+stage wasm-scheduler/Cargo.toml <<'TOML'
+[dependencies]
+trueppm-enterprise = "1.0"
+TOML
+run_gate
+check "Cargo.toml dependency entry fails" "$([ "$RC" -eq 1 ] && echo 0 || echo 1)"
+
 # --- Must PASS: prose naming the package, which the boundary permits ---------
 
 stage api/apps/workspace/signals.py <<'PY'

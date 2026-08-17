@@ -250,7 +250,10 @@ in that same issue.
 
 ### Boundary-compliance verification
 
-- `grep -r "trueppm_enterprise" packages/` MUST return zero results (CI `boundary:check`).
+- `make enterprise-boundary-check` MUST pass (CI `boundary:imports`). Corrected
+  2026-08-16 (#2859): this line previously named the naive grep, which returns
+  legitimate prose, and cited `boundary:check` — that job guards the *issue tracker*,
+  not the source.
 - No OSS model gains an FK or column referencing an enterprise table (EP2 keeps the
   dependency one-way: enterprise → OSS).
 - `group_memberships_for()` and all `registry.get(slot)` consumers return a safe

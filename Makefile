@@ -281,6 +281,13 @@ enterprise-boundary-check: ## Fail if OSS source imports from trueppm-enterprise
 	@# that is a licensing defect rather than a bug.
 	@bash scripts/check-enterprise-imports.sh
 
+boundary-doc-check: ## Fail if a doc instructs the stale naive boundary grep (#2859)
+	@# #2603 replaced the naive grep with an import-syntax gate but did not update
+	@# the docs telling people to run it, so CONTRIBUTING.md and four other
+	@# surfaces handed a contributor a command that reports the project's sacred
+	@# invariant as violated on a clean tree. Grep over five doc roots, ~1s.
+	@bash scripts/check-boundary-doc-command.sh
+
 playwright-pins-check: ## Fail if a Playwright npm pin drifts from the CI image tag (#2797)
 	@# A version mismatch means the browsers baked into the image are at a path
 	@# the npm package never looks in, so the launch fails outright. In web:e2e
@@ -307,7 +314,7 @@ nginx-headers-check: ## Fail if the five nginx configs disagree on the hardening
 	@# are skipped (loudly) when helm is not on PATH — CI always has it.
 	@bash scripts/check-nginx-security-headers.sh
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check demo-readonly-check helm-metric-names-check nginx-headers-check playwright-pins-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check playwright-pins-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/

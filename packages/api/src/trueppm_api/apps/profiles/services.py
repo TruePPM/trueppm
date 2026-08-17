@@ -39,6 +39,7 @@ from trueppm_api.apps.profiles.models import (
     RoleContext,
     UserProfile,
 )
+from trueppm_api.core.extension_providers import guard_single_provider
 
 logger = logging.getLogger(__name__)
 
@@ -80,8 +81,12 @@ def register_portfolio_access_provider(
     """
 
     global _portfolio_access_provider, _portfolio_path_provider
-    _portfolio_access_provider = access
-    _portfolio_path_provider = path
+    _portfolio_access_provider = guard_single_provider(
+        _portfolio_access_provider, access, "portfolio access"
+    )
+    _portfolio_path_provider = guard_single_provider(
+        _portfolio_path_provider, path, "portfolio path"
+    )
 
 
 def has_portfolio_access(user: Any) -> bool:

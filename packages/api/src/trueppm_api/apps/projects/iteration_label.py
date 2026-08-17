@@ -22,6 +22,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from trueppm_api.core.extension_providers import guard_single_provider
+
 if TYPE_CHECKING:
     from trueppm_api.apps.projects.models import Project
     from trueppm_api.apps.workspace.models import Workspace
@@ -39,7 +41,9 @@ _ENFORCEMENT_PROVIDER: Callable[[], bool] | None = None
 def register_terminology_enforcement_provider(provider: Callable[[], bool] | None) -> None:
     """Register (or clear) the terminology-enforcement provider. Enterprise calls this."""
     global _ENFORCEMENT_PROVIDER
-    _ENFORCEMENT_PROVIDER = provider
+    _ENFORCEMENT_PROVIDER = guard_single_provider(
+        _ENFORCEMENT_PROVIDER, provider, "terminology enforcement"
+    )
 
 
 def terminology_enforcement_active() -> bool:

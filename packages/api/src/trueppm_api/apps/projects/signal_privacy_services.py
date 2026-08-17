@@ -48,6 +48,7 @@ from trueppm_api.apps.projects.models import (
     SignalCeilingRaiseVote,
     signal_audience_rank,
 )
+from trueppm_api.core.extension_providers import guard_single_provider
 from trueppm_api.core.extension_signals import dispatch_extension_signal
 
 if TYPE_CHECKING:
@@ -81,7 +82,9 @@ def register_default_posture_provider(
 ) -> None:
     """Register (or clear) the initial-posture provider. Enterprise calls this."""
     global _DEFAULT_POSTURE_PROVIDER
-    _DEFAULT_POSTURE_PROVIDER = provider
+    _DEFAULT_POSTURE_PROVIDER = guard_single_provider(
+        _DEFAULT_POSTURE_PROVIDER, provider, "signal-privacy default posture"
+    )
 
 
 def _seed_initial_visibility(policy: ProjectSignalPrivacyPolicy, project: Project) -> None:

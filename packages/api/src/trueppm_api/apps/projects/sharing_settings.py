@@ -28,6 +28,8 @@ from typing import TYPE_CHECKING
 
 from django.conf import settings
 
+from trueppm_api.core.extension_providers import guard_single_provider
+
 if TYPE_CHECKING:
     from trueppm_api.apps.projects.models import Program, Project
     from trueppm_api.apps.workspace.models import Workspace
@@ -46,7 +48,9 @@ _ENFORCEMENT_PROVIDER: Callable[[], bool] | None = None
 def register_sharing_enforcement_provider(provider: Callable[[], bool] | None) -> None:
     """Register (or clear) the sharing-enforcement provider. Enterprise calls this."""
     global _ENFORCEMENT_PROVIDER
-    _ENFORCEMENT_PROVIDER = provider
+    _ENFORCEMENT_PROVIDER = guard_single_provider(
+        _ENFORCEMENT_PROVIDER, provider, "sharing enforcement"
+    )
 
 
 def sharing_enforcement_active() -> bool:

@@ -10,8 +10,11 @@ Thank you for your interest in TruePPM. This document covers everything you need
 **The OSS core must never import from the enterprise repo.** Verify with:
 
 ```bash
-grep -r "trueppm_enterprise" packages/  # must return zero results
+make enterprise-boundary-check   # OK: no trueppm-enterprise imports in packages
 ```
+
+A plain `grep -r "trueppm_enterprise" packages/` is **not** the check. The tree legitimately names the package in extension-point docstrings and ADR pointers — that grep returns 12 lines across 8 files on a clean tree. The gate matches import syntax and quoted module paths, and ignores comments (#2603). The same check runs in CI as `boundary:imports` on every merge request, and
+locally as part of `make pre-push`.
 
 ## Before you start
 

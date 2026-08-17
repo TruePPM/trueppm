@@ -124,7 +124,7 @@ The OSS core must remain fully functional without the enterprise package. Enterp
 code registers against OSS extension points (signals, slot registry, URL patterns);
 OSS never imports from `trueppm_enterprise`. Verify with:
 ```bash
-grep -r "trueppm_enterprise" packages/  # must return zero results in OSS code
+make enterprise-boundary-check  # must print "OK: no trueppm-enterprise imports in packages"
 ```
 
 ---
