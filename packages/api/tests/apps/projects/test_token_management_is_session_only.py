@@ -289,6 +289,53 @@ def test_offboarding_revocation_is_audited_and_names_the_admin(owner: Any) -> No
 
 
 @pytest.mark.django_db
+def test_bulk_revocation_ignores_already_expired_tokens(owner: Any) -> None:
+    """An expired token cannot authenticate, so revoking it contains nothing.
+
+    Auditing it anyway would pad the trail with rows claiming N live credentials were
+    cut off when the real number was lower — on the one log an incident review reads to
+    answer exactly that question.
+    """
+    from trueppm_api.apps.access.services import revoke_all_personal_access_tokens
+
+    dead, _ = _mint(owner, name="expired", expires_at=timezone.now() - timedelta(days=1))
+    live, _ = _mint(owner, name="live")
+
+    assert revoke_all_personal_access_tokens(owner, reason="password_reset") == 1
+    dead.refresh_from_db()
+    live.refresh_from_db()
+    assert dead.revoked_at is None
+    assert live.revoked_at is not None
+    assert ApiTokenAuditEntry.objects.filter(owner=owner).count() == 1
+
+
+@pytest.mark.django_db
+def test_bulk_revocation_does_not_move_an_existing_revocation_forward(owner: Any) -> None:
+    """A second sweep must not re-date the first one's containment.
+
+    The refactor that added the audit rows split one guarded ``update()`` into a
+    read-then-write. Without the ``revoked_at__isnull`` guard surviving onto the write
+    (and the row lock around the pair), a concurrent password reset and off-boarding
+    both select the same rows and the later write pushes ``revoked_at`` forward —
+    misdating the one field an auditor reads, and emitting a second REVOKED row whose
+    reason contradicts the first.
+    """
+    from trueppm_api.apps.access.services import revoke_all_personal_access_tokens
+
+    token, _ = _mint(owner, name="a")
+    revoke_all_personal_access_tokens(owner, reason="password_reset")
+    token.refresh_from_db()
+    first_revoked_at = token.revoked_at
+
+    revoke_all_personal_access_tokens(owner, reason="offboarding")
+    token.refresh_from_db()
+    assert token.revoked_at == first_revoked_at
+    rows = ApiTokenAuditEntry.objects.filter(owner=owner)
+    assert rows.count() == 1
+    assert rows.get().detail["reason"] == "password_reset"
+
+
+@pytest.mark.django_db
 def test_bulk_revocation_leaves_integration_tokens_alone(project: Project, owner: Any) -> None:
     """Scope discipline is load-bearing and must not regress while adding the audit."""
     from trueppm_api.apps.access.services import revoke_all_personal_access_tokens
@@ -326,6 +373,26 @@ def test_a_user_can_read_their_own_token_history(owner: Any) -> None:
         ApiTokenAuditAction.MINTED.value,
         ApiTokenAuditAction.REVOKED.value,
     }
+
+
+@pytest.mark.django_db
+def test_the_audit_reader_actually_serves_source_ip(owner: Any) -> None:
+    """The field is declared, described, and promised in the docs — so it must arrive.
+
+    ``ApiTokenAuditEntrySerializer`` blanks ``source_ip`` below project-Admin, resolved
+    via ``_membership_role(request, instance.project_id)``. Owner-scoped rows carry
+    ``project_id = None``, so that lookup can never resolve and every row on this
+    endpoint returned ``source_ip: null`` for every caller including its owner — a
+    hard-coded null behind a schema field and a documented promise, and it made the
+    password-reset path's ``source_ip=_client_ip(request)`` a write with no reader
+    anywhere. Asserting a real address is what keeps that from silently returning.
+    """
+    client = _session(owner)
+    created = client.post(_MY_TOKENS, {"name": "ci"}, format="json", REMOTE_ADDR="203.0.113.7")
+    assert created.status_code == 201, created.data
+
+    resp = client.get(_MY_AUDIT)
+    assert resp.data["results"][0]["source_ip"] == "203.0.113.7", resp.data
 
 
 @pytest.mark.django_db

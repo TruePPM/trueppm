@@ -15981,6 +15981,13 @@ class MyApiTokenAuditView(generics.ListAPIView[Any]):
     permission_classes = [IsAuthenticated, IsNotTokenAuthenticated]
     serializer_class = ApiTokenAuditEntrySerializer
     pagination_class = _ApiTokenAuditPagination
+    # Declare no filter backends rather than inheriting the global ones. `SearchFilter`
+    # is in DEFAULT_FILTER_BACKENDS, and a view that sets no `search_fields` makes DRF
+    # return the *unfiltered* list for `?search=x` with a 200 — while drf-spectacular
+    # still publishes `search` as a query parameter. An advertised parameter that is
+    # silently ignored is worse than an absent one; the log is already ordered
+    # newest-first and paginated, so neither backend has anything to contribute.
+    filter_backends: list[Any] = []
 
     def get_queryset(self) -> QuerySet[Any]:
         from trueppm_api.apps.projects.models import ApiTokenAuditEntry

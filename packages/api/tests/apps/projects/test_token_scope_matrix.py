@@ -365,6 +365,76 @@ def test_is_agent_token_predicate(owner: Any, scopes: list[str], expected: bool)
     assert is_agent_token(token) is expected
 
 
+@pytest.mark.django_db
+def test_a_refused_scoped_token_probe_is_blocked_but_not_audited(
+    project: Project, owner: Any
+) -> None:
+    """Pins the *actual* state of a claim that did not reproduce, so it stays honest.
+
+    A security review of this change asserted that the #1712 confused-deputy probe — a
+    one-project integration token walked against a collection tool to read its minter's
+    whole membership — used to write a ``refused`` ``AgentAction`` row and stopped doing
+    so here. Probed against ``origin/main``: it wrote **zero** rows there too. Nothing
+    was removed.
+
+    The reason is structural and worth pinning rather than leaving as folklore: DRF's
+    ``exception_handler`` calls ``set_rollback()``, so by the time ``finalize_response``
+    runs, the connection is marked for rollback and ``_record_mcp_agent_action``'s
+    refusal branch declines to write a row that could not commit. Every
+    *permission-layer* refusal on this surface is therefore unaudited; the refusals that
+    do get recorded come from the authenticator, which runs earlier. Tracked as #2939.
+
+    What must not regress is the part that does work — the probe is refused, and the
+    scoped token reads nothing.
+    """
+    from trueppm_api.apps.agents.models import AgentAction
+
+    raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+    ApiToken.objects.create(
+        project=project,
+        name="scoped-ci",
+        token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+        token_hash=sha256_hex(raw),
+        created_by=owner,
+    )  # default scopes = [legacy:full], as every project token gets
+
+    resp = _bearer(raw).get("/api/v1/projects/")
+    assert resp.status_code == 401, resp.data
+    assert resp.data["refusal"]["reason"] == "identity", resp.data
+    assert not AgentAction.objects.exists(), (
+        "a permission-layer refusal became auditable — good news, but then "
+        "_record_mcp_agent_action's scope predicate is now load-bearing and this test "
+        "should assert the row instead of its absence (#2939)"
+    )
+
+
+@pytest.mark.django_db
+def test_a_full_access_pats_successful_read_is_not_audited_as_agent_activity(
+    project: Project, owner: Any
+) -> None:
+    """The other half of the asymmetry: a person's own credential is not an agent.
+
+    A row here would claim ``actor_kind=MCP_TOKEN`` and ``capability_used=mcp:read``
+    about a CI script, and would half-close #2749 on eight viewsets while ~260 other
+    token-writable routes stay unrecorded. A partial ledger reads as a complete one.
+    """
+    from trueppm_api.apps.agents.models import AgentAction
+
+    raw = _mint_personal(owner, [SCOPE_LEGACY_FULL])
+    assert _bearer(raw).get(f"/api/v1/tasks/?project={project.pk}").status_code == 200
+    assert not AgentAction.objects.exists()
+
+
+@pytest.mark.django_db
+def test_an_agent_tokens_read_is_audited(project: Project, owner: Any) -> None:
+    """Guard the guard — the exclusion above must not have silenced the real agent path."""
+    from trueppm_api.apps.agents.models import AgentAction
+
+    raw = _mint_personal(owner, [SCOPE_MCP_READ])
+    assert _bearer(raw).get(f"/api/v1/tasks/?project={project.pk}").status_code == 200
+    assert AgentAction.objects.latest("sequence").verdict == "allowed"
+
+
 def test_is_agent_token_is_false_for_non_tokens() -> None:
     """Human JWT/Session auth is ``None``; nothing else may be mistaken for a token."""
     assert is_agent_token(None) is False

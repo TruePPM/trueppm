@@ -557,19 +557,41 @@ def revoke_all_personal_access_tokens(
     # Materialize before the update: after it, `revoked_at__isnull=True` no longer
     # selects the rows this call is responsible for, and re-reading without the filter
     # would also pick up tokens revoked earlier by someone else and double-audit them.
+    #
+    # `select_for_update()` is what keeps the split read/write as idempotent as the
+    # single `update()` it replaced. Without the row lock, a password reset racing an
+    # admin off-boarding both select the same rows, both write, and the second write
+    # moves `revoked_at` *forward* — misdating containment on the one field an auditor
+    # reads — while producing a second REVOKED row with a contradicting reason and an
+    # inflated return count. Holding the lock makes `doomed` exactly the set this call
+    # revokes, so the audit rows below cannot describe someone else's revocation. It
+    # requires an open transaction, which every caller has (ATOMIC_REQUESTS for the two
+    # request paths, an explicit `atomic()` in the management command); a caller without
+    # one gets a loud TransactionManagementError rather than a silent race.
+    #
+    # Expired tokens are excluded deliberately. An expired token already fails
+    # authentication (expiry is folded into the authenticator's hash lookup), so
+    # revoking it changes nothing — but auditing it would pad the trail with rows
+    # claiming N live credentials were contained when the real number was lower. This
+    # matches `ApiToken.active_personal_tokens_for`, the canonical definition of
+    # "active", which the 10-token cap already uses.
+    now = timezone.now()
     doomed = list(
-        ApiToken.objects.filter(
+        ApiToken.objects.select_for_update()
+        .filter(
+            models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=now),
             owner=user,
             is_deleted=False,
             revoked_at__isnull=True,
-        ).only("pk", "token_prefix", "name")
+        )
+        .only("pk", "token_prefix", "name")
     )
     if not doomed:
         return 0
 
-    revoked = ApiToken.objects.filter(pk__in=[token.pk for token in doomed]).update(
-        revoked_at=timezone.now()
-    )
+    revoked = ApiToken.objects.filter(
+        pk__in=[token.pk for token in doomed], revoked_at__isnull=True
+    ).update(revoked_at=now)
     ApiTokenAuditEntry.objects.bulk_create(
         [
             ApiTokenAuditEntry(

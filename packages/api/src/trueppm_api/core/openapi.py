@@ -392,6 +392,46 @@ def _annotate_operation(
 # 429 documentation via a custom AutoSchema
 # ---------------------------------------------------------------------------
 
+# The 403 an API-token caller receives on the credential-management surface (#2878).
+# Declared on every operation whose view carries ``IsNotTokenAuthenticated``, so an
+# integrator scripting against a token learns from the contract that this refusal is
+# by design rather than discovering it as an apparent permissions bug.
+_TOKEN_REFUSED_RESPONSE = {
+    "description": (
+        "Refused because the caller authenticated with an API token. Managing API "
+        "tokens requires a session or JWT — a token cannot mint, list, or revoke "
+        "tokens, so that revoking a leaked credential is actual containment. The "
+        "``refusal`` envelope carries ``reason: policy`` and ``constraint: "
+        "capability_scope``. A token that is revoked, expired, or carries the wrong "
+        "scope for this surface is rejected earlier, by the authenticator, and "
+        "receives ``401`` with ``reason: identity`` instead."
+    ),
+    "content": {
+        "application/json": {
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "detail": {
+                        "type": "string",
+                        "example": (
+                            "API tokens cannot manage API tokens. Sign in to create, "
+                            "list, or revoke tokens."
+                        ),
+                    },
+                    "refusal": {
+                        "type": "object",
+                        "properties": {
+                            "verdict": {"type": "string", "example": "refused"},
+                            "reason": {"type": "string", "example": "policy"},
+                            "constraint": {"type": "string", "example": "capability_scope"},
+                        },
+                    },
+                },
+            }
+        }
+    },
+}
+
 _THROTTLE_RESPONSE = {
     "description": (
         "Rate limit exceeded. The client is issuing requests faster than the "
@@ -520,6 +560,13 @@ class TruePPMAutoSchema(AutoSchema):
         if throttle_classes:
             responses = operation.setdefault("responses", {})
             responses.setdefault("429", dict(_THROTTLE_RESPONSE))
+        if self._token_callers_refused():
+            # Declared here rather than by decorating each view for the same reason as
+            # the 429 above: the fact lives in a view attribute the schema dict cannot
+            # see, and one injection point cannot drift from the permission class the
+            # way fifteen hand-written `@extend_schema` blocks would (#2878).
+            responses = operation.setdefault("responses", {})
+            responses.setdefault("403", dict(_TOKEN_REFUSED_RESPONSE))
         return operation
 
     def _get_paginator(self) -> Any:

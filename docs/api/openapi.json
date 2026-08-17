@@ -4230,24 +4230,6 @@
                         "schema": {
                             "type": "integer"
                         }
-                    },
-                    {
-                        "name": "ordering",
-                        "required": false,
-                        "in": "query",
-                        "description": "Which field to use when ordering the results.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "search",
-                        "required": false,
-                        "in": "query",
-                        "description": "A search term.",
-                        "schema": {
-                            "type": "string"
-                        }
                     }
                 ],
                 "tags": [
@@ -4282,6 +4264,39 @@
                                         "detail": {
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -4361,6 +4376,39 @@
                                 }
                             }
                         }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
                 "summary": "List api tokens"
@@ -4400,6 +4448,39 @@
                                         "detail": {
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -4461,6 +4542,39 @@
                                 }
                             }
                         }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
                 "summary": "Retrieve api token"
@@ -4503,6 +4617,39 @@
                                         "detail": {
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -4791,9 +4938,6 @@
                 ],
                 "security": [
                     {
-                        "personalApiTokenAuth": []
-                    },
-                    {
                         "jwtAuth": []
                     },
                     {
@@ -4829,6 +4973,39 @@
                                 }
                             }
                         }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
                 "summary": "List credentials"
@@ -4852,9 +5029,6 @@
                     "me"
                 ],
                 "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
                     {
                         "jwtAuth": []
                     },
@@ -4883,6 +5057,39 @@
                                         "detail": {
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -4948,9 +5155,6 @@
                 },
                 "security": [
                     {
-                        "personalApiTokenAuth": []
-                    },
-                    {
                         "jwtAuth": []
                     },
                     {
@@ -4996,6 +5200,39 @@
                                 }
                             }
                         }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
                 "summary": "Update credential"
@@ -5018,9 +5255,6 @@
                 ],
                 "security": [
                     {
-                        "personalApiTokenAuth": []
-                    },
-                    {
                         "jwtAuth": []
                     },
                     {
@@ -5041,6 +5275,39 @@
                                         "detail": {
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -9540,6 +9807,39 @@
                                 }
                             }
                         }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
                 "summary": "Retrieve api token audit"
@@ -9623,6 +9923,39 @@
                                 }
                             }
                         }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
                 "summary": "List api tokens"
@@ -9672,6 +10005,39 @@
                                         "detail": {
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -9741,6 +10107,39 @@
                                 }
                             }
                         }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
                 "summary": "Retrieve api token"
@@ -9791,6 +10190,39 @@
                                         "detail": {
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -20219,6 +20651,39 @@
                                 }
                             }
                         }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
                 "summary": "Retrieve api token audit"
@@ -20302,6 +20767,39 @@
                                 }
                             }
                         }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
                 "summary": "List api tokens"
@@ -20351,6 +20849,39 @@
                                         "detail": {
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -20420,6 +20951,39 @@
                                 }
                             }
                         }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
                 "summary": "Retrieve api token"
@@ -20470,6 +21034,39 @@
                                         "detail": {
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing API tokens requires a session or JWT — a token cannot mint, list, or revoke tokens, so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
                                         }
                                     }
                                 }

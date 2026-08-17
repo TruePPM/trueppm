@@ -1393,6 +1393,15 @@ class IsNotTokenAuthenticated(BasePermission):
     that justifies leaving it open. Managing credentials requires being present —
     a session or a JWT.
 
+    **What this covers, precisely.** API tokens (personal, project, program) and their
+    audit logs, plus the per-user connected-account credential store. It does **not**
+    cover every route that mints a durable grant of some kind: a leaked PAT belonging to
+    a project Admin can still rotate a git-automation webhook secret or mint a public
+    share link, and neither is revoked by password reset, off-boarding, or the
+    ``revoke_api_tokens`` sweep (TODO(#2939)). So "revoke the token and you are
+    contained" is true for the credential surface and not yet a whole-system property —
+    say the narrower thing in operator docs until #2939 closes.
+
     **The predicate is ``request.auth``, and that is only sound because it runs as a
     permission.** An identity refusal is raised by the *authenticator*, so on that
     path ``request.auth`` is still ``None`` and this class never executes at all —
@@ -1882,19 +1891,40 @@ class McpReadableViewMixin(_McpViewBase):
         if getattr(request, "successful_authenticator", None) is None:
             return
         token = getattr(request, "auth", None)
-        # A ``legacy:full`` PAT is excluded (#2877). It is not an agent, and the row it
-        # would write says otherwise on three fields at once: ``actor_kind=MCP_TOKEN``,
-        # ``capability_used=mcp:read``, and a summary reading "MCP POST …". Recording a
-        # person's CI script as agent activity in the oversight panel is the same
-        # inverted trail #2878 filed against the revocation log, and it would half-close
-        # #2749 (governing ``legacy:full`` token writes, 0.5) on eight viewsets while
-        # leaving the ~260 other token-writable routes in
-        # ``tests/apps/access/token_write_surface.txt`` unrecorded — a partial ledger is
-        # worse than a documented gap, because it reads as complete.
+        if not isinstance(token, ProjectApiToken):
+            return
+
+        status_code = getattr(response, "status_code", 200)
+        # A non-agent token's *successful* read is not agent activity and is not recorded
+        # (#2877). The row would say otherwise on three fields at once —
+        # ``actor_kind=MCP_TOKEN``, ``capability_used=mcp:read``, and a summary reading
+        # "MCP POST …" — so logging a person's CI script there is the same inverted trail
+        # #2878 filed against the revocation log. It would also half-close #2749
+        # (governing ``legacy:full`` token writes, 0.5) on eight viewsets while leaving
+        # the ~260 other token-writable routes in
+        # ``tests/apps/access/token_write_surface.txt`` unrecorded, and a partial ledger
+        # is worse than a documented gap because it reads as complete.
         #
-        # The ``isinstance`` is not redundant with ``is_agent_token``: ``TypeGuard``
-        # narrows only its positive branch, and everything below reads ``token.owner``.
-        if not isinstance(token, ProjectApiToken) or not is_agent_token(token):
+        # A **refusal** is not scope-filtered, and the asymmetry is deliberate even
+        # though it is inert today. Project and program tokens carry ``legacy:full`` by
+        # default, so a scope-only test here would exclude exactly the event most worth
+        # keeping: a scoped integration credential walked against the collection tools
+        # (``/me/work/``, ``/me/search``, ``/workspace/assets``) to turn a one-project
+        # token into a read of its minter's whole membership — the #1712 confused-deputy
+        # attempt.
+        #
+        # Inert today because **no permission-layer refusal on this surface reaches the
+        # write below**, on this branch or before it. DRF's ``exception_handler`` calls
+        # ``set_rollback()``, so by the time ``finalize_response`` runs the connection is
+        # already marked for rollback and the guard further down returns rather than
+        # emitting a row that could not commit. Verified by probe against ``origin/main``:
+        # a project-scoped token refused on ``GET /api/v1/projects/`` writes zero
+        # ``AgentAction`` rows both before and after this change. Refusals that *are*
+        # recorded come from the authenticator (``_audit_identity_refusal``), which runs
+        # before the exception handler. Closing the permission-layer half needs an
+        # out-of-transaction write, which is its own change (#2939) — this predicate is
+        # written to be correct when that lands rather than to need revisiting then.
+        if status_code < 400 and not is_agent_token(token):
             return
 
         from trueppm_api.apps.agents.models import (
@@ -1909,7 +1939,7 @@ class McpReadableViewMixin(_McpViewBase):
         )
         from trueppm_api.apps.projects.models import SCOPE_MCP_READ
 
-        status = getattr(response, "status_code", 200)
+        status = status_code
         allowed = status < 400
         verdict = AgentActionVerdict.ALLOWED if allowed else AgentActionVerdict.REFUSED
         # An authenticated token rejected by an MCP guard is a *policy* refusal (the

@@ -15,9 +15,12 @@
 # produced NO diff in this file — the tripwire could not see the widening it exists
 # to report. Those lines became true in 0.4; they were aspirational before it.
 #
-# The six `api-tokens/` routes left the set in the same change: credential
-# management is session/JWT-only since #2878 (`IsNotTokenAuthenticated`), so a
-# leaked token can no longer mint siblings or revoke the owner's live tokens.
+# Seven routes left the set in the same change: the six `api-tokens/` ones plus
+# `me/credentials/<provider>/`. Credential management is session/JWT-only since
+# #2878 (`IsNotTokenAuthenticated`), so a leaked token can no longer mint sibling
+# tokens, revoke the owner's live ones, or overwrite the owner's connected-account
+# credential. Note what did NOT leave: `me/connections/<source>/` and its `/sync/`
+# are a different viewset and stay token-writable.
 #
 # None of these routes writes an AgentAction row (#2749). A machine-authored
 # write is attributed to the token's human owner via historicaltask.history_user.
@@ -120,7 +123,6 @@ api/v1/integrations/projects/<uuid:project_pk>/git-automation/
 api/v1/integrations/projects/<uuid:project_pk>/git-automation/rotate-secret/
 api/v1/me/connections/<slug:source>/
 api/v1/me/connections/<slug:source>/sync/
-api/v1/me/credentials/<slug:provider>/
 api/v1/me/notification-preferences/<int:pk>/
 api/v1/me/notification-preferences/apply-preset/
 api/v1/me/notification-settings/

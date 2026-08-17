@@ -6177,6 +6177,12 @@ class ApiTokenAuditEntry(models.Model):
         indexes = [
             models.Index(fields=["project", "-created_at"], name="api_token_audit_proj_idx"),
             models.Index(fields=["program", "-created_at"], name="api_token_audit_prog_idx"),
+            # The owner scope's counterpart, added with its reader (#2878). Owner-scoped
+            # rows existed from ADR-0214 but nothing queried them, so the composite that
+            # the other two scopes have was never needed; `MyApiTokenAuditView` runs
+            # exactly this shape (`filter(owner=…).order_by("-created_at")`, plus the
+            # paginator's COUNT).
+            models.Index(fields=["owner", "-created_at"], name="api_token_audit_owner_idx"),
         ]
         constraints = [
             models.CheckConstraint(

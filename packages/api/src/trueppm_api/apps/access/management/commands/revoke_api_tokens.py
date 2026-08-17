@@ -89,11 +89,30 @@ class Command(BaseCommand):
             identifier = str(options["user"]).strip()
             # Accept either handle so a runbook does not have to know which the operator
             # has to hand during an incident.
-            target_user = User.objects.filter(
-                Q(username__iexact=identifier) | Q(email__iexact=identifier)
-            ).first()
-            if target_user is None:
+            #
+            # FAIL CLOSED on ambiguity. Django's stock ``auth.User`` puts **no**
+            # uniqueness constraint on ``email`` at all, and ``username`` uniqueness is
+            # case-*sensitive*, so ``__iexact`` can match several rows two ways. A
+            # ``.first()`` here would silently pick the lowest pk — during an incident,
+            # while reporting success — so the leaked token stays live and an uninvolved
+            # account's automations break instead. ``apps/sso/services.py`` and
+            # ``core/password_reset.py`` already treat this lookup as hazardous; this is
+            # the third caller and it must not be the one that guesses.
+            candidates = list(
+                User.objects.filter(
+                    Q(username__iexact=identifier) | Q(email__iexact=identifier)
+                ).order_by("pk")[:3]
+            )
+            if not candidates:
                 raise CommandError(f"No account matches {identifier!r} by username or email.")
+            if len(candidates) > 1:
+                listed = ", ".join(f"pk={u.pk} username={u.username!r}" for u in candidates)
+                raise CommandError(
+                    f"{identifier!r} matches more than one account ({listed}). Re-run with "
+                    "an unambiguous username so the sweep cannot contain the wrong "
+                    "account."
+                )
+            target_user = candidates[0]
 
         active = ApiToken.objects.filter(is_deleted=False, revoked_at__isnull=True)
         if target_user is not None:

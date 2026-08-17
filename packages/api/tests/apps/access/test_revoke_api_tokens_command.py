@@ -107,6 +107,38 @@ def test_unknown_user_is_an_error_not_a_silent_no_op(alice: Any) -> None:
 
 
 @pytest.mark.django_db
+def test_an_ambiguous_identifier_fails_closed(alice: Any) -> None:
+    """Django's stock ``User`` puts no uniqueness constraint on ``email`` at all.
+
+    So one address can match several accounts, and ``.first()`` on an unordered
+    queryset would silently contain the lowest pk — mid-incident, while reporting
+    success, leaving the actually-leaked token live and breaking an uninvolved
+    account's automations. ``apps/sso/services.py`` and ``core/password_reset.py``
+    already treat this lookup as hazardous; the breach-recovery lever must not be the
+    one that guesses.
+    """
+    twin = User.objects.create_user(username="alice-two", email="alice@example.com", password="pw")
+    mine = _mint(owner=alice, created_by=alice)
+    theirs = _mint(owner=twin, created_by=twin)
+
+    with pytest.raises(CommandError, match="matches more than one account"):
+        _run("--user", "alice@example.com", "--commit", "--yes")
+
+    for token in (mine, theirs):
+        token.refresh_from_db()
+    assert mine.revoked_at is None
+    assert theirs.revoked_at is None
+
+
+@pytest.mark.django_db
+def test_case_differing_usernames_are_also_ambiguous(alice: Any) -> None:
+    """``username`` uniqueness is case-*sensitive*, so ``__iexact`` can match two rows."""
+    User.objects.create_user(username="Alice", email="other@example.com", password="pw")
+    with pytest.raises(CommandError, match="matches more than one account"):
+        _run("--user", "alice", "--commit", "--yes")
+
+
+@pytest.mark.django_db
 def test_all_personal_leaves_integration_tokens_alone(
     alice: Any, bob: Any, project: Project
 ) -> None:

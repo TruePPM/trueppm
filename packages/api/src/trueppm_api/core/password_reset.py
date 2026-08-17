@@ -24,6 +24,7 @@ request endpoint to email-bomb a victim (ADR-0209).
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 from typing import Any
 
@@ -130,21 +131,42 @@ def enforce_reset_password_policy(new_password: str, user: Any) -> None:
 def _client_ip(request: Request) -> str | None:
     """Best-effort client IP for the token-revocation audit rows (#2878).
 
-    Returns ``None`` — not a placeholder string — when neither header is present,
-    because the value lands in a ``GenericIPAddressField`` and ``"unknown"`` would not
-    validate. Takes the left-most ``X-Forwarded-For`` hop (deployments sit behind an
-    ingress); the rest of the chain is caller-forgeable. Recorded only, never used for
-    a security decision.
+    **Validated, not merely extracted, and that is load-bearing here.** The value lands
+    in a ``GenericIPAddressField`` via ``bulk_create``, which does not run
+    ``full_clean``, inside the password-reset confirm transaction — and
+    ``ATOMIC_REQUESTS`` is on. An unparseable header therefore does not degrade to a
+    null column: it raises (``ValidationError`` from Django's IPv6 cleaner on
+    ``1.2.3.4:5678``, or a psycopg ``DataError`` on ``inet`` for RFC-7239's literal
+    ``unknown``), the whole request rolls back, and **the user's password is not
+    changed** — silently, only for users who happen to hold an active token, on a
+    deployment whose ingress is merely misconfigured. Account recovery is the last
+    thing that may be taken down by an audit field, so anything that is not an address
+    becomes ``None``.
+
+    ``None`` rather than a placeholder string for the same reason: ``"unknown"`` is not
+    a valid ``inet``.
+
+    Takes the left-most ``X-Forwarded-For`` hop (deployments sit behind an ingress); the
+    rest of the chain is caller-forgeable. Recorded only, never used for a security
+    decision.
 
     Deliberately local rather than shared: the equivalent helper in
     ``apps/projects/views`` is private to that module, and importing it here would
-    couple the auth flow to a 16k-line view module for four lines. Consolidating the
-    three near-copies is a separate change.
+    couple the auth flow to a 16k-line view module. Consolidating the three near-copies
+    (this one, that one, and ``core/auth_views``) is its own change — note that only
+    this copy feeds a DB column, so only this one has to validate.
     """
     forwarded = request.META.get("HTTP_X_FORWARDED_FOR")
-    if forwarded:
-        return str(forwarded).split(",")[0].strip() or None
-    return request.META.get("REMOTE_ADDR") or None
+    candidate = (
+        str(forwarded).split(",")[0].strip() if forwarded else request.META.get("REMOTE_ADDR")
+    )
+    if not candidate:
+        return None
+    try:
+        ipaddress.ip_address(candidate)
+    except ValueError:
+        return None
+    return str(candidate)
 
 
 def _reset_link(uid: str, token: str) -> str:

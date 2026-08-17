@@ -73,6 +73,23 @@ class McpTokenComputeThrottle(_McpTokenThrottle):
     triggers a CPM + Monte Carlo recompute per call (whatif, monte-carlo/latest,
     forecast, sprint-forecast), so a token loop that could burn CPU is bounded
     well below the baseline read rate.
+
+    Unlike its base class, this one applies to **every** ``ApiToken`` regardless of
+    scope (#2877). The distinction is what each cap is *for*: ``mcp_read`` is an agent
+    budget, and metering a person's own CI script from it capped them 8× tighter than
+    their own browser. This cap is CPU protection, and CPU does not care which
+    credential class asked — an unattended loop against a Monte Carlo recompute is
+    equally expensive from a ``legacy:full`` script. Twelve recomputes a minute is far
+    above what any real automation needs (a nightly export reads each forecast once),
+    so keeping it credential-agnostic costs the legitimate case nothing.
     """
 
     scope = "mcp_read_compute"
+
+    def get_cache_key(self, request: Request, view: APIView) -> str | None:
+        from trueppm_api.apps.projects.models import ApiToken
+
+        token = getattr(request, "auth", None)
+        if isinstance(token, ApiToken):
+            return self.cache_format % {"scope": self.scope, "ident": str(token.pk)}
+        return None  # human JWT/Session — bounded by the account-level throttle

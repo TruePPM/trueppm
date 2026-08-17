@@ -8906,12 +8906,36 @@ class ApiTokenAuditEntrySerializer(serializers.ModelSerializer[ApiTokenAuditEntr
         data = super().to_representation(instance)
         # source_ip reveals integration infrastructure topology (Jira egress IPs,
         # webhook relay addresses). Restrict to Project Manager+ callers only.
+        #
+        # Owner-scoped rows are exempt (#2878). Those record a *person's own* personal
+        # access tokens, `project`/`program` are null, and `MyApiTokenAuditView` already
+        # confines the queryset to `owner=request.user` — so the address being disclosed
+        # is the requester's own, from their own credential's lifecycle. There is no
+        # integration topology to protect. Without this branch the role lookup runs as
+        # `_membership_role(request, None)`, which can never resolve, so every row on that
+        # endpoint returned `source_ip: null` for every caller including its owner —
+        # making the field a hard-coded null while the schema declared it and the docs
+        # promised "with who did it, from which IP". It also wasted one guaranteed-empty
+        # ProjectMembership query per request.
+        if instance.owner_id is not None:
+            return data
         request = self.context.get("request")
         if request is not None:
             from trueppm_api.apps.access.models import Role
-            from trueppm_api.apps.access.permissions import _membership_role
+            from trueppm_api.apps.access.permissions import (
+                _membership_role,
+                _program_membership_role,
+            )
 
-            role = _membership_role(request, instance.project_id)
+            # Program-scoped rows carry `project_id = None` too, so resolving them
+            # through `_membership_role` produced the same guaranteed-`None` role and
+            # blanked `source_ip` for every caller on `ProgramApiTokenAuditView`,
+            # including a Program Admin. Route each row through the ladder that matches
+            # its own scope (#2878).
+            if instance.program_id is not None:
+                role = _program_membership_role(request, instance.program_id)
+            else:
+                role = _membership_role(request, instance.project_id)
             if role is None or role < Role.ADMIN:
                 data["source_ip"] = None
         return data
