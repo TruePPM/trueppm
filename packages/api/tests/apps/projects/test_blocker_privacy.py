@@ -297,3 +297,61 @@ def test_blocking_task_must_be_same_project(
     )
     assert resp.status_code == 400
     assert "blocking_task" in resp.data
+
+
+# ---------------------------------------------------------------------------
+# Annotation priming of the gate (#2855)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_mentioned_user_sees_reason_on_the_list_path(
+    blocked_task: Task, mentioned: Any, assignee: Any, project: Project, memberships: None
+) -> None:
+    """The annotated list path reaches the same verdict as the per-instance query.
+
+    ``annotate_tasks_queryset`` primes the mention lookup as an Exists() subquery so
+    the list costs no per-row query (#2855). This is the positive control for that
+    priming: the retrieve path already proves the mentioned user sees the reason, and
+    the list path must not diverge from it.
+    """
+    comment = TaskComment.objects.create(task=blocked_task, author=assignee, body="ping")
+    Mention.objects.create(
+        mentioner=assignee, mentioned_user=mentioned, task_comment=comment, project=project
+    )
+    resp = _client(mentioned).get(f"/api/v1/tasks/?project={project.pk}")
+    assert resp.status_code == 200
+    rows = resp.data["results"] if isinstance(resp.data, dict) else resp.data
+    row = next(r for r in rows if r["id"] == str(blocked_task.pk))
+    assert row["blocked_reason"] == REASON
+
+
+@pytest.mark.django_db
+def test_the_mention_annotation_is_never_honored_for_a_different_viewer(
+    blocked_task: Task, mentioned: Any, bystander: Any, assignee: Any, project: Project
+) -> None:
+    """A queryset annotated for one user must not decide the gate for another.
+
+    The priming annotation is viewer-specific, so a queryset built for user A and
+    serialized for user B would leak contributor voice across the Morgan boundary —
+    a privacy bug, not a stale-cache bug. ``can_read_blocker_reason`` therefore
+    trusts the annotation only when the stamped ``viewer_is_mentioned_for`` matches
+    the requester, and otherwise falls back to the live query.
+
+    Here the instance is annotated as if for ``mentioned`` (who IS mentioned) and
+    then evaluated for ``bystander`` (who is not). Honoring the stale annotation
+    would return True.
+    """
+    from trueppm_api.apps.projects.blocker_services import can_read_blocker_reason
+
+    comment = TaskComment.objects.create(task=blocked_task, author=assignee, body="ping")
+    Mention.objects.create(
+        mentioner=assignee, mentioned_user=mentioned, task_comment=comment, project=project
+    )
+
+    task = Task.objects.get(pk=blocked_task.pk)
+    task.viewer_is_mentioned = True
+    task.viewer_is_mentioned_for = str(mentioned.pk)
+
+    assert can_read_blocker_reason(task, mentioned) is True
+    assert can_read_blocker_reason(task, bystander) is False

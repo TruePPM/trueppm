@@ -37,6 +37,16 @@ if TYPE_CHECKING:
 # as a 400 rather than overflowing ``timedelta`` into an uncaught 500.
 MAX_MIN_AGE_DAYS = 36500
 
+# Hard ceiling on rows returned by the blocked roll-ups (#2855). The roll-up is a
+# triage surface — a human reads it oldest-first and clears from the top — so an
+# unbounded response is never *useful*, only expensive: before this cap a project
+# could return every flagged-blocked task it had, with no LIMIT and no pagination.
+# A cap rather than a page: adding a fourth pagination envelope to this bespoke
+# ``{count, blocked}`` shape is exactly the fragmentation #2842 is closing. Rows are
+# ordered oldest-blocked first, so a truncated response keeps the rows that matter
+# and ``truncated`` tells the client the tail was dropped.
+MAX_BLOCKED_ROLLUP_ROWS = 500
+
 
 def can_read_blocker_reason(task: Task, user: AbstractBaseUser | None) -> bool:
     """Return whether ``user`` may read ``task.blocked_reason`` (the private free text).
@@ -70,6 +80,17 @@ def can_read_blocker_reason(task: Task, user: AbstractBaseUser | None) -> bool:
     # @-mentioned on the task: a Mention whose source comment is on this task and
     # whose ``mentioned_user`` is the requester. Today the only mention source is
     # ``task_comment`` (a future ``task_note`` source — #476 — would widen this).
+    #
+    # ``annotate_tasks_queryset`` primes this as an Exists() subquery (#2855) so the
+    # list path costs no per-row query. Trust it only when it was computed for THIS
+    # user: the annotation is viewer-specific, so honoring one built for a different
+    # requester would leak contributor voice across the Morgan boundary. Any other
+    # caller — an un-annotated instance, or one annotated for someone else — falls
+    # through to the live query below, which is always correct.
+    annotated_for = getattr(task, "viewer_is_mentioned_for", None)
+    if annotated_for is not None and str(annotated_for) == str(user.pk):
+        return bool(getattr(task, "viewer_is_mentioned", False))
+
     from trueppm_api.apps.notifications.models import Mention
 
     return Mention.objects.filter(
@@ -391,6 +412,19 @@ def _blocked_queryset(
     return qs
 
 
+def _capped_blocked_rows(qs: Any) -> tuple[list[dict[str, Any]], bool]:
+    """Serialize at most :data:`MAX_BLOCKED_ROLLUP_ROWS` roll-up rows.
+
+    Slices one row past the cap so "there was more" is known without a second
+    COUNT query, then discards the extra. ``truncated`` is the signal the client
+    needs to say "showing the 500 oldest" rather than silently implying the list
+    is complete.
+    """
+    window = list(qs[: MAX_BLOCKED_ROLLUP_ROWS + 1])
+    truncated = len(window) > MAX_BLOCKED_ROLLUP_ROWS
+    return [_blocked_row(t) for t in window[:MAX_BLOCKED_ROLLUP_ROWS]], truncated
+
+
 def project_blocked_rollup(
     project: Any, *, blocker_type: str | None = None, min_age_days: int | None = None
 ) -> dict[str, Any]:
@@ -407,11 +441,17 @@ def project_blocked_rollup(
         min_age_days: Optional minimum blocked-age in days.
 
     Returns:
-        ``{"project_id", "count", "blocked": [<row>, ...]}``.
+        ``{"project_id", "count", "blocked": [<row>, ...], "truncated": bool}`` —
+        capped at :data:`MAX_BLOCKED_ROLLUP_ROWS` rows, oldest-blocked first.
     """
     qs = _blocked_queryset(project.tasks, blocker_type=blocker_type, min_age_days=min_age_days)
-    rows = [_blocked_row(t) for t in qs]
-    return {"project_id": str(project.pk), "count": len(rows), "blocked": rows}
+    rows, truncated = _capped_blocked_rows(qs)
+    return {
+        "project_id": str(project.pk),
+        "count": len(rows),
+        "blocked": rows,
+        "truncated": truncated,
+    }
 
 
 def sprint_blocked_rollup(
@@ -430,7 +470,8 @@ def sprint_blocked_rollup(
         min_age_days: Optional minimum blocked-age in days.
 
     Returns:
-        ``{"sprint_id", "count", "blocked": [<row>, ...]}``.
+        ``{"sprint_id", "count", "blocked": [<row>, ...], "truncated": bool}`` —
+        capped at :data:`MAX_BLOCKED_ROLLUP_ROWS` rows, oldest-blocked first.
     """
     from trueppm_api.apps.projects.models import Task
 
@@ -439,5 +480,10 @@ def sprint_blocked_rollup(
         blocker_type=blocker_type,
         min_age_days=min_age_days,
     )
-    rows = [_blocked_row(t) for t in qs]
-    return {"sprint_id": str(sprint.pk), "count": len(rows), "blocked": rows}
+    rows, truncated = _capped_blocked_rows(qs)
+    return {
+        "sprint_id": str(sprint.pk),
+        "count": len(rows),
+        "blocked": rows,
+        "truncated": truncated,
+    }

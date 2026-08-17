@@ -28,6 +28,13 @@ export interface BlockedRow {
 export interface BlockedRollup {
   count: number;
   blocked: BlockedRow[];
+  /**
+   * True when the project/sprint had more flagged-blocked tasks than the server's
+   * roll-up cap (#2855). Rows are oldest-blocked first, so the ones kept are the
+   * ones that matter — but the panel must say the tail was dropped rather than
+   * imply the list is complete.
+   */
+  truncated: boolean;
 }
 
 interface ProjectBlockedResponse extends BlockedRollup {
@@ -46,7 +53,11 @@ export function useProjectBlocked(
     enabled: !!projectId,
     queryFn: async () => {
       const res = await apiClient.get<ProjectBlockedResponse>(`/projects/${projectId}/blocked/`);
-      return { count: res.data.count, blocked: res.data.blocked };
+      return {
+        count: res.data.count,
+        blocked: res.data.blocked,
+        truncated: res.data.truncated ?? false,
+      };
     },
   });
 }
@@ -60,7 +71,11 @@ export function useSprintBlocked(
     enabled: !!sprintId,
     queryFn: async () => {
       const res = await apiClient.get<SprintBlockedResponse>(`/sprints/${sprintId}/blocked/`);
-      return { count: res.data.count, blocked: res.data.blocked };
+      return {
+        count: res.data.count,
+        blocked: res.data.blocked,
+        truncated: res.data.truncated ?? false,
+      };
     },
   });
 }

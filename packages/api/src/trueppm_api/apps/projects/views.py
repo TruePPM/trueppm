@@ -33,6 +33,7 @@ from django.db.models import (
     QuerySet,
     Subquery,
     Sum,
+    Value,
     When,
 )
 from django.db.models.expressions import RawSQL
@@ -3096,9 +3097,12 @@ class ProjectViewSet(
     def blocked(self, request: Request, pk: str | None = None) -> Response:
         """List flagged-blocked tasks on this project — the PM's impediment roll-up.
 
-        Returns every task whose ``blocked_reason`` is non-empty (the flag of
-        record), oldest-blocked first (age drives escalation), each row carrying
+        Returns tasks whose ``blocked_reason`` is non-empty (the flag of record),
+        oldest-blocked first (age drives escalation), each row carrying
         ``blocker_type`` + age + actor + assignee + the soft ``blocking_task`` link.
+        Capped at ``MAX_BLOCKED_ROLLUP_ROWS`` rows with ``truncated: true`` when the
+        tail was dropped (#2855) — a triage surface read from the top has no use for
+        an unbounded response, and this one previously had no ``LIMIT`` at all.
         Optionally narrowed by ``?blocker_type=`` and ``?min_age_days=`` (#1157) —
         both filter on the team-shareable structured signal only.
 
@@ -3757,6 +3761,31 @@ def annotate_tasks_queryset(
             TaskRecurrenceRule.objects.filter(task=OuterRef("pk"), is_deleted=False)
         ),
     )
+
+    # ADR-0124 reason-privacy gate, priming half (#2855). ``can_read_blocker_reason``
+    # short-circuits to True for the assignee, but for every *other* viewer it falls
+    # through to a live ``Mention.exists()`` — one query per blocked-with-reason row,
+    # unbounded by ``ScheduleFetchPagination.max_page_size`` (500). Priming it as an
+    # Exists() subquery here collapses that to zero extra queries, matching how
+    # has_related_links / has_recurrence above are primed for their own predicates.
+    #
+    # The annotation is VIEWER-SPECIFIC, which makes a mis-paired queryset a privacy
+    # bug rather than a stale-cache bug — so we stamp the user it was computed for
+    # alongside it and the predicate refuses to trust it for anyone else, falling
+    # back to the live query. Absent a request (the #998 bulk re-fetch passes none),
+    # neither annotation is applied and the predicate behaves exactly as before.
+    viewer = getattr(request, "user", None) if request is not None else None
+    if viewer is not None and getattr(viewer, "is_authenticated", False):
+        from trueppm_api.apps.notifications.models import Mention
+
+        qs = qs.annotate(
+            viewer_is_mentioned=Exists(
+                Mention.objects.filter(
+                    task_comment__task_id=OuterRef("pk"), mentioned_user_id=viewer.pk
+                )
+            ),
+            viewer_is_mentioned_for=Value(str(viewer.pk)),
+        )
 
     # External-link summary (#767, ADR-0155): the count of a task's non-deleted
     # external links and the *worst* link status across them, for the at-a-glance

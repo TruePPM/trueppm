@@ -44,6 +44,9 @@ export function BlockedRollupPanel(props: Props) {
 
   const rows = useMemo(() => query.data?.blocked ?? [], [query.data]);
   const count = query.data?.count ?? 0;
+  // The server caps the roll-up (#2855). Say so rather than letting the count
+  // read as the whole picture — rows are oldest-first, so the tail is dropped.
+  const truncated = query.data?.truncated ?? false;
 
   const [open, setOpen] = useState(true);
   const [group, setGroup] = useState<SprintGroup>('all');
@@ -83,7 +86,9 @@ export function BlockedRollupPanel(props: Props) {
             {`${impedimentCount} impediment${impedimentCount === 1 ? '' : 's'} · ${pausedCount} paused`}
           </span>
         )}
-        <span className="ml-auto text-xs text-neutral-text-secondary">oldest first</span>
+        <span className="ml-auto text-xs text-neutral-text-secondary">
+          {truncated ? `oldest ${count} shown` : 'oldest first'}
+        </span>
       </button>
 
       {expanded && (
