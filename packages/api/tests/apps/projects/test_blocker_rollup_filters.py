@@ -19,6 +19,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.projects import blocker_services
 from trueppm_api.apps.projects.models import Calendar, Project, Sprint, Task
 
 User = get_user_model()
@@ -170,3 +171,64 @@ def test_sprint_rollup_filters_too(project: Project, member: Any) -> None:
     assert resp.data["count"] == 1
     assert resp.data["blocked"][0]["blocker_type"] == "decision"
     assert REASON not in str(resp.data)
+
+
+# ---------------------------------------------------------------------------
+# Roll-up row cap (#2855)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_rollup_is_capped_and_reports_truncation(
+    project: Project, member: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Over the cap: rows are limited, ``truncated`` is True, oldest kept first.
+
+    ``GET /projects/{id}/blocked/`` had no ``LIMIT`` and no pagination — it returned
+    every flagged-blocked task in the project. The cap is patched down here so the
+    fixture stays small; the ordering assertion is the substantive half, since a cap
+    that dropped the *oldest* rows would invert the triage surface it serves.
+    """
+    monkeypatch.setattr(blocker_services, "MAX_BLOCKED_ROLLUP_ROWS", 3)
+    for i in range(5):
+        _blocked_task(project, f"Wait {i}", "vendor", days_ago=10 - i)
+
+    resp = _client(member).get(f"/api/v1/projects/{project.pk}/blocked/")
+    assert resp.status_code == 200, resp.data
+    assert resp.data["truncated"] is True
+    assert resp.data["count"] == 3
+    assert len(resp.data["blocked"]) == 3
+    # days_ago 10, 9, 8 — the three oldest, oldest first.
+    assert [r["title"] for r in resp.data["blocked"]] == ["Wait 0", "Wait 1", "Wait 2"]
+
+
+@pytest.mark.django_db
+def test_rollup_under_the_cap_reports_no_truncation(project: Project, member: Any) -> None:
+    _blocked_task(project, "Vendor wait", "vendor", days_ago=1)
+
+    resp = _client(member).get(f"/api/v1/projects/{project.pk}/blocked/")
+    assert resp.status_code == 200, resp.data
+    assert resp.data["truncated"] is False
+    assert resp.data["count"] == 1
+
+
+@pytest.mark.django_db
+def test_sprint_rollup_is_capped_too(
+    project: Project, member: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The sprint roll-up shares the cap — the two surfaces must not diverge."""
+    monkeypatch.setattr(blocker_services, "MAX_BLOCKED_ROLLUP_ROWS", 2)
+    sprint = Sprint.objects.create(
+        project=project,
+        name="S1",
+        start_date=date(2026, 4, 1),
+        finish_date=date(2026, 4, 14),
+    )
+    for i in range(4):
+        task = _blocked_task(project, f"Wait {i}", "vendor", days_ago=10 - i)
+        Task.objects.filter(pk=task.pk).update(sprint=sprint)
+
+    resp = _client(member).get(f"/api/v1/sprints/{sprint.pk}/blocked/")
+    assert resp.status_code == 200, resp.data
+    assert resp.data["truncated"] is True
+    assert len(resp.data["blocked"]) == 2

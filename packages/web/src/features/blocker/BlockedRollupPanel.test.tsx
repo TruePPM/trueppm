@@ -55,7 +55,7 @@ afterEach(() => {
 
 describe('BlockedRollupPanel — project scope', () => {
   it('renders rows with type chip, age, assignee, and the soft link — never a reason', () => {
-    projectResult = { data: { count: 2, blocked: ROWS }, isLoading: false };
+    projectResult = { data: { count: 2, blocked: ROWS, truncated: false }, isLoading: false };
     renderInRouter(<BlockedRollupPanel scope="project" projectId="p1" />);
     expect(screen.getByText('Blocked')).toBeInTheDocument();
     expect(screen.getByText('Pour foundation')).toBeInTheDocument();
@@ -68,7 +68,7 @@ describe('BlockedRollupPanel — project scope', () => {
   });
 
   it('links the row title and the waiting-on reference into the task drawer (#2159)', () => {
-    projectResult = { data: { count: 1, blocked: [ROWS[0]] }, isLoading: false };
+    projectResult = { data: { count: 1, blocked: [ROWS[0]], truncated: false }, isLoading: false };
     renderInRouter(<BlockedRollupPanel scope="project" projectId="p1" />);
     // Title opens the blocked task (the short-id is part of the title link's
     // accessible name); the waiting-on link opens the blocking task.
@@ -83,13 +83,28 @@ describe('BlockedRollupPanel — project scope', () => {
   });
 
   it('escalation-colors an old blocker red', () => {
-    projectResult = { data: { count: 1, blocked: [ROWS[0]] }, isLoading: false };
+    projectResult = { data: { count: 1, blocked: [ROWS[0]], truncated: false }, isLoading: false };
     renderInRouter(<BlockedRollupPanel scope="project" projectId="p1" />);
     expect(screen.getByText('6d blocked').className).toContain('text-semantic-critical');
   });
 
+  it('says the list was capped when the server truncated it (#2855)', () => {
+    // The roll-up is capped server-side; the header must not let the count read as
+    // the whole picture. Rows are oldest-first, so it is the tail that was dropped.
+    projectResult = { data: { count: 2, blocked: ROWS, truncated: true }, isLoading: false };
+    renderInRouter(<BlockedRollupPanel scope="project" projectId="p1" />);
+    expect(screen.getByText('oldest 2 shown')).toBeInTheDocument();
+    expect(screen.queryByText('oldest first')).not.toBeInTheDocument();
+  });
+
+  it('says only "oldest first" when the list is complete', () => {
+    projectResult = { data: { count: 2, blocked: ROWS, truncated: false }, isLoading: false };
+    renderInRouter(<BlockedRollupPanel scope="project" projectId="p1" />);
+    expect(screen.getByText('oldest first')).toBeInTheDocument();
+  });
+
   it('shows a warm empty state when nothing is blocked', () => {
-    projectResult = { data: { count: 0, blocked: [] }, isLoading: false };
+    projectResult = { data: { count: 0, blocked: [], truncated: false }, isLoading: false };
     renderInRouter(<BlockedRollupPanel scope="project" projectId="p1" />);
     expect(screen.getByText(/No blocked tasks/)).toBeInTheDocument();
   });
@@ -97,7 +112,7 @@ describe('BlockedRollupPanel — project scope', () => {
 
 describe('BlockedRollupPanel — sprint scope', () => {
   it('shows the impediment vs paused split and filters on the toggle', () => {
-    sprintResult = { data: { count: 2, blocked: ROWS }, isLoading: false };
+    sprintResult = { data: { count: 2, blocked: ROWS, truncated: false }, isLoading: false };
     renderInRouter(<BlockedRollupPanel scope="sprint" sprintId="s1" projectId="p1" />);
     const section = screen.getByRole('region', { name: 'Impediments & paused' });
     expect(within(section).getByText(/1 impediment · 1 paused/)).toBeInTheDocument();

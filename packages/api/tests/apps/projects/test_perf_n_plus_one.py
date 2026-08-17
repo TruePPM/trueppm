@@ -26,6 +26,7 @@ from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.notifications.models import Mention
 from trueppm_api.apps.projects.models import (
     Baseline,
     Calendar,
@@ -39,6 +40,7 @@ from trueppm_api.apps.projects.models import (
     Sprint,
     SprintState,
     Task,
+    TaskComment,
     TaskCustomFieldValue,
     TaskLabel,
     TaskStatus,
@@ -739,6 +741,17 @@ def _seed_fanned_out_project(
     variety of relations present, so a prefetch that is issued conditionally (only
     when at least one row has an X) still contributes the same fixed number of
     queries to each side.
+
+    #2855: every task also carries a non-empty ``blocked_reason`` and a comment
+    ``Mention``. Seeding ``blocked_by`` alone was not enough — ``TaskSerializer``'s
+    ADR-0124 privacy gate is ``if data.get("blocked_reason")``, so the branch that
+    consults ``can_read_blocker_reason`` (and, before the fix, ran a live
+    ``Mention.exists()`` per row) was never entered by *either* side and the strict
+    query-count assertion held whether or not the N+1 existed. The fixture pinned
+    one field of a two-field condition, which made the cost structurally
+    unmeasurable rather than merely unmeasured. Tasks are left **unassigned** on
+    purpose: ``can_read_blocker_reason`` short-circuits to True for the assignee,
+    which would skip the mention lookup and re-hide the query.
     """
     project = Project.objects.create(name=name, start_date=date(2026, 4, 1), calendar=calendar)
     ProjectMembership.objects.create(project=project, user=user, role=Role.OWNER)
@@ -763,6 +776,11 @@ def _seed_fanned_out_project(
             sprint=sprint,
             blocking_task=blocker,
             blocked_by=user,
+            blocked_reason=f"waiting on vendor {i}",
+        )
+        comment = TaskComment.objects.create(task=task, author=user, body=f"@user ping {i}")
+        Mention.objects.create(
+            mentioner=user, mentioned_user=user, task_comment=comment, project=project
         )
         label = Label.objects.create(project=project, name=f"{name}-L{i}", color=LabelColor.TEAL)
         TaskLabel.objects.create(task=task, label=label)
