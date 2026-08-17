@@ -47,9 +47,17 @@ urlpatterns = [
     ),
     # Signal-only / everything preset (#855). Explicit path because this app wires
     # the viewset with as_view() rather than a router, so @action isn't auto-routed.
+    # pagination_class=None is load-bearing for the published schema, not for
+    # runtime (the action never calls paginate_queryset). drf-spectacular wraps any
+    # many=True response in the *view's* paginator, so the sibling list route's
+    # pagination leaked onto this action and re-published the wrong response shape
+    # — PaginatedNotificationPreferenceList — even once the many=True response was
+    # declared correctly (#2840). The handler returns the whole matrix as a bare
+    # JSON array. Set here rather than as an @action initkwarg because this app
+    # wires the viewset with as_view(), where @action kwargs are never applied.
     path(
         "me/notification-preferences/apply-preset/",
-        NotificationPreferenceViewSet.as_view({"post": "apply_preset"}),
+        NotificationPreferenceViewSet.as_view({"post": "apply_preset"}, pagination_class=None),
         name="me-notification-preferences-apply-preset",
     ),
     path(

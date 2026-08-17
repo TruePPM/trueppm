@@ -834,6 +834,21 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
 
         transaction.on_commit(_on_commit)
 
+    # Reactivation is carried by the URL alone — the body is never read. Without
+    # ``request=None`` the schema fell back to serializer_class and published a
+    # *required* ResourceRequest body (the full write shape) on this no-body
+    # endpoint, so a generated client demanded a whole resource payload to
+    # un-deactivate one (#2840). Sibling restore actions on Task/Project already
+    # publish no body; this one was the outlier.
+    @extend_schema(
+        summary="Restore a deactivated resource",
+        request=None,
+        responses={
+            200: ResourceSerializer,
+            400: OpenApiResponse(description="Resource is not deactivated."),
+            404: OpenApiResponse(description="Resource not found."),
+        },
+    )
     @action(detail=True, methods=["post"], url_path="restore")
     def restore(self, request: Request, pk: str | None = None) -> Response:
         """Restore a soft-deleted resource back to active status.

@@ -10,7 +10,7 @@ from django.db import transaction
 from django.db.models import Count, IntegerField, OuterRef, Q, QuerySet, Subquery
 from django.db.models.functions import Coalesce
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers as drf_serializers
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -575,10 +575,32 @@ class UserDefinedMentionGroupViewSet(
         )
         return self._read_response(instance)
 
+    # Explicit request= / responses= on all four roster actions (#2840). Without
+    # them drf-spectacular falls back to get_serializer_class(), which returns the
+    # *read* serializer for a custom action — a read serializer has no writable
+    # fields, so the published operation carried NO requestBody at all even though
+    # ``user`` is required. A generated SDK method took no arguments, leaving the
+    # caller no path that could ever send the body the endpoint 400s without.
+    @extend_schema(
+        summary="Add a project member to this @mention group",
+        request=inline_serializer(
+            name="MentionGroupAddMemberRequest",
+            fields={"user": drf_serializers.UUIDField()},
+        ),
+        responses={200: UserDefinedMentionGroupReadSerializer},
+    )
     @action(detail=True, methods=["post"], url_path="add-member")
     def add_member(self, request: Request, pk: object = None, **kwargs: object) -> Response:
         return self._mutate_membership(request, add=True)
 
+    @extend_schema(
+        summary="Remove a member from this @mention group",
+        request=inline_serializer(
+            name="MentionGroupRemoveMemberRequest",
+            fields={"user": drf_serializers.UUIDField()},
+        ),
+        responses={200: UserDefinedMentionGroupReadSerializer},
+    )
     @action(detail=True, methods=["post"], url_path="remove-member")
     def remove_member(self, request: Request, pk: object = None, **kwargs: object) -> Response:
         return self._mutate_membership(request, add=False)
@@ -596,10 +618,26 @@ class UserDefinedMentionGroupViewSet(
             instance.muted_by.remove(request.user)  # type: ignore[arg-type]
         return self._read_response(instance)
 
+    # ``request=None`` is asserted, not inferred: mute/unmute act on the caller's
+    # own subscription and read nothing from the body. The pre-#2840 schema
+    # happened to publish no requestBody here (the read-serializer fallback has no
+    # writable fields), but that was an accident of the fallback, not a statement —
+    # adding one writable field to the read serializer would have silently
+    # published a body these endpoints ignore.
+    @extend_schema(
+        summary="Mute this @mention group for yourself",
+        request=None,
+        responses={200: UserDefinedMentionGroupReadSerializer},
+    )
     @action(detail=True, methods=["post"], url_path="mute")
     def mute(self, request: Request, pk: object = None, **kwargs: object) -> Response:
         return self._mutate_mute(request, mute=True)
 
+    @extend_schema(
+        summary="Unmute this @mention group for yourself",
+        request=None,
+        responses={200: UserDefinedMentionGroupReadSerializer},
+    )
     @action(detail=True, methods=["post"], url_path="unmute")
     def unmute(self, request: Request, pk: object = None, **kwargs: object) -> Response:
         return self._mutate_mute(request, mute=False)
@@ -827,10 +865,29 @@ class ProgramUserDefinedMentionGroupViewSet(
         )
         return self._read_response(instance)
 
+    # Same #2840 fallback trap as the project-scoped mirror above: the read
+    # serializer has no writable fields, so the published operation declared no
+    # requestBody while ``user`` is required.
+    @extend_schema(
+        summary="Add a program member to this @mention group",
+        request=inline_serializer(
+            name="ProgramMentionGroupAddMemberRequest",
+            fields={"user": drf_serializers.UUIDField()},
+        ),
+        responses={200: ProgramUserDefinedMentionGroupReadSerializer},
+    )
     @action(detail=True, methods=["post"], url_path="add-member")
     def add_member(self, request: Request, pk: object = None, **kwargs: object) -> Response:
         return self._mutate_membership(request, add=True)
 
+    @extend_schema(
+        summary="Remove a member from this @mention group",
+        request=inline_serializer(
+            name="ProgramMentionGroupRemoveMemberRequest",
+            fields={"user": drf_serializers.UUIDField()},
+        ),
+        responses={200: ProgramUserDefinedMentionGroupReadSerializer},
+    )
     @action(detail=True, methods=["post"], url_path="remove-member")
     def remove_member(self, request: Request, pk: object = None, **kwargs: object) -> Response:
         return self._mutate_membership(request, add=False)
@@ -848,10 +905,20 @@ class ProgramUserDefinedMentionGroupViewSet(
             instance.muted_by.remove(request.user)  # type: ignore[arg-type]
         return self._read_response(instance)
 
+    @extend_schema(
+        summary="Mute this @mention group for yourself",
+        request=None,
+        responses={200: ProgramUserDefinedMentionGroupReadSerializer},
+    )
     @action(detail=True, methods=["post"], url_path="mute")
     def mute(self, request: Request, pk: object = None, **kwargs: object) -> Response:
         return self._mutate_mute(request, mute=True)
 
+    @extend_schema(
+        summary="Unmute this @mention group for yourself",
+        request=None,
+        responses={200: ProgramUserDefinedMentionGroupReadSerializer},
+    )
     @action(detail=True, methods=["post"], url_path="unmute")
     def unmute(self, request: Request, pk: object = None, **kwargs: object) -> Response:
         return self._mutate_mute(request, mute=False)

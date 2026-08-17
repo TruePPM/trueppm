@@ -1784,6 +1784,23 @@ class VelocitySuggestionViewSet(
         qs = qs.filter(task__project_id__in=member_project_ids)
         return qs
 
+    # ``request=None`` asserted rather than inferred (#2840): both decisions are
+    # carried by the URL alone. The pre-fix schema published no requestBody here
+    # only because VelocitySuggestionSerializer exposes no writable field — an
+    # accident of the fallback that any future writable field would have reversed.
+    # ``responses`` names the 409 the idempotency guards return so a client is not
+    # left inferring it from the prose.
+    @extend_schema(
+        summary="Accept a velocity suggestion",
+        request=None,
+        responses={
+            200: VelocitySuggestionSerializer,
+            409: OpenApiResponse(description="Suggestion has already been dismissed."),
+            422: OpenApiResponse(
+                description="Accepting would violate the task's three-point estimate ordering."
+            ),
+        },
+    )
     @action(
         detail=True,
         methods=["post"],
@@ -1861,6 +1878,14 @@ class VelocitySuggestionViewSet(
         # velocity gate fires on these action responses too (#949).
         return Response(self.get_serializer(suggestion).data)
 
+    @extend_schema(
+        summary="Dismiss a velocity suggestion",
+        request=None,
+        responses={
+            200: VelocitySuggestionSerializer,
+            409: OpenApiResponse(description="Suggestion has already been accepted."),
+        },
+    )
     @action(
         detail=True,
         methods=["post"],

@@ -18,7 +18,8 @@ from django.contrib.postgres.search import TrigramSimilarity
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
-from rest_framework import mixins, status, viewsets
+from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
@@ -177,6 +178,33 @@ class BacklogItemViewSet(
         # vanishing silently (VersionedModel contract).
         instance.soft_delete()
 
+    # Surfaced by the #2840 conformance guard, which scans every module under
+    # ``apps/`` rather than ``views.py`` alone. Every part of the inferred contract
+    # was wrong: the fallback declared a full BacklogItemRequest body (the real
+    # body is ``{"project_id": …}``) and a bare ``200 BacklogItem`` response (the
+    # handler returns ``201`` with a two-key envelope carrying the created Task
+    # *and* the transitioned item).
+    @extend_schema(
+        summary="Pull a backlog item into a project's backlog",
+        request=inline_serializer(
+            name="BacklogItemPullRequest",
+            fields={"project_id": serializers.UUIDField()},
+        ),
+        responses={
+            201: inline_serializer(
+                name="BacklogItemPullResult",
+                fields={
+                    "task": TaskSerializer(),
+                    "backlog_item": BacklogItemSerializer(),
+                },
+            ),
+            400: OpenApiResponse(
+                description="project_id missing, or the target project is not in this program."
+            ),
+            403: OpenApiResponse(description="Caller lacks Team Member+ on the target project."),
+            409: OpenApiResponse(description="The item is no longer PROPOSED."),
+        },
+    )
     @action(detail=True, methods=["post"], url_path="pull")
     def pull(self, request: Request, program_pk: str, pk: str) -> Response:
         """Pull a PROPOSED item into a project's backlog (ADR-0069 Erratum §5).

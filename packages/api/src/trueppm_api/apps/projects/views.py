@@ -6607,6 +6607,15 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
             lambda: _dispatch_webhooks(project_id, "dependency.deleted", {"id": dep_id})
         )
 
+    # Both consent actions read nothing from ``request.data`` — the decision is
+    # carried entirely by the URL and the caller's identity. Without ``request=None``
+    # the schema fell back to serializer_class and published a *required*
+    # DependencyRequest body (the full write shape) on a no-body endpoint (#2840).
+    @extend_schema(
+        summary="Accept a pending cross-project dependency",
+        request=None,
+        responses={200: DependencySerializer},
+    )
     @action(detail=True, methods=["post"], url_path="accept")
     def accept(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Accept a pending cross-project dependency (ADR-0120 D2 / C2).
@@ -6618,6 +6627,11 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         """
         return self._resolve_pending(request, accept=True)
 
+    @extend_schema(
+        summary="Reject a pending cross-project dependency",
+        request=None,
+        responses={200: DependencySerializer},
+    )
     @action(detail=True, methods=["post"], url_path="reject")
     def reject(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Reject (soft-delete) a pending cross-project dependency (ADR-0120 D2).
