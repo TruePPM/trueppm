@@ -1,6 +1,7 @@
 ---
 title: CSV / Excel import & export
 description: What TruePPM's CSV and Excel surfaces can and cannot do — the round-trip table, the file format, the import wizard, the column-alias reference, the limits, and why a CSV is not a backup.
+documentedFor: "0.4"
 ---
 
 TruePPM reads and writes CSV and Excel files so data can move between a

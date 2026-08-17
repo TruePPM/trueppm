@@ -1,6 +1,7 @@
 ---
 title: Backup & Restore
 description: How to take and restore a TruePPM backup — the tested pg_dump + media artifact, the opt-in Helm CronJob, what is and isn't captured, and how to run a restore drill.
+documentedFor: "0.4"
 ---
 
 :::note[Ships in 0.4 (beta)]

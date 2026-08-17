@@ -1,6 +1,7 @@
 ---
 title: License & Third-Party Attribution
 description: TruePPM Community Edition is Apache 2.0. Here is the license, the enterprise boundary, and the CI-enforced policy that keeps every dependency permissively licensed.
+documentedFor: "0.4"
 sidebar:
   order: 100
 ---
@@ -31,11 +32,21 @@ A CI gate (`lint:package-licenses`) enforces this. It also fails if a new direct
 
 ## What "Community Edition" includes
 
-Everything a project manager and their team need to run a program is in the Apache 2.0 Community Edition: the scheduling engine (CPM, Monte Carlo), the schedule view, Kanban boards and sprints, real-time collaboration, offline sync, 5-role RBAC, baseline comparison, MS Project import/export, the REST and WebSocket API, and the Helm chart. Three more Community-Edition capabilities are on the way but not yet shipped, all landing in 0.4: basic single sign-on (OIDC/OAuth login against your own identity provider), time tracking with a weekly timesheet, and in-app baseline capture. Every one of them is in the open core, not behind the enterprise boundary.
+Everything a project manager and their team need to run a program is in the Apache 2.0 Community Edition: the scheduling engine (CPM, Monte Carlo), the schedule view, Kanban boards and sprints, real-time collaboration, offline sync, 5-role RBAC, baseline comparison and in-app baseline capture, time tracking with a weekly timesheet, basic single sign-on (OIDC/OAuth login against your own identity provider), MS Project import/export, the REST and WebSocket API, and the Helm chart. Every one of them is in the open core, not behind the enterprise boundary.
+
+:::note[Ships in 0.4 — SSO, timesheets, and baseline capture]
+Three items in that list are **not in the latest release** (`0.3.0-alpha.3`) and land
+with **0.4**: basic single sign-on, time tracking with a weekly timesheet, and in-app
+baseline capture. Everything else listed is available today. They are Community-Edition
+features either way — none of them is gated behind the enterprise boundary.
+
+*(Release note: delete this callout when 0.4 tags — the sentence above is already
+written for the shipped state. `scripts/check-version-status.sh` fails until you do.)*
+:::
 
 ## The enterprise boundary
 
-TruePPM is open-core. Governance and portfolio features (org identity governance — SAML/SCIM/LDAP directory sync and enforced org-wide SSO — portfolio dashboards, cross-program resource leveling, approval workflows, the org-wide integration hub) are **proprietary** and live in a **separate repository** (`trueppm-enterprise`). Basic single sign-on (self-service OIDC/OAuth login against your own identity provider) belongs to the Apache 2.0 Community Edition — it lands in 0.4 — not the enterprise layer.
+TruePPM is open-core. Governance and portfolio features (org identity governance — SAML/SCIM/LDAP directory sync and enforced org-wide SSO — portfolio dashboards, cross-program resource leveling, approval workflows, the org-wide integration hub) are **proprietary** and live in a **separate repository** (`trueppm-enterprise`). Basic single sign-on (self-service OIDC/OAuth login against your own identity provider) belongs to the Apache 2.0 Community Edition, not the enterprise layer.
 
 The dependency is strictly one-way — enterprise code depends on the core, never the reverse. **The Community Edition never imports, links, or ships any proprietary code.** Cloning and running the open-source repository pulls in zero enterprise code. This separation is an architectural rule, not a packaging convenience: it is enforced in the codebase and documented in the [contributing guide](/contributing/guide/).
 

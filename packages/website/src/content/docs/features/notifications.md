@@ -1,6 +1,7 @@
 ---
 title: Notifications
 description: The unified notification inbox — the TopBar bell, the panel and full-screen route, per-user preferences, snooze, mute, Do Not Disturb, and the weekly digests.
+documentedFor: "0.4"
 ---
 
 :::note[Added in 0.2, expanded through 0.3]

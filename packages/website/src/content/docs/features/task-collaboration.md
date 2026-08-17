@@ -1,6 +1,7 @@
 ---
 title: Task collaboration — notes, attachments, comments, mentions
 description: A per-author decision log, per-task attachments, threaded comments, @mention notifications, and a per-user inbox bring the reasoning and the conversation onto the work. Powered by ADR-0075 and ADR-0143.
+documentedFor: "0.4"
 ---
 
 

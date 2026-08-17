@@ -1,6 +1,7 @@
 ---
 title: Evaluation guide
 description: Verify every 0.3 capability in about 30 minutes using the bundled sample programs — which sample, which login, which screen, and what to expect.
+documentedFor: "0.4"
 ---
 
 :::note[Added in 0.3]

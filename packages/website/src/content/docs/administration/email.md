@@ -1,6 +1,7 @@
 ---
 title: Outbound Email (SMTP)
 description: How TruePPM sends outbound notification email, the writable Workspace Email & SMTP page, and the Django EMAIL_* settings that configure the fallback transport.
+documentedFor: "0.4"
 ---
 
 

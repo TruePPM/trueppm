@@ -1,6 +1,7 @@
 ---
 title: Board sprint panel
 description: Active-sprint summary embedded above the Board lanes — goal, dates, burndown, velocity, and planning capacity in one collapsible surface.
+documentedFor: "0.4"
 ---
 
 :::note[Added in 0.3]

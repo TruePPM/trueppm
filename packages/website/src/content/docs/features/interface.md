@@ -1,6 +1,7 @@
 ---
 title: Interface & command palette
 description: The v2 interface refresh — a unified app-shell bar, the ⌘K command palette, a methodology-adaptive context bar, and grouped view tabs that adapt to how your team works.
+documentedFor: "0.4"
 ---
 
 :::note[Added in 0.3]
@@ -64,6 +65,15 @@ Three read APIs back the same underlying task-run records at different scopes:
 
 Press **⌘K** (Ctrl+K on Windows/Linux) anywhere to open the command palette. It
 is the fastest path to:
+
+:::note[Ships in 0.4 — off-project findability]
+Four of the entries below are **not in the latest release**: **Navigate** between
+projects and programs, **Pick up where you left off** (the Recent group), **Find
+people**, and **Find any work item anywhere**. They are the "findability off-project"
+work landing in **0.4** (#1557, #1940, #2102, #2103). On `0.3.0-alpha.3` the palette
+searches only the project you are currently in — there is no cross-program search, no
+Recent group, and no people search. Everything else on this page is in the 0.3 baseline.
+:::
 
 - **Jump to any view** — "Go to Board", "Go to Schedule", including views you've
   hidden from the tab bar.
