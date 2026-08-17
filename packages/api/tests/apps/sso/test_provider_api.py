@@ -243,6 +243,10 @@ def test_member_cannot_read_or_write_detail(member: Any, admin: Any) -> None:
     assert client.put(DETAIL, {"display_name": "x"}, format="json").status_code == 403
     deleted = client.delete(DETAIL)
     assert deleted.status_code == 403
+    # The lockout acknowledgement is read inside the handler, so it can only be
+    # reached after the permission check. Pinned so a future refactor that moves the
+    # query-param read into a permission class or ``initial()`` cannot open a bypass.
+    assert client.delete(DETAIL + "?confirm_lockout=true").status_code == 403
 
 
 @pytest.mark.django_db
@@ -322,6 +326,31 @@ def test_duplicate_slug_conflict_leaves_no_orphan_social_app(admin: Any) -> None
     client.post(COLLECTION, _full_config(), format="json")
     client.post(COLLECTION, _full_config(), format="json")
     assert SocialApp.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_an_unrelated_integrity_error_is_not_rebranded_as_a_duplicate(
+    admin: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only the (workspace, slug) constraint may become a 409.
+
+    ``create()`` also writes a SocialApp and an M2M row against Site, so a bare
+    ``except IntegrityError`` would answer an FK fault with "already configured" —
+    a plausible but wrong diagnosis, and no trace for whoever debugs it.
+    """
+    from django.db import IntegrityError
+
+    from trueppm_api.apps.sso.serializers import SsoProviderWriteSerializer
+
+    def _boom(_self: Any, **_kwargs: Any) -> Any:
+        raise IntegrityError(
+            'insert or update on table "socialaccount_socialapp_sites" violates '
+            'foreign key constraint "socialaccount_socialap_site_id_fk"'
+        )
+
+    monkeypatch.setattr(SsoProviderWriteSerializer, "save", _boom)
+    with pytest.raises(IntegrityError):
+        api_client(admin).post(COLLECTION, _full_config(), format="json")
 
 
 # ---------------------------------------------------------------------------

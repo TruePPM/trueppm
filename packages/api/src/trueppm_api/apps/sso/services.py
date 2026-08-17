@@ -821,7 +821,7 @@ def _unique_username(email: str) -> str:
     return candidate
 
 
-def _require_active(user: Any) -> Any:
+def _require_active(user: Any, ctx: ProviderContext) -> Any:
     """Refuse a resolved-but-deactivated account before a session is minted (#2875).
 
     ``User.is_active = False`` **is** the deactivation mechanism —
@@ -842,8 +842,23 @@ def _require_active(user: Any) -> Any:
     Only the two branches that resolve a **pre-existing** user need this. The
     auto-create branch builds the user in this request, so it is active by
     construction — guarding it would be dead code.
+
+    The refusal is **logged, not audited**. Repeated SSO attempts against a revoked
+    account is exactly the signal an operator wants after an off-boarding, and
+    before this fix there was nothing distinctive to record because the login simply
+    succeeded. It is a log line rather than an ``AuditEvent`` row because the caller
+    is unauthenticated at this point: an audit row per attempt would let anyone who
+    can drive the callback write unbounded rows, the same amplification the Personal
+    Access Token authenticator bounds deliberately. The record carries the user's
+    primary key, never their email or any token material.
     """
     if not user.is_active:
+        logger.warning(
+            "sso login refused: account is deactivated (user_id=%s provider=%s issuer=%s)",
+            user.pk,
+            ctx.slug,
+            ctx.issuer,
+        )
         raise OIDCAccountDisabled("account is deactivated")
     return user
 
@@ -905,7 +920,7 @@ def resolve_user(ctx: ProviderContext, claims: dict[str, Any]) -> tuple[Any, boo
     )
     if account is not None:
         if account.extra_data.get("iss") == issuer:
-            return _require_active(account.user), False
+            return _require_active(account.user, ctx), False
         # (provider=slug, uid=subject) is already bound to a DIFFERENT issuer. We
         # must never resolve to the old issuer's user (cross-issuer sub-collision
         # takeover), and — because allauth's SocialAccount key is (provider, uid),
@@ -927,7 +942,7 @@ def resolve_user(ctx: ProviderContext, claims: dict[str, Any]) -> tuple[Any, boo
         # Checked BEFORE the binding is written: a refused login must not leave a
         # SocialAccount row behind, or reactivating the member later would silently
         # skip the verified-email link step that created it.
-        _require_active(existing[0])
+        _require_active(existing[0], ctx)
         SocialAccount.objects.create(
             user=existing[0], provider=provider_key, uid=subject, extra_data={"iss": issuer}
         )
@@ -1047,6 +1062,14 @@ def removal_impact(slugs: list[str]) -> dict[str, RemovalImpact]:
     for user_id, provider in bindings:
         per_user.setdefault(user_id, set()).add(provider)
 
+    # The DB-pushable subset of ``has_usable_password()``: the two shapes this
+    # codebase actually produces — ``set_unusable_password()``'s "!"-prefixed
+    # sentinel and an empty column. Django additionally treats a hash no hasher can
+    # parse as unusable; such a value would be missed here, which under-counts (the
+    # admin is warned about fewer members than are really stranded) rather than
+    # over-counts. Accepted: no code path in this repo writes a malformed hash, and
+    # pulling every bound user into Python to call ``has_usable_password()`` would
+    # trade a real per-request cost for a state that cannot occur.
     credential_less = set(
         User.objects.filter(
             Q(password="") | Q(password__startswith=UNUSABLE_PASSWORD_PREFIX),

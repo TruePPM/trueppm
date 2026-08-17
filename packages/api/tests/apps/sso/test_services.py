@@ -1486,6 +1486,32 @@ def test_resolve_user_admits_a_reactivated_account() -> None:
     assert created is False
 
 
+@pytest.mark.django_db
+def test_refused_disabled_login_is_logged_without_pii(caplog: pytest.LogCaptureFixture) -> None:
+    """Repeated SSO attempts on a revoked account are the signal after an off-boarding.
+
+    A log line, not an ``AuditEvent`` row: the caller is unauthenticated here, so an
+    audit write per attempt would be an amplification vector. The record must carry
+    no email and no token material.
+    """
+    ctx = make_oidc_ctx()
+    user = _sso_only_user(email="alice@example.com", active=False)
+    SocialAccount.objects.create(
+        user=user, provider="generic", uid="sub-1", extra_data={"iss": ISSUER}
+    )
+    with (
+        caplog.at_level("WARNING", logger="trueppm.sso"),
+        pytest.raises(services.OIDCAccountDisabled),
+    ):
+        services.resolve_user(ctx, {"sub": "sub-1", "email": user.email, "email_verified": True})
+
+    record = next(r for r in caplog.records if "deactivated" in r.getMessage())
+    message = record.getMessage()
+    assert str(user.pk) in message
+    assert "generic" in message
+    assert user.email not in message
+
+
 def test_account_disabled_code_is_distinct_from_no_member() -> None:
     """The two need different remedies, so they must not collapse into one code.
 

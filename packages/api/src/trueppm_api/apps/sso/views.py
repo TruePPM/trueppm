@@ -22,6 +22,7 @@ completion route, which then calls the existing ``/auth/token/refresh/``.
 
 from __future__ import annotations
 
+import logging
 import secrets
 from typing import Any
 
@@ -49,6 +50,8 @@ from trueppm_api.apps.sso.serializers import (
 from trueppm_api.apps.workspace.models import Workspace
 from trueppm_api.apps.workspace.permissions import IsWorkspaceAdminStrict
 from trueppm_api.core.auth_views import _apply_remember, _cookie_seconds, _set_refresh_cookie
+
+logger = logging.getLogger("trueppm.sso")
 
 # Trailing slash matches the route in ``urls.py`` so the IdP returns straight to
 # the view without an APPEND_SLASH redirect hop dropping the query. UNCHANGED for
@@ -303,6 +306,23 @@ def _policy_or_none(slug: str) -> SsoProviderPolicy | None:
 # reliably forwarded by proxies and are not part of this collection's request shape.
 _CONFIRM_LOCKOUT_PARAM = "confirm_lockout"
 
+# The one constraint POST is allowed to translate into a 409 (see ``post``).
+_SLUG_UNIQUE_CONSTRAINT = "uniq_sso_policy_workspace_slug"
+
+
+def _is_duplicate_slug(exc: IntegrityError) -> bool:
+    """Whether ``exc`` is the ``(workspace, slug)`` unique-constraint collision.
+
+    psycopg exposes the violated constraint's name on the wrapped driver error, so
+    match on that rather than assuming every integrity failure in ``create()`` is a
+    duplicate provider. The message fallback covers backends (and re-raised wrappers)
+    that carry no ``diag``; PostgreSQL always names the constraint in the text.
+    """
+    constraint = getattr(getattr(exc.__cause__, "diag", None), "constraint_name", None)
+    if constraint:
+        return bool(constraint == _SLUG_UNIQUE_CONSTRAINT)
+    return _SLUG_UNIQUE_CONSTRAINT in str(exc)
+
 
 class SsoProviderCollectionView(IdempotencyMixin, APIView):
     """``/workspace/sso/providers/`` — list (GET) and create (POST) providers.
@@ -362,7 +382,7 @@ class SsoProviderCollectionView(IdempotencyMixin, APIView):
         serializer.is_valid(raise_exception=True)
         try:
             policy = serializer.save()
-        except IntegrityError:
+        except IntegrityError as exc:
             # The unique (workspace, slug) constraint is the collision key — this
             # class's own comment claimed "a replayed POST 409s naturally", but
             # nothing maps IntegrityError, so it escaped as a 500 (#2875). Caught
@@ -370,6 +390,15 @@ class SsoProviderCollectionView(IdempotencyMixin, APIView):
             # constraint is the only race-free arbiter, matching the established
             # pattern at ``workshops/views.py`` and ``projects/services.py`` (#1349).
             #
+            # Narrowed to that one constraint on purpose. ``create()`` also writes a
+            # SocialApp and an M2M row against Site, so a bare ``except`` would
+            # rebrand an unrelated fault (a stale SITE_ID's FK, a constraint added
+            # later) as "already configured" — a plausible but wrong diagnosis with
+            # no trace left for whoever has to debug it. Anything else is logged and
+            # re-raised as the server error it is.
+            if not _is_duplicate_slug(exc):
+                logger.exception("sso provider create failed on an unexpected constraint")
+                raise
             # ``slug`` IS the provider type, so this also reports the real
             # limitation: one provider per registry type per workspace, which means
             # two Keycloak realms cannot both be configured. Say so plainly rather
