@@ -226,6 +226,14 @@ def _canary_export(endpoint: str, protocol: str, checked_at: Any) -> dict[str, A
     and always tears both down in ``finally`` so no gRPC channel/thread lingers.
     The canary is named ``trueppm.telemetry.canary`` with ``trueppm.telemetry.test``
     so operators can filter it out of real traces.
+
+    SCOPE (#2880): this runs inside the request, so it proves the export path of the
+    ONE POD that served the click and nothing else. The Celery worker and beat pods
+    export on their own connections and carry almost all the span/metric volume, so
+    under a per-workload NetworkPolicy a green canary here is compatible with zero
+    telemetry from the workers. The cross-pod signal is the live export-health strip
+    (ADR-0601), which aggregates every exporting pod — the result copy says so rather
+    than claiming "end to end", which it cannot know.
     """
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import SpanExportResult
@@ -252,7 +260,9 @@ def _canary_export(endpoint: str, protocol: str, checked_at: Any) -> dict[str, A
                 endpoint,
                 protocol,
                 duration_ms,
-                "Canary span accepted by the collector — the export path is working end to end.",
+                "Canary span accepted by the collector — the export path from this pod is working. "
+                "Worker and beat pods export independently and carry most of the volume; "
+                "the live export strip covers them.",
                 checked_at,
             )
         return _telemetry_result(
@@ -262,7 +272,9 @@ def _canary_export(endpoint: str, protocol: str, checked_at: Any) -> dict[str, A
             protocol,
             duration_ms,
             "The collector did not accept the canary span. Check that the collector is "
-            "running and the endpoint host and port are correct.",
+            "running, that the endpoint host and port are correct, and that the endpoint "
+            "port matches OTEL_EXPORTER_OTLP_PROTOCOL (4317 for grpc, 4318 for "
+            "http/protobuf).",
             checked_at,
         )
     except Exception:

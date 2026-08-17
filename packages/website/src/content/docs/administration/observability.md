@@ -64,6 +64,7 @@ switches for behavior the standard variables do not express.
 | `TRUEPPM_OTEL_METRICS_ENABLED` | `true` | Export metrics (when telemetry is on). |
 | `OTEL_TRACES_SAMPLER` | `parentbased_always_on` | Trace sampler. Set `parentbased_traceidratio` with `OTEL_TRACES_SAMPLER_ARG` to sample a fraction on a busy instance. |
 | `OTEL_TRACES_SAMPLER_ARG` | *(empty)* | Sampler argument, e.g. `0.1` to keep 10% of root traces. |
+| `TRUEPPM_OTEL_ACTOR_ATTRIBUTES_ENABLED` | `true` | Stamp `trueppm.user.id` and `trueppm.user.role` on each request span ([below](#span-attributes)). `false` exports no per-user identifier; project/program/task ids are unaffected. |
 | `TRUEPPM_OTEL_EXPORT_HEALTH_ENABLED` | `true` | Records per-pod export health for the live strip on the Telemetry card ([below](#live-export-health)). `false` disables the recorder; export itself is unaffected. |
 | `TRUEPPM_OTEL_EXPORT_HEALTH_STALENESS_SECONDS` | `600` | Advanced. How long a pod counts as live after its last export; beyond it a silent signal reads "never". **Must exceed** the healthy window below. |
 | `TRUEPPM_OTEL_EXPORT_HEALTH_HEALTHY_WITHIN_SECONDS` | `150` | Advanced. A success newer than this is *healthy*; older (still live) is *stalled* (metrics) / *idle* (traces). |
@@ -109,6 +110,9 @@ observability:
     headersSecret:
       name: ""                # e.g. "trueppm-otlp"
       key: "headers"
+    # Stamp trueppm.user.id / trueppm.user.role on each request span. Set false to
+    # export no per-user identifier at all (see "Span attributes" below).
+    actorAttributes: true
     # Live export-health strip on the Telemetry card (see below). The pod name is
     # injected from the downward API automatically — no config needed.
     exportHealth:
@@ -161,7 +165,8 @@ your Secret and never reaches the browser.
 The card cannot edit any of this. Configuration is env/Helm only (ADR-0223); the
 card is a read-only view with one action.
 
-**Test export.** The **Test export** button proves the export path end to end:
+**Test export.** The **Test export** button proves the export path **from the pod
+that served the click**:
 
 - When export is on, it sends a single synthetic **canary span**
   (`trueppm.telemetry.canary`, carrying `trueppm.telemetry.test=true` so you can
@@ -173,10 +178,19 @@ card is a read-only view with one action.
   span is sent — so you can confirm the collector is healthy before turning
   export on.
 
+:::caution[A green canary is one pod, not the fleet]
+The canary runs inside your request, so it exercises the web pod's connection and
+nothing else. The **Celery worker and beat pods export on their own connections and
+carry almost all of the span and metric volume** — under a per-workload
+NetworkPolicy, a green canary here is entirely compatible with zero telemetry
+reaching your collector from the workers. Use the **live export strip** above for the
+cross-pod answer: it aggregates every exporting pod and shows the count reporting.
+:::
+
 If the probe fails, the message names the likely cause (connection refused,
-timeout, or an unresolvable host) — but never echoes the collector's auth
-headers, so a failing test can be shared safely. The button is admin-only and
-rate-limited.
+timeout, an unresolvable host, or a port that does not match your configured
+protocol) — but never echoes the collector's auth headers, so a failing test can be
+shared safely. The button is admin-only and rate-limited.
 
 When export is not configured at all, the card switches to a guided-setup view:
 pick your backend (Grafana Tempo, Jaeger, or a generic OTLP collector) and copy
@@ -197,6 +211,12 @@ server-side; the recorder is strictly best-effort and can never slow or break
 export. If the shared metrics store is unreachable the strip reports itself
 unavailable and the card falls back to the configuration posture — it never shows a
 fabricated number.
+
+The **Settings → Workspace → Observability** page refreshes the strip on its own
+while it is open, so a stall that begins after you land on the page still surfaces.
+The same card also renders inline on the consolidated settings page, which
+deliberately does **not** poll in the background; a **Refresh** control on the strip
+re-reads it on demand in either place.
 
 Set `TRUEPPM_OTEL_EXPORT_HEALTH_ENABLED=false` (Helm:
 `observability.otlp.exportHealth.enabled`) to switch the recorder off entirely (the
@@ -231,10 +251,50 @@ process:
 | `trueppm.edition` | `community` or `enterprise` |
 
 TruePPM-owned span attributes and metric dimensions live under the reserved
-**`trueppm.*`** namespace (for example `trueppm.project.id`, `trueppm.task.id`,
-`trueppm.user.role`, `trueppm.outbox.name`), so you can filter and group TruePPM
-signals cleanly in your backend. Attributes that follow OpenTelemetry's own semantic
-conventions (`http.*`, `db.*`, `messaging.*`) keep their standard keys.
+**`trueppm.*`** namespace, so you can filter and group TruePPM signals cleanly in
+your backend. Attributes that follow OpenTelemetry's own semantic conventions
+(`http.*`, `db.*`, `messaging.*`) keep their standard keys.
+
+### Span attributes
+
+These are the `trueppm.*` span attributes TruePPM writes, and where each one appears.
+A backend processor may key on any of them.
+
+| Attribute | Where | Value |
+|---|---|---|
+| `trueppm.project.id` | HTTP request span (project-scoped route), CPM + Monte Carlo spans | Project UUID |
+| `trueppm.program.id` | HTTP request span (program-scoped route) | Program UUID |
+| `trueppm.task.id` | HTTP request span (task-scoped route) | Task UUID |
+| `trueppm.user.id` | HTTP request span | Acting account's UUID — see the privacy note below |
+| `trueppm.user.role` | HTTP request span | `VIEWER` \| `MEMBER` \| `SCHEDULER` \| `ADMIN` \| `OWNER` |
+| `trueppm.schedule.recompute_reason` | CPM span | Why the recompute ran |
+| `trueppm.schedule.task_count` / `.dependency_count` / `.critical_count` | CPM span | Graph size |
+| `trueppm.schedule.simulation_count` | Monte Carlo span | Iterations run |
+| `trueppm.agent.token_prefix` / `.capability` / `.actor_kind` / `.verdict` | HTTP request span, MCP/agent token calls | First 8 chars of the token, the scope checked, the actor kind, and the decision |
+
+:::note[Three keys are reserved and never written]
+`trueppm.project.key`, `trueppm.board.id`, and `trueppm.request.edition` exist in the
+namespace but TruePPM does **not** emit them, and this is not a "not yet" — a
+processor keyed on one will never fire. `trueppm.project.key` names a field the data
+model does not have (a project's short code is `Project.code`, optional and not an
+identifier); `trueppm.board.id` has no referent because a board is a view of a
+project, so board-scoped events fan out on the project id; and
+`trueppm.request.edition` would duplicate the `trueppm.edition` **resource**
+attribute that already rides on every span from the process. Use
+`trueppm.project.id` and `trueppm.edition`.
+:::
+
+:::caution[`trueppm.user.*` and privacy]
+`trueppm.user.id` is the account's opaque UUID and `trueppm.user.role` is a symbolic
+role — TruePPM never exports an email, username, display name, or client IP under
+`trueppm.*`. Because those two are still a per-user identifier, they can be switched
+off entirely with `TRUEPPM_OTEL_ACTOR_ATTRIBUTES_ENABLED=false` (Helm:
+`observability.otlp.actorAttributes`). Project, program, and task ids are unaffected.
+
+`trueppm.user.role` is set only when a request resolved to exactly **one** project or
+program. Roles in TruePPM are project-scoped, so a list endpoint spanning many
+projects carries no role rather than an arbitrary one.
+:::
 
 ## Instrumented spans
 
@@ -244,7 +304,7 @@ HTTP request through its database queries and any Celery work it enqueues.
 
 | Source | What you get | Key attributes |
 |---|---|---|
-| **HTTP requests** (Django) | One server span per API request, with route, method, and status | `http.*` semantic conventions |
+| **HTTP requests** (Django) | One server span per API request, with route, method, and status | `http.*` semantic conventions, plus `trueppm.project.id` / `trueppm.program.id` / `trueppm.task.id` when the route names one, and `trueppm.user.id` / `trueppm.user.role` for the acting account |
 | **Database** (psycopg) | One span per SQL statement | `db.*` semantic conventions. SQL is **never** modified — comment injection is off. |
 | **Celery tasks** | One span per task; trace context propagates from the enqueuing request into the worker, so a recompute links back to the request that triggered it | `messaging.*` semantic conventions |
 | **WebSocket** (Channels/ASGI) | One span per WebSocket connection | `http.*` (ASGI) semantic conventions |
@@ -277,6 +337,7 @@ under the `trueppm.*` namespace.
 | `trueppm.broker.queue.depth` | gauge | Celery messages **waiting** in the broker (Valkey/Redis `LLEN`), downstream of the outboxes | `messaging.destination.name` (queue, e.g. `celery`) |
 | `trueppm.ws.connections.active` | up/down counter | Active WebSocket connections accepted by this process's Channels consumers | — |
 | `trueppm.ws.broadcast.count` | counter | WebSocket board-event broadcasts fanned out to a project group | — |
+| `trueppm.ratelimit.enabled` | gauge | `1` when API rate limiting is on, `0` when an operator has disabled it (ADR-0604) — alert on `0`, it means DoS/abuse protection is off instance-wide | — |
 
 The two `trueppm.outbox.*` metrics are the operational signal for TruePPM's durable
 execution: a rising `depth` or `oldest_age_seconds` means the CPM-recompute or

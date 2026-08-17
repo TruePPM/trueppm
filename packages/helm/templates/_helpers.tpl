@@ -184,6 +184,15 @@ the rendered manifest.
 - name: OTEL_EXPORTER_OTLP_HEADERS
   value: {{ .headers | quote }}
 {{- end }}
+{{/* Actor attributes on the request span (#2880) — trueppm.user.id / .user.role.
+     Rendered only when explicitly disabled, so the default path adds no env var
+     and the app default (on) stands. */}}
+{{- if hasKey . "actorAttributes" }}
+{{- if not .actorAttributes }}
+- name: TRUEPPM_OTEL_ACTOR_ATTRIBUTES_ENABLED
+  value: "false"
+{{- end }}
+{{- end }}
 {{/* Live export-health strip (ADR-0601, #2109). The pod name comes from the
      downward API so each pod's record carries a stable, human-readable identity
      (the app falls back to gethostname():pid without it). The three tuning knobs
@@ -598,12 +607,27 @@ deliberately narrow — warn only when NO app-env source is configured at all:
 shape every documented minimal install had, and it is unambiguously broken. A
 notice that fires on a correctly-configured release is a notice nobody reads.
 
+`len(envFrom) > 0` is a WEAK signal and #2879 is why: `envFrom` is a LIST, so a
+values file that sets it REPLACES the operator's entry rather than appending to it.
+A release whose only source became an unrelated Secret (the telemetry card used to
+emit `envFrom: [{secretRef: {name: trueppm-otel-auth}}]`) still passes the length
+test and still crash-loops. The chart cannot tell which Secret carries which key —
+so instead of guessing, the quiet branch NAMES every source it is trusting and says
+the list is replace-not-merge. An operator who lost `trueppm-env` can then see it
+missing from a line they will actually read, which is the most the render can honestly do.
+
 Factored out of NOTES.txt so the logic is reachable by `helm template` — see the
 note at the top of NOTES.txt for why `helm install --dry-run` cannot test it.
 */}}
 {{- define "trueppm.bootGuardNotice" -}}
 {{- $env := .Values.env | default dict }}
-{{- $hasEnvFrom := gt (len (.Values.envFrom | default list)) 0 }}
+{{- $envFrom := .Values.envFrom | default list }}
+{{- $hasEnvFrom := gt (len $envFrom) 0 }}
+{{- $sources := list }}
+{{- range $envFrom }}
+  {{- if .secretRef }}{{ $sources = append $sources (printf "Secret/%s" .secretRef.name) }}{{ end }}
+  {{- if .configMapRef }}{{ $sources = append $sources (printf "ConfigMap/%s" .configMapRef.name) }}{{ end }}
+{{- end }}
 {{- $missing := list }}
 {{- if not $hasEnvFrom }}
   {{- if not (hasKey $env "SECRET_KEY") }}{{ $missing = append $missing "SECRET_KEY" }}{{ end }}
@@ -648,6 +672,17 @@ Full reference: packages/helm/README.md, "Required secrets (prod refuses to boot
 without them)".
 {{- else }}
 Required application secrets: configured{{ if $hasEnvFrom }} via envFrom{{ end }}.
+{{- if $hasEnvFrom }}
+App-env sources this release trusts for SECRET_KEY, ALLOWED_HOSTS,
+INTEGRATION_ENCRYPTION_KEY and the attachment-storage choice:
+{{- range $sources }}
+  - {{ . }}
+{{- end }}
+If a Secret you expected is NOT listed, a values file replaced the list: `envFrom`
+is a list, so Helm REPLACES it wholesale instead of merging. Re-list every source
+you need in one place. The chart cannot read a Secret's keys at render time, so this
+list is the only check available before the pod starts.
+{{- end }}
 {{- if not .Values.postgresql.enabled }}
 Using an external database — settings.prod refuses to boot unless env.DATABASE_URL
 carries `sslmode=require` (or TRUEPPM_ALLOW_UNENCRYPTED_DB=true when TLS is

@@ -1501,6 +1501,23 @@ helm:lint:
   <<: *rules-helm
   script:
     - helm lint packages/helm/
+    # Lint each shipped overlay too (#2879). `helm lint` validates values against
+    # values.schema.json, and the schema is the only thing that catches a values key
+    # no template reads — an unknown or misspelled key is otherwise accepted in
+    # silence and changes nothing on the pod (the #2860 mechanism). Linting the
+    # default values alone would leave the overlays uncovered. Each overlay is given
+    # the minimum extra --set it needs to RENDER, so a schema violation is the only
+    # thing that can fail here.
+    - helm lint packages/helm/ -f packages/helm/values-dev.yaml
+    - |
+      helm lint packages/helm/ -f packages/helm/values-prod.yaml \
+        --set 'env.DATABASE_URL=postgres://u:p@db.example.com:5432/trueppm?sslmode=require' \
+        --set 'env.REDIS_URL=redis://cache.example.com:6379/0'
+    - |
+      helm lint packages/helm/ -f packages/helm/values-demo.yaml \
+        --set demo.baseUrl=https://demo.example.com \
+        --set demo.shareToken.schedule=ci-schedule-token \
+        --set demo.shareToken.board=ci-board-token
     # Guard the bug class from #777: a `DJANGO_SETTINGS_MODULE` typo in the chart
     # (e.g. `settings.production` vs the real `settings.prod`) crash-loops every
     # fresh deploy yet passes `helm lint` silently. Verify every settings module

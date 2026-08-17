@@ -134,6 +134,27 @@ class TestInstallsWhenEnabled:
         )
         assert django_call["request_hook"] is instrumentation._redact_http_credential_span
 
+    def test_django_wired_with_the_trueppm_identity_response_hook(
+        self, fake_instrumentors: type[_FakeInstrumentor]
+    ) -> None:
+        """The identity attributes must hang off the RESPONSE hook, not the request one.
+
+        `process_request` runs before AuthenticationMiddleware and before DRF
+        authenticates, so at request time there is no user and the RBAC role cache is
+        empty — wiring `annotate_request_span` there would emit nothing and look
+        correct. Being on the response hook is the whole reason `trueppm.user.*` can
+        exist at all (#2880).
+        """
+        from trueppm_api.apps.observability.otel.request_attributes import (
+            annotate_request_span,
+        )
+
+        otel.instrument(_ctx(enabled=True, tracer_provider=object()))
+        django_call = next(
+            kwargs for _, name, kwargs in fake_instrumentors.calls if name == "_FakeDjango"
+        )
+        assert django_call["response_hook"] is annotate_request_span
+
     def test_psycopg_disables_sql_commenter(
         self, fake_instrumentors: type[_FakeInstrumentor]
     ) -> None:

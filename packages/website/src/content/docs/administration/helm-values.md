@@ -1,6 +1,7 @@
 ---
 title: Helm Values Reference
 description: Every top-level value the TruePPM Helm chart exposes — what each knob does and its safe default — organized by block.
+documentedFor: "0.4"
 ---
 
 This page is the reference for the values the TruePPM Helm chart
@@ -8,6 +9,16 @@ This page is the reference for the values the TruePPM Helm chart
 with. For *how many* of each resource to run at a given team size, see
 [Deployment Sizing](/administration/sizing/); for the application environment
 variables passed under `env`, see [Configuration](/administration/configuration/).
+
+:::note[Parts of this page ship in 0.4]
+Most of these values have been in the chart since 0.1. Four blocks land with the 0.4
+beta and are **not** in the latest released chart: the `web` tier (`web.*`, the nginx
+SPA and its admin allowlist and security headers), OpenTelemetry export
+(`observability.*`), the `demo` mode block, and `values.schema.json` — the schema that
+makes an unknown or misspelled key fail the upgrade instead of being accepted in
+silence. On the current release the chart deploys the API and workers only, ignores an
+`observability` block entirely, and accepts any key you write.
+:::
 
 :::note[Secure by default]
 A stock `helm install` renders a complete, secure instance: it generates and
@@ -17,6 +28,29 @@ The blocks below note where a default is deliberately *off* because it is
 cluster-specific (ingress, autoscaling, backup) or requires a CRD/operator that
 may not be present.
 :::
+
+## Unknown keys are rejected
+
+The chart ships a `values.schema.json` whose root is closed, so `helm upgrade`
+**fails** on a values key no template reads instead of accepting it:
+
+```
+Error: values don't meet the specifications of the schema(s) in the following chart(s):
+trueppm:
+- at '': additional properties 'extraEnv' not allowed
+```
+
+This matters more than it sounds. Helm's default is to accept anything, so before the
+schema a misspelled or invented key — copied from a blog post, another chart, or a
+typo — applied cleanly, changed nothing on the pod, and left you comparing a UI that
+said the setting was configured against a cluster where it was not. If a key you
+believe in is rejected, it is not a key this chart reads; find the real one below.
+
+Two blocks stay deliberately open because the chart is not the authority on their
+contents: `global` (Helm's cross-chart channel) and anything passed straight through
+to Kubernetes with `toYaml` — `resources.*`, `podSecurityContext`,
+`containerSecurityContext`, `ingress.annotations`, `alerts.labels`, and
+`backup.extraVolumes` / `extraVolumeMounts`.
 
 ## Image and replicas
 
@@ -266,11 +300,12 @@ alone, at boot.
 | `observability.otlp.tracesEnabled` / `metricsEnabled` | `true` / `true` | Per-signal export toggles, consulted only when `enabled` is true and an endpoint is set. Turn one off to export only the other. |
 | `observability.otlp.tracesSampler` / `Arg` | `""` | Trace sampling for busy instances, e.g. `parentbased_traceidratio` + `0.1`. Empty keeps the SDK default (`parentbased_always_on`). |
 | `observability.otlp.headers` | `""` | Comma-separated `key=value` OTLP headers (e.g. an auth token), rendered inline. Prefer `headersSecret` below for anything sensitive. |
+| `observability.otlp.actorAttributes` | `true` | Stamp `trueppm.user.id` (the acting account's opaque UUID) and `trueppm.user.role` (the symbolic project role the request was authorized under) on each request span. Nothing else about the person is exported — no email, username, display name, or client IP. Set `false` where a per-user identifier must not leave the instance even to your own collector; project/program/task ids are unaffected. |
 | `observability.otlp.headersSecret` | unset | Prefer this over inline `headers` so auth tokens never render into a plaintext manifest. |
-| `observability.otlp.exportHealth.enabled` | `true` | Master switch for the live export-health recorder (ADR-0601). When on, each pod records per-signal export success/error/counts into Valkey DB 2 so the System Health → Telemetry card shows a cross-process live strip. `false` reverts the card to a config-only posture; export itself is unaffected either way. **Requires the Valkey DB 2 instance to run `maxmemory-policy noeviction`** — the same requirement the rate-limit counters already impose. |
+| `observability.otlp.exportHealth.enabled` | `true` | Master switch for the live export-health recorder (ADR-0601). When on, each pod records per-signal export success/error/counts into Valkey DB 2 so the Telemetry card at Settings → Workspace → Observability shows a cross-process live strip. `false` reverts the card to a config-only posture; export itself is unaffected either way. **Requires the Valkey DB 2 instance to run `maxmemory-policy noeviction`** — the same requirement the rate-limit counters already impose. |
 | `observability.otlp.exportHealth.stalenessSeconds` | `""` (app default `600`) | How long a pod counts as live after its last export; beyond this a silent pod reads "never" instead of stalled. |
 | `observability.otlp.exportHealth.healthyWithinSeconds` | `""` (app default `150`) | A success newer than this reads healthy; older (but still live) reads stalled (metrics) / idle (traces). **Must stay below `stalenessSeconds`**, or the stalled/idle states become unobservable. Set all three `exportHealth` tuning keys together, or none. |
-| `observability.otlp.exportHealth.windowSeconds` | `""` (app default `60`) | Rolling window the exported-item counts cover; the System Health card labels the strip from it (e.g. "last 60s"). |
+| `observability.otlp.exportHealth.windowSeconds` | `""` (app default `60`) | Rolling window the exported-item counts cover; the Telemetry card labels the strip from it (e.g. "last 60s"). |
 | `dashboards.enabled` | `false` | Ship the starter Grafana dashboard as a labeled ConfigMap (needs a Grafana sidecar watching for the label below). |
 | `dashboards.label` / `labelValue` | `grafana_dashboard` / `"1"` | Label key/value your Grafana sidecar watches for auto-import. Defaults match the upstream kube-prometheus-stack sidecar convention. |
 | `dashboards.annotations` | `{}` | Extra annotations on the dashboard ConfigMap. |

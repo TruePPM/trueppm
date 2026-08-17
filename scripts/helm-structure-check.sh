@@ -566,6 +566,35 @@ if notes --set env.SECRET_KEY=x --set env.ALLOWED_HOSTS=h \
   fail "NOTES.txt still warns about missing secrets when every key is set under env.* (#2812)"
 fi
 
+# 11. The quiet branch must NAME the envFrom sources it is trusting (#2879).
+#    `len(envFrom) > 0` is a weak signal: `envFrom` is a list, so a values file that
+#    sets it REPLACES the operator's entry instead of appending. A release whose only
+#    source became an unrelated Secret still passes the length test and still
+#    crash-loops. The chart cannot read a Secret's keys at render time, so the honest
+#    check is to print the list rather than only measure it.
+trusted_notes="$(notes --set "envFrom[0].secretRef.name=${ENV_SECRET}")"
+echo "$trusted_notes" | grep -q "Secret/${ENV_SECRET}" \
+  || fail "NOTES.txt does not name the envFrom sources it trusts for the boot-guard keys — an operator whose list was replaced by another values file has nothing to notice (#2879)"
+echo "$trusted_notes" | grep -qi 'replaces it wholesale' \
+  || fail "NOTES.txt does not say envFrom is replace-not-merge — that is the mechanism by which the list silently loses the app-env Secret (#2879)"
+
+# 12. values.schema.json must exist and REJECT an unknown top-level key (#2879).
+#    Helm accepts a values key no template reads, so a wrong or invented key
+#    ('extraEnv', a typo) changes nothing on the pod while the operator believes it
+#    was applied — the #2860 mechanism, which recurs for every next wrong key. The
+#    root schema being closed is the only thing that turns that silence into an error.
+[ -f "$CHART/values.schema.json" ] \
+  || fail "$CHART/values.schema.json is missing — an unknown values key is accepted silently and changes nothing on the pod (#2879)"
+if helm template trueppm "$CHART" --set image.tag=latest --set 'extraEnv[0].name=X' >/dev/null 2>&1; then
+  fail "an unknown top-level values key ('extraEnv') rendered successfully — values.schema.json must close the root with additionalProperties:false (#2879)"
+fi
+# ...and the keys the chart DOES read must still validate, in every shipped overlay.
+for overlay in "" "$CHART/values-dev.yaml" "$CHART/values-prod.yaml"; do
+  if [ -n "$overlay" ]; then set -- -f "$overlay"; else set --; fi
+  helm lint "$CHART" "$@" >/dev/null 2>&1 \
+    || fail "helm lint failed for overlay '${overlay:-<defaults>}' — values.schema.json rejects a value the chart ships (#2879)"
+done
+
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
 echo "  - operator envFrom secret reaches migrate, bootstrap, and api"
@@ -580,3 +609,5 @@ echo "  - all $tag_checked first-party images default to '$EXPECTED_TAG' (a tag 
 echo "  - connection URLs: no plaintext credential in any workload; $url_env_checked env bindings are secretKeyRef-only and unduplicated"
 echo "  - the external-Secret (secretKeyRef map) form passes through to op-db/op-cache and is not copied into the chart Secret"
 echo "  - NOTES.txt names all four boot-guard keys on a bare install, and stays quiet once they are configured"
+echo "  - NOTES.txt names each trusted envFrom source and says the list is replace-not-merge"
+echo "  - values.schema.json rejects an unknown top-level key and accepts every shipped overlay"

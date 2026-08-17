@@ -89,7 +89,7 @@ function makeResult(over: Partial<TelemetryTestResult> = {}): TelemetryTestResul
     endpoint: 'otel-collector.internal:4317',
     protocol: 'grpc',
     duration_ms: 84,
-    detail: 'Canary span accepted by the collector — the export path is working end to end.',
+    detail: 'Canary span accepted by the collector — the export path from this pod is working. Worker and beat pods export independently and carry most of the volume; the live export strip covers them.',
     checked_at: '2026-07-17T00:00:00Z',
     ...over,
   };
@@ -111,12 +111,18 @@ describe('TelemetryCard — states', () => {
     expect(screen.queryByRole('button', { name: /Test export/i })).not.toBeInTheDocument();
   });
 
-  it('emits a Helm `env:` MAP, not the `extraEnv:` list the chart has nowhere (#2860)', () => {
-    // The chart templates env as a map (`range $key, $value := .Values.env` in
-    // _helpers.tpl) and has no `extraEnv` key at all. With no values.schema.json,
-    // `helm upgrade -f values.yaml` accepted the pasted block silently and changed
-    // nothing on the pod — so the operator read a card saying telemetry was
-    // configured while the cluster disagreed.
+  it('emits the chart\'s observability.otlp block, never a top-level envFrom (#2879)', () => {
+    // #2860 fixed the YAML SHAPE (`extraEnv:` list -> `env:` map) but left the
+    // mechanism wrong. Three defects lived in the four lines this replaced:
+    //   1. a top-level `envFrom:` list CLOBBERS the operator's app-secret list —
+    //      Helm replaces lists, so `trueppm-env` (SECRET_KEY / ALLOWED_HOSTS /
+    //      INTEGRATION_ENCRYPTION_KEY, validated at settings-import time) vanished
+    //      and the migrate init container crash-looped;
+    //   2. `envFrom` + `secretRef` needs the Secret KEY to be literally
+    //      OTEL_EXPORTER_OTLP_HEADERS, which the documented `--from-literal=headers=`
+    //      recipe never produces;
+    //   3. raw `env:` entries lose TRUEPPM_POD_NAME + every exportHealth knob, and
+    //      lose outright to observability.otlp if both are ever set.
     render(
       <TelemetryCard
         telemetry={makeTelemetry({ enabled: false, endpoint: '', endpoint_configured: false })}
@@ -125,20 +131,32 @@ describe('TelemetryCard — states', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Helm values' }));
     const snippet = screen.getByText(/helm upgrade trueppm/).textContent ?? '';
 
+    // The chart's first-class block, matching packages/helm/values.yaml exactly.
+    expect(snippet).toContain('observability:');
+    expect(snippet).toContain('  otlp:');
+    expect(snippet).toContain('    endpoint: "http://tempo.observability.svc:4317"');
+    expect(snippet).toContain('    protocol: "grpc"');
+    expect(snippet).toContain('    serviceName: "trueppm-api"');
+    expect(snippet).toContain('    enabled: true');
+    // The Env-vars tab sets a sampler; the Helm tab used to contradict it.
+    expect(snippet).toContain('    tracesSampler: "parentbased_traceidratio"');
+    expect(snippet).toContain('    tracesSamplerArg: "0.1"');
+
+    // No key that would replace an operator list or invent a key no template reads.
     expect(snippet).not.toContain('extraEnv');
-    expect(snippet).toContain('env:');
-    // Map form: `KEY: "value"`, never a `- name:` / `value:` list entry.
-    expect(snippet).toContain('TRUEPPM_OTEL_ENABLED: "true"');
-    expect(snippet).not.toContain('- name:');
-    // envFrom IS a real chart value and stays a list.
-    expect(snippet).toContain('envFrom:');
+    expect(snippet).not.toMatch(/^envFrom:/m);
+    expect(snippet).not.toMatch(/^env:/m);
+    // The Secret is referenced through headersSecret (which maps ANY key name onto
+    // OTEL_EXPORTER_OTLP_HEADERS), not through a raw secretRef.
+    expect(snippet).toContain('headersSecret:');
+    expect(snippet).not.toContain('secretRef:');
   });
 
   it('switches the snippet to Helm values when the Helm segment is clicked', () => {
     render(<TelemetryCard telemetry={makeTelemetry({ enabled: false, endpoint: '', endpoint_configured: false })} />);
     fireEvent.click(screen.getByRole('button', { name: 'Helm values' }));
     expect(screen.getByText(/helm upgrade trueppm/)).toBeInTheDocument();
-    expect(screen.getByText(/secretRef:/)).toBeInTheDocument();
+    expect(screen.getByText(/headersSecret:/)).toBeInTheDocument();
   });
 
   it('shows the exporting state with config, signals, and a test-export button', () => {
@@ -208,6 +226,43 @@ describe('TelemetryCard — live export strip (#2109)', () => {
     // The config posture is still shown.
     expect(screen.getByText('otel-collector.internal:4317')).toBeInTheDocument();
   });
+
+  // #2880: the strip reports "8s ago · 1,204 spans", numbers that are only true at
+  // fetch time. It shipped onto a page pinned to `poll: false` hours earlier, and
+  // `refetch` reached the error branch's Retry button only — so a stall that began
+  // after page load could never surface. The success path needs its own affordance.
+  it('re-reads the strip on demand when a refresh handler is supplied', () => {
+    const onRefresh = vi.fn();
+    const live = makeLive({ items_per_window: 1204 }, { items_per_window: 340 });
+    render(<TelemetryCard telemetry={makeTelemetry({ live })} onRefresh={onRefresh} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh live export stats' }));
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers refresh on the unavailable branch too — that is where a stall shows', () => {
+    const onRefresh = vi.fn();
+    render(
+      <TelemetryCard telemetry={makeTelemetry({ live: { available: false } })} onRefresh={onRefresh} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh live export stats' }));
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables the refresh control while a fetch is in flight', () => {
+    const live = makeLive({ items_per_window: 1204 }, { items_per_window: 340 });
+    render(
+      <TelemetryCard telemetry={makeTelemetry({ live })} onRefresh={vi.fn()} isRefreshing />,
+    );
+    expect(screen.getByRole('button', { name: 'Refresh live export stats' })).toBeDisabled();
+  });
+
+  it('renders no refresh control when the caller supplies no handler', () => {
+    const live = makeLive({ items_per_window: 1204 }, { items_per_window: 340 });
+    render(<TelemetryCard telemetry={makeTelemetry({ live })} />);
+    expect(
+      screen.queryByRole('button', { name: 'Refresh live export stats' }),
+    ).not.toBeInTheDocument();
+  });
 });
 
 describe('TelemetryCard — test export', () => {
@@ -228,7 +283,7 @@ describe('TelemetryCard — test export', () => {
     testExport = { mutate: vi.fn(), isPending: false, isError: false, data: makeResult() };
     render(<TelemetryCard telemetry={makeTelemetry()} />);
     expect(screen.getByText('Collector accepted the canary span')).toBeInTheDocument();
-    expect(screen.getByText(/working end to end/i)).toBeInTheDocument();
+    expect(screen.getByText(/the export path from this pod is working/i)).toBeInTheDocument();
     expect(screen.getByText('· 84 ms')).toBeInTheDocument();
   });
 

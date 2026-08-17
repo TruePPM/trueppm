@@ -117,10 +117,15 @@ def mc_latest_cache_key(pk: object) -> str:
 
 # Upper bound on how many parked tasks a single bulk requeue/drop touches, so a
 # "drop all" / "requeue all" over a large filtered set cannot unbounded-load the
-# DB or storm the broker (ADR-0210 §4). Overridable via settings for large
-# installs; oldest-first slice, with a ``capped`` flag in the response so the
-# operator knows to repeat.
-FAILED_TASK_BULK_ACTION_MAX = getattr(settings, "FAILED_TASK_BULK_ACTION_MAX", 500)
+# DB or storm the broker (ADR-0210 §4). Oldest-first slice, with a ``capped`` flag
+# in the response so the operator knows to repeat.
+#
+# Read straight off settings, not through `getattr(..., 500)`: the fallback made the
+# knob look tunable while no settings module bound it, so the docs' claim that
+# operators could raise it was false and the 500 always won (#2880). The binding now
+# lives in settings/base.py (env: TRUEPPM_FAILED_TASK_BULK_ACTION_MAX) and a missing
+# one is an AttributeError at import — loud, and impossible to ship silently.
+FAILED_TASK_BULK_ACTION_MAX: int = settings.FAILED_TASK_BULK_ACTION_MAX
 
 # Statuses an operator can act on: a task that is already dismissed or retried is
 # terminal and is skipped by bulk actions / rejected by single actions.
