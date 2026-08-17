@@ -4671,7 +4671,12 @@ class TaskViewSet(
         # ADR-0105: splitting a story restructures the backlog → can_manage_backlog
         # (Admin+), the same gate as auto-rank / epic management. The custom
         # get_permissions here overrides the @action's inline permission_classes, so
-        # the gate must be declared in this branch to take effect (rbac-check 🟡).
+        # the gate must be declared in this branch to take effect.
+        #
+        # That trap is now enforced, not just described: tests/test_action_permission_chain.py
+        # resolves what get_permissions() really returns for every inline-declared
+        # action and fails if the declaration is discarded (#2852). Adding an @action
+        # with its own permission_classes and no branch here is a merge-time failure.
         if self.action == "split":
             return [IsAuthenticated(), IsProjectBacklogManager(), IsProjectNotArchived()]
         # ADR-0217 §2: drag-reorder writes priority_rank → a board edit, gated to
