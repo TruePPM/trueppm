@@ -107,3 +107,12 @@ schema:PaginatedWebhookDeliveryList
 # removed and no response body changes — only the phantom component, as in
 # #2127, #2515 and #2583.
 schema:NotificationPreferenceRequest
+
+# #2842 — dead-letter bulk-action URLs renamed snake_case → kebab-case, the same
+# class as #1017 above and the last two such segments on the /api/v1/ surface.
+# requeue-all / drop-all replace these. Both shipped in 0.4 (0.4.0b1 is the first
+# tag on the line), so this lands inside the pre-0.9 window where stability.md
+# still allows a rename; the only consumer is our own web hook, updated in the
+# same commit. The new paths are present, only the old segments are removed.
+/api/v1/admin/failed-tasks/requeue_all/
+/api/v1/admin/failed-tasks/drop_all/
