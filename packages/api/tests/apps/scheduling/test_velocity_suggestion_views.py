@@ -400,3 +400,92 @@ def test_serializer_fails_closed_without_request_context(
 
     assert data["team_velocity_per_day"] is None
     assert data["suggested_duration"] is None
+
+
+# ---------------------------------------------------------------------------
+# Live-update broadcasts (#2845)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestAcceptDismissBroadcast:
+    """Both decisions mutate shared state; before #2845 neither emitted anything.
+
+    Accept's ``enqueue_recalculate`` does not cover it: ``most_likely_duration`` is a
+    Monte Carlo input absent from ``_CPM_DELTA_FIELDS``, so the recalc's
+    ``task_dates_updated`` delta — built only from tasks whose ``_CPM_DELTA_FIELDS``
+    moved — will not carry this task, and the ``cpm_complete`` that does fire
+    unconditionally is documented client-side as pill-and-stats only (ADR-0091).
+    """
+
+    @staticmethod
+    def _admin(project: Project) -> APIClient:
+        user = User.objects.create_user(username="pm2845", password="pw")
+        ProjectMembership.objects.create(project=project, user=user, role=Role.ADMIN)
+        return _client_for(user)
+
+    def test_accept_broadcasts_the_task_field_change_and_the_settlement(
+        self,
+        project: Project,
+        task: Task,
+        suggestion: VelocitySuggestion,
+        django_capture_on_commit_callbacks: object,
+    ) -> None:
+        with (
+            patch("trueppm_api.apps.sync.broadcast.broadcast_board_event", MagicMock()) as bcast,
+            patch("trueppm_api.apps.sync.broadcast.broadcast_task_updated", MagicMock()) as tupd,
+        ):
+            with django_capture_on_commit_callbacks(execute=True):  # type: ignore[operator]
+                resp = self._admin(project).post(
+                    f"/api/v1/velocity-suggestions/{suggestion.pk}/accept/"
+                )
+            assert resp.status_code == 200, resp.data
+
+        tupd.assert_called_once()
+        assert tupd.call_args.kwargs["changed_fields"] == ["most_likely_duration"]
+        assert tupd.call_args.kwargs["task_id"] == str(task.pk)
+
+        settled = [c for c in bcast.call_args_list if c.args[1].startswith("velocity_suggestion_")]
+        assert len(settled) == 1
+        assert settled[0].args[1] == "velocity_suggestion_accepted"
+        assert settled[0].args[2] == {"id": str(suggestion.pk)}
+
+    def test_dismiss_broadcasts_the_settlement(
+        self,
+        project: Project,
+        suggestion: VelocitySuggestion,
+        django_capture_on_commit_callbacks: object,
+    ) -> None:
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event", MagicMock()) as bcast:
+            with django_capture_on_commit_callbacks(execute=True):  # type: ignore[operator]
+                resp = self._admin(project).post(
+                    f"/api/v1/velocity-suggestions/{suggestion.pk}/dismiss/"
+                )
+            assert resp.status_code == 200, resp.data
+
+        settled = [c for c in bcast.call_args_list if c.args[1].startswith("velocity_suggestion_")]
+        assert len(settled) == 1
+        assert settled[0].args[1] == "velocity_suggestion_dismissed"
+        assert settled[0].args[2] == {"id": str(suggestion.pk)}
+
+    def test_an_idempotent_repeat_does_not_re_broadcast(
+        self,
+        project: Project,
+        suggestion: VelocitySuggestion,
+        django_capture_on_commit_callbacks: object,
+    ) -> None:
+        """A second dismiss returns 200 from the idempotency guard and writes nothing.
+
+        Re-broadcasting on a no-op would make every client re-read for a change that
+        did not happen — the guard returns before the UPDATE, so it must return
+        before the broadcast too.
+        """
+        client = self._admin(project)
+        with django_capture_on_commit_callbacks(execute=True):  # type: ignore[operator]
+            client.post(f"/api/v1/velocity-suggestions/{suggestion.pk}/dismiss/")
+
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event", MagicMock()) as bcast:
+            with django_capture_on_commit_callbacks(execute=True):  # type: ignore[operator]
+                resp = client.post(f"/api/v1/velocity-suggestions/{suggestion.pk}/dismiss/")
+            assert resp.status_code == 200
+        assert not [c for c in bcast.call_args_list if c.args[1].startswith("velocity_suggestion_")]

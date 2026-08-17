@@ -282,18 +282,40 @@ def _validate_signal_key(signal_key: str) -> None:
 def _emit_consent_changed(
     project_id: Any, signal_key: str, change: str, old: str, new: str
 ) -> None:
-    """Fire the supply-only extension-point signal on commit (ADR-0104 §3)."""
-    from trueppm_api.apps.projects.signals import team_signal_consent_changed
+    """Fire the supply-only extension-point signal on commit (ADR-0104 §3).
 
+    Also broadcasts the policy change to the project's live clients (#2845). This is
+    the one chokepoint every policy writer passes through — ``set_signal_audience``,
+    ``raise_signal_ceiling`` (including the clamp it may apply) and
+    ``ratchet_down_to_team`` all land here — so wiring the broadcast here rather than
+    at each call site is what keeps a future fourth writer from being silently
+    unbroadcast. Nothing in this module previously contained the string "broadcast",
+    while the settings UI it backs is a real multi-user surface with a 60s/30s
+    ``staleTime`` and no ``refetchInterval``: a facilitator's ratchet-to-team was
+    invisible to every other member for up to a minute.
+    """
+    from trueppm_api.apps.projects.signals import team_signal_consent_changed
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    project_id_str = str(project_id)
     transaction.on_commit(
         lambda: dispatch_extension_signal(
             team_signal_consent_changed,
             sender=ProjectSignalPrivacyPolicy,
-            project_id=str(project_id),
+            project_id=project_id_str,
             signal_key=signal_key,
             change=change,
             old=old,
             new=new,
+        )
+    )
+    # Values are already plain strings here (broadcast-check H-1: nothing in this
+    # closure re-reads an ORM instance that could have moved on by commit time).
+    transaction.on_commit(
+        lambda: broadcast_board_event(
+            project_id_str,
+            "signal_privacy_changed",
+            {"id": project_id_str, "signal_key": signal_key, "change": change},
         )
     )
 
@@ -535,8 +557,19 @@ def _team_voter_ids(project_id: Any) -> set[Any]:
 
 
 def _emit_proposal_changed(proposal: SignalCeilingRaiseProposal) -> None:
-    """Fire the supply-only proposal-lifecycle signal on commit (Amendment A.6)."""
+    """Fire the supply-only proposal-lifecycle signal on commit (Amendment A.6).
+
+    Also broadcasts the transition (#2845). Every status change routes through
+    ``_resolve_proposal`` or the open path, both of which land here, so this covers
+    opened / ratified / rejected / expired / superseded / withdrawn. A vote that does
+    *not* move the status broadcasts separately from :func:`cast_ceiling_vote` — the
+    running tally is itself the live signal a voting UI needs.
+
+    The architecturally equivalent feature is Planning Poker, which broadcasts on
+    every open/vote/reveal/reopen/commit/cancel; this one shipped with none.
+    """
     from trueppm_api.apps.projects.signals import team_signal_ceiling_proposal_changed
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
     project_id = str(proposal.project_id)
     signal_key = proposal.signal_key
@@ -550,6 +583,16 @@ def _emit_proposal_changed(proposal: SignalCeilingRaiseProposal) -> None:
             signal_key=signal_key,
             proposal_id=proposal_id,
             status=status,
+        )
+    )
+    # Plain scalars snapshotted above, before the closure (broadcast-check H-1). No
+    # vote values or voter identities in the payload — the event is a nudge to
+    # re-read through the REST surface, which re-applies the privacy gate.
+    transaction.on_commit(
+        lambda: broadcast_board_event(
+            project_id,
+            "signal_ceiling_proposal_changed",
+            {"id": proposal_id, "signal_key": signal_key, "status": status},
         )
     )
 
@@ -746,7 +789,26 @@ def cast_ceiling_vote(proposal_id: Any, voter: Any, choice: str) -> SignalCeilin
         SignalCeilingRaiseVote.objects.update_or_create(
             proposal=proposal, voter=voter, defaults={"choice": choice}
         )
-        return _tally_and_maybe_apply(proposal)
+        settled = _tally_and_maybe_apply(proposal)
+        # A vote that does not tip the tally leaves the status OPEN, so
+        # _emit_proposal_changed never fires — yet the running count IS what the
+        # other voters are watching (#2845). Broadcast the vote itself in that case;
+        # when the tally did settle the proposal, the status event already covers it
+        # and a second frame would only make clients re-read twice.
+        if settled.status == CeilingRaiseStatus.OPEN:
+            from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+            project_id = str(settled.project_id)
+            proposal_id = str(settled.pk)
+            signal_key = settled.signal_key
+            transaction.on_commit(
+                lambda: broadcast_board_event(
+                    project_id,
+                    "signal_ceiling_vote_cast",
+                    {"id": proposal_id, "signal_key": signal_key},
+                )
+            )
+        return settled
 
 
 def withdraw_ceiling_proposal(proposal_id: Any, actor: Any) -> SignalCeilingRaiseProposal:

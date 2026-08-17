@@ -150,6 +150,20 @@ The set is open-ended and grows as features land; current event types include:
   aren't in the live session still see that one started or ended; payload
   carries the workshop `session_id`
 - **Cross-project (ADR-0120)**: `slip_conflict_acknowledged`, `slip_conflicts_updated`
+- **Velocity suggestions**: `velocity_suggestion_accepted`, `velocity_suggestion_dismissed`
+  — the suggestion settling. An *accept* also emits a normal `task_updated`
+  carrying `changed_fields: ["most_likely_duration"]`, because the task's own
+  field changed and that field is a Monte Carlo input the CPM delta does not carry
+- **Signal privacy (ADR-0104)**: `signal_privacy_changed` (an audience or ceiling
+  moved), `signal_ceiling_proposal_changed` (a raise proposal opened, ratified,
+  was rejected, expired, was superseded, or withdrawn), `signal_ceiling_vote_cast`
+  (a vote that left the proposal open — the running tally). Payloads are ID-only:
+  no vote values and no voter identities cross the wire, so a client re-reads
+  through REST, which re-applies the privacy gate
+- **Working-time calendar**: `project_calendar_changed` — the project's *effective*
+  calendar changed. Fired on the affected projects for a Calendar edit, a
+  calendar-exception edit, or a program/workspace calendar reassignment; Calendar
+  itself is a shared org-level resource with no channel of its own
 - **Presence**: `presence_join`, `presence_leave`
 
 > **Event-name convention.** WebSocket `event_type` values are **`snake_case`**
@@ -295,6 +309,12 @@ adding it to that frozen set. Events with no webhook counterpart are marked
 | `suggestion_revoked` | **WS-only** |
 | `slip_conflict_acknowledged` | **WS-only** |
 | `slip_conflicts_updated` | **WS-only** |
+| `velocity_suggestion_accepted` | **WS-only** |
+| `velocity_suggestion_dismissed` | **WS-only** |
+| `signal_privacy_changed` | **WS-only** |
+| `signal_ceiling_proposal_changed` | **WS-only** |
+| `signal_ceiling_vote_cast` | **WS-only** |
+| `project_calendar_changed` | **WS-only** |
 
 ### WS-only events on other channels
 

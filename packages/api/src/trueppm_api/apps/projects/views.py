@@ -716,13 +716,39 @@ def _enqueue_calendar_recalc(project_ids: Sequence[uuid.UUID | str]) -> None:
     Routed through the scheduling outbox (ADR-0027) so a broker outage cannot drop the
     recompute; ``enqueue_recalculate`` coalesces onto any PENDING request per project,
     so several edits in one transaction cost one recompute each.
+
+    Also broadcasts ``project_calendar_changed`` to each affected project (#2845).
+    Calendar is documented as a shared org-level resource — exactly the kind two
+    admins have open at once — and the whole Calendar surface emitted nothing: there
+    is no ``calendar_*`` event in ``FROZEN_WS_EVENT_TYPES`` at all. The downstream
+    date movement does reach clients through the recompute's own
+    ``cpm_complete`` / ``task_dates_updated``, but the Calendar settings screen
+    itself (name, working days, hours/day, holiday exceptions) had no live signal.
+
+    This is the right chokepoint rather than the four write paths above it: the
+    per-calendar, per-program, and per-workspace fan-outs all resolve their affected
+    projects and land here, so the broadcast set is by construction the same set the
+    recompute uses, and a fifth fan-out cannot be added unbroadcast.
+
+    The event is named for what changed *from the receiving project's point of view*
+    — its effective working-time calendar — because that is invariant across all
+    three triggers (a Calendar row edit, an exception edit, or an upstream FK
+    reassignment), and it is the one thing the client needs in order to re-read.
     """
     if not project_ids:
         return
 
+    # Snapshot to plain strings before the closure (broadcast-check H-1).
+    project_id_strs = [str(pid) for pid in project_ids]
+
     def _dispatch() -> None:
-        for pid in project_ids:
-            _enqueue_recalculate(str(pid), reason=ScheduleRequestReason.CALENDAR_CHANGE)
+        # Imported inside the callback, as every other broadcast site in this module
+        # does, so a test patching trueppm_api.apps.sync.broadcast intercepts it.
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        for pid in project_id_strs:
+            _enqueue_recalculate(pid, reason=ScheduleRequestReason.CALENDAR_CHANGE)
+            broadcast_board_event(pid, "project_calendar_changed", {"id": pid})
 
     transaction.on_commit(_dispatch)
 

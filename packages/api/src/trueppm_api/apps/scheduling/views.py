@@ -1810,6 +1810,25 @@ class VelocitySuggestionViewSet(
         qs = qs.filter(task__project_id__in=member_project_ids)
         return qs
 
+    @staticmethod
+    def _broadcast_settled(project_id: Any, suggestion_pk: Any, event_type: str) -> None:
+        """Announce that a velocity suggestion was accepted or dismissed (#2845).
+
+        Both decisions mutate shared state a collaborator has on screen — the
+        suggestion disappears from the pending list for everyone — and neither
+        emitted anything before. Deferred to commit and built from plain scalars so
+        the closure never re-reads an ORM instance (broadcast-check H-1). The payload
+        is ID-only: a client re-reads through the serializer, which re-applies the
+        ADR-0104 velocity gate the response itself goes through.
+        """
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project_id_str = str(project_id)
+        suggestion_id_str = str(suggestion_pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id_str, event_type, {"id": suggestion_id_str})
+        )
+
     # ``request=None`` asserted rather than inferred (#2840): both decisions are
     # carried by the URL alone. The pre-fix schema published no requestBody here
     # only because VelocitySuggestionSerializer exposes no writable field — an
@@ -1898,6 +1917,39 @@ class VelocitySuggestionViewSet(
                     reason=ScheduleRequestReason.TASK_CHANGE,
                 )
             )
+            # #2845: the recalc above does NOT cover this write. most_likely_duration
+            # is a Monte Carlo input and is absent from _CPM_DELTA_FIELDS, so the
+            # recalc's task_dates_updated delta — built from the subset of tasks whose
+            # _CPM_DELTA_FIELDS actually moved — will not carry this task unless its
+            # deterministic CPM output happens to shift for an unrelated reason. And
+            # cpm_complete, which does fire unconditionally, is explicitly documented
+            # on the client as pill-and-stats only ("the tasks cache is maintained by
+            # task_dates_updated", ADR-0091). So there was no live-update path of any
+            # kind for a field a collaborator can see change.
+            #
+            # Two events, because two things changed: the task's own field (the
+            # canonical ADR-0152 delta, which the existing frontend handler already
+            # knows how to apply) and the suggestion row settling.
+            #
+            # Scalars snapshotted before the closure, and both deferred to commit —
+            # broadcast_task_updated is best-effort and its docstring requires the
+            # caller to wrap it (broadcast-check H-1).
+            from trueppm_api.apps.sync.broadcast import broadcast_task_updated
+
+            project_id_str = str(project_id)
+            task_id_str = str(task.pk)
+            task_version = task.server_version
+            actor_id_str = str(request.user.pk)
+            transaction.on_commit(
+                lambda: broadcast_task_updated(
+                    project_id_str,
+                    task_id=task_id_str,
+                    changed_fields=["most_likely_duration"],
+                    version=task_version,
+                    actor_id=actor_id_str,
+                )
+            )
+            self._broadcast_settled(project_id, suggestion.pk, "velocity_suggestion_accepted")
 
         suggestion.refresh_from_db()
         # get_serializer injects request context so the serializer's ADR-0104
@@ -1937,10 +1989,18 @@ class VelocitySuggestionViewSet(
                 status=status.HTTP_409_CONFLICT,
             )
 
-        VelocitySuggestion.objects.filter(pk=suggestion.pk).update(
-            dismissed_at=timezone.now(),
-            dismissed_by=request.user,
-        )
+        with transaction.atomic():
+            VelocitySuggestion.objects.filter(pk=suggestion.pk).update(
+                dismissed_at=timezone.now(),
+                dismissed_by=request.user,
+            )
+            # #2845: dismissing removes the row from every other member's pending
+            # list. Wrapped in atomic() so the on_commit registration inside
+            # _broadcast_settled has a transaction to hang off — outside one it would
+            # fire immediately, before the UPDATE is durable.
+            self._broadcast_settled(
+                suggestion.task.project_id, suggestion.pk, "velocity_suggestion_dismissed"
+            )
         suggestion.refresh_from_db()
         # get_serializer injects request context so the serializer's ADR-0104
         # velocity gate fires on these action responses too (#949).
