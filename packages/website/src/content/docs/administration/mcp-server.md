@@ -429,6 +429,12 @@ What the control does guarantee is that a credential minted *as an agent* is
 bound, always, by whichever scope objects. Treat it as the answer to "may an agent
 be pointed at this team's data," not as a data-loss-prevention boundary.
 
+Today `trueppm-mcp` will start on a `legacy:full` token without complaint, because
+`GET /api/v1/auth/me/` does not report the token's scope back to it. A later
+release makes that boot fail with an explanation instead, so the *accidental* case
+— someone using the default-scope token they already had — becomes a loud refusal
+rather than a quiet bypass.
+
 ### The rules that make it consent rather than a suggestion
 
 1. **Any scope may block; no scope may unblock another's block.** The effective
