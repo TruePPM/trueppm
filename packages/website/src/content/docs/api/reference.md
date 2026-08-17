@@ -1390,8 +1390,8 @@ Throttled at `user_search` (60/min per user — see
 
 ### Admin: failed tasks
 
-`/api/v1/admin/failed-tasks/` (list, retrieve, `requeue`, `drop`, `requeue_all`,
-`drop_all`) is the Celery dead-letter queue surface, fully documented in
+`/api/v1/admin/failed-tasks/` (list, retrieve, `requeue`, `drop`, `requeue-all`,
+`drop-all`) is the Celery dead-letter queue surface, fully documented in
 [System health](/administration/system-health/#api).
 
 ### Import templates

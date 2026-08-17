@@ -75,7 +75,7 @@ export function useDropFailedTask() {
   });
 }
 
-/** POST /api/v1/admin/failed-tasks/requeue_all/ — requeue the current filter set (bounded). */
+/** POST /api/v1/admin/failed-tasks/requeue-all/ — requeue the current filter set (bounded). */
 export function useRequeueAllFailedTasks() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -87,7 +87,7 @@ export function useRequeueAllFailedTasks() {
       backoffSeconds: number;
     }) => {
       const res = await apiClient.post<BulkActionResult>(
-        `/admin/failed-tasks/requeue_all/${filtersToQuery(filters)}`,
+        `/admin/failed-tasks/requeue-all/${filtersToQuery(filters)}`,
         { backoff_seconds: backoffSeconds },
       );
       return res.data;
@@ -98,13 +98,13 @@ export function useRequeueAllFailedTasks() {
   });
 }
 
-/** POST /api/v1/admin/failed-tasks/drop_all/ — drop the current filter set (bounded). */
+/** POST /api/v1/admin/failed-tasks/drop-all/ — drop the current filter set (bounded). */
 export function useDropAllFailedTasks() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ filters, note }: { filters: FailedTaskFilters; note: string }) => {
       const res = await apiClient.post<BulkActionResult>(
-        `/admin/failed-tasks/drop_all/${filtersToQuery(filters)}`,
+        `/admin/failed-tasks/drop-all/${filtersToQuery(filters)}`,
         { note },
       );
       return res.data;

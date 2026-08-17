@@ -135,7 +135,7 @@ The console is API-first; every surface is admin-only (`IsAdminUser`):
   durable workflow backend with an optional `{ "backoff_seconds": N }` (0–86400).
 - `POST /api/v1/admin/failed-tasks/{id}/drop/` — soft-remove the task (→ `dismissed`)
   with an optional `{ "note": "…" }`.
-- `POST /api/v1/admin/failed-tasks/requeue_all/` and `.../drop_all/` — the bulk actions
+- `POST /api/v1/admin/failed-tasks/requeue-all/` and `.../drop-all/` — the bulk actions
   over the current filter set (same query params as the list); bounded, returning
   `{ processed, matched, capped }`.
 

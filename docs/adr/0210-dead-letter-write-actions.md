@@ -250,8 +250,12 @@ drift gate.
 - **Migration required:** **yes** — scheduling 0010, three nullable/defaulted fields on
   `FailedTask`. No destructive op, no NOT NULL without default.
 - **API changes:** **yes** — `POST /api/v1/admin/failed-tasks/{id}/requeue/`,
-  `POST .../{id}/drop/`, `POST /api/v1/admin/failed-tasks/requeue_all/`,
-  `POST .../drop_all/`; legacy `retry`/`dismiss` removed. All `IsAdminUser`.
+  `POST .../{id}/drop/`, `POST /api/v1/admin/failed-tasks/requeue-all/`,
+  `POST .../drop-all/`; legacy `retry`/`dismiss` removed. All `IsAdminUser`.
+  (Route casing corrected 2026-08-16, #2842: these two shipped as `requeue_all` /
+  `drop_all`, the only snake_case path segments on a kebab-case viewset, and were
+  renamed before the 0.9 v1 freeze made them permanent. The action names in the
+  body of this ADR are the Python method names and are unchanged.)
 - **OSS or Enterprise:** **OSS** (trueppm-suite). `grep -r "trueppm_enterprise" packages/`
   stays zero in OSS code.
 

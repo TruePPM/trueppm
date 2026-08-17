@@ -1628,7 +1628,7 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
         summary="Requeue every actionable task in the current filter set (bounded)",
     )
     @action(
-        detail=False, methods=["post"], url_path="requeue_all", permission_classes=[IsAdminUser]
+        detail=False, methods=["post"], url_path="requeue-all", permission_classes=[IsAdminUser]
     )
     def requeue_all(self, request: Request) -> Response:
         """Bulk-requeue the current filter set, bounded (ADR-0210 §4).
@@ -1673,7 +1673,7 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
         responses={200: OpenApiResponse(description="{processed, matched, capped}")},
         summary="Drop every task in the current filter set (bounded)",
     )
-    @action(detail=False, methods=["post"], url_path="drop_all", permission_classes=[IsAdminUser])
+    @action(detail=False, methods=["post"], url_path="drop-all", permission_classes=[IsAdminUser])
     def drop_all(self, request: Request) -> Response:
         """Bulk-drop the current filter set, bounded (ADR-0210 §4).
 

@@ -180,7 +180,7 @@ class TestBulkActions:
         target_b = _failed(task_name="scheduling.relay", task_id="r-2")
 
         res = _admin_client().post(
-            f"{BASE}/drop_all/?task_name=relay", {"note": "relay outage"}, format="json"
+            f"{BASE}/drop-all/?task_name=relay", {"note": "relay outage"}, format="json"
         )
         assert res.status_code == 200
         assert res.data["processed"] == 2
@@ -201,7 +201,7 @@ class TestBulkActions:
             task_name="scheduling.relay", task_id="r-2", status=FailedTaskStatus.DISMISSED
         )
 
-        res = _admin_client().post(f"{BASE}/requeue_all/?task_name=relay", {}, format="json")
+        res = _admin_client().post(f"{BASE}/requeue-all/?task_name=relay", {}, format="json")
         assert res.status_code == 200
         # Only the DEAD row is actionable; the dismissed one is excluded.
         assert res.data["processed"] == 1
@@ -219,7 +219,7 @@ class TestBulkActions:
         for i in range(3):
             _failed(task_name="scheduling.relay", task_id=f"r-{i}")
 
-        res = _admin_client().post(f"{BASE}/drop_all/", {}, format="json")
+        res = _admin_client().post(f"{BASE}/drop-all/", {}, format="json")
         assert res.status_code == 200
         assert res.data["processed"] == 1
         assert res.data["matched"] == 3
@@ -235,8 +235,8 @@ class TestPermissions:
         [
             ("/{id}/requeue/", {}),
             ("/{id}/drop/", {}),
-            ("/requeue_all/", {}),
-            ("/drop_all/", {}),
+            ("/requeue-all/", {}),
+            ("/drop-all/", {}),
         ],
     )
     def test_unauthenticated_is_denied(self, path_suffix: str, body: dict) -> None:
@@ -249,8 +249,8 @@ class TestPermissions:
         [
             ("/{id}/requeue/", {}),
             ("/{id}/drop/", {}),
-            ("/requeue_all/", {}),
-            ("/drop_all/", {}),
+            ("/requeue-all/", {}),
+            ("/drop-all/", {}),
         ],
     )
     def test_non_staff_is_forbidden(self, path_suffix: str, body: dict) -> None:

@@ -21,8 +21,8 @@ api/v1/^acceptance-criteria/$
 api/v1/^acceptance-criteria/(?P<pk>[^/.]+)/$
 api/v1/^admin/failed-tasks/(?P<pk>[^/.]+)/drop/$
 api/v1/^admin/failed-tasks/(?P<pk>[^/.]+)/requeue/$
-api/v1/^admin/failed-tasks/drop_all/$
-api/v1/^admin/failed-tasks/requeue_all/$
+api/v1/^admin/failed-tasks/drop-all/$
+api/v1/^admin/failed-tasks/requeue-all/$
 api/v1/^calendars/$
 api/v1/^calendars/(?P<pk>[^/.]+)/$
 api/v1/^cascade-classification-operations/(?P<pk>[^/.]+)/undo/$
