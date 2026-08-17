@@ -156,7 +156,21 @@ kubectl cluster-info
 
 # ---- 2. install an ENFORCING CNI -------------------------------------------
 log "installing Calico ${CALICO_VERSION}"
-kubectl apply -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/calico.yaml"
+# kubectl apply -f <url> has no retry of its own, so a single transient GitHub
+# rate-limit (429) or network blip fails the whole drill. raw.githubusercontent.com
+# can also throttle a source IP for MINUTES, not seconds (#1989) — long enough that
+# retrying the same host is not reliably survivable, so a fetch failure falls back
+# to jsdelivr, which mirrors GitHub repos through separate CDN infrastructure and
+# resolves the same tag.
+CALICO_MANIFEST_URL="https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/calico.yaml"
+CALICO_MANIFEST_MIRROR_URL="https://cdn.jsdelivr.net/gh/projectcalico/calico@${CALICO_VERSION}/manifests/calico.yaml"
+if ! curl --fail -sSL --retry 5 --retry-delay 2 --retry-all-errors \
+  -o /tmp/calico.yaml "$CALICO_MANIFEST_URL"; then
+  log "fetching Calico manifest from raw.githubusercontent.com failed after retries, falling back to jsdelivr mirror"
+  curl --fail -sSL --retry 5 --retry-delay 2 --retry-all-errors \
+    -o /tmp/calico.yaml "$CALICO_MANIFEST_MIRROR_URL"
+fi
+kubectl apply -f /tmp/calico.yaml
 log "waiting for calico-node to be ready"
 kubectl -n kube-system rollout status daemonset/calico-node --timeout=5m \
   || fail "calico-node did not become ready — no enforcing CNI, drill cannot prove anything"
