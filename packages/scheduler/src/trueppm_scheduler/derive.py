@@ -125,6 +125,12 @@ class DerivationContribution:
     is_binding: bool = False
 
     def to_dict(self) -> dict[str, Any]:
+        """Return this contribution as a JSON-serializable dict.
+
+        Returns:
+            The contribution's fields with dates rendered as ISO-8601 strings, so
+            an explanation can be serialized straight to an API response.
+        """
         return {
             "kind": self.kind,
             "source_task_id": self.source_task_id,
@@ -159,6 +165,17 @@ class Derivation:
     contributions: list[DerivationContribution] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
+        """Return this derivation as a JSON-serializable dict.
+
+        Note:
+            The ``pass_`` attribute is emitted under the key ``"pass"`` — the
+            trailing underscore exists only because ``pass`` is a Python keyword,
+            and the wire contract uses the unsuffixed name.
+
+        Returns:
+            The derivation's fields, with ``binding`` and each entry of
+            ``contributions`` recursively converted.
+        """
         return {
             "task_id": self.task_id,
             "task_name": self.task_name,

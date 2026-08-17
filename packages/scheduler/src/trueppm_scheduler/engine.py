@@ -195,6 +195,13 @@ class DrivingEdge:
     dep_type: str
 
     def to_dict(self) -> dict[str, str]:
+        """Return this driving edge as a JSON-serializable dict.
+
+        Returns:
+            ``{"predecessor_id", "successor_id", "dep_type"}`` — the edge that
+            determined the successor's early start, identified by task id rather
+            than by object so the result survives serialization.
+        """
         return {
             "predecessor_id": self.predecessor_id,
             "successor_id": self.successor_id,
@@ -244,6 +251,14 @@ class ScheduleResult:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        """Return the whole schedule result as a JSON-serializable dict.
+
+        Returns:
+            Project dates as ISO-8601 strings, every task converted via
+            ``Task.to_dict()``, the critical path as a list of task ids, and the
+            driving edges (already sorted deterministically, so two runs over the
+            same input serialize byte-identically).
+        """
         return {
             "project_id": self.project_id,
             "project_start": self.project_start.isoformat(),
@@ -269,6 +284,13 @@ class TaskSensitivity:
     index: float
 
     def to_dict(self) -> dict[str, Any]:
+        """Return this sensitivity entry as a JSON-serializable dict.
+
+        Returns:
+            ``{"task_id", "index"}`` — the correlation of this task's sampled
+            duration with the project finish. Tasks with no sampled variance are
+            absent from the list entirely rather than reported as ``0``.
+        """
         return {"task_id": self.task_id, "index": self.index}
 
 
@@ -298,6 +320,14 @@ class MonteCarloResult:
     sensitivity: list[TaskSensitivity] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
+        """Return the simulation result as a JSON-serializable dict.
+
+        Returns:
+            The percentile dates as ISO-8601 strings, the full ``distribution``
+            (one date per run — this is the large field, and callers that only
+            need the percentiles should read those attributes instead of
+            serializing), and the duration-sensitivity tornado.
+        """
         return {
             "project_id": self.project_id,
             "runs": self.runs,
@@ -628,6 +658,14 @@ class CycleCheck:
         return self.cycle is not None
 
     def to_dict(self) -> dict[str, Any]:
+        """Return this cycle-check result as a JSON-serializable dict.
+
+        Returns:
+            ``{"cycle": [<task id>, ...]}`` naming the offending tasks, or
+            ``{"cycle": None}`` when the graph is acyclic. Note that the object
+            itself is falsy in the acyclic case (``__bool__``), so
+            ``if find_cycle(...)`` reads correctly without inspecting this dict.
+        """
         return {"cycle": self.cycle}
 
 

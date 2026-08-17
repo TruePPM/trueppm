@@ -16,6 +16,24 @@ change between releases. Pin an exact version (e.g.
 
 ## [Unreleased]
 
+## [0.4.0b1] - 2026-08-16
+
+### Added
+
+- **Seven new names on the public `__all__` surface** — a ~20% expansion, none of
+  it previously recorded here. Diffed against `scheduler-v0.3.0a3`:
+  - **`DrivingEdge`** and **`ScheduleResult.driving_edges`** — the predecessor edge
+    that determines each task's early start, so a consumer can walk the chain that
+    actually drives a date rather than re-deriving it.
+  - **`Derivation`**, **`DerivationContribution`**, **`Quantity`** and
+    **`derive_value()`** (ADR-0218) — the explainability surface: ask why a
+    computed quantity has the value it has and get back the inputs that produced
+    it, rather than a number with no provenance.
+  - **`UnknownTaskError`** — now exported, and now a `SchedulerError` subclass (see
+    *Fixed*), so `except SchedulerError` catches it.
+  - **`MAX_DEPENDENCIES`** — the dependency-count ceiling, exported so a caller can
+    check against it instead of discovering it by raising.
+
 ### Added
 
 - **`Task.scheduled_start`** (ADR-0752): a new CPM-computed field naming the
@@ -96,6 +114,31 @@ change between releases. Pin an exact version (e.g.
   the full distribution and are byte-identical to before** — only the sensitivity
   ranking is subsampled, and Spearman rank correlation converges well within the
   subsample (top-N ranking within ~0.02 of the full-run correlation) (#1525).
+
+#### Input contract narrowed — a document that scheduled on 0.3.0a3 may now raise
+
+Nine validation tightenings landed in 0.4. Each is a deliberate fix, and each
+turns previously-accepted input into an `InvalidScheduleInput` (or, where noted,
+a different documented `SchedulerError`). **This is the list to read before
+upgrading a pipeline**, because the failure surfaces at runtime on real data
+rather than at install time:
+
+| Narrowed | Was accepted on 0.3.0a3 | Now |
+|---|---|---|
+| Date strings must be strict `YYYY-MM-DD` | compact (`20260401`), ordinal, and week-date ISO forms | rejected |
+| Duplicate JSON object keys | silently kept the last value | rejected as malformed |
+| Sub-microsecond duration precision | silently truncated | rejected |
+| Non-whole-day durations and lags | accepted and rounded | rejected |
+| Duplicate `(predecessor, successor)` pairs | accepted as a single edge | rejected |
+| Dependency count | unbounded | capped at `MAX_DEPENDENCIES` (100 000) |
+| Calendar exception count | unbounded | capped at `MAX_CALENDAR_EXCEPTIONS` (100 000) |
+| `Calendar.from_dict` types for `working_days` / `hours_per_day` / `timezone` | coerced loosely | type-strict |
+| **SS/SF dependencies *from* a summary task** (ADR-0370) | accepted, with undefined semantics | **rejected outright** |
+
+The last is a behavior removal rather than a validation tightening: a summary
+task's start is derived from its children, so a start-anchored link *out of* one
+had no well-defined meaning. Re-anchor such a link to the child that really
+drives it.
 
 ### Fixed
 
@@ -318,7 +361,8 @@ _No library-facing changes in this release._
 - Cycle detection that names the offending task IDs (`CyclicDependencyError`).
 - CLI: `trueppm-scheduler schedule` / `trueppm-scheduler monte-carlo`.
 
-[Unreleased]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.3.0a3...main
+[Unreleased]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.4.0b1...main
+[0.4.0b1]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.3.0a3...scheduler-v0.4.0b1
 [0.3.0a3]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.3.0a2...scheduler-v0.3.0a3
 [0.3.0a2]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.3.0a1...scheduler-v0.3.0a2
 [0.3.0a1]: https://gitlab.com/trueppm/trueppm/-/compare/scheduler-v0.2.0a1...scheduler-v0.3.0a1
