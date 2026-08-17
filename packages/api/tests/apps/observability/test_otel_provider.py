@@ -292,6 +292,137 @@ class TestHeaderParsing:
         assert provider._parse_headers("a=1,garbage,b=2") == {"a": "1", "b": "2"}
 
 
+class TestResolvedExporterEndpoint:
+    """The endpoint each exporter actually POSTs to (#2873).
+
+    These assert on the **constructed exporter's resolved** ``_endpoint``, not on
+    the kwargs the builder assembles, and they construct the real upstream
+    exporters — nothing here is mocked and no collector is needed (both transports
+    connect lazily). That distinction is the whole point: the prior HTTP test
+    asserted only that a provider object came back, so it passed while every
+    ``http/protobuf`` export POSTed to the collector root and 404'd forever.
+    """
+
+    _HTTP_BASE = "http://otel-collector.test:4318"
+
+    @staticmethod
+    def _resolved(exporter: object) -> str:
+        """Read the exporter's resolved target, always shutting the exporter down."""
+        try:
+            return str(exporter._endpoint)  # type: ignore[attr-defined]
+        finally:
+            exporter.shutdown()  # type: ignore[attr-defined]
+
+    @override_settings(
+        OTEL_EXPORTER_OTLP_ENDPOINT=_HTTP_BASE,
+        OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf",
+    )
+    def test_http_span_exporter_targets_the_traces_signal_path(self) -> None:
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
+        exporter = provider.build_span_exporter()
+        assert isinstance(exporter, OTLPSpanExporter)
+        assert self._resolved(exporter) == f"{self._HTTP_BASE}/v1/traces"
+
+    @override_settings(
+        OTEL_EXPORTER_OTLP_ENDPOINT=_HTTP_BASE,
+        OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf",
+    )
+    def test_http_metric_exporter_targets_the_metrics_signal_path(self) -> None:
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+
+        exporter = provider.build_metric_exporter()
+        assert isinstance(exporter, OTLPMetricExporter)
+        assert self._resolved(exporter) == f"{self._HTTP_BASE}/v1/metrics"
+
+    @override_settings(
+        OTEL_EXPORTER_OTLP_ENDPOINT=f"{_HTTP_BASE}/v1/traces",
+        OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf",
+    )
+    def test_http_span_endpoint_already_carrying_the_path_is_not_doubled(self) -> None:
+        """An operator may configure the full signal URL; do not append twice."""
+        assert self._resolved(provider.build_span_exporter()) == f"{self._HTTP_BASE}/v1/traces"
+
+    @override_settings(
+        OTEL_EXPORTER_OTLP_ENDPOINT=f"{_HTTP_BASE}/v1/metrics",
+        OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf",
+    )
+    def test_http_metric_endpoint_already_carrying_the_path_is_not_doubled(self) -> None:
+        assert self._resolved(provider.build_metric_exporter()) == f"{self._HTTP_BASE}/v1/metrics"
+
+    @override_settings(
+        OTEL_EXPORTER_OTLP_ENDPOINT=f"{_HTTP_BASE}/",
+        OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf",
+    )
+    def test_http_trailing_slash_does_not_produce_a_double_slash(self) -> None:
+        assert self._resolved(provider.build_span_exporter()) == f"{self._HTTP_BASE}/v1/traces"
+
+    @override_settings(OTEL_EXPORTER_OTLP_ENDPOINT=_ENDPOINT, OTEL_EXPORTER_OTLP_PROTOCOL="grpc")
+    def test_grpc_span_exporter_gets_no_signal_path(self) -> None:
+        """gRPC carries the signal in the RPC method — a path would break it."""
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+
+        exporter = provider.build_span_exporter()
+        assert isinstance(exporter, OTLPSpanExporter)
+        resolved = self._resolved(exporter)
+        assert "/v1/" not in resolved
+        assert resolved.endswith(":4317")
+
+    @override_settings(OTEL_EXPORTER_OTLP_ENDPOINT=_ENDPOINT, OTEL_EXPORTER_OTLP_PROTOCOL="grpc")
+    def test_grpc_metric_exporter_gets_no_signal_path(self) -> None:
+        from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+
+        exporter = provider.build_metric_exporter()
+        assert isinstance(exporter, OTLPMetricExporter)
+        resolved = self._resolved(exporter)
+        assert "/v1/" not in resolved
+        assert resolved.endswith(":4317")
+
+    @override_settings(
+        OTEL_EXPORTER_OTLP_ENDPOINT=_HTTP_BASE,
+        OTEL_EXPORTER_OTLP_PROTOCOL="http/protobuf",
+    )
+    def test_timeout_is_still_honored_on_the_http_path(self) -> None:
+        """The canary probe's short timeout must survive the endpoint rewrite."""
+        exporter = provider.build_span_exporter(timeout=3)
+        assert exporter._timeout == 3
+        assert self._resolved(exporter) == f"{self._HTTP_BASE}/v1/traces"
+
+
+class TestSignalPathHelper:
+    """Direct unit coverage of the endpoint→signal-path rewrite (#2873)."""
+
+    @pytest.mark.parametrize(
+        ("configured", "expected"),
+        [
+            ("http://c:4318", "http://c:4318/v1/traces"),
+            ("http://c:4318/", "http://c:4318/v1/traces"),
+            ("  http://c:4318  ", "http://c:4318/v1/traces"),
+            ("http://c:4318/v1/traces", "http://c:4318/v1/traces"),
+            ("http://c:4318/v1/traces/", "http://c:4318/v1/traces"),
+            # A collector behind a path prefix keeps the prefix.
+            ("https://c/otlp", "https://c/otlp/v1/traces"),
+            ("https://c/otlp/v1/traces", "https://c/otlp/v1/traces"),
+        ],
+    )
+    def test_traces_path(self, configured: str, expected: str) -> None:
+        assert provider._http_signal_endpoint(configured, provider.HTTP_TRACES_PATH) == expected
+
+    @pytest.mark.parametrize(
+        ("configured", "expected"),
+        [
+            ("http://c:4318", "http://c:4318/v1/metrics"),
+            ("http://c:4318/v1/metrics", "http://c:4318/v1/metrics"),
+            # A pasted traces URL is normalized back to the base, so metrics still
+            # reach a real signal path instead of /v1/traces/v1/metrics.
+            ("http://c:4318/v1/traces", "http://c:4318/v1/metrics"),
+            ("https://c/otlp/v1/traces", "https://c/otlp/v1/metrics"),
+        ],
+    )
+    def test_metrics_path(self, configured: str, expected: str) -> None:
+        assert provider._http_signal_endpoint(configured, provider.HTTP_METRICS_PATH) == expected
+
+
 class TestSamplerSelection:
     """OTEL_TRACES_SAMPLER / OTEL_TRACES_SAMPLER_ARG → Sampler (#1903)."""
 
