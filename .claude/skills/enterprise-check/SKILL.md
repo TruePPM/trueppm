@@ -165,9 +165,19 @@ Enterprise feature list (non-exhaustive):
 - Cross-project risk propagation
 - Risk-triggered approval workflows
 - Burn charts at portfolio level (cross-program scope)
-- Risk register: risk matrix visualization, risk-to-task linkage, severity scoring (OSS has basic CRUD only)
+- Risk register: **cross-PROGRAM** risk propagation and portfolio-level roll-up only.
+  Corrected 2026-08-16 (#2859): this line previously claimed risk-matrix
+  visualization and risk-to-task linkage for Enterprise, contradicting the OSS
+  list above, which claims the same two. OSS wins — `RiskMatrix.tsx` and
+  `RiskRegisterView.tsx` ship in `packages/web/src/features/risk/`.
 - Monte Carlo: unlimited simulations and tasks, sensitivity analysis, confidence intervals (OSS has capped simulation only)
-- Custom fields / custom attributes on tasks and projects (org-specific metadata)
+- ~~Custom fields / custom attributes on tasks and projects~~ — **this is OSS.**
+  Corrected 2026-08-16 (#2859): `ProjectCustomField` / `TaskCustomFieldValue`
+  (`apps/projects/models.py`), `apps/projects/custom_field_values.py`, routed in
+  `apps/projects/urls.py`, migration `0126_…`; the two open follow-ups (#2064,
+  #2219) are OSS issues labeled `enterprise-extension-point`. CLAUDE.md's
+  Enterprise list has never mentioned custom fields. An org-policy layer *on top*
+  (mandatory fields, org-wide field catalog governance) would be Enterprise.
 - Guest / external stakeholder access — **managed-guest compliance only**: audit trail of guest access, guest-account lifecycle governance, and access-review evidence. OSS already ships the basic permission-limited guest itself (`MemberStatus.GUEST` membership plus the `Workspace.allow_guests` toggle, with no audit trail) alongside anonymous read-only share links. The Enterprise piece is solely the audit-trail / compliance layer on top, not the guest capability.
 - **Executive multi-project Roadmap** — health-colored project bars, P80 markers,
   baseline shadow bars, inter-project dependency arrows, scenario integration,
@@ -186,7 +196,12 @@ Enterprise feature list (non-exhaustive):
 - Priority support / SLA tiers (guaranteed response times)
 - Mobile: GPS-verified time entry (location-stamped timesheets for compliance)
 - Mobile: photo and file attachments from camera (attach site photos to tasks)
-- Mobile: offline CPM simulation (WASM scheduling engine running on-device without connectivity)
+- ~~Mobile: offline CPM simulation (WASM scheduling engine on-device)~~ — **this is
+  OSS.** Corrected 2026-08-16 (#2859): `packages/wasm-scheduler/Cargo.toml` reads
+  `license = "Apache-2.0"`, and ADR-0599 names offline on-device recompute as one
+  of the three sanctioned OSS non-API paths. **Verify an edition from `license =`
+  and the ADR, not from this list** — this exact line already produced one wrong
+  call in a prior audit.
 - Mobile: smart push notifications with critical path intelligence (CP change, milestone slip, risk review due)
 - Mobile: daily standup digest (auto-generated morning briefing pushed to device)
 
@@ -195,7 +210,11 @@ Enterprise feature list (non-exhaustive):
 These rules are **non-negotiable**:
 
 1. `trueppm-suite` code must NEVER import from `trueppm_enterprise`
-   - Verify: `grep -r "trueppm_enterprise" packages/` must return zero results
+   - Verify: `make enterprise-boundary-check` must print "OK: no trueppm-enterprise
+     imports in packages". A plain `grep -r "trueppm_enterprise" packages/` is NOT the
+     check — it returns 12 lines of legitimate prose (extension-point docstrings, ADR
+     pointers) on a clean tree. The gate matches import syntax and quoted module paths
+     and ignores comments (#2603).
 2. Enterprise code may import from OSS (dependency is one-way: enterprise → core)
 3. Extension points (settings, URL patterns, signal hooks) must remain stable;
    enterprise registers against them without OSS knowing

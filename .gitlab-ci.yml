@@ -682,6 +682,10 @@ boundary:imports:
     - apk add --no-cache bash
   script:
     - bash scripts/check-enterprise-imports.sh
+    # The documentation half (#2859): a doc that tells a contributor to verify
+    # the boundary with the naive grep reports the invariant as broken on a
+    # clean tree. Same job — both halves guard the same rule and both are ~1s.
+    - bash scripts/check-boundary-doc-command.sh
 
 suppressions:check:
   extends: .fast-job

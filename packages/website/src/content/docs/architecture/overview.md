@@ -194,9 +194,10 @@ The community edition must never import from `trueppm_enterprise`. The dependenc
 
 ```bash
 # Verify the boundary is clean
-grep -r "trueppm_enterprise" packages/
-# must return zero results
+make enterprise-boundary-check   # OK: no trueppm-enterprise imports in packages
 ```
+
+A plain `grep -r "trueppm_enterprise" packages/` is **not** the check. The tree legitimately names the package in extension-point docstrings and ADR pointers — that grep returns 12 lines across 8 files on a clean tree. The gate matches import syntax and quoted module paths, and ignores comments (#2603).
 
 **Community:** scheduling engine, CPM, Monte Carlo, Schedule (Gantt-style) UI, Board, Sprints workspace, program management (coordinating multiple projects within a program), baseline comparison, offline sync, real-time, 5-role RBAC, REST/WS API, Helm chart, MS Project import/export. On the Community roadmap but not yet shipped: basic single sign-on (OIDC/OAuth login against your own identity provider), time tracking with a weekly timesheet, and in-app baseline capture all land in 0.4; the installable PWA lands in 0.5 and the native Android app in 0.6.
 

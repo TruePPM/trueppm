@@ -21,6 +21,13 @@
 #            __import__("…"), or an INSTALLED_APPS / MIDDLEWARE string entry.
 #            A settings entry is as binding as an import statement.
 #   TS/TSX   `from '…trueppm-enterprise…'`, `import('…')`, `require('…')`
+#   Manifest a dependency entry naming the package in pyproject.toml,
+#            package.json, Cargo.toml, or requirements*.txt (#2859). This is a
+#            HARDER violation than an import statement: it makes the proprietary
+#            package a declared dependency of the Apache 2.0 distribution, so
+#            `pip install` / `npm install` pulls it whether or not any line of
+#            OSS code imports it. Manifests match none of the source globs
+#            above, so the gate did not see them at all.
 #
 # Comment lines are stripped before matching, so `# trueppm_enterprise/audit/apps.py`
 # in a docstring or an ADR pointer stays legal. Repo prose convention is to write
@@ -45,11 +52,19 @@ fi
 PY_PATTERN='(^[[:space:]]*(from|import)[[:space:]]+trueppm_enterprise)|(["'"'"']trueppm_enterprise([."'"'"']|$))'
 # TS/TSX/JS: a module specifier in an import / dynamic import / require.
 TS_PATTERN='(from|import|require)[[:space:]]*\(?[[:space:]]*["'"'"'][^"'"'"']*trueppm[-_]enterprise'
+# Dependency manifests: any mention of the package name. Unlike source, a manifest
+# has no legitimate reason to name the proprietary package in prose, so the match
+# is deliberately broad — a commented-out dependency line is still dropped by
+# strip_comments below, which is the only exemption a manifest gets.
+MANIFEST_PATTERN='trueppm[-_]enterprise'
 
 # `|| true` on each grep: no match is exit 1, which `set -e` would treat as fatal.
 py_hits=$(grep -rnE "$PY_PATTERN" "$ROOT" --include='*.py' 2>/dev/null || true)
 ts_hits=$(grep -rnE "$TS_PATTERN" "$ROOT" \
   --include='*.ts' --include='*.tsx' --include='*.js' --include='*.jsx' 2>/dev/null || true)
+manifest_hits=$(grep -rnE "$MANIFEST_PATTERN" "$ROOT" \
+  --include='pyproject.toml' --include='package.json' --include='Cargo.toml' \
+  --include='requirements*.txt' 2>/dev/null || true)
 
 # Drop comment lines. grep -n output is `path:line:content`, so the comment
 # marker is tested after the second colon — a path containing a `#` cannot
@@ -65,11 +80,12 @@ strip_comments() {
   }'
 }
 
-hits=$(printf '%s\n%s\n' "$py_hits" "$ts_hits" | grep -v '^$' | strip_comments || true)
+hits=$(printf '%s\n%s\n%s\n' "$py_hits" "$ts_hits" "$manifest_hits" \
+  | grep -v '^$' | strip_comments || true)
 
 if [ -n "$hits" ]; then
   echo ""
-  echo "BOUNDARY VIOLATION: OSS source imports from trueppm-enterprise:"
+  echo "BOUNDARY VIOLATION: OSS depends on trueppm-enterprise:"
   echo ""
   echo "$hits" | sed 's/^/  /'
   cat <<'MSG'
@@ -86,10 +102,14 @@ Remediation:
     ADR-0029) and enterprise registers against it at startup.
   - If you are only naming the package in documentation, write it in
     ``double backticks`` rather than "quotes" and this gate will pass.
+  - A hit in pyproject.toml / package.json / Cargo.toml / requirements*.txt is
+    the most serious form: it declares the proprietary package as a dependency
+    of the Apache 2.0 distribution. There is no documentation exemption for a
+    manifest — remove the entry.
 
 See CLAUDE.md § Two-Repo Rule.
 MSG
   exit 1
 fi
 
-echo "OK: no trueppm-enterprise imports in $ROOT."
+echo "OK: no trueppm-enterprise imports or dependency entries in $ROOT."

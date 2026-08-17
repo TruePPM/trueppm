@@ -360,6 +360,6 @@ migration/security (web-only, no view/serializer/model/write-path change).
 **OSS / Apache-2.0 clean.** Single-project schedule artifact (Programs/Projects layer);
 web-only; no new API, no enterprise import. The `scheduleExportEdition.ts` watermark
 seam is the one-way boundary point (OSS returns the Community line; Enterprise overrides
-to `null` at build time) — `grep -r "trueppm_enterprise" packages/` stays at zero.
+to `null` at build time) — `make enterprise-boundary-check` stays green.
 Portfolio/program multi-project export is explicitly Enterprise and out of scope (the
 program twin is tracked separately as #1292/0.5).

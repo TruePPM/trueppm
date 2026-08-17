@@ -505,7 +505,7 @@ Enterprise permission), and (b) registering a **fleet route + fleet-scope slot**
 established edition-routing extension point (ADR-0029/0030) — the same pattern the
 portfolio tabs use over the project shell (see `docs/ux/p3m-vs-oss-views.md` §6). The OSS
 panel exposes a stable prop contract for these components; it does **not** reach into
-enterprise. `grep -r "trueppm_enterprise" packages/` stays at zero.
+enterprise. `make enterprise-boundary-check` stays green.
 
 ---
 
@@ -673,6 +673,6 @@ agents; composed from shipped components (`MonteCarloHistogram`, `MonteCarloTime
 the detail-drawer pattern) + the existing `AgentActionViewSet` and `ScheduleDerivationView`
 read APIs; one additive `?program=` read filter. No enterprise import — the fleet
 dashboard composes the OSS components from `trueppm-enterprise` via the edition-routing
-extension point (§8). `grep -r "trueppm_enterprise" packages/` stays at zero. Cross-program
+extension point (§8). `make enterprise-boundary-check` stays green. Cross-program
 fleet oversight, trust/verification, and notarized/streamed audit are explicitly
 Enterprise and out of scope.

@@ -51,8 +51,22 @@ done
 if [ "$found_total" -gt 0 ]; then
   cat <<'MSG'
 
-These issues describe enterprise functionality (cross-project, portfolio,
-SSO, audit, approval workflows) and must be filed in trueppm-enterprise.
+These issues describe enterprise functionality (cross-PROGRAM coordination,
+portfolio governance, org identity governance, audit trail, approval
+workflows, multi-tenancy) and must be filed in trueppm-enterprise.
+
+Two things this message used to get wrong, printed at the exact moment a
+maintainer is deciding where an issue belongs (#2859):
+
+  - "SSO" is NOT enterprise. Basic OIDC/OAuth2 login against the operator's
+    own IdP is OSS — gating it is the SSO tax that kills adoption before a
+    prospect feels value. The Enterprise line is org identity GOVERNANCE:
+    SAML 2.0 federation, SCIM provisioning, LDAP/AD directory sync, enforced
+    org-wide SSO, group->role mapping. Log in via your own IdP -> OSS;
+    provision, deprovision and govern accounts from a directory -> Enterprise.
+  - "cross-project" is NOT enterprise. Coordination BETWEEN PROJECTS WITHIN
+    ONE PROGRAM is OSS — Program is an OSS entity. Only cross-PROGRAM and
+    portfolio-level governance is Enterprise.
 
 Remediation per issue:
   - If genuinely enterprise: close with a migration comment that links to
