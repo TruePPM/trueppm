@@ -576,8 +576,14 @@ def _parse_decimal(text: str) -> tuple[float, bool] | None:
       both mean 1234.56.
     - **One mark, repeated** — grouping. ``1.234.567`` is not a number with two
       decimal points.
-    - **One comma, exactly three trailing digits** — grouping. ``1,500`` reads as
-      fifteen hundred, the US convention this project writes in.
+    - **One comma, exactly three trailing digits, and a leading integer part that
+      is not a bare zero** — grouping. ``1,500`` reads as fifteen hundred, the US
+      convention this project writes in. The leading-zero carve-out matters:
+      ``0,500`` is *not* ambiguous, because no locale and no tool writes five
+      hundred with a leading zero, so it can only be a decimal mark. Without the
+      carve-out a German 3-decimal column turned a half-day task into a 500-day
+      one and read 50 % complete as 100 % — the same silent corruption this
+      function exists to end, in the opposite direction.
     - **One period, exactly three trailing digits** — decimal, so ``1.500`` stays
       1.5 exactly as it parsed before this function existed. The asymmetry with
       the comma rule is the point: it keeps every previously-correct US file
@@ -604,7 +610,11 @@ def _parse_decimal(text: str) -> tuple[float, bool] | None:
     elif dots > 1 or commas > 1:
         decimal_mark = None
     elif commas == 1:
-        decimal_mark = None if len(digits.split(",")[1]) == 3 else ","
+        integer_part, fraction_part = digits.split(",")
+        # A three-digit tail reads as thousands grouping — unless the integer part
+        # is a bare zero, in which case grouping is impossible and it is a decimal.
+        groups_thousands = len(fraction_part) == 3 and integer_part.lstrip("0") != ""
+        decimal_mark = None if groups_thousands else ","
     elif dots == 1:
         decimal_mark = "."
     else:

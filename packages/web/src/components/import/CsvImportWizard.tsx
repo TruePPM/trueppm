@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { isAxiosError } from 'axios';
 import { useNavigate } from 'react-router';
 import {
@@ -22,6 +22,7 @@ import {
   type CsvRowIssue,
 } from '@/hooks/useCsvImport';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { claimUndoShortcut, isTypingInInput } from '@/hooks/useGlobalShortcut';
 import { useUndoImportFixOperation, describeUndo } from '@/hooks/useBatchOperations';
 import { toast } from '@/components/Toast';
 import { ImportDropzone } from './ImportDropzone';
@@ -391,7 +392,10 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
     );
   }
 
-  function handleUndo() {
+  // `useCallback` so the ⌘Z effect's dependency is stable: `useCsvImportStatus`
+  // polls, and a fresh identity each render would tear down and re-add the
+  // document listener on every tick.
+  const handleUndo = useCallback(() => {
     if (!importId) return;
     undoMut.mutate(importId, {
       onSuccess: (data) => {
@@ -400,7 +404,7 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
       },
       onError: () => toast.error("Couldn't undo the import — try again."),
     });
-  }
+  }, [importId, undoMut]);
 
   const summary = statusQuery.data?.summary ?? null;
   const terminal = statusQuery.data?.status === 'done' || statusQuery.data?.status === 'dead';
@@ -968,24 +972,37 @@ function ResultStep({
   // The button has advertised "(⌘Z)" since #2756 and nothing ever listened for
   // it (#2892). A label naming a shortcut that does not exist is worse than no
   // label: the user tries it, an import they wanted gone stays, and they have no
-  // reason to look for the button. Bound here rather than at the dialog root so
-  // it exists only while the undo is actually available — `canUndo` already
-  // encodes terminal / not-failed / not-already-undone / something-was-created.
+  // reason to look for the button. Bound only while the undo is actually
+  // available — `canUndo` already encodes terminal / not-failed /
+  // not-already-undone / something-was-created — so on every other step ⌘Z stays
+  // the browser's own.
   //
-  // Keyed on `e.key`, which is correct for a Meta/Ctrl combo: Option composition
-  // (web/CLAUDE.md rule 294) is what forces `e.code` for Alt+letter bindings, and
-  // ⌘/Ctrl leave the letter alone. Shift+⌘Z is excluded — that is redo, and there
-  // is nothing to redo here.
+  // Three things here are load-bearing, none of them optional:
+  //
+  // 1. `claimUndoShortcut()`. Two other surfaces on the Schedule view bind ⌘Z to
+  //    a different destructive undo and are mountable *beside* this wizard. The
+  //    claim gives this one deterministic precedence; `preventDefault()` alone
+  //    does not, because it never stops a sibling listener.
+  // 2. `isTypingInInput`. ⌘Z from inside a text field means "undo my typing".
+  //    The house helper, not a fourth hand-rolled tag check.
+  // 3. `e.key`, not `e.code`. Rule 294 forces `e.code` for Alt+letter bindings
+  //    because Option composes the character; ⌘/Ctrl leave the letter alone.
+  //    Shift+⌘Z is excluded — that is redo, and there is nothing to redo here.
   useEffect(() => {
     if (!canUndo || undoPending) return;
+    const release = claimUndoShortcut();
     function onKeyDown(e: KeyboardEvent) {
       if (e.key.toLowerCase() !== 'z' || e.shiftKey) return;
       if (!e.metaKey && !e.ctrlKey) return;
+      if (isTypingInInput(e.target)) return;
       e.preventDefault();
       onUndo();
     }
     document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      release();
+    };
   }, [canUndo, undoPending, onUndo]);
 
   return (
@@ -1019,6 +1036,12 @@ function ResultStep({
           type="button"
           onClick={onUndo}
           disabled={undoPending}
+          // The label's "⌘Z" is U+2318 PLACE OF INTEREST SIGN, which screen
+          // readers announce inconsistently (some say "place of interest sign",
+          // some skip it). `aria-keyshortcuts` is the reliable handle, and it
+          // names the Ctrl form the handler also accepts. Additive — it does not
+          // change the accessible name, so the existing name assertions hold.
+          aria-keyshortcuts="Meta+Z Control+Z"
           className="self-start text-sm font-medium text-brand-primary hover:underline
                 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-brand-primary
                 focus:ring-offset-1"

@@ -2,6 +2,7 @@ import { fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderWithProvidersAndRouter } from '@/test/utils';
+import { isUndoShortcutClaimed } from '@/hooks/useGlobalShortcut';
 import { CsvImportWizard } from './CsvImportWizard';
 import type { CsvPreview } from '@/hooks/useCsvImport';
 
@@ -784,6 +785,47 @@ describe('CsvImportWizard (#746)', () => {
 
       expect(h.undo.mutate).not.toHaveBeenCalled();
       expect(event.defaultPrevented).toBe(false);
+    });
+
+    it('claims ⌘Z while its undo is live, so the sibling undos on Schedule yield', async () => {
+      // ScheduleView's paste-many undo and SeedBanner's template-apply undo both
+      // bind ⌘Z and both render as siblings of this wizard. Before the claim, one
+      // keypress ran two destructive undos (#2892).
+      const user = userEvent.setup();
+      expect(isUndoShortcutClaimed()).toBe(false);
+      const { container, unmount } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, { tasks_created: 12, row_errors: [], warnings: [] });
+
+      expect(isUndoShortcutClaimed()).toBe(true);
+      unmount();
+      expect(isUndoShortcutClaimed()).toBe(false);
+    });
+
+    it('claims nothing on a failed import, so the sibling undos keep working', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, { error: 'Bad file' }, 'dead');
+
+      expect(isUndoShortcutClaimed()).toBe(false);
+    });
+
+    it('yields ⌘Z to a text field — mid-edit that means "undo my typing"', async () => {
+      const user = userEvent.setup();
+      h.undo.mutate = vi.fn();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, { tasks_created: 12, row_errors: [], warnings: [] });
+
+      const input = document.createElement('input');
+      document.body.appendChild(input);
+      fireEvent.keyDown(input, { key: 'z', metaKey: true, bubbles: true });
+      expect(h.undo.mutate).not.toHaveBeenCalled();
+      input.remove();
     });
 
     it('stops listening once the import has been undone', async () => {

@@ -859,21 +859,48 @@ def _warn_unmapped_constraints(
     """
     unmapped: dict[int, int] = {}
     partially_applied = 0
+    # Codes outside MSPDI's defined 0-7 are collapsed into ONE bucket rather than
+    # getting a line each. Two reasons, both structural: the code is read straight
+    # off the file, so a per-code line makes the *number of warnings* attacker-
+    # chosen (20,000 tasks each declaring a different code = 20,000 lines, ~3.4 MB
+    # in one `TaskRun.result_summary` JSONField), and this list is now served over
+    # the API rather than being write-only — so its length needs a bound at the
+    # point of writing, not at the point of reading. The same reasoning already
+    # applies per-string to the PERT `<Alias>` warning below, which truncates
+    # reflected text to 100 chars; length is the axis that became reachable.
+    unrecognized_tasks = 0
+    unrecognized_codes: set[int] = set()
     for task_el in task_elements:
         code = _int_or_none(_child_text(task_el, ns, "ConstraintType"))
         if code is None:
             continue
         if code == _CONSTRAINT_TYPE_PARTIALLY_APPLIED:
             partially_applied += 1
-        elif code not in _CONSTRAINT_TYPES_NOT_A_LOSS:
-            unmapped[code] = unmapped.get(code, 0) + 1
+        elif code in MSPDI_CONSTRAINT_NAMES:
+            if code not in _CONSTRAINT_TYPES_NOT_A_LOSS:
+                unmapped[code] = unmapped.get(code, 0) + 1
+        else:
+            unrecognized_tasks += 1
+            unrecognized_codes.add(code)
 
+    # Bounded by construction: at most one line per *defined* MSPDI code.
     for code in sorted(unmapped):
-        name = MSPDI_CONSTRAINT_NAMES.get(code, f"code {code}")
         warnings.append(
-            f"Not imported: '{name}' constraints — set on {unmapped[code]} of "
-            f"{total} tasks. TruePPM models only start-no-earlier-than, so these "
-            "tasks are scheduled from their dependencies alone."
+            f"Not imported: '{MSPDI_CONSTRAINT_NAMES[code]}' constraints — set on "
+            f"{unmapped[code]} of {total} tasks. TruePPM models only "
+            "start-no-earlier-than, so these tasks are scheduled from their "
+            "dependencies alone."
+        )
+    if unrecognized_tasks:
+        # Deliberately reports how *many* distinct codes, never the codes
+        # themselves: a `<ConstraintType>` integer is unbounded up to Python's
+        # 4,300-digit int limit, so echoing it hands the file control of this
+        # string's length.
+        warnings.append(
+            f"Not imported: {len(unrecognized_codes)} constraint type(s) this file "
+            f"declares that are not defined by MS Project — found on "
+            f"{unrecognized_tasks} of {total} tasks. Those tasks are scheduled from "
+            "their dependencies alone."
         )
     if partially_applied:
         name = MSPDI_CONSTRAINT_NAMES[_CONSTRAINT_TYPE_PARTIALLY_APPLIED]
@@ -904,7 +931,74 @@ def _parse_tasks(
         td = _parse_one_task(task_el, ns, pert_role_to_field_id, task_assignments, warnings)
         if td is not None:
             tasks.append(td)
+    _reconcile_actuals(tasks, warnings)
     return tasks
+
+
+def _reconcile_actuals(tasks: list[TaskData], warnings: list[str]) -> None:
+    """Drop an actual date the file's own progress contradicts, and say how many.
+
+    On the REST path an actual date only ever appears as a *consequence* of a
+    status transition — ``TaskSerializer`` sets ``actual_start`` on the move to
+    IN_PROGRESS and ``actual_finish`` on COMPLETE, and clears the latter on
+    reopen. The importer writes through ``bulk_create``, which runs no validation
+    and no model ``clean()``, so importing an actual date straight from the file
+    creates states the API itself cannot reach: an ``<ActualFinish>`` on a task
+    the same file declares 0% complete lands as a finished-but-not-started task.
+
+    That is not a cosmetic inconsistency. ``actual_finish`` is read
+    unconditionally downstream — schedule variance, and the sprint forecast
+    resolver, which returns it as the authoritative date the moment it is
+    non-null — so an unreconciled actual silently corrupts variance and forecast
+    reporting rather than looking wrong on the task.
+
+    So the file's *progress* stays authoritative and the contradicting actual is
+    dropped, matching this module's standing contract everywhere else: keep the
+    row, drop the offending field, and report it. Reported as two aggregate lines
+    rather than one per task, so a 20,000-row file cannot turn this into 20,000
+    warnings.
+    """
+    # Imported lazily, exactly as `_derive_task_status` does and for the same
+    # reason: this module stays ORM-free at import time. Reading the enum rather
+    # than hardcoding its two values also means the pair cannot silently drift out
+    # of lockstep with the model.
+    from trueppm_api.apps.projects.models import TaskStatus
+
+    terminal_statuses = {TaskStatus.REVIEW.value, TaskStatus.COMPLETE.value}
+
+    dropped_starts = 0
+    dropped_finishes = 0
+    for td in tasks:
+        # A start with no progress at all is the contradiction; any progress, or
+        # an explicitly terminal status from the source, makes it coherent.
+        terminal = td.status in terminal_statuses
+        if td.actual_start is not None and td.percent_complete <= 0.0 and not terminal:
+            td.actual_start = None
+            dropped_starts += 1
+        # A finish only makes sense on work the file says is done.
+        if td.actual_finish is not None and td.percent_complete < 100.0 and not terminal:
+            td.actual_finish = None
+            dropped_finishes += 1
+        # And a finish can never precede the start it belongs to.
+        if (
+            td.actual_start is not None
+            and td.actual_finish is not None
+            and td.actual_finish < td.actual_start
+        ):
+            td.actual_finish = None
+            dropped_finishes += 1
+
+    if dropped_starts:
+        warnings.append(
+            f"Not imported: actual start dates on {dropped_starts} task(s) — the file "
+            "reports no progress on them, and TruePPM cannot record work as started "
+            "on a task that has not started."
+        )
+    if dropped_finishes:
+        warnings.append(
+            f"Not imported: actual finish dates on {dropped_finishes} task(s) — the "
+            "file does not report them as complete, or the finish preceded the start."
+        )
 
 
 def parse_xml(xml_content: bytes) -> ProjectData:

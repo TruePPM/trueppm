@@ -48,7 +48,12 @@ describe('<ImportDropzone>', () => {
     const { onSelect, onReject } = setup();
     drop(new File(['x'], 'plan.docx', { type: 'application/octet-stream' }));
     expect(onSelect).not.toHaveBeenCalled();
-    expect(onReject).toHaveBeenCalledWith(expect.stringContaining('.csv, .xlsx only'));
+    // The reason is asserted alongside the message: hosts branch on it to decide
+    // whether a format-conversion recipe is the right advice (#2892).
+    expect(onReject).toHaveBeenCalledWith(
+      expect.stringContaining('.csv, .xlsx only'),
+      'extension',
+    );
   });
 
   it('rejects a file over the size cap', () => {
@@ -57,7 +62,7 @@ describe('<ImportDropzone>', () => {
     Object.defineProperty(big, 'size', { value: 2 * 1024 * 1024 });
     drop(big);
     expect(onSelect).not.toHaveBeenCalled();
-    expect(onReject).toHaveBeenCalledWith(expect.stringContaining('too large'));
+    expect(onReject).toHaveBeenCalledWith(expect.stringContaining('too large'), 'size');
   });
 
   it('shows the selected file with a Remove control', () => {

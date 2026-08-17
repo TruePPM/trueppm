@@ -446,7 +446,15 @@ def _build_task_object(
     # (the Jira path, which carries no dates), otherwise a COMPLETE issue would
     # persist at 0% and read as unstarted future work (#1768).
     _terminal = task_status in (TaskStatus.REVIEW.value, TaskStatus.COMPLETE.value)
-    effective_percent = td.percent_complete if (td.start or _terminal) else 0
+    # "Has an anchor" is `_task_anchor(td)`, not `td.start`. Those were the same
+    # condition until #2891: `planned_start` came only from `<Start>`, so a truthy
+    # `td.start` was exactly "this task has a schedule anchor". Two new sources
+    # broke that equivalence — `planned_start` can now come from a
+    # `<ConstraintDate>`, and `actual_start` is imported — and an actual start is
+    # the *strongest* anchor there is. Reading `td.start` here would force a real
+    # in-progress task to 0% whenever the file pinned it by constraint instead of
+    # by `<Start>`, which is the inverse of the invariant this clamp exists for.
+    effective_percent = td.percent_complete if (_task_anchor(td) or _terminal) else 0
     return Task(
         project_id=project_id,
         name=td.name,
@@ -499,21 +507,46 @@ def _resolve_planned_start(td: TaskData) -> str | None:
     return td.start or None
 
 
+def _task_anchor(td: TaskData) -> str | None:
+    """The earliest date that anchors this task in the schedule, or ``None``.
+
+    ``_resolve_planned_start`` is the CPM floor; an ``actual_start`` is a *harder*
+    anchor than any planned date, and it can predate the floor on a task that
+    started early. Every "does this task sit somewhere on the calendar?" question
+    goes through here so the answer cannot drift between call sites again — which
+    is exactly what happened when `planned_start` gained a second source and two
+    of the three `td.start` reads were left behind.
+    """
+    candidates = [d for d in (_resolve_planned_start(td), td.actual_start) if d]
+    return min(candidates) if candidates else None
+
+
 def _maybe_shift_project_start(project_id: str, data: ProjectData, summary: dict[str, Any]) -> None:
-    """Pull the project start back to the earliest imported task start (#873/#867).
+    """Pull the project start back to the earliest imported task anchor (#873/#867).
 
     The importer bulk_creates tasks, bypassing the TaskSerializer auto-shift, so a
     .mpp whose tasks predate the project start would otherwise persist sub-start
     "ghost" planned_starts the CPM clamps. Mirrors the interactive path: the
-    project boundary is elastic earlier. ``td.start`` is an ISO date string (sorts
+    project boundary is elastic earlier. Dates are ISO strings (which sort
     chronologically), parsed to a date for the comparison/assignment.
+
+    Reads ``_task_anchor``, **not** ``td.start`` (#2891). Reading ``<Start>`` here
+    reopened the very bug this branch fixes: MS Project keeps a ``<ConstraintDate>``
+    that predates the project start while computing ``<Start>`` *at* the project
+    start, so `ConstraintDate < StartDate <= Start` is the canonical shape. Keyed
+    on ``<Start>``, no shift fires, the constraint-derived ``planned_start`` lands
+    below the project floor, and ``early_start = max(project_start, planned_start,
+    …)`` clamps it away — the commitment dropped silently a second time, one
+    function downstream of the fix. ``actual_start`` is included for the same
+    reason: work that demonstrably began before the project start still has to fit
+    inside the project's window.
     """
     from datetime import date as _date
 
     from trueppm_api.apps.projects.models import Project
     from trueppm_api.apps.projects.services import shift_project_start_if_needed
 
-    task_start_strs = [td.start for td in data.tasks if td.start]
+    task_start_strs = [anchor for td in data.tasks if (anchor := _task_anchor(td))]
     if not task_start_strs:
         return
     earliest_start = _date.fromisoformat(min(task_start_strs))

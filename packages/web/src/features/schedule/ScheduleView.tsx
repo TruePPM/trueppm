@@ -47,7 +47,7 @@ import { ScheduleAddPhaseButton } from './ScheduleAddPhaseButton';
 import { MilestonePulseOverlay } from './MilestonePulseOverlay';
 import { ScheduleLegend } from './ScheduleLegend';
 import { useScheduleKeyboard } from './useScheduleKeyboard';
-import { claimHelpShortcut } from '@/hooks/useGlobalShortcut';
+import { claimHelpShortcut, isUndoShortcutClaimed } from '@/hooks/useGlobalShortcut';
 import { inferNearestSummaryParent } from './inferMilestoneParent';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useBaselines, useCreateBaseline } from '@/hooks/useBaselines';
@@ -2351,6 +2351,11 @@ export function ScheduleView() {
       // build-mode session with no pending paste never loses that behavior.
       if (pasteMany.receipt) {
         out['mod+z'] = (e) => {
+          // Yield to a nearer claimant (#2892): the CSV import wizard renders as a
+          // sibling of the receipt strip and binds ⌘Z to its own destructive undo.
+          // Registration order and `preventDefault()` cannot arbitrate between two
+          // listeners on different targets — the claim registry can.
+          if (isUndoShortcutClaimed()) return;
           e.preventDefault();
           pasteMany.undo();
         };

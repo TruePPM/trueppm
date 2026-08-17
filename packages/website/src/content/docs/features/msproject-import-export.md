@@ -22,13 +22,32 @@ TruePPM treats Microsoft Project as a peer interchange format. You can:
 - **Round-trip PERT three-point estimates** for Monte Carlo.
 - **See the import history** on a project's Overview ("Imported from … on … by …").
 
-:::note[Ships in 0.4 — constraint and actual-date import, and `.xml`-only file pickers]
-Two changes on this page land in **TruePPM 0.4**, the first beta. On
-`0.3.0-alpha.3` and earlier: MS Project **constraint dates and actual start /
-finish dates are not imported at all** and nothing tells you so, and the
-import-into-existing dialog offers `.mpp` alongside `.xml` even though the
-reference image cannot parse it. Everything else on this page describes shipped
-behavior.
+:::note[Ships in 0.4 — everything about constraints, actuals, dropped-field
+reporting, and the `.xml`-only file pickers]
+Five things on this page land in **TruePPM 0.4**, the first beta. On
+`0.3.0-alpha.3` and earlier:
+
+1. **Constraint dates and actual start / finish dates are not imported at all** —
+   the rows for `<ConstraintType>`, `<ConstraintDate>`, `<ActualStart>` and
+   `<ActualFinish>` in the [task field matrix](#task-level-fields) describe 0.4.
+2. **Nothing tells you what was dropped.** The
+   [What the import does not carry over](#what-the-import-does-not-carry-over)
+   section and the last three rows of the
+   [import-warnings table](#import-warnings) describe 0.4; before it, an MS
+   Project file carrying constraints, deadlines and baselines imported with an
+   empty warnings list.
+3. **`GET /projects/{pk}/imports/` returns no `warnings` key.** The
+   [List recent imports](#list-recent-imports-project-history) example shows the
+   0.4 response — on the latest release the field is absent entirely, not empty.
+4. **Export writes no `ConstraintType` / `ConstraintDate` / `ActualStart` /
+   `ActualFinish`**, so a round trip through 0.3 or earlier still promotes
+   computed dates to committed ones. See the caution under
+   [Export details](#export-details).
+5. **The import-into-existing dialog offers `.mpp`** alongside `.xml`, even
+   though the reference image cannot parse it — see
+   [`.mpp` — what actually works](#mpp--what-actually-works).
+
+Everything else on this page describes shipped behavior.
 :::
 
 **`.xml` (MSPDI) is the import format**, in both file pickers and on both
@@ -205,6 +224,20 @@ curl -H "Authorization: Bearer $JWT" \
 `task_count` is read from the linked Celery task's result summary, so it stays `null` until the import worker writes its summary (PENDING / DISPATCHED rows) and for parse failures (DEAD rows). `initiated_by_username` is `null` if the originating user was later deleted — the `ImportRequest` row survives the user purge.
 
 `warnings` is read from the same summary and is `[]` for a queued or failed import. It is where an automated migration checks whether the file lost anything — see [What the import does not carry over](#what-the-import-does-not-carry-over).
+
+:::caution[Match the marker, never the whole warning string]
+The warning **strings are prose, not a contract** — they are formatted messages
+meant for a person, and a copy edit will reword any of them without that counting
+as an API change. What *is* stable is the leading marker: every entry begins
+`Not imported: `, `Partially imported: `, or names a per-task condition from the
+[warnings table](#import-warnings). Key your check on the marker and treat the
+remainder as display text.
+
+The **order** is deterministic but not part of the contract either: dropped
+field families first in the order of the matrix, then unmappable constraint types
+by ascending MS Project code, then the partially-imported line. Do not depend on
+positions.
+:::
 
 ## Import formats
 
@@ -384,8 +417,8 @@ half and cannot enforce the "no later" half.
 :::caution[Exported `<Start>` is a computed date — re-importing promotes it]
 Export writes each task's CPM `early_start` as `<Start>`, and per
 [ADR-0132](/architecture/decisions/) that is a *remaining-work* date on a
-partially-complete task, not the date work began. Since 0.4 the export also
-writes `<ConstraintType>`/`<ConstraintDate>` for any task with a
+partially-complete task, not the date work began. From 0.4 the export will also
+write `<ConstraintType>`/`<ConstraintDate>` for any task with a
 `planned_start`, so a TruePPM → MS Project → TruePPM round trip preserves the
 commitment rather than replacing it with whatever CPM had computed. A file
 exported by **0.3 or earlier** carries no constraint, so re-importing it still

@@ -131,6 +131,21 @@ class TestDecimalSeparator:
         assert tasks["Build"].percent_complete == 75.0  # type: ignore[attr-defined]
         assert tasks["Integrate"].percent_complete == 100.0  # type: ignore[attr-defined]
 
+    def test_a_three_decimal_european_column_is_not_multiplied_by_a_thousand(self) -> None:
+        """The uncovered sibling of the case this fix exists for, in the other
+        direction: `0,500` days must be half a day, not five hundred."""
+        result = parse_spreadsheet(
+            b"Name;Duration;% Complete\nDesign;0,500;0,500\nBuild;1,500;1,000\n", "plan.csv"
+        )
+        tasks = _by_name(result)
+        # round(0.5) is 0 under banker's rounding, and a zero-duration row is a
+        # milestone by this parser's own rule — the point is that it is not 500.
+        assert tasks["Design"].duration_days == 0  # type: ignore[attr-defined]
+        assert tasks["Design"].percent_complete == 50.0  # type: ignore[attr-defined]
+        # `1,500` keeps the documented US thousands reading.
+        assert tasks["Build"].duration_days == 1500  # type: ignore[attr-defined]
+        assert tasks["Build"].percent_complete == 100.0  # type: ignore[attr-defined]
+
     def test_no_row_error_is_recorded_for_a_readable_european_cell(self) -> None:
         result = parse_spreadsheet(_read("european_decimals.csv"), "plan.csv")
         assert [e.as_dict() for e in result.row_errors] == []
@@ -144,6 +159,15 @@ class TestDecimalSeparator:
             ("0,5", 0.5, True),
             # Single comma, 3-digit tail -> US thousands grouping.
             ("1,500", 1500.0, False),
+            ("3,500", 3500.0, False),
+            ("10,500", 10500.0, False),
+            # ...UNLESS the integer part is a bare zero, where grouping is
+            # impossible: nobody writes five hundred as "0,500". Without this
+            # carve-out a German 3-decimal column turned a half-day task into a
+            # 500-day one and read 50% complete as 100% (#2892).
+            ("0,500", 0.5, True),
+            ("0,250", 0.25, True),
+            ("00,500", 0.5, True),
             # Single period is unchanged in every case, including the 3-digit
             # tail: every previously-correct US file must parse identically.
             ("1.5", 1.5, True),

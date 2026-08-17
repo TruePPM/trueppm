@@ -263,3 +263,197 @@ class TestRoundTrip:
         importer applies — two constants in two modules that must not drift."""
         assert MSPDI_CONSTRAINT_START_NO_EARLIER_THAN in CONSTRAINT_TYPES_APPLIED_AS_SNET
         assert MSPDI_CONSTRAINT_AS_SOON_AS_POSSIBLE not in CONSTRAINT_TYPES_APPLIED_AS_SNET
+
+
+class TestUnrecognizedConstraintCodesAreBounded:
+    """The warning list is served over the API now, so its LENGTH needs a bound."""
+
+    def _file(self, codes: list[int]) -> bytes:
+        tasks = "".join(
+            f"<Task><UID>{i + 1}</UID><Name>T{i}</Name>"
+            f"<Duration>PT8H0M0S</Duration>"
+            f"<ConstraintType>{c}</ConstraintType></Task>"
+            for i, c in enumerate(codes)
+        )
+        return (
+            '<?xml version="1.0"?>'
+            '<Project xmlns="http://schemas.microsoft.com/project">'
+            f"<Tasks>{tasks}</Tasks></Project>"
+        ).encode()
+
+    def test_many_distinct_undefined_codes_collapse_to_one_line(self) -> None:
+        """One line per attacker-chosen code made the warning COUNT a function of
+        the uploaded file — 20,000 rows with 20,000 distinct codes meant 20,000
+        lines persisted in one JSONField and re-served on every read."""
+        warnings = parse_xml(self._file(list(range(100, 400)))).warnings
+        unrecognized = [w for w in warnings if "not defined by MS Project" in w]
+        assert len(unrecognized) == 1
+        assert "300 constraint type(s)" in unrecognized[0]
+
+    def test_an_enormous_code_is_never_echoed_into_the_warning(self) -> None:
+        """`ConstraintType` is an unbounded integer, so echoing it hands the file
+        control of the string's length as well as the list's."""
+        huge = int("9" * 2000)
+        warnings = parse_xml(self._file([huge])).warnings
+        assert all(str(huge) not in w for w in warnings)
+        assert max(len(w) for w in warnings) < 500
+
+    def test_defined_codes_still_get_their_own_named_line(self) -> None:
+        warnings = parse_xml(self._file([1, 3, 5, 6, 7])).warnings
+        for code in (1, 3, 5, 6, 7):
+            assert any(MSPDI_CONSTRAINT_NAMES[code] in w for w in warnings), code
+
+
+class TestActualsAreReconciledAgainstProgress:
+    """`bulk_create` runs no validation, so the parser owns this invariant."""
+
+    def _task(self, percent: int, extra: str) -> object:
+        xml = (
+            '<?xml version="1.0"?>'
+            '<Project xmlns="http://schemas.microsoft.com/project"><Tasks><Task>'
+            "<UID>1</UID><Name>T</Name><Duration>PT8H0M0S</Duration>"
+            "<Start>2026-03-02T08:00:00</Start>"
+            f"<PercentComplete>{percent}</PercentComplete>{extra}"
+            "</Task></Tasks></Project>"
+        ).encode()
+        return parse_xml(xml)
+
+    def test_a_finish_on_an_incomplete_task_is_dropped_and_reported(self) -> None:
+        """The state the REST path cannot reach: finished-but-not-started. It
+        matters because `actual_finish` is read unconditionally by schedule
+        variance and the sprint forecast resolver, so it corrupts reporting
+        rather than merely looking odd on the task."""
+        parsed = self._task(0, "<ActualFinish>2026-03-06T17:00:00</ActualFinish>")
+        assert parsed.tasks[0].actual_finish is None  # type: ignore[attr-defined]
+        assert any("actual finish dates on 1 task" in w for w in parsed.warnings)  # type: ignore[attr-defined]
+
+    def test_a_start_with_no_progress_is_dropped_and_reported(self) -> None:
+        parsed = self._task(0, "<ActualStart>2026-03-02T08:00:00</ActualStart>")
+        assert parsed.tasks[0].actual_start is None  # type: ignore[attr-defined]
+        assert any("actual start dates on 1 task" in w for w in parsed.warnings)  # type: ignore[attr-defined]
+
+    def test_a_finish_before_its_start_is_dropped(self) -> None:
+        parsed = self._task(
+            100,
+            "<ActualStart>2026-03-10T08:00:00</ActualStart>"
+            "<ActualFinish>2026-03-04T17:00:00</ActualFinish>",
+        )
+        assert parsed.tasks[0].actual_start == "2026-03-10"  # type: ignore[attr-defined]
+        assert parsed.tasks[0].actual_finish is None  # type: ignore[attr-defined]
+
+    def test_coherent_actuals_survive_untouched(self) -> None:
+        parsed = self._task(
+            100,
+            "<ActualStart>2026-03-02T08:00:00</ActualStart>"
+            "<ActualFinish>2026-03-06T17:00:00</ActualFinish>",
+        )
+        assert parsed.tasks[0].actual_start == "2026-03-02"  # type: ignore[attr-defined]
+        assert parsed.tasks[0].actual_finish == "2026-03-06"  # type: ignore[attr-defined]
+        assert [w for w in parsed.warnings if "actual" in w] == []  # type: ignore[attr-defined]
+
+    def test_an_in_progress_start_survives(self) -> None:
+        parsed = self._task(25, "<ActualStart>2026-03-02T08:00:00</ActualStart>")
+        assert parsed.tasks[0].actual_start == "2026-03-02"  # type: ignore[attr-defined]
+
+    def test_the_report_is_one_line_per_kind_not_one_per_task(self) -> None:
+        tasks = "".join(
+            f"<Task><UID>{i + 1}</UID><Name>T{i}</Name><Duration>PT8H0M0S</Duration>"
+            f"<PercentComplete>0</PercentComplete>"
+            f"<ActualStart>2026-03-02T08:00:00</ActualStart></Task>"
+            for i in range(50)
+        )
+        xml = (
+            '<?xml version="1.0"?>'
+            '<Project xmlns="http://schemas.microsoft.com/project">'
+            f"<Tasks>{tasks}</Tasks></Project>"
+        ).encode()
+        warnings = [w for w in parse_xml(xml).warnings if "actual start" in w]
+        assert len(warnings) == 1
+        assert "50 task(s)" in warnings[0]
+
+
+@pytest.mark.django_db
+class TestProjectStartShiftsForAConstraintBelowIt:
+    """The canonical MS Project shape, and the one that reopened the bug.
+
+    When an SNET constraint predates the project start, MS Project keeps the
+    `<ConstraintDate>` and computes `<Start>` *at* the project start — so
+    `ConstraintDate < StartDate <= Start`. `_maybe_shift_project_start` originally
+    keyed on `<Start>`, so no shift fired, the constraint-derived `planned_start`
+    landed below the project floor, and `early_start = max(project_start,
+    planned_start, ...)` clamped it away. The commitment was dropped silently a
+    second time, one function downstream of the fix (#2891).
+    """
+
+    FIXTURE_XML = b"""<?xml version="1.0"?>
+<Project xmlns="http://schemas.microsoft.com/project">
+  <Name>Late start</Name>
+  <StartDate>2026-03-02T08:00:00</StartDate>
+  <Tasks><Task>
+    <UID>1</UID><Name>Design</Name><Duration>PT40H0M0S</Duration>
+    <Start>2026-03-02T08:00:00</Start>
+    <ConstraintType>4</ConstraintType>
+    <ConstraintDate>2026-02-16T08:00:00</ConstraintDate>
+  </Task></Tasks>
+</Project>"""
+
+    @pytest.fixture
+    def project(self, db: object) -> object:
+        from trueppm_api.apps.projects.models import Calendar, Project
+
+        calendar = Calendar.objects.create(name="Standard")
+        return Project.objects.create(
+            name="Shift target", start_date=date(2026, 3, 2), calendar=calendar
+        )
+
+    def test_the_project_start_is_pulled_back_to_the_constraint_date(self, project: object) -> None:
+        from trueppm_api.apps.msproject.importer import (
+            _maybe_shift_project_start,
+            import_project,
+        )
+        from trueppm_api.apps.projects.models import Project, Task
+
+        data = parse_xml(self.FIXTURE_XML)
+        summary = import_project(str(project.pk), data)  # type: ignore[attr-defined]
+        _maybe_shift_project_start(str(project.pk), data, summary)  # type: ignore[attr-defined]
+
+        refreshed = Project.objects.get(pk=project.pk)  # type: ignore[attr-defined]
+        assert refreshed.start_date == date(2026, 2, 16)
+        assert summary["project_start_shifted"] is True
+        # And the commitment itself survived rather than being clamped away.
+        task = Task.objects.get(project_id=project.pk)  # type: ignore[attr-defined]
+        assert task.planned_start == date(2026, 2, 16)
+
+    def test_an_actual_start_below_the_project_start_also_shifts_it(self, project: object) -> None:
+        """Work that demonstrably began early still has to fit in the window."""
+        from trueppm_api.apps.msproject.importer import _maybe_shift_project_start
+
+        xml = b"""<?xml version="1.0"?>
+<Project xmlns="http://schemas.microsoft.com/project">
+  <StartDate>2026-03-02T08:00:00</StartDate>
+  <Tasks><Task>
+    <UID>1</UID><Name>Design</Name><Duration>PT40H0M0S</Duration>
+    <Start>2026-03-02T08:00:00</Start><PercentComplete>50</PercentComplete>
+    <ActualStart>2026-02-09T08:00:00</ActualStart>
+  </Task></Tasks>
+</Project>"""
+        from trueppm_api.apps.projects.models import Project
+
+        data = parse_xml(xml)
+        summary: dict[str, object] = {}
+        _maybe_shift_project_start(str(project.pk), data, summary)  # type: ignore[attr-defined]
+
+        assert Project.objects.get(pk=project.pk).start_date == date(2026, 2, 9)  # type: ignore[attr-defined]
+
+    def test_a_file_entirely_after_the_project_start_does_not_shift_it(
+        self, project: object
+    ) -> None:
+        from trueppm_api.apps.msproject.importer import _maybe_shift_project_start
+        from trueppm_api.apps.projects.models import Project
+
+        data = parse_xml(FIXTURE.read_bytes())
+        summary: dict[str, object] = {}
+        _maybe_shift_project_start(str(project.pk), data, summary)  # type: ignore[attr-defined]
+
+        assert Project.objects.get(pk=project.pk).start_date == date(2026, 3, 2)  # type: ignore[attr-defined]
+        assert summary == {}

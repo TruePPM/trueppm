@@ -336,32 +336,43 @@ class ImportRequestProvenanceListView(APIView):
             200: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
                 description=(
-                    "Recent import-request provenance rows for the project, newest "
-                    "first: {results: [{id, filename, initiated_by, requested_at, "
-                    "status, task_count, warnings}]}. `warnings` lists everything the "
-                    "import did not carry over — MS Project constraints, deadlines, "
-                    "baselines, priority, work and cost have no TruePPM column and are "
-                    "reported here with per-family task counts. Rows are purged after "
-                    "7 days."
+                    "Page of import-request provenance rows for the project, newest "
+                    "first: {count, next, previous, results: [{id, filename, status, "
+                    "creates_project, requested_at, initiated_by, "
+                    "initiated_by_username, task_count, warnings}]}. `status` is one "
+                    "of pending / dispatched / done / dead; `initiated_by` is the "
+                    "user's integer id (`initiated_by_username` carries the name, and "
+                    "is null once that user is deleted). `warnings` lists everything "
+                    "the import did not carry over — MS Project constraints, "
+                    "deadlines, baselines, priority, work and cost have no TruePPM "
+                    "column and are reported with per-family task counts; the strings "
+                    "are prose for a person, so match the leading 'Not imported: ' / "
+                    "'Partially imported: ' marker rather than the whole line. Empty "
+                    "for a queued or dead import. Rows are purged after 7 days."
                 ),
                 examples=[
                     OpenApiExample(
                         "imports",
                         value={
+                            "count": 1,
+                            "next": None,
+                            "previous": None,
                             "results": [
                                 {
                                     "id": "…",
                                     "filename": "plan.xml",
-                                    "initiated_by": "sarah",
+                                    "status": "done",
+                                    "creates_project": False,
                                     "requested_at": "2026-05-28T14:03:00Z",
-                                    "status": "succeeded",
+                                    "initiated_by": 17,
+                                    "initiated_by_username": "sarah",
                                     "task_count": 142,
                                     "warnings": [
                                         "Not imported: deadline dates (TruePPM has no "
                                         "deadline field) — set on 6 of 142 tasks."
                                     ],
                                 }
-                            ]
+                            ],
                         },
                     ),
                 ],

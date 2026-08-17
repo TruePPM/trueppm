@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { isTypingInInput } from './useGlobalShortcut';
+import {
+  claimUndoShortcut,
+  isTypingInInput,
+  isUndoShortcutClaimed,
+} from './useGlobalShortcut';
 
 /** Build an element, optionally nested inside a parent, and return the child. */
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -51,5 +55,57 @@ describe('isTypingInInput', () => {
     expect(isTypingInInput(null)).toBe(false);
     expect(isTypingInInput(document)).toBe(false);
     expect(isTypingInInput(window)).toBe(false);
+  });
+});
+
+/**
+ * ⌘Z arbitration (#2892). Three surfaces on the Schedule view bind ⌘Z to a
+ * *different* destructive undo and are independently mountable siblings, so
+ * without a claim one keypress ran two of them — reverting a template apply and a
+ * CSV import at once. A per-component test cannot see that class: it mounts one
+ * surface, and the collision needs two. This is the seam where it can be tested.
+ */
+describe('claimUndoShortcut', () => {
+  it('is unclaimed by default, so an outer handler runs', () => {
+    expect(isUndoShortcutClaimed()).toBe(false);
+  });
+
+  it('reports a claim while a nearer surface holds it, and releases it', () => {
+    const release = claimUndoShortcut();
+    expect(isUndoShortcutClaimed()).toBe(true);
+    release();
+    expect(isUndoShortcutClaimed()).toBe(false);
+  });
+
+  it('nests — an outer handler stays yielded until the last claim releases', () => {
+    const first = claimUndoShortcut();
+    const second = claimUndoShortcut();
+    first();
+    expect(isUndoShortcutClaimed()).toBe(true);
+    second();
+    expect(isUndoShortcutClaimed()).toBe(false);
+  });
+
+  it('is idempotent per release, so a double cleanup cannot unclaim a live holder', () => {
+    // React can invoke an effect cleanup more than once; without the guard the
+    // counter would go negative and a genuinely-claimed chord would read as free.
+    const live = claimUndoShortcut();
+    const stale = claimUndoShortcut();
+    stale();
+    stale();
+    stale();
+    expect(isUndoShortcutClaimed()).toBe(true);
+    live();
+    expect(isUndoShortcutClaimed()).toBe(false);
+  });
+
+  it('never goes negative', () => {
+    const release = claimUndoShortcut();
+    release();
+    release();
+    expect(isUndoShortcutClaimed()).toBe(false);
+    const next = claimUndoShortcut();
+    expect(isUndoShortcutClaimed()).toBe(true);
+    next();
   });
 });
