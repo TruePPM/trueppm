@@ -84,6 +84,15 @@ rather than being removed outright:
    before it may be removed — and never less.
    Security-critical removals would be the only exception, and would be
    documented as such.
+
+   **Invoked once, in 0.4 (#2881).** `POST /api/v1/integrations/projects/{id}/git-webhook/`
+   answered `401` for a bad or missing signature in 0.3; in 0.4 it answers the same `404`
+   it returns for "no automation configured". Changing an existing status code is a
+   **Breaking** change by the table above, and it shipped with no deprecation window
+   because the window would have been self-defeating: the `401` *was* the vulnerability.
+   It told any caller holding a project ID — which every project Viewer has — that the
+   project has automation enabled with a secret set. A client branching on `401` from
+   that endpoint must treat `404` as the same condition.
 4. **Removal.** The element would be removed only after the window elapses, in
    a minor release before GA or in the next major version at and after GA.
 

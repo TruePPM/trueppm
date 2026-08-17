@@ -487,22 +487,51 @@ describe('GitAutomationManager — last delivery (#2882)', () => {
     render(<GitAutomationManager projectId="p-1" />);
     const row = screen.getByTestId('git-last-delivery');
     expect(row).toHaveTextContent(/No task is linked to that pull\/merge request/i);
-    expect(row).toHaveTextContent(/github/);
+    expect(row).toHaveTextContent(/GitHub/);
     // The actionable next step, not just the diagnosis.
     expect(row).toHaveTextContent(/Files → External links/i);
   });
 
-  it('surfaces a rejected signature, which the caller only ever saw as a 404', () => {
+  it('surfaces a rejected signature in its OWN row, hedged, never as a delivery', () => {
+    // The security-relevant half of the split. A refusal is recorded before the
+    // signature is verified, so anyone holding the project ID can force one — it must
+    // never land in the trusted "Last delivery" slot, and its hint must not tell the
+    // admin unconditionally to rotate a working secret.
     loaded({
       enabled: true,
       secret_set: true,
-      last_delivery_at: '2026-08-17T09:30:00Z',
-      last_delivery_outcome: 'bad_signature',
-      last_delivery_provider: 'gitlab',
+      last_refusal_at: '2026-08-17T09:30:00Z',
+      last_refusal_outcome: 'bad_signature',
+      last_refusal_provider: 'gitlab',
     });
     render(<GitAutomationManager projectId="p-1" />);
-    expect(screen.getByTestId('git-last-delivery')).toHaveTextContent(/Signature rejected/i);
-    expect(screen.getByTestId('git-last-delivery')).toHaveTextContent(/Rotate the secret/i);
+    const refusal = screen.getByTestId('git-last-refusal');
+    expect(refusal).toHaveTextContent(/Signature rejected/i);
+    expect(refusal).toHaveTextContent(/GitLab/);
+    expect(refusal).toHaveTextContent(/This endpoint is public/i);
+    // Conditional, not an instruction.
+    expect(refusal).toHaveTextContent(/If this lines up with a delivery from your provider/i);
+    expect(screen.queryByTestId('git-last-delivery')).not.toBeInTheDocument();
+  });
+
+  it('keeps a hostile refusal from displacing the genuine verified outcome', () => {
+    // The whole point of two slots: an anonymous caller spamming bad_signature must
+    // not erase the no_link an admin is mid-diagnosis on.
+    loaded({
+      enabled: true,
+      secret_set: true,
+      last_delivery_at: '2026-08-17T09:00:00Z',
+      last_delivery_outcome: 'no_link',
+      last_delivery_provider: 'github',
+      last_refusal_at: '2026-08-17T09:30:00Z',
+      last_refusal_outcome: 'bad_signature',
+      last_refusal_provider: 'github',
+    });
+    render(<GitAutomationManager projectId="p-1" />);
+    expect(screen.getByTestId('git-last-delivery')).toHaveTextContent(
+      /No task is linked to that pull\/merge request/i,
+    );
+    expect(screen.getByTestId('git-last-refusal')).toHaveTextContent(/Signature rejected/i);
   });
 
   it('explains a draft as deliberate rather than broken', () => {
@@ -531,9 +560,11 @@ describe('GitAutomationManager — last delivery (#2882)', () => {
     expect(screen.getByTestId('git-last-delivery')).toHaveTextContent(/Card moved to Review/i);
   });
 
-  it('renders an outcome token it has never seen instead of blanking the row', () => {
-    // The server owns this vocabulary and will grow it. An unknown token must
-    // degrade to itself — a silent empty row would be the original bug again.
+  it('renders an unknown token humanized and in the CAUTIOUS tone, not neutral (rule 301)', () => {
+    // The server owns this vocabulary and grows it, so this map WILL drift. The drift
+    // must not render the next new failure token in the same grey as "nothing to
+    // report" — the unknown branch is cautious, and the token is humanized rather
+    // than leaked as a snake_case identifier.
     loaded({
       enabled: true,
       secret_set: true,
@@ -542,7 +573,40 @@ describe('GitAutomationManager — last delivery (#2882)', () => {
       last_delivery_provider: 'github',
     });
     render(<GitAutomationManager projectId="p-1" />);
-    expect(screen.getByTestId('git-last-delivery')).toHaveTextContent('some_future_outcome');
+    const row = screen.getByTestId('git-last-delivery');
+    expect(row).toHaveTextContent('some future outcome');
+    expect(row.querySelector('.text-semantic-critical')).not.toBeNull();
+    expect(row.querySelector('.text-neutral-text-secondary')).toBeNull();
+  });
+
+  it('labels each row as a group instead of announcing a context-free fragment', () => {
+    // Rule 297: this content mounts with its container and never updates, so a live
+    // region either stays silent or announces the coloured summary without its label
+    // or its hint. A labelled group gives the same structure on demand.
+    loaded({
+      enabled: true,
+      secret_set: true,
+      last_delivery_at: '2026-08-17T09:30:00Z',
+      last_delivery_outcome: 'opened_review',
+      last_delivery_provider: 'github',
+    });
+    render(<GitAutomationManager projectId="p-1" />);
+    expect(screen.getByRole('group', { name: 'Last delivery' })).toBeInTheDocument();
+    expect(screen.getByTestId('git-last-delivery').querySelector('[role="status"]')).toBeNull();
+  });
+
+  it('writes the provider the way the rest of the card writes it', () => {
+    loaded({
+      enabled: true,
+      secret_set: true,
+      last_delivery_at: '2026-08-17T09:30:00Z',
+      last_delivery_outcome: 'opened_review',
+      last_delivery_provider: 'github',
+    });
+    render(<GitAutomationManager projectId="p-1" />);
+    const row = screen.getByTestId('git-last-delivery');
+    expect(row).toHaveTextContent(/GitHub/);
+    expect(row).not.toHaveTextContent(/· github/);
   });
 
   it('degrades to the empty state when an older API omits the fields entirely', () => {

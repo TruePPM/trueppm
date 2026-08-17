@@ -322,7 +322,7 @@ class BoardAutomation(models.Model):
         blank=True,
         related_name="+",
     )
-    # --- Last-delivery diagnostics (#2882) ---------------------------------------
+    # --- Delivery diagnostics (#2882) --------------------------------------------
     # A failed webhook used to be invisible to everyone: every non-auth outcome was
     # a 200, the receiver logged nothing, and the only diagnostic surface was the
     # provider's own Recent Deliveries tab — outside the operator's reach. An
@@ -330,22 +330,39 @@ class BoardAutomation(models.Model):
     # GitHub, and have zero cards ever move with nothing anywhere saying why (a
     # missing TaskLink is the most common cause and looks identical to success).
     #
-    # These three fields are that missing consumer, read back by the admin-only
-    # config GET and rendered on the settings card. Deliberately the *last* delivery
-    # on the existing config row rather than an append-only attempt table: the
-    # receiver is anonymous and rate-bounded, so an unbounded history table on that
-    # path is a storage-growth surface an attacker controls, while a single
-    # overwritten row answers the question an operator actually asks ("what happened
-    # to the delivery I just triggered?"). The write goes through a queryset
-    # ``.update()`` so it never touches ``updated_at`` — that field means "config
-    # last changed" and a webhook does not change config.
+    # These fields are that missing consumer, read back by the admin-only config GET
+    # and rendered on the settings card. Deliberately the *last* outcome on the
+    # existing config row rather than an append-only attempt table: the receiver is
+    # anonymous and rate-bounded, so an unbounded history table on that path is a
+    # storage-growth surface an attacker controls, while a single overwritten row
+    # answers the question an operator actually asks ("what happened to the delivery
+    # I just triggered?"). Writes go through a queryset ``.update()`` so they never
+    # touch ``updated_at`` — that field means "config last changed" and a webhook
+    # does not change config.
+    #
+    # **Two independent slots, and the split is a security property, not tidiness.**
+    # A refusal is recorded before the signature is verified, so anyone holding the
+    # project's UUID can force one with two forged headers — and the UUID is not a
+    # secret; every project Viewer reads it out of the SPA URL, which is the premise
+    # of #2881. One shared slot would let that caller erase the genuine ``no_link``
+    # an admin is mid-diagnosis on, and leave the card telling the admin their secret
+    # is wrong and to rotate it — an unauthenticated party talking a working
+    # integration down. Split, hostile traffic can only reach the slot already
+    # labeled "unauthenticated, may not be your provider".
+
+    # Verified: the caller proved it holds the secret. Trustworthy.
     last_delivery_at = models.DateTimeField(null=True, blank=True)
-    # A ``GIT_DELIVERY_*`` outcome token from ``git_delivery_outcomes``. Free-text
-    # CharField rather than ``choices``: the vocabulary is owned by the receiver and
-    # grows with the event taxonomy, and a stale ``choices`` list would turn adding
-    # an outcome into a migration.
+    # A ``GIT_DELIVERY_*`` / service outcome token. Free-text CharField rather than
+    # ``choices``: the vocabulary is owned by the receiver and grows with the event
+    # taxonomy, and a stale ``choices`` list would turn adding an outcome into a
+    # migration. The API *publishes* the vocabulary through the serializer instead.
     last_delivery_outcome = models.CharField(max_length=32, blank=True, default="")
     last_delivery_provider = models.CharField(max_length=16, blank=True, default="")
+
+    # Refused before verification: anyone can write here. Diagnostic, not evidence.
+    last_refusal_at = models.DateTimeField(null=True, blank=True)
+    last_refusal_outcome = models.CharField(max_length=32, blank=True, default="")
+    last_refusal_provider = models.CharField(max_length=16, blank=True, default="")
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -370,6 +387,21 @@ class BoardAutomation(models.Model):
         secret and ``secret_set_at`` land atomically.
         """
         from django.utils import timezone
+
+        # ASCII is a *correctness* invariant, not a style preference, and it is
+        # enforced here because here is the only place it can be. Signature
+        # verification compares the stored secret against a request header, and the
+        # header has to be encoded from text back to bytes to make that comparison
+        # safe (see ``git_webhook_auth._constant_time_equal``, #2881). That encode
+        # falls back from latin-1 to utf-8, and the two codecs agree only on ASCII —
+        # so a non-ASCII secret would make genuinely different headers compare equal
+        # (``"Ã©"`` encodes to the same bytes under latin-1 as ``"é"`` does under
+        # utf-8). Every secret today comes from ``secrets.token_urlsafe`` and is
+        # ASCII by construction; this guard is what keeps that true the day someone
+        # adds a "paste your existing provider secret" path, which is a routine
+        # request for a feature shaped like this one.
+        if not plaintext.isascii():
+            raise ValueError("webhook secret must be ASCII")
 
         self.secret_ciphertext = encrypt_secret(plaintext)
         self.secret_set_at = timezone.now()

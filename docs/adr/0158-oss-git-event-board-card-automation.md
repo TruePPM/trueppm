@@ -111,6 +111,19 @@ class BoardAutomation(models.Model):
   - On failure → `401`, body never parsed. On `enabled=False` or no `BoardAutomation` →
     `404` (do not leak which projects have automation; matches `IsTokenForProject`'s
     enumeration-safe 401/404 posture).
+
+  > **Superseded 2026-08-17 by #2881 (!MR for #2881/#2882).** Two claims above are no
+  > longer accurate, and one of them was the defect. (1) The comparison is **not** done
+  > on `str` — `hmac.compare_digest` raises `TypeError` on a non-ASCII `str`, so one
+  > Latin-1 byte in either header was an unhandled 500; both arms now encode to bytes
+  > first (`_constant_time_equal`). (2) There is **no 401**. The
+  > "enumeration-safe 401/404 posture" this ADR reasoned from is not enumeration-safe
+  > here: given a project UUID — which every project Viewer reads out of the SPA URL —
+  > a 401 meant *automation is enabled and a secret is set*, which is exactly the fact
+  > the 404 was chosen to hide, and the 500 leaked it the same way. Every
+  > pre-verification refusal now returns one byte-identical `404`; the reason is
+  > recorded on `BoardAutomation.last_refusal_*` and in the receiver log, both
+  > Owner/Admin-only. A body over 1 MB is `413`, checked before the body is read.
 - **Throttle:** new `GitWebhookThrottle` keyed on `project_id`, 120 req/min, fail-open on
   Redis error (mirrors `AcceptanceResultThrottle`).
 - **Event filter:** only `pull_request` (GitHub: `action ∈ {opened, reopened, ready_for_review}` → `pr.opened`;
@@ -195,9 +208,14 @@ status; `POST .../rotate-secret/` to mint/rotate the webhook secret, returned on
   without a manual drag. The receiver reuses the URL parsers, the serializer, the broadcast,
   and the CPM-recalc path that already exist — minimal new surface.
 - **Harder / risks:**
-  - **Security-sensitive signature code.** Must be constant-time, must 401 before parsing
-    on bad signature, must not leak project existence. Covered by `security-review` +
-    `rbac-check` gates and explicit pytest (signature pass/fail/missing, wrong project).
+  - **Security-sensitive signature code.** Must be constant-time, must refuse before
+    parsing on bad signature, must not leak project existence. Covered by
+    `security-review` + `rbac-check` gates and explicit pytest (signature
+    pass/fail/missing, wrong project). *Superseded detail (#2881): the refusal status is
+    `404`, not the `401` originally specified — see the note under the endpoint above.
+    The gates named here did run and did not catch it; what did was asserting the
+    refusals are byte-identical to each other rather than that each returns its
+    intended code.*
   - **URL matching is parse-and-compare**, not an indexed normalized key. Bounded by project
     scope so the candidate set is tiny; if it ever becomes hot, a future migration can add a
     normalized `pr_key` column to `TaskLink` (out of scope here).
@@ -254,3 +272,11 @@ status; `POST .../rotate-secret/` to mint/rotate the webhook secret, returned on
    tasks without a link are expected). Malformed payload → `400`. Permanent failure surfaces
    to the operator as a non-2xx in their Git provider's webhook delivery log; no TruePPM-side
    queue accrues.
+
+   > **Superseded 2026-08-17 by #2881/#2882.** Bad signature → `404`, not `401`. And the
+   > last sentence turned out to be the whole problem: "surfaces to the operator … in
+   > their Git provider's webhook delivery log" put the only diagnostic *outside* the
+   > product, and the most common failure — a verified delivery matching no `TaskLink` —
+   > is a `200` there, so the provider showed a green check while no card ever moved. The
+   > receiver now logs every refusal and every unmatched delivery, and records the last
+   > verified outcome and the last refusal on `BoardAutomation` for the settings card.

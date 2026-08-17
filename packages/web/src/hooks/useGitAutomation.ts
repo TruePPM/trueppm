@@ -34,13 +34,14 @@ export function gitAutomationKey(projectId: string) {
  * exhaustive `switch` that renders nothing for a value it has never seen. The
  * known tokens are:
  *
- * - refused before the signature check (the caller saw only an opaque 404, so an
- *   admin reading this row is the sole way to tell which it was): `no_automation`,
- *   `automation_disabled`, `no_secret`, `unknown_provider`, `secret_unreadable`,
- *   `bad_signature`
- * - verified, then not acted on: `malformed_payload`, `ignored`, `draft`,
- *   `duplicate`, `no_url`, `no_link`, `noop_forward_only`
- * - a card moved: `opened_review`, `merged_complete`
+ * - `last_refusal_outcome` — refused before the signature check, so the caller saw
+ *   only an opaque 404 and an admin reading this row is the sole way to tell which it
+ *   was: `automation_disabled`, `no_secret`, `unknown_provider`, `secret_unreadable`,
+ *   `bad_signature`. (`no_automation` is NOT among them: that refusal has no config
+ *   row to write to, so it reaches the server log only.)
+ * - `last_delivery_outcome` — verified, then not acted on: `malformed_payload`,
+ *   `ignored`, `draft`, `duplicate`, `no_url`, `no_link`, `noop_forward_only`
+ * - `last_delivery_outcome` — a card moved: `opened_review`, `merged_complete`
  */
 export type GitDeliveryOutcome = string;
 
@@ -52,13 +53,22 @@ export interface GitAutomationConfig {
   secret_set_at: string | null;
   updated_at: string;
   /**
-   * Last-delivery diagnostics. Optional in the type, not because the server omits
-   * them, but because an older API build does — and the card has to degrade to its
-   * previous "no information" state rather than render `undefined`.
+   * Delivery diagnostics. Optional in the type, not because the server omits them,
+   * but because an older API build does — and the card has to degrade to its previous
+   * "no information" state rather than render `undefined`.
+   *
+   * `last_delivery_*` and `last_refusal_*` are two independent slots, and the split
+   * is a server-side security property the client must preserve: a refusal is
+   * recorded before the signature is verified, so anyone holding the project ID can
+   * write one. Rendering them in one row would let a stranger overwrite a genuine
+   * diagnosis — and, for `bad_signature`, prompt an admin to rotate a working secret.
    */
   last_delivery_at?: string | null;
   last_delivery_outcome?: GitDeliveryOutcome;
   last_delivery_provider?: string;
+  last_refusal_at?: string | null;
+  last_refusal_outcome?: GitDeliveryOutcome;
+  last_refusal_provider?: string;
 }
 
 /** Rotate response = the one-time plaintext secret plus the webhook URL. */

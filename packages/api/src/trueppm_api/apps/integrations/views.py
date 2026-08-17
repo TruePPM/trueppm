@@ -22,6 +22,7 @@ import logging
 import secrets
 from typing import TYPE_CHECKING, Any, cast
 
+from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
 from django.http import Http404
 from django.shortcuts import get_object_or_404
@@ -554,7 +555,10 @@ class _WebhookRefusal(Exception):
 
 
 def _record_git_delivery(automation_id: Any, provider: str | None, outcome: str) -> None:
-    """Stamp the last-delivery diagnostics on a ``BoardAutomation`` row (#2882).
+    """Stamp the last **verified** delivery on a ``BoardAutomation`` row (#2882).
+
+    Only reached once the signature has verified, which is the whole point — see
+    :func:`_record_git_refusal` for why the two are separate columns.
 
     A queryset ``.update()`` rather than ``instance.save()`` on purpose: ``save()``
     would fire ``auto_now`` on ``updated_at``, and that field means "an admin last
@@ -568,16 +572,75 @@ def _record_git_delivery(automation_id: Any, provider: str | None, outcome: str)
     )
 
 
+def _record_git_refusal(automation_id: Any, provider: str | None, outcome: str) -> None:
+    """Stamp the last **refused** delivery, in its own columns (#2882).
+
+    Deliberately not the same columns as :func:`_record_git_delivery`, and the reason
+    is not tidiness. A refusal is recorded *before* the signature is checked, so
+    anyone who knows the project's UUID — which is not a secret; every project Viewer
+    reads it out of the SPA URL, and that is #2881's own premise — can force one at
+    will with two forged headers. Sharing one column would hand that caller two
+    things: the power to erase the genuine ``no_link`` outcome an admin is in the
+    middle of diagnosing, and a UI that then tells the admin their secret is wrong and
+    to rotate it — taking down a working integration on an unauthenticated party's
+    say-so. Split, a hostile caller can only ever write to the row that is already
+    labeled "unauthenticated, may not be your provider".
+    """
+    BoardAutomation.objects.filter(pk=automation_id).update(
+        last_refusal_at=timezone.now(),
+        last_refusal_outcome=outcome[:32],
+        last_refusal_provider=(provider or "")[:16],
+    )
+
+
+def _client_ident(request: Request) -> str:
+    """Client identity for the receiver log, resolved the way the throttle resolves it.
+
+    Reuses ``BaseThrottle.get_ident`` so the logged address is the same
+    ``NUM_PROXIES``-aware value the per-IP bucket keys on — logging a raw
+    ``REMOTE_ADDR`` would name the ingress on every line, and logging a raw
+    ``X-Forwarded-For`` would name whatever the caller put there.
+    """
+    from .throttles import GitWebhookIpThrottle
+
+    try:
+        return str(GitWebhookIpThrottle().get_ident(request) or "-")
+    except Exception:  # pragma: no cover - diagnostics must never break the response
+        return "-"
+
+
+def _provider_delivery_id(request: Request) -> str:
+    """The provider's own delivery id, so a log line can be matched to their UI.
+
+    GitHub stamps ``X-GitHub-Delivery``; GitLab stamps ``X-Gitlab-Event-UUID``.
+    Truncated because it is attacker-controlled on a refusal — it is a correlation
+    hint, not evidence.
+    """
+    raw = request.headers.get("X-GitHub-Delivery") or request.headers.get("X-Gitlab-Event-UUID")
+    return str(raw)[:64] if raw else ""
+
+
 def _webhook_body_within_cap(request: Request) -> bool:
     """Whether the request body is inside :data:`_WEBHOOK_MAX_BODY_BYTES`.
 
     Checks the declared ``Content-Length`` **first**, so an oversized delivery is
-    refused without buffering it — that is the whole point, since the old code read
-    ``request.body`` as its first statement and therefore allocated up to the global
-    100 MB cap before it even knew whether the project had automation. Both providers
-    always send ``Content-Length``; the ``request.body`` length check behind it is the
-    net for a chunked or header-less caller, where measuring the bytes that actually
-    arrived is the only option available (same trade-off as the seed-import reader).
+    refused before this process copies it anywhere — the old code read ``request.body``
+    as its first statement and materialized up to the global 100 MB cap before it even
+    knew whether the project had automation.
+
+    Be precise about what this does and does not buy, because the obvious reading is
+    too strong. Under ASGI, Django assembles the request body into a spooled temporary
+    file during request setup, before any middleware, throttle, or view code runs — so
+    the bytes have already arrived by the time this executes, and no view-level check
+    can prevent that. What the cap removes is the *second*, in-memory copy and every
+    allocation downstream of it (HMAC over the full body, JSON parse, envelope). The
+    wire-level ceiling is the ingress ``proxy-body-size``, and bounding an oversized
+    delivery before it reaches the pod is an edge-config job, tracked separately.
+
+    Both providers always send ``Content-Length``. The ``request.body`` length check
+    behind it is the net for a chunked or header-less caller, where measuring the bytes
+    that actually arrived is the only option available (same trade-off as the
+    seed-import reader) — that path does take the in-memory copy before refusing.
     """
     try:
         declared = int(request.META.get("CONTENT_LENGTH") or 0)
@@ -676,7 +739,12 @@ class GitWebhookIngestView(IdempotencyMixin, APIView):
                 project_id=project_pk,
                 project__is_deleted=False,
             )
-            .select_related("project")
+            # ``configured_by`` — not ``project``. ``project`` is never dereferenced
+            # on this path (the filter needs the join, not the columns) and pulling it
+            # cost 51 unused columns on every anonymous POST, including the ones that
+            # go on to 404. ``configured_by`` IS dereferenced, on every successful
+            # move, and was the lazy one.
+            .select_related("configured_by")
             .first()
         )
         provider = git_webhook_auth.detect_provider(request.headers)
@@ -693,8 +761,16 @@ class GitWebhookIngestView(IdempotencyMixin, APIView):
 
         try:
             secret = decrypt_secret(automation.secret_ciphertext)
-        except CredentialEncryptionError as exc:
-            # Secret unreadable (key rotated without re-encrypt) → cannot verify.
+        except (CredentialEncryptionError, ImproperlyConfigured, ValueError) as exc:
+            # Every way the stored secret can fail to come back, not just one. The
+            # obvious arm is CredentialEncryptionError (key rotated without
+            # re-encrypt), but ``decrypt_secret`` also raises ImproperlyConfigured
+            # when INTEGRATION_ENCRYPTION_KEY is unset and ValueError when it is
+            # malformed — the *same* operator scenario, and both would have escaped
+            # this funnel as an unhandled 500. That matters beyond the crash: a 500 is
+            # only reachable on a project that has automation with a secret set, which
+            # is precisely the disclosure #2881 exists to remove. Leaving two
+            # exception types out would have re-opened it one type over.
             raise _WebhookRefusal(GIT_DELIVERY_SECRET_UNREADABLE, automation.pk, provider) from exc
 
         try:
@@ -724,12 +800,18 @@ class GitWebhookIngestView(IdempotencyMixin, APIView):
             automation, provider, _secret = self._authorize(request, project_pk, raw_body)
         except _WebhookRefusal as refusal:
             if refusal.automation_id is not None:
-                _record_git_delivery(refusal.automation_id, refusal.provider, refusal.outcome)
+                _record_git_refusal(refusal.automation_id, refusal.provider, refusal.outcome)
+            # Carry the client identity and the provider's own delivery id. Without
+            # them neither surface answers "who sent this?", so an admin staring at
+            # "Signature rejected" cannot tell a misconfigured provider from someone
+            # poking a public endpoint — and the two call for opposite actions.
             logger.warning(
-                "git webhook refused: project=%s provider=%s reason=%s",
+                "git webhook refused: project=%s provider=%s reason=%s client=%s delivery=%s",
                 project_pk,
                 refusal.provider or "unknown",
                 refusal.outcome,
+                _client_ident(request),
+                _provider_delivery_id(request) or "-",
             )
             # Returned, NOT ``raise Http404``. DRF's exception handler calls
             # ``set_rollback()`` for every APIException, and ``ATOMIC_REQUESTS`` is on
@@ -833,6 +915,9 @@ class GitAutomationConfigView(IdempotencyMixin, APIView):
             "last_delivery_at": automation.last_delivery_at,
             "last_delivery_outcome": automation.last_delivery_outcome,
             "last_delivery_provider": automation.last_delivery_provider,
+            "last_refusal_at": automation.last_refusal_at,
+            "last_refusal_outcome": automation.last_refusal_outcome,
+            "last_refusal_provider": automation.last_refusal_provider,
         }
 
     def _get_or_init(self, project_pk: str) -> BoardAutomation:

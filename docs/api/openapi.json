@@ -46883,9 +46883,36 @@
                         "nullable": true
                     },
                     "last_delivery_outcome": {
-                        "type": "string"
+                        "description": "Outcome of the last delivery whose signature VERIFIED. Empty until one arrives. Trustworthy: the caller proved it holds the project's secret.\n\n* `malformed_payload` - malformed_payload\n* `ignored` - ignored\n* `draft` - draft\n* `duplicate` - duplicate\n* `no_url` - no_url\n* `no_link` - no_link\n* `noop_forward_only` - noop_forward_only\n* `opened_review` - opened_review\n* `merged_complete` - merged_complete",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/LastDeliveryOutcomeEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
                     },
                     "last_delivery_provider": {
+                        "type": "string"
+                    },
+                    "last_refusal_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "last_refusal_outcome": {
+                        "description": "Why the last REFUSED delivery was refused. The caller saw only an opaque 404. Diagnostic, not evidence: the endpoint is public, so this may record unauthenticated traffic rather than your provider.\n\n* `automation_disabled` - automation_disabled\n* `no_secret` - no_secret\n* `unknown_provider` - unknown_provider\n* `secret_unreadable` - secret_unreadable\n* `bad_signature` - bad_signature",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/LastRefusalOutcomeEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
+                    },
+                    "last_refusal_provider": {
                         "type": "string"
                     }
                 },
@@ -46895,6 +46922,9 @@
                     "last_delivery_at",
                     "last_delivery_outcome",
                     "last_delivery_provider",
+                    "last_refusal_at",
+                    "last_refusal_outcome",
+                    "last_refusal_provider",
                     "secret_set",
                     "secret_set_at",
                     "updated_at",
@@ -47381,6 +47411,32 @@
                     "path",
                     "resolved_by"
                 ]
+            },
+            "LastDeliveryOutcomeEnum": {
+                "enum": [
+                    "malformed_payload",
+                    "ignored",
+                    "draft",
+                    "duplicate",
+                    "no_url",
+                    "no_link",
+                    "noop_forward_only",
+                    "opened_review",
+                    "merged_complete"
+                ],
+                "type": "string",
+                "description": "* `malformed_payload` - malformed_payload\n* `ignored` - ignored\n* `draft` - draft\n* `duplicate` - duplicate\n* `no_url` - no_url\n* `no_link` - no_link\n* `noop_forward_only` - noop_forward_only\n* `opened_review` - opened_review\n* `merged_complete` - merged_complete"
+            },
+            "LastRefusalOutcomeEnum": {
+                "enum": [
+                    "automation_disabled",
+                    "no_secret",
+                    "unknown_provider",
+                    "secret_unreadable",
+                    "bad_signature"
+                ],
+                "type": "string",
+                "description": "* `automation_disabled` - automation_disabled\n* `no_secret` - no_secret\n* `unknown_provider` - unknown_provider\n* `secret_unreadable` - secret_unreadable\n* `bad_signature` - bad_signature"
             },
             "LoadSampleResponse": {
                 "type": "object",

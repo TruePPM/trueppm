@@ -263,6 +263,35 @@ def serialize_credential_summaries(
     return out
 
 
+#: Outcomes a **verified** delivery can produce (#2882). Published as an ``enum`` on
+#: ``GitAutomationConfig.last_delivery_outcome`` so an SDK consumer can discover the
+#: vocabulary the web client renders as user-facing copy. Kept as a module constant,
+#: not re-typed inline, because the receiver and the schema must not drift.
+GIT_DELIVERY_OUTCOMES = (
+    "malformed_payload",
+    "ignored",
+    "draft",
+    "duplicate",
+    "no_url",
+    "no_link",
+    "noop_forward_only",
+    "opened_review",
+    "merged_complete",
+)
+
+#: Outcomes a **refused** (pre-verification) delivery can produce. ``no_automation``
+#: is absent on purpose: that refusal has no ``BoardAutomation`` row to write to, so
+#: it can only ever reach the receiver log — publishing it as a readable value would
+#: be advertising a field state that cannot occur.
+GIT_REFUSAL_OUTCOMES = (
+    "automation_disabled",
+    "no_secret",
+    "unknown_provider",
+    "secret_unreadable",
+    "bad_signature",
+)
+
+
 class GitAutomationConfigSerializer(serializers.Serializer[Any]):
     """Read view of a project's Git-event card automation (#329, ADR-0158).
 
@@ -277,14 +306,44 @@ class GitAutomationConfigSerializer(serializers.Serializer[Any]):
     configured_by = serializers.UUIDField(allow_null=True)
     secret_set_at = serializers.DateTimeField(allow_null=True)
     updated_at = serializers.DateTimeField(allow_null=True)
-    # Last-delivery diagnostics (#2882). Before these, a webhook that failed or
-    # matched nothing was invisible on every surface an operator can reach: the
-    # receiver logged nothing, every non-auth outcome was a 200 so the provider
-    # showed a green check, and the settings card had no error state at all. These
-    # three are what the "Last delivery" row on that card reads.
+    # Delivery diagnostics (#2882). Before these, a webhook that failed or matched
+    # nothing was invisible on every surface an operator can reach: the receiver
+    # logged nothing, every non-auth outcome was a 200 so the provider showed a green
+    # check, and the settings card had no error state at all. These are what the
+    # "Last delivery" and "Last refused delivery" rows on that card read.
+    #
+    # ``ChoiceField``, not ``CharField``, and not for validation — these are
+    # read-only outputs. It is so the vocabulary reaches ``openapi.json`` as an
+    # ``enum``. The same MR gives the receiver's own ``reason`` a documented enum, and
+    # publishing its superset as a bare ``string`` here would leave an SDK consumer no
+    # way to discover the values, while the web client maps every one of them to
+    # user-facing copy. A token the server can emit and a client cannot look up is the
+    # declared-vs-actual gap this issue is about.
     last_delivery_at = serializers.DateTimeField(allow_null=True)
-    last_delivery_outcome = serializers.CharField(allow_blank=True)
+    last_delivery_outcome = serializers.ChoiceField(
+        choices=GIT_DELIVERY_OUTCOMES,
+        allow_blank=True,
+        help_text=(
+            "Outcome of the last delivery whose signature VERIFIED. Empty until one "
+            "arrives. Trustworthy: the caller proved it holds the project's secret."
+        ),
+    )
     last_delivery_provider = serializers.CharField(allow_blank=True)
+    # Deliberately separate from the fields above — see BoardAutomation. A refusal is
+    # recorded before verification, so an unauthenticated caller holding the project
+    # UUID can write here at will; keeping it out of ``last_delivery_*`` is what stops
+    # that caller erasing a genuine outcome or provoking a needless secret rotation.
+    last_refusal_at = serializers.DateTimeField(allow_null=True)
+    last_refusal_outcome = serializers.ChoiceField(
+        choices=GIT_REFUSAL_OUTCOMES,
+        allow_blank=True,
+        help_text=(
+            "Why the last REFUSED delivery was refused. The caller saw only an opaque "
+            "404. Diagnostic, not evidence: the endpoint is public, so this may record "
+            "unauthenticated traffic rather than your provider."
+        ),
+    )
+    last_refusal_provider = serializers.CharField(allow_blank=True)
 
 
 class GitAutomationUpdateSerializer(serializers.Serializer[Any]):

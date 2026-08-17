@@ -157,6 +157,9 @@ test.describe('Git-event automation settings', () => {
           last_delivery_at: '2026-08-17T09:30:00Z',
           last_delivery_outcome: 'no_link',
           last_delivery_provider: 'github',
+          last_refusal_at: '2026-08-17T09:45:00Z',
+          last_refusal_outcome: 'bad_signature',
+          last_refusal_provider: 'github',
         }),
       }),
     );
@@ -168,6 +171,13 @@ test.describe('Git-event automation settings', () => {
     const delivery = section.locator('[data-testid="git-last-delivery"]');
     await expect(delivery).toContainText('No task is linked to that pull/merge request');
     await expect(delivery).toContainText('External links');
+
+    // A refusal is recorded before the signature is checked, so anyone holding the
+    // project ID can force one. It gets its own row, hedged copy, and must never
+    // displace the verified outcome above.
+    const refusal = section.locator('[data-testid="git-last-refusal"]');
+    await expect(refusal).toContainText('Signature rejected');
+    await expect(refusal).toContainText('This endpoint is public');
   });
 
   test('says plainly when no delivery has arrived yet', async ({ page }) => {
@@ -176,7 +186,13 @@ test.describe('Git-event automation settings', () => {
       r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: pj({ ...CONFIG_NO_SECRET, last_delivery_at: null, last_delivery_outcome: '' }),
+        body: pj({
+          ...CONFIG_NO_SECRET,
+          last_delivery_at: null,
+          last_delivery_outcome: '',
+          last_refusal_at: null,
+          last_refusal_outcome: '',
+        }),
       }),
     );
 

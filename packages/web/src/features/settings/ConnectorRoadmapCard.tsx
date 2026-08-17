@@ -48,7 +48,7 @@ const AVAILABLE_CONNECTORS: AvailableConnector[] = [
     // capability that does not exist and sent operators looking for a Connect
     // button. Keep the verb on the tracker, not on us.
     description:
-      'Let your tracker push issues and status changes into this project with a project API token.',
+      'Let your tracker push issues and status changes into a project with a project API token.',
     link: {
       label: 'Set-up guide',
       href: 'https://docs.trueppm.com/features/inbound-task-sync',
@@ -58,7 +58,7 @@ const AVAILABLE_CONNECTORS: AvailableConnector[] = [
   {
     name: 'Git-event card automation (GitHub / GitLab)',
     description:
-      'Point a repository webhook at this project and a linked pull/merge request moves its card to Review, then Complete.',
+      'Point a repository webhook at a project and a linked pull/merge request moves its card to Review, then Complete.',
     link: {
       label: 'Set-up guide',
       href: 'https://docs.trueppm.com/administration/git-event-automation',

@@ -254,7 +254,10 @@ const DELIVERY_OUTCOMES: Record<string, { label: string; tone: 'ok' | 'problem' 
   bad_signature: {
     label: 'Signature rejected',
     tone: 'problem',
-    hint: 'The secret in your provider does not match this project. Rotate the secret and paste the new one into the webhook.',
+    // Hedged deliberately. This endpoint is public, so an unauthenticated request
+    // with a junk signature lands here too — an unconditional "rotate your secret"
+    // would let a stranger talk an admin into breaking a working integration.
+    hint: 'If this lines up with a delivery from your provider, the secret there does not match this project — rotate it and paste the new one into the webhook. If it does not, this was unauthenticated traffic and nothing is wrong.',
   },
   no_secret: {
     label: 'Delivery arrived with no secret set',
@@ -277,8 +280,18 @@ const DELIVERY_OUTCOMES: Record<string, { label: string; tone: 'ok' | 'problem' 
     hint: 'Rotate the secret to re-encrypt it, then update your provider.',
   },
   malformed_payload: { label: 'Payload was not valid JSON', tone: 'problem' },
-  no_automation: { label: 'Delivery arrived before setup', tone: 'problem' },
+  // No `no_automation` entry: that refusal is raised with no automation row to
+  // record against, so the server can never persist it. A mapping for a value that
+  // cannot arrive is a control with no producer.
 };
+
+/** `github` / `gitlab` are raw server tokens; the rest of this card writes them properly. */
+const PROVIDER_LABEL: Record<string, string> = { github: 'GitHub', gitlab: 'GitLab' };
+
+/** Turn an unmapped server token into something a human can read (rule 301c). */
+function humanizeOutcome(token: string): string {
+  return token.replace(/_/g, ' ');
+}
 
 const TONE_CLASS: Record<'ok' | 'problem' | 'idle', string> = {
   // `on-track` is the design system's AA-checked "good" text tone in both themes
@@ -290,35 +303,107 @@ const TONE_CLASS: Record<'ok' | 'problem' | 'idle', string> = {
 };
 
 /**
- * "Last delivery" diagnostic row — the consumer a failed webhook never had.
+ * One outcome block: label, tone-coloured summary, optional remediation hint.
  *
- * Renders nothing until a delivery has actually arrived: an empty row reading
- * "no problems" would be a claim the server cannot make, and the honest empty
- * state is the setup hint below it.
+ * No `role="status"` anywhere in here. This content mounts together with its own
+ * container when the config query resolves, and nothing subsequently updates it —
+ * a live region created with its content does not reliably announce (rule 297), and
+ * on the reading where it did, it would announce the coloured summary *without* the
+ * "Last delivery" label or the hint: the problem stripped of its context and its
+ * fix. A labelled group gives a screen-reader user the same structure a sighted user
+ * gets, on demand rather than unprompted.
+ */
+function OutcomeBlock({
+  label,
+  outcome,
+  provider,
+  at,
+  testId,
+  caveat,
+}: {
+  label: string;
+  outcome: string | undefined;
+  provider: string | undefined;
+  at: string;
+  testId: string;
+  caveat?: string;
+}) {
+  const known = outcome ? DELIVERY_OUTCOMES[outcome] : undefined;
+  // Unmapped token → the CAUTIOUS tone, never the neutral one (rule 301b). The
+  // server owns this vocabulary and grows it, so this map is a mirror that will
+  // drift; the drift must not render the next new FAILURE token in the same grey as
+  // "nothing to report" on the one surface whose job is saying something is wrong.
+  const tone = known?.tone ?? 'problem';
+  return (
+    <div role="group" aria-label={label} data-testid={testId}>
+      <span className="block text-[12px] font-medium text-neutral-text-primary">{label}</span>
+      <span className={`block text-[12px] font-medium ${TONE_CLASS[tone]}`}>
+        {known?.label ?? (outcome ? humanizeOutcome(outcome) : 'Unknown outcome')}
+        {provider ? ` · ${PROVIDER_LABEL[provider] ?? provider}` : ''}
+        {` · ${formatDateTime(at)}`}
+      </span>
+      {known?.hint && (
+        <span className="block max-w-[460px] text-[12px] text-neutral-text-secondary mt-0.5">
+          {known.hint}
+        </span>
+      )}
+      {caveat && (
+        <span className="block max-w-[460px] text-[12px] text-neutral-text-secondary mt-0.5">
+          {caveat}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Delivery diagnostics — the consumer a failed webhook never had.
+ *
+ * Two independent slots, mirroring the server's own split. "Last delivery" is a
+ * delivery whose signature verified, so it is trustworthy. "Last refused delivery"
+ * was rejected before verification, and because the receiver is public anyone
+ * holding the project ID can produce one — so it is shown separately, and labelled
+ * as possibly not being the operator's provider at all. Collapsing the two would let
+ * a stranger overwrite a real diagnosis with a fabricated cause.
+ *
+ * Neither renders until something has actually arrived: a row reading "no problems"
+ * would be a claim the server has not made, and the honest empty state is the
+ * prerequisite hint instead.
  */
 function LastDeliveryRow({ config }: { config: GitAutomationConfig }) {
-  const at = config.last_delivery_at;
-  const outcome = config.last_delivery_outcome;
-  if (!at) {
+  const deliveredAt = config.last_delivery_at;
+  const refusedAt = config.last_refusal_at;
+  if (!deliveredAt && !refusedAt) {
     return (
-      <p className="text-[12px] text-neutral-text-secondary" data-testid="git-last-delivery-empty">
+      <p
+        className="max-w-[460px] text-[12px] text-neutral-text-secondary"
+        data-testid="git-last-delivery-empty"
+      >
         No webhook delivery received yet. Cards move only when a task has the pull/merge
         request URL saved as a link (task → Files → External links).
       </p>
     );
   }
-  const known = outcome ? DELIVERY_OUTCOMES[outcome] : undefined;
-  const tone = known?.tone ?? 'idle';
   return (
-    <div data-testid="git-last-delivery">
-      <span className="block text-[12px] font-medium text-neutral-text-primary">Last delivery</span>
-      <span className={`block text-[12px] font-medium ${TONE_CLASS[tone]}`} role="status">
-        {known?.label ?? outcome}
-        {config.last_delivery_provider ? ` · ${config.last_delivery_provider}` : ''}
-        {` · ${formatDateTime(at)}`}
-      </span>
-      {known?.hint && (
-        <span className="block text-[12px] text-neutral-text-secondary mt-0.5">{known.hint}</span>
+    <div className="space-y-2">
+      {deliveredAt && (
+        <OutcomeBlock
+          label="Last delivery"
+          outcome={config.last_delivery_outcome}
+          provider={config.last_delivery_provider}
+          at={deliveredAt}
+          testId="git-last-delivery"
+        />
+      )}
+      {refusedAt && (
+        <OutcomeBlock
+          label="Last refused delivery"
+          outcome={config.last_refusal_outcome}
+          provider={config.last_refusal_provider}
+          at={refusedAt}
+          testId="git-last-refusal"
+          caveat="This endpoint is public, so a refusal can also come from a request that is not your provider."
+        />
       )}
     </div>
   );
@@ -517,6 +602,10 @@ function formatDateTime(iso: string): string {
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
+        // The point of this row is cross-referencing the provider's own delivery log,
+        // which stamps in its own zone — without a zone the operator cannot be sure
+        // the two lines describe the same delivery.
+        timeZoneName: 'short',
       });
 }
 

@@ -19,10 +19,12 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ImproperlyConfigured
 from django.urls import reverse
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.integrations.encryption import CredentialEncryptionError
 from trueppm_api.apps.integrations.models import BoardAutomation, TaskLink
 from trueppm_api.apps.projects.models import Calendar, Project, Task, TaskStatus
 
@@ -434,7 +436,7 @@ def test_non_ascii_signature_header_is_404_not_500(
 def test_every_pre_verification_refusal_is_byte_identical(
     project: Project, task: Task, admin: object
 ) -> None:
-    """The oracle-closing assertion: the six refusals must be indistinguishable.
+    """The oracle-closing assertion: every refusal must be indistinguishable.
 
     Not "all 404" — *identical*. Status, body, and content type all have to match,
     because any observable difference between them re-opens the disclosure: with a
@@ -471,6 +473,16 @@ def test_every_pre_verification_refusal_is_byte_identical(
     nonascii = _github_headers(body)
     nonascii["HTTP_X_HUB_SIGNATURE_256"] = "café"
     responses.append(_post(project, body, nonascii))
+    # (7) Enabled + secret, but the secret cannot be decrypted at all. Covers all
+    # three exception types this arm has to absorb — the two beyond
+    # CredentialEncryptionError were unhandled 500s, i.e. the same disclosure.
+    for failure in (
+        CredentialEncryptionError("ciphertext undecryptable"),
+        ImproperlyConfigured("INTEGRATION_ENCRYPTION_KEY is not set"),
+        ValueError("Fernet key must be 32 url-safe base64-encoded bytes."),
+    ):
+        with patch("trueppm_api.apps.integrations.views.decrypt_secret", side_effect=failure):
+            responses.append(_post(project, body, _github_headers(body)))
 
     observations = {
         (r.status_code, r["Content-Type"], r.content)  # type: ignore[index,attr-defined]
@@ -732,8 +744,11 @@ def test_refused_delivery_is_recorded_on_the_config_row(
     resp = _post(project, body, headers)
     assert resp.status_code == 404
     automation.refresh_from_db()
-    assert automation.last_delivery_outcome == expected
-    assert automation.last_delivery_at is not None
+    # The REFUSAL slot, not the delivery slot — see the displacement test below.
+    assert automation.last_refusal_outcome == expected
+    assert automation.last_refusal_at is not None
+    assert automation.last_delivery_outcome == ""
+    assert automation.last_delivery_at is None
 
 
 def test_a_delivery_that_matches_nothing_is_recorded(
@@ -800,6 +815,102 @@ def test_config_get_reports_no_delivery_before_the_first_webhook(
     data = _auth(admin).get(url).json()
     assert data["last_delivery_at"] is None
     assert data["last_delivery_outcome"] == ""
+    assert data["last_refusal_at"] is None
+    assert data["last_refusal_outcome"] == ""
+
+
+def test_an_anonymous_refusal_cannot_displace_a_verified_outcome(
+    project: Project, task: Task, admin: object, automation: BoardAutomation
+) -> None:
+    """The reason refusals live in their own columns (#2882, threat-model F1).
+
+    A refusal is recorded *before* the signature is verified, so anyone holding the
+    project UUID — not a secret; every Viewer reads it out of the SPA URL — can force
+    one. Sharing a column with the verified outcome would let that caller erase the
+    genuine ``no_link`` an admin is mid-diagnosis on, and leave the card telling the
+    admin to rotate a working secret. This asserts the verified outcome survives an
+    unauthenticated caller hammering the endpoint afterwards.
+    """
+    good = _github_body("opened")
+    _post(project, good, _github_headers(good))  # verified, unmatched → no_link
+    assert BoardAutomation.objects.get(pk=automation.pk).last_delivery_outcome == "no_link"
+
+    forged = _github_headers(good)
+    forged["HTTP_X_HUB_SIGNATURE_256"] = "sha256=deadbeef"
+    for _ in range(3):
+        assert _post(project, good, forged).status_code == 404
+
+    after = BoardAutomation.objects.get(pk=automation.pk)
+    # The real diagnosis is intact...
+    assert after.last_delivery_outcome == "no_link"
+    # ...and the forged traffic is quarantined in the slot the UI labels as
+    # "may not be your provider".
+    assert after.last_refusal_outcome == "bad_signature"
+
+    url = reverse("git-automation-config", kwargs={"project_pk": str(project.pk)})
+    data = _auth(admin).get(url).json()
+    assert data["last_delivery_outcome"] == "no_link"
+    assert data["last_refusal_outcome"] == "bad_signature"
+
+
+@pytest.mark.parametrize(
+    "raised",
+    [
+        ImproperlyConfigured("INTEGRATION_ENCRYPTION_KEY is not set"),
+        ValueError("Fernet key must be 32 url-safe base64-encoded bytes."),
+    ],
+)
+def test_an_unreadable_encryption_key_is_404_not_500(
+    project: Project, task: Task, automation: BoardAutomation, raised: Exception
+) -> None:
+    """Every way the stored secret can fail to come back must reach the same 404.
+
+    ``decrypt_secret`` raises ``CredentialEncryptionError`` when the key was rotated,
+    but ``ImproperlyConfigured`` when it is unset and ``ValueError`` when it is
+    malformed — the same operator scenario. Catching only the first left the other two
+    as unhandled 500s, and a 500 is reachable only on a project that HAS automation
+    with a secret set: the exact disclosure #2881 removes, one exception type over.
+    """
+    _github_link(task)
+    body = _github_body("opened")
+    with patch(
+        "trueppm_api.apps.integrations.views.decrypt_secret",
+        side_effect=raised,
+    ):
+        resp = _post(project, body, _github_headers(body))
+    assert resp.status_code == 404
+    automation.refresh_from_db()
+    assert automation.last_refusal_outcome == "secret_unreadable"
+
+
+def test_a_non_ascii_secret_is_refused_at_write_time(project: Project) -> None:
+    """The ASCII invariant ``_constant_time_equal`` depends on, enforced in code.
+
+    The header encode falls back latin-1 → utf-8, and the two codecs agree only on
+    ASCII, so a non-ASCII secret would let genuinely different headers compare equal.
+    Every secret today comes from ``secrets.token_urlsafe``; this keeps that true the
+    day a "paste your existing provider secret" path is added.
+    """
+    auto = BoardAutomation(project=project, enabled=True)
+    with pytest.raises(ValueError, match="ASCII"):
+        auto.set_secret("sécret-with-an-accent")
+
+
+def test_latin1_and_utf8_confusable_headers_do_not_verify(
+    project: Project, task: Task, automation: BoardAutomation
+) -> None:
+    """The confusable pair the ASCII invariant exists to rule out.
+
+    ``"Ã©"`` encodes under latin-1 to the same bytes ``"é"`` encodes to under utf-8.
+    With an ASCII secret neither can ever match, which is the property being pinned —
+    if a future change let a non-ASCII secret be stored, this is what would break.
+    """
+    _gitlab_link(task)
+    body = _gitlab_body("open")
+    for token in ("Ã©", "é"):
+        assert _post(project, body, _gitlab_headers(token)).status_code == 404
+    task.refresh_from_db()
+    assert task.status == TaskStatus.IN_PROGRESS
 
 
 def test_refusal_is_logged(
@@ -819,7 +930,12 @@ def test_refusal_is_logged(
     headers["HTTP_X_HUB_SIGNATURE_256"] = "sha256=deadbeef"
     with caplog.at_level(logging.WARNING, logger="trueppm_api.apps.integrations.views"):
         _post(project, body, headers)
-    assert any("bad_signature" in r.getMessage() for r in caplog.records)
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("bad_signature" in m for m in messages)
+    # Attributable: without a client identity an admin cannot tell a misconfigured
+    # provider from someone poking a public endpoint, and the two need opposite
+    # actions. The delivery id is what ties the line to the provider's own log.
+    assert any("client=" in m and "delivery=d1" in m for m in messages)
 
 
 def test_unmatched_delivery_is_logged(
