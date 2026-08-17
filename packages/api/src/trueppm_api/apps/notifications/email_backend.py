@@ -17,6 +17,26 @@ Security posture (ADR-0213 §4, security review C1/H1/H2/M1):
 - Connection-build failures raise :class:`EmailTransportError` carrying a
   generic message; callers must not surface the underlying ``smtplib``
   exception (which can echo credentials) to clients.
+
+Fail-closed on a configured-but-unusable transport (#2886 item 2). This module
+used to log a warning and fall back to the process-global ``EMAIL_BACKEND`` when
+the stored password would not decrypt or the stored host failed the egress guard.
+The intent — one corrupt row must not dead-letter a whole drain batch — was
+sound; the effect was that mail configured for the operator's relay went out over
+an entirely different transport (or into a console/dummy backend and nowhere at
+all) while the Email settings page still reported ``configured_via: "database"``
+and ``password_is_set: true``. Both faults now raise
+:class:`EmailTransportError`, and the queued drains catch it, log an ERROR, and
+leave their rows pending rather than burning retries on a configuration fault
+that an operator fix will clear. :func:`transport_status` exposes the same
+condition as a read-derived signal, which is what the System Health card and the
+``trueppm_email_transport_unavailable`` gauge report on — the fail-closed path is
+therefore observable rather than merely silent-but-safe.
+
+This matches ``apps.integrations.encryption``, which has always been fail-closed:
+``decrypt_secret`` raises ``CredentialEncryptionError`` rather than returning a
+usable-looking empty string. Falling open was this module's own deviation from
+the mechanism it borrows.
 """
 
 from __future__ import annotations
@@ -193,6 +213,13 @@ def probe_transport(
         ) from exc
 
 
+# Read-derived transport-status literals (#2886). Reported by the System Health
+# notification card and by the ``trueppm_email_transport_unavailable`` gauge.
+TRANSPORT_OK = "ok"
+TRANSPORT_GLOBAL = "global"  # cloud / unconfigured — the process-global backend
+TRANSPORT_UNDECRYPTABLE = "undecryptable"
+
+
 def resolve_email_connection(
     settings_obj: WorkspaceEmailSettings | None = None,
 ) -> BaseEmailBackend:
@@ -202,10 +229,15 @@ def resolve_email_connection(
     behaviour). Otherwise an SMTP connection built from the singleton, with the
     password decrypted here and the host SSRF-re-checked at send time.
 
-    On a decrypt failure (e.g. the encryption key rotated out from under a
-    stored row) this logs a distinct warning and falls back to the global
-    backend rather than letting one corrupt row dead-letter the whole drain
-    batch (ADR-0213 §Durable-Execution 8, security review L3).
+    Raises:
+        EmailTransportError: The workspace has a transport configured but it cannot
+            be built — the stored password will not decrypt (the encryption key
+            rotated out from under the row) or the stored host fails the egress
+            guard. This is deliberately **not** a fall back to the global backend:
+            sending the operator's mail over a transport they did not configure,
+            while the settings page reports the configured one, is a silent reroute
+            (#2886 item 2). Callers on a queued path catch this and leave their rows
+            pending; callers on a synchronous path surface a generic failure.
     """
     from .models import EmailTransportMode, WorkspaceEmailSettings
 
@@ -215,33 +247,67 @@ def resolve_email_connection(
 
     try:
         password = obj.get_password()
-    except Exception:
-        logger.warning(
-            "resolve_email_connection: could not decrypt stored SMTP password "
-            "(transport=%s host=%s) — falling back to the global mail backend. "
-            "The encryption key may have rotated; re-enter the password.",
+    except Exception as exc:
+        # ERROR, not WARNING: no mail leaves the workspace until an operator
+        # re-enters the password, so this is an outage rather than a degradation.
+        logger.error(
+            "resolve_email_connection: could not decrypt the stored SMTP password "
+            "(transport=%s host=%s) — refusing to send over a different transport. "
+            "The encryption key may have rotated; re-enter the password in "
+            "Workspace -> Email.",
             obj.transport_mode,
             obj.host,
         )
-        return cast("BaseEmailBackend", get_connection())
+        raise EmailTransportError(
+            "The stored mail credential could not be decrypted. Re-enter the "
+            "password for this transport."
+        ) from exc
+
+    return build_smtp_connection(
+        transport_mode=str(obj.transport_mode),
+        host=obj.host,
+        port=obj.port,
+        security=str(obj.security),
+        username=obj.username,
+        password=password,
+    )
+
+
+def transport_status(settings_obj: WorkspaceEmailSettings | None = None) -> str:
+    """Classify whether the configured transport's credential can be used, on read.
+
+    The credential fault in :func:`resolve_email_connection` is a deterministic
+    function of committed state (the stored ciphertext) and live configuration (the
+    encryption key) — not of anything a worker writes. So the web process can evaluate
+    it directly, which is what makes this a *positive* health signal rather than an
+    inference from the absence of one: it is true at the instant the credential breaks,
+    with no row having to fail first and no window in which anything could clear it.
+
+    Deliberately does **not** re-run the egress guard. That check resolves DNS, and
+    this function is called on a polled health endpoint and a Prometheus scrape — a
+    lookup per poll is a real egress and latency cost for a fault the queued-backlog
+    signal already catches (a host the guard rejects makes every send raise, so rows
+    stay pending and the notification card's aging-backlog signal fires).
+
+    Returns one of :data:`TRANSPORT_OK`, :data:`TRANSPORT_GLOBAL` (no workspace
+    transport configured — the process-global backend is in use, which is the shipped
+    default and not a fault), or :data:`TRANSPORT_UNDECRYPTABLE`. Never raises: a
+    status probe that can throw is unusable in a health endpoint.
+    """
+    from .models import EmailTransportMode, WorkspaceEmailSettings
 
     try:
-        return build_smtp_connection(
-            transport_mode=str(obj.transport_mode),
-            host=obj.host,
-            port=obj.port,
-            security=str(obj.security),
-            username=obj.username,
-            password=password,
-        )
-    except EmailTransportError:
-        logger.warning(
-            "resolve_email_connection: SMTP host failed the SSRF guard "
-            "(transport=%s host=%s) — falling back to the global mail backend.",
-            obj.transport_mode,
-            obj.host,
-        )
-        return cast("BaseEmailBackend", get_connection())
+        obj = settings_obj or WorkspaceEmailSettings.load()
+        if obj.transport_mode == EmailTransportMode.CLOUD:
+            return TRANSPORT_GLOBAL
+        try:
+            obj.get_password()
+        except Exception:
+            return TRANSPORT_UNDECRYPTABLE
+    except Exception:  # pragma: no cover — guard, not behavior
+        logger.warning("transport_status: could not classify the mail transport", exc_info=True)
+        return TRANSPORT_OK
+    return TRANSPORT_OK
 
 
 def resolve_from_email(settings_obj: WorkspaceEmailSettings | None = None) -> str:

@@ -3,8 +3,10 @@
  *
  * Upgrades the #639 read-only status page to the writable admin surface: pick a
  * provider (Server default / Gmail / Microsoft 365 / Fastmail / SendGrid / SES /
- * custom SMTP), enter credentials (password write-only), From identity, DKIM,
- * delivery limits, and a bounce webhook. Guided provider setup (#2115) adds
+ * custom SMTP), enter credentials (password write-only), From identity, DKIM, and
+ * delivery limits. (The bounce webhook this page once carried was removed in #2860
+ * — nothing ingested it; #2872 builds the endpoint and re-exposes the field.)
+ * Guided provider setup (#2115) adds
  * first-class presets on top of the ADR-0213 backend contract: a preset is a
  * *client-side projection* of `(transport_mode, host)` — Gmail/M365/Fastmail all
  * persist as `transport_mode='smtp'` with a known host — so no new server field
@@ -37,6 +39,13 @@ const INPUT_CLASS =
 // can't share INPUT_CLASS; keep the aria-invalid red border in sync here.
 const NUM_INPUT_CLASS =
   'w-[120px] h-8 px-2.5 rounded-control border border-input-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary aria-invalid:border-semantic-critical disabled:bg-neutral-surface-sunken disabled:cursor-not-allowed';
+/**
+ * Server-side ceiling on `max_recipients` (`EMAIL_MAX_BATCH_SIZE`). Mirrored here so
+ * the input's `max` matches what the serializer accepts — a larger value used to be
+ * accepted, persisted and echoed back, then silently discarded by the drain (#2887).
+ * The server is still the authority: it returns a 400 that lands in `fieldErrors`.
+ */
+const MAX_RECIPIENTS_CEILING = 50;
 /** Maps a dirty-tracked form field to the DRF serializer key it is sent as. */
 const FORM_TO_DRF: Record<string, string> = {
   transportMode: 'transport_mode',
@@ -1286,33 +1295,36 @@ export function WorkspaceEmailPage() {
           Delivery &amp; limits
         </h3>
         <FieldRow
-          label="Max recipients"
-          hint="Per single message."
+          label="Max queued emails per batch"
+          hint={`1–${MAX_RECIPIENTS_CEILING}. 0 means no explicit cap.`}
           error={fieldErrors.max_recipients}
           errorId={errId('max_recipients')}
           help={
             <FieldHelp
-              label="Max recipients"
+              label="Max queued emails per batch"
               body={
                 <p>
-                  The most To, Cc, and Bcc addresses TruePPM will put on one outbound message.
-                  Providers reject messages that exceed their own per-message cap, so keep this at or
-                  below your provider&apos;s limit.
+                  The most queued emails TruePPM sends in one pass of the delivery queue. The queue
+                  runs every 30 seconds, so this caps a burst rather than the overall rate — use{' '}
+                  <strong>Throttle</strong> for the rate. The ceiling is{' '}
+                  {MAX_RECIPIENTS_CEILING}, because one pass runs under a time limit; a higher
+                  value is rejected rather than quietly reduced. Set 0 to use the default cap.
                 </p>
               }
-              docHref="administration/email/#rate-limits"
-              docLabel="Rate limits"
+              docHref="administration/email/#from-identity-and-delivery-limits"
+              docLabel="Delivery limits"
             />
           }
         >
           <input
             type="number"
-            min={1}
+            min={0}
+            max={MAX_RECIPIENTS_CEILING}
             value={form.maxRecipients}
             disabled={disabled}
             onChange={(e) => set('maxRecipients', e.target.valueAsNumber || 0)}
             className={NUM_INPUT_CLASS}
-            aria-label="Max recipients"
+            aria-label="Max queued emails per batch"
             {...invalidProps('max_recipients')}
           />
         </FieldRow>
@@ -1326,13 +1338,16 @@ export function WorkspaceEmailPage() {
               label="Throttle"
               body={
                 <p>
-                  The most messages TruePPM sends per minute. Smoothing bursts keeps your provider
-                  from rate-limiting or temporarily blocking the workspace when a large notification
-                  or invite batch goes out. Set 0 to disable throttling entirely.
+                  The most messages TruePPM sends per minute, shared across every outbound path —
+                  notification email, workspace invites, password resets, and export-ready notices
+                  all draw from the same allowance. Smoothing bursts keeps your provider from
+                  rate-limiting or temporarily blocking the workspace. Password resets and
+                  export-ready notices are always sent even once the allowance is spent (they count
+                  against it, so the queues yield to them). Set 0 to disable throttling entirely.
                 </p>
               }
-              docHref="administration/email/#rate-limits"
-              docLabel="Rate limits"
+              docHref="administration/email/#from-identity-and-delivery-limits"
+              docLabel="Delivery limits"
             />
           }
         >
@@ -1379,6 +1394,19 @@ export function WorkspaceEmailPage() {
                     <span className="text-semantic-critical">
                       <XMarkIcon aria-hidden="true" className="mr-1 inline-block h-3.5 w-3.5 align-[-0.125em]" />
                       {sendTest.data.error ?? 'Send failed.'}
+                    </span>
+                  )}
+                  {/*
+                    The hook only normalizes a body carrying a boolean `sent`. A 429
+                    (this endpoint is throttled at 6/min, tight enough that a
+                    double-click reaches it), a 500, or a network error all reject
+                    with no such key — and this block used to render nothing at all,
+                    so the button just returned to idle with no outcome (#2887).
+                  */}
+                  {sendTest.isError && !sendTest.data && (
+                    <span className="text-semantic-critical">
+                      <XMarkIcon aria-hidden="true" className="mr-1 inline-block h-3.5 w-3.5 align-[-0.125em]" />
+                      Could not send the test email. Wait a moment and try again.
                     </span>
                   )}
                 </p>

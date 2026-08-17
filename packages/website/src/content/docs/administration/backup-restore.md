@@ -32,10 +32,50 @@ on, not a lesser version of them.
 | PostgreSQL (`trueppm` database) | **Yes** | The authoritative store — every project, task, sprint, dependency, baseline, comment, and setting. The `pg_dump --format=custom` artifact preserves the `ltree` and `pg_trgm` extensions and the `wbs_path` GiST index. |
 | Media / attachments (local disk) | **Yes**, when local | `TaskAttachment` files when `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE` is on. When you use S3/MinIO object storage instead, the bucket is backed up by the object store — not by this artifact (see below). |
 | Redis / Valkey (cache + broker) | **No** (by design) | Valkey holds only **ephemeral, reconstructible** state: the Django cache, the Celery broker queue, and the Channels real-time layer. None of it is a source of truth. Restoring a stale Redis snapshot onto a running instance would resurrect dead queue entries and serve stale cache — worse than an empty cache, which simply refills on first read. In-flight Celery tasks are re-triggered by the next write; WebSocket clients reconnect. So the backup omits it deliberately. |
+| `INTEGRATION_ENCRYPTION_KEY` | **No** — and the dump is **useless without it** | Lives in a Kubernetes Secret / `.env`, not in PostgreSQL. See the warning immediately below. |
 
 `backup.sh` can take an **opt-in** Redis `SAVE` snapshot (`--redis`) for operators
 who want one, but it is off by default and is never used by `restore.sh` — the
 restore path is PostgreSQL-authoritative.
+
+### Back up `INTEGRATION_ENCRYPTION_KEY` with the dump
+
+:::danger[A database restore without this key silently orphans every stored secret]
+Several columns in the dump are **Fernet ciphertext**, encrypted with
+`INTEGRATION_ENCRYPTION_KEY`. That key lives in a Kubernetes Secret (or your `.env`
+file) — **entirely outside** the `pg_dump` artifact this page walks you through. Restore
+the database onto a fresh cluster with a freshly generated key and the ciphertext is
+unrecoverable: the rows are all still there, and none of them can be decrypted.
+
+What is affected:
+
+- the **workspace SMTP password / provider API key** (Workspace → Settings → Email);
+- every **integration credential** — the personal access tokens behind connected
+  accounts and external task sources.
+
+Nothing about this failure is loud in the data: the rows restore, the Email settings page
+still reports the transport as configured, and `password_is_set` is still `true`. What
+changes is that sends now **fail closed** — mail stops rather than quietly rerouting to
+the server-default transport — and the System Health *Notification dispatcher* card
+reports **Credential unusable**. See [Outbound
+email](/administration/email/#knowing-when-mail-stops-working).
+
+So treat the key as part of the backup set:
+
+```bash
+# Kubernetes: capture the key alongside the dump, into your secret manager —
+# NOT into the same bucket as the dump (that would defeat encrypting the values).
+kubectl -n trueppm get secret trueppm-secrets \
+  -o jsonpath='{.data.INTEGRATION_ENCRYPTION_KEY}' | base64 -d
+
+# Compose: it is the INTEGRATION_ENCRYPTION_KEY line in your .env file.
+```
+
+If the key is genuinely lost, the recovery path is re-entry, not decryption: re-enter the
+SMTP password on the Email settings page, and have each user reconnect their integration
+accounts. Rotating the key is a separate operation from restoring one — a restore expects
+the **same** key the ciphertext was written under.
+:::
 
 ### Object storage note
 

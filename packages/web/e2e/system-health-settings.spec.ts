@@ -29,7 +29,7 @@ const FIXTURE_HEALTH = {
     { key: 'outbox_dispatcher', label: 'Outbox dispatcher', status: 'ok', state_label: 'Healthy', meta: '0 dead, 0 stuck >10m' },
     { key: 'celery_beat', label: 'Celery Beat', status: 'ok', state_label: 'Live', meta: 'beat 8s ago' },
     { key: 'dead_letter', label: 'Dead-letter alerting', status: 'warn', state_label: '2 parked', meta: 'oldest 2h20m' },
-    { key: 'notification_dispatcher', label: 'Notification dispatcher', status: 'ok', state_label: 'Draining', meta: '0 failed-pending' },
+    { key: 'notification_dispatcher', label: 'Notification dispatcher', status: 'ok', state_label: 'Draining', meta: '0 failed, 4 delivered in the last hour' },
     { key: 'retention_purge', label: 'Retention purge', status: 'unknown', state_label: 'No telemetry', meta: 'purge-run history not recorded' },
   ],
   beat: { last_heartbeat: '2026-05-25T11:59:52Z', seconds_since: 8, stale: false, stale_threshold_seconds: 120 },

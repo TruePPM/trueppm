@@ -10,7 +10,15 @@ Signals:
   - beat staleness — Blackbox probe of /api/v1/health/beat/ returning 503;
   - outbox depth rising — trueppm.outbox.depth backlog above threshold;
   - outbox oldest age rising — trueppm.outbox.oldest_age_seconds above threshold;
-  - dead-letter present — any dead-lettered task parked.
+  - dead-letter present — any dead-lettered task parked;
+  - outbound email failing / queue aging / credential unusable (#2886).
+
+The three email rules read gauges served as Prometheus text exposition by
+/api/v1/health/email/, so they need that endpoint added to a scrape job the same
+way the dead-letter rule does — see docs -> Administration -> Observability.
+Before #2886 not one rule in this file mentioned email, so a dead SMTP relay
+raised no alert anywhere; the System Health card that was supposed to cover it
+could not fire either.
 */}}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
@@ -65,4 +73,44 @@ spec:
           annotations:
             summary: "TruePPM has dead-lettered tasks"
             description: "One or more Celery tasks have been parked in the dead-letter queue for over {{ .Values.alerts.thresholds.deadLetterFor | default "5m" }}. Inspect Workspace → Settings → System Health → Dead-letter."
+    - name: trueppm.email
+      rules:
+        - alert: TruePPMEmailTransportUnavailable
+          # The workspace has an SMTP transport configured whose stored credential
+          # will not decrypt (typically INTEGRATION_ENCRYPTION_KEY rotated or was
+          # restored without the Kubernetes Secret that holds it). Every send now
+          # fails closed rather than silently rerouting to the process-global
+          # backend, so NO mail leaves the workspace until an operator re-enters
+          # the password. Critical, and fires fast — there is no partial degradation.
+          expr: max(trueppm_email_transport_unavailable) > 0
+          for: {{ .Values.alerts.thresholds.emailTransportFor | default "5m" | quote }}
+          labels:
+            severity: critical
+          annotations:
+            summary: "TruePPM cannot use its configured mail transport"
+            description: "The stored SMTP credential could not be decrypted for over {{ .Values.alerts.thresholds.emailTransportFor | default "5m" }}. No outbound email is being sent. Re-enter the password at Workspace → Settings → Email, and check that INTEGRATION_ENCRYPTION_KEY matches the key the credential was written under."
+        - alert: TruePPMEmailDeliveryFailing
+          # Permanently-failed sends with ZERO deliveries in the same window: the
+          # relay is refusing everything. Failures alongside deliveries are a
+          # narrower problem (one bad recipient) and are deliberately NOT alerted
+          # here — that is what the System Health card's warn state is for.
+          expr: max(trueppm_email_sends_failed_recent) > {{ .Values.alerts.thresholds.emailFailed | default 0 }} and max(trueppm_email_sends_delivered_recent) == 0
+          for: {{ .Values.alerts.thresholds.emailFailedFor | default "10m" | quote }}
+          labels:
+            severity: critical
+          annotations:
+            summary: "TruePPM outbound email is failing entirely"
+            description: "Notification emails have permanently failed with no successful delivery for over {{ .Values.alerts.thresholds.emailFailedFor | default "10m" }} — the SMTP relay is rejecting or unreachable. Check Workspace → Settings → Email and send a test message."
+        - alert: TruePPMEmailQueueAging
+          # Rows sit queued past an hour: nothing is completing them. Distinct from
+          # the two above — this fires when sends are not even being attempted
+          # (worker gone, or a transport that cannot be built, which deliberately
+          # leaves rows pending instead of burning their retries).
+          expr: max(trueppm_email_queue_aging) > {{ .Values.alerts.thresholds.emailQueueAging | default 0 }}
+          for: {{ .Values.alerts.thresholds.emailQueueAgingFor | default "15m" | quote }}
+          labels:
+            severity: warning
+          annotations:
+            summary: "TruePPM email queue is not draining"
+            description: "Notification emails have been queued for more than an hour for over {{ .Values.alerts.thresholds.emailQueueAgingFor | default "15m" }} — the drain is not completing rows. Check the Celery worker and beat, and the mail transport configuration."
 {{- end }}

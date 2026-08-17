@@ -160,12 +160,24 @@ Alongside the transport, the page configures:
 
 - **From identity** — a From name, From address, reply-to address, and DKIM
   selector for the outbound `From:` header.
-- **Delivery limits** — **Max recipients** caps how many queued notification
-  emails one drain tick sends, and **Throttle per minute** caps the rate across
-  ticks (`0` means no throttle). The queue drains every 30 seconds, so a
-  per-minute throttle is applied as half of it per tick, and the tighter of the
-  two limits wins. A throttle that divides below one still sends one message per
-  tick rather than stalling the queue outright.
+- **Delivery limits** — **Max queued emails per batch** caps how many queued
+  emails one pass of the delivery queue sends, and **Throttle per minute** caps
+  the rate across passes (`0` means no throttle). The queue runs every 30
+  seconds, so a per-minute throttle is applied as half of it per pass, and the
+  tighter of the two limits wins. A throttle that divides below one still sends
+  one message per pass rather than stalling the queue outright.
+
+  The batch cap has a ceiling of **50**, because one pass runs under a time
+  limit. A larger value is **rejected with a 400** rather than accepted and then
+  quietly reduced. `0` means "no explicit cap" and falls back to the same 50;
+  clearing the field posts `0`, which is why it is accepted.
+
+  The throttle is a **shared per-minute allowance across every outbound path** —
+  notification email, workspace invites, password resets, and export-ready
+  notices all draw from it, so no single path can spend the whole allowance.
+  Password resets and export-ready notices are transactional one-offs and are
+  **always sent** even once the allowance is spent; they *count* against it, so
+  the queues yield to them rather than stacking on top.
 
 The SMTP host is **SSRF-guarded**: a host that resolves to a private, loopback,
 link-local, or cloud-metadata address is rejected, and it is re-checked at send
@@ -269,7 +281,15 @@ the records are in place before mail goes out.
   `drain_notification_emails` Beat task (every 30 s), never inline — a broker or
   SMTP outage delays delivery but does not block the triggering action.
 - Each message is retried up to 3 times; after that the notification remains in
-  the in-app inbox but stops attempting email.
+  the in-app inbox but stops attempting email. On a 30-second cadence that is
+  roughly 90 seconds from first attempt to permanent failure — see
+  [Knowing when mail stops working](#knowing-when-mail-stops-working) for how
+  that permanent failure is surfaced.
+- If the workspace has an SMTP transport configured whose stored credential
+  cannot be decrypted, sends **fail closed**: nothing is sent over a different
+  transport, no retries are burned, and the queued rows are left untouched so
+  they deliver once you re-enter the password. The System Health card and the
+  `trueppm_email_transport_unavailable` metric both name this cause directly.
 - Bodies are plain text. A recipient with no email address is skipped (the in-app
   notification still appears).
 - Bodies carry a direct deep-link to the affected task when
@@ -281,22 +301,66 @@ the records are in place before mail goes out.
   base64 blob) can't render as one unbounded line in the recipient's mail
   client.
 
-### List-Unsubscribe headers
+### List-Unsubscribe header
 
-Notification email carries `List-Unsubscribe` and `List-Unsubscribe-Post:
-List-Unsubscribe=One-Click` headers (RFC 8058), pointed at the recipient's
-**User → Settings → Notifications** page. Gmail, Outlook, and other large
-mailbox providers weight the presence of these headers into their
-bulk-sender spam heuristics, so including them helps delivery even at
-TruePPM's low, opt-in notification volume.
-
-The headers link to the login-gated preferences page, not a no-auth one-click
-unsubscribe endpoint — TruePPM issues no per-notification unsubscribe token,
-so "one click" here means one click through to sign-in and preferences, not
-an anonymous unsubscribe. The headers are only added when
-[`FRONTEND_BASE_URL`](/administration/configuration/) is configured, since a
+Notification email carries a `List-Unsubscribe` header (RFC 2369) pointed at the
+recipient's **User → Settings → Notifications** page. The header is only added
+when [`FRONTEND_BASE_URL`](/administration/configuration/) is configured, since a
 bare relative path is not a valid header value; leave it unset and the email
-still sends, just without them.
+still sends, just without it.
+
+It links to the login-gated preferences page, not a no-auth one-click unsubscribe
+endpoint — TruePPM issues no per-notification unsubscribe token, so "one click"
+here means one click through to sign-in and preferences, not an anonymous
+unsubscribe. That is a perfectly valid `List-Unsubscribe`; RFC 2369 does not
+require the target to be unauthenticated.
+
+`List-Unsubscribe-Post: List-Unsubscribe=One-Click` is deliberately **not** sent.
+That companion header is an RFC 8058 promise that an unauthenticated `POST` to
+the URL unsubscribes the recipient outright, and TruePPM has no such handler.
+Gmail's and Yahoo's bulk-sender requirements are checked by *exercising* the
+POST, so advertising it without a conforming endpoint is a deliverability
+liability rather than a help. It returns in the same change that ships a signed
+unsubscribe token and its endpoint.
+
+## Knowing when mail stops working
+
+Outbound mail fails silently by nature: the triggering action succeeds, the in-app
+notification appears, and nobody finds out the relay is refusing until someone asks
+why they stopped getting email. TruePPM surfaces it in two places.
+
+### The Notification dispatcher card
+
+**Workspace → Settings → System Health** carries a **Notification dispatcher** card
+that reports:
+
+| State | What it means |
+|---|---|
+| `crit` — *Credential unusable* | An SMTP transport is configured but its stored password cannot be decrypted. No mail is leaving the workspace. Re-enter the password on this page. |
+| `crit` — *Delivery failing* | Mail permanently failed in the last hour and **nothing** was delivered in it. This is what a refusing or unreachable relay looks like. |
+| `warn` — *N failed* | Some mail permanently failed, but other mail got through — usually a specific undeliverable recipient rather than a broken relay. |
+| `warn` — *N queued* | Emails have been queued for over an hour without completing. Sends are not being attempted at all: check the Celery worker and beat. |
+| `ok` — *Draining* | No failures, no aging backlog, credential usable. |
+
+### Prometheus metrics and alerts
+
+`GET /api/v1/health/email/` serves four gauges in Prometheus text-exposition format
+(staff-only; scrape it with a bearer token). Like the dead-letter gauge, these are
+**not** OTLP metrics and need their own scrape job — see
+[OpenTelemetry & OTLP export](/administration/observability/).
+
+| Gauge | Meaning |
+|---|---|
+| `trueppm_email_sends_failed_recent` | Notification emails that permanently failed in the last hour. |
+| `trueppm_email_sends_delivered_recent` | Notification emails delivered in the last hour. |
+| `trueppm_email_queue_aging` | Emails still queued more than an hour after the notification was created. |
+| `trueppm_email_transport_unavailable` | `1` when the stored SMTP credential cannot be decrypted, `0` otherwise. |
+
+The Helm chart's optional `PrometheusRule` (`alerts.enabled=true`) ships three rules
+against them: `TruePPMEmailTransportUnavailable` (critical),
+`TruePPMEmailDeliveryFailing` (critical — failures with zero deliveries), and
+`TruePPMEmailQueueAging` (warning). Thresholds are tunable under
+`alerts.thresholds`.
 
 ## Disabling email
 

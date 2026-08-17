@@ -543,15 +543,44 @@ def test_resolver_sendgrid_forces_fixed_host(db: object) -> None:
     assert conn.password == "SG.key"
 
 
-def test_resolver_falls_back_on_decrypt_failure(db: object) -> None:
+def test_resolver_fails_closed_on_decrypt_failure(db: object) -> None:
+    """An undecryptable credential must NOT silently reroute mail (#2886 item 2).
+
+    This used to log a warning and return the process-global backend, so mail
+    configured for the operator's relay went out over a different transport (or into
+    a console backend and nowhere at all) while the settings page still reported
+    ``configured_via: "database"`` and ``password_is_set: true``. Fail closed instead,
+    matching ``apps.integrations.encryption``, which has always raised rather than
+    handing back a usable-looking empty secret.
+    """
     obj = WorkspaceEmailSettings.load()
     obj.transport_mode = EmailTransportMode.SMTP
     obj.host = "mail.corp.test"
     obj.password_ciphertext = b"not-a-valid-fernet-token"
     obj.save()
-    # L3: a corrupt row must not crash — resolver logs and returns the global backend.
-    conn = resolve_email_connection(obj)
-    assert "smtp" not in type(conn).__module__
+    with pytest.raises(email_backend.EmailTransportError):
+        resolve_email_connection(obj)
+
+
+def test_transport_status_names_the_undecryptable_credential(db: object) -> None:
+    """The fail-closed fault is a *read-derived* signal, not an inferred one.
+
+    This is what makes the health card and the ``trueppm_email_transport_unavailable``
+    gauge able to report the cause at the instant the credential breaks, without any
+    row having to fail first.
+    """
+    obj = WorkspaceEmailSettings.load()
+    assert email_backend.transport_status(obj) == email_backend.TRANSPORT_GLOBAL
+
+    obj.transport_mode = EmailTransportMode.SMTP
+    obj.host = "mail.corp.test"
+    obj.set_password("s3cret")
+    obj.save()
+    assert email_backend.transport_status(obj) == email_backend.TRANSPORT_OK
+
+    obj.password_ciphertext = b"not-a-valid-fernet-token"
+    obj.save()
+    assert email_backend.transport_status(obj) == email_backend.TRANSPORT_UNDECRYPTABLE
 
 
 def test_from_identity_resolution(db: object) -> None:
@@ -610,6 +639,38 @@ def test_send_test_requires_email_on_file(db: object) -> None:
 def test_health_unavailable_without_from_domain(db: object) -> None:
     result = email_health.check_deliverability("", "")
     assert result["available"] is False
+
+
+# ---------------------------------------------------------------------------
+# Delivery limits are validated, not silently clamped (#2887 item 2)
+# ---------------------------------------------------------------------------
+
+
+def test_max_recipients_above_the_ceiling_is_rejected_not_discarded(
+    operator_client: APIClient, _no_probe: None
+) -> None:
+    """An operator who sets 500 to clear a backlog used to get 50 and no feedback.
+
+    The value persisted, echoed back in the GET, and was then dropped by the drain's
+    unconditional ``min(EMAIL_BATCH_SIZE, ...)``. A control that reports a value it
+    does not apply is the dead-control failure mode in another costume — so say so
+    with a 400 instead.
+    """
+    resp = operator_client.patch(URL, {"max_recipients": 500}, format="json")
+    assert resp.status_code == 400
+    assert "max_recipients" in resp.data
+    assert WorkspaceEmailSettings.load().max_recipients == 50
+
+
+def test_max_recipients_accepts_the_ceiling_and_the_no_cap_sentinel(
+    operator_client: APIClient, _no_probe: None
+) -> None:
+    """``0`` is "no explicit cap" — the input's ``min=1`` implies otherwise, and
+    clearing the field posts ``0``, so it must stay accepted."""
+    assert operator_client.patch(URL, {"max_recipients": 50}, format="json").status_code == 200
+    resp = operator_client.patch(URL, {"max_recipients": 0}, format="json")
+    assert resp.status_code == 200
+    assert WorkspaceEmailSettings.load().max_recipients == 0
 
 
 def test_health_endpoint_superuser_gated(

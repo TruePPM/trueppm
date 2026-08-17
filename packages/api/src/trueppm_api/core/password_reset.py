@@ -261,11 +261,30 @@ def send_password_reset_email(user: Any) -> bool:
     # Route through the workspace SMTP transport (#712, ADR-0213) so BYO-SMTP
     # installs deliver reset mail on the same transport as everything else; a
     # no-op fall back to the global backend when the workspace is unconfigured.
+    from trueppm_api.apps.notifications.delivery_limits import (
+        note_unbudgeted_send,
+        workspace_throttle_per_min,
+    )
     from trueppm_api.apps.notifications.email_backend import (
         resolve_email_connection,
         resolve_from_email,
         resolve_reply_to,
     )
+
+    # A configured-but-unusable transport now raises rather than silently rerouting
+    # (#2886 item 2). Swallow it here for the same reason the send failure below is
+    # swallowed: a 500 on this endpoint would itself leak that the address exists.
+    try:
+        connection = resolve_email_connection()
+    except Exception:
+        logger.warning("password reset email: mail transport unusable")
+        return False
+
+    # This is one user-blocking transactional message, so it *charges* the shared
+    # per-minute delivery budget but is never refused by it (#2887 item 3). Refusing a
+    # reset because a batch of invites spent the minute would be a far worse failure
+    # than briefly exceeding a soft rate; charging it makes the queued drains yield.
+    note_unbudgeted_send(workspace_throttle_per_min())
 
     msg = EmailMultiAlternatives(
         subject=subject,
@@ -273,7 +292,7 @@ def send_password_reset_email(user: Any) -> bool:
         from_email=resolve_from_email(),
         to=[recipient],
         reply_to=resolve_reply_to() or None,
-        connection=resolve_email_connection(),
+        connection=connection,
     )
     msg.attach_alternative(html_body, "text/html")
     try:
