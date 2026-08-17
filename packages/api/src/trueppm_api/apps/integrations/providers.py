@@ -81,8 +81,13 @@ def assert_base_url_allowed(provider_key: str, base_url: str) -> None:
     host = (urlparse(base_url).hostname or "").lower()
     if not host:
         raise BaseUrlNotAllowed("Host URL must include a hostname.")
+    # Settings name drops the TRUEPPM_ env prefix, matching every other binding
+    # (EGRESS_ALLOWLISTED_HOSTS <- TRUEPPM_EGRESS_ALLOWLISTED_HOSTS). Reading the
+    # prefixed name here is why this allow-list was dead until #2860: no settings
+    # module ever defined that attribute, so the getattr always fell back to None
+    # and an operator's documented env var did nothing.
     operator_allow = {
-        h.lower() for h in (getattr(settings, "TRUEPPM_INTEGRATION_ALLOWED_HOSTS", None) or [])
+        h.lower() for h in (getattr(settings, "INTEGRATION_ALLOWED_HOSTS", None) or [])
     }
     if host in operator_allow:
         return

@@ -37,7 +37,6 @@ const DATA: EmailSettings = {
   dkim_selector: '',
   max_recipients: 50,
   throttle_per_min: 0,
-  bounce_webhook_url: '',
   can_edit: true,
   configured_via: 'environment',
   host_configured: false,
@@ -479,10 +478,20 @@ describe('WorkspaceEmailPage — contextual help (#2266)', () => {
       /About the DKIM selector options/i,
       /About the Max recipients options/i,
       /About the Throttle options/i,
-      /About the Bounce webhook options/i,
     ]) {
       expect(screen.getByRole('button', { name })).toBeInTheDocument();
     }
+  });
+
+  it('does not render a Bounce webhook field — there is no ingest endpoint (#2860)', () => {
+    // It persisted, validated through the SSRF egress guard, rendered back and was
+    // documented, while nothing in apps/notifications/ ever POSTed to it. Removed
+    // from the serializer and this page; #2872 builds the endpoint and restores it.
+    render(<WorkspaceEmailPage />);
+    expect(screen.queryByLabelText('Bounce webhook URL')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /About the Bounce webhook options/i }),
+    ).not.toBeInTheDocument();
   });
 
   it('does not add an ⓘ to self-evident fields (From name, From address)', () => {
@@ -518,9 +527,6 @@ describe('WorkspaceEmailPage — field editing', () => {
     fireEvent.change(screen.getByLabelText('DKIM selector'), { target: { value: 'sel1' } });
     fireEvent.change(screen.getByLabelText('Max recipients'), { target: { value: '25' } });
     fireEvent.change(screen.getByLabelText('Throttle per minute'), { target: { value: '10' } });
-    fireEvent.change(screen.getByLabelText('Bounce webhook URL'), {
-      target: { value: 'https://hooks.truescope.io/bounce' },
-    });
 
     await act(async () => {
       await useSettingsSaveStore.getState().triggerSave();
@@ -532,7 +538,6 @@ describe('WorkspaceEmailPage — field editing', () => {
         dkim_selector: 'sel1',
         max_recipients: 25,
         throttle_per_min: 10,
-        bounce_webhook_url: 'https://hooks.truescope.io/bounce',
       }),
     );
   });

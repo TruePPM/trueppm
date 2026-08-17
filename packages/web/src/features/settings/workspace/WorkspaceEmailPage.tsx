@@ -51,7 +51,6 @@ const FORM_TO_DRF: Record<string, string> = {
   dkimSelector: 'dkim_selector',
   maxRecipients: 'max_recipients',
   throttlePerMin: 'throttle_per_min',
-  bounceWebhookUrl: 'bounce_webhook_url',
   // The SES host is derived from the region picker, so a `host` rejection
   // highlights the Region control.
   sesRegion: 'host',
@@ -497,7 +496,6 @@ interface FormState {
   dkimSelector: string;
   maxRecipients: number;
   throttlePerMin: number;
-  bounceWebhookUrl: string;
 }
 
 function snapshotFrom(data: EmailSettings): FormState {
@@ -517,7 +515,6 @@ function snapshotFrom(data: EmailSettings): FormState {
     dkimSelector: data.dkim_selector,
     maxRecipients: data.max_recipients,
     throttlePerMin: data.throttle_per_min,
-    bounceWebhookUrl: data.bounce_webhook_url,
   };
 }
 
@@ -647,7 +644,6 @@ export function WorkspaceEmailPage() {
         dkim_selector: form.dkimSelector,
         max_recipients: form.maxRecipients,
         throttle_per_min: form.throttlePerMin,
-        bounce_webhook_url: form.bounceWebhookUrl,
       });
       // Success: clear the write-only password field and re-snapshot.
       setInitial({ ...form, password: '' });
@@ -1238,7 +1234,7 @@ export function WorkspaceEmailPage() {
                   to the From address.
                 </p>
               }
-              docHref="administration/email/#from-identity-limits-and-bounce-webhook"
+              docHref="administration/email/#from-identity-and-delivery-limits"
               docLabel="From identity & limits"
             />
           }
@@ -1351,38 +1347,6 @@ export function WorkspaceEmailPage() {
             {...invalidProps('throttle_per_min')}
           />
         </FieldRow>
-        <FieldRow
-          label="Bounce webhook"
-          hint="POSTed when a message bounces."
-          error={fieldErrors.bounce_webhook_url}
-          errorId={errId('bounce_webhook_url')}
-          help={
-            <FieldHelp
-              label="Bounce webhook"
-              body={
-                <p>
-                  A URL TruePPM POSTs to whenever a message bounces — a hard delivery failure such as
-                  an unknown mailbox — so you can log or react to undeliverable addresses. Leave blank
-                  if you don&apos;t process bounces.
-                </p>
-              }
-              docHref="administration/email/#from-identity-limits-and-bounce-webhook"
-              docLabel="Delivery & bounces"
-            />
-          }
-        >
-          <input
-            type="url"
-            value={form.bounceWebhookUrl}
-            disabled={disabled}
-            onChange={(e) => set('bounceWebhookUrl', e.target.value)}
-            className={INPUT_CLASS}
-            placeholder="https://example.com/hooks/bounce"
-            aria-label="Bounce webhook URL"
-            {...invalidProps('bounce_webhook_url')}
-          />
-        </FieldRow>
-
         {/* Send test email — immediate action, gated on a clean saved form */}
         {canEdit && (
           <SettingsCard className="mt-8">

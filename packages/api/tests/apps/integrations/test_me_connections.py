@@ -180,7 +180,7 @@ def test_connect_server_stores_deployment_on_allowlisted_host(
 ) -> None:
     """A self-hosted DC/Server host that the operator has allow-listed connects
     with deployment=server, needs no account email, and stores the discriminant."""
-    settings.TRUEPPM_INTEGRATION_ALLOWED_HOSTS = ["jira.corp.example"]  # type: ignore[attr-defined]
+    settings.INTEGRATION_ALLOWED_HOSTS = ["jira.corp.example"]
     response = client.put(
         "/api/v1/me/connections/jira/",
         _connect_body(

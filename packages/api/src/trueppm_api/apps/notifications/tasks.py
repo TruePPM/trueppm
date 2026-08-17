@@ -26,7 +26,7 @@ import html
 import logging
 import textwrap
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from trueppm_api.core.idempotent import idempotent_task
 
@@ -40,7 +40,12 @@ logger = logging.getLogger(__name__)
 # adjacent to the drain task that owns them.
 EMAIL_MAX_RETRIES = 3
 EMAIL_ORPHAN_WINDOW_MINUTES = 5  # ADR-0075 §F durable-execution checklist item 3
-EMAIL_BATCH_SIZE = 50  # cap per drain tick — prevents one tick from monopolizing the worker
+EMAIL_BATCH_SIZE = 50  # fallback cap per drain tick, when no operator limit applies
+# Drain ticks per minute, from the "drain-notification-emails" beat entry
+# (schedule: 30.0). Used to convert the operator's per-MINUTE throttle into the
+# per-TICK cap this task can actually enforce (#2860). Keep in step with the beat
+# schedule — a mismatch makes throttle_per_min mean something other than it says.
+EMAIL_DRAIN_TICKS_PER_MINUTE = 2
 ARCHIVE_AFTER_DAYS = 90  # ADR-0075 §F item 6 — outbox cleanup
 
 # Snippet rendering (#574, security review !306 LOW-1). SNIPPET_MAX_CHARS bounds
@@ -195,13 +200,46 @@ def purge_old_digest_runs(self: object) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _drain_batch_size(email_settings: Any) -> int:
+    """Rows to drain this tick, honoring the operator's delivery limits (#2860).
+
+    Two operator controls bound one query:
+
+    * ``max_recipients`` caps a single tick outright — it is the "never send more
+      than N in one go" dial.
+    * ``throttle_per_min`` is a per-MINUTE rate, so it is divided by the beat rate
+      (``EMAIL_DRAIN_TICKS_PER_MINUTE``) to get the per-tick share. ``0`` means no
+      throttle, which is the documented sentinel and the shipped default.
+
+    The tighter of the two wins. A throttle that divides below one still sends one
+    message per tick rather than zero: a rate limit that can deadlock the queue
+    outright is a worse failure than approximating a very low rate upward, and
+    ``PositiveIntegerField`` lets an operator set ``1``.
+    """
+    caps = [EMAIL_BATCH_SIZE]
+    max_recipients = getattr(email_settings, "max_recipients", 0) or 0
+    if max_recipients > 0:
+        caps.append(max_recipients)
+    throttle_per_min = getattr(email_settings, "throttle_per_min", 0) or 0
+    if throttle_per_min > 0:
+        caps.append(max(1, throttle_per_min // EMAIL_DRAIN_TICKS_PER_MINUTE))
+    return min(caps)
+
+
 def _do_drain_emails() -> None:
     from django.utils import timezone
 
-    from .models import Notification
+    from .models import Notification, WorkspaceEmailSettings
 
     now = timezone.now()
     orphan_cutoff = now - timedelta(minutes=EMAIL_ORPHAN_WINDOW_MINUTES)
+
+    # Read the operator's delivery limits BEFORE the query, because they bound it
+    # (#2860). max_recipients and throttle_per_min persisted, validated and rendered
+    # back in Workspace → Email for three releases while this task capped every
+    # drain at a hardcoded 50 regardless — a control that looked applied and was not.
+    email_settings = WorkspaceEmailSettings.load()
+    batch_size = _drain_batch_size(email_settings)
 
     pending = list(
         Notification.objects.filter(
@@ -211,7 +249,7 @@ def _do_drain_emails() -> None:
             created_at__lt=orphan_cutoff,
         )
         .select_related("recipient", "mention", "mention__task_comment", "mention__mentioner")
-        .order_by("created_at")[:EMAIL_BATCH_SIZE]
+        .order_by("created_at")[:batch_size]
     )
 
     if not pending:
@@ -227,9 +265,7 @@ def _do_drain_emails() -> None:
         resolve_from_email,
         resolve_reply_to,
     )
-    from .models import WorkspaceEmailSettings
 
-    email_settings = WorkspaceEmailSettings.load()
     connection = resolve_email_connection(email_settings)
     from_email = resolve_from_email(email_settings)
     reply_to = resolve_reply_to(email_settings)

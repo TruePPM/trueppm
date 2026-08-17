@@ -515,7 +515,6 @@ class WorkspaceEmailSettingsSerializer(serializers.ModelSerializer[WorkspaceEmai
             "dkim_selector",
             "max_recipients",
             "throttle_per_min",
-            "bounce_webhook_url",
             "updated_at",
         ]
         read_only_fields = ["updated_at"]
@@ -540,37 +539,6 @@ class WorkspaceEmailSettingsSerializer(serializers.ModelSerializer[WorkspaceEmai
             raise serializers.ValidationError(
                 "DKIM selector may contain only letters, digits, '.', '_', and '-'."
             )
-        return value
-
-    def validate_bounce_webhook_url(self, value: str) -> str:
-        # SSRF guard on the admin-supplied webhook URL — reuses the integrations
-        # egress chokepoint (ADR-0049 §3). A currently-unresolvable host is
-        # allowed through (delivery re-checks); a private/loopback/metadata
-        # target is rejected.
-        if not value:
-            return value
-        from trueppm_api.apps.integrations.http import (
-            EgressBlocked,
-            EgressError,
-            assert_url_allowed,
-        )
-
-        try:
-            assert_url_allowed(value)
-        except EgressBlocked as exc:
-            # Return a curated message only. The underlying EgressBlocked can
-            # embed the DNS-resolved address (e.g. "resolves to non-public
-            # address 10.0.0.5"), which would turn this field into an SSRF
-            # oracle for internal network topology — log it server-side, never
-            # echo it to the client (CodeQL py/stack-trace-exposure).
-            logger.info("bounce_webhook_url rejected by egress guard: %s", exc)
-            raise serializers.ValidationError(
-                "This URL is not allowed. Use a public https:// URL that does not "
-                "resolve to an internal or private address."
-            ) from exc
-        except EgressError:
-            # Fail-open on unresolvable/transient host (see note above); delivery re-checks
-            pass
         return value
 
     # -- object-level validation + persist ------------------------------------

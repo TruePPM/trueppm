@@ -111,6 +111,29 @@ describe('TelemetryCard — states', () => {
     expect(screen.queryByRole('button', { name: /Test export/i })).not.toBeInTheDocument();
   });
 
+  it('emits a Helm `env:` MAP, not the `extraEnv:` list the chart has nowhere (#2860)', () => {
+    // The chart templates env as a map (`range $key, $value := .Values.env` in
+    // _helpers.tpl) and has no `extraEnv` key at all. With no values.schema.json,
+    // `helm upgrade -f values.yaml` accepted the pasted block silently and changed
+    // nothing on the pod — so the operator read a card saying telemetry was
+    // configured while the cluster disagreed.
+    render(
+      <TelemetryCard
+        telemetry={makeTelemetry({ enabled: false, endpoint: '', endpoint_configured: false })}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Helm values' }));
+    const snippet = screen.getByText(/helm upgrade trueppm/).textContent ?? '';
+
+    expect(snippet).not.toContain('extraEnv');
+    expect(snippet).toContain('env:');
+    // Map form: `KEY: "value"`, never a `- name:` / `value:` list entry.
+    expect(snippet).toContain('TRUEPPM_OTEL_ENABLED: "true"');
+    expect(snippet).not.toContain('- name:');
+    // envFrom IS a real chart value and stays a list.
+    expect(snippet).toContain('envFrom:');
+  });
+
   it('switches the snippet to Helm values when the Helm segment is clicked', () => {
     render(<TelemetryCard telemetry={makeTelemetry({ enabled: false, endpoint: '', endpoint_configured: false })} />);
     fireEvent.click(screen.getByRole('button', { name: 'Helm values' }));

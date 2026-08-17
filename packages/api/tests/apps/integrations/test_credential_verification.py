@@ -200,7 +200,7 @@ def test_ssrf_base_url_is_blocked(
     guard, not the allowlist precheck, is what fires. The real ``http.get`` runs
     (literal IPs need no DNS), exercising the guard end to end."""
     host = base_url.split("://", 1)[1]
-    settings.TRUEPPM_INTEGRATION_ALLOWED_HOSTS = [host]  # type: ignore[attr-defined]
+    settings.INTEGRATION_ALLOWED_HOSTS = [host]
     response = client.post(
         "/api/v1/me/credentials/gitlab/",
         {"secret": "glpat-x", "base_url": base_url},
@@ -259,7 +259,7 @@ def test_base_url_self_hosted_allowed_via_operator_allowlist(
 ) -> None:
     """A self-hosted GitLab CE host is accepted only once an operator adds it to
     TRUEPPM_INTEGRATION_ALLOWED_HOSTS (#902)."""
-    settings.TRUEPPM_INTEGRATION_ALLOWED_HOSTS = ["gitlab.mycorp.example"]  # type: ignore[attr-defined]
+    settings.INTEGRATION_ALLOWED_HOSTS = ["gitlab.mycorp.example"]
     _stub_get(monkeypatch, status=200, body=b'{"username": "dev"}')
     response = client.post(
         "/api/v1/me/credentials/gitlab/",

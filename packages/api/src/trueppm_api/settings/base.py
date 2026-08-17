@@ -1050,6 +1050,24 @@ INTEGRATION_ENCRYPTION_KEY: str = env(
 # identity provider inside your cluster" section of docs/administration/single-sign-on.
 EGRESS_ALLOWLISTED_HOSTS: list[str] = env.list("TRUEPPM_EGRESS_ALLOWLISTED_HOSTS", default=[])
 
+# Per-provider base-URL allow-list for user-connected external task sources
+# (ADR-0097 / ADR-0589). Read at ``apps/integrations/providers.py:85`` and named in
+# the rejection message an operator sees when their self-hosted Jira/GitLab host is
+# refused — but bound by NO settings module until #2860, so setting the documented
+# env var did nothing and the escape hatch the message points at did not exist.
+#
+# The allow-list fails CLOSED, so the bug was the inverse of a security hole: an
+# operator with a legitimately self-hosted instance could not connect it at all, and
+# the error told them to set a variable that was never read. Documented in four
+# places (configuration.md, connected-accounts.md, ADR-0589, changelog.d/2270)
+# throughout.
+#
+# Distinct from EGRESS_ALLOWLISTED_HOSTS above, which is the SSRF deny-list escape
+# hatch consulted by *every* egress caller. This one only widens which base URLs a
+# user may attach a personal credential to; a host listed here still passes through
+# the SSRF-guarded http helper on every fetch.
+INTEGRATION_ALLOWED_HOSTS: list[str] = env.list("TRUEPPM_INTEGRATION_ALLOWED_HOSTS", default=[])
+
 # Age in seconds past which a connected external-source connection's cache is
 # "stale" for the My Work on-open refresh (ADR-0097 §4 "on-open refresh-if-
 # stale"; #1921). Reuses the same order of magnitude as the manual-refresh

@@ -32,7 +32,6 @@ export interface EmailSettings {
   dkim_selector: string;
   max_recipients: number;
   throttle_per_min: number;
-  bounce_webhook_url: string;
   /** True only for the install operator (superuser) — gates the write form. */
   can_edit: boolean;
   /** Back-compat status flags preserved from the #639 read-only surface. */
@@ -61,7 +60,6 @@ export interface EmailSettingsUpdate {
   dkim_selector: string;
   max_recipients: number;
   throttle_per_min: number;
-  bounce_webhook_url: string;
 }
 
 export interface EmailHealth {

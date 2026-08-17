@@ -915,7 +915,15 @@ class WorkspaceEmailSettings(models.Model):
     max_recipients = models.PositiveIntegerField(default=50)
     throttle_per_min = models.PositiveIntegerField(default=0)
 
-    # Bounce webhook — SSRF-validated at write (ADR-0049 §3 egress chokepoint).
+    # Bounce webhook — NOT WIRED. Removed from the serializer and the Email
+    # settings UI in #2860: there is no bounce-ingest endpoint anywhere in this
+    # app, and nothing has ever POSTed to this URL or read it back. It persisted,
+    # validated through the SSRF egress guard, rendered back and was documented,
+    # which is exactly what made it look like a working control.
+    #
+    # The column is RETAINED rather than dropped so no operator's stored value is
+    # destroyed; #2872 builds the ingest endpoint and re-exposes the field. Do not
+    # re-add it to the serializer before that lands.
     bounce_webhook_url = models.URLField(max_length=512, blank=True, default="")
 
     updated_at = models.DateTimeField(auto_now=True)

@@ -81,18 +81,29 @@ function envSnippet(b: Backend): string {
   ].join('\n');
 }
 
+/**
+ * Copy-paste Helm values for the chosen backend.
+ *
+ * `env` is a **map**, not a list of `{name, value}` entries (#2860). This snippet
+ * previously emitted a top-level `extraEnv:` list — a key the chart has nowhere,
+ * and there is no `values.schema.json`, so `helm upgrade -f values.yaml` accepted
+ * the pasted block silently and changed nothing on the pod. The operator then
+ * looked at a card that said telemetry was configured and a cluster where it was
+ * not. See `packages/helm/templates/_helpers.tpl` (`trueppm.envVars`), which
+ * ranges `$key, $value := .Values.env`.
+ *
+ * `envFrom` below IS a real chart value (a list of source refs, used by
+ * `values-demo.yaml` and documented in the chart README) — only the `env` half
+ * was wrong.
+ */
 function helmSnippet(b: Backend): string {
   return [
     '# values.yaml — then: helm upgrade trueppm trueppm/trueppm -f values.yaml',
-    'extraEnv:',
-    '  - name: TRUEPPM_OTEL_ENABLED',
-    '    value: "true"',
-    '  - name: OTEL_EXPORTER_OTLP_ENDPOINT',
-    `    value: "${b.endpoint}"`,
-    '  - name: OTEL_EXPORTER_OTLP_PROTOCOL',
-    `    value: "${b.proto}"`,
-    '  - name: OTEL_SERVICE_NAME',
-    '    value: "trueppm-api"',
+    'env:',
+    '  TRUEPPM_OTEL_ENABLED: "true"',
+    `  OTEL_EXPORTER_OTLP_ENDPOINT: "${b.endpoint}"`,
+    `  OTEL_EXPORTER_OTLP_PROTOCOL: "${b.proto}"`,
+    '  OTEL_SERVICE_NAME: "trueppm-api"',
     '# Bearer token / headers: reference a Secret, never inline in values.',
     'envFrom:',
     '  - secretRef:',
