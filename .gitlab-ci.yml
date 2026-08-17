@@ -1650,9 +1650,11 @@ ci:build-deploy-images:
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
   # The changes: list is the UNION of every drill that `needs:` this job —
-  # helm:install AND compose:prod (#2817). It has to be a superset: a
-  # compose-only MR that created compose:prod without this job would be a
-  # pipeline configuration error, not a skipped drill.
+  # helm:install, compose:prod (#2817) AND helm:netpol (#2944). It has to be a
+  # superset: a drill scheduled without this job is a pipeline configuration
+  # error that fails the whole pipeline instantly with zero jobs, not a skipped
+  # drill. helm-netpol-drill.sh was missing here until #2944, so an MR touching
+  # only that script scheduled helm:netpol against a `needs:` that did not exist.
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
       allow_failure: true
@@ -1661,6 +1663,7 @@ ci:build-deploy-images:
         - packages/helm/**/*
         - scripts/helm-install-drill.sh
         - scripts/prod-compose-drill.sh
+        - scripts/helm-netpol-drill.sh
         - docker-compose.prod.yml
         - init-prod.sh
         - .env.example
