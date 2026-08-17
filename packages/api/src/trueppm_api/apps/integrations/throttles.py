@@ -7,6 +7,9 @@ surfaces live here:
 
 - :class:`GitWebhookThrottle` — a per-project request cap on the public,
   signature-authenticated receiver.
+- :class:`GitWebhookIpThrottle` — the per-client-IP cap stacked alongside it, so
+  rotating the project UUID in the URL cannot mint an unlimited number of buckets
+  (#2881).
 - :func:`claim_webhook_delivery` — a ``SET NX EX`` idempotency claim so a provider
   redelivery of the same event is a cheap no-op (the forward-only guard in
   ``git_automation_services`` is the second, Redis-independent idempotency layer).
@@ -18,7 +21,7 @@ import logging
 from typing import TYPE_CHECKING
 
 import redis
-from rest_framework.throttling import BaseThrottle
+from rest_framework.throttling import AnonRateThrottle, BaseThrottle
 
 # Reuse the single shared connection pool + client factory from the projects
 # throttles module rather than opening a second pool.
@@ -74,6 +77,38 @@ class GitWebhookThrottle(BaseThrottle):
 
     def wait(self) -> float | None:
         return getattr(self, "wait_seconds", None)
+
+
+class GitWebhookIpThrottle(AnonRateThrottle):
+    """Per-client-IP rate limit for the inbound Git-event receiver (#2881).
+
+    :class:`GitWebhookThrottle` keys on the URL ``project_pk``, which is a value the
+    *caller* chooses. That bounds abuse aimed at one project and nothing else:
+    rotating the UUID in the path mints a fresh bucket every request, so 200 POSTs
+    to 200 random UUIDs all sailed through while 130 POSTs to a single UUID were
+    correctly 429'd. Declaring ``throttle_classes`` on the view also *replaces*
+    ``DEFAULT_THROTTLE_CLASSES``, so the global anon limit that would otherwise have
+    caught this was not applying either — an unauthenticated endpoint with no
+    per-caller bound at all.
+
+    This is the missing half, keyed on the client IP, and it is **stacked** with the
+    per-project throttle rather than replacing it (both classes are listed on the
+    view; DRF requires every one of them to allow the request). Deliberately an
+    ``AnonRateThrottle`` subclass with its own ``scope`` and not a
+    ``ScopedRateThrottle``: ``ScopedRateThrottle`` resolves its scope from a view
+    attribute, which silently clobbers per-``@action`` throttling when a viewset
+    declares one (#2402), and inheriting ``AnonRateThrottle`` also picks up DRF's
+    ``NUM_PROXIES``-aware client-IP extraction — without it an attacker could rotate
+    ``X-Forwarded-For`` and defeat the bucket the same way they rotated the UUID.
+
+    The rate lives in ``DEFAULT_THROTTLE_RATES["git_webhook_ip"]``, which is what
+    makes the operator kill switch (ADR-0604) reach it: ``apply_rate_limit_disable``
+    nulls every rate, and a ``SimpleRateThrottle`` with a ``None`` rate allows
+    everything. That is why this class carries no ``@bypass_when_disabled``
+    decorator, unlike the raw-Redis throttles above.
+    """
+
+    scope = "git_webhook_ip"
 
 
 @bypass_when_disabled

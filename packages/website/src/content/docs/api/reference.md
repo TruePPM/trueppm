@@ -1422,6 +1422,13 @@ used by the in-app import wizard, for scripted use — see
 
 ### Integrations
 
+:::note[Ships in 0.4]
+The inbound Git-event receiver's **uniform `404`** for every pre-verification refusal,
+and its **1 MB body cap** (`413`), ship in **0.4**. On the current release
+(`0.3.0-alpha.3`) that endpoint answers `401` for a bad or missing signature — which is
+the disclosure the change removes — and enforces no webhook-specific body cap.
+:::
+
 | Method | Path | Description |
 |--------|------|-------------|
 | GET / POST / DELETE | `/api/v1/me/credentials/{provider}/` | Connect, read, or revoke your own credential for an external provider (ADR-0049) |
@@ -1430,7 +1437,7 @@ used by the in-app import wizard, for scripted use — see
 | GET | `/api/v1/me/external-items/` | Your cached external work items, for the My Work external section |
 | GET / PUT | `/api/v1/integrations/projects/{project_id}/git-automation/` | A project's Git-event board-automation config (Admin+, ADR-0158) |
 | POST | `/api/v1/integrations/projects/{project_id}/git-automation/rotate-secret/` | Rotate the webhook signing secret |
-| POST | `/api/v1/integrations/projects/{project_id}/git-webhook/` | Inbound Git-event receiver (unauthenticated by session; verified by the rotatable secret) |
+| POST | `/api/v1/integrations/projects/{project_id}/git-webhook/` | Inbound Git-event receiver (unauthenticated by session; verified by the rotatable secret). Every refusal before signature verification — no automation, disabled, no secret, unknown provider, an undecryptable secret, bad signature — returns the **same** `404`, so the endpoint cannot be used to discover which projects have automation configured; bodies over 1 MB get a `413` |
 
 The org-wide, admin-configured, bidirectional Integration Hub is Enterprise;
 everything in this table is the OSS carve-out — a personal, one-way credential
@@ -1506,6 +1513,13 @@ declared `200` response shape rather than assuming an envelope.
 
 ## Rate limiting
 
+:::note[Ships in 0.4]
+The `git_webhook_ip` scope below — the per-client-IP limit on the inbound Git-event
+receiver — ships in **0.4**. On `0.3.0-alpha.3` that endpoint is bounded only by the
+per-project `GitWebhookThrottle`, which a caller can sidestep by rotating the project
+ID in the URL.
+:::
+
 Every endpoint is rate limited. A **general default** applies to any endpoint
 that does not declare a stricter, endpoint-specific limit:
 
@@ -1568,6 +1582,7 @@ return `429` with the same `Retry-After` envelope shown above.
 | `share_mint` | 20/min (`TRUEPPM_THROTTLE_SHARE_MINT_RATE`) | Minting a public board/schedule share link |
 | `share_access` | 60/min (`TRUEPPM_THROTTLE_SHARE_ACCESS_RATE`) | Resolving a public share link |
 | `telemetry_test` | 6/min | Telemetry test-export probe |
+| `git_webhook_ip` | 600/min (`TRUEPPM_THROTTLE_GIT_WEBHOOK_IP_RATE`) | Inbound Git webhook receiver, per client IP — stacks with `GitWebhookThrottle` below |
 
 **Hand-rolled throttle classes** (custom windows/keys DRF's scope rates can't express):
 
@@ -1578,7 +1593,7 @@ return `429` with the same `Retry-After` envelope shown above.
 | `TokenIssuanceThrottle` | 5/min (`TRUEPPM_TOKEN_ISSUANCE_PER_MINUTE`) | Minting any API token, per user |
 | `TaskAttachmentUploadThrottle` | 60/min | Task-attachment upload, per user |
 | `SyncUploadThrottle` | 60/min per (project, user) **and** 120/min per user | Offline sync push — fails **closed** (429) on a Redis outage, the one throttle in this table that does |
-| `GitWebhookThrottle` | 120/min | Inbound Git webhook receiver, per project |
+| `GitWebhookThrottle` | 120/min | Inbound Git webhook receiver, per project — the caller picks the project ID out of the URL, so this is stacked with the per-IP `git_webhook_ip` scope above and neither bounds the endpoint alone |
 | `TaskLinkRefreshThrottle` | 30/min | Manual task-link refresh, per user |
 | `MentionRateThrottle` | 100/hour and 1000/day | Comment `@mention` fan-out, per user (both windows apply) |
 
@@ -1618,7 +1633,7 @@ consumes no additional quota but continues to return `429`.
 | 404 | Not found or soft-deleted |
 | 409 | Conflict (e.g. duplicate membership, sync id collision) |
 | 410 | Gone — the resource existed but is deliberately no longer reachable and never will be again: a revoked public share link, or a completed workspace/program/project export download link past its `expires_at`. Distinct from `404` (never existed, or the caller cannot see it) |
-| 413 | Payload too large (the workspace branding-logo upload exceeds its 2 MB ceiling) |
+| 413 | Payload too large — the workspace branding-logo upload exceeds its 2 MB ceiling, or an inbound Git webhook body exceeds its 1 MB cap |
 | 415 | Unsupported media type (attachment upload outside the MIME allow-list) |
 | 422 | Well-formed but unprocessable (idempotency-key reuse, program-schedule limits) |
 | 429 | Rate limit exceeded — general default or a scoped throttle; includes a `Retry-After` header |

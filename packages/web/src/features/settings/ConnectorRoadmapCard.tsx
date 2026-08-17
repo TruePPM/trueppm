@@ -41,10 +41,27 @@ type AvailableConnector = {
 const AVAILABLE_CONNECTORS: AvailableConnector[] = [
   {
     name: 'Inbound Jira / Linear / GitHub task-sync',
-    description: 'Pull issues and status changes from your existing tracker into this project.',
+    // Direction matters and this line had it backwards for two audits running
+    // (#2882): the endpoint is PUSH-only. The operator mints a project API token
+    // and their tracker POSTs to /projects/{id}/task-sync/ — TruePPM never reaches
+    // out, fetches, or polls anything. "Pull … into this project" described a
+    // capability that does not exist and sent operators looking for a Connect
+    // button. Keep the verb on the tracker, not on us.
+    description:
+      'Let your tracker push issues and status changes into a project with a project API token.',
     link: {
       label: 'Set-up guide',
       href: 'https://docs.trueppm.com/features/inbound-task-sync',
+      external: true,
+    },
+  },
+  {
+    name: 'Git-event card automation (GitHub / GitLab)',
+    description:
+      'Point a repository webhook at a project and a linked pull/merge request moves its card to Review, then Complete.',
+    link: {
+      label: 'Set-up guide',
+      href: 'https://docs.trueppm.com/administration/git-event-automation',
       external: true,
     },
   },

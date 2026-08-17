@@ -124,6 +124,8 @@ function GitAutomationSection({ projectId }: GitAutomationManagerProps) {
 
             <SecretRow config={data} onRotate={() => setRotating(true)} />
 
+            <LastDeliveryRow config={data} />
+
             <ProviderHints />
           </div>
         )}
@@ -205,6 +207,204 @@ function SecretRow({ config, onRotate }: { config: GitAutomationConfig; onRotate
       >
         {config.secret_set ? 'Rotate secret' : 'Generate secret'}
       </button>
+    </div>
+  );
+}
+
+/**
+ * How each delivery outcome reads to an operator (#2882).
+ *
+ * `tone` drives the styling, and the split is the point: a delivery that the
+ * provider reported as a green check can still be a `problem` here. Before this
+ * row existed, every one of these was invisible — the receiver logged nothing, all
+ * non-auth outcomes were HTTP 200, and this card had no error surface at all, so
+ * "I followed every documented step and no card ever moves" had no answer anywhere
+ * in the product.
+ *
+ * `hint` exists only where the operator can actually do something next. `no_link`
+ * gets the longest one because it is the most common failure and the least
+ * guessable: matching is exact-URL against a link on the task, and nothing in the
+ * setup flow tells you to create one.
+ */
+const DELIVERY_OUTCOMES: Record<string, { label: string; tone: 'ok' | 'problem' | 'idle'; hint?: string }> = {
+  opened_review: { label: 'Card moved to Review', tone: 'ok' },
+  merged_complete: { label: 'Card moved to Complete', tone: 'ok' },
+  noop_forward_only: {
+    label: 'Card already at or past the target',
+    tone: 'ok',
+    hint: 'Automation only moves cards forward, so nothing changed.',
+  },
+  duplicate: { label: 'Duplicate delivery ignored', tone: 'ok' },
+  draft: {
+    label: 'Draft pull/merge request ignored',
+    tone: 'idle',
+    hint: 'A draft does not move the card. Mark it ready for review and the card moves to Review.',
+  },
+  ignored: { label: 'Event not one automation acts on', tone: 'idle' },
+  no_link: {
+    label: 'No task is linked to that pull/merge request',
+    tone: 'problem',
+    hint: 'Automation matches on a link, so add the pull/merge request URL to the task first: open the task, go to Files → External links, and paste it there. The URL must match exactly.',
+  },
+  no_url: {
+    label: 'Payload carried no pull/merge request URL',
+    tone: 'problem',
+    hint: 'Check the webhook is configured for pull-request / merge-request events.',
+  },
+  bad_signature: {
+    label: 'Signature rejected',
+    tone: 'problem',
+    // Hedged deliberately. This endpoint is public, so an unauthenticated request
+    // with a junk signature lands here too — an unconditional "rotate your secret"
+    // would let a stranger talk an admin into breaking a working integration.
+    hint: 'If this lines up with a delivery from your provider, the secret there does not match this project — rotate it and paste the new one into the webhook. If it does not, this was unauthenticated traffic and nothing is wrong.',
+  },
+  no_secret: {
+    label: 'Delivery arrived with no secret set',
+    tone: 'problem',
+    hint: 'Generate a secret and paste it into your provider.',
+  },
+  automation_disabled: {
+    label: 'Delivery arrived while automation was off',
+    tone: 'problem',
+    hint: 'Turn the toggle on for cards to move.',
+  },
+  unknown_provider: {
+    label: 'Unrecognized provider',
+    tone: 'problem',
+    hint: 'Only GitHub and GitLab webhooks are recognized.',
+  },
+  secret_unreadable: {
+    label: 'Stored secret could not be read',
+    tone: 'problem',
+    hint: 'Rotate the secret to re-encrypt it, then update your provider.',
+  },
+  malformed_payload: { label: 'Payload was not valid JSON', tone: 'problem' },
+  // No `no_automation` entry: that refusal is raised with no automation row to
+  // record against, so the server can never persist it. A mapping for a value that
+  // cannot arrive is a control with no producer.
+};
+
+/** `github` / `gitlab` are raw server tokens; the rest of this card writes them properly. */
+const PROVIDER_LABEL: Record<string, string> = { github: 'GitHub', gitlab: 'GitLab' };
+
+/** Turn an unmapped server token into something a human can read (rule 301c). */
+function humanizeOutcome(token: string): string {
+  return token.replace(/_/g, ' ');
+}
+
+const TONE_CLASS: Record<'ok' | 'problem' | 'idle', string> = {
+  // `on-track` is the design system's AA-checked "good" text tone in both themes
+  // (there is no `semantic-success` token — rule 145 keeps the state colors
+  // distinct, and inventing a fourth would break the DS-v2 hex ratchet).
+  ok: 'text-semantic-on-track',
+  problem: 'text-semantic-critical',
+  idle: 'text-neutral-text-secondary',
+};
+
+/**
+ * One outcome block: label, tone-coloured summary, optional remediation hint.
+ *
+ * No `role="status"` anywhere in here. This content mounts together with its own
+ * container when the config query resolves, and nothing subsequently updates it —
+ * a live region created with its content does not reliably announce (rule 297), and
+ * on the reading where it did, it would announce the coloured summary *without* the
+ * "Last delivery" label or the hint: the problem stripped of its context and its
+ * fix. A labelled group gives a screen-reader user the same structure a sighted user
+ * gets, on demand rather than unprompted.
+ */
+function OutcomeBlock({
+  label,
+  outcome,
+  provider,
+  at,
+  testId,
+  caveat,
+}: {
+  label: string;
+  outcome: string | undefined;
+  provider: string | undefined;
+  at: string;
+  testId: string;
+  caveat?: string;
+}) {
+  const known = outcome ? DELIVERY_OUTCOMES[outcome] : undefined;
+  // Unmapped token → the CAUTIOUS tone, never the neutral one (rule 301b). The
+  // server owns this vocabulary and grows it, so this map is a mirror that will
+  // drift; the drift must not render the next new FAILURE token in the same grey as
+  // "nothing to report" on the one surface whose job is saying something is wrong.
+  const tone = known?.tone ?? 'problem';
+  return (
+    <div role="group" aria-label={label} data-testid={testId}>
+      <span className="block text-[12px] font-medium text-neutral-text-primary">{label}</span>
+      <span className={`block text-[12px] font-medium ${TONE_CLASS[tone]}`}>
+        {known?.label ?? (outcome ? humanizeOutcome(outcome) : 'Unknown outcome')}
+        {provider ? ` · ${PROVIDER_LABEL[provider] ?? provider}` : ''}
+        {` · ${formatDateTime(at)}`}
+      </span>
+      {known?.hint && (
+        <span className="block max-w-[460px] text-[12px] text-neutral-text-secondary mt-0.5">
+          {known.hint}
+        </span>
+      )}
+      {caveat && (
+        <span className="block max-w-[460px] text-[12px] text-neutral-text-secondary mt-0.5">
+          {caveat}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Delivery diagnostics — the consumer a failed webhook never had.
+ *
+ * Two independent slots, mirroring the server's own split. "Last delivery" is a
+ * delivery whose signature verified, so it is trustworthy. "Last refused delivery"
+ * was rejected before verification, and because the receiver is public anyone
+ * holding the project ID can produce one — so it is shown separately, and labelled
+ * as possibly not being the operator's provider at all. Collapsing the two would let
+ * a stranger overwrite a real diagnosis with a fabricated cause.
+ *
+ * Neither renders until something has actually arrived: a row reading "no problems"
+ * would be a claim the server has not made, and the honest empty state is the
+ * prerequisite hint instead.
+ */
+function LastDeliveryRow({ config }: { config: GitAutomationConfig }) {
+  const deliveredAt = config.last_delivery_at;
+  const refusedAt = config.last_refusal_at;
+  if (!deliveredAt && !refusedAt) {
+    return (
+      <p
+        className="max-w-[460px] text-[12px] text-neutral-text-secondary"
+        data-testid="git-last-delivery-empty"
+      >
+        No webhook delivery received yet. Cards move only when a task has the pull/merge
+        request URL saved as a link (task → Files → External links).
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      {deliveredAt && (
+        <OutcomeBlock
+          label="Last delivery"
+          outcome={config.last_delivery_outcome}
+          provider={config.last_delivery_provider}
+          at={deliveredAt}
+          testId="git-last-delivery"
+        />
+      )}
+      {refusedAt && (
+        <OutcomeBlock
+          label="Last refused delivery"
+          outcome={config.last_refusal_outcome}
+          provider={config.last_refusal_provider}
+          at={refusedAt}
+          testId="git-last-refusal"
+          caveat="This endpoint is public, so a refusal can also come from a request that is not your provider."
+        />
+      )}
     </div>
   );
 }
@@ -389,6 +589,24 @@ function formatDate(iso: string): string {
   return Number.isNaN(d.getTime())
     ? iso
     : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+/** Date + time — a delivery is diagnosed by the minute, not by the day. */
+function formatDateTime(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? iso
+    : d.toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        // The point of this row is cross-referencing the provider's own delivery log,
+        // which stamps in its own zone — without a zone the operator cannot be sure
+        // the two lines describe the same delivery.
+        timeZoneName: 'short',
+      });
 }
 
 function extractError(e: Error): string {

@@ -17,11 +17,31 @@ describe('ConnectorRoadmapCard', () => {
     expect(accounts).toHaveAttribute('href', '/me/settings/connected-accounts');
     expect(accounts).not.toHaveAttribute('target', '_blank');
 
-    // Inbound task-sync → published docs guide, opened safely in a new tab (rule 212).
-    const guide = screen.getByRole('link', { name: /Set-up guide/i });
-    expect(guide).toHaveAttribute('href', 'https://docs.trueppm.com/features/inbound-task-sync');
-    expect(guide).toHaveAttribute('target', '_blank');
-    expect(guide).toHaveAttribute('rel', 'noopener noreferrer');
+    // Two connectors now carry a "Set-up guide" link, so they must be addressed by
+    // href rather than by shared label text.
+    const guides = screen.getAllByRole('link', { name: /Set-up guide/i });
+    const hrefs = guides.map((a) => a.getAttribute('href'));
+    expect(hrefs).toContain('https://docs.trueppm.com/features/inbound-task-sync');
+    expect(hrefs).toContain('https://docs.trueppm.com/administration/git-event-automation');
+    // Published docs open safely in a new tab (rule 212).
+    for (const guide of guides) {
+      expect(guide).toHaveAttribute('target', '_blank');
+      expect(guide).toHaveAttribute('rel', 'noopener noreferrer');
+    }
+  });
+
+  it('describes inbound task-sync as a push, not a pull (#2882)', () => {
+    render(<ConnectorRoadmapCard />);
+    // The endpoint is push-only: the operator's tracker POSTs to TruePPM with a
+    // project API token. "Pull … into this project" described a fetch that does not
+    // exist and survived two audits; assert the direction so it cannot regress.
+    expect(screen.queryByText(/^Pull issues/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/tracker push issues and status changes/i)).toBeInTheDocument();
+  });
+
+  it('lists the shipped Git-event automation connector under "Available now"', () => {
+    render(<ConnectorRoadmapCard />);
+    expect(screen.getByText(/Git-event card automation/i)).toBeInTheDocument();
   });
 
   it('does NOT advertise shipped connectors as coming soon', () => {

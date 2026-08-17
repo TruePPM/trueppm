@@ -6,7 +6,8 @@ It has two jobs and nothing else:
 1. **Verify the per-provider signature** against the project's plaintext secret —
    constant-time, before the payload is ever interpreted as a command. GitHub
    recomputes ``HMAC-SHA256`` over the *raw* request body; GitLab compares the
-   ``X-Gitlab-Token`` header directly. A bad or missing signature is a hard 401.
+   ``X-Gitlab-Token`` header directly. A bad or missing signature is rejected with
+   the receiver's uniform 404 (see :class:`WebhookSignatureError`).
 
 2. **Normalize the payload** into a small :class:`GitWebhookEnvelope` — provider,
    forward-only event (``pr.opened`` / ``pr.merged`` / ``None`` = ignore), the
@@ -42,6 +43,9 @@ _GITHUB_OPEN_ACTIONS = frozenset({"opened", "reopened", "ready_for_review"})
 # GitLab ``merge_request`` actions with the same meaning.
 _GITLAB_OPEN_ACTIONS = frozenset({"open", "reopen"})
 
+# ``GitWebhookEnvelope.ignored_reason`` value for a suppressed draft/WIP open.
+_IGNORED_DRAFT = "draft"
+
 
 @dataclass(frozen=True)
 class GitWebhookEnvelope:
@@ -57,13 +61,25 @@ class GitWebhookEnvelope:
     delivery_key: str
     # The provider's own event name (for the "ignored" response and logging).
     raw_event_name: str
+    # Why an otherwise-actionable event resolved to ``event=None``. Empty for an
+    # event we never act on (a push, a comment); ``"draft"`` when the payload was a
+    # PR/MR *open* on a draft/WIP request, which deliberately does not promote the
+    # card (#2882). Surfaced in the receiver's 200 body and the delivery record so
+    # "why didn't my card move?" has an answer that is not "read the source".
+    ignored_reason: str = ""
 
 
 class WebhookSignatureError(Exception):
     """Raised when a webhook signature is missing or does not verify.
 
-    Carries no provider/secret detail — the receiver maps it to a bare 401 so a
-    caller cannot distinguish "wrong signature" from "no automation configured".
+    Carries no provider/secret detail — the receiver maps it to the same bare 404 it
+    returns for "no automation configured", so a caller genuinely cannot distinguish
+    the two. It used to map to a 401, which *named* the distinction the 404 was
+    written to hide: 401 meant enabled-with-a-secret, 404 meant not configured, and
+    any project Viewer could read off admin-only state from a project UUID (#2881).
+    The reason a delivery was rejected is not lost — it lands in the structured
+    receiver log and on ``BoardAutomation.last_delivery_outcome``, both of which
+    require the caller to already be an admin of that project.
     """
 
 
@@ -79,6 +95,32 @@ def detect_provider(headers: Any) -> str | None:
     if headers.get("X-Gitlab-Event"):
         return PROVIDER_GITLAB
     return None
+
+
+def _constant_time_equal(provided: str, expected: str) -> bool:
+    """Constant-time compare an attacker-controlled header against a secret value.
+
+    ``hmac.compare_digest`` raises ``TypeError`` when *either* ``str`` argument
+    contains a non-ASCII character, and ``provided`` here is a raw request header —
+    so calling it on the strings turned one byte of ``Latin-1`` in
+    ``X-Gitlab-Token`` into an unhandled 500. That mattered beyond the crash: a 500
+    is only reachable *after* the "is automation configured?" check, so its mere
+    shape told an anonymous caller that a project has automation enabled with a
+    secret set — exactly the fact the receiver's 404 exists to hide (#2881).
+
+    Comparing **bytes** removes the raising path entirely rather than special-casing
+    the input. WSGI/ASGI both hand header values over as ``Latin-1``-decoded text
+    (RFC 9110 §5.5), so ``latin-1`` round-trips the bytes the client actually sent;
+    the ``utf-8`` fallback covers a synthetic caller (a test, a future transport)
+    that put a real code point above U+00FF into the header. Both expected values
+    are ASCII — a hex HMAC digest, or a ``secrets.token_urlsafe`` secret — so no
+    encoding choice can make a mismatched header compare equal.
+    """
+    try:
+        provided_bytes = provided.encode("latin-1")
+    except UnicodeEncodeError:
+        provided_bytes = provided.encode("utf-8")
+    return hmac.compare_digest(provided_bytes, expected.encode("utf-8"))
 
 
 def verify_signature(
@@ -108,13 +150,13 @@ def verify_signature(
         provided = headers.get("X-Hub-Signature-256") or ""
         digest = hmac.new(secret_plaintext.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
         expected = f"sha256={digest}"
-        if not hmac.compare_digest(provided, expected):
+        if not _constant_time_equal(provided, expected):
             raise WebhookSignatureError("github signature mismatch")
         return
 
     if provider == PROVIDER_GITLAB:
         provided = headers.get("X-Gitlab-Token") or ""
-        if not hmac.compare_digest(provided, secret_plaintext):
+        if not _constant_time_equal(provided, secret_plaintext):
             raise WebhookSignatureError("gitlab token mismatch")
         return
 
@@ -145,20 +187,36 @@ def _parse_github(headers: Any, payload: dict[str, Any]) -> GitWebhookEnvelope:
     pr = payload.get("pull_request") if isinstance(payload, dict) else None
     pr_url = pr.get("html_url") if isinstance(pr, dict) else None
     action = payload.get("action") if isinstance(payload, dict) else None
+    # GitHub marks a draft PR with ``pull_request.draft``. A draft opened to run CI
+    # is not a request for review, and the forward-only rule means a card promoted
+    # by mistake can never come back — so a draft open is deliberately inert and
+    # the promotion happens on the ``ready_for_review`` action instead (#2882).
+    is_draft = bool(pr.get("draft")) if isinstance(pr, dict) else False
 
     event: str | None = None
+    ignored_reason = ""
     if event_name == "pull_request" and isinstance(action, str):
         if action in _GITHUB_OPEN_ACTIONS:
-            event = GIT_EVENT_PR_OPENED
+            if is_draft:
+                ignored_reason = _IGNORED_DRAFT
+            else:
+                event = GIT_EVENT_PR_OPENED
         elif action == "closed" and isinstance(pr, dict) and pr.get("merged") is True:
+            # A merged PR is never a draft; merge always completes the card.
             event = GIT_EVENT_PR_MERGED
 
     return GitWebhookEnvelope(
         provider=PROVIDER_GITHUB,
         event=event,
-        pr_url=pr_url,
+        # Narrowed for the same reason the GitLab arm below narrows: a signed but
+        # hostile/garbled payload can put any JSON type in ``html_url``, and every
+        # consumer downstream (``_pr_key`` → ``urlparse``) assumes ``str`` —
+        # ``html_url: 1`` raised AttributeError deep in the service (#2881 §3, the
+        # #2795 container-vs-value class).
+        pr_url=pr_url if isinstance(pr_url, str) else None,
         delivery_key=delivery_key,
         raw_event_name=event_name,
+        ignored_reason=ignored_reason,
     )
 
 
@@ -168,11 +226,19 @@ def _parse_gitlab(payload: dict[str, Any]) -> GitWebhookEnvelope:
     attrs = attrs if isinstance(attrs, dict) else {}
     action = attrs.get("action")
     pr_url = attrs.get("url")
+    # GitLab's draft flag is ``work_in_progress``; newer versions also send
+    # ``draft``. Read both, exactly as the link-status parser at
+    # ``providers.GitLabProvider`` already does (#2882).
+    is_draft = bool(attrs.get("work_in_progress") or attrs.get("draft"))
 
     event: str | None = None
+    ignored_reason = ""
     if object_kind == "merge_request" and isinstance(action, str):
         if action in _GITLAB_OPEN_ACTIONS:
-            event = GIT_EVENT_PR_OPENED
+            if is_draft:
+                ignored_reason = _IGNORED_DRAFT
+            else:
+                event = GIT_EVENT_PR_OPENED
         elif action == "merge":
             event = GIT_EVENT_PR_MERGED
 
@@ -186,4 +252,5 @@ def _parse_gitlab(payload: dict[str, Any]) -> GitWebhookEnvelope:
         pr_url=pr_url if isinstance(pr_url, str) else None,
         delivery_key=delivery_key,
         raw_event_name=str(object_kind or ""),
+        ignored_reason=ignored_reason,
     )

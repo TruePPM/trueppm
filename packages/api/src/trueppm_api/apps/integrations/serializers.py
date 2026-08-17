@@ -263,6 +263,35 @@ def serialize_credential_summaries(
     return out
 
 
+#: Outcomes a **verified** delivery can produce (#2882). Published as an ``enum`` on
+#: ``GitAutomationConfig.last_delivery_outcome`` so an SDK consumer can discover the
+#: vocabulary the web client renders as user-facing copy. Kept as a module constant,
+#: not re-typed inline, because the receiver and the schema must not drift.
+GIT_DELIVERY_OUTCOMES = (
+    "malformed_payload",
+    "ignored",
+    "draft",
+    "duplicate",
+    "no_url",
+    "no_link",
+    "noop_forward_only",
+    "opened_review",
+    "merged_complete",
+)
+
+#: Outcomes a **refused** (pre-verification) delivery can produce. ``no_automation``
+#: is absent on purpose: that refusal has no ``BoardAutomation`` row to write to, so
+#: it can only ever reach the receiver log — publishing it as a readable value would
+#: be advertising a field state that cannot occur.
+GIT_REFUSAL_OUTCOMES = (
+    "automation_disabled",
+    "no_secret",
+    "unknown_provider",
+    "secret_unreadable",
+    "bad_signature",
+)
+
+
 class GitAutomationConfigSerializer(serializers.Serializer[Any]):
     """Read view of a project's Git-event card automation (#329, ADR-0158).
 
@@ -277,9 +306,120 @@ class GitAutomationConfigSerializer(serializers.Serializer[Any]):
     configured_by = serializers.UUIDField(allow_null=True)
     secret_set_at = serializers.DateTimeField(allow_null=True)
     updated_at = serializers.DateTimeField(allow_null=True)
+    # Delivery diagnostics (#2882). Before these, a webhook that failed or matched
+    # nothing was invisible on every surface an operator can reach: the receiver
+    # logged nothing, every non-auth outcome was a 200 so the provider showed a green
+    # check, and the settings card had no error state at all. These are what the
+    # "Last delivery" and "Last refused delivery" rows on that card read.
+    #
+    # ``ChoiceField``, not ``CharField``, and not for validation — these are
+    # read-only outputs. It is so the vocabulary reaches ``openapi.json`` as an
+    # ``enum``. The same MR gives the receiver's own ``reason`` a documented enum, and
+    # publishing its superset as a bare ``string`` here would leave an SDK consumer no
+    # way to discover the values, while the web client maps every one of them to
+    # user-facing copy. A token the server can emit and a client cannot look up is the
+    # declared-vs-actual gap this issue is about.
+    last_delivery_at = serializers.DateTimeField(allow_null=True)
+    last_delivery_outcome = serializers.ChoiceField(
+        choices=GIT_DELIVERY_OUTCOMES,
+        allow_blank=True,
+        help_text=(
+            "Outcome of the last delivery whose signature VERIFIED. Empty until one "
+            "arrives. Trustworthy: the caller proved it holds the project's secret."
+        ),
+    )
+    last_delivery_provider = serializers.CharField(allow_blank=True)
+    # Deliberately separate from the fields above — see BoardAutomation. A refusal is
+    # recorded before verification, so an unauthenticated caller holding the project
+    # UUID can write here at will; keeping it out of ``last_delivery_*`` is what stops
+    # that caller erasing a genuine outcome or provoking a needless secret rotation.
+    last_refusal_at = serializers.DateTimeField(allow_null=True)
+    last_refusal_outcome = serializers.ChoiceField(
+        choices=GIT_REFUSAL_OUTCOMES,
+        allow_blank=True,
+        help_text=(
+            "Why the last REFUSED delivery was refused. The caller saw only an opaque "
+            "404. Diagnostic, not evidence: the endpoint is public, so this may record "
+            "unauthenticated traffic rather than your provider."
+        ),
+    )
+    last_refusal_provider = serializers.CharField(allow_blank=True)
 
 
 class GitAutomationUpdateSerializer(serializers.Serializer[Any]):
     """Write payload for toggling Git-event automation (project-admin only)."""
 
     enabled = serializers.BooleanField()
+
+
+class GitAutomationSecretSerializer(serializers.Serializer[Any]):
+    """One-time rotate-secret response (``201``) for ``.../rotate-secret/``.
+
+    Declared so the published schema stops describing this endpoint as
+    "200: No response body" — it returns **201** with a plaintext secret that is
+    never retrievable again, which is precisely the shape an integrator has to know
+    in advance (#2882).
+    """
+
+    secret = serializers.CharField()
+    webhook_url = serializers.CharField()
+    secret_set_at = serializers.DateTimeField(allow_null=True)
+
+
+#: Raw OpenAPI schema for the inbound receiver's ``200`` body (#2882).
+#:
+#: The published schema declared all four Git endpoints as "200: No response body",
+#: while the receiver actually returns four distinct shapes and a ``reason`` enum that
+#: was discoverable only by reading Python. Expressed as a raw schema rather than a
+#: ``Serializer`` for one blunt reason: the body carries a ``from`` key, and ``from``
+#: is a Python keyword, so it cannot be a serializer class attribute. Renaming the
+#: wire field to suit the tooling would be the tail wagging the dog.
+GIT_WEBHOOK_RESULT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "matched": {
+            "type": "boolean",
+            "description": "A task in this project is linked to the PR/MR in the payload.",
+        },
+        "moved": {"type": "boolean", "description": "The linked card's status changed."},
+        "task": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": True,
+            "description": "The matched task, when there was one.",
+        },
+        "from": {"type": "string", "nullable": True, "description": "Board status before."},
+        "to": {"type": "string", "nullable": True, "description": "Board status after."},
+        "ignored": {
+            "type": "string",
+            "description": (
+                "The provider's own event name, present when the event is not one this "
+                "receiver acts on."
+            ),
+        },
+        "reason": {
+            "type": "string",
+            "enum": [
+                "draft",
+                "duplicate",
+                "no_url",
+                "no_link",
+                "noop_forward_only",
+                "opened_review",
+                "merged_complete",
+            ],
+            "description": (
+                "draft: a draft/WIP pull/merge request opened — deliberately does not "
+                "promote the card, the promotion happens when it is marked ready for "
+                "review. duplicate: a provider redelivery of an event already "
+                "processed. no_url: the payload carried no pull/merge request URL. "
+                "no_link: no task in this project has a link pointing at this PR/MR, so "
+                "there is no card to move — this is the most common reason a correctly "
+                "configured webhook moves nothing. noop_forward_only: the card is "
+                "already at or past the target status. opened_review / merged_complete: "
+                "a card moved."
+            ),
+        },
+    },
+    "required": ["matched", "moved"],
+}
