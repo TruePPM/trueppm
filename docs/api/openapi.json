@@ -1393,7 +1393,7 @@
         "/api/v1/auth/oidc/callback/": {
             "get": {
                 "operationId": "v1_auth_oidc_callback_retrieve",
-                "description": "``GET /auth/oidc/callback?code=&state=`` — complete the flow, mint the session.\n\nOn success: validate state (single-use, browser-bound) → resolve the provider\nfrom the ``slug`` stored in the state → exchange code → (OIDC) validate ID\ntoken / (GitHub) fetch userinfo → resolve/link/create the user → set the\nhttpOnly refresh cookie → 302 to the SPA completion route (no token in the\nURL). On any failure: 302 to the SPA completion route with a non-sensitive\n``error`` code.",
+                "description": "``GET /auth/oidc/callback?code=&state=`` — complete the flow, mint the session.\n\nOn success: validate state (single-use, browser-bound) → resolve the provider\nfrom the ``slug`` stored in the state → exchange code → (OIDC) validate ID\ntoken / (GitHub) fetch userinfo → resolve/link/create the user → **refuse a\ndeactivated account** → set the httpOnly refresh cookie → 302 to the SPA\ncompletion route (no token in the URL). On any failure: 302 to the SPA\ncompletion route with a non-sensitive ``error`` code.",
                 "summary": "SSO callback (sets the refresh cookie, redirects to the SPA)",
                 "parameters": [
                     {
@@ -42952,6 +42952,9 @@
                         },
                         "description": ""
                     },
+                    "409": {
+                        "description": "A provider of this type is already configured."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -43111,6 +43114,14 @@
                 "summary": "Delete an SSO provider configuration",
                 "parameters": [
                     {
+                        "in": "query",
+                        "name": "confirm_lockout",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "Required (`true`) when removing this provider would leave one or more members with no way to sign in. See the 409 body's `locked_out_account_count`."
+                    },
+                    {
                         "in": "path",
                         "name": "slug",
                         "schema": {
@@ -43136,6 +43147,9 @@
                 "responses": {
                     "204": {
                         "description": "Provider deleted."
+                    },
+                    "409": {
+                        "description": "Removal would lock members out; re-send with the confirm flag."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -57913,6 +57927,15 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "linked_account_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "locked_out_account_count": {
+                        "type": "integer",
+                        "description": "Members who would have no way to sign in if this provider were removed.\n\nNo local password and no binding to another configured provider. Non-zero\nmeans removal is unrecoverable for those members without self-service, so\nthe delete endpoint requires an explicit acknowledgement.",
+                        "readOnly": true
+                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time",
@@ -57936,6 +57959,8 @@
                     "enabled",
                     "github_org",
                     "kind",
+                    "linked_account_count",
+                    "locked_out_account_count",
                     "provider",
                     "redirect_uri",
                     "scopes",

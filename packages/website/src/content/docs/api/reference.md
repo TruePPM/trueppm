@@ -223,8 +223,9 @@ this and keep their existing, more restrictive rules:
 
 ## Single sign-on (OIDC / OAuth2)
 
-Self-service login against your own identity provider (Keycloak, Authentik,
-Authelia, Zitadel, Google, GitHub, GitLab, or any OIDC-compliant IdP) is a
+Self-service login against your own identity provider (built-in presets for
+Keycloak, Authentik, Zitadel, Okta, Auth0, Microsoft Entra ID, Google, GitLab and
+GitHub, plus Generic OIDC for any other OIDC-compliant IdP such as Authelia) is a
 three-endpoint browser redirect flow, configured per-provider under
 **Workspace settings → SSO providers**. All three are unauthenticated and
 public by design — they *are* the login flow:

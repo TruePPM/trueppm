@@ -26,6 +26,7 @@ import secrets
 from typing import Any
 
 from django.conf import settings
+from django.db import IntegrityError
 from django.http import HttpResponse, HttpResponseRedirect
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
@@ -191,10 +192,10 @@ class OIDCCallbackView(APIView):
 
     On success: validate state (single-use, browser-bound) → resolve the provider
     from the ``slug`` stored in the state → exchange code → (OIDC) validate ID
-    token / (GitHub) fetch userinfo → resolve/link/create the user → set the
-    httpOnly refresh cookie → 302 to the SPA completion route (no token in the
-    URL). On any failure: 302 to the SPA completion route with a non-sensitive
-    ``error`` code.
+    token / (GitHub) fetch userinfo → resolve/link/create the user → **refuse a
+    deactivated account** → set the httpOnly refresh cookie → 302 to the SPA
+    completion route (no token in the URL). On any failure: 302 to the SPA
+    completion route with a non-sensitive ``error`` code.
     """
 
     permission_classes = [AllowAny]
@@ -297,6 +298,12 @@ def _policy_or_none(slug: str) -> SsoProviderPolicy | None:
     )
 
 
+# Query flag an admin must send to remove a provider that is somebody's only way in
+# (#2874). A query parameter rather than a body field because DELETE bodies are not
+# reliably forwarded by proxies and are not part of this collection's request shape.
+_CONFIRM_LOCKOUT_PARAM = "confirm_lockout"
+
+
 class SsoProviderCollectionView(IdempotencyMixin, APIView):
     """``/workspace/sso/providers/`` — list (GET) and create (POST) providers.
 
@@ -307,12 +314,18 @@ class SsoProviderCollectionView(IdempotencyMixin, APIView):
 
     permission_classes = [IsWorkspaceAdminStrict]
     # Exempt from the generic Idempotency-Key path (ADR-0170): create keys on the
-    # unique (workspace, slug) constraint, so a replayed POST 409s naturally.
+    # unique (workspace, slug) constraint, so a replayed POST 409s. That was true of
+    # the constraint but not of the response until #2875 — nothing mapped the
+    # resulting IntegrityError, so it surfaced as a 500. ``post`` now translates it.
     idempotency_exempt = True
 
     def _read(self, policy: SsoProviderPolicy, request: Request) -> dict[str, Any]:
         return SsoProviderReadSerializer(
-            policy, context={"redirect_uri": _derive_redirect_uri(request)}
+            policy,
+            context={
+                "redirect_uri": _derive_redirect_uri(request),
+                "removal_impact": services.removal_impact([policy.slug]),
+            },
         ).data
 
     @extend_schema(
@@ -321,21 +334,55 @@ class SsoProviderCollectionView(IdempotencyMixin, APIView):
         tags=["workspace"],
     )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        policies = SsoProviderPolicy.objects.select_related("social_app").filter(
-            workspace=Workspace.load()
+        policies = list(
+            SsoProviderPolicy.objects.select_related("social_app").filter(
+                workspace=Workspace.load()
+            )
         )
-        return Response([self._read(p, request) for p in policies])
+        # One impact map for the whole collection: ``removal_impact`` is two queries
+        # for any number of slugs, so building it here keeps the list endpoint flat
+        # instead of paying two queries per row.
+        context = {
+            "redirect_uri": _derive_redirect_uri(request),
+            "removal_impact": services.removal_impact([p.slug for p in policies]),
+        }
+        return Response([SsoProviderReadSerializer(p, context=context).data for p in policies])
 
     @extend_schema(
         summary="Add an SSO provider (secret write-only; sending it stores it)",
         request=SsoProviderWriteSerializer,
-        responses={201: SsoProviderReadSerializer},
+        responses={
+            201: SsoProviderReadSerializer,
+            409: OpenApiResponse(description="A provider of this type is already configured."),
+        },
         tags=["workspace"],
     )
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = SsoProviderWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        policy = serializer.save()
+        try:
+            policy = serializer.save()
+        except IntegrityError:
+            # The unique (workspace, slug) constraint is the collision key — this
+            # class's own comment claimed "a replayed POST 409s naturally", but
+            # nothing maps IntegrityError, so it escaped as a 500 (#2875). Caught
+            # here rather than pre-checked with an ``exists()`` because the
+            # constraint is the only race-free arbiter, matching the established
+            # pattern at ``workshops/views.py`` and ``projects/services.py`` (#1349).
+            #
+            # ``slug`` IS the provider type, so this also reports the real
+            # limitation: one provider per registry type per workspace, which means
+            # two Keycloak realms cannot both be configured. Say so plainly rather
+            # than emitting a bare conflict.
+            return Response(
+                {
+                    "detail": (
+                        "A provider of this type is already configured. Each provider type "
+                        "can be configured once; edit the existing one instead."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         return Response(self._read(policy, request), status=status.HTTP_201_CREATED)
 
 
@@ -347,7 +394,11 @@ class SsoProviderDetailView(IdempotencyMixin, APIView):
 
     def _read(self, policy: SsoProviderPolicy, request: Request) -> dict[str, Any]:
         return SsoProviderReadSerializer(
-            policy, context={"redirect_uri": _derive_redirect_uri(request)}
+            policy,
+            context={
+                "redirect_uri": _derive_redirect_uri(request),
+                "removal_impact": services.removal_impact([policy.slug]),
+            },
         ).data
 
     @extend_schema(
@@ -378,7 +429,25 @@ class SsoProviderDetailView(IdempotencyMixin, APIView):
 
     @extend_schema(
         summary="Delete an SSO provider configuration",
-        responses={204: OpenApiResponse(description="Provider deleted.")},
+        parameters=[
+            OpenApiParameter(
+                _CONFIRM_LOCKOUT_PARAM,
+                bool,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Required (`true`) when removing this provider would leave one or "
+                    "more members with no way to sign in. See the 409 body's "
+                    "`locked_out_account_count`."
+                ),
+            )
+        ],
+        responses={
+            204: OpenApiResponse(description="Provider deleted."),
+            409: OpenApiResponse(
+                description="Removal would lock members out; re-send with the confirm flag."
+            ),
+        },
         tags=["workspace"],
     )
     def delete(self, request: Request, slug: str, *args: Any, **kwargs: Any) -> Response:
@@ -387,10 +456,44 @@ class SsoProviderDetailView(IdempotencyMixin, APIView):
         policy = _policy_or_none(slug)
         if policy is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
+
+        # Informed-confirmation gate (#2874). Removing a provider is unrecoverable for
+        # a member whose only credential is its binding: every JIT-created user has
+        # ``set_unusable_password()``, and the password-reset request path gates on
+        # ``has_usable_password()``, so they get the anti-enumeration 200 and no email.
+        # There is no admin set-password endpoint, so nothing short of re-adding the
+        # provider (or a shell) brings them back. The admin may still do it — an
+        # operator has to be able to tear down an IdP — but not without being told the
+        # number first, which is what the 409 carries.
+        impact = services.removal_impact([slug])[slug]
+        confirmed = (request.query_params.get(_CONFIRM_LOCKOUT_PARAM) or "").lower() == "true"
+        if impact.locked_out_accounts and not confirmed:
+            return Response(
+                {
+                    "code": "sso_removal_locks_out_members",
+                    "detail": (
+                        f"{impact.locked_out_accounts} member(s) sign in only through this "
+                        "provider and have no password, so removing it leaves them unable "
+                        "to sign in at all — they cannot use the password-reset flow either. "
+                        "They can sign in again if you add this provider back with the same "
+                        f"issuer. Re-send with ?{_CONFIRM_LOCKOUT_PARAM}=true to confirm."
+                    ),
+                    "linked_account_count": impact.linked_accounts,
+                    "locked_out_account_count": impact.locked_out_accounts,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
         # Deleting the SocialApp cascades to the policy (OneToOne, CASCADE), but
         # SocialAccount has no FK to SocialApp, so the per-user bindings would
         # survive and could silently re-activate if the slug were later reused.
         # Purge them explicitly, keyed on the provider slug.
+        #
+        # The purge is load-bearing, not merely hygiene: it is what makes the
+        # documented remove-and-re-add issuer migration work. A retained binding keeps
+        # its old ``extra_data["iss"]``, and ``resolve_user`` fails an issuer mismatch
+        # closed, so keeping the rows would lock every user out of the *new* issuer
+        # permanently instead of letting them re-link by verified email.
         SocialAccount.objects.filter(provider=slug).delete()
         policy.social_app.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)

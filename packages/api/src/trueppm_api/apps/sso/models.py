@@ -84,9 +84,14 @@ class SsoProviderPolicy(models.Model):
         choices=WorkspaceRole.choices,
         default=WorkspaceRole.MEMBER,
     )
-    # INFORMATIONAL in OSS (ADR-0517 §4 / ADR-0187 §4): stored but never enforced.
-    # Enterprise registers a ``local_login_allowed`` provider that enforces the OFF
-    # state; OSS ships the field, never the lock.
+    # An ENFORCEMENT setting Enterprise owns (ADR-0517 §4 / ADR-0187 §4). Enterprise
+    # registers a ``local_login_allowed`` provider that enforces the OFF state; OSS
+    # ships the column, never the lock. The column exists so an enterprise install
+    # needs no OSS schema change — but in OSS it is never *written* either: the write
+    # serializer **rejects** the field outright rather than persisting a value nothing
+    # reads (#2025), so it stays at its ``True`` default. (An earlier version of this
+    # comment said "stored but never enforced", which described the pre-#2025 shape
+    # and contradicted the serializer.)
     allow_password_signin = models.BooleanField(default=True)
     # GitHub only: optional org-membership restriction. Empty = any GitHub user
     # whose verified primary email clears the domain gate may sign in. When set,

@@ -116,11 +116,13 @@ behind it — which is why the Helm chart
 
 ### Single sign-on (OIDC / OAuth2)
 
-Basic single sign-on — pointing TruePPM at your own identity provider (Keycloak,
-Authentik, Authelia, Zitadel, Google, GitHub, GitLab) so your team logs in
-through it — ships in the OSS core at 0.4. It is login federation only: no
-directory sync, no provisioning. The org identity-*governance* layer (SAML 2.0,
-SCIM provisioning, LDAP/AD directory sync, enforced org-wide SSO) is an
+Basic single sign-on — pointing TruePPM at your own identity provider so your
+team logs in through it — ships in the OSS core at 0.4. Nine providers have a
+built-in preset (Keycloak, Authentik, Zitadel, Okta, Auth0, Microsoft Entra ID,
+Google, GitLab, GitHub), and any other standards-compliant OIDC provider —
+Authelia, for instance — is configured through Generic OIDC with its issuer URL.
+It is login federation only: no directory sync, no provisioning. The org
+identity-*governance* layer (SAML 2.0, SCIM provisioning, LDAP/AD directory sync, enforced org-wide SSO) is an
 enterprise-edition feature. For why that line falls where it does, and how it
 compares to the open-core competition, see
 [SSO Is Not an Enterprise Feature](/overview/sso-is-not-enterprise/).

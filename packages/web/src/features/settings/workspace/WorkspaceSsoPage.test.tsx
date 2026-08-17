@@ -21,6 +21,8 @@ const KEYCLOAK: SsoProvider = {
   allow_password_signin_enforced: false,
   secret_set: true,
   redirect_uri: 'https://app.acme.io/api/v1/auth/oidc/callback/',
+  linked_account_count: 0,
+  locked_out_account_count: 0,
   created_at: '2026-07-11T00:00:00Z',
   updated_at: '2026-07-11T00:00:00Z',
 };
@@ -107,7 +109,36 @@ describe('WorkspaceSsoPage', () => {
     expect(deleteMutate).not.toHaveBeenCalled();
 
     await user.click(within(dialog).getByRole('button', { name: 'Remove provider' }));
-    expect(deleteMutate).toHaveBeenCalledWith('keycloak');
+    expect(deleteMutate).toHaveBeenCalledWith({ slug: 'keycloak', confirmLockout: false });
+  });
+
+  it('names how many members lose their only sign-in method before removing (#2874)', async () => {
+    // The old copy promised these users "fall back to password sign-in", which they
+    // cannot: an SSO-created account has an unusable password and the reset email
+    // never arrives. The count is what makes the confirmation informed.
+    providersData = [{ ...KEYCLOAK, linked_account_count: 4, locked_out_account_count: 3 }];
+    render(<WorkspaceSsoPage />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Remove' }));
+    const dialog = screen.getByRole('alertdialog', { name: /Remove Acme SSO\?/i });
+    expect(dialog).toHaveTextContent(/3 members sign in only through this provider/i);
+    expect(dialog).toHaveTextContent(/not be able to sign in at all/i);
+    expect(dialog).not.toHaveTextContent(/fall back to password sign-in/i);
+
+    await user.click(within(dialog).getByRole('button', { name: 'Remove provider' }));
+    expect(deleteMutate).toHaveBeenCalledWith({ slug: 'keycloak', confirmLockout: true });
+  });
+
+  it('uses the singular form for a single stranded member', async () => {
+    providersData = [{ ...KEYCLOAK, linked_account_count: 1, locked_out_account_count: 1 }];
+    render(<WorkspaceSsoPage />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Remove' }));
+    expect(screen.getByRole('alertdialog', { name: /Remove Acme SSO\?/i })).toHaveTextContent(
+      /1 member signs in only through this provider/i,
+    );
   });
 
   it('keeps enforced-SSO as an Enterprise upsell, not a switch, inside the panel', async () => {

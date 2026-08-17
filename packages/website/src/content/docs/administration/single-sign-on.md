@@ -67,6 +67,15 @@ The issuer is composed for you and shown before you save.
 Every provider also takes a **Client ID** and **Client secret** from the OAuth/OIDC
 application you register in that provider for TruePPM.
 
+:::note[One provider per type]
+The provider type is also its identity, so **each type can be configured once**.
+You can run Keycloak *and* Google *and* GitHub side by side, but not two separate
+Keycloak realms (or two Okta orgs) as distinct providers — adding a second one of
+the same type returns a conflict. If you need to admit users from two realms of the
+same product, either federate them behind one issuer at the provider, or use
+**Generic OIDC** for the second.
+:::
+
 ## Configuring a provider
 
 Open **Workspace → Settings → Single sign-on** as a workspace admin, then choose
@@ -130,19 +139,39 @@ If a user authenticates successfully at their provider but has no TruePPM accoun
 "verified, but not a member yet" message with the code `SSO_NO_MEMBER` — ask an
 admin to invite them, then have them sign in again.
 
+A **deactivated** member is refused at the callback with `SSO_ACCOUNT_DISABLED` and
+no session is created, even though their identity provider signed them in
+successfully. Deactivating a member in **Workspace → Settings → Members** therefore
+closes the SSO path as well as password login; reactivating them restores it with no
+extra step.
+
 ## Removing a provider
 
 Use **Remove** on a provider to delete its configuration. This also unlinks
-anyone who signed in through it; they fall back to password sign-in until the
-provider is set up again. Removing one provider does not affect the others.
+everyone who signed in through it. Removing one provider does not affect the
+others.
+
+:::danger[Members created by SSO have no password to fall back to]
+An account that TruePPM **auto-created** on a first SSO sign-in has no local
+password at all, and the password-reset email is deliberately never sent to such an
+account. If you remove the only provider those members sign in through, they cannot
+sign in by any route — not with a password, and not by requesting a reset.
+
+The Remove dialog tells you how many members are in that position before you
+confirm, and the API refuses the delete unless you acknowledge it explicitly. They
+can sign in again if you **add the provider back with the same issuer** (or
+configure another provider that allows their email domain) — they re-link by their
+verified email on the next sign-in. To avoid the gap entirely, invite affected
+members and have them set a password before you remove the provider.
+:::
 
 :::caution[Re-pointing a provider to a new issuer]
 Each OIDC sign-in is durably bound to the identity provider's **issuer**. If you
 need to move a provider to a *different* issuer, **remove and re-add** it rather
 than editing the issuer in place — users then re-link by their verified email on
 next sign-in. Editing the issuer of a provider that already has linked accounts is
-refused for security (it would otherwise allow a subject-collision takeover across
-issuers).
+refused (it would otherwise allow a subject-collision takeover across issuers, and
+every existing sign-in would silently stop working).
 :::
 
 ## Security notes
@@ -159,6 +188,12 @@ issuers).
   for every provider.
 - Discovery, token, and JWKS requests (OIDC) and all GitHub API requests are
   subject to TruePPM's outbound SSRF guard.
+- Your provider's signing keys (JWKS) are cached briefly rather than fetched on
+  every sign-in, and a **key rotation** is picked up immediately: a token signed
+  with a key TruePPM has not seen triggers a fresh fetch rather than a failure.
+- ID-token time claims are checked with one minute of clock-skew tolerance, so a
+  provider whose clock runs slightly ahead of TruePPM's does not produce
+  unexplained sign-in failures. Beyond that, keep both clocks on NTP.
 
 ## Running the identity provider inside your cluster
 

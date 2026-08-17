@@ -16,7 +16,10 @@ Security-relevant shapes preserved from ADR-0187:
 - ``default_role`` is restricted to MEMBER/ADMIN so SSO never auto-grants OWNER;
 - ``allow_password_signin`` is rejected in OSS (a set-but-ignored no-op, #2025);
 - the composed ``server_url`` is re-validated as an absolute https URL, and a
-  pasted ``.well-known`` discovery URL is rejected (ADR-0187 issuer rules).
+  pasted ``.well-known`` discovery URL is rejected (ADR-0187 issuer rules);
+- the ``server_url`` of a provider that already has linked ``SocialAccount`` rows
+  cannot be changed (#2874) — see
+  :meth:`SsoProviderWriteSerializer._refuse_issuer_repoint_with_linked_accounts`.
 """
 
 from __future__ import annotations
@@ -62,6 +65,8 @@ class SsoProviderReadSerializer(serializers.Serializer[SsoProviderPolicy]):
     allow_password_signin_enforced = serializers.SerializerMethodField()
     secret_set = serializers.BooleanField(read_only=True)
     redirect_uri = serializers.SerializerMethodField()
+    linked_account_count = serializers.SerializerMethodField()
+    locked_out_account_count = serializers.SerializerMethodField()
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
@@ -94,6 +99,30 @@ class SsoProviderReadSerializer(serializers.Serializer[SsoProviderPolicy]):
 
     def get_redirect_uri(self, _obj: SsoProviderPolicy) -> str:
         return str(self.context.get("redirect_uri", ""))
+
+    def _impact(self, obj: SsoProviderPolicy) -> services.RemovalImpact:
+        """Removal impact for this provider, from the view's pre-computed context map.
+
+        Read from context rather than queried per instance so listing the whole
+        collection stays at a fixed two queries (see ``services.removal_impact``).
+        Falls back to zeros when a caller renders the serializer without the map —
+        the counts are advisory UI copy, and the DELETE endpoint recomputes them
+        itself, so a missing map must not raise.
+        """
+        impacts: dict[str, services.RemovalImpact] = self.context.get("removal_impact") or {}
+        return impacts.get(obj.slug, services.RemovalImpact(0, 0))
+
+    def get_linked_account_count(self, obj: SsoProviderPolicy) -> int:
+        return self._impact(obj).linked_accounts
+
+    def get_locked_out_account_count(self, obj: SsoProviderPolicy) -> int:
+        """Members who would have no way to sign in if this provider were removed.
+
+        No local password and no binding to another configured provider. Non-zero
+        means removal is unrecoverable for those members without self-service, so
+        the delete endpoint requires an explicit acknowledgement.
+        """
+        return self._impact(obj).locked_out_accounts
 
 
 class SsoProviderWriteSerializer(serializers.Serializer[SsoProviderPolicy]):
@@ -189,6 +218,8 @@ class SsoProviderWriteSerializer(serializers.Serializer[SsoProviderPolicy]):
         entry = services.REGISTRY.get(slug)
         is_github = bool(entry and entry.allauth_provider == services.ALLAUTH_GITHUB)
 
+        self._refuse_issuer_repoint_with_linked_accounts(attrs, slug=slug)
+
         # Enabling SSO requires a complete configuration — refuse to enable a
         # half-configured provider that would fail at the first login.
         enabled = attrs.get("enabled", getattr(instance, "enabled", False))
@@ -203,6 +234,55 @@ class SsoProviderWriteSerializer(serializers.Serializer[SsoProviderPolicy]):
                     }
                 )
         return attrs
+
+    def _refuse_issuer_repoint_with_linked_accounts(
+        self, attrs: dict[str, Any], *, slug: str
+    ) -> None:
+        """Refuse repointing a provider that already has linked accounts (#2874).
+
+        This refusal has been documented as a security property since the feature
+        landed (``administration/single-sign-on.md``, "Re-pointing a provider to a
+        new issuer") and nothing implemented it — ``update()`` wrote ``server_url``
+        unconditionally.
+
+        Rewriting the issuer under live ``SocialAccount`` rows is not a config edit,
+        it is a silent mass lockout. Those rows keep the **old**
+        ``extra_data["iss"]``, so on the next login ``resolve_user`` matches the
+        durable ``(provider, uid)`` key, sees the issuer mismatch, and fails closed
+        with ``OIDCNoMember`` — the cross-issuer ``sub``-collision defense. It
+        cannot fall through to the verified-email path either, because allauth's
+        ``(provider, uid)`` unique key forbids a second binding for the same
+        subject. Every federated user is locked out at once, and the completion page
+        tells them to ask an admin for an invite they already have.
+
+        Remove-and-re-add is the supported migration precisely because the DELETE
+        purges the stale bindings, so those users re-link by verified email against
+        the new issuer on their next sign-in.
+
+        Scoped to a genuine *change*: re-submitting the stored issuer (which the
+        admin form does on every save, since the field is populated) must stay a
+        no-op, or editing an unrelated field would be impossible once anyone had
+        signed in.
+        """
+        from allauth.socialaccount.models import SocialAccount
+
+        if self.instance is None or "server_url" not in attrs:
+            return
+        new_issuer = str(attrs.get("server_url") or "").strip()
+        if new_issuer == self._current_server_url().strip():
+            return
+        if not SocialAccount.objects.filter(provider=slug).exists():
+            return
+        raise serializers.ValidationError(
+            {
+                "server_url": (
+                    "This provider already has linked accounts, so its issuer cannot be "
+                    "changed — every existing sign-in is bound to the current issuer and "
+                    "would stop working. Remove the provider and add it again with the new "
+                    "issuer; users then re-link by their verified email on the next sign-in."
+                )
+            }
+        )
 
     def _missing_enable_requirements(self, attrs: dict[str, Any], *, is_github: bool) -> list[str]:
         """Names of required config still absent when the client wants SSO enabled.

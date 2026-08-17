@@ -97,6 +97,34 @@ function ProviderRow({
 
 type PanelState = { mode: 'add' } | { mode: 'edit'; provider: SsoProvider } | null;
 
+/**
+ * Remove-confirmation copy, which must state what removal actually costs (#2874).
+ *
+ * The previous copy promised users "fall back to password sign-in until it is set up
+ * again". They cannot: an account auto-created by SSO has an unusable password, and
+ * the password-reset request path gates on `has_usable_password()`, so it silently
+ * sends them nothing. `locked_out_account_count` is the server's count of members in
+ * exactly that state — no password and no other configured provider — and naming it
+ * is what makes the confirmation informed rather than a rubber stamp.
+ */
+function removeDialogBody(provider: SsoProvider): string {
+  const lockedOut = provider.locked_out_account_count;
+  const base =
+    'This deletes the provider configuration and unlinks everyone who signed in through it.';
+  if (lockedOut < 1) {
+    return `${base} Anyone with a password can still sign in with it.`;
+  }
+  const who =
+    lockedOut === 1
+      ? '1 member signs in only through this provider and has no password'
+      : `${lockedOut} members sign in only through this provider and have no password`;
+  return (
+    `${base} ${who}, so they will not be able to sign in at all — the ` +
+    'password-reset email cannot help them either. They can sign in again if you add ' +
+    'this provider back with the same issuer.'
+  );
+}
+
 export function WorkspaceSsoPage() {
   const { data: providers, isLoading, isError, refetch } = useSsoProviders();
   const del = useDeleteSsoProvider();
@@ -250,13 +278,15 @@ export function WorkspaceSsoPage() {
       {confirmRemove && (
         <ConfirmDialog
           title={`Remove ${confirmRemove.display_name || providerDef(confirmRemove.slug)?.name || 'provider'}?`}
-          body="This deletes the provider configuration and unlinks anyone who signed in through it. They fall back to password sign-in until it is set up again."
+          body={removeDialogBody(confirmRemove)}
           confirmLabel="Remove provider"
           pending={del.isPending}
           onCancel={() => setConfirmRemove(null)}
           onConfirm={() => {
             const slug = confirmRemove.slug;
-            void del.mutateAsync(slug).then(() => {
+            // The confirm flag is only sent because this dialog just named the count.
+            const confirmLockout = confirmRemove.locked_out_account_count > 0;
+            void del.mutateAsync({ slug, confirmLockout }).then(() => {
               setConfirmRemove(null);
               setPanel((prev) =>
                 prev && prev.mode === 'edit' && prev.provider.slug === slug ? null : prev,

@@ -10,9 +10,11 @@ thing every self-hoster expects to work — logging in with the accounts they al
 behind a paid tier.
 
 TruePPM does not charge the SSO tax. **Basic single sign-on ships in the OSS core.** You point
-TruePPM at your own identity provider — Keycloak, Authentik, Authelia, Zitadel, Google, GitHub,
-or GitLab — and your whole team logs in through it. No plugin to hunt down, no enterprise
-license, no per-seat upcharge for the login screen.
+TruePPM at your own identity provider and your whole team logs in through it. Nine providers have
+a built-in preset that already knows their endpoints — Keycloak, Authentik, Zitadel, Okta, Auth0,
+Microsoft Entra ID, Google, GitLab, and GitHub — and **any** other standards-compliant OIDC
+provider (Authelia, for example) works through the Generic OIDC option by entering its issuer URL.
+No plugin to hunt down, no enterprise license, no per-seat upcharge for the login screen.
 
 :::note[Version status]
 Basic OIDC / OAuth2 login federation **ships in 0.4**, TruePPM's first beta. Until 0.4 tags,
@@ -82,9 +84,14 @@ enterprise edition earns its price on *governance* — directory sync, provision
 ## Setting it up
 
 Once 0.4 ships, configuring an identity provider is an administration task — see
-[Security → Authentication](/administration/security/#authentication) for how TruePPM issues and
-rotates tokens, and the [Configuration](/administration/configuration/) reference for the
-environment variables that register your IdP. The member-list `sso` and `two_fa` fields described
+[Single sign-on](/administration/single-sign-on/) for the full walkthrough. Providers are
+configured **in the app**, under **Workspace → Settings → Single sign-on**, not through
+environment variables: there is no env var that registers an IdP. The
+[Configuration](/administration/configuration/) reference covers the two *deployment* settings SSO
+can need — `TRUEPPM_PUBLIC_API_BASE_URL` (which pins the redirect URI you allow-list at your IdP)
+and `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` (needed only when your IdP runs on a private in-cluster
+address) — and [Security → Authentication](/administration/security/#authentication) covers how
+TruePPM issues and rotates tokens. The member-list `sso` and `two_fa` fields described
 in [Workspace Settings](/administration/workspace-settings/) refer to *governed* SSO/2FA
 enforcement — the enterprise-edition governance layer — not to whether OSS login federation is
 available.

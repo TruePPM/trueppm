@@ -39,6 +39,16 @@ export interface SsoProvider {
   secret_set: boolean;
   /** Server-derived, copy-only. Identical for every provider (callback unchanged). */
   redirect_uri: string;
+  /** How many users have a linked identity on this provider. */
+  linked_account_count: number;
+  /**
+   * Of those, how many would have **no** way to sign in if this provider were
+   * removed — no local password and no binding to another configured provider.
+   * Removing the provider is unrecoverable for them (SSO-created accounts have an
+   * unusable password, so the password-reset flow sends them nothing), so a
+   * non-zero value must be named in the Remove confirmation (#2874).
+   */
+  locked_out_account_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -112,12 +122,20 @@ export function useUpdateSsoProvider() {
   });
 }
 
-/** DELETE a provider by slug (removes the config; purges its bindings server-side). */
+/**
+ * DELETE a provider by slug (removes the config; purges its bindings server-side).
+ *
+ * `confirmLockout` sends the server's `?confirm_lockout=true` acknowledgement. The
+ * endpoint 409s without it when removal would leave members with no sign-in method
+ * at all (`locked_out_account_count > 0`), so the flag is only ever set after the
+ * admin has confirmed a dialog that stated the count (#2874) — never by default,
+ * or the guard would be decorative.
+ */
 export function useDeleteSsoProvider() {
   const qc = useQueryClient();
-  return useMutation<void, Error, string>({
-    mutationFn: async (slug) => {
-      await apiClient.delete(item(slug));
+  return useMutation<void, Error, { slug: string; confirmLockout?: boolean }>({
+    mutationFn: async ({ slug, confirmLockout }) => {
+      await apiClient.delete(confirmLockout ? `${item(slug)}?confirm_lockout=true` : item(slug));
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: PROVIDERS_KEY });

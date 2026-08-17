@@ -41,6 +41,8 @@ const KEYCLOAK: SsoProvider = {
   allow_password_signin: true,
   allow_password_signin_enforced: false,
   secret_set: true,
+  linked_account_count: 0,
+  locked_out_account_count: 0,
   redirect_uri: 'https://app.example.com/api/v1/auth/oidc/callback/',
   created_at: '2026-07-01T00:00:00Z',
   updated_at: '2026-07-10T00:00:00Z',
@@ -150,12 +152,38 @@ describe('useDeleteSsoProvider', () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
 
     const { result } = renderHook(() => useDeleteSsoProvider(), { wrapper: makeWrapper(qc) });
-    result.current.mutate('keycloak');
+    result.current.mutate({ slug: 'keycloak' });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(deleteMock).toHaveBeenCalledWith('/workspace/sso/providers/keycloak/');
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['workspace-sso-providers'] });
+  });
+
+  it('omits the lockout acknowledgement by default', async () => {
+    // The server 409s without it when removal would strand members (#2874); sending
+    // it unconditionally would turn the guard into decoration.
+    deleteMock.mockResolvedValueOnce({});
+    const { result } = renderHook(() => useDeleteSsoProvider(), {
+      wrapper: makeWrapper(freshClient('mutations')),
+    });
+    result.current.mutate({ slug: 'keycloak', confirmLockout: false });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(deleteMock).toHaveBeenCalledWith('/workspace/sso/providers/keycloak/');
+  });
+
+  it('appends confirm_lockout=true when the admin confirmed the lockout', async () => {
+    deleteMock.mockResolvedValueOnce({});
+    const { result } = renderHook(() => useDeleteSsoProvider(), {
+      wrapper: makeWrapper(freshClient('mutations')),
+    });
+    result.current.mutate({ slug: 'keycloak', confirmLockout: true });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(deleteMock).toHaveBeenCalledWith(
+      '/workspace/sso/providers/keycloak/?confirm_lockout=true',
+    );
   });
 });
 
