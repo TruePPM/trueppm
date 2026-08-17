@@ -75,6 +75,55 @@ const NO_HARDCODED_ITERATION_LABEL = [
   },
 ];
 
+// Standalone-trigger focus-ring gate (rules 4/214, #2858). Firefox, desktop
+// Safari AND Chromium all decline to match `:focus-visible` when a `<button>` is
+// focused by a *mouse click*, so a disclosure/menu trigger styled
+// `focus-visible:ring-*` paints NO ring at all after a click — a WCAG 2.4.7
+// failure. Rule 4's carve-out is therefore: standalone triggers use `focus:`;
+// form fields (which browsers always match `:focus-visible` on) keep
+// `focus-visible:`.
+//
+// This selector is the *tree sweep* that the check has been missing. It replaces
+// nothing — `e2e/focus-ring-pointer.spec.ts` still proves WHY the rule exists
+// (the browser behavior pair), but it only ever exercised two hardcoded controls
+// (#2292), so the same seven violations landed inside trees #2042/#2166 had
+// already converted. A behavioral spec cannot sweep: it can only assert on the
+// controls whose routes it happens to visit. An AST sweep can, and does.
+//
+// Scope decisions, each of which is what keeps the rule at zero false positives:
+//   · `JSXOpeningElement[name.name="button"]` — a lowercase intrinsic `<button>`
+//     only. A custom `<Trigger>` component's ring lives in the component, which
+//     this rule reaches there instead of at every call site.
+//   · `:has(JSXAttribute[name.name=/^aria-(haspopup|expanded)$/])` — the two
+//     attributes that *define* a disclosure/menu/popover trigger. This is why
+//     `<input role="combobox" aria-expanded>` and friends are not caught: they
+//     are form fields, and rule 4 keeps them on `focus-visible:` deliberately.
+//   · the descendant match covers a plain string className, a template literal,
+//     and the string arguments of a `cn(...)`/ternary — every form the codebase
+//     actually writes.
+//
+// Known gap (accepted): a className assembled from an imported constant (e.g.
+// `FOCUS_RING` in features/programs/backlog/styles.ts) is invisible here, because
+// the string is not lexically inside the opening element. Rule 214 already calls
+// that constant out by name.
+//
+// `features/schedule/` is exempted by a later config object — the Schedule tree
+// stays `focus-visible:` deliberately per rule 137, which rule 4 restates.
+const FOCUS_TRIGGER_MESSAGE =
+  'A standalone trigger (`<button>` with aria-haspopup/aria-expanded) must use `focus:ring-*`, not `focus-visible:ring-*` (rules 4/214). Firefox, desktop Safari and Chromium do not match :focus-visible on a pointer-initiated button focus, so this control shows no focus ring at all after a mouse click (WCAG 2.4.7). Write `focus:outline-none focus:ring-2 focus:ring-brand-primary` plus `focus:ring-offset-1` (freestanding) or `focus:ring-inset` (menu rows). Form fields keep `focus-visible:`.';
+const STANDALONE_TRIGGER =
+  'JSXOpeningElement[name.name="button"]:has(JSXAttribute[name.name=/^aria-(haspopup|expanded)$/])';
+export const NO_FOCUS_VISIBLE_ON_TRIGGER = [
+  {
+    selector: `${STANDALONE_TRIGGER} Literal[value=/focus-visible:/]`,
+    message: FOCUS_TRIGGER_MESSAGE,
+  },
+  {
+    selector: `${STANDALONE_TRIGGER} TemplateElement[value.raw=/focus-visible:/]`,
+    message: FOCUS_TRIGGER_MESSAGE,
+  },
+];
+
 export default [
   {
     ignores: ['dist/', 'coverage/', 'src/api/types.ts', 'eslint.config.js', 'postcss.config.js'],
@@ -113,7 +162,7 @@ export default [
       // Enforce WCAG alt text at error level (not warn) — zero tolerance from day one
       'jsx-a11y/alt-text': 'error',
       // Ban default exports — all modules use named exports
-      'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT],
+      'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT, ...NO_FOCUS_VISIBLE_ON_TRIGGER],
       // Prefer the Number.* static methods over the coercing global numeric
       // functions and bare NaN (#2099). Mirrors unicorn/prefer-number-properties
       // without pulling in the whole plugin — a core rule, so it guards product
@@ -178,6 +227,24 @@ export default [
       'src/features/project/backlog/**/*.tsx',
       'src/features/decisions/**/*.tsx',
     ],
+    ignores: ['src/**/*.test.tsx'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        NO_DEFAULT_EXPORT,
+        ...NO_HARDCODED_ITERATION_LABEL,
+        ...NO_FOCUS_VISIBLE_ON_TRIGGER,
+      ],
+    },
+  },
+  // Schedule-tree exemption for the standalone-trigger focus gate (rule 137,
+  // restated by rule 4: `features/schedule/` stays `focus-visible:` deliberately).
+  // This object must stay AFTER the iteration-label object above — flat config
+  // replaces a rule's options rather than merging them, so re-specifying the list
+  // without NO_FOCUS_VISIBLE_ON_TRIGGER is what carves the tree out, and the
+  // iteration-label selectors have to be repeated here to survive that replacement.
+  {
+    files: ['src/features/schedule/**/*.tsx'],
     ignores: ['src/**/*.test.tsx'],
     rules: {
       'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT, ...NO_HARDCODED_ITERATION_LABEL],

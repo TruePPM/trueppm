@@ -58,7 +58,7 @@ export function StatusBadge({ status, provider }: StatusBadgeProps) {
   const label = isGenericUnknown ? '—' : LINK_STATUS_LABEL[status];
   return (
     <span
-      className={`inline-flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide ${LINK_STATUS_TEXT_CLASS[status]}`}
+      className={`inline-flex items-center gap-1 text-xs font-medium uppercase tracking-wide ${LINK_STATUS_TEXT_CLASS[status]}`}
       aria-label={`Status: ${isGenericUnknown ? 'not applicable' : status}`}
     >
       <span
@@ -78,7 +78,7 @@ export function TypeChip({ type }: { type: string }) {
   return (
     <span
       className="inline-flex items-center rounded-chip bg-neutral-surface-sunken px-1.5 py-0.5
-        text-[11px] font-medium text-neutral-text-secondary"
+        text-xs font-medium text-neutral-text-secondary"
       aria-label={`File type: ${label}`}
     >
       {label}

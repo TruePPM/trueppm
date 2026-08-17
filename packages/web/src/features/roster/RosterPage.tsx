@@ -11,6 +11,7 @@ import { useProjectResourcePool, useAddProjectResource } from '@/hooks/useProjec
 import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { BottomSheet } from '@/components/ui/BottomSheet';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { RosterList } from './RosterList';
 import { RosterDetailPanel } from './RosterDetailPanel';
 import { AddToRosterCombobox } from './AddToRosterCombobox';
@@ -18,7 +19,7 @@ import type { ProjectResource } from '@/types';
 
 export function RosterPage() {
   const projectId = useProjectId() ?? '';
-  const { data: roster = [], isLoading } = useProjectResourcePool(projectId);
+  const { data: roster = [], isLoading, isError, refetch } = useProjectResourcePool(projectId);
   const addMutation = useAddProjectResource(projectId);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -65,6 +66,34 @@ export function RosterPage() {
             ))}
           </div>
         </div>
+      </div>
+    );
+  }
+
+  // A failed pool fetch must not render as "this project has no team members"
+  // (rule 246, #2858). `data` defaults to `[]` on error exactly as it does on an
+  // a genuinely empty project, so without this branch the two are pixel-identical —
+  // and neither the user nor support triage can tell a 500 from an empty roster.
+  // `fill` because the whole pane the user navigated to is dead; `refetch` so
+  // Retry re-runs just this request instead of reloading the app.
+  if (isError) {
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <RosterPageToolbar
+          filterQuery={filterQuery}
+          onFilterChange={setFilterQuery}
+          onAddClick={() => setShowAddCombobox(true)}
+          showAddCombobox={showAddCombobox}
+          onAddDismiss={() => setShowAddCombobox(false)}
+          onAddSelect={handleAdd}
+          projectId={projectId}
+        />
+        <QueryErrorState
+          message="Couldn't load the roster."
+          onRetry={() => void refetch()}
+          variant="fill"
+          className="flex-1"
+        />
       </div>
     );
   }
@@ -235,7 +264,7 @@ function RosterPageToolbar({
           aria-expanded={showAddCombobox}
           className="h-8 px-3 rounded border border-neutral-border text-sm font-medium
             text-neutral-text-primary bg-neutral-surface hover:bg-neutral-surface-raised
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
             flex items-center gap-1.5"
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">

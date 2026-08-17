@@ -296,7 +296,7 @@ function BacklogGroup({ sprintId, group, onRemoveTask, onOpenTask, iterationLowe
               aria-expanded={!collapsed}
               aria-controls={groupId}
               className="w-full flex items-baseline justify-between gap-2 text-left
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+                focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 rounded"
             >
               <span className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary flex items-center gap-2">
                 <Chevron expanded={!collapsed} />

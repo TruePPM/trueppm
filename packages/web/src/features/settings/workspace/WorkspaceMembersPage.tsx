@@ -206,7 +206,7 @@ function MemberTableRow({ m, last, onRoleChange, onRemove, hasError }: MemberTab
               onClick={() => setConfirming(true)}
               aria-label={`Remove ${m.name}`}
               aria-expanded={confirming}
-              className="ml-1 text-[10px] text-neutral-text-disabled hover:text-semantic-critical focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical rounded-control"
+              className="ml-1 text-[10px] text-neutral-text-disabled hover:text-semantic-critical focus:outline-none focus:ring-2 focus:ring-semantic-critical rounded-control"
             >
               <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
             </button>

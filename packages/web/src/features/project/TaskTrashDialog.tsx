@@ -115,7 +115,7 @@ export function TaskTrashDialog({ projectId, onClose }: TaskTrashDialogProps) {
               </ul>
               {data?.truncated ? (
                 // Never let a cap read as "that task is gone" (ADR-0689).
-                <p className="mt-3 text-[11px] text-neutral-text-secondary">
+                <p className="mt-3 text-xs text-neutral-text-secondary">
                   Showing the {rows.length} most recent deletions — older ones are not listed.
                 </p>
               ) : null}
@@ -172,7 +172,7 @@ function TrashRow({
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             {task.wbs_path ? (
-              <code className="shrink-0 rounded-chip border border-neutral-border bg-neutral-surface-sunken px-1.5 py-0.5 tppm-mono text-[11px] text-neutral-text-secondary">
+              <code className="shrink-0 rounded-chip border border-neutral-border bg-neutral-surface-sunken px-1.5 py-0.5 tppm-mono text-xs text-neutral-text-secondary">
                 {task.wbs_path}
               </code>
             ) : null}

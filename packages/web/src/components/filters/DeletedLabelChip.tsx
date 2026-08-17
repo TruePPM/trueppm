@@ -31,7 +31,7 @@ export function DeletedLabelChip({ id, variant = 'strip' }: DeletedLabelChipProp
       className={[
         'inline-flex items-center gap-1 rounded-full border border-dashed',
         'border-neutral-text-secondary/50 text-neutral-text-secondary',
-        dense ? 'h-4 px-1.5 text-[11px]' : 'h-6 px-2 text-xs',
+        dense ? 'h-4 px-1.5 text-xs' : 'h-6 px-2 text-xs',
       ].join(' ')}
     >
       {/* Hatched, not filled: a solid grey dot reads as "a label that happens to

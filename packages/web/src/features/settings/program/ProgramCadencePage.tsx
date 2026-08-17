@@ -167,7 +167,7 @@ function CeremonyRow({
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             aria-label={`More options for ${ceremony.name}`}
-            className="text-neutral-text-secondary text-[18px] leading-none px-1.5 py-0.5 rounded-control hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            className="text-neutral-text-secondary text-[18px] leading-none px-1.5 py-0.5 rounded-control hover:bg-neutral-surface-sunken focus:outline-none focus:ring-2 focus:ring-brand-primary"
           >
             ⋯
           </button>

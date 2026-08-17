@@ -31,7 +31,7 @@ export function ResetPasswordExpiredPage() {
 /** Circular amber warning badge. */
 function WarningBadge() {
   return (
-    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-semantic-at-risk/15 text-semantic-at-risk">
+    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-semantic-at-risk-bg text-semantic-at-risk">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path
           d="M12 3l9 16H3l9-16z"

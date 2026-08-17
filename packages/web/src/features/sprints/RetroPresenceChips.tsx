@@ -90,7 +90,7 @@ export function RetroPresenceChips() {
             aria-expanded={open}
             aria-label={`Show ${overflow} more participant${overflow === 1 ? '' : 's'}`}
             className="relative inline-flex h-11 min-w-11 items-center justify-center
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+              focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
               rounded-full"
           >
             <span

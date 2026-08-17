@@ -59,7 +59,7 @@ export function ChainVerifyBadge() {
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-label="Chain verification — details"
-        className="inline-flex items-center gap-1.5 rounded-chip border border-neutral-border bg-neutral-surface-sunken px-2.5 py-1 text-xs font-medium text-neutral-text-secondary transition-colors hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        className="inline-flex items-center gap-1.5 rounded-chip border border-neutral-border bg-neutral-surface-sunken px-2.5 py-1 text-xs font-medium text-neutral-text-secondary transition-colors hover:text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         <LinkIcon className="h-3.5 w-3.5" aria-hidden="true" />
         Verify locally

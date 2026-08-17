@@ -177,7 +177,7 @@ export function CardPeekButton({
           triggerClassName ?? '',
           // Invisible ≥44px touch target without visually enlarging the trigger.
           "before:absolute before:inset-[-12px] before:content-['']",
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+          'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
         ].join(' ')}
       >
         {triggerContent}

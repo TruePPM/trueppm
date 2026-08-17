@@ -454,7 +454,7 @@ function AcceptanceBadge({
       disabled={!criteriaIncomplete}
       className={`text-xs shrink-0 ${fullyAccepted ? 'text-semantic-on-track' : 'text-semantic-at-risk'} ${
         criteriaIncomplete
-          ? 'underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded'
+          ? 'underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary rounded'
           : 'cursor-default'
       }`}
       aria-label={`${a.met} of ${a.total} acceptance criteria met${fullyAccepted ? ' — accepted' : ''}${criteriaIncomplete ? ' — show incomplete criteria' : ''}`}

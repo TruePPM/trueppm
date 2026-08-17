@@ -93,7 +93,7 @@ export function FeedbackDialog({ onClose }: FeedbackDialogProps) {
           onChange={(e) => setDraft(e.target.value)}
           rows={12}
           className="tppm-mono mt-3 w-full rounded-control border border-neutral-border bg-neutral-surface-sunken
-            p-2 text-[11px] text-neutral-text-primary
+            p-2 text-xs text-neutral-text-primary
             focus:outline-none focus:ring-2 focus:ring-brand-primary"
         />
 

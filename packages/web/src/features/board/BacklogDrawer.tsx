@@ -136,7 +136,7 @@ export function BacklogDrawer({
         aria-expanded={isExpanded}
         aria-controls="backlog-drawer-body"
         className="flex items-center gap-3 px-4 py-2 text-left
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset"
+          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset"
       >
         <span
           aria-hidden="true"

@@ -158,7 +158,7 @@ export function DeletedLabelNotice({
       role="status"
       data-testid="deleted-label-notice"
       className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-card border border-semantic-at-risk/40
-        bg-semantic-at-risk/5 px-3 py-2 text-xs text-neutral-text-primary"
+        bg-semantic-at-risk-bg px-3 py-2 text-xs text-neutral-text-primary"
     >
       <span className="flex items-center gap-2">
         {missingIds.map((id) => (

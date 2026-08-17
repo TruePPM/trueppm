@@ -180,7 +180,7 @@ function GroupCard({ group, onDelete, onManage, hasError }: GroupCardProps) {
             aria-expanded={confirming}
             // Enabled control must rest at a readable color, not the 2.70:1
             // disabled token that relies on hover to become legible (#2207).
-            className="ml-1 text-[11px] text-neutral-text-secondary hover:text-semantic-critical focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical rounded-control shrink-0"
+            className="ml-1 text-[11px] text-neutral-text-secondary hover:text-semantic-critical focus:outline-none focus:ring-2 focus:ring-semantic-critical rounded-control shrink-0"
           >
             <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
