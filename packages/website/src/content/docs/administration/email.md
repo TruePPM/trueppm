@@ -153,20 +153,30 @@ port, security, or credentials are wrong, the save is rejected with a `400` and
 mail. The error message is deliberately generic and never echoes the underlying
 SMTP exception (which could leak credentials).
 
-### From identity, limits, and bounce webhook
+### From identity and delivery limits
 
 Alongside the transport, the page configures:
 
 - **From identity** — a From name, From address, reply-to address, and DKIM
   selector for the outbound `From:` header.
-- **Delivery limits** — a maximum recipients per message and an optional
-  per-minute throttle (`0` means no throttle).
-- **Bounce webhook URL** — where the provider can post bounce events.
+- **Delivery limits** — **Max recipients** caps how many queued notification
+  emails one drain tick sends, and **Throttle per minute** caps the rate across
+  ticks (`0` means no throttle). The queue drains every 30 seconds, so a
+  per-minute throttle is applied as half of it per tick, and the tighter of the
+  two limits wins. A throttle that divides below one still sends one message per
+  tick rather than stalling the queue outright.
 
-Both the SMTP host and the bounce webhook URL are **SSRF-guarded**: a host or URL
-that resolves to a private, loopback, link-local, or cloud-metadata address is
-rejected, and the host is re-checked at send time to close the DNS-rebinding
-window.
+The SMTP host is **SSRF-guarded**: a host that resolves to a private, loopback,
+link-local, or cloud-metadata address is rejected, and it is re-checked at send
+time to close the DNS-rebinding window.
+
+:::note[No bounce webhook yet]
+This page previously offered a **Bounce webhook URL** field. It saved, validated
+and rendered back — but TruePPM has no bounce-ingest endpoint, so nothing was ever
+posted to it. The field has been removed rather than left looking functional; any
+URL you already saved is retained in the database, untouched. Bounce ingest is
+tracked as a feature in its own right.
+:::
 
 ### Send a test email
 

@@ -23,7 +23,6 @@ const EMAIL_GET = {
   dkim_selector: '',
   max_recipients: 50,
   throttle_per_min: 0,
-  bounce_webhook_url: '',
   can_edit: true,
   configured_via: 'environment',
   host_configured: false,

@@ -427,13 +427,22 @@ def test_internal_smtp_host_rejected(operator_client: APIClient) -> None:
     assert "127.0.0.1" not in str(resp.data)
 
 
-def test_internal_bounce_webhook_rejected(operator_client: APIClient, _no_probe: None) -> None:
+def test_an_internal_bounce_webhook_can_no_longer_be_stored_at_all(
+    operator_client: APIClient, _no_probe: None
+) -> None:
+    """The field left the serializer in #2860, so the SSRF target is unreachable.
+
+    This used to assert a 400 from ``validate_bounce_webhook_url``. With the field
+    removed the key is not a serializer field, so the metadata URL is dropped
+    before validation rather than rejected by it — a strictly narrower surface.
+    The assertion that matters is unchanged: the internal target never lands in
+    the model and is never reflected to the client (#2082).
+    """
     resp = operator_client.patch(
         URL, {"bounce_webhook_url": "http://169.254.169.254/latest/meta-data/"}, format="json"
     )
-    assert resp.status_code == 400
-    assert "bounce_webhook_url" in resp.data
-    # Curated message only — the internal target must not be reflected (#2082).
+    assert resp.status_code == 200
+    assert WorkspaceEmailSettings.load().bounce_webhook_url == ""
     assert "169.254.169.254" not in str(resp.data)
 
 
@@ -456,29 +465,28 @@ def test_smtp_egress_block_does_not_leak_resolved_ip(monkeypatch: pytest.MonkeyP
     assert "10.9.8.7" not in str(excinfo.value)
 
 
-def test_bounce_webhook_egress_block_does_not_leak_resolved_ip(
-    monkeypatch: pytest.MonkeyPatch,
+def test_the_bounce_webhook_field_is_no_longer_writable(
+    operator_client: APIClient, _no_probe: None
 ) -> None:
-    """The webhook-URL validator must not reflect the egress guard's resolved IP.
+    """The field was removed from the serializer in #2860 — there is no ingest for it.
 
-    Regression for #2082 (CodeQL py/stack-trace-exposure).
+    It persisted, validated through the SSRF egress guard, rendered back and was
+    documented in four places, while nothing in ``apps/notifications/`` ever POSTed
+    to it. Replaces the #2082 validator regression test, which covered a validator
+    that no longer exists. The column is retained so no stored value is destroyed;
+    #2872 builds the endpoint and re-exposes the field.
     """
-    from rest_framework import serializers
+    resp = operator_client.get(URL)
+    assert resp.status_code == 200
+    assert "bounce_webhook_url" not in resp.data
 
-    from trueppm_api.apps.integrations import http as egress_http
-    from trueppm_api.apps.notifications.serializers import WorkspaceEmailSettingsSerializer
-
-    def _blocked(url: str) -> None:
-        raise egress_http.EgressBlocked(
-            "host 'hook.internal.test' resolves to non-public address 10.9.8.7"
-        )
-
-    monkeypatch.setattr(egress_http, "assert_url_allowed", _blocked)
-
-    serializer = WorkspaceEmailSettingsSerializer()
-    with pytest.raises(serializers.ValidationError) as excinfo:
-        serializer.validate_bounce_webhook_url("https://hook.internal.test/x")
-    assert "10.9.8.7" not in str(excinfo.value.detail)
+    # A write is ignored rather than accepted-and-dropped: the key is not a
+    # serializer field at all, so it never reaches the model.
+    resp = operator_client.patch(
+        URL, {"bounce_webhook_url": "https://hook.example.com/x"}, format="json"
+    )
+    assert resp.status_code == 200
+    assert WorkspaceEmailSettings.load().bounce_webhook_url == ""
 
 
 def test_from_name_crlf_rejected(operator_client: APIClient, _no_probe: None) -> None:

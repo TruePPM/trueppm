@@ -121,7 +121,7 @@ def test_create_stores_encrypted_secret(
     client: APIClient, user: AbstractBaseUser, settings: pytest.FixtureRequest
 ) -> None:
     # Self-hosted host must be operator-allowlisted (#902) before it can be saved.
-    settings.TRUEPPM_INTEGRATION_ALLOWED_HOSTS = ["gitlab.example.com"]  # type: ignore[attr-defined]
+    settings.INTEGRATION_ALLOWED_HOSTS = ["gitlab.example.com"]
     response = client.post(
         "/api/v1/me/credentials/gitlab/",
         {"secret": "glpat-very-secret", "base_url": "https://gitlab.example.com"},
