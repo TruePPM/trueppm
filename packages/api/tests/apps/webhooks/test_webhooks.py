@@ -537,8 +537,16 @@ def test_deliver_webhook_non_2xx_retries(webhook: Webhook) -> None:
 def test_test_ping(admin_client: APIClient, project: Project, webhook: Webhook) -> None:
     from trueppm_api.apps.webhooks import tasks as wh_tasks
 
-    with patch.object(wh_tasks, "deliver_webhook") as mock_task:
-        mock_task.delay = MagicMock()
+    # Patch `delay` ON the task object, never rebind the module attribute. Both this
+    # module and `webhooks.views` reach the task through the same `shared_task` proxy,
+    # so patching the attribute is what actually intercepts the view's dispatch.
+    # Replacing `wh_tasks.deliver_webhook` instead does not — views did
+    # `from ...tasks import deliver_webhook` and holds its own reference — and it
+    # permanently poisons any module that first imports the symbol inside the patch
+    # window: the import binds the MagicMock and keeps it after the patch exits. When
+    # this test ran before `test_test_ping_deferred_via_on_commit` on a cold worker,
+    # views bound the mock here and that test's own patch could never be reached (#2877).
+    with patch.object(wh_tasks.deliver_webhook, "delay"):
         resp = admin_client.post(f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/test/")
     assert resp.status_code == 202
     assert "delivery_id" in resp.data
