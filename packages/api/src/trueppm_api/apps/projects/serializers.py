@@ -8533,6 +8533,44 @@ class ProjectApiTokenSerializer(serializers.ModelSerializer[ProjectApiToken]):
         return obj.revoked_at is not None
 
 
+def _normalize_token_scopes(value: list[str]) -> list[str]:
+    """De-dupe a requested scope list, default it, and reject the incoherent pair.
+
+    Shared by ``ProjectApiTokenCreateSerializer`` and ``MyApiTokenCreateSerializer`` —
+    both mint into the same ``ApiToken.scopes`` column, and both must produce a row
+    that resolves unambiguously through
+    :func:`~trueppm_api.apps.projects.models.is_agent_token`. Duplicating the rule in
+    two copies is what let the two paths drift in the first place.
+
+    An explicit empty list collapses to ``legacy:full``, matching the model default so
+    a caller that sends ``[]`` behaves like one that omits the field. ``ChoiceField``
+    has already rejected anything outside the allowed set, so only de-duping (order
+    preserved) and the pair check remain.
+
+    ``legacy:full`` + ``mcp:read`` together is rejected. The two scopes select mutually
+    exclusive enforcement postures since #2877: ``mcp:read`` means "an agent —
+    read-only, and every MCP consent control applies", ``legacy:full`` means "the
+    owner's own credential — writes allowed, agent controls do not apply". A token
+    carrying both asks for both, and resolves to full authority. That was previously
+    accepted-but-meaningless (``legacy:full`` already granted everything ``mcp:read``
+    does); it is now actively misleading, because the settings UI would label such a
+    token "Read-only for AI assistants" while it wrote freely and ignored the
+    instance kill switch.
+    """
+    if not value:
+        return [SCOPE_LEGACY_FULL]
+    deduped: dict[str, None] = {}
+    for scope in value:
+        deduped.setdefault(scope, None)
+    if SCOPE_LEGACY_FULL in deduped and SCOPE_MCP_READ in deduped:
+        raise serializers.ValidationError(
+            f"{SCOPE_LEGACY_FULL!r} and {SCOPE_MCP_READ!r} cannot be combined — a "
+            "token is either a full-access credential that acts as its owner or a "
+            "read-only agent credential. Pick one."
+        )
+    return list(deduped)
+
+
 def _validate_mcp_read_expiry(scopes: list[str], expires_at: Any) -> None:
     """Enforce the mcp:read blast-radius bound (#1713, #2764).
 
@@ -8601,16 +8639,7 @@ class ProjectApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToke
         return value
 
     def validate_scopes(self, value: list[str]) -> list[str]:
-        # An explicit empty list collapses to the legacy full scope, matching the
-        # model default so a caller that sends [] behaves like one that omits the
-        # field. ChoiceField has already rejected any value outside the allowed
-        # set, so we only need to de-dupe while preserving request order.
-        if not value:
-            return [SCOPE_LEGACY_FULL]
-        deduped: dict[str, None] = {}
-        for scope in value:
-            deduped.setdefault(scope, None)
-        return list(deduped)
+        return _normalize_token_scopes(value)
 
     def validate_expires_at(self, value: Any) -> Any:
         # An expiry already in the past would mint a token that is dead on arrival.
@@ -8713,15 +8742,7 @@ class MyApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToken]):
         return value
 
     def validate_scopes(self, value: list[str]) -> list[str]:
-        # Empty / omitted collapses to the legacy full scope (unchanged PAT default,
-        # backward-safe). ChoiceField already rejected any out-of-set value; de-dupe
-        # while preserving request order.
-        if not value:
-            return [SCOPE_LEGACY_FULL]
-        deduped: dict[str, None] = {}
-        for scope in value:
-            deduped.setdefault(scope, None)
-        return list(deduped)
+        return _normalize_token_scopes(value)
 
     def validate_expires_at(self, value: Any) -> Any:
         # An expiry in the past would mint a token that is dead on arrival — reject
@@ -8885,12 +8906,36 @@ class ApiTokenAuditEntrySerializer(serializers.ModelSerializer[ApiTokenAuditEntr
         data = super().to_representation(instance)
         # source_ip reveals integration infrastructure topology (Jira egress IPs,
         # webhook relay addresses). Restrict to Project Manager+ callers only.
+        #
+        # Owner-scoped rows are exempt (#2878). Those record a *person's own* personal
+        # access tokens, `project`/`program` are null, and `MyApiTokenAuditView` already
+        # confines the queryset to `owner=request.user` — so the address being disclosed
+        # is the requester's own, from their own credential's lifecycle. There is no
+        # integration topology to protect. Without this branch the role lookup runs as
+        # `_membership_role(request, None)`, which can never resolve, so every row on that
+        # endpoint returned `source_ip: null` for every caller including its owner —
+        # making the field a hard-coded null while the schema declared it and the docs
+        # promised "with who did it, from which IP". It also wasted one guaranteed-empty
+        # ProjectMembership query per request.
+        if instance.owner_id is not None:
+            return data
         request = self.context.get("request")
         if request is not None:
             from trueppm_api.apps.access.models import Role
-            from trueppm_api.apps.access.permissions import _membership_role
+            from trueppm_api.apps.access.permissions import (
+                _membership_role,
+                _program_membership_role,
+            )
 
-            role = _membership_role(request, instance.project_id)
+            # Program-scoped rows carry `project_id = None` too, so resolving them
+            # through `_membership_role` produced the same guaranteed-`None` role and
+            # blanked `source_ip` for every caller on `ProgramApiTokenAuditView`,
+            # including a Program Admin. Route each row through the ladder that matches
+            # its own scope (#2878).
+            if instance.program_id is not None:
+                role = _program_membership_role(request, instance.program_id)
+            else:
+                role = _membership_role(request, instance.project_id)
             if role is None or role < Role.ADMIN:
                 data["source_ip"] = None
         return data

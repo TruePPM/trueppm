@@ -251,13 +251,41 @@ def test_project_token_cannot_read_second_project_via_collection(
 
 @pytest.mark.django_db
 def test_mcp_read_token_cannot_patch_project(project: Project, owner: Any) -> None:
-    # Owner-created token: RBAC (IsProjectScheduler) would pass, so a 403 here
-    # proves TokenReadOnlyMethods blocks the non-safe method, not the role gate.
-    _, raw = _mint(project, owner, scopes=[SCOPE_MCP_READ])
+    # A *personal* mcp:read token: the owner's RBAC (IsProjectScheduler) would pass, so
+    # a 403 here proves TokenReadOnlyMethods blocks the non-safe method rather than the
+    # role gate. Previously minted project-scoped — which since #2877 is refused one
+    # guard earlier by TokenIsOwnerScoped (401), so it could no longer prove anything
+    # about the read-only guard at all.
+    _, raw = _mint_personal(owner, scopes=[SCOPE_MCP_READ])
     resp = _bearer(raw).patch(
         f"/api/v1/projects/{project.pk}/", {"name": "hijacked"}, format="json"
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 403, resp.data
+    # And the refusal now says why, rather than handing back a bare PermissionDenied.
+    assert resp.data["refusal"] == {
+        "verdict": "refused",
+        "reason": "policy",
+        "constraint": "capability_scope",
+    }, resp.data
+
+
+@pytest.mark.django_db
+def test_project_scoped_token_is_refused_on_an_mcp_write_too(project: Project, owner: Any) -> None:
+    """A project-scoped token is 401 on the MCP surface for *any* method (#2877).
+
+    Its identity, not its capability, is what disqualifies it — and after #2877 that is
+    the *only* thing standing between it and a write here, because it carries
+    ``legacy:full`` by default and therefore clears the four scope-aware guards.
+    ``TokenIsOwnerScoped`` runs first for exactly this reason.
+    """
+    _, raw = _mint(project, owner)  # default scopes = [legacy:full]
+    resp = _bearer(raw).patch(
+        f"/api/v1/projects/{project.pk}/", {"name": "hijacked"}, format="json"
+    )
+    assert resp.status_code == 401, resp.data
+    assert resp.data["refusal"]["reason"] == "identity", resp.data
+    project.refresh_from_db()
+    assert project.name != "hijacked"
 
 
 @pytest.mark.django_db

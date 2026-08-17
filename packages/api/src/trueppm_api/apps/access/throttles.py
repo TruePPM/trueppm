@@ -33,22 +33,31 @@ if TYPE_CHECKING:
 
 
 class _McpTokenThrottle(SimpleRateThrottle):
-    """Base: throttle a request only when it is authenticated by an API token.
+    """Base: throttle a request only when it is authenticated by an *agent* token.
 
     A non-token caller (human JWT/Session) yields ``None`` from
     :meth:`get_cache_key`, which DRF interprets as "skip this throttle entirely",
     so the baseline ``user``/scoped throttles remain the only bound on human
-    traffic. A token caller is bucketed on the token's own primary key.
+    traffic. An agent-token caller is bucketed on the token's own primary key.
+
+    A ``legacy:full`` personal access token also yields ``None`` (#2877). These are
+    *agent* budgets: ``mcp_read`` is 120/min and ``mcp_read_compute`` 12/min, against
+    1000/min on the ``user`` scope a session gets. Metering a person's own CI script
+    from the agent bucket capped it 8× tighter than the same person's browser — and
+    since ``get_throttles`` is method-agnostic, once #2877 let that token write, its
+    *writes* were being metered by a bucket named and sized for agent reads. Falling
+    through to the ``user`` scope keeps it bounded and keeps the promise that a PAT is
+    "governed exactly as your own session would be."
     """
 
     def get_cache_key(self, request: Request, view: APIView) -> str | None:
         # Local import: the model layer is not import-safe at settings-load time.
-        from trueppm_api.apps.projects.models import ApiToken
+        from trueppm_api.apps.projects.models import is_agent_token
 
         token = getattr(request, "auth", None)
-        if not isinstance(token, ApiToken):
-            return None  # human JWT/Session — not the MCP surface this throttle guards
-        return self.cache_format % {"scope": self.scope, "ident": str(token.pk)}
+        if is_agent_token(token):
+            return self.cache_format % {"scope": self.scope, "ident": str(token.pk)}
+        return None  # human, or the owner's own full-access PAT — not an agent
 
 
 class McpTokenReadThrottle(_McpTokenThrottle):
@@ -64,6 +73,23 @@ class McpTokenComputeThrottle(_McpTokenThrottle):
     triggers a CPM + Monte Carlo recompute per call (whatif, monte-carlo/latest,
     forecast, sprint-forecast), so a token loop that could burn CPU is bounded
     well below the baseline read rate.
+
+    Unlike its base class, this one applies to **every** ``ApiToken`` regardless of
+    scope (#2877). The distinction is what each cap is *for*: ``mcp_read`` is an agent
+    budget, and metering a person's own CI script from it capped them 8× tighter than
+    their own browser. This cap is CPU protection, and CPU does not care which
+    credential class asked — an unattended loop against a Monte Carlo recompute is
+    equally expensive from a ``legacy:full`` script. Twelve recomputes a minute is far
+    above what any real automation needs (a nightly export reads each forecast once),
+    so keeping it credential-agnostic costs the legitimate case nothing.
     """
 
     scope = "mcp_read_compute"
+
+    def get_cache_key(self, request: Request, view: APIView) -> str | None:
+        from trueppm_api.apps.projects.models import ApiToken
+
+        token = getattr(request, "auth", None)
+        if isinstance(token, ApiToken):
+            return self.cache_format % {"scope": self.scope, "ident": str(token.pk)}
+        return None  # human JWT/Session — bounded by the account-level throttle

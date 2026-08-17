@@ -75,6 +75,7 @@ from trueppm_api.apps.projects.views import (
     MeRecentProjectsView,
     MeSearchView,
     MeWorkView,
+    MyApiTokenAuditView,
     MyApiTokenViewSet,
     PhaseReorderView,
     PhaseViewSet,
@@ -726,6 +727,13 @@ urlpatterns = [
         "me/api-tokens/<pk>/",
         MyApiTokenViewSet.as_view({"get": "retrieve", "delete": "destroy"}),
         name="me-api-tokens-detail",
+    ),
+    # Reader for the owner-scoped audit rows the viewset above has always written
+    # (#2878) — they matched no queryset and no route before this.
+    path(
+        "me/api-token-audit/",
+        MyApiTokenAuditView.as_view(),
+        name="me-api-token-audit",
     ),
     # Inbound task-sync — ADR-0068 (ADR-0065 Gap 3, issue #500)
     path(

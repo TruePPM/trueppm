@@ -2024,12 +2024,31 @@ class TestMcpTokenGuards:
         req.auth = _mint_token(user, project=project)
         assert TokenReadOnlyMethods().has_permission(req, _make_view()) is True
 
-    def test_write_methods_are_blocked_for_a_token(self, user: object, project: Project) -> None:
+    def test_write_methods_are_blocked_for_an_agent_token(
+        self, user: object, project: Project
+    ) -> None:
+        from trueppm_api.apps.access.permissions import TokenReadOnlyMethods
+        from trueppm_api.apps.projects.models import SCOPE_MCP_READ
+
+        req = _make_request(user, method="POST")
+        req.auth = _mint_token(user, project=project, scopes=[SCOPE_MCP_READ])
+        assert TokenReadOnlyMethods().has_permission(req, _make_view()) is False
+
+    def test_write_methods_pass_for_a_full_access_token(
+        self, user: object, project: Project
+    ) -> None:
+        """#2877: a ``legacy:full`` token is the owner's own credential, not an agent.
+
+        ``_mint_token`` takes the model default (``[legacy:full]``), which is what this
+        assertion turns on — the guard used to refuse it purely for being an
+        ``ApiToken``, which 403'd every PAT write across the core CRUD API. The view's
+        RBAC classes, not this guard, are what bound it now.
+        """
         from trueppm_api.apps.access.permissions import TokenReadOnlyMethods
 
         req = _make_request(user, method="POST")
         req.auth = _mint_token(user, project=project)
-        assert TokenReadOnlyMethods().has_permission(req, _make_view()) is False
+        assert TokenReadOnlyMethods().has_permission(req, _make_view()) is True
 
     def test_human_write_is_unaffected(self, user: object) -> None:
         from trueppm_api.apps.access.permissions import TokenReadOnlyMethods

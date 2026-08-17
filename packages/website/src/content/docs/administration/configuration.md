@@ -70,12 +70,13 @@ Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The defau
 | `TRUEPPM_THROTTLE_OMNI_SEARCH_RATE` | `60/min` | Rate limit for the ⌘K global Epic/Story omni-search, per account, in DRF `<count>/<period>` form. Matches the general user-typeahead rate — snug enough to block a scripted scrape of every title an account can see, loose enough that live typing never trips it. |
 | `TRUEPPM_THROTTLE_SAMPLE_DOWNLOAD_RATE` | `60/min` | Rate limit for downloading a bundled sample fixture (`GET /programs/samples/{key}/download/`), per account, in DRF `<count>/<period>` form. Looser than `TRUEPPM_THROTTLE_SAMPLE_LOAD_RATE` because a download only streams a small file off disk and touches no table — but it is still throttled, since it serves a file keyed by a client-supplied string and would otherwise double as an enumeration oracle. |
 | `TRUEPPM_THROTTLE_TELEMETRY_TEST_RATE` | `6/min` | Rate limit for the admin-only telemetry test-export probe (each call opens a real outbound connection to the configured OTLP collector), per account, in DRF `<count>/<period>` form. Tight enough that the probe cannot be used to hammer the collector. |
-| `TRUEPPM_THROTTLE_MCP_READ_RATE` | `120/min` | Baseline rate limit for **API-token** reads on the [MCP read surface](/features/mcp-server/), per token, in DRF `<count>/<period>` form. Does not affect human session/JWT traffic. See [MCP read-surface rate limiting](#mcp-read-surface-rate-limiting) below. |
-| `TRUEPPM_THROTTLE_MCP_READ_COMPUTE_RATE` | `12/min` | Tighter rate limit stacked on the four **compute-heavy** MCP tools (what-if, latest Monte Carlo, forecast, sprint-forecast), per token, in DRF `<count>/<period>` form. See [MCP read-surface rate limiting](#mcp-read-surface-rate-limiting) below. |
-| `TRUEPPM_MCP_ENABLED` | `true` | Instance-wide kill switch for [MCP (AI-agent) token access](/features/mcp-server/). When `false`, every `mcp:read` token read is denied (`403`) across the whole instance — even for tokens that already exist — while human session/JWT traffic on the same endpoints is unaffected. The operator lever for "no agent access on this instance, period." See [MCP read-surface rate limiting](#mcp-read-surface-rate-limiting) below. |
+| `TRUEPPM_THROTTLE_MCP_READ_RATE` | `120/min` | Baseline rate limit for **agent-token (`mcp:read`)** reads on the [MCP read surface](/features/mcp-server/), per token, in DRF `<count>/<period>` form. Does not affect human session/JWT traffic, nor a member's own full-access (`legacy:full`) personal token, which is bounded by `TRUEPPM_THROTTLE_USER_RATE` like their session. See [MCP read-surface rate limiting](#mcp-read-surface-rate-limiting) below. |
+| `TRUEPPM_THROTTLE_MCP_READ_COMPUTE_RATE` | `12/min` | Tighter rate limit stacked on the four **compute-heavy** MCP tools (what-if, latest Monte Carlo, forecast, sprint-forecast), per **agent** token, in DRF `<count>/<period>` form. See [MCP read-surface rate limiting](#mcp-read-surface-rate-limiting) below. |
+| `TRUEPPM_MCP_ENABLED` | `true` | Instance-wide kill switch for [MCP (AI-agent) token access](/features/mcp-server/). When `false`, every `mcp:read` token read is denied (`403`) across the whole instance — even for tokens that already exist — while human session/JWT traffic, and a member's own full-access (`legacy:full`) personal token, are unaffected. The operator lever for "no agent access on this instance, period." See [MCP read-surface rate limiting](#mcp-read-surface-rate-limiting) below. |
 | `TRUEPPM_MAX_PERSONAL_ACCESS_TOKENS` | `10` | Maximum number of **active** [personal access tokens](/features/personal-access-tokens/) a single user may hold at once (not revoked, not expired). Bounds the blast radius of a leaked account. Once at the cap a user must revoke one before minting another. |
 | `TRUEPPM_MAX_USER_PINS` | `100` | Maximum pinned projects + programs a single user may hold. This is a navigability cap on the pinned rail and `/me/pinned/`, not a security control — exceeding it returns `400` with `code: "pin_limit_reached"`. |
 | `TRUEPPM_TOKEN_ISSUANCE_PER_MINUTE` | `5` | Per-account rate limit (requests per minute) on the token-mint endpoint. Caps the blast radius of a scripted attacker on a compromised admin session even when RBAC is satisfied. |
+| `TRUEPPM_TOKEN_REVOCATION_PER_MINUTE` | `30` | Per-account rate limit (requests per minute) on the token-revoke endpoint. Set well **above** the issuance cap on purpose: revocation is the containment action, and someone cutting off a leak may legitimately revoke every token they hold in one burst. |
 | `TRUEPPM_TASK_SYNC_STEADY_STATE_LIMIT` | `100` | Per-project steady-state rate limit (requests per minute) for the inbound [task-sync](/features/jira-import/) endpoint, applied after the 60-minute backfill window. |
 | `TRUEPPM_TASK_SYNC_BACKFILL_LIMIT` | `1000` | Per-project rate limit (requests per minute) for inbound task-sync during the first 60 minutes after a token is minted, giving a large first import headroom before dropping to the steady-state limit. |
 | `TRUEPPM_SHARE_BOARD_MAX_CARDS` | `1000` | Maximum cards in a public board snapshot; a larger board is truncated (the viewer sees a "showing the first N cards" note). |
@@ -360,8 +361,12 @@ read across the whole instance:
   though the token still exists and carries the scope — the check is **fail-closed**
   and lives at the single guard chokepoint every MCP-readable endpoint shares.
 - **Human session/JWT traffic on the same endpoints is unaffected.** The switch
-  gates only the API-token (agent) path, so interactive users and the web client
-  keep working normally.
+  gates only the **agent-token (`mcp:read`)** path, so interactive users and the
+  web client keep working normally. A member's own full-access (`legacy:full`)
+  [personal access token](/features/personal-access-tokens/) is unaffected too —
+  it is that person's credential rather than an agent's, and it reaches the
+  general API on the same terms as their browser session regardless of this
+  switch.
 - Each denied read is still recorded in the [agent-action audit
   log](/administration/mcp-server/#agent-action-audit-log) as a `policy` refusal,
   so you retain a trail of what was attempted while access was off.

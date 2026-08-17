@@ -63,6 +63,7 @@ from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import (
+    IsNotTokenAuthenticated,
     IsOrgAdmin,
     IsProgramAdmin,
     IsProgramMember,
@@ -15522,21 +15523,55 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
 
     from trueppm_api.apps.projects.throttles import TokenIssuanceThrottle
 
-    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+    # IsNotTokenAuthenticated: credential management is session/JWT-only (#2878). A
+    # personal access token reaching here could mint a *project* token, which is a
+    # strictly worse persistence primitive than a sibling PAT — project tokens are
+    # deliberately left alone by password reset and by off-boarding
+    # (revoke_all_personal_access_tokens scopes to owner=user), so one minted from a
+    # leaked PAT survives every containment step the owner has.
+    permission_classes = [
+        IsAuthenticated,
+        IsNotTokenAuthenticated,
+        IsProjectMember,
+        IsProjectNotArchived,
+    ]
     serializer_class = ProjectApiTokenSerializer
     http_method_names = ["get", "post", "delete", "head", "options"]
 
     def get_throttles(self) -> list[Any]:
-        from trueppm_api.apps.projects.throttles import TokenIssuanceThrottle as _TIT
+        # `[*super().get_throttles(), …]`, not `[…]` (#2878): an overriding
+        # get_throttles *replaces* DEFAULT_THROTTLE_CLASSES rather than adding to it,
+        # so returning a bare list left list/retrieve/destroy with an empty throttle
+        # list — an unthrottled enumerate/delete pair on a credential surface, while
+        # `api/reference.md` publishes "Every endpoint is rate limited."
+        from trueppm_api.apps.projects.throttles import (
+            TokenIssuanceThrottle as _TIT,
+        )
+        from trueppm_api.apps.projects.throttles import (
+            TokenRevocationThrottle as _TRT,
+        )
 
+        throttles = list(super().get_throttles())
         if self.action == "create":
-            return [_TIT()]
-        return []
+            throttles.append(_TIT())
+        elif self.action == "destroy":
+            throttles.append(_TRT())
+        return throttles
 
     def get_permissions(self) -> list[BasePermission]:
         if self.action in ("create", "destroy"):
-            return [IsAuthenticated(), IsProjectAdmin(), IsProjectNotArchived()]
-        return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
+            return [
+                IsAuthenticated(),
+                IsNotTokenAuthenticated(),
+                IsProjectAdmin(),
+                IsProjectNotArchived(),
+            ]
+        return [
+            IsAuthenticated(),
+            IsNotTokenAuthenticated(),
+            IsProjectMember(),
+            IsProjectNotArchived(),
+        ]
 
     # Scope hooks — the program subclass (ProgramApiTokenViewSet) overrides these
     # so the create/destroy/list bodies stay scope-agnostic (ADR-0076).
@@ -15707,9 +15742,15 @@ class ProgramApiTokenViewSet(ProjectApiTokenViewSet):
     _scope_kwarg = "program_pk"
 
     def get_permissions(self) -> list[BasePermission]:
+        # IsNotTokenAuthenticated on every branch — see ProjectApiTokenViewSet (#2878).
         if self.action in ("create", "destroy"):
-            return [IsAuthenticated(), IsProgramAdmin(), IsProgramNotClosed()]
-        return [IsAuthenticated(), IsProgramMember()]
+            return [
+                IsAuthenticated(),
+                IsNotTokenAuthenticated(),
+                IsProgramAdmin(),
+                IsProgramNotClosed(),
+            ]
+        return [IsAuthenticated(), IsNotTokenAuthenticated(), IsProgramMember()]
 
     def _resolve_scope(self) -> Any:
         from django.http import Http404
@@ -15745,16 +15786,28 @@ class MyApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
     # idempotency store for replay — same rationale as the project token viewset.
     idempotency_exempt = True
 
-    permission_classes = [IsAuthenticated]
+    # Session/JWT only (#2878). A token-authenticated caller is refused on every
+    # action: a leaked PAT that can mint siblings and revoke the owner's live tokens
+    # turns one leak into persistence plus a denial of the owner's own automations,
+    # and makes "revoke the token" — the documented containment step — a lie.
+    permission_classes = [IsAuthenticated, IsNotTokenAuthenticated]
     serializer_class = MyApiTokenSerializer
     http_method_names = ["get", "post", "delete", "head", "options"]
 
     def get_throttles(self) -> list[Any]:
-        from trueppm_api.apps.projects.throttles import TokenIssuanceThrottle
+        # `[*super().get_throttles(), …]` — see ProjectApiTokenViewSet.get_throttles
+        # for why a bare list is the bug (#2878).
+        from trueppm_api.apps.projects.throttles import (
+            TokenIssuanceThrottle,
+            TokenRevocationThrottle,
+        )
 
+        throttles = list(super().get_throttles())
         if self.action == "create":
-            return [TokenIssuanceThrottle()]
-        return []
+            throttles.append(TokenIssuanceThrottle())
+        elif self.action == "destroy":
+            throttles.append(TokenRevocationThrottle())
+        return throttles
 
     def get_queryset(self) -> QuerySet[Any]:
         # Auto-scoped to the requesting user: owner=request.user is the only object
@@ -15885,6 +15938,69 @@ class _ApiTokenAuditPagination(pagination.LimitOffsetPagination):
     max_limit = 500
 
 
+@extend_schema(
+    summary="List your own personal access token audit log",
+    description=(
+        "Append-only lifecycle log for the requesting user's own personal access "
+        "tokens: every mint and every revoke, with the acting user, the source IP, "
+        "and — for a revoke — the reason (`password_reset`, `offboarding`, "
+        "`operator_bulk_revoke`, or absent for a self-service revoke).\n\n"
+        "Scoped to the caller; no other user's rows are ever returned. Requires a "
+        "session or JWT — API tokens are refused on the credential-management "
+        "surface.\n\n"
+        "This log records a token's lifecycle, not its use: per-request activity for "
+        "a `legacy:full` token is not audited, and the token's own `last_used_at` "
+        "field is the available signal for whether it is live."
+    ),
+)
+class MyApiTokenAuditView(generics.ListAPIView[Any]):
+    """``GET /api/v1/me/api-token-audit/`` — the caller's own PAT lifecycle log (#2878).
+
+    The reader for the owner-scoped rows ``MyApiTokenViewSet`` has been writing since
+    ADR-0214. They had none: those rows set ``owner`` and leave ``project``/``program``
+    null, while ``ApiTokenAuditView`` filters on ``project_id`` and
+    ``ProgramApiTokenAuditView`` on ``program_id``, so a personal token's rows matched
+    no queryset anywhere and no route reached them. ``features/personal-access-tokens.md``
+    promises "every mint and revoke is written to an append-only audit log" — the write
+    half was true and the read half did not exist, which is a dead control rather than
+    an audit trail.
+
+    Scoped to ``owner=request.user`` and nothing else: a PAT is a purely personal
+    credential, so there is no project/program RBAC to consult and no way to widen the
+    view. Session/JWT only, like the rest of the credential surface.
+
+    **What this log does and does not answer.** It answers "when was this token minted,
+    by whom, from where, and when was it revoked, and why" — including the password-reset
+    and off-boarding revocations that wrote nothing before #2878. It does **not** answer
+    "was this token used, and for what": a PAT's per-request activity is not audited
+    (governing ``legacy:full`` token writes is #2745/#2749, 0.5 work), and a row per
+    request would be a write amplification of every read. The token's own
+    ``last_used_at``, on the token list, is the available signal for "used at all".
+    """
+
+    permission_classes = [IsAuthenticated, IsNotTokenAuthenticated]
+    serializer_class = ApiTokenAuditEntrySerializer
+    pagination_class = _ApiTokenAuditPagination
+    # Declare no filter backends rather than inheriting the global ones. `SearchFilter`
+    # is in DEFAULT_FILTER_BACKENDS, and a view that sets no `search_fields` makes DRF
+    # return the *unfiltered* list for `?search=x` with a 200 — while drf-spectacular
+    # still publishes `search` as a query parameter. An advertised parameter that is
+    # silently ignored is worse than an absent one; the log is already ordered
+    # newest-first and paginated, so neither backend has anything to contribute.
+    filter_backends: list[Any] = []
+
+    def get_queryset(self) -> QuerySet[Any]:
+        from trueppm_api.apps.projects.models import ApiTokenAuditEntry
+
+        # IsAuthenticated guarantees a real user, but the stub types request.user as
+        # `User | AnonymousUser`; same ignore as MyApiTokenViewSet.get_queryset.
+        return (
+            ApiTokenAuditEntry.objects.filter(owner=self.request.user)  # type: ignore[misc]
+            .select_related("actor", "token")
+            .order_by("-created_at")
+        )
+
+
 class ApiTokenAuditView(generics.ListAPIView[Any]):
     """``GET /api/v1/projects/{project_pk}/api-token-audit/`` — per-project audit log.
 
@@ -15896,9 +16012,20 @@ class ApiTokenAuditView(generics.ListAPIView[Any]):
     against a future refactor that changes how ``project_pk`` is sourced;
     the primary gate is ``IsProjectMember.has_permission`` reading the same
     URL kwarg.
+
+    Session/JWT only (#2878), like the token viewset it reports on. The rows carry
+    ``token_prefix``, the acting user, the source IP, and — for ``minted`` rows — the
+    token's name and scopes: it is the reconnaissance view for the credential surface,
+    and there is no automation story for "my script reads my team's credential
+    history" that outweighs denying it to a leaked bearer.
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+    permission_classes = [
+        IsAuthenticated,
+        IsNotTokenAuthenticated,
+        IsProjectMember,
+        IsProjectNotArchived,
+    ]
     serializer_class = ApiTokenAuditEntrySerializer
     pagination_class = _ApiTokenAuditPagination
 
@@ -15916,11 +16043,12 @@ class ApiTokenAuditView(generics.ListAPIView[Any]):
 class ProgramApiTokenAuditView(ApiTokenAuditView):
     """``GET /api/v1/programs/{program_pk}/api-token-audit/`` — program audit log.
 
-    Visible to any program member. Mirrors the project audit view; filters the
-    append-only ApiTokenAuditEntry rows by program scope (ADR-0076).
+    Visible to any program member, session/JWT only (#2878). Mirrors the project
+    audit view; filters the append-only ApiTokenAuditEntry rows by program scope
+    (ADR-0076).
     """
 
-    permission_classes = [IsAuthenticated, IsProgramMember]
+    permission_classes = [IsAuthenticated, IsNotTokenAuthenticated, IsProgramMember]
 
     def get_queryset(self) -> QuerySet[Any]:
         from trueppm_api.apps.projects.models import ApiTokenAuditEntry
@@ -16012,13 +16140,17 @@ class TaskAttachmentViewSet(
     serializer_class = TaskAttachmentSerializer
 
     def get_throttles(self) -> list[Any]:
-        # Only the create action uploads; list/retrieve/destroy stay unthrottled
-        # (#574, security review !306 LOW-3).
+        # The create action uploads and carries the dedicated upload cap (#574,
+        # security review !306 LOW-3). The other actions keep the account-level
+        # default: returning a bare list here replaced DEFAULT_THROTTLE_CLASSES
+        # instead of adding to it, so list/retrieve/destroy resolved to *no*
+        # throttle at all (#2878).
         from trueppm_api.apps.projects.throttles import TaskAttachmentUploadThrottle
 
+        throttles = list(super().get_throttles())
         if self.action == "create":
-            return [TaskAttachmentUploadThrottle()]
-        return []
+            throttles.append(TaskAttachmentUploadThrottle())
+        return throttles
 
     def get_queryset(self) -> QuerySet[TaskAttachment]:
         user = self.request.user
@@ -16252,11 +16384,15 @@ class TaskCommentViewSet(
     serializer_class = TaskCommentSerializer
 
     def get_throttles(self) -> list[Any]:
+        # `[*super().get_throttles(), …]`: the mention cap stacks on top of the
+        # account default rather than replacing it, so the read and delete actions
+        # keep a bound (#2878 — same defect class as the two token viewsets).
         from trueppm_api.apps.notifications.throttles import MentionRateThrottle
 
+        throttles = list(super().get_throttles())
         if self.action in ("create", "partial_update", "update"):
-            return [MentionRateThrottle()]
-        return []
+            throttles.append(MentionRateThrottle())
+        return throttles
 
     def get_queryset(self) -> QuerySet[TaskComment]:
         user = self.request.user

@@ -450,9 +450,28 @@ class TestProjectApiTokenCreateValidation:
         assert ProjectApiTokenCreateSerializer().validate_scopes([]) == ["legacy:full"]
 
     def test_duplicate_scopes_are_deduped_in_request_order(self) -> None:
+        assert ProjectApiTokenCreateSerializer().validate_scopes(["mcp:read", "mcp:read"]) == [
+            "mcp:read"
+        ]
         assert ProjectApiTokenCreateSerializer().validate_scopes(
-            ["mcp:read", "legacy:full", "mcp:read"]
-        ) == ["mcp:read", "legacy:full"]
+            ["legacy:full", "legacy:full"]
+        ) == ["legacy:full"]
+
+    def test_the_two_scopes_cannot_be_combined(self) -> None:
+        """#2877: the pair selects mutually exclusive enforcement postures.
+
+        Previously accepted-but-meaningless (``legacy:full`` already granted everything
+        ``mcp:read`` does). Now load-bearing: ``is_agent_token`` resolves such a token to
+        full authority, so the settings UI would label it "read-only for AI assistants"
+        while it wrote freely and ignored the instance kill switch. Both mint paths share
+        ``_normalize_token_scopes``, because two copies of this rule is how they drifted.
+        """
+        with pytest.raises(serializers.ValidationError, match="cannot be combined"):
+            ProjectApiTokenCreateSerializer().validate_scopes(
+                ["mcp:read", "legacy:full", "mcp:read"]
+            )
+        with pytest.raises(serializers.ValidationError, match="cannot be combined"):
+            MyApiTokenCreateSerializer().validate_scopes(["legacy:full", "mcp:read"])
 
     def test_an_mcp_read_token_must_carry_an_expiry(self) -> None:
         with pytest.raises(serializers.ValidationError, match="expires_at is required"):

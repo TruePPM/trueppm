@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import time, timedelta
-from typing import Any
+from typing import Any, TypeGuard
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -1475,9 +1475,15 @@ class Project(VersionedModel):
     # this project's data, whatever its scope and whatever any parent prefers.
     # The cascade is RESTRICTIVE-ONLY (AND across instance/workspace/program/
     # project), so this denial cannot be overridden from above — that is the whole
-    # point of the control (Morgan's #2415 objection). A read-only ``mcp:read``
-    # token cannot flip it back: ``TokenReadOnlyMethods`` confines tokens to safe
-    # methods, so the agent cannot lift the control that restrains it. Resolved
+    # point of the control (Morgan's #2415 objection). An **agent** token cannot flip
+    # it back: ``TokenReadOnlyMethods`` confines agent tokens to safe methods, so the
+    # agent cannot lift the control that restrains it. Since #2877 that is a statement
+    # about agent tokens specifically, not about tokens generally — a project Admin's
+    # own ``legacy:full`` PAT can PATCH this field, exactly as their session can. The
+    # chain "leaked PAT → re-enable consent → mint an mcp:read token → agent reads the
+    # team's data" is closed at its second step by ``IsNotTokenAuthenticated`` on the
+    # token-management surface (#2878): a token cannot mint a token. The two changes
+    # are coupled and must not be reverted independently. Resolved
     # computed-on-read in ``apps.projects.mcp_settings``; surfaced as
     # ``effective_mcp_enabled``/``inherited_mcp_enabled``. Not in
     # ``_HISTORY_EXCLUDED_BASE`` so every flip is captured (audit).
@@ -5948,6 +5954,55 @@ class ApiToken(VersionedModel):
 ProjectApiToken = ApiToken
 
 
+def is_agent_token(auth: object) -> TypeGuard[ApiToken]:
+    """Whether ``auth`` is an *agent* (MCP) credential rather than a human's own (#2877).
+
+    The whole MCP control layer — the operator kill switch (ADR-0497), the team
+    read opt-out (ADR-0678), the read-only method guard, the row filtering, the
+    agent-action audit — exists to govern **agent** traffic. Every one of those
+    controls used to discriminate on ``isinstance(auth, ApiToken)``, and while an
+    ``ApiToken`` on those views could only ever be an agent that was the same
+    question. #2547 made ``legacy:full`` a first-class *general* API credential —
+    "the user's own CI script", authenticated by
+    ``OwnerScopedApiTokenAuthentication`` and confined to its owner's own RBAC —
+    and no guard was taught the difference, so every MCP control silently applied
+    to it: writes 403'd across the core CRUD API and the kill switch blanked its
+    reads to ``count: 0`` (#2877). This predicate is the one place that
+    distinction is made, so the guards cannot drift apart from each other.
+
+    The test is *"does this token carry ``legacy:full``?"*, negated — deliberately
+    **not** *"does it carry ``mcp:read``?"* — so it fails **closed**: a token with
+    no scopes, or carrying some future narrower scope, is treated as an agent and
+    stays confined to the read-only surface. Only the explicit full-authority
+    scope opts out, and that scope is exactly the one whose meaning is "acts as
+    the owner, with the owner's permissions and nothing more."
+
+    A token carrying *both* scopes resolves to full authority (not an agent). New
+    mints reject the combination as incoherent
+    (``MyApiTokenCreateSerializer.validate_scopes``), but a row predating that
+    validation must resolve somewhere, and full authority is the honest reading:
+    ``legacy:full`` already granted everything ``mcp:read`` does, so treating such
+    a token as an agent would restrict a credential that was never restricted.
+
+    The residual gap this predicate creates, stated so it is not rediscovered as a
+    surprise: because the agent controls no longer bind ``legacy:full``, an operator's
+    instance kill switch does not reach a member who points an MCP client at a
+    ``legacy:full`` token — and nothing tells that client it is not holding an agent
+    credential, because ``/auth/me/`` echoes no scope. TODO(#2938): surface the token's
+    posture on ``/auth/me/`` and make ``trueppm-mcp`` refuse to boot on a non-agent
+    token. Not closable here: restraining ``legacy:full`` is what #2877 removed.
+
+    Typed as a ``TypeGuard`` so a caller that branches on it also gets ``auth`` narrowed
+    to ``ApiToken`` and can read ``.pk``/``.owner`` without a second ``isinstance``.
+    ``TypeGuard`` narrows the **positive** branch only, so a guard written as
+    ``if not is_agent_token(x): return`` still needs its own ``isinstance`` if it goes on
+    to touch attributes.
+    """
+    if not isinstance(auth, ApiToken):
+        return False
+    return SCOPE_LEGACY_FULL not in (auth.scopes or [])
+
+
 class InboundTaskLink(VersionedModel):
     """One row per (project, source, external_id) — links a Task to its external origin.
 
@@ -6122,6 +6177,12 @@ class ApiTokenAuditEntry(models.Model):
         indexes = [
             models.Index(fields=["project", "-created_at"], name="api_token_audit_proj_idx"),
             models.Index(fields=["program", "-created_at"], name="api_token_audit_prog_idx"),
+            # The owner scope's counterpart, added with its reader (#2878). Owner-scoped
+            # rows existed from ADR-0214 but nothing queried them, so the composite that
+            # the other two scopes have was never needed; `MyApiTokenAuditView` runs
+            # exactly this shape (`filter(owner=…).order_by("-created_at")`, plus the
+            # paginator's COUNT).
+            models.Index(fields=["owner", "-created_at"], name="api_token_audit_owner_idx"),
         ]
         constraints = [
             models.CheckConstraint(

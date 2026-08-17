@@ -35,6 +35,7 @@ from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership
 from trueppm_api.apps.access.permissions import (
+    IsNotTokenAuthenticated,
     IsProjectAdmin,
     IsProjectMember,
     IsProjectMemberWrite,
@@ -99,7 +100,14 @@ class IntegrationCredentialViewSet(
     """
 
     serializer_class = CredentialSummarySerializer
-    permission_classes: list[type[BasePermission]] = [IsAuthenticated]
+    # Session/JWT only (#2878), same rule as the API-token surface: a credential store
+    # is not something a credential may rewrite. A leaked personal access token could
+    # otherwise overwrite or delete the owner's connected-account credential — swapping
+    # in the attacker's own Jira so it feeds the owner's "My Work", or simply breaking
+    # the link. There is no exfiltration risk (the ciphertext is never serialized), but
+    # "my script manages my credentials" is not an automation story worth leaving open
+    # to a bearer the owner did not knowingly hand it to.
+    permission_classes: list[type[BasePermission]] = [IsAuthenticated, IsNotTokenAuthenticated]
     lookup_field = "provider"
     lookup_url_kwarg = "provider"
     # Rate-limit the whole viewset under one per-user scope (#1551). connect/rotate

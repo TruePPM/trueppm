@@ -1,12 +1,22 @@
 ---
 title: MCP server
 description: Operate the read-only TruePPM MCP server — transports (stdio, HTTP, SSE), Docker deployment, token scopes, and the security posture.
+documentedFor: "0.4"
 ---
 
 :::caution[Pre-GA]
 The read-only MCP server ships in 0.4, TruePPM's first beta. On unreleased builds
 the tool list and the token-scope surface may still change. Expect API contract
 changes across 0.x point releases; a stable contract arrives at 1.0.
+:::
+
+:::note[Ships in 0.4]
+Both agent-access controls on this page — the instance kill switch
+(`TRUEPPM_MCP_ENABLED`) and the team read opt-out — become **agent-scoped** in
+**TruePPM 0.4**. In `v0.3.0-alpha.3` (the latest release) they apply to *any* API
+token, including a member's own full-access (`legacy:full`) personal token, so a
+person's own scripts are blocked and their collection reads silently return zero
+rows alongside the agent traffic the controls are aimed at (#2877).
 :::
 
 This is the operator's reference for `trueppm-mcp`, the read-only
@@ -57,8 +67,16 @@ credential that reads beyond the single scope it was minted for. Choose the
 **`mcp:read` scope** and **set an expiry** (required for `mcp:read`). That scope
 grants safe-method (`GET`) access to the viewsets the MCP wraps and is **rejected
 at every write path**, and the token acts as *you*: it reads only what your role
-permits, cannot write, and cannot outlive its expiry. The unrestricted
-`legacy:full` token is for inbound sync and is refused on this surface.
+permits, cannot write, and cannot outlive its expiry.
+
+**Mint `mcp:read`, not `legacy:full`.** A full-access personal token also
+authenticates here — `legacy:full` is a read superset — but it is not an *agent*
+credential, and the two agent-access controls below deliberately do not apply to
+it: it is your own credential, governed exactly as your browser session is. Point
+an MCP client at a `legacy:full` token and neither the instance kill switch nor a
+team's read opt-out will restrain it, and its reads leave no rows in the
+[agent-action audit log](#agent-action-audit-log). Choosing the read-only scope is
+what makes an agent an agent.
 
 ## Environment configuration
 
@@ -393,9 +411,29 @@ the [agent-action audit log](#agent-action-audit-log) as a `policy` refusal.
 
 ### Who it affects
 
-Only agent (MCP token) traffic. **People are never affected** — your team, and
-anyone signed in through the web or mobile app, read exactly what they always
+Only agent (`mcp:read` token) traffic. **People are never affected** — your team,
+anyone signed in through the web or mobile app, and anyone running a script on
+their own full-access (`legacy:full`) personal token read exactly what they always
 did. Blocking agent access does not hide anything from a human being.
+
+### What it cannot do
+
+It binds **agent credentials**, not people. A member who holds a full-access
+personal token can still read the project's data and paste it wherever they like —
+including into an AI client, by pointing that client at a `legacy:full` token
+instead of an `mcp:read` one. That is the same trust model as a person copying a
+task list into a chat window, and no server-side switch reaches it: the credential
+carries their own authority, so restraining it would mean restraining them.
+
+What the control does guarantee is that a credential minted *as an agent* is
+bound, always, by whichever scope objects. Treat it as the answer to "may an agent
+be pointed at this team's data," not as a data-loss-prevention boundary.
+
+Today `trueppm-mcp` will start on a `legacy:full` token without complaint, because
+`GET /api/v1/auth/me/` does not report the token's scope back to it. A later
+release makes that boot fail with an explanation instead, so the *accidental* case
+— someone using the default-scope token they already had — becomes a loud refusal
+rather than a quiet bypass.
 
 ### The rules that make it consent rather than a suggestion
 
@@ -449,8 +487,14 @@ does not delete audit history on its own; cron the command yourself if you want 
 rotation.
 
 Project members read their team's agent actions at `GET /api/v1/agent-actions/`,
-scoped to the projects they belong to (plus their own agent's actions). A human
-session read on the same views is **not** recorded — only token/agent traffic is.
+scoped to the projects they belong to (plus their own agent's actions). Only
+**agent** (`mcp:read`) traffic is recorded: a human session read on the same views
+is not, and neither is a read made with a member's own full-access (`legacy:full`)
+personal token — that is a person's credential, and recording it as agent activity
+would misattribute a script to an agent that does not exist. Auditing what a
+full-access token does across the whole API is separate, tracked work; the token's
+own mint and revoke history is at
+[`GET /api/v1/me/api-token-audit/`](/features/personal-access-tokens/#your-token-history).
 
 ## Troubleshooting
 

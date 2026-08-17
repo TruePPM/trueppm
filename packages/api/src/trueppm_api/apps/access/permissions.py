@@ -1341,21 +1341,89 @@ def TokenHasScope(required_scope: str) -> type[BasePermission]:
 
 
 class TokenReadOnlyMethods(BasePermission):
-    """Restrict API-token callers to safe (read-only) HTTP methods.
+    """Restrict *agent* API-token callers to safe (read-only) HTTP methods.
 
     Additively mixing token auth onto a ModelViewSet would otherwise expose its
-    write actions to any token. This class closes that hole: a token may only
-    issue GET/HEAD/OPTIONS on the views the MCP wraps. Human JWT/Session callers
-    are unaffected (their write access is governed by the RBAC classes).
+    write actions to an agent token. This class closes that hole: an ``mcp:read``
+    token may only issue GET/HEAD/OPTIONS on the views the MCP wraps, which is the
+    published product promise for that scope and must not be weakened.
+
+    Scoped to agent tokens, not to *all* tokens (#2877). A ``legacy:full`` personal
+    access token is the owner's own credential on the general API surface (#2547),
+    not an agent — refusing its writes 403'd every write to Task, Project, Risk,
+    Sprint, Label, Program and Backlog while the docs and UI promised "reads and
+    writes everything your account can." It passes here and is then governed by
+    the view's ordinary RBAC classes against ``request.user = token.owner``, so it
+    can never exceed its owner's own session. Human JWT/Session callers pass
+    trivially. See :func:`~trueppm_api.apps.projects.models.is_agent_token` for why
+    the predicate is "lacks ``legacy:full``" rather than "carries ``mcp:read``".
     """
 
     def has_permission(self, request: Request, view: APIView) -> bool:
+        from trueppm_api.apps.agents.models import RefusalConstraint
+        from trueppm_api.apps.projects.models import is_agent_token
+
+        if not is_agent_token(getattr(request, "auth", None)):
+            return True
+        if request.method in SAFE_METHODS:
+            return True
+        # "I minted a read-only token and pointed my write script at it" is the most
+        # likely first-hour integration mistake, and a bare 403 is the least
+        # diagnosable answer to it (#2878). capability_scope is disclosable: it
+        # describes the caller's own credential, not any resource.
+        _mark_policy_refusal(request, RefusalConstraint.CAPABILITY_SCOPE)
+        return False
+
+
+class IsNotTokenAuthenticated(BasePermission):
+    """Refuse API-token callers on the credential-management surface (#2878).
+
+    A leaked personal access token must not be able to *extend itself*. Without this
+    guard a bearer-only caller reached ``/me/api-tokens/`` through the default
+    authentication stack and could ``POST`` fresh siblings up to the 10-token cap,
+    ``GET`` the owner's whole token inventory, and ``DELETE`` the owner's legitimate
+    tokens to break their automations. Revoking the leaked token was therefore not
+    containment — the attacker already held credentials the owner had never seen, and
+    ``features/personal-access-tokens.md#revoking-a-token`` promises the opposite.
+    GitHub blocks PAT-manages-PAT for the same reason.
+
+    Applied to the whole surface rather than only its writes: the ``GET`` is the
+    reconnaissance step (it names every sibling token, its scopes and its expiry),
+    and there is no automation story for "my script enumerates my own credentials"
+    that justifies leaving it open. Managing credentials requires being present —
+    a session or a JWT.
+
+    **What this covers, precisely.** API tokens (personal, project, program) and their
+    audit logs, plus the per-user connected-account credential store. It does **not**
+    cover every route that mints a durable grant of some kind: a leaked PAT belonging to
+    a project Admin can still rotate a git-automation webhook secret or mint a public
+    share link, and neither is revoked by password reset, off-boarding, or the
+    ``revoke_api_tokens`` sweep (TODO(#2939)). So "revoke the token and you are
+    contained" is true for the credential surface and not yet a whole-system property —
+    say the narrower thing in operator docs until #2939 closes.
+
+    **The predicate is ``request.auth``, and that is only sound because it runs as a
+    permission.** An identity refusal is raised by the *authenticator*, so on that
+    path ``request.auth`` is still ``None`` and this class never executes at all —
+    DRF has already answered 401 before permissions are consulted. The 401 case is
+    therefore covered by the authenticator, not here, and a test suite that only
+    exercises live tokens (403) would prove nothing about it. Both paths are pinned
+    in ``tests/apps/projects/test_token_management_is_session_only.py``.
+    """
+
+    message = "API tokens cannot manage API tokens. Sign in to create, list, or revoke tokens."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        from trueppm_api.apps.agents.models import RefusalConstraint
         from trueppm_api.apps.projects.models import ApiToken
 
-        token = getattr(request, "auth", None)
-        if not isinstance(token, ApiToken):
+        if not isinstance(getattr(request, "auth", None), ApiToken):
             return True
-        return request.method in SAFE_METHODS
+        # Scope-blind on purpose, unlike the MCP guards (#2877): this is not an agent
+        # control. *No* token of any scope may manage credentials, so asking about the
+        # scope would only create a way to get the answer wrong.
+        _mark_policy_refusal(request, RefusalConstraint.CAPABILITY_SCOPE)
+        return False
 
 
 class McpInstanceEnabled(BasePermission):
@@ -1369,23 +1437,31 @@ class McpInstanceEnabled(BasePermission):
     (ADR-0245) but enforced at the mixin's one guard chokepoint rather than per
     view.
 
-    Token-scoped and fail-closed. A non-token (human JWT/Session) request PASSES
+    Agent-scoped and fail-closed. A non-token (human JWT/Session) request PASSES
     unconditionally, so the switch never affects normal user auth on the same
-    viewset; an API-token caller is DENIED (``False`` → 403) whenever the switch
-    is off. Placed *first* in the guard list so a disabled instance short-circuits
-    the scope/owner checks. A denied read is still recorded as a ``POLICY`` refusal
+    viewset; an agent token is DENIED (``False`` → 403) whenever the switch
+    is off. Placed ahead of the scope checks so a disabled instance short-circuits
+    them (only the credential-identity guard ``TokenIsOwnerScoped`` precedes it — see
+    ``mcp_token_guards``). A denied read is still recorded as a ``POLICY`` refusal
     by the mixin's existing agent-action audit.
+
+    A ``legacy:full`` personal access token also passes unconditionally (#2877).
+    This switch is the operator's "no *agent* access on this instance" lever, and
+    ``administration/mcp-server.md`` promises it affects "only agent (MCP token)
+    traffic. People are never affected." A ``legacy:full`` PAT is a person's own CI
+    script; blanking its reads made that sentence false and did so *silently* — a
+    filtered collection returns ``count: 0``, indistinguishable from "no rows", so
+    a nightly export wrote an empty file on a 200.
     """
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         from django.conf import settings
 
         from trueppm_api.apps.agents.models import RefusalConstraint
-        from trueppm_api.apps.projects.models import ApiToken
+        from trueppm_api.apps.projects.models import is_agent_token
 
-        token = getattr(request, "auth", None)
-        if not isinstance(token, ApiToken):
-            return True  # Human JWT/Session path is never gated by the MCP switch.
+        if not is_agent_token(getattr(request, "auth", None)):
+            return True  # Human JWT/Session or the owner's own full-access PAT.
         # why: single operator chokepoint. When MCP is disabled instance-wide the
         # token still exists (and may carry mcp:read), but it must not grant agent
         # access. Denying here — before the scope/owner guards — fails closed for
@@ -1416,6 +1492,17 @@ class TokenIsOwnerScoped(BasePermission):
     token *is* its owner, so DRF's own object-level RBAC already confines its reads
     to exactly what that user may see — there is no over-return to defend against.
     Project/program tokens keep their designed write/sync surface unchanged.
+
+    **This guard deliberately stays keyed on the token's *type*, not its scope**,
+    while the four guards around it became scope-aware in #2877. It is load-bearing
+    that it did not follow them: project and program tokens carry ``legacy:full`` by
+    *default* (``_default_api_token_scopes``), so a scope-aware version of this check
+    would pass every one of them and re-open the exact #1712 confused-deputy hole —
+    a token minted to read one project becoming a credential that reads its minter's
+    entire membership, now with writes attached. The question this guard asks ("is
+    this credential the human it acts as?") is orthogonal to the question
+    :func:`~trueppm_api.apps.projects.models.is_agent_token` asks ("is this
+    credential an agent?"), and conflating them fails open.
 
     Rejects with ``AuthenticationFailed`` (401, not 403) to match the rest of the
     token surface — a caller cannot distinguish "wrong token type" from "no such
@@ -1482,9 +1569,11 @@ class McpProjectEnabled(BasePermission):
     own data — the answer to *"consent that only an admin can grant or revoke on
     the team's behalf is consent in name only"* (#2415).
 
-    Token-scoped and fail-closed, like every other guard here: a non-token (human
-    JWT/Session) request passes unconditionally, so nothing about normal user auth
-    on the shared viewsets changes. For an API-token caller it denies when:
+    Agent-scoped and fail-closed, like every other guard here: a non-token (human
+    JWT/Session) request — and a ``legacy:full`` personal access token, which is a
+    person's own credential rather than an agent (#2877) — passes unconditionally,
+    so nothing about normal user auth on the shared viewsets changes. For an agent
+    token it denies when:
 
       * a scope above every project denies (workspace switch off — the instance
         switch is already short-circuited by :class:`McpInstanceEnabled` first), or
@@ -1506,11 +1595,10 @@ class McpProjectEnabled(BasePermission):
             mcp_reads_globally_disabled,
             resolve_mcp_enabled,
         )
-        from trueppm_api.apps.projects.models import ApiToken, Project
+        from trueppm_api.apps.projects.models import Project, is_agent_token
 
-        token = getattr(request, "auth", None)
-        if not isinstance(token, ApiToken):
-            return True  # Human JWT/Session path is never gated by MCP consent.
+        if not is_agent_token(getattr(request, "auth", None)):
+            return True  # Human JWT/Session or the owner's own full-access PAT.
 
         if mcp_reads_globally_disabled():
             _mark_policy_refusal(request, RefusalConstraint.CAPABILITY_SCOPE)
@@ -1637,29 +1725,45 @@ class McpReadableViewMixin(_McpViewBase):
         return throttles
 
     def mcp_token_guards(self) -> list[BasePermission]:
-        """Read-only MCP token guards to append to a view's RBAC permission list.
+        """MCP agent-token guards to append to a view's RBAC permission list.
 
-        All permissions pass unconditionally for human JWT/Session auth, so they
-        are safe to append to *every* action's list. For an API-token caller they
-        confine it to: the instance MCP switch being on (``McpInstanceEnabled``,
-        placed first so a disabled instance short-circuits everything else), safe
-        methods (``TokenReadOnlyMethods``), the ``mcp:read`` scope
-        (``TokenHasScope``), and — crucially — an owner-scoped (personal) token
-        (``TokenIsOwnerScoped``). The owner-scoped guard closes the confused-deputy
-        hole (#1712): a project/program token has no pk to check against on the
-        collection tools, so without it a scoped token would read the minter's
-        entire membership. ViewSets that override ``get_permissions`` with
-        per-action lists call this from their wrapper so no branch — including
-        write branches — can leak a token past the guards.
+        All five pass unconditionally for human JWT/Session auth, so they are safe
+        to append to *every* action's list. For an **agent** token they confine it
+        to: the instance MCP switch being on (``McpInstanceEnabled``, placed first
+        so a disabled instance short-circuits everything else), the team's consent
+        (``McpProjectEnabled``), safe methods (``TokenReadOnlyMethods``), and the
+        ``mcp:read`` scope (``TokenHasScope``). ViewSets that override
+        ``get_permissions`` with per-action lists call this from their wrapper so no
+        branch — including write branches — can leak a token past the guards.
+
+        Two of the five have a wider reach than "agent", on purpose:
+
+        * ``TokenHasScope("mcp:read")`` is satisfied by ``legacy:full`` as a read
+          superset, so a full-access PAT is not stopped by it;
+        * ``TokenIsOwnerScoped`` applies to **every** ``ApiToken`` regardless of
+          scope, and must — it closes the confused-deputy hole (#1712) that
+          project/program tokens (which default to ``legacy:full``) would otherwise
+          walk straight through.
+
+        ``TokenIsOwnerScoped`` is **first** since #2877. Before, it was
+        defense-in-depth *behind* ``TokenReadOnlyMethods``, which refused every token
+        an unsafe method; now that ``TokenReadOnlyMethods`` passes ``legacy:full``, it
+        is the sole barrier between a project/program token and a write here. Ordering
+        it first makes that structural: the question "is this credential the human it
+        acts as?" is answered before any capability question, the way
+        ``McpInstanceEnabled`` used to be first for the operator's question. Outcomes
+        are unchanged — DRF ANDs the list — but a project/program token now gets its
+        401 from the guard that is actually deciding, rather than a 403 from whichever
+        capability check happened to be consulted first.
         """
         from trueppm_api.apps.projects.models import SCOPE_MCP_READ
 
         return [
+            TokenIsOwnerScoped(),
             McpInstanceEnabled(),
             McpProjectEnabled(),
             TokenReadOnlyMethods(),
             TokenHasScope(SCOPE_MCP_READ)(),
-            TokenIsOwnerScoped(),
         ]
 
     def get_permissions(self) -> list[BasePermission]:
@@ -1776,10 +1880,10 @@ class McpReadableViewMixin(_McpViewBase):
         return response
 
     def _record_mcp_agent_action(self, request: Request, response: Any) -> None:
-        from trueppm_api.apps.projects.models import ProjectApiToken
+        from trueppm_api.apps.projects.models import ProjectApiToken, is_agent_token
 
-        # Only a token-authenticated call is an *agent* action. A human JWT/session read
-        # on the same view is not audited. ``successful_authenticator is None`` covers
+        # Only an *agent*-token call is an agent action. A human JWT/session read on
+        # the same view is not audited. ``successful_authenticator is None`` covers
         # both "auth failed" and "anonymous"; guarding on it also means we never touch
         # ``request.auth`` in a way that could re-trigger (and re-raise) a failed
         # authentication inside finalize_response. (Identity refusals — a revoked/expired
@@ -1788,6 +1892,39 @@ class McpReadableViewMixin(_McpViewBase):
             return
         token = getattr(request, "auth", None)
         if not isinstance(token, ProjectApiToken):
+            return
+
+        status_code = getattr(response, "status_code", 200)
+        # A non-agent token's *successful* read is not agent activity and is not recorded
+        # (#2877). The row would say otherwise on three fields at once —
+        # ``actor_kind=MCP_TOKEN``, ``capability_used=mcp:read``, and a summary reading
+        # "MCP POST …" — so logging a person's CI script there is the same inverted trail
+        # #2878 filed against the revocation log. It would also half-close #2749
+        # (governing ``legacy:full`` token writes, 0.5) on eight viewsets while leaving
+        # the ~260 other token-writable routes in
+        # ``tests/apps/access/token_write_surface.txt`` unrecorded, and a partial ledger
+        # is worse than a documented gap because it reads as complete.
+        #
+        # A **refusal** is not scope-filtered, and the asymmetry is deliberate even
+        # though it is inert today. Project and program tokens carry ``legacy:full`` by
+        # default, so a scope-only test here would exclude exactly the event most worth
+        # keeping: a scoped integration credential walked against the collection tools
+        # (``/me/work/``, ``/me/search``, ``/workspace/assets``) to turn a one-project
+        # token into a read of its minter's whole membership — the #1712 confused-deputy
+        # attempt.
+        #
+        # Inert today because **no permission-layer refusal on this surface reaches the
+        # write below**, on this branch or before it. DRF's ``exception_handler`` calls
+        # ``set_rollback()``, so by the time ``finalize_response`` runs the connection is
+        # already marked for rollback and the guard further down returns rather than
+        # emitting a row that could not commit. Verified by probe against ``origin/main``:
+        # a project-scoped token refused on ``GET /api/v1/projects/`` writes zero
+        # ``AgentAction`` rows both before and after this change. Refusals that *are*
+        # recorded come from the authenticator (``_audit_identity_refusal``), which runs
+        # before the exception handler. Closing the permission-layer half needs an
+        # out-of-transaction write, which is its own change (#2939) — this predicate is
+        # written to be correct when that lands rather than to need revisiting then.
+        if status_code < 400 and not is_agent_token(token):
             return
 
         from trueppm_api.apps.agents.models import (
@@ -1802,7 +1939,7 @@ class McpReadableViewMixin(_McpViewBase):
         )
         from trueppm_api.apps.projects.models import SCOPE_MCP_READ
 
-        status = getattr(response, "status_code", 200)
+        status = status_code
         allowed = status < 400
         verdict = AgentActionVerdict.ALLOWED if allowed else AgentActionVerdict.REFUSED
         # An authenticated token rejected by an MCP guard is a *policy* refusal (the

@@ -27,9 +27,11 @@ in the final schema dict — only the schema generator, which holds the view, ca
 it.
 
 The same subclass narrows ``security`` per-method on MCP-readable views (#2659):
-``McpReadableViewMixin`` adds ``projectApiTokenAuth`` at the view level, but a
-token caller there is restricted to safe methods at runtime, so the unsafe
-methods must not advertise the scheme either.
+``McpReadableViewMixin`` adds ``projectApiTokenAuth`` at the view level, but the
+project/program-scoped credentials unique to that scheme are refused on the whole
+MCP surface, so the unsafe methods must not advertise it. A ``legacy:full``
+personal token *can* write there since #2877 and is described by
+``personalApiTokenAuth``, which those operations already carry.
 """
 
 from __future__ import annotations
@@ -390,6 +392,46 @@ def _annotate_operation(
 # 429 documentation via a custom AutoSchema
 # ---------------------------------------------------------------------------
 
+# The 403 an API-token caller receives on the credential-management surface (#2878).
+# Declared on every operation whose view carries ``IsNotTokenAuthenticated``, so an
+# integrator scripting against a token learns from the contract that this refusal is
+# by design rather than discovering it as an apparent permissions bug.
+_TOKEN_REFUSED_RESPONSE = {
+    "description": (
+        "Refused because the caller authenticated with an API token. Managing API "
+        "tokens requires a session or JWT — a token cannot mint, list, or revoke "
+        "tokens, so that revoking a leaked credential is actual containment. The "
+        "``refusal`` envelope carries ``reason: policy`` and ``constraint: "
+        "capability_scope``. A token that is revoked, expired, or carries the wrong "
+        "scope for this surface is rejected earlier, by the authenticator, and "
+        "receives ``401`` with ``reason: identity`` instead."
+    ),
+    "content": {
+        "application/json": {
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "detail": {
+                        "type": "string",
+                        "example": (
+                            "API tokens cannot manage API tokens. Sign in to create, "
+                            "list, or revoke tokens."
+                        ),
+                    },
+                    "refusal": {
+                        "type": "object",
+                        "properties": {
+                            "verdict": {"type": "string", "example": "refused"},
+                            "reason": {"type": "string", "example": "policy"},
+                            "constraint": {"type": "string", "example": "capability_scope"},
+                        },
+                    },
+                },
+            }
+        }
+    },
+}
+
 _THROTTLE_RESPONSE = {
     "description": (
         "Rate limit exceeded. The client is issuing requests faster than the "
@@ -433,10 +475,21 @@ class TruePPMAutoSchema(AutoSchema):
         recognized on every action), but drf-spectacular's default ``get_auth()``
         reads ``view.get_authenticators()`` with no awareness of *which* method is
         being documented — so it attached ``projectApiTokenAuth`` to every method on
-        the view, including the unsafe ones the mixin's own
-        ``TokenReadOnlyMethods`` permission refuses to every token caller. That made
-        the schema advertise 82 write operations (POST/PUT/PATCH/DELETE) that always
-        403 for a token caller, while the runtime enforcement was already correct.
+        the view, including the unsafe ones no credential unique to that scheme can
+        reach. That made the schema advertise 82 write operations
+        (POST/PUT/PATCH/DELETE) as project/program-token-writable when they are not.
+
+        The rule the filter describes changed shape in #2877 but not in outcome.
+        Before: ``TokenReadOnlyMethods`` refused *every* token an unsafe method on
+        these views. Now a ``legacy:full`` personal access token may write here — but
+        that credential is described by the **``personalApiTokenAuth``** scheme,
+        which these operations already advertise through the default authentication
+        stack. The credentials unique to ``projectApiTokenAuth`` are the project- and
+        program-scoped tokens, and those are still refused on this whole surface by
+        ``TokenIsOwnerScoped`` (401), so the scheme remains unreachable for an unsafe
+        method and must not be advertised. Both schemes are ``http bearer`` with the
+        same ``tppm_<64-hex>`` format, so a client reading the schema is told exactly
+        the header it needs.
 
         This method and its view are the one place drf-spectacular hands both to the
         same call, so the filter belongs here rather than in the mixin (which has no
@@ -447,17 +500,45 @@ class TruePPMAutoSchema(AutoSchema):
         must keep advertising it).
         """
         auth = super().get_auth()
-        if self._mcp_token_write_unreachable():
+        if self._mcp_scoped_token_write_unreachable():
             auth = [entry for entry in auth if "projectApiTokenAuth" not in entry]
+        if self._token_callers_refused():
+            auth = [
+                entry
+                for entry in auth
+                if "projectApiTokenAuth" not in entry and "personalApiTokenAuth" not in entry
+            ]
         return auth
 
-    def _mcp_token_write_unreachable(self) -> bool:
+    def _token_callers_refused(self) -> bool:
+        """Whether this view refuses every API token outright (``IsNotTokenAuthenticated``).
+
+        The credential-management surface is session/JWT only since #2878, so neither
+        token scheme is reachable on any of its operations and the schema must not
+        advertise them — an integrator reading it would otherwise write a script that
+        cannot possibly work, against the one surface where the failure looks like a
+        permissions bug rather than a deliberate refusal.
+
+        Read off ``permission_classes`` rather than ``get_permissions()`` because schema
+        generation has no request to resolve per-action permissions against; every view
+        carrying the guard declares it statically, which is also what makes the
+        route-table tripwire in ``tests/apps/access/test_route_table_invariants.py``
+        sound.
+        """
+        from trueppm_api.apps.access.permissions import IsNotTokenAuthenticated
+
+        classes = getattr(self.view, "permission_classes", []) or []
+        return any(cls is IsNotTokenAuthenticated for cls in classes)
+
+    def _mcp_scoped_token_write_unreachable(self) -> bool:
         """Whether this operation is an unsafe method on an ``McpReadableViewMixin`` view.
 
-        Mirrors ``TokenReadOnlyMethods.has_permission`` (``request.method in
-        SAFE_METHODS``) exactly, so the schema can never drift from the runtime rule
-        it is describing — deriving from the same predicate rather than restating it,
-        per the issue's proposed fix.
+        On such an operation the project/program-scoped credentials that
+        ``projectApiTokenAuth`` uniquely describes are refused by
+        ``TokenIsOwnerScoped``, which applies to every ``ApiToken`` on the MCP
+        surface regardless of scope and regardless of method — so the predicate
+        stays a plain "unsafe method on the mixin" and does not need to restate the
+        scope logic (#2877).
         """
         from trueppm_api.apps.access.permissions import McpReadableViewMixin
 
@@ -479,6 +560,13 @@ class TruePPMAutoSchema(AutoSchema):
         if throttle_classes:
             responses = operation.setdefault("responses", {})
             responses.setdefault("429", dict(_THROTTLE_RESPONSE))
+        if self._token_callers_refused():
+            # Declared here rather than by decorating each view for the same reason as
+            # the 429 above: the fact lives in a view attribute the schema dict cannot
+            # see, and one injection point cannot drift from the permission class the
+            # way fifteen hand-written `@extend_schema` blocks would (#2878).
+            responses = operation.setdefault("responses", {})
+            responses.setdefault("403", dict(_TOKEN_REFUSED_RESPONSE))
         return operation
 
     def _get_paginator(self) -> Any:

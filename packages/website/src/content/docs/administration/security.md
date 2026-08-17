@@ -7,7 +7,7 @@ documentedFor: "0.4"
 ## Authentication
 
 :::note[Ships in 0.4]
-Five items on this page ship in **TruePPM 0.4**, the first beta, and are **not**
+Six items on this page ship in **TruePPM 0.4**, the first beta, and are **not**
 in `v0.3.0-alpha.3`, the latest release:
 
 - **Session-only "Remember me"** — in 0.3 the checkbox is present but inert; every
@@ -23,6 +23,11 @@ in `v0.3.0-alpha.3`, the latest release:
   the Docker Compose templates set `X-Frame-Options`, `X-Content-Type-Options`,
   and a CSP on the SPA document; a Helm install serves it with none of them, and
   the published `web` image proxies `/admin/` wide open. Both are fixed in 0.4.
+- **The `revoke_api_tokens` sweep** in the breach-recovery procedure below — in
+  0.3 there is no bulk revocation command, so after rotating the signing key you
+  must revoke each leaked API token by hand from its owner's personal settings
+  page. The warning that key rotation does not reach API tokens applies to 0.3
+  as well; only the remedy is new.
 
 Everything else on this page describes 0.3 behavior and is current.
 :::
@@ -283,6 +288,37 @@ next call as a `401`, attempts one (also-failing) refresh, and routes users to
 the sign-in screen. No data is lost. If you have not set a separate
 `JWT_SIGNING_KEY`, rotating `SECRET_KEY` has the same effect but also rotates
 session/CSRF signing.
+
+:::danger[Key rotation does not revoke API tokens]
+Rotating the signing key cuts **sessions and JWTs only**. An
+[API token](/features/personal-access-tokens/) — personal, project- or
+program-scoped — carries no signature: it is resolved by a SHA-256 hash lookup
+against the token table, so no key material is anywhere in its authentication
+path. Rotate the key and every leaked token is still live, at its owner's full
+permissions, indefinitely (a personal token's expiry is optional).
+
+**Breach recovery is therefore two steps, not one.** After rotating the key, sweep
+the tokens as well:
+
+```bash
+# Preview first — this is a dry run and changes nothing.
+python manage.py revoke_api_tokens --all-personal
+
+# Then commit. Revocation is one-way; nothing un-revokes a token.
+python manage.py revoke_api_tokens --all-personal --commit
+```
+
+Use `--user <username-or-email>` to scope the sweep to one departing or
+compromised account, or `--all` to include project- and program-scoped
+integration tokens — which will break every inbound sync until an admin re-mints
+them, so reach for it only on a full-instance compromise. Every revocation is
+written to the token audit log tagged `operator_bulk_revoke`. See
+[`revoke_api_tokens`](/administration/management-commands/#maintenance-commands).
+
+Two routine paths already revoke personal tokens on their own and need no manual
+step: a **password reset** and **deactivating or removing a member** each revoke
+that account's personal tokens in the same transaction, and both are audited.
+:::
 
 ## Helm secure-by-default
 

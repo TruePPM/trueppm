@@ -491,7 +491,13 @@ def revoke_all_refresh_tokens(user: Any) -> int:
     return revoked
 
 
-def revoke_all_personal_access_tokens(user: Any) -> int:
+def revoke_all_personal_access_tokens(
+    user: Any,
+    *,
+    actor: Any = None,
+    reason: str = "",
+    source_ip: str | None = None,
+) -> int:
     """Soft-revoke every active Personal Access Token owned by ``user`` (ADR-0214).
 
     Why this exists: a Personal Access Token is a *full-authority* bearer of the
@@ -514,8 +520,27 @@ def revoke_all_personal_access_tokens(user: Any) -> int:
     single indexed write with no ``server_version`` sync semantics on the audit
     path — the tokens are not mobile-synced resources whose version consumers track.
 
+    **Every revoked token gets an** ``ApiTokenAuditEntry`` **row (#2878).** It did
+    not, and the trail was inverted: routine self-service revocation through
+    ``MyApiTokenViewSet.destroy`` was logged, while the two *security-relevant*
+    revocations — password reset and off-boarding, the two that answer "was this
+    account contained, and when?" — wrote nothing, on a feature page that promises
+    "every mint and revoke is written to an append-only audit log." The rows are
+    ``bulk_create``d from the ids the ``update()`` matched, so the cost stays two
+    queries regardless of token count and the audit is inside the caller's
+    transaction: it commits with the revocation or rolls back with it, never apart.
+
     Args:
         user: The account whose personal access tokens should all be revoked.
+        actor: The user who caused the revocation, for the audit row. The account
+            owner for a password reset; the acting admin for an off-boarding; ``None``
+            for an operator running the management command, which has no Django user.
+        reason: Short machine-readable cause recorded in ``detail["reason"]``
+            (``password_reset``, ``offboarding``, ``operator_bulk_revoke``). It is what
+            makes the trail answerable — "revoked" alone cannot distinguish routine
+            rotation from incident response.
+        source_ip: Client IP when one is available (a request-driven path); ``None``
+            from a management command.
 
     Returns:
         The number of tokens newly revoked (already-revoked tokens are excluded).
@@ -523,10 +548,62 @@ def revoke_all_personal_access_tokens(user: Any) -> int:
     # Local import: the projects app imports from access, so importing ApiToken at
     # module top would create a circular dependency through the access → projects
     # path (mirrors delete_program_cascade's lazy Project import).
-    from trueppm_api.apps.projects.models import ApiToken
+    from trueppm_api.apps.projects.models import (
+        ApiToken,
+        ApiTokenAuditAction,
+        ApiTokenAuditEntry,
+    )
 
-    return ApiToken.objects.filter(
-        owner=user,
-        is_deleted=False,
-        revoked_at__isnull=True,
-    ).update(revoked_at=timezone.now())
+    # Materialize before the update: after it, `revoked_at__isnull=True` no longer
+    # selects the rows this call is responsible for, and re-reading without the filter
+    # would also pick up tokens revoked earlier by someone else and double-audit them.
+    #
+    # `select_for_update()` is what keeps the split read/write as idempotent as the
+    # single `update()` it replaced. Without the row lock, a password reset racing an
+    # admin off-boarding both select the same rows, both write, and the second write
+    # moves `revoked_at` *forward* — misdating containment on the one field an auditor
+    # reads — while producing a second REVOKED row with a contradicting reason and an
+    # inflated return count. Holding the lock makes `doomed` exactly the set this call
+    # revokes, so the audit rows below cannot describe someone else's revocation. It
+    # requires an open transaction, which every caller has (ATOMIC_REQUESTS for the two
+    # request paths, an explicit `atomic()` in the management command); a caller without
+    # one gets a loud TransactionManagementError rather than a silent race.
+    #
+    # Expired tokens are excluded deliberately. An expired token already fails
+    # authentication (expiry is folded into the authenticator's hash lookup), so
+    # revoking it changes nothing — but auditing it would pad the trail with rows
+    # claiming N live credentials were contained when the real number was lower. This
+    # matches `ApiToken.active_personal_tokens_for`, the canonical definition of
+    # "active", which the 10-token cap already uses.
+    now = timezone.now()
+    doomed = list(
+        ApiToken.objects.select_for_update()
+        .filter(
+            models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=now),
+            owner=user,
+            is_deleted=False,
+            revoked_at__isnull=True,
+        )
+        .only("pk", "token_prefix", "name")
+    )
+    if not doomed:
+        return 0
+
+    revoked = ApiToken.objects.filter(
+        pk__in=[token.pk for token in doomed], revoked_at__isnull=True
+    ).update(revoked_at=now)
+    ApiTokenAuditEntry.objects.bulk_create(
+        [
+            ApiTokenAuditEntry(
+                owner=user,
+                token=token,
+                token_prefix=token.token_prefix,
+                actor=actor,
+                action=ApiTokenAuditAction.REVOKED.value,
+                source_ip=source_ip,
+                detail={"name": token.name, "reason": reason} if reason else {"name": token.name},
+            )
+            for token in doomed
+        ]
+    )
+    return revoked

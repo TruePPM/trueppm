@@ -1528,6 +1528,12 @@ TRUEPPM_MAX_USER_PINS: int = env.int("TRUEPPM_MAX_USER_PINS", default=100)
 # Token-issuance rate cap (req/min/user) on the mint endpoint (ADR-0068). Caps the
 # blast radius of a compromised admin session even when RBAC is satisfied.
 TRUEPPM_TOKEN_ISSUANCE_PER_MINUTE: int = env.int("TRUEPPM_TOKEN_ISSUANCE_PER_MINUTE", default=5)
+# Token-revocation rate cap (req/min/user) on the revoke endpoint (#2878). Set well
+# above the issuance cap deliberately: revocation is the containment action, and a
+# user cutting off a leak may legitimately revoke every token they hold in one burst.
+TRUEPPM_TOKEN_REVOCATION_PER_MINUTE: int = env.int(
+    "TRUEPPM_TOKEN_REVOCATION_PER_MINUTE", default=30
+)
 # Inbound task-sync per-project rate caps (ADR-0068). Steady-state limit applies
 # after the 60-minute backfill window; the higher backfill limit applies to a
 # freshly minted token so a large first import gets headroom.

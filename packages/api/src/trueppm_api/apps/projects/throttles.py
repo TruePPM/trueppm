@@ -220,6 +220,56 @@ class TokenIssuanceThrottle(BaseThrottle):
 
 
 @bypass_when_disabled
+class TokenRevocationThrottle(BaseThrottle):
+    """30 req/min per user on the token-revocation (destroy) action (#2878).
+
+    Revocation was unthrottled, on the same surface whose enumerate action was also
+    unthrottled — an attacker holding a compromised session could walk the token
+    list and delete every entry as fast as the network allowed, breaking every
+    automation the account owns, with no rate signal anywhere.
+
+    Sized well **above** the 5/min issuance cap on purpose, and bucketed separately
+    from it. Revocation is the *containment* action: a user who has just discovered
+    a leak may legitimately revoke all ten of their tokens in one burst, and a
+    throttle that made that slower than minting would be a control working against
+    the incident it exists for.
+    """
+
+    # Default cap; the enforced limit is read from settings at request time so an
+    # operator can retune it per deployment, matching TokenIssuanceThrottle.
+    USER_LIMIT: ClassVar[int] = 30
+
+    @property
+    def effective_limit(self) -> int:
+        """Enforced cap, read from settings at request time with the ``USER_LIMIT``
+        default as fallback."""
+        return int(getattr(settings, "TRUEPPM_TOKEN_REVOCATION_PER_MINUTE", self.USER_LIMIT))
+
+    def allow_request(self, request: Request, view: APIView) -> bool:
+        user = getattr(request, "user", None)
+        if user is None or not user.is_authenticated:
+            return True  # let permission classes deal with anonymous
+
+        bucket_key = f"rate:api_token_revoke:{user.pk}"
+        count: int
+        try:
+            client = _client()
+            # Atomic INCR + first-hit EXPIRE (#1757), see incr_with_ttl.
+            count = incr_with_ttl(client, bucket_key, 60)
+        except redis.RedisError:
+            logger.exception("TokenRevocationThrottle: Redis error, failing open")
+            return True
+
+        if count > self.effective_limit:
+            self.wait_seconds = 60
+            return False
+        return True
+
+    def wait(self) -> float | None:
+        return getattr(self, "wait_seconds", None)
+
+
+@bypass_when_disabled
 class TaskAttachmentUploadThrottle(BaseThrottle):
     """60 req/min per user on the task-attachment create action (#574, security
     review !306 LOW-3).

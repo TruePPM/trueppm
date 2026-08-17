@@ -349,6 +349,15 @@ class OwnerScopedApiTokenAuthentication(ProjectApiTokenAuthentication):
     is rejected with the same generic 401 as every other failure on the base class —
     a caller cannot distinguish "wrong token type for this surface" from "invalid
     token," preserving the anti-enumeration posture.
+
+    The rejection carries the ``token_identity`` refusal envelope (#2878). *"I minted
+    a read-only token and pointed my script at ``/api/v1/tasks/``"* is the most
+    likely first-hour integration mistake, and it was answering with a bare
+    ``{"detail": "Invalid token."}`` — a caller holding a token they can see is live
+    in the UI has no way to reason from that to "wrong scope for this surface". The
+    envelope names the *class* of problem (the credential, not the request) without
+    weakening the constant ``detail``, so "wrong scope", "revoked", "expired" and
+    "never existed" remain indistinguishable and enumeration resistance is unchanged.
     """
 
     def authenticate(self, request: Request) -> tuple[object, ProjectApiToken] | None:
@@ -360,6 +369,12 @@ class OwnerScopedApiTokenAuthentication(ProjectApiTokenAuthentication):
         from trueppm_api.apps.projects.models import SCOPE_LEGACY_FULL
 
         if not token.is_personal or SCOPE_LEGACY_FULL not in (token.scopes or []):
+            # Marked, not audited: `_audit_identity_refusal` is deliberately bounded to
+            # tokens that have stopped conferring authority at all (revoked/expired/
+            # owner disabled). This token is live and legitimate — it is simply on the
+            # wrong surface — so auditing it would turn an ordinary misconfiguration
+            # into unbounded audit-chain writes on every retry of a misaimed loop.
+            self._mark_identity_refusal(request)
             raise exceptions.AuthenticationFailed(_INVALID_TOKEN_DETAIL)
         return result
 
