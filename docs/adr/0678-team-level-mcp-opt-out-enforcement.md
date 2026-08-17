@@ -348,3 +348,25 @@ T8 → CC7.2 (monitoring). The `HistoricalRecords` capture of every flip → CC7
    than admitting it. The existing refusal audit is best-effort on the refusal
    path (never turns a 403 into a 500) and fail-closed on the allow path,
    unchanged by this ADR.
+
+## Amendment (2026-08-17, #2877) — "any token read" narrowed to "any agent-token read"
+
+This ADR describes `McpProjectEnabled` as denying "any token read" and the mixin's row
+filtering as applying to token callers. Both were written before #2547 made
+`legacy:full` a general-purpose personal credential, and both therefore also caught a
+member's own CI script.
+
+The team opt-out's failure mode was the worse of the two, because row filtering is
+**silent**: a filtered collection returns `200` with `count: 0`, which a nightly export
+cannot distinguish from "no tasks this week". A team opting out of *agent* reads was
+quietly emptying its own members' scripted reports.
+
+As of #2877, `McpProjectEnabled`, `McpReadableViewMixin._mcp_filter_queryset`,
+`mcp_visible_project_ids` and `mcp_excluded_project_ids` all consult
+`trueppm_api.apps.projects.models.is_agent_token`. A `legacy:full` personal token is not
+an agent and is not filtered; an `mcp:read` token is unaffected by this amendment and
+every guarantee in the Decision holds for it.
+
+The consent model itself is unchanged — restrictive-only AND, no `ENFORCE` override, no
+Enterprise enforcement seam. What changed is only *who* the control is aimed at, which
+is what the ADR intended all along and what the published documentation already claimed.

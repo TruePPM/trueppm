@@ -6,6 +6,19 @@
 # taxonomy that would let a write be withheld is 0.6 work (#2661); until then,
 # "has a token" means "can write here".
 #
+# READ THIS BEFORE TRUSTING THE FILE'S HISTORY (#2877/#2878). Until 0.4 the walker
+# that generates it decided reachability from class-level `permission_classes`, and
+# `TokenReadOnlyMethods` is contributed at *runtime* by `McpReadableViewMixin`. So
+# the ~50 unsafe routes on the eight MCP-wrapped viewsets (tasks/, projects/,
+# risks/, labels/, sprints/, programs/, backlog-items/, board-config/) were listed
+# here while they actually 403'd every token. #2877 made them genuinely writable and
+# produced NO diff in this file — the tripwire could not see the widening it exists
+# to report. Those lines became true in 0.4; they were aspirational before it.
+#
+# The six `api-tokens/` routes left the set in the same change: credential
+# management is session/JWT-only since #2878 (`IsNotTokenAuthenticated`), so a
+# leaked token can no longer mint siblings or revoke the owner's live tokens.
+#
 # None of these routes writes an AgentAction row (#2749). A machine-authored
 # write is attributed to the token's human owner via historicaltask.history_user.
 # That is the gap 0.5 (#2745, #2749) closes — this file is its checklist.
@@ -105,8 +118,6 @@ api/v1/health/retention/runs/
 api/v1/health/telemetry/test/
 api/v1/integrations/projects/<uuid:project_pk>/git-automation/
 api/v1/integrations/projects/<uuid:project_pk>/git-automation/rotate-secret/
-api/v1/me/api-tokens/
-api/v1/me/api-tokens/<pk>/
 api/v1/me/connections/<slug:source>/
 api/v1/me/connections/<slug:source>/sync/
 api/v1/me/credentials/<slug:provider>/
@@ -125,8 +136,6 @@ api/v1/poker/<pk>/commit/
 api/v1/poker/<pk>/reopen/
 api/v1/poker/<pk>/reveal/
 api/v1/poker/<pk>/vote/
-api/v1/programs/<program_pk>/api-tokens/
-api/v1/programs/<program_pk>/api-tokens/<pk>/
 api/v1/programs/<program_pk>/backlog-items/
 api/v1/programs/<program_pk>/backlog-items/<pk>/
 api/v1/programs/<program_pk>/backlog-items/<pk>/pull/
@@ -156,8 +165,6 @@ api/v1/projects/<pk>/tasks/reorder/
 api/v1/projects/<pk>/workshop/end/
 api/v1/projects/<pk>/workshop/force-end/
 api/v1/projects/<pk>/workshop/start/
-api/v1/projects/<project_pk>/api-tokens/
-api/v1/projects/<project_pk>/api-tokens/<pk>/
 api/v1/projects/<project_pk>/baselines/
 api/v1/projects/<project_pk>/baselines/<baseline_pk>/activate/
 api/v1/projects/<project_pk>/baselines/<pk>/

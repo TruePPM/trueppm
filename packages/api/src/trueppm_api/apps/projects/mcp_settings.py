@@ -192,11 +192,10 @@ def mcp_excluded_project_ids(request: Request) -> QuerySet[Any] | None:
     :class:`~trueppm_api.apps.access.permissions.McpProjectEnabled`, which 403s the
     request before any service runs.
     """
-    from trueppm_api.apps.projects.models import ApiToken
+    from trueppm_api.apps.projects.models import is_agent_token
 
-    token = getattr(request, "auth", None)
-    if not isinstance(token, ApiToken):
-        return None  # Human JWT/Session path is never scoped by MCP consent.
+    if not is_agent_token(getattr(request, "auth", None)):
+        return None  # Human JWT/Session or the owner's own full-access PAT (#2877).
 
     opted_out = mcp_opted_out_project_ids()
     if not opted_out.exists():
@@ -210,9 +209,11 @@ def mcp_visible_project_ids(request: Request) -> QuerySet[Any] | None:
     The primitive the hand-built aggregate views (``/me/search``, ``/me/work/``,
     workspace assets) and the program-level rollups intersect against. Returns:
 
-    * ``None`` — the caller is not an agent token, or no project on the instance
-      has opted out. Callers skip filtering entirely; this is the case on
-      virtually every instance, so the common path costs one cheap ``EXISTS``.
+    * ``None`` — the caller is not an agent token (a human, or a ``legacy:full``
+      personal access token, which is a person's own credential and not subject to
+      agent consent — #2877), or no project on the instance has opted out. Callers
+      skip filtering entirely; this is the case on virtually every instance, so the
+      common path costs one cheap ``EXISTS``.
     * an empty queryset — a scope above every project denies (instance or
       workspace off), so nothing is visible.
     * a values-list queryset of readable project ids otherwise.
@@ -222,11 +223,10 @@ def mcp_visible_project_ids(request: Request) -> QuerySet[Any] | None:
     allowed set composes with their existing membership filters without needing
     each call site to reason about NULL semantics.
     """
-    from trueppm_api.apps.projects.models import ApiToken, Project
+    from trueppm_api.apps.projects.models import Project, is_agent_token
 
-    token = getattr(request, "auth", None)
-    if not isinstance(token, ApiToken):
-        return None  # Human JWT/Session path is never scoped by MCP consent.
+    if not is_agent_token(getattr(request, "auth", None)):
+        return None  # Human JWT/Session or the owner's own full-access PAT (#2877).
 
     if mcp_reads_globally_disabled():
         return Project.objects.none().values_list("pk", flat=True)

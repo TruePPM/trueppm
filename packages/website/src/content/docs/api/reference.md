@@ -184,16 +184,35 @@ the identical RBAC — a Viewer's PAT can only read what a Viewer sees, and a
 PAT never elevates its owner's role. Two narrower surfaces are unaffected by
 this and keep their existing, more restrictive rules:
 
-- **`mcp:read`-only tokens** stay confined to `McpReadableViewMixin` — mixed
-  onto about fifteen read endpoints (your profile, project/program overview,
-  forecast, schedule derivation, Monte Carlo, search, My Work, sprints,
-  labels, board config, workspace assets) — which is read-only by
-  construction (writes `403` for a token caller regardless of scope) and can
-  be disabled per-instance or per-project; see
-  [MCP server](/features/mcp-server/#security-notes). A `legacy:full` token
-  also satisfies this surface (`legacy:full` is a superset for reads), but an
-  `mcp:read`-only token is rejected everywhere else — it is deliberately
-  **not** interchangeable with `OwnerScopedApiTokenAuthentication`.
+- **`mcp:read`-only tokens** stay confined to `McpReadableViewMixin`. That mixin
+  is **not** a list of fifteen read-only endpoints: it is mixed onto the primary
+  CRUD viewsets — Task, Project, Risk, Label, Sprint, Program, backlog item,
+  board config — plus a dozen read-only views (your profile, project/program
+  overview, forecast, schedule derivation, Monte Carlo, search, My Work,
+  workspace assets) — close to 200 routes once each viewset's actions are
+  counted, not fifteen. What the mixin adds is a set of **agent** guards, and
+  that distinction is the whole contract:
+
+  - an **`mcp:read`** token gets safe methods only (writes `403`), must be
+    owner-scoped, and is subject to the instance kill switch and the per-project
+    agent opt-out — see [MCP server](/administration/mcp-server/);
+  - a **`legacy:full`** token reads *and writes* here exactly as on any other
+    endpoint, governed by the same RBAC as its owner's session. It is not an
+    agent credential, so none of the agent controls apply to it (#2877).
+
+  A project- or program-scoped token is rejected on this surface outright
+  (`401`), whatever its scope. And an `mcp:read`-only token is rejected
+  *everywhere else* — it is deliberately **not** interchangeable with
+  `OwnerScopedApiTokenAuthentication`.
+
+- **Token management is session-only.** `/me/api-tokens/`,
+  `/projects/{id}/api-tokens/`, `/programs/{id}/api-tokens/` and the two
+  `api-token-audit/` reads refuse *any* token-authenticated caller with a `403`,
+  whatever its scope (#2878). A token cannot mint a token, list its siblings, or
+  revoke one, so revoking a leaked credential is actual containment rather than a
+  step an attacker has already worked around. Manage tokens from a signed-in
+  session; for an operator-side sweep see
+  [`revoke_api_tokens`](/administration/management-commands/).
 - **`TaskSyncView`** and the acceptance-result ingest endpoint (above) still
   require `IsTokenForProject` — the token's `project`/`program` FK must
   resolve to the URL's project. A personal token has neither set, so a PAT

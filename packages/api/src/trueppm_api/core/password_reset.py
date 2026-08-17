@@ -127,6 +127,26 @@ def enforce_reset_password_policy(new_password: str, user: Any) -> None:
         raise DjangoValidationError(deduped)
 
 
+def _client_ip(request: Request) -> str | None:
+    """Best-effort client IP for the token-revocation audit rows (#2878).
+
+    Returns ``None`` — not a placeholder string — when neither header is present,
+    because the value lands in a ``GenericIPAddressField`` and ``"unknown"`` would not
+    validate. Takes the left-most ``X-Forwarded-For`` hop (deployments sit behind an
+    ingress); the rest of the chain is caller-forgeable. Recorded only, never used for
+    a security decision.
+
+    Deliberately local rather than shared: the equivalent helper in
+    ``apps/projects/views`` is private to that module, and importing it here would
+    couple the auth flow to a 16k-line view module for four lines. Consolidating the
+    three near-copies is a separate change.
+    """
+    forwarded = request.META.get("HTTP_X_FORWARDED_FOR")
+    if forwarded:
+        return str(forwarded).split(",")[0].strip() or None
+    return request.META.get("REMOTE_ADDR") or None
+
+
 def _reset_link(uid: str, token: str) -> str:
     """Build the absolute frontend confirm URL, or "" when the base URL is unset.
 
@@ -393,8 +413,17 @@ class PasswordResetConfirmView(APIView):
             # may be compromised" reset must cut off long-lived personal credentials,
             # not just live sessions. Project/program tokens are org assets and are
             # deliberately left untouched. Same atomic block so password-changed and
-            # PAT-revoked commit together or not at all.
-            revoke_all_personal_access_tokens(user)
+            # PAT-revoked commit together or not at all. Each revoked token now writes
+            # an ApiTokenAuditEntry (#2878) — `actor=user` because a reset is the
+            # account owner asserting compromise, even though the request itself is
+            # unauthenticated, and the source IP so an incident review can tell a
+            # self-service rotation from a takeover.
+            revoke_all_personal_access_tokens(
+                user,
+                actor=user,
+                reason="password_reset",
+                source_ip=_client_ip(request),
+            )
 
         return Response(
             {"detail": "Your password has been reset. Please sign in with your new password."},

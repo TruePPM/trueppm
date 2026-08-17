@@ -8533,6 +8533,44 @@ class ProjectApiTokenSerializer(serializers.ModelSerializer[ProjectApiToken]):
         return obj.revoked_at is not None
 
 
+def _normalize_token_scopes(value: list[str]) -> list[str]:
+    """De-dupe a requested scope list, default it, and reject the incoherent pair.
+
+    Shared by ``ProjectApiTokenCreateSerializer`` and ``MyApiTokenCreateSerializer`` —
+    both mint into the same ``ApiToken.scopes`` column, and both must produce a row
+    that resolves unambiguously through
+    :func:`~trueppm_api.apps.projects.models.is_agent_token`. Duplicating the rule in
+    two copies is what let the two paths drift in the first place.
+
+    An explicit empty list collapses to ``legacy:full``, matching the model default so
+    a caller that sends ``[]`` behaves like one that omits the field. ``ChoiceField``
+    has already rejected anything outside the allowed set, so only de-duping (order
+    preserved) and the pair check remain.
+
+    ``legacy:full`` + ``mcp:read`` together is rejected. The two scopes select mutually
+    exclusive enforcement postures since #2877: ``mcp:read`` means "an agent —
+    read-only, and every MCP consent control applies", ``legacy:full`` means "the
+    owner's own credential — writes allowed, agent controls do not apply". A token
+    carrying both asks for both, and resolves to full authority. That was previously
+    accepted-but-meaningless (``legacy:full`` already granted everything ``mcp:read``
+    does); it is now actively misleading, because the settings UI would label such a
+    token "Read-only for AI assistants" while it wrote freely and ignored the
+    instance kill switch.
+    """
+    if not value:
+        return [SCOPE_LEGACY_FULL]
+    deduped: dict[str, None] = {}
+    for scope in value:
+        deduped.setdefault(scope, None)
+    if SCOPE_LEGACY_FULL in deduped and SCOPE_MCP_READ in deduped:
+        raise serializers.ValidationError(
+            f"{SCOPE_LEGACY_FULL!r} and {SCOPE_MCP_READ!r} cannot be combined — a "
+            "token is either a full-access credential that acts as its owner or a "
+            "read-only agent credential. Pick one."
+        )
+    return list(deduped)
+
+
 def _validate_mcp_read_expiry(scopes: list[str], expires_at: Any) -> None:
     """Enforce the mcp:read blast-radius bound (#1713, #2764).
 
@@ -8601,16 +8639,7 @@ class ProjectApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToke
         return value
 
     def validate_scopes(self, value: list[str]) -> list[str]:
-        # An explicit empty list collapses to the legacy full scope, matching the
-        # model default so a caller that sends [] behaves like one that omits the
-        # field. ChoiceField has already rejected any value outside the allowed
-        # set, so we only need to de-dupe while preserving request order.
-        if not value:
-            return [SCOPE_LEGACY_FULL]
-        deduped: dict[str, None] = {}
-        for scope in value:
-            deduped.setdefault(scope, None)
-        return list(deduped)
+        return _normalize_token_scopes(value)
 
     def validate_expires_at(self, value: Any) -> Any:
         # An expiry already in the past would mint a token that is dead on arrival.
@@ -8713,15 +8742,7 @@ class MyApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToken]):
         return value
 
     def validate_scopes(self, value: list[str]) -> list[str]:
-        # Empty / omitted collapses to the legacy full scope (unchanged PAT default,
-        # backward-safe). ChoiceField already rejected any out-of-set value; de-dupe
-        # while preserving request order.
-        if not value:
-            return [SCOPE_LEGACY_FULL]
-        deduped: dict[str, None] = {}
-        for scope in value:
-            deduped.setdefault(scope, None)
-        return list(deduped)
+        return _normalize_token_scopes(value)
 
     def validate_expires_at(self, value: Any) -> Any:
         # An expiry in the past would mint a token that is dead on arrival — reject

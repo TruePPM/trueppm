@@ -464,7 +464,7 @@ def _apply_member_role_change(
     return role_changed_from
 
 
-def _revoke_offboarded_credentials(target: Any) -> None:
+def _revoke_offboarded_credentials(target: Any, *, actor: Any = None) -> None:
     """Cut off every long-lived credential of a member being off-boarded (#2832).
 
     ``is_active = False`` alone terminates only the session/JWT path. A Personal
@@ -495,6 +495,11 @@ def _revoke_offboarded_credentials(target: Any) -> None:
     side effect that would justify deferring past commit. Deferring would open a
     window in which the deactivation is committed but the credentials are still
     live — precisely the state this function exists to prevent.
+
+    ``actor`` is the admin performing the off-boarding, recorded on the per-token
+    ``ApiTokenAuditEntry`` rows the revocation now writes (#2878). Off-boarding is one
+    of the two revocations an auditor actually asks about, and it was the one leaving
+    no trace at all.
     """
     from trueppm_api.apps.access.services import (
         revoke_all_personal_access_tokens,
@@ -502,11 +507,11 @@ def _revoke_offboarded_credentials(target: Any) -> None:
     )
 
     revoke_all_refresh_tokens(target)
-    revoke_all_personal_access_tokens(target)
+    revoke_all_personal_access_tokens(target, actor=actor, reason="offboarding")
 
 
 def _apply_member_status_change(
-    *, membership: WorkspaceMembership, new_status: Any, target: Any
+    *, membership: WorkspaceMembership, new_status: Any, target: Any, actor: Any = None
 ) -> Any:
     """Apply a status change, guarding the last Owner and syncing the login flag.
 
@@ -530,7 +535,7 @@ def _apply_member_status_change(
         # Deactivation only — the reactivation branch deliberately has no inverse
         # (see _revoke_offboarded_credentials): revocation is durable, and a
         # returning member mints new tokens.
-        _revoke_offboarded_credentials(target)
+        _revoke_offboarded_credentials(target, actor=actor)
     return status_changed_from
 
 
@@ -614,7 +619,10 @@ class WorkspaceMemberDetailView(IdempotencyMixin, APIView):
             status_changed_from: Any = None
             if new_status is not None:
                 status_changed_from = _apply_member_status_change(
-                    membership=membership, new_status=new_status, target=target
+                    membership=membership,
+                    new_status=new_status,
+                    target=target,
+                    actor=request.user,
                 )
 
             _apply_member_availability(membership=membership, data=data)
@@ -703,7 +711,7 @@ class WorkspaceMemberDetailView(IdempotencyMixin, APIView):
             # credentials the PATCH deactivate path does (#2832) — otherwise "remove
             # from workspace," the strongest off-boarding action the UI offers, would
             # be the weaker of the two.
-            _revoke_offboarded_credentials(target)
+            _revoke_offboarded_credentials(target, actor=request.user)
 
             # Audit inside the same transaction so the row rolls back with a
             # failed deactivation (ADR-0157). "Removed" here is a deactivation —

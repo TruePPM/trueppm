@@ -91,3 +91,32 @@ code returns zero imports.
 6. Outbox cleanup: N/A — no outbox rows.
 7. Idempotency: N/A — the check is a pure function of `settings.TRUEPPM_MCP_ENABLED` and the request; repeating it is side-effect free. (The refusal-audit row it triggers is idempotent via the existing agent-action path.)
 8. Dead-letter / failure handling: N/A — a denial is the safe terminal outcome; there is nothing to retry.
+
+## Amendment (2026-08-17, #2877) — "token-scoped" narrowed to "agent-scoped"
+
+The Decision above says the `McpInstanceEnabled` guard is **token-scoped** and denies
+"an API-token caller". That was written when the only thing an `ApiToken` could be on
+these views was an agent. #2547 subsequently made `legacy:full` a first-class *general*
+API credential — a person's own CI script, authenticated by
+`OwnerScopedApiTokenAuthentication` and bound to that person's own RBAC — and the guard
+was never taught the difference, so the operator's "no agent access on this instance"
+switch also blanked its holder's ordinary reads while `administration/mcp-server.md`
+promised "only agent (MCP token) traffic. People are never affected."
+
+As of #2877 the guard is **agent-scoped**: it consults
+`trueppm_api.apps.projects.models.is_agent_token`, and a `legacy:full` personal token
+passes it exactly as a human JWT/session request does. Everything else in this ADR
+stands — fail-closed direction, single chokepoint, `mcp:read` denial, the refusal audit.
+
+Two consequences worth stating plainly rather than leaving to be rediscovered:
+
+* the guard is **no longer first** in `mcp_token_guards()`. `TokenIsOwnerScoped` moved
+  ahead of it, because that guard is now the sole barrier between a project/program
+  token (which carries `legacy:full` by default) and a write on the eight CRUD viewsets
+  the mixin covers. Outcomes are unchanged — DRF ANDs the list — but a project/program
+  token now receives its `401 token_identity` from the guard that is actually deciding
+  rather than a `403 capability_scope` from whichever capability check ran first;
+* the switch **cannot** bind a member who points an MCP client at a `legacy:full`
+  token. That credential carries their own authority, so restraining it would mean
+  restraining them; it is the same trust model as a person pasting a task list into a
+  chat window. `administration/mcp-server.md` now says so under "What it cannot do".

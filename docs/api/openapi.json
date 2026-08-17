@@ -4207,6 +4207,90 @@
                 }
             }
         },
+        "/api/v1/me/api-token-audit/": {
+            "get": {
+                "operationId": "v1_me_api_token_audit_list",
+                "description": "Append-only lifecycle log for the requesting user's own personal access tokens: every mint and every revoke, with the acting user, the source IP, and — for a revoke — the reason (`password_reset`, `offboarding`, `operator_bulk_revoke`, or absent for a self-service revoke).\n\nScoped to the caller; no other user's rows are ever returned. Requires a session or JWT — API tokens are refused on the credential-management surface.\n\nThis log records a token's lifecycle, not its use: per-request activity for a `legacy:full` token is not audited, and the token's own `last_used_at` field is the available signal for whether it is live.",
+                "summary": "List your own personal access token audit log",
+                "parameters": [
+                    {
+                        "name": "limit",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "offset",
+                        "required": false,
+                        "in": "query",
+                        "description": "The initial index from which to return the results.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedApiTokenAuditEntryList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/me/api-tokens/": {
             "get": {
                 "operationId": "v1_me_api_tokens_list",
@@ -4244,9 +4328,6 @@
                     "me"
                 ],
                 "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
                     {
                         "jwtAuth": []
                     },
@@ -4291,9 +4372,6 @@
                     "me"
                 ],
                 "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
                     {
                         "jwtAuth": []
                     },
@@ -4351,9 +4429,6 @@
                 ],
                 "security": [
                     {
-                        "personalApiTokenAuth": []
-                    },
-                    {
                         "jwtAuth": []
                     },
                     {
@@ -4407,9 +4482,6 @@
                     "me"
                 ],
                 "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
                     {
                         "jwtAuth": []
                     },
@@ -9384,7 +9456,7 @@
         "/api/v1/programs/{program_pk}/api-token-audit/": {
             "get": {
                 "operationId": "v1_programs_api_token_audit_list",
-                "description": "``GET /api/v1/programs/{program_pk}/api-token-audit/`` — program audit log.\n\nVisible to any program member. Mirrors the project audit view; filters the\nappend-only ApiTokenAuditEntry rows by program scope (ADR-0076).",
+                "description": "``GET /api/v1/programs/{program_pk}/api-token-audit/`` — program audit log.\n\nVisible to any program member, session/JWT only (#2878). Mirrors the project\naudit view; filters the append-only ApiTokenAuditEntry rows by program scope\n(ADR-0076).",
                 "parameters": [
                     {
                         "name": "limit",
@@ -9435,9 +9507,6 @@
                     "programs"
                 ],
                 "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
                     {
                         "jwtAuth": []
                     },
@@ -9522,9 +9591,6 @@
                 ],
                 "security": [
                     {
-                        "personalApiTokenAuth": []
-                    },
-                    {
                         "jwtAuth": []
                     },
                     {
@@ -9578,9 +9644,6 @@
                     "programs"
                 ],
                 "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
                     {
                         "jwtAuth": []
                     },
@@ -9646,9 +9709,6 @@
                 ],
                 "security": [
                     {
-                        "personalApiTokenAuth": []
-                    },
-                    {
                         "jwtAuth": []
                     },
                     {
@@ -9710,9 +9770,6 @@
                     "programs"
                 ],
                 "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
                     {
                         "jwtAuth": []
                     },
@@ -20078,7 +20135,7 @@
         "/api/v1/projects/{project_pk}/api-token-audit/": {
             "get": {
                 "operationId": "v1_projects_api_token_audit_list",
-                "description": "``GET /api/v1/projects/{project_pk}/api-token-audit/`` — per-project audit log.\n\nVisible to any project member (Viewer+) — the team can see when integration\ntokens are minted, revoked, and used (Morgan's VoC 🟡 sprint-sovereignty\nconcern is resolved by visibility, not by gating writes more tightly).\n\nThe ``project_id=project_pk`` filter in get_queryset is defense-in-depth\nagainst a future refactor that changes how ``project_pk`` is sourced;\nthe primary gate is ``IsProjectMember.has_permission`` reading the same\nURL kwarg.",
+                "description": "``GET /api/v1/projects/{project_pk}/api-token-audit/`` — per-project audit log.\n\nVisible to any project member (Viewer+) — the team can see when integration\ntokens are minted, revoked, and used (Morgan's VoC 🟡 sprint-sovereignty\nconcern is resolved by visibility, not by gating writes more tightly).\n\nThe ``project_id=project_pk`` filter in get_queryset is defense-in-depth\nagainst a future refactor that changes how ``project_pk`` is sourced;\nthe primary gate is ``IsProjectMember.has_permission`` reading the same\nURL kwarg.\n\nSession/JWT only (#2878), like the token viewset it reports on. The rows carry\n``token_prefix``, the acting user, the source IP, and — for ``minted`` rows — the\ntoken's name and scopes: it is the reconnaissance view for the credential surface,\nand there is no automation story for \"my script reads my team's credential\nhistory\" that outweighs denying it to a leaked bearer.",
                 "parameters": [
                     {
                         "name": "limit",
@@ -20129,9 +20186,6 @@
                     "projects"
                 ],
                 "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
                     {
                         "jwtAuth": []
                     },
@@ -20216,9 +20270,6 @@
                 ],
                 "security": [
                     {
-                        "personalApiTokenAuth": []
-                    },
-                    {
                         "jwtAuth": []
                     },
                     {
@@ -20272,9 +20323,6 @@
                     "projects"
                 ],
                 "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
                     {
                         "jwtAuth": []
                     },
@@ -20340,9 +20388,6 @@
                 ],
                 "security": [
                     {
-                        "personalApiTokenAuth": []
-                    },
-                    {
                         "jwtAuth": []
                     },
                     {
@@ -20404,9 +20449,6 @@
                     "projects"
                 ],
                 "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
                     {
                         "jwtAuth": []
                     },

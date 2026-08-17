@@ -113,6 +113,10 @@ confirm. Revocation takes effect immediately: any script or tool using that toke
 starts failing authentication on its next request. Revocation is permanent — you
 cannot un-revoke a token, only create a new one.
 
+Revoking is real containment, because [a token cannot manage
+tokens](#a-token-cannot-manage-tokens): whoever held the leaked credential could
+not have minted a replacement with it.
+
 ## A password change revokes every PAT
 
 When you reset your password, **all of your personal access tokens are revoked
@@ -147,6 +151,41 @@ new ones.
 As with a password change, project and program API tokens are left alone — they
 are shared team assets, and they keep working through an off-boarding.
 
+## A token cannot manage tokens
+
+Nothing authenticated by a token can reach the token pages or their API —
+minting, listing, and revoking all require a signed-in session, and a token
+caller gets a `403` whatever its scope. That restriction is what makes revocation
+meaningful: without it, anyone holding a leaked token could quietly mint siblings
+of their own before you noticed, and revoking the one token you knew about would
+contain nothing. It also means they cannot revoke *your* tokens to break your
+automations.
+
+The same rule covers project and program tokens, so a leaked personal token
+cannot be turned into a team integration token either — which would otherwise be
+the more durable foothold, since team tokens are deliberately left alone by
+password resets and off-boarding.
+
+Operators sweeping tokens after an incident use the
+[`revoke_api_tokens`](/administration/management-commands/#maintenance-commands)
+management command; note that **rotating the JWT signing key does not revoke API
+tokens** — see
+[Security](/administration/security/#separating-the-jwt-signing-key-and-forcing-a-global-sign-out).
+
+## Your token history
+
+`GET /api/v1/me/api-token-audit/` returns your own token lifecycle log: every
+mint and every revoke, with who did it, from which IP, and — for a revoke — why
+(your own action, a password reset, an off-boarding, or an operator sweep). It is
+append-only and scoped to you; nobody else's rows are visible, and yours are not
+visible to anyone else.
+
+It answers *"when did this token appear and when was it cut off"*. It does not
+answer *"what did this token do"* — per-request activity for a full-access token
+is not recorded, and the token list's **Last used** column is the available
+signal for whether a token is live at all. (Per-call auditing exists for
+read-only AI tokens; see [agent oversight](/features/agent-oversight/).)
+
 ## Security notes
 
 - A PAT is a **full-authority** bearer of your account. Treat it like a password:
@@ -156,7 +195,12 @@ are shared team assets, and they keep working through an off-boarding.
   token can only read what a Viewer sees.
 - TruePPM stores only a SHA-256 hash of each token, so a database compromise does
   not expose usable tokens.
-- Every mint and revoke is written to an append-only audit log.
+- Every mint and revoke is written to an append-only audit log — including the
+  revocations you did not perform yourself, on password reset and off-boarding.
+- A full-access token is **not** an AI-agent credential. The instance-wide MCP
+  kill switch and a team's agent read opt-out bind `mcp:read` tokens; they do not
+  restrain a token that carries your own full authority. Mint `mcp:read` for an
+  AI client — that is what makes those controls apply.
 
 ## Related
 

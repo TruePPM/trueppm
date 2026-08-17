@@ -333,7 +333,23 @@ def _token_reachable_write_routes() -> set[str]:
     ``legacy:full`` token — the **default** scope for a newly minted one
     (`apps/projects/models.py:5733-5739`). The scope taxonomy that would let a
     write be withheld is 0.6 work (#2661). So a route is reachable unless it opts
-    out of that authenticator or carries ``TokenReadOnlyMethods``.
+    out of that authenticator or carries ``IsNotTokenAuthenticated``.
+
+    **The exclusion used to be ``TokenReadOnlyMethods``, and that was wrong in a way
+    worth recording, because it is the failure mode this whole file exists to catch.**
+    That guard is contributed at *runtime* by ``McpReadableViewMixin.get_permissions``,
+    never listed in a class-level ``permission_classes``, so this static walker never
+    excluded a single view on account of it. Every unsafe route on the eight
+    MCP-wrapped viewsets (tasks, projects, risks, labels, sprints, programs,
+    backlog-items, board-config) was therefore pinned in the inventory as
+    token-writable while it in fact 403'd — the inventory was *wrong in the safe
+    direction*, and #2877 made it right without producing a diff. A tripwire that
+    cannot see the thing it guards reports "no change" for a ~50-route widening.
+
+    ``IsNotTokenAuthenticated`` is declared statically on every view that carries it,
+    so this check is sound rather than accidentally sound. If a future guard is again
+    applied only through ``get_permissions``, this walker will not see it either — the
+    fix then is to name it here, not to trust the silence.
     """
 
     routes: set[str] = set()
@@ -346,7 +362,8 @@ def _token_reachable_write_routes() -> set[str]:
         auth_names = {a.__name__ for a in getattr(cls, "authentication_classes", [])}
         if OwnerScopedApiTokenAuthentication.__name__ not in auth_names:
             continue
-        if "TokenReadOnlyMethods" in {p.__name__ for p in getattr(cls, "permission_classes", [])}:
+        permission_names = {p.__name__ for p in getattr(cls, "permission_classes", [])}
+        if "IsNotTokenAuthenticated" in permission_names:
             continue
 
         actions = getattr(entry.callback, "actions", None)

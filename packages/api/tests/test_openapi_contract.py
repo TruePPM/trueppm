@@ -360,10 +360,18 @@ def test_program_pin_documents_the_pin_contract(schema: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# #2659 — `projectApiTokenAuth` must never appear on an operation a token
-# caller is refused. `McpReadableViewMixin` advertises the scheme at the view
-# level, but `TokenReadOnlyMethods` confines a token to safe methods at
-# runtime; the schema must match.
+# #2659 — `projectApiTokenAuth` must never appear on an operation the credentials
+# unique to that scheme are refused. `McpReadableViewMixin` advertises the scheme
+# at the view level; the schema must match runtime.
+#
+# The runtime rule changed shape in #2877 but not in outcome. It used to be
+# `TokenReadOnlyMethods` refusing *every* token an unsafe method. A `legacy:full`
+# personal token may now write on these views — but that credential is described by
+# `personalApiTokenAuth`, which these operations already advertise via the default
+# auth stack. The credentials unique to `projectApiTokenAuth` are the project- and
+# program-scoped tokens, and `TokenIsOwnerScoped` still refuses those on the entire
+# MCP surface (401), so the scheme stays unreachable here and the assertions below
+# stand unchanged.
 # ---------------------------------------------------------------------------
 
 _UNSAFE_METHODS = ("post", "put", "patch", "delete")
@@ -384,11 +392,11 @@ def test_project_api_token_auth_absent_from_unsafe_operations(schema: dict) -> N
 
     `McpReadableViewMixin.get_authenticators` prepends `ProjectApiTokenAuthentication`
     at the view level, so drf-spectacular's default per-view security resolution
-    would attach the scheme to every method on the view, including the unsafe ones
-    `TokenReadOnlyMethods` refuses to every token caller at runtime.
-    `TruePPMAutoSchema.get_auth` (trueppm_api.core.openapi) filters those out; this
-    is the regression pin — a token-authenticated write op reappearing here means
-    either that filter broke or a new MCP-readable view regained the same bug.
+    would attach the scheme to every method on the view, including the unsafe ones no
+    project- or program-scoped token can reach (`TokenIsOwnerScoped` 401s them on this
+    whole surface, #2877). `TruePPMAutoSchema.get_auth` (trueppm_api.core.openapi)
+    filters those out; this is the regression pin — a scoped-token write op reappearing
+    here means either that filter broke or a new MCP-readable view regained the same bug.
     """
     offenders = [
         f"{method.upper()} {path}"
@@ -422,8 +430,9 @@ def test_project_api_token_auth_still_advertised_on_direct_write_views(
     """The two direct-write token surfaces must keep the scheme on their POST (#2659).
 
     These reference `ProjectApiTokenAuthentication` directly rather than through
-    `McpReadableViewMixin`, and are not subject to `TokenReadOnlyMethods` — the
-    #2659 filter is scoped to the mixin and must not touch them.
+    `McpReadableViewMixin`, and pair it with `IsTokenForProject` rather than the MCP
+    guards — a project/program token is exactly what they exist to accept. The #2659
+    filter is scoped to the mixin and must not touch them.
     """
     op = schema["paths"][path]["post"]
     schemes = {name for entry in op.get("security", []) for name in entry}
