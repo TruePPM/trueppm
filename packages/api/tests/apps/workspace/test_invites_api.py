@@ -238,6 +238,77 @@ def test_drain_sends_after_orphan_window(admin: object, settings: object) -> Non
 
 
 @pytest.mark.django_db
+def test_invite_drain_honors_the_workspace_delivery_limits(admin: object, settings: object) -> None:
+    """The invite drain used to consult neither operator control (#2887 item 3).
+
+    It carried its own hardcoded ``EMAIL_BATCH_SIZE = 50`` on the same 30 s beat as
+    the notification drain, so an operator who dialed ``throttle_per_min`` down to
+    protect a rate-limited relay was still exposed to a bulk-invite burst.
+    """
+    from django.core.cache import cache
+
+    from trueppm_api.apps.notifications.models import WorkspaceEmailSettings
+
+    cache.clear()
+    settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+    limits = WorkspaceEmailSettings.load()
+    limits.max_recipients = 2
+    limits.save()
+
+    for i in range(5):
+        services.create_invite(
+            workspace=Workspace.load(),
+            email=f"burst{i}@x.io",
+            role=WorkspaceRole.MEMBER,
+            invited_by=admin,
+        )
+    WorkspaceInvite.objects.update(created_at=timezone.now() - timedelta(minutes=10))
+
+    mail.outbox.clear()
+    _do_drain_invite_emails()
+    assert len(mail.outbox) == 2
+
+
+@pytest.mark.django_db
+def test_invite_drain_leaves_rows_pending_when_the_transport_is_unusable(
+    admin: object, settings: object
+) -> None:
+    """A configuration fault must not mark every queued invite FAILED (#2886 item 2).
+
+    Now that an unusable transport raises rather than silently rerouting, resolving
+    it per-invite would have burned all three retries on each queued row and flipped
+    them to ``FAILED`` — destroying invites for a fault an operator fix clears.
+    """
+    from trueppm_api.apps.notifications.models import (
+        EmailTransportMode,
+        WorkspaceEmailSettings,
+    )
+
+    settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+    broken = WorkspaceEmailSettings.load()
+    broken.transport_mode = EmailTransportMode.SMTP
+    broken.host = "mail.corp.test"
+    broken.username = "u"
+    broken.password_ciphertext = b"not-a-valid-fernet-token"
+    broken.save()
+
+    invite = services.create_invite(
+        workspace=Workspace.load(), email="stuck@x.io", role=WorkspaceRole.MEMBER, invited_by=admin
+    )
+    WorkspaceInvite.objects.update(created_at=timezone.now() - timedelta(minutes=10))
+
+    mail.outbox.clear()
+    for _ in range(3):
+        _do_drain_invite_emails()
+
+    invite.refresh_from_db()
+    assert len(mail.outbox) == 0
+    assert invite.email_pending is True
+    assert invite.email_attempts == 0
+    assert invite.status == InviteStatus.PENDING
+
+
+@pytest.mark.django_db
 def test_purge_expires_and_deletes(admin: object) -> None:
     stale = services.create_invite(
         workspace=Workspace.load(), email="stale@x.io", role=WorkspaceRole.MEMBER, invited_by=admin

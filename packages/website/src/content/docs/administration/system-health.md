@@ -1,11 +1,25 @@
 ---
 title: System Health
 description: The workspace-admin System Health console — inspect durable-execution health, the Celery Beat heartbeat, and the dead-letter queue from the UI, without shelling into the cluster.
+documentedFor: "0.4"
 ---
 
 
 :::note[Added in 0.2 (alpha)]
 This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; the first beta is planned for 0.4.
+:::
+
+:::note[Ships in 0.4]
+One item on this page — the **Notification dispatcher** card's detection logic —
+ships in **TruePPM 0.4**, the first beta, and is **not** in `v0.3.0-alpha.3`, the
+latest release.
+
+In 0.3 that card reports "stuck" only for emails that are *still queued* an hour
+after a failed attempt. Because the delivery queue abandons a row after three
+attempts (about 90 seconds on its 30-second cadence), and because it rewrites the
+failure timestamp on every attempt, that condition cannot be reached while the
+relay is what is broken — so on 0.3 the card reports `ok` throughout an SMTP
+outage. Everything else on this page describes 0.3 behavior accurately.
 :::
 
 TruePPM runs scheduling, notifications, webhooks, MS Project imports, and retention
@@ -44,8 +58,22 @@ green (healthy), amber (needs attention), red (broken), or a **gray hollow ring
 | Outbox dispatcher | CPM + workflow transactional outbox rows | no `dead` rows, nothing stuck dispatched > 10 min |
 | Celery Beat | the Beat heartbeat singleton | heartbeat younger than the stale threshold |
 | Dead-letter alerting | permanently-failed Celery tasks | no parked (`dead`) tasks |
-| Notification dispatcher | pending notification emails | nothing failed-and-pending beyond 1 hour |
+| Notification dispatcher | outbound email delivery | no permanent failures in the last hour, no aging queue, credential usable |
 | Retention purge | the most recent purge run | last run succeeded (`ok`) |
+
+**Notification dispatcher.** The card watches three independent signals, so a dead
+SMTP relay cannot go unreported:
+
+| State | What it means |
+|---|---|
+| `crit` — *Credential unusable* | An SMTP transport is configured but its stored password cannot be decrypted. No mail is leaving the workspace; sends fail closed rather than rerouting to the server-default transport. Re-enter the password at **Settings → Workspace → Email**. |
+| `crit` — *Delivery failing* | Mail permanently failed in the last hour with **zero** deliveries in the same window. This is what a refusing or unreachable relay looks like. |
+| `warn` — *N failed* | Some mail permanently failed while other mail got through — usually a specific undeliverable recipient, not a broken relay. |
+| `warn` — *N queued* | Emails have been queued more than an hour past creation, so sends are not completing at all: check the Celery worker and beat. |
+| `ok` — *Draining* | No failures, no aging queue, credential usable. |
+
+The same signals are exported for alerting at `GET /api/v1/health/email/`; see
+[Outbound email](/administration/email/#knowing-when-mail-stops-working).
 
 **Retention purge.** The card reports the outcome of the most recent purge run — `ok`,
 `partial`, or `failed`. Before any run has been recorded it shows a gray hollow

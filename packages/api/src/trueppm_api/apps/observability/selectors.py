@@ -89,10 +89,15 @@ _SINGLETON_KEY = 1
 # Matches the schedule-request drain orphan window.
 _OUTBOX_STUCK_THRESHOLD = timedelta(minutes=10)
 
-# A notification still pending after this many failed attempts/age is "stuck".
-# The Notification row has no terminal DEAD state, so dispatcher health is a
-# heuristic, not an exact signal (ADR-0172 §3).
+# A notification email still queued after this long is not being drained. Measured
+# against the IMMUTABLE ``created_at``, never against ``email_failed_at`` — see
+# ``_notification_email_signals`` for why that distinction is the whole bug in #2886.
 _NOTIFICATION_STUCK_THRESHOLD = timedelta(hours=1)
+
+# Rolling window over which permanently-failed and successful sends are counted.
+# Short enough that a resolved outage clears the card without operator action, long
+# enough to survive the gaps between drain ticks and low-traffic periods.
+_NOTIFICATION_FAILURE_WINDOW = timedelta(hours=1)
 
 # A dead-letter parked longer than this escalates the component from warn→crit.
 _DEAD_LETTER_CRIT_THRESHOLD = timedelta(hours=24)
@@ -304,35 +309,149 @@ def _dead_letter() -> tuple[dict[str, Any], dict[str, str]]:
     return summary, card
 
 
-def _notification_card() -> dict[str, str]:
-    """Heuristic health of the notification email dispatcher.
+def notification_email_signals() -> dict[str, Any]:
+    """Compute the three notification-email health signals (#2886).
 
-    The ``Notification`` row carries no terminal DEAD state — a stuck email just
-    accumulates ``email_attempts`` and an ``email_failed_at`` indefinitely. So
-    we infer "stuck" from pending rows that have already failed at least once
-    and are older than the threshold (ADR-0172 §3).
+    The previous single signal was ``email_pending=True AND email_attempts>0 AND
+    email_failed_at < now-1h``, and it was **mutually unsatisfiable exactly when SMTP
+    was what had broken**. Two of its conjuncts are written by the same statement that
+    ends a row's life: at ``email_attempts >= EMAIL_MAX_RETRIES`` the drain clears
+    ``email_pending`` — so on a 30 s beat a row exhausts its three attempts in about
+    90 seconds and leaves the ``email_pending=True`` half of the predicate roughly
+    forty times before the one-hour half could ever be reached. And because
+    ``email_failed_at`` was rewritten to ``now`` on *every* attempt, it could only age
+    past an hour if Beat itself stopped — which ``TruePPMBeatStale`` already covers. A
+    completely dead relay reported "Draining / ok" indefinitely, verified over four
+    real drain ticks.
+
+    The replacement is three signals, each of which is *positive evidence* of a
+    specific failure rather than an inference from state that the failure path erases:
+
+    ``queued_aging``
+        ``email_pending=True`` and ``created_at`` older than the threshold. The age is
+        measured on ``created_at``, which is ``auto_now_add`` and which **no code
+        path ever writes again** — so unlike ``email_failed_at`` it cannot be reset
+        out from under the comparison. The drain's only two exits from
+        ``email_pending=True`` are a success and an attempt-exhaustion, both of which
+        occur within the 5-minute orphan window plus three ticks (~6 min 30 s). A row
+        still pending at one hour therefore means rows are not being completed at all:
+        Beat is dead, the worker is gone, or the transport cannot even be built (the
+        #2886 item-2 fail-closed path, which deliberately leaves rows pending rather
+        than burning their retries).
+
+    ``failed_recent``
+        The terminal state, derived with no new column: ``email_pending=False`` and
+        ``email_sent_at IS NULL`` and ``email_attempts >= EMAIL_MAX_RETRIES`` and
+        ``email_failed_at`` within the window. Every one of those four conjuncts is
+        asserted by the single ``UPDATE`` the drain issues on the final failed
+        attempt, so the terminal write cannot clear the evidence — it *is* the
+        evidence. And the window wants ``email_failed_at`` to be **recent** rather
+        than old, so the predicate becomes satisfiable at the instant of failure
+        instead of requiring an hour of aging the failure path itself prevented.
+
+    ``sent_recent``
+        Successful sends in the same window. Paired with ``failed_recent`` this
+        separates "some mail bounces" from "no mail is getting out at all", which is
+        the dead-relay fingerprint and the only one that warrants ``crit``.
+
+    ``transport``
+        Read-derived transport classification (see
+        ``notifications.email_backend.transport_status``). Names the cause when the
+        configured credential cannot be decrypted, so an operator does not have to
+        infer it from a backlog.
+
+    A note on precision, since a health signal that over-claims is its own bug:
+    ``failed_recent`` counts every notification whose email was permanently
+    undeliverable, which includes causes that are not the relay — a recipient with no
+    address on file, or a source comment deleted before the drain reached it. The card
+    labels the count as failed sends, which is what it is; it does not claim the relay
+    specifically. The relay verdict is the ``failed_recent > 0 and sent_recent == 0``
+    conjunction.
+
+    Returns:
+        ``{"queued_aging": int, "failed_recent": int, "sent_recent": int,
+        "transport": str}``.
     """
-    cutoff = timezone.now() - _NOTIFICATION_STUCK_THRESHOLD
-    stuck = Notification.objects.filter(
+    from trueppm_api.apps.notifications.email_backend import transport_status
+    from trueppm_api.apps.notifications.tasks import EMAIL_MAX_RETRIES
+
+    now = timezone.now()
+    stuck_cutoff = now - _NOTIFICATION_STUCK_THRESHOLD
+    window_cutoff = now - _NOTIFICATION_FAILURE_WINDOW
+
+    queued_aging = Notification.objects.filter(
         email_pending=True,
-        email_attempts__gt=0,
-        email_failed_at__lt=cutoff,
+        email_sent_at__isnull=True,
+        created_at__lt=stuck_cutoff,
     ).count()
-    if stuck:
+    failed_recent = Notification.objects.filter(
+        email_pending=False,
+        email_sent_at__isnull=True,
+        email_attempts__gte=EMAIL_MAX_RETRIES,
+        email_failed_at__gte=window_cutoff,
+    ).count()
+    sent_recent = Notification.objects.filter(email_sent_at__gte=window_cutoff).count()
+
+    return {
+        "queued_aging": queued_aging,
+        "failed_recent": failed_recent,
+        "sent_recent": sent_recent,
+        "transport": transport_status(),
+    }
+
+
+def _notification_card() -> dict[str, str]:
+    """Health of the notification email dispatcher (#2886).
+
+    Escalation order, most-specific cause first — see
+    :func:`notification_email_signals` for what each signal proves:
+
+    * ``crit`` — the configured transport's credential cannot be decrypted. No mail
+      leaves the workspace until an operator re-enters it.
+    * ``crit`` — mail permanently failed in the window and nothing succeeded in it.
+      This is the dead-relay fingerprint.
+    * ``warn`` — mail permanently failed, but other mail also got through.
+    * ``warn`` — the queue is aging: rows have sat pending past the threshold, so
+      nothing is completing them.
+    * ``ok`` — no failures, no aging backlog, credential usable.
+    """
+    from trueppm_api.apps.notifications.email_backend import TRANSPORT_UNDECRYPTABLE
+
+    signals = notification_email_signals()
+    failed = int(signals["failed_recent"])
+    sent = int(signals["sent_recent"])
+    aging = int(signals["queued_aging"])
+
+    def card(status: str, state_label: str, meta: str) -> dict[str, str]:
         return _component(
-            "notification_dispatcher",
-            "Notification dispatcher",
-            STATUS_WARN,
-            f"{stuck} stuck",
-            f"{stuck} failed-pending >1h",
+            "notification_dispatcher", "Notification dispatcher", status, state_label, meta
         )
-    return _component(
-        "notification_dispatcher",
-        "Notification dispatcher",
-        STATUS_OK,
-        "Draining",
-        "0 failed-pending",
-    )
+
+    if signals["transport"] == TRANSPORT_UNDECRYPTABLE:
+        return card(
+            STATUS_CRIT,
+            "Credential unusable",
+            "the stored SMTP password cannot be decrypted — re-enter it",
+        )
+    if failed and not sent:
+        return card(
+            STATUS_CRIT,
+            "Delivery failing",
+            f"{failed} permanently failed in the last hour, 0 delivered",
+        )
+    if failed:
+        return card(
+            STATUS_WARN,
+            f"{failed} failed",
+            f"{failed} permanently failed, {sent} delivered in the last hour",
+        )
+    if aging:
+        return card(
+            STATUS_WARN,
+            f"{aging} queued",
+            f"{aging} still queued after >1h — the drain is not completing rows",
+        )
+    return card(STATUS_OK, "Draining", f"0 failed, {sent} delivered in the last hour")
 
 
 def _retention() -> tuple[list[dict[str, Any]], dict[str, str]]:

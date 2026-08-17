@@ -388,14 +388,25 @@ class TestSanitizeSnippet:
 
 
 class TestUnsubscribeHeaders:
-    """RFC 8058 List-Unsubscribe / List-Unsubscribe-Post header construction."""
+    """RFC 2369 List-Unsubscribe header construction."""
 
     def test_returns_headers_when_frontend_base_url_configured(self, settings: object) -> None:
         settings.FRONTEND_BASE_URL = "https://ppm.example.com"
         assert _unsubscribe_headers() == {
             "List-Unsubscribe": "<https://ppm.example.com/me/settings/notifications>",
-            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
         }
+
+    def test_never_advertises_rfc8058_one_click(self, settings: object) -> None:
+        """``List-Unsubscribe-Post`` promises an unauthenticated POST handler (#2887).
+
+        There is none — the URL is a login-gated SPA route with no unauthenticated
+        POST anywhere in ``notifications/urls.py``. Gmail's and Yahoo's bulk-sender
+        checks *exercise* the POST, so advertising it without a conforming endpoint
+        hurts deliverability rather than helping it. This assertion is the guard
+        against re-adding the header before the signed token and endpoint exist.
+        """
+        settings.FRONTEND_BASE_URL = "https://ppm.example.com"
+        assert "List-Unsubscribe-Post" not in _unsubscribe_headers()
 
     def test_strips_trailing_slash_on_base_url(self, settings: object) -> None:
         settings.FRONTEND_BASE_URL = "https://ppm.example.com/"
@@ -437,7 +448,7 @@ class TestSentEmailHeaders:
             sent.extra_headers["List-Unsubscribe"]
             == "<https://ppm.example.com/me/settings/notifications>"
         )
-        assert sent.extra_headers["List-Unsubscribe-Post"] == "List-Unsubscribe=One-Click"
+        assert "List-Unsubscribe-Post" not in sent.extra_headers
 
     @pytest.mark.django_db
     def test_drained_email_has_no_unsubscribe_headers_when_unconfigured(

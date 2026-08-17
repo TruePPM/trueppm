@@ -18,7 +18,11 @@ from rest_framework.throttling import ScopedRateThrottle, SimpleRateThrottle
 from rest_framework.views import APIView
 
 from trueppm_api.apps.observability.models import BeatHeartbeat, PurgeRun
-from trueppm_api.apps.observability.selectors import get_readiness, get_system_health
+from trueppm_api.apps.observability.selectors import (
+    get_readiness,
+    get_system_health,
+    notification_email_signals,
+)
 from trueppm_api.apps.observability.serializers import (
     PurgeRunQueuedSerializer,
     PurgeRunRequestSerializer,
@@ -45,6 +49,18 @@ _SINGLETON_KEY = 1
 _PROMETHEUS_CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
 
 _DEAD_LETTER_METRIC = "trueppm_task_dead_letter_parked"
+
+# Outbound-email health gauges (#2886). Before these, no Prometheus rule in the
+# chart referenced email at all — the only email-failure signal in the product was
+# the System Health card, which an operator has to be looking at. Served as
+# Prometheus text exposition on the same pattern as the dead-letter gauge (derived
+# on read from committed rows, so a value recorded by the Celery worker is visible
+# from the web process) and kept in sync with the chart's PromQL by
+# scripts/check-helm-metric-names.py.
+_EMAIL_FAILED_METRIC = "trueppm_email_sends_failed_recent"
+_EMAIL_SENT_METRIC = "trueppm_email_sends_delivered_recent"
+_EMAIL_QUEUED_AGING_METRIC = "trueppm_email_queue_aging"
+_EMAIL_TRANSPORT_UNAVAILABLE_METRIC = "trueppm_email_transport_unavailable"
 
 
 def _escape_label_value(value: str) -> str:
@@ -204,6 +220,79 @@ def dead_letter_metrics(_request: Request) -> HttpResponse:
     for row in rows:
         label = _escape_label_value(row["task_name"])
         lines.append(f'{_DEAD_LETTER_METRIC}{{task_name="{label}"}} {row["n"]}')
+
+    body = "\n".join(lines) + "\n"
+    return HttpResponse(body, content_type=_PROMETHEUS_CONTENT_TYPE)
+
+
+@extend_schema(
+    summary="Outbound-email health metrics (Prometheus)",
+    description=(
+        "Prometheus 0.0.4 text exposition of outbound-email health, so a dead SMTP "
+        "relay pages someone instead of waiting to be noticed on the System Health "
+        "page (#2886). Four gauges, all derived on read from committed state — no "
+        "metrics client or scrape agent runs in-process (ADR-0084):\n\n"
+        "- `trueppm_email_sends_failed_recent` — notification emails that "
+        "permanently failed (attempts exhausted) in the last hour.\n"
+        "- `trueppm_email_sends_delivered_recent` — notification emails delivered in "
+        "the last hour. Paired with the above, `failed > 0 and delivered == 0` is the "
+        "dead-relay fingerprint.\n"
+        "- `trueppm_email_queue_aging` — emails still queued more than an hour after "
+        "the notification was created, i.e. the drain is not completing rows at all.\n"
+        "- `trueppm_email_transport_unavailable` — `1` when the workspace has an SMTP "
+        "transport configured whose stored credential will not decrypt, so no mail "
+        "can be sent until an operator re-enters it; `0` otherwise.\n\n"
+        "Requires a staff (admin) account; scrape with a bearer token. Needs its own "
+        "scrape job — these are not OTLP metrics."
+    ),
+    responses={
+        200: OpenApiResponse(description="Prometheus text-format outbound-email gauges."),
+    },
+    tags=["meta"],
+)
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def email_metrics(_request: Request) -> HttpResponse:
+    """Expose the outbound-email health gauges in Prometheus text format.
+
+    Cross-process correct for the same reason the dead-letter gauge is: every value
+    is read from committed rows (or, for the transport gauge, from the stored
+    ciphertext plus the live encryption key), so a failure recorded by the Celery
+    worker is visible from the web process serving this endpoint.
+    """
+    from trueppm_api.apps.notifications.email_backend import TRANSPORT_UNDECRYPTABLE
+
+    signals = notification_email_signals()
+    unavailable = 1 if signals["transport"] == TRANSPORT_UNDECRYPTABLE else 0
+
+    gauges: list[tuple[str, str, int]] = [
+        (
+            _EMAIL_FAILED_METRIC,
+            "Notification emails that permanently failed to send in the last hour.",
+            int(signals["failed_recent"]),
+        ),
+        (
+            _EMAIL_SENT_METRIC,
+            "Notification emails successfully delivered in the last hour.",
+            int(signals["sent_recent"]),
+        ),
+        (
+            _EMAIL_QUEUED_AGING_METRIC,
+            "Notification emails still queued more than an hour after creation.",
+            int(signals["queued_aging"]),
+        ),
+        (
+            _EMAIL_TRANSPORT_UNAVAILABLE_METRIC,
+            "1 when the configured SMTP credential cannot be decrypted, else 0.",
+            unavailable,
+        ),
+    ]
+
+    lines: list[str] = []
+    for name, help_text, value in gauges:
+        lines.append(f"# HELP {name} {help_text}")
+        lines.append(f"# TYPE {name} gauge")
+        lines.append(f"{name} {value}")
 
     body = "\n".join(lines) + "\n"
     return HttpResponse(body, content_type=_PROMETHEUS_CONTENT_TYPE)

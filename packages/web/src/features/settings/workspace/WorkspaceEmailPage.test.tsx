@@ -421,6 +421,54 @@ describe('WorkspaceEmailPage — send test email', () => {
     render(<WorkspaceEmailPage />);
     expect(screen.getByRole('button', { name: 'Sending…' })).toBeDisabled();
   });
+
+  it('surfaces a throttled or crashed test send instead of showing nothing (#2887)', () => {
+    // The hook only normalizes a body carrying a boolean `sent`; a 429 (this endpoint
+    // is throttled at 6/min, tight enough that a double-click reaches it), a 500, or a
+    // network error reject with no such key. `isError` was never read, so the button
+    // simply returned to idle with no outcome rendered at all.
+    useSendTestEmail.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      isError: true,
+      data: undefined,
+    });
+    render(<WorkspaceEmailPage />);
+    expect(screen.getByText(/Could not send the test email/i)).toBeInTheDocument();
+  });
+});
+
+describe('WorkspaceEmailPage — delivery-limit copy matches the field it describes', () => {
+  it('describes the batch cap as queued emails per pass, not addresses per message', () => {
+    // #2860 rebound max_recipients from "addresses per message" (which nothing
+    // implemented) to "rows per drain tick" (which the drain enforces) and updated the
+    // docs page, but not this UI. Every message TruePPM sends has exactly one recipient
+    // and no Cc/Bcc, so the old copy described a behavior that cannot occur (#2887).
+    render(<WorkspaceEmailPage />);
+    expect(screen.queryByText(/Per single message/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/To, Cc, and Bcc/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Max queued emails per batch')).toBeInTheDocument();
+  });
+
+  it('caps the batch input at the ceiling the server enforces', () => {
+    // A larger value used to be accepted, persisted and echoed back, then silently
+    // discarded by the drain's unconditional min(EMAIL_BATCH_SIZE, ...).
+    render(<WorkspaceEmailPage />);
+    const input = screen.getByLabelText<HTMLInputElement>('Max queued emails per batch');
+    expect(input.max).toBe('50');
+    expect(input.min).toBe('0');
+  });
+
+  it('points the delivery-limit help at the delivery-limits anchor, not rate limits', () => {
+    // #rate-limits documents API endpoint throttling — a different subject entirely.
+    render(<WorkspaceEmailPage />);
+    fireEvent.click(
+      screen.getByRole('button', { name: /About the Max queued emails per batch options/i }),
+    );
+    expect(
+      screen.getByRole('link', { name: /Delivery limits/i }).getAttribute('href'),
+    ).toContain('#from-identity-and-delivery-limits');
+  });
 });
 
 describe('WorkspaceEmailPage — deliverability health', () => {
@@ -476,7 +524,7 @@ describe('WorkspaceEmailPage — contextual help (#2266)', () => {
     for (const name of [
       /About the Reply-to address options/i,
       /About the DKIM selector options/i,
-      /About the Max recipients options/i,
+      /About the Max queued emails per batch options/i,
       /About the Throttle options/i,
     ]) {
       expect(screen.getByRole('button', { name })).toBeInTheDocument();
@@ -525,7 +573,7 @@ describe('WorkspaceEmailPage — field editing', () => {
       target: { value: 'support@truescope.io' },
     });
     fireEvent.change(screen.getByLabelText('DKIM selector'), { target: { value: 'sel1' } });
-    fireEvent.change(screen.getByLabelText('Max recipients'), { target: { value: '25' } });
+    fireEvent.change(screen.getByLabelText('Max queued emails per batch'), { target: { value: '25' } });
     fireEvent.change(screen.getByLabelText('Throttle per minute'), { target: { value: '10' } });
 
     await act(async () => {
@@ -684,14 +732,14 @@ describe('WorkspaceEmailPage — provider derivation and switching', () => {
 });
 
 describe('WorkspaceEmailPage — numeric field clearing', () => {
-  it('coerces a cleared Port, Max recipients, and Throttle to 0 rather than NaN', async () => {
+  it('coerces a cleared Port, batch cap, and Throttle to 0 rather than NaN', async () => {
     const mutateAsync = vi.fn().mockResolvedValue(undefined);
     mockHooks({ transport_mode: 'smtp', host: 'mail.example.com', max_recipients: 50 });
     useUpdateEmailSettings.mockReturnValue({ mutateAsync, isPending: false });
     render(<WorkspaceEmailPage />);
 
     fireEvent.change(screen.getByLabelText('SMTP port'), { target: { value: '' } });
-    fireEvent.change(screen.getByLabelText('Max recipients'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('Max queued emails per batch'), { target: { value: '' } });
     fireEvent.change(screen.getByLabelText('Throttle per minute'), { target: { value: '' } });
 
     expect(screen.getByLabelText<HTMLInputElement>('SMTP port').value).toBe('0');

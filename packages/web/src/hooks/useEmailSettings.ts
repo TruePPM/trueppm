@@ -2,8 +2,9 @@
  * Writable workspace Email & SMTP configuration (#712, ADR-0213).
  *
  * Upgrades the #639 read-only status hook to the writable surface: the transport
- * (server default / custom SMTP / SendGrid / SES), From identity, DKIM, delivery
- * limits, and bounce webhook. The SMTP password is write-only — the payload
+ * (server default / custom SMTP / SendGrid / SES), From identity, DKIM, and
+ * delivery limits. (The bounce-webhook field was removed from the serializer in
+ * #2860 — nothing ingested it; #2872 builds the endpoint and re-exposes it.) The SMTP password is write-only — the payload
  * never carries it, only `password_is_set`. Reads are org-admin gated; writes
  * (and the test-email / health actions) require the install operator, surfaced
  * to the UI as `can_edit`.

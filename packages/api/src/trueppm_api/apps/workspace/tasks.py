@@ -26,8 +26,13 @@ logger = logging.getLogger(__name__)
 
 EMAIL_MAX_RETRIES = 3
 EMAIL_ORPHAN_WINDOW_MINUTES = 5  # ADR-0087 §Durable item 3 — matches the notification drain
-EMAIL_BATCH_SIZE = 50
 INVITE_RETENTION_DAYS = 30  # ADR-0087 §Durable item 6
+# Beat task name — also the key the per-minute throttle divisor is derived from
+# (#2887 item 4). This drain shares the workspace delivery limits with the
+# notification drain; it used to carry its own hardcoded EMAIL_BATCH_SIZE = 50 and
+# consult neither operator control, so an invite burst could double the configured
+# rate on the same 30 s cadence (#2887 item 3).
+DRAIN_TASK_NAME = "workspace.drain_invite_emails"
 
 EXPORT_MAX_RETRIES = 3  # ADR-0174 §Durable item 8
 EXPORT_ORPHAN_WINDOW_MINUTES = 5  # ADR-0174 §Durable item 3
@@ -73,10 +78,38 @@ def purge_stale_invites(self: object) -> None:
 def _do_drain_invite_emails() -> None:
     from django.utils import timezone
 
+    from trueppm_api.apps.notifications.delivery_limits import (
+        EMAIL_MAX_BATCH_SIZE,
+        beat_ticks_per_minute,
+        per_tick_cap,
+        reserve_send_budget,
+    )
+    from trueppm_api.apps.notifications.email_backend import (
+        EmailTransportError,
+        resolve_email_connection,
+        resolve_from_email,
+    )
+    from trueppm_api.apps.notifications.models import WorkspaceEmailSettings
+
     from .models import WorkspaceInvite
 
     now = timezone.now()
     orphan_cutoff = now - timedelta(minutes=EMAIL_ORPHAN_WINDOW_MINUTES)
+
+    # Same two-stage bound as the notification drain: a per-tick cap for smoothing,
+    # then a reservation against the per-minute budget every mail path shares.
+    email_settings = WorkspaceEmailSettings.load()
+    budget = reserve_send_budget(
+        int(email_settings.throttle_per_min or 0),
+        per_tick_cap(
+            email_settings,
+            ticks_per_minute=beat_ticks_per_minute(DRAIN_TASK_NAME),
+            fallback=EMAIL_MAX_BATCH_SIZE,
+        ),
+    )
+    granted = budget.granted
+    if granted <= 0:
+        return
 
     pending = list(
         WorkspaceInvite.objects.filter(
@@ -86,16 +119,35 @@ def _do_drain_invite_emails() -> None:
             created_at__lt=orphan_cutoff,
         )
         .select_related("invited_by")
-        .order_by("created_at")[:EMAIL_BATCH_SIZE]
+        .order_by("created_at")[:granted]
     )
+    budget.release(granted - len(pending))
     if not pending:
         return
+
+    # Resolve the transport ONCE per batch, and bail out without touching any row when
+    # it cannot be built (#2886 item 2). Resolving per invite would both re-connect N
+    # times and — now that an unusable transport raises rather than silently rerouting
+    # — burn all three retries on every queued invite and mark them FAILED for what is
+    # a configuration fault an operator fix clears.
+    try:
+        connection = resolve_email_connection(email_settings)
+    except EmailTransportError:
+        logger.error(
+            "drain_invite_emails: the configured mail transport is unusable — "
+            "%d invite(s) left pending, no retries burned. Fix the transport in "
+            "Workspace -> Email.",
+            len(pending),
+        )
+        budget.release(len(pending))
+        return
+    from_email = resolve_from_email(email_settings)
 
     sent = 0
     failed = 0
     for invite in pending:
         try:
-            ok = _send_invite_email(invite)
+            ok = _send_invite_email(invite, connection=connection, from_email=from_email)
         except Exception:
             logger.exception("drain_invite_emails: unexpected error for invite %s", invite.pk)
             ok = False
@@ -300,19 +352,31 @@ def _send_export_ready_email(job_id: str) -> bool:
         return False
 
     subject, body = _render_export_email(job)
+    from trueppm_api.apps.notifications.delivery_limits import (
+        note_unbudgeted_send,
+        workspace_throttle_per_min,
+    )
     from trueppm_api.apps.notifications.email_backend import (
         resolve_email_connection,
         resolve_from_email,
     )
 
     # Send on the workspace SMTP transport (#712, ADR-0213); no-op fall back to
-    # the global backend when unconfigured.
+    # the global backend when unconfigured. A single transactional message, so it
+    # charges the shared per-minute budget without being refused by it (#2887 item 3)
+    # — the queued drains yield to it rather than the reverse.
+    try:
+        connection = resolve_email_connection()
+    except Exception:
+        logger.warning("export ready email: mail transport unusable for job %s", job_id)
+        return False
+    note_unbudgeted_send(workspace_throttle_per_min())
     msg = EmailMessage(
         subject=subject,
         body=body,
         from_email=resolve_from_email(),
         to=[job.requested_by.email],
-        connection=resolve_email_connection(),
+        connection=connection,
     )
     try:
         msg.send(fail_silently=False)
@@ -375,8 +439,19 @@ def _do_purge_stale_invites() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _send_invite_email(invite: object) -> bool:
-    """Render and send the invitation email. Returns True on SMTP success."""
+def _send_invite_email(
+    invite: object,
+    *,
+    connection: object | None = None,
+    from_email: str | None = None,
+) -> bool:
+    """Render and send the invitation email. Returns True on SMTP success.
+
+    The transport and From identity are resolved **once per drain batch** and passed
+    in; when omitted they are resolved here so a direct/one-off caller still works. A
+    caller that resolves them itself is also the one that can distinguish an unusable
+    transport (a configuration fault, no retries burned) from a failed send.
+    """
     from django.core.mail import EmailMessage
 
     from .models import WorkspaceInvite
@@ -396,9 +471,9 @@ def _send_invite_email(invite: object) -> bool:
     msg = EmailMessage(
         subject=subject,
         body=body,
-        from_email=resolve_from_email(),
+        from_email=resolve_from_email() if from_email is None else from_email,
         to=[inv.email],
-        connection=resolve_email_connection(),
+        connection=resolve_email_connection() if connection is None else connection,
     )
     try:
         msg.send(fail_silently=False)

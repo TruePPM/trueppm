@@ -727,6 +727,14 @@ alerts:
     outboxOldestAgeFor: "10m"
     deadLetter: 0
     deadLetterFor: "5m"
+    # Outbound-email alerts (#2886). These read the gauges served as Prometheus
+    # text exposition by /api/v1/health/email/, which — like the dead-letter gauge
+    # — needs its own scrape job; see docs → Administration → Observability.
+    emailTransportFor: "5m"
+    emailFailed: 0
+    emailFailedFor: "10m"
+    emailQueueAging: 0
+    emailQueueAgingFor: "15m"
 
 # OPTIONAL in-cluster OpenTelemetry Collector guidance (#1905). This chart does NOT
 # bundle a Collector subchart — running one is a deliberate operational choice with

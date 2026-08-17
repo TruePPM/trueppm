@@ -30,6 +30,13 @@ from typing import TYPE_CHECKING, Any
 
 from trueppm_api.core.idempotent import idempotent_task
 
+from .delivery_limits import (
+    EMAIL_MAX_BATCH_SIZE,
+    beat_ticks_per_minute,
+    per_tick_cap,
+    reserve_send_budget,
+)
+
 if TYPE_CHECKING:
     from django.core.mail.backends.base import BaseEmailBackend
 
@@ -40,12 +47,12 @@ logger = logging.getLogger(__name__)
 # adjacent to the drain task that owns them.
 EMAIL_MAX_RETRIES = 3
 EMAIL_ORPHAN_WINDOW_MINUTES = 5  # ADR-0075 §F durable-execution checklist item 3
-EMAIL_BATCH_SIZE = 50  # fallback cap per drain tick, when no operator limit applies
-# Drain ticks per minute, from the "drain-notification-emails" beat entry
-# (schedule: 30.0). Used to convert the operator's per-MINUTE throttle into the
-# per-TICK cap this task can actually enforce (#2860). Keep in step with the beat
-# schedule — a mismatch makes throttle_per_min mean something other than it says.
-EMAIL_DRAIN_TICKS_PER_MINUTE = 2
+# Fallback cap per drain tick, when no operator limit applies. Re-exported from
+# delivery_limits, which every mail path now shares (#2887 item 3).
+EMAIL_BATCH_SIZE = EMAIL_MAX_BATCH_SIZE
+# Beat task name — also the key the per-minute throttle divisor is derived from, so
+# the cadence and the throttle can no longer disagree (#2887 item 4).
+DRAIN_TASK_NAME = "notifications.drain_notification_emails"
 ARCHIVE_AFTER_DAYS = 90  # ADR-0075 §F item 6 — outbox cleanup
 
 # Snippet rendering (#574, security review !306 LOW-1). SNIPPET_MAX_CHARS bounds
@@ -203,27 +210,15 @@ def purge_old_digest_runs(self: object) -> None:
 def _drain_batch_size(email_settings: Any) -> int:
     """Rows to drain this tick, honoring the operator's delivery limits (#2860).
 
-    Two operator controls bound one query:
-
-    * ``max_recipients`` caps a single tick outright — it is the "never send more
-      than N in one go" dial.
-    * ``throttle_per_min`` is a per-MINUTE rate, so it is divided by the beat rate
-      (``EMAIL_DRAIN_TICKS_PER_MINUTE``) to get the per-tick share. ``0`` means no
-      throttle, which is the documented sentinel and the shipped default.
-
-    The tighter of the two wins. A throttle that divides below one still sends one
-    message per tick rather than zero: a rate limit that can deadlock the queue
-    outright is a worse failure than approximating a very low rate upward, and
-    ``PositiveIntegerField`` lets an operator set ``1``.
+    Thin wrapper over :func:`delivery_limits.per_tick_cap` that supplies this drain's
+    beat cadence. The interpretation of both controls, and the shared per-minute budget
+    that spans every mail path, live in ``delivery_limits`` (#2887 item 3).
     """
-    caps = [EMAIL_BATCH_SIZE]
-    max_recipients = getattr(email_settings, "max_recipients", 0) or 0
-    if max_recipients > 0:
-        caps.append(max_recipients)
-    throttle_per_min = getattr(email_settings, "throttle_per_min", 0) or 0
-    if throttle_per_min > 0:
-        caps.append(max(1, throttle_per_min // EMAIL_DRAIN_TICKS_PER_MINUTE))
-    return min(caps)
+    return per_tick_cap(
+        email_settings,
+        ticks_per_minute=beat_ticks_per_minute(DRAIN_TASK_NAME),
+        fallback=EMAIL_MAX_BATCH_SIZE,
+    )
 
 
 def _do_drain_emails() -> None:
@@ -239,7 +234,15 @@ def _do_drain_emails() -> None:
     # back in Workspace → Email for three releases while this task capped every
     # drain at a hardcoded 50 regardless — a control that looked applied and was not.
     email_settings = WorkspaceEmailSettings.load()
-    batch_size = _drain_batch_size(email_settings)
+    # Two-stage: the per-tick cap smooths within a minute, the shared budget bounds
+    # the minute across *every* mail path (invite drain, password reset, export-ready)
+    # so no single path can spend the whole allowance (#2887 item 3).
+    budget = reserve_send_budget(
+        int(email_settings.throttle_per_min or 0), _drain_batch_size(email_settings)
+    )
+    granted = budget.granted
+    if granted <= 0:
+        return
 
     pending = list(
         Notification.objects.filter(
@@ -249,24 +252,44 @@ def _do_drain_emails() -> None:
             created_at__lt=orphan_cutoff,
         )
         .select_related("recipient", "mention", "mention__task_comment", "mention__mentioner")
-        .order_by("created_at")[:batch_size]
+        .order_by("created_at")[:granted]
     )
+
+    # Hand back what this tick will not spend, or an idle drain starves the other
+    # paths for the rest of the minute.
+    budget.release(granted - len(pending))
 
     if not pending:
         return
 
     # Resolve the workspace transport + From identity ONCE per batch — the config
     # is constant across the batch, so building it per message would be N SMTP
-    # connections + N single-row reads per tick (#712 perf, ADR-0213). A build
-    # failure here (e.g. a corrupt row) falls back to the global backend inside
-    # resolve_email_connection, so the batch never dead-letters on config alone.
+    # connections + N single-row reads per tick (#712 perf, ADR-0213).
     from .email_backend import (
+        EmailTransportError,
         resolve_email_connection,
         resolve_from_email,
         resolve_reply_to,
     )
 
-    connection = resolve_email_connection(email_settings)
+    try:
+        connection = resolve_email_connection(email_settings)
+    except EmailTransportError:
+        # The workspace has a transport configured that cannot be built — an
+        # undecryptable credential or a host the egress guard rejects (#2886 item 2).
+        # Deliberately return WITHOUT touching the rows: this is a configuration fault
+        # an operator fix clears, and burning three retries per row would permanently
+        # discard notifications for it. The rows stay pending, which is what the
+        # System Health card's aging-backlog signal reports on, and
+        # ``transport_status`` names the cause directly.
+        logger.error(
+            "drain_notification_emails: the configured mail transport is unusable — "
+            "%d row(s) left pending, no retries burned. Fix the transport in "
+            "Workspace -> Email.",
+            len(pending),
+        )
+        budget.release(len(pending))
+        return
     from_email = resolve_from_email(email_settings)
     reply_to = resolve_reply_to(email_settings)
 
@@ -504,17 +527,26 @@ def _sanitize_snippet(raw: str) -> str:
 
 
 def _unsubscribe_headers() -> dict[str, str]:
-    """Build RFC 8058 ``List-Unsubscribe`` / ``List-Unsubscribe-Post`` headers.
+    """Build the RFC 2369 ``List-Unsubscribe`` header.
 
-    Points at the user's notification-preferences page rather than a bare,
-    unauthenticated one-click endpoint — TruePPM has no per-notification
-    unsubscribe token today, so this is "one click to the login-gated
-    preferences page" rather than a true no-auth unsubscribe. Presence of both
-    headers (even pointed at an authenticated page) is still the signal
-    Gmail/Outlook bulk-sender heuristics check for at scale (#574, security
-    review !306 LOW-1). Returns an empty dict — omitting the headers entirely —
-    when the deployer hasn't configured ``FRONTEND_BASE_URL``, since a bare
-    relative path is not a valid header value.
+    Points at the user's notification-preferences page — TruePPM has no
+    per-notification unsubscribe token today, so this is "one click to the
+    login-gated preferences page" rather than a true no-auth unsubscribe. That is a
+    valid ``List-Unsubscribe`` on its own; RFC 2369 does not require the target to be
+    unauthenticated.
+
+    ``List-Unsubscribe-Post: List-Unsubscribe=One-Click`` is deliberately **not**
+    emitted (#2887 item 6). That header is an RFC 8058 promise that an unauthenticated
+    ``POST`` to the URL unsubscribes the recipient with no further interaction, and
+    there is no such handler anywhere in this app — the URL is a login-gated SPA route.
+    Gmail's and Yahoo's bulk-sender requirements are checked by *exercising* the POST,
+    so advertising it without a conforming endpoint is a deliverability liability,
+    inverting the reason it was added. Re-add it in the same change that ships a signed
+    unsubscribe token and its endpoint, never before.
+
+    Returns an empty dict — omitting the header entirely — when the deployer hasn't
+    configured ``FRONTEND_BASE_URL``, since a bare relative path is not a valid header
+    value.
     """
     from django.conf import settings
 
@@ -522,7 +554,4 @@ def _unsubscribe_headers() -> dict[str, str]:
     if not base:
         return {}
     prefs_url = f"{base}/me/settings/notifications"
-    return {
-        "List-Unsubscribe": f"<{prefs_url}>",
-        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-    }
+    return {"List-Unsubscribe": f"<{prefs_url}>"}

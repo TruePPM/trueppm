@@ -636,8 +636,8 @@ class WorkspaceEmailSettingsView(IdempotencyMixin, APIView):
     Upgrades the #639 read-only status page to the writable surface (#712,
     ADR-0213). ``GET`` is gated ``IsWorkspaceAdminStrict`` — a *workspace* ADMIN,
     not merely someone with ADMIN on one project — because the payload discloses
-    installation mail-transport posture (SMTP host, from-domain, bounce-webhook
-    URL, rate limits), the same class of org-topology disclosure the SSO config
+    installation mail-transport posture (SMTP host, from-domain, delivery
+    limits), the same class of org-topology disclosure the SSO config
     read is gated against (#2016; mirrors ``sso.views`` / ADR-0087 §6). **Writes**
     (``PUT``/``PATCH``) still require the install operator (superuser) because the
     transport is installation-global — a single-project admin must not be able to

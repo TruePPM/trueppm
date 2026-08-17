@@ -168,6 +168,55 @@ test.describe('Workspace Email & SMTP — writable', () => {
     await expect(page.getByLabel('SMTP host')).toHaveValue('bad.host.example');
   });
 
+  test('error path: a throttled test send reports an outcome instead of nothing (#2887)', async ({
+    page,
+  }) => {
+    // The send-test endpoint is throttled at 6/min. DRF answers 429 with
+    // `{"detail": ...}` and no boolean `sent`, so the hook rethrows and the page
+    // used to render nothing at all — the button simply returned to idle.
+    await setup(page);
+    await page.route('**/api/v1/workspace/email-settings/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj(EMAIL_GET) }),
+    );
+    await page.route('**/api/v1/workspace/email-settings/send-test/', (r) =>
+      r.fulfill({
+        status: 429,
+        contentType: 'application/json',
+        body: pj({ detail: 'Request was throttled. Expected available in 42 seconds.' }),
+      }),
+    );
+
+    await page.goto('/settings/email');
+    await expect(page.getByRole('heading', { name: 'Email & SMTP' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Send test email' }).click();
+    await expect(page.getByText(/Could not send the test email/i)).toBeVisible();
+  });
+
+  test('delivery limits describe rows per batch, not addresses per message (#2887)', async ({
+    page,
+  }) => {
+    // #2860 rebound max_recipients to "queued emails per drain pass" and updated the
+    // docs page, but not this UI — which still described addresses per message, a
+    // behavior that cannot occur (every message has exactly one recipient, no Cc/Bcc).
+    await setup(page);
+    await page.route('**/api/v1/workspace/email-settings/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj(EMAIL_GET) }),
+    );
+
+    await page.goto('/settings/email');
+    await expect(page.getByRole('heading', { name: 'Email & SMTP' })).toBeVisible();
+
+    const email = page.locator('[data-settings-section="email"]');
+    await expect(email.getByText('Per single message.')).toHaveCount(0);
+    // By role, not getByLabel: the field's ⓘ help button carries "About the Max
+    // queued emails per batch options" as its accessible name, so a bare label
+    // lookup is a strict-mode collision.
+    const cap = page.getByRole('spinbutton', { name: 'Max queued emails per batch' });
+    await expect(cap).toBeVisible();
+    await expect(cap).toHaveAttribute('max', '50');
+  });
+
   test('error path: a per-field 400 highlights the offending input inline (#2249)', async ({
     page,
   }) => {

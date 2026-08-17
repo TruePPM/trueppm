@@ -13,6 +13,7 @@ from rest_framework import serializers
 from trueppm_api.apps.projects.schema_migrations import migrate_payload
 
 from .categories import category_for
+from .delivery_limits import EMAIL_MAX_BATCH_SIZE
 from .models import (
     EmailSecurity,
     EmailTransportMode,
@@ -498,6 +499,24 @@ class WorkspaceEmailSettingsSerializer(serializers.ModelSerializer[WorkspaceEmai
         style={"input_type": "password"},
     )
     password_is_set = serializers.BooleanField(read_only=True)
+
+    # Rows one drain tick may claim (#2860 rebound this from "addresses per message",
+    # which nothing implemented). The drain caps every tick at EMAIL_MAX_BATCH_SIZE
+    # regardless, because a tick runs under a 25 s soft time limit — so a larger value
+    # was accepted, persisted, echoed back and then silently discarded (#2887 item 2).
+    # Rejecting it out loud is the whole point: a control that reports a value it does
+    # not apply is the dead-control failure mode wearing a different hat. ``0`` means
+    # "no explicit cap" and falls back to EMAIL_MAX_BATCH_SIZE, which is why min_value
+    # is 0 rather than 1.
+    max_recipients = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        max_value=EMAIL_MAX_BATCH_SIZE,
+        help_text=(
+            f"Queued emails one drain tick sends, 1-{EMAIL_MAX_BATCH_SIZE}. "
+            f"0 means no explicit cap ({EMAIL_MAX_BATCH_SIZE} per tick)."
+        ),
+    )
 
     class Meta:
         model = WorkspaceEmailSettings

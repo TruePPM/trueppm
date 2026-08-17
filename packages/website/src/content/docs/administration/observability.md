@@ -437,11 +437,12 @@ alerts:
 The dashboard (**TruePPM — Async & Outbox Health**) charts outbox depth and oldest
 age, dead-letter parked tasks, PostgreSQL backends, and Celery Beat liveness. The
 rules alert on **beat staleness** (the `/api/v1/health/beat/` endpoint returning
-503), **rising outbox depth**, **rising oldest-age**, and **dead-lettered tasks**.
+503), **rising outbox depth**, **rising oldest-age**, **dead-lettered tasks**, and
+**outbound email failures**.
 
-:::note[Beat-liveness and dead-letter signals need extra scrape wiring]
+:::note[Beat-liveness, dead-letter, and email signals need extra scrape wiring]
 The outbox and database panels read the native `trueppm.*` OTLP metrics directly.
-The other two signals do not, and each needs a job you add yourself:
+The other three signals do not, and each needs a job you add yourself:
 
 - **Beat staleness** reads a [Blackbox
   Exporter](https://github.com/prometheus/blackbox_exporter) probe of
@@ -457,6 +458,16 @@ The other two signals do not, and each needs a job you add yourself:
   and permanently-lost background work goes unnoticed. See [Dead-letter
   alerting](/administration/dead-letter-alerting/) for the scrape config and the
   metric's labels.
+- **Outbound email** reads four gauges — `trueppm_email_sends_failed_recent`,
+  `trueppm_email_sends_delivered_recent`, `trueppm_email_queue_aging`, and
+  `trueppm_email_transport_unavailable` — which are likewise Prometheus text
+  exposition, served by `/api/v1/health/email/`. Add a scrape job for that path
+  (the same job that scrapes `/api/v1/health/dead-letter/` will do; both are
+  staff-gated and want the same bearer token) or `TruePPMEmailDeliveryFailing`,
+  `TruePPMEmailQueueAging`, and `TruePPMEmailTransportUnavailable` all evaluate
+  empty vectors and a dead SMTP relay raises nothing. See [Outbound
+  email](/administration/email/#knowing-when-mail-stops-working) for what each
+  gauge means.
 :::
 
 ## Enterprise
