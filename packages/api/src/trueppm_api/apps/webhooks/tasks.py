@@ -175,6 +175,7 @@ def _fail_delivery(
     webhook: Webhook,
     *,
     reason: str,
+    operator_reason: str = "",
     extra_fields: tuple[str, ...] = (),
     count_against_guard: bool = True,
 ) -> None:
@@ -189,6 +190,12 @@ def _fail_delivery(
     out of the consecutive-failure counter. Two branches use it, for the same
     reason: the counter is meant to measure *the receiver's* health under production
     traffic, and neither of those failures is evidence of that.
+
+    ``reason`` lands in ``Webhook.last_failure_reason``, which is readable at
+    **Viewer** level, so it must stay free of deployment detail. ``operator_reason``
+    overrides it for the dead-letter record only — the Admin/operator surface — the
+    same split ``validate_url`` already makes between its curated 400 message and its
+    server-side log line.
     """
     from trueppm_api.apps.webhooks.models import PING_EVENT_TYPE, DeliveryStatus
 
@@ -221,7 +228,7 @@ def _fail_delivery(
     # silence needs an explanation, and this record is the last one before it: it is
     # what makes "the alerts stopped" readable as "we gave up on this webhook"
     # rather than as "the receiver recovered".
-    dead_letter_reason = f"webhook {webhook.pk}: {reason}"
+    dead_letter_reason = f"webhook {webhook.pk}: {operator_reason or reason}"
     if auto_disabled:
         dead_letter_reason += (
             " — SUBSCRIPTION DEACTIVATED; no further deliveries will be attempted "
@@ -297,12 +304,19 @@ def deliver_webhook(self: object, delivery_id: str) -> None:
     except CredentialEncryptionError:
         logger.exception("deliver_webhook: webhook %s signing secret is undecryptable", webhook.pk)
         secret = ""
-        secret_error = (
-            "Signing secret could not be decrypted — the encryption key has "
+        # Curated, deliberately vague. `last_failure_reason` is readable at Viewer
+        # level, and "your INTEGRATION_ENCRYPTION_KEY changed" is a deployment-level
+        # diagnostic — the same reasoning that put the delivery log behind Admin
+        # (#903). The operator detail is in the logger.exception above and in the
+        # dead-letter record; the Viewer-visible field says only that it is broken.
+        secret_error = "Signing secret is unusable — contact an administrator"
+        secret_operator_error = (
+            "Signing secret could not be decrypted — INTEGRATION_ENCRYPTION_KEY has "
             "changed since this webhook was registered"
         )
     else:
         secret_error = "" if secret else "No signing secret is stored for this webhook"
+        secret_operator_error = ""
 
     if secret_error:
         delivery.attempt_count += 1
@@ -311,6 +325,7 @@ def deliver_webhook(self: object, delivery_id: str) -> None:
             delivery,
             webhook,
             reason=secret_error,
+            operator_reason=secret_operator_error,
             extra_fields=("attempt_count",),
         )
         return

@@ -6,19 +6,32 @@ documentedFor: "0.4"
 
 
 :::note[Ships in 0.4]
-Most of this page describes the shipped feature. Four things on it are **not** in
-the latest release (`v0.3.0-alpha.3`) and land with the 0.4 beta:
+Parts of this page are **not** in the latest release (`v0.3.0-alpha.3`) and land
+with the 0.4 beta:
 
-- the five `risk.*`, `baseline.captured`, and `comment.created` event types;
-- the timestamped `X-TruePPM-Signature-V2` header and its verification recipe
-  (the `X-TruePPM-Signature` recipe below is the only one the current release sends,
-  and 0.4 keeps sending it too);
-- automatic deactivation of a persistently failing subscription;
+- the five `risk.*`, `baseline.captured`, and `comment.created` event types — the
+  current release fires **14**;
+- **all 19 being selectable from the Integrations settings page.** The current
+  release's picker offers 11 and, worse, deletes the rest when you save an
+  API-created webhook;
+- the timestamped `X-TruePPM-Signature-V2` header and its verification recipe. The
+  `X-TruePPM-Signature` recipe is the only one the current release sends, and 0.4
+  keeps sending it too — so nothing you have already built breaks;
+- **the `ping` behavior described under [Request headers](#the-ping-event).** On the
+  current release a test ping skips the format renderer and carries no `_meta`, so
+  a `slack`-format webhook is sent a body Slack rejects, and every Test click looks
+  like a gap in your sequence counter;
+- classifying a permanent `4xx` as non-retryable, and automatic deactivation of a
+  persistently failing subscription. On the current release every failed delivery is
+  retried on the same schedule regardless of status code, and a subscription is only
+  ever deactivated by hand;
+- **webhook failures reaching the dead-letter queue.** On the current release a
+  permanently failed delivery leaves no operator-visible trace beyond its own
+  delivery row, which purges after 7 days;
 - the `secret_set` field and encryption of the signing secret at rest.
 
-On the current release the catalog is 14 events, every failed delivery is retried
-on the same schedule regardless of status code, and a subscription is only ever
-deactivated by hand.
+Everything else — registration, scopes, payload shape, the sequence contract, and
+the delivery-history endpoint — describes the shipped feature.
 :::
 
 Webhooks let you subscribe to TruePPM project events and receive an HTTP POST to a URL you control when those events occur. Common uses: posting notifications to Slack, triggering a CI pipeline when a milestone is resolved, or syncing changes to an external system.

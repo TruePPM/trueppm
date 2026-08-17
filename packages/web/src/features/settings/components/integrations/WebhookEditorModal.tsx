@@ -24,7 +24,7 @@
  *    discarded. Generate is now the default and the returned value is shown once.
  */
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { isAxiosError } from 'axios';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import {
@@ -35,6 +35,11 @@ import {
   type IntegrationScope,
 } from '@/hooks/useWebhooks';
 import { WEBHOOK_EVENT_CATALOG, WEBHOOK_FORMATS, ALL_WEBHOOK_EVENT_IDS } from './events';
+// The one-time-reveal primitives shipped for the API-token flow (#2205). Reused
+// rather than re-derived: a hand-rolled Copy loses the announced accessible name,
+// the timed reset, and — the real defect — any signal at all when the clipboard is
+// denied or the context is insecure, on the one value that has no second chance.
+import { CopyButton, DoneButton } from './McpConnectPanel';
 import { CloseIcon } from '@/components/Icons';
 
 /**
@@ -84,10 +89,15 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
   // and restores focus to the trigger on close. `focusKey` re-seats focus when the
   // modal swaps to the created-secret panel, whose controls replace the form's
   // (#1776 — without it focus drops to <body> and Tab escapes the modal).
+  //
+  // Both dismissal paths are gated on the reveal phase, not just on `saving`: once
+  // the generated secret is on screen it is unrecoverable, so a stray backdrop click
+  // or a reflexive Escape would be permanent data loss with no undo and no diff. Only
+  // the explicit Done/Close controls may leave that phase.
   const trapRef = useFocusTrap<HTMLDivElement>(
     true,
     () => {
-      if (!saving) onClose();
+      if (!saving && createdSecret === null) onClose();
     },
     createdSecret === null ? 'form' : 'created',
   );
@@ -160,10 +170,10 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
       tabIndex={-1}
       className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay p-4 focus:outline-none motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
-        if (e.target === e.currentTarget && !saving) onClose();
+        if (e.target === e.currentTarget && !saving && createdSecret === null) onClose();
       }}
     >
-      <div className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-3xl max-h-[90vh] overflow-auto motion-safe:animate-modal-scale-in">
+      <div className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-3xl max-h-[90vh] overflow-auto motion-safe:animate-modal-scale-in flex flex-col">
         <div className="px-5 pt-4 pb-3 border-b border-neutral-border flex items-start justify-between">
           <div>
             <h2
@@ -276,7 +286,11 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
                   <div className="text-[12px] text-neutral-text-secondary mb-2">
                     {events.size} selected
                   </div>
-                  <div className="space-y-3">
+                  {/* Bounded scroller: 19 events over 8 groups is ~815px, which
+                      pushed the "{n} selected" counter and the footer off-screen on a
+                      laptop. Nothing inside portals or opens an in-flow absolute
+                      panel, so a nested scroller introduces no clipping (rule 253). */}
+                  <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1">
                     {WEBHOOK_EVENT_CATALOG.map((group) => (
                       <fieldset key={group.category}>
                         <legend className="text-[11px] uppercase tracking-wide font-semibold text-neutral-text-secondary mb-1">
@@ -357,6 +371,19 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
                       <DisabledNotice
                         reason={webhook.disabled_reason}
                         failures={webhook.consecutive_failures}
+                        resuming={update.isPending}
+                        onResume={() => {
+                          // The serializer treats a false→true is_active transition as
+                          // the reactivation path and clears the failure record in the
+                          // same write, so nothing else needs sending.
+                          update.mutate(
+                            { id: webhook.id, body: { is_active: true } },
+                            {
+                              onSuccess: onSaved,
+                              onError: (e) => setFormError(extractError(e)),
+                            },
+                          );
+                        }}
                       />
                     )}
                     <RecentDeliveries scope={scope} webhookId={webhook.id} />
@@ -371,7 +398,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
               </div>
             )}
 
-            <div className="px-5 py-3 border-t border-neutral-border flex justify-end gap-2">
+            <div className="px-5 py-3 border-t border-neutral-border flex justify-end gap-2 sticky bottom-0 bg-neutral-surface">
               <button
                 type="button"
                 onClick={onClose}
@@ -407,78 +434,97 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 }
 
 /**
- * The one-time secret echo (#2885). The API returns the generated secret in the
- * 201 body and never again — discarding it, as this modal used to, left the admin
- * with a webhook they could not verify signatures for.
+ * The one-time secret echo (#2885), built on the primitives shipped for the
+ * API-token reveal (#2205).
+ *
+ * The API returns the generated secret in the 201 body and never again — discarding
+ * it, as this modal used to, left the admin with a webhook whose signatures they
+ * could not verify. Everything here follows from that unrecoverability: focus seats
+ * on Copy (never on a dismiss control), the field selects itself on focus so a
+ * blocked clipboard still has a keyboard path, and the heading announces the phase
+ * swap because that swap is the only signal a non-sighted user gets.
  */
 function CreatedSecretPanel({ secret, onDone }: { secret: string; onDone: () => void }) {
-  const [copied, setCopied] = useState(false);
+  const copyRef = useRef<HTMLDivElement>(null);
+
+  // The focus trap re-seats on the phase swap, but it takes the FIRST focusable —
+  // which on a header-first modal is the ✕, one keystroke from discarding the secret.
+  // Re-seat onto Copy after the trap has run (effect order = call order).
+  useEffect(() => {
+    copyRef.current?.querySelector('button')?.focus();
+  }, []);
+
   return (
     <div className="p-5 space-y-4">
-      <div
-        className="border border-semantic-at-risk/55 bg-semantic-at-risk/10 rounded p-3 text-[12px] text-neutral-text-primary"
-        role="alert"
+      <h3
+        className="text-[13px] font-semibold text-neutral-text-primary"
+        aria-live="polite"
       >
-        This is the only time the signing secret is shown. Store it in your receiver&apos;s
-        configuration now — it cannot be retrieved later, only rotated.
+        Signing secret created — copy it now
+      </h3>
+      <div className="border border-semantic-at-risk/80 bg-semantic-at-risk-bg rounded p-3 text-[12px] text-neutral-text-primary">
+        This is the only time the signing secret is shown. Store it in your
+        receiver&apos;s configuration now — it cannot be retrieved later, only rotated.
       </div>
-      <div>
-        <span className="block text-[13px] font-medium text-neutral-text-primary mb-1">
-          Signing secret
-        </span>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            readOnly
-            value={secret}
-            aria-label="Generated signing secret"
-            className="tppm-mono flex-1 min-w-0 h-8 px-2 text-[13px] border border-neutral-border rounded bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-          />
-          <button
-            type="button"
-            onClick={() => {
-              // Clipboard access can be denied (insecure context, permissions);
-              // the value stays selectable in the field either way.
-              void navigator.clipboard?.writeText(secret).then(
-                () => setCopied(true),
-                () => setCopied(false),
-              );
-            }}
-            className="h-8 px-3 shrink-0 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-          >
-            {copied ? 'Copied' : 'Copy'}
-          </button>
-        </div>
+      <div ref={copyRef} className="flex items-center gap-2">
+        <input
+          readOnly
+          value={secret}
+          onFocus={(e) => e.currentTarget.select()}
+          aria-label="Generated signing secret"
+          className="tppm-mono flex-1 min-w-0 h-8 px-2 text-[13px] border border-neutral-border rounded bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        />
+        <CopyButton value={secret} label="Copy" accessibleName="Copy signing secret" />
       </div>
       <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={onDone}
-          className="h-8 px-3 rounded bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-        >
-          Done
-        </button>
+        <DoneButton onClose={onDone} />
       </div>
     </div>
   );
 }
 
+
 /**
- * Surfaces the automatic failure guard (#2884). Without this the subscription
- * simply stopped firing and the admin's only clue was a grey status dot.
+ * Surfaces the automatic failure guard (#2884), with the control that clears it.
+ *
+ * No live region: this renders from a static prop that cannot change while the modal
+ * is open, and a region whose content exists in the same commit as the region is not
+ * reliably announced anyway. The bold heading, border, and text carry the meaning
+ * without relying on color.
+ *
+ * The "Resume deliveries" button is not decoration — an earlier revision told the
+ * admin to "re-enable this webhook" while the web app had no way to write
+ * `is_active` at all, so the only in-app recovery was delete-and-recreate, which
+ * loses the signing secret.
  */
-function DisabledNotice({ reason, failures }: { reason: string; failures: number }) {
+function DisabledNotice({
+  reason,
+  failures,
+  onResume,
+  resuming,
+}: {
+  reason: string;
+  failures: number;
+  onResume: () => void;
+  resuming: boolean;
+}) {
   return (
-    <div
-      className="border border-semantic-critical/55 bg-semantic-critical/10 rounded p-3 text-[12px] text-neutral-text-primary"
-      role="status"
-    >
+    <div className="border border-semantic-critical/80 bg-semantic-critical-bg rounded p-3 text-[12px] text-neutral-text-primary">
       <span className="block font-semibold mb-0.5">Deliveries paused automatically</span>
-      {reason || `Deactivated after ${failures} consecutive failed deliveries.`} Fix the receiver,
-      then re-enable this webhook to resume deliveries.
+      {reason || `Deactivated after ${failures} consecutive failed deliveries.`} Fix the
+      receiver, then resume deliveries.
+      <button
+        type="button"
+        onClick={onResume}
+        disabled={resuming}
+        className="mt-2 h-7 px-3 rounded border border-neutral-border bg-transparent text-[12px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+      >
+        {resuming ? 'Resuming…' : 'Resume deliveries'}
+      </button>
     </div>
   );
 }
+
 
 /**
  * A representative Slack render of a `task.assigned` event.

@@ -389,16 +389,20 @@ def test_no_standalone_timestamp_header_is_sent(webhook: Webhook) -> None:
 
 
 @pytest.mark.parametrize(
-    ("ciphertext", "expected_reason"),
+    ("ciphertext", "viewer_reason", "operator_reason"),
     [
-        (b"", "No signing secret"),
-        (b"not-a-valid-fernet-token", "could not be decrypted"),
+        (b"", "No signing secret", "No signing secret"),
+        (
+            b"not-a-valid-fernet-token",
+            "unusable — contact an administrator",
+            "INTEGRATION_ENCRYPTION_KEY has changed",
+        ),
     ],
     ids=["empty", "undecryptable"],
 )
 @pytest.mark.django_db
 def test_unusable_secret_is_terminal_rather_than_an_unsigned_post(
-    webhook: Webhook, ciphertext: bytes, expected_reason: str
+    webhook: Webhook, ciphertext: bytes, viewer_reason: str, operator_reason: str
 ) -> None:
     """Both shapes of "the secret is unusable" fail terminally, and neither loops.
 
@@ -423,8 +427,13 @@ def test_unusable_secret_is_terminal_rather_than_an_unsigned_post(
     # Terminal, and out of the drain's (PENDING, attempt_count=0) selector.
     assert delivery.status == DeliveryStatus.FAILED
     assert delivery.attempt_count == 1
+    # The dead-letter record (operator surface) carries the deployment detail...
     parked = FailedTask.objects.get(task_name=DELIVER_TASK_NAME)
-    assert expected_reason in parked.exception_message
+    assert operator_reason in parked.exception_message
+    # ...while last_failure_reason, which is readable at VIEWER level, does not.
+    webhook.refresh_from_db()
+    assert viewer_reason in webhook.last_failure_reason
+    assert "INTEGRATION_ENCRYPTION_KEY" not in webhook.last_failure_reason
 
 
 @pytest.mark.django_db

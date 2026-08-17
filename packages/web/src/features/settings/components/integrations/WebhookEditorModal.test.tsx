@@ -569,8 +569,12 @@ describe('WebhookEditorModal — signing secret (#2885)', () => {
 
     // The modal must NOT close yet — there is no read path to this value again.
     expect(onSaved).not.toHaveBeenCalled();
-    expect(screen.getByRole('heading', { name: 'Webhook created' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Signing secret created — copy it now' }),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText('Generated signing secret')).toHaveValue('generated-256-bit-value');
+    // The shared one-time-reveal primitives, not a hand-rolled copy button (#2205).
+    expect(screen.getByRole('button', { name: 'Copy signing secret' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(onSaved).toHaveBeenCalledTimes(1);
@@ -593,7 +597,32 @@ describe('WebhookEditorModal — auto-disable notice (#2884)', () => {
       />,
     );
     expect(screen.getByText('Deliveries paused automatically')).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent('5 consecutive failed deliveries');
+    expect(
+      screen.getByText(/Automatically deactivated after 5 consecutive failed deliveries/),
+    ).toBeInTheDocument();
+  });
+
+  it('offers a Resume control that actually writes is_active (#2884)', () => {
+    // The copy used to say "re-enable this webhook" while nothing in the web app
+    // could write is_active at all — so the only in-app recovery was delete and
+    // recreate, which loses the signing secret.
+    render(
+      <WebhookEditorModal
+        scope={SCOPE}
+        webhook={makeWebhook({
+          is_active: false,
+          consecutive_failures: 5,
+          disabled_at: '2026-08-17T10:00:00Z',
+          disabled_reason: 'Automatically deactivated after 5 consecutive failed deliveries.',
+        })}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Resume deliveries' }));
+
+    const [arg] = h.updateMutate.mock.calls[0] as [{ id: string; body: Record<string, unknown> }];
+    expect(arg).toMatchObject({ id: 'w1', body: { is_active: true } });
   });
 
   it('shows no notice on a healthy webhook', () => {

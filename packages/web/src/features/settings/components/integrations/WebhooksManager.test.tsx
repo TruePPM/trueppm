@@ -8,7 +8,11 @@ const deleteMutate = vi.fn();
 const testMutate = vi.fn();
 const testReset = vi.fn();
 /** What `useWebhookTestResult` reports back — the receiver's real answer (#2884). */
-const testResult = vi.fn(() => ({ data: null as unknown }));
+const testResult = vi.fn(() => ({
+  delivery: null as unknown,
+  settled: false,
+  timedOut: false,
+}));
 
 vi.mock('@/hooks/useWebhooks', () => ({
   useWebhooks: () => useWebhooks() as unknown,
@@ -55,7 +59,7 @@ beforeEach(() => {
   testMutate.mockReset();
   testReset.mockReset();
   testResult.mockReset();
-  testResult.mockReturnValue({ data: null });
+  testResult.mockReturnValue({ delivery: null, settled: false, timedOut: false });
 });
 
 describe('WebhooksManager', () => {
@@ -100,7 +104,9 @@ describe('WebhooksManager', () => {
     // delivery row.
     useWebhooks.mockReturnValue({ data: [WEBHOOK], isLoading: false, isError: false, refetch: vi.fn() });
     testResult.mockReturnValue({
-      data: { id: 'd1', status: 'failed', response_status: 400 } as unknown,
+      delivery: { id: 'd1', status: 'failed', response_status: 400 } as unknown,
+      settled: true,
+      timedOut: false,
     });
     render(<WebhooksManager scope={SCOPE} />);
 
@@ -113,12 +119,17 @@ describe('WebhooksManager', () => {
 
     expect(screen.getByRole('button', { name: 'Failed 400' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Delivered/ })).not.toBeInTheDocument();
+    // The outcome must reach a live region too: the button's accessible name is only
+    // read on focus, and the click moved focus nowhere useful.
+    expect(screen.getByRole('status')).toHaveTextContent('The receiver answered HTTP 400.');
   });
 
   it('reports a delivered ping once the row settles', () => {
     useWebhooks.mockReturnValue({ data: [WEBHOOK], isLoading: false, isError: false, refetch: vi.fn() });
     testResult.mockReturnValue({
-      data: { id: 'd1', status: 'success', response_status: 200 } as unknown,
+      delivery: { id: 'd1', status: 'success', response_status: 200 } as unknown,
+      settled: true,
+      timedOut: false,
     });
     render(<WebhooksManager scope={SCOPE} />);
 
@@ -130,6 +141,48 @@ describe('WebhooksManager', () => {
     act(() => callbacks.onSuccess({ delivery_id: 'd1' }));
 
     expect(screen.getByRole('button', { name: /Delivered/ })).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Test delivered successfully.');
+  });
+
+  it('keeps the Test button focusable while a delivery is in flight (#2884)', () => {
+    // aria-disabled, not disabled: a focused element that becomes `disabled` is
+    // removed from the focusability tree, so the browser blurs it and the keyboard
+    // user is thrown off the row for the whole poll.
+    useWebhooks.mockReturnValue({ data: [WEBHOOK], isLoading: false, isError: false, refetch: vi.fn() });
+    testResult.mockReturnValue({ delivery: null, settled: false, timedOut: false });
+    render(<WebhooksManager scope={SCOPE} />);
+
+    const button = screen.getByRole('button', { name: 'Test' });
+    fireEvent.click(button);
+    const [, callbacks] = testMutate.mock.calls[0] as [
+      string,
+      { onSuccess: (d: { delivery_id: string }) => void },
+    ];
+    act(() => callbacks.onSuccess({ delivery_id: 'd1' }));
+
+    const waiting = screen.getByRole('button', { name: 'Waiting…' });
+    expect(waiting).toHaveAttribute('aria-disabled', 'true');
+    expect(waiting).not.toBeDisabled();
+
+    // A second click while busy must not fire another request.
+    fireEvent.click(waiting);
+    expect(testMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a still-pending test rather than polling forever', () => {
+    useWebhooks.mockReturnValue({ data: [WEBHOOK], isLoading: false, isError: false, refetch: vi.fn() });
+    testResult.mockReturnValue({ delivery: null, settled: false, timedOut: true });
+    render(<WebhooksManager scope={SCOPE} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test' }));
+    const [, callbacks] = testMutate.mock.calls[0] as [
+      string,
+      { onSuccess: (d: { delivery_id: string }) => void },
+    ];
+    act(() => callbacks.onSuccess({ delivery_id: 'd1' }));
+
+    expect(screen.getByRole('button', { name: 'Pending' })).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('still pending');
   });
 
   it('surfaces the auto-disable state on the row (#2884)', () => {

@@ -13275,6 +13275,7 @@
             "post": {
                 "operationId": "v1_programs_webhooks_create",
                 "description": "CRUD for outbound webhooks scoped to a program (ADR-0076).\n\nA program-scoped webhook fires for events on any project within the program.\nInherits the test/deliveries actions and the rendering/dispatch substrate\nfrom WebhookViewSet; only the scope resolution and RBAC ladder change:\nlist/retrieve require Program Viewer+ (IsProgramMember), mutations require\nProgram Admin+ (IsProgramAdmin).",
+                "summary": "Register a webhook",
                 "parameters": [
                     {
                         "in": "path",
@@ -13324,7 +13325,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Webhook"
+                                    "$ref": "#/components/schemas/WebhookCreateResponse"
                                 }
                             }
                         },
@@ -13346,8 +13347,7 @@
                             }
                         }
                     }
-                },
-                "summary": "Create webhook"
+                }
             }
         },
         "/api/v1/programs/{program_pk}/webhooks/{id}/": {
@@ -30480,6 +30480,7 @@
             "post": {
                 "operationId": "v1_projects_webhooks_create",
                 "description": "CRUD for outbound webhooks scoped to a project.\n\nList/retrieve: requires Viewer+ (IsProjectMember).\nCreate/update/delete: requires Admin+ (IsProjectAdmin).",
+                "summary": "Register a webhook",
                 "parameters": [
                     {
                         "in": "path",
@@ -30529,7 +30530,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Webhook"
+                                    "$ref": "#/components/schemas/WebhookCreateResponse"
                                 }
                             }
                         },
@@ -30551,8 +30552,7 @@
                             }
                         }
                     }
-                },
-                "summary": "Create webhook"
+                }
             }
         },
         "/api/v1/projects/{project_pk}/webhooks/{id}/": {
@@ -46125,10 +46125,11 @@
                     "risk.escalated",
                     "risk.closed",
                     "baseline.captured",
-                    "comment.created"
+                    "comment.created",
+                    "ping"
                 ],
                 "type": "string",
-                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created"
+                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created\n* `ping` - Test Ping"
             },
             "EventsEnum": {
                 "enum": [
@@ -62170,6 +62171,110 @@
                     "last_failure_reason",
                     "program",
                     "project",
+                    "secret_set",
+                    "url"
+                ]
+            },
+            "WebhookCreateResponse": {
+                "type": "object",
+                "description": "Schema-only serializer for the 201 body, which DOES carry ``secret``.\n\n``WebhookSerializer.secret`` is ``write_only``, so the published ``Webhook``\nschema has no ``secret`` property — correct for every read. But ``create``\nechoes the value exactly once via ``to_representation``, and the docs now make\n\"omit ``secret`` and let TruePPM generate one\" the recommended path. An\nintegrator whose client is generated from a schema that does not declare the\nfield drops it silently, and there is no read path to recover it — so the\nundeclared key is a permanent loss of the only copy.\n\nUsed only in ``@extend_schema(responses={201: ...})``; nothing instantiates it.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Set when the webhook fires for events on a single project. Exactly one of project/program is non-null (DB constraint)."
+                    },
+                    "program": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Set when the webhook fires for events on any project within this program. Exactly one of project/program is non-null (DB constraint)."
+                    },
+                    "url": {
+                        "type": "string",
+                        "format": "uri",
+                        "maxLength": 2048
+                    },
+                    "secret": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "The signing secret, returned ONLY in this create response and never again. Present whether it was supplied or auto-generated. Record it now."
+                    },
+                    "secret_set": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "events": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/EventsEnum"
+                        }
+                    },
+                    "format": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
+                    "is_active": {
+                        "type": "boolean"
+                    },
+                    "consecutive_failures": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "Terminal delivery failures since the last success. Resets to 0 on any successful delivery."
+                    },
+                    "last_failure_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "last_failure_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "disabled_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "When the automatic failure guard deactivated this subscription. Null when it is active, or when an admin deactivated it by hand."
+                    },
+                    "disabled_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "created_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "consecutive_failures",
+                    "created_at",
+                    "created_by",
+                    "disabled_at",
+                    "disabled_reason",
+                    "events",
+                    "id",
+                    "last_failure_at",
+                    "last_failure_reason",
+                    "program",
+                    "project",
+                    "secret",
                     "secret_set",
                     "url"
                 ]

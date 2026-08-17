@@ -66,7 +66,7 @@ response, even with the same key value.
 ## Scope
 
 The header is honored on all standard mutation endpoints (tasks, dependencies, projects,
-risks, baselines, sprints, calendars, phases, custom fields, resources, skills, webhooks,
+risks, baselines, sprints, calendars, phases, custom fields, resources, skills,
 notifications, project/program memberships, integration credentials, comments,
 attachments, and the board/task structural operations).
 
@@ -74,6 +74,8 @@ A few endpoints are intentionally exempt:
 
 - **API token issuance** (`POST /api/v1/projects/{id}/api-tokens/`) — the response carries
   a one-time plaintext token that must never be persisted for replay.
+- **Webhook registration** (`POST /api/v1/{projects,programs}/{id}/webhooks/`) — same
+  reason: the response may carry a one-time plaintext signing secret.
 - **MS Project import** (`POST /api/v1/projects/{id}/import/msproject/`) — multipart upload;
   already deduplicated server-side.
 - **Inbound task sync** (`POST /api/v1/projects/{id}/task-sync/`) — already idempotent by

@@ -43,6 +43,7 @@ from trueppm_api.apps.webhooks.models import (
     _next_delivery_sequence,
 )
 from trueppm_api.apps.webhooks.serializers import (
+    WebhookCreateResponseSerializer,
     WebhookDeliverySerializer,
     WebhookSerializer,
 )
@@ -88,6 +89,20 @@ WEBHOOK_DELIVERY_PAGE = inline_serializer(
 )
 
 
+# The 201 body carries the one-time `secret`; the shared Webhook schema does not
+# declare it (the field is write_only, which is right for every read). Declared per
+# viewset because one shared declaration would publish the same operationId on both
+# the project- and program-scoped paths — a duplicate-operationId collision. Ids are
+# pinned for the same reason as `deliveries`: operationId is the *method name* in a
+# generated client, so fixing a response shape must not rename every caller's method
+# (#2583).
+@extend_schema_view(
+    create=extend_schema(
+        summary="Register a webhook",
+        responses={201: WebhookCreateResponseSerializer},
+        operation_id="v1_projects_webhooks_create",
+    )
+)
 class WebhookViewSet(
     IdempotencyMixin,
     CreateModelMixin,
@@ -104,6 +119,16 @@ class WebhookViewSet(
     """
 
     serializer_class = WebhookSerializer
+
+    # Exempt from the generic Idempotency-Key path (ADR-0170): the create response
+    # carries the one-time plaintext signing secret, which must never be persisted
+    # in the idempotency store for replay. Mirrors ProjectApiTokenViewSet, and it is
+    # the same reasoning #2885 encrypts the column for — storing the plaintext in
+    # IdempotencyKey.response_body (a plain JSONField, retained for
+    # IDEMPOTENCY_RETENTION_HOURS) would move the secret to another table rather than
+    # remove it, and would re-serve it on replay, contradicting the documented
+    # "returned exactly once" guarantee.
+    idempotency_exempt = True
 
     def get_permissions(self) -> list[BasePermission]:
         # `deliveries` exposes the full event payload (task notes, comment
@@ -267,7 +292,12 @@ class WebhookViewSet(
         summary="List recent webhook deliveries",
         responses={200: WEBHOOK_DELIVERY_PAGE},
         operation_id="v1_programs_webhooks_deliveries_list",
-    )
+    ),
+    create=extend_schema(
+        summary="Register a webhook",
+        responses={201: WebhookCreateResponseSerializer},
+        operation_id="v1_programs_webhooks_create",
+    ),
 )
 class ProgramWebhookViewSet(WebhookViewSet):
     """CRUD for outbound webhooks scoped to a program (ADR-0076).
