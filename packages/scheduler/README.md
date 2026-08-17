@@ -230,14 +230,14 @@ Everything else — the `trueppm_scheduler.engine` internals, any underscore-
 prefixed helper, and module layout — is **unstable** and may move or change
 without notice.
 
-This package is **`Development Status :: 3 - Alpha`**: the public API may change
-before 1.0. **Pin an exact version** rather than a range:
+This package is **`Development Status :: 4 - Beta`** as of 0.4.0b1: the public
+API may still change before 1.0. **Pin an exact version** rather than a range:
 
 ```
 trueppm-scheduler==0.4.0b1
 ```
 
-Alpha releases are pre-releases — `pip install trueppm-scheduler` skips them
+Beta releases are pre-releases — `pip install trueppm-scheduler` skips them
 unless you pass `--pre`. Breaking changes are recorded in
 [`CHANGELOG.md`](./CHANGELOG.md), which also ships inside the wheel.
 

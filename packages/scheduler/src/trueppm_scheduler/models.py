@@ -472,6 +472,25 @@ class Calendar:
         super().__setattr__(name, value)
 
     def is_working_day(self, d: date) -> bool:
+        """Return whether ``d`` is a working day under this calendar.
+
+        The predicate the whole engine rests on: every date advance in the CPM
+        forward and backward passes, every lag snap, and every Monte Carlo sample
+        walks days through this method. It is also the natural thing for an
+        embedder to call directly.
+
+        A date is a working day when its weekday is set in the ``working_days``
+        bitmask **and** it does not fall inside any exception range. Exceptions are
+        merged into disjoint intervals and binary-searched, so the cost is
+        logarithmic in the exception count rather than linear — which is what keeps
+        a calendar with tens of thousands of holidays usable inside the passes.
+
+        Args:
+            d: The date to test.
+
+        Returns:
+            ``True`` if work can be scheduled on ``d``, else ``False``.
+        """
         # date.weekday(): Monday=0, Sunday=6
         if not (self.working_days >> d.weekday()) & 1:
             return False
