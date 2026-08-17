@@ -297,12 +297,39 @@ def build_span_exporter(*, timeout: float | None = None) -> Any:
             OTLPSpanExporter as HTTPSpanExporter,
         )
 
+        kwargs["endpoint"] = _http_signal_endpoint(endpoint, HTTP_TRACES_PATH)
         return HTTPSpanExporter(**kwargs)
     from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
         OTLPSpanExporter as GRPCSpanExporter,
     )
 
     return GRPCSpanExporter(**kwargs)
+
+
+def build_metric_exporter() -> Any:
+    """Build an OTLP metric exporter from the configured OTLP settings.
+
+    The metrics counterpart of :func:`build_span_exporter`, kept as its own
+    function so both signals resolve endpoint, protocol, headers and — for
+    ``http/protobuf`` — the per-signal path through one symmetric path that a test
+    can construct directly. The ``PeriodicExportingMetricReader`` owns the
+    returned exporter's lifecycle.
+    """
+    endpoint = settings.OTEL_EXPORTER_OTLP_ENDPOINT
+    headers = _parse_headers(settings.OTEL_EXPORTER_OTLP_HEADERS)
+    if _is_http_protocol():
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+            OTLPMetricExporter as HTTPMetricExporter,
+        )
+
+        return HTTPMetricExporter(
+            endpoint=_http_signal_endpoint(endpoint, HTTP_METRICS_PATH), headers=headers
+        )
+    from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (
+        OTLPMetricExporter as GRPCMetricExporter,
+    )
+
+    return GRPCMetricExporter(endpoint=endpoint, headers=headers)
 
 
 def _parse_headers(raw: str) -> dict[str, str] | None:
@@ -324,6 +351,41 @@ def _parse_headers(raw: str) -> dict[str, str] | None:
 def _is_http_protocol() -> bool:
     """True for the HTTP/protobuf OTLP transport, False for gRPC (the default)."""
     return str(settings.OTEL_EXPORTER_OTLP_PROTOCOL).lower().startswith("http")
+
+
+# The OTLP/HTTP per-signal paths from the OTLP specification. gRPC has no
+# per-signal path (the signal is the RPC method), so these apply to HTTP only.
+HTTP_TRACES_PATH = "v1/traces"
+HTTP_METRICS_PATH = "v1/metrics"
+
+
+def _http_signal_endpoint(endpoint: str, signal_path: str) -> str:
+    """Return ``endpoint`` with the OTLP/HTTP per-signal path appended (#2873).
+
+    Why this exists: the upstream HTTP exporters append ``/v1/traces`` /
+    ``/v1/metrics`` **only** on the branch that reads the endpoint out of the
+    environment — ``self._endpoint = endpoint or environ.get(...)``. Passing
+    ``endpoint=`` explicitly, as this module does so the value flows from Django
+    settings, short-circuits that branch, so the exporter POSTs to the collector
+    root. A collector answers the root with 404, and 404 is not in the exporter's
+    retry set, so every export fails permanently and silently — the deployment
+    emits no telemetry at all.
+
+    The configured endpoint is treated as a **base** URL, and a trailing OTLP
+    signal path is normalized away before the one for this signal is appended. So
+    an operator who pastes the full traces URL (which the OTLP spec allows, and
+    which upstream itself would double-append) gets it back unchanged for traces
+    *and* still gets a working ``/v1/metrics`` for metrics — rather than
+    ``/v1/traces/v1/traces`` and ``/v1/traces/v1/metrics``, both of which 404.
+    Any path prefix in front of the signal path (``https://host/otlp``) is kept.
+    """
+    trimmed = endpoint.strip().rstrip("/")
+    for known in (HTTP_TRACES_PATH, HTTP_METRICS_PATH):
+        suffix = f"/{known}"
+        if trimmed.endswith(suffix):
+            trimmed = trimmed[: -len(suffix)]
+            break
+    return f"{trimmed}/{signal_path}"
 
 
 def _build_sampler() -> Sampler:
@@ -395,23 +457,7 @@ def _build_meter_provider(resource: Resource) -> MeterProvider:
     from opentelemetry.sdk.metrics import MeterProvider
     from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 
-    endpoint = settings.OTEL_EXPORTER_OTLP_ENDPOINT
-    headers = _parse_headers(settings.OTEL_EXPORTER_OTLP_HEADERS)
-    exporter: Any
-    if _is_http_protocol():
-        from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
-            OTLPMetricExporter as HTTPMetricExporter,
-        )
-
-        exporter = HTTPMetricExporter(endpoint=endpoint, headers=headers)
-    else:
-        from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (
-            OTLPMetricExporter as GRPCMetricExporter,
-        )
-
-        exporter = GRPCMetricExporter(endpoint=endpoint, headers=headers)
-
-    exporter = _wrap_exporter_for_health(exporter, signal="metrics")
+    exporter = _wrap_exporter_for_health(build_metric_exporter(), signal="metrics")
     reader = PeriodicExportingMetricReader(exporter)
     return MeterProvider(resource=resource, metric_readers=[reader])
 

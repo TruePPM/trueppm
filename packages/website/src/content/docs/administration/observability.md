@@ -55,7 +55,7 @@ switches for behavior the standard variables do not express.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | *(empty)* | **The gate.** Your collector URL, e.g. `http://otel-collector:4317`. Empty means telemetry is **off**. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | *(empty)* | **The gate.** Your collector's **base** URL, e.g. `http://otel-collector:4317`. Empty means telemetry is **off**. |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | `grpc` (port 4317) or `http/protobuf` (port 4318). Match your collector. |
 | `OTEL_EXPORTER_OTLP_HEADERS` | *(empty)* | Comma-separated `key=value` pairs sent with every export, e.g. `authorization=Bearer <token>` for a SaaS backend. |
 | `OTEL_SERVICE_NAME` | `trueppm-api` | The `service.name` reported on every span and metric. |
@@ -74,6 +74,13 @@ switches for behavior the standard variables do not express.
 Export is enabled when `TRUEPPM_OTEL_ENABLED` is true **and**
 `OTEL_EXPORTER_OTLP_ENDPOINT` is non-empty. Leaving the endpoint empty — the
 default — keeps the provider a no-op regardless of the other switches.
+
+Give the endpoint as a **base URL with no signal path**. On `http/protobuf`
+TruePPM appends the OTLP path per signal — `/v1/traces` and `/v1/metrics` — so
+`http://otel-collector:4318` is the correct value for both. A base URL that
+already carries a signal path is normalized, so pasting
+`http://otel-collector:4318/v1/traces` still exports both signals correctly. On
+`grpc` the signal is the RPC method and no path is added.
 
 ### Helm values
 
