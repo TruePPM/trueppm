@@ -17,11 +17,14 @@ from trueppm_api.apps.integrations import external_sources, http
 from trueppm_api.apps.integrations.external_sources import (
     EXTERNAL_TASK_SOURCES,
     ExternalSourceAuthError,
+    ExternalSourceConfigError,
     ExternalSourceError,
     ExternalTaskSource,
     ExternalWorkItemDTO,
     JiraSource,
+    JqlNotWellFormed,
     _jira_server_base,
+    scan_jql,
 )
 
 
@@ -418,3 +421,85 @@ def test_compose_jql_ignores_a_non_list_config_value() -> None:
     assert external_sources._compose_jql("assignee = currentUser()", None) == (
         "assignee = currentUser()"
     )
+
+
+# ---------------------------------------------------------------------------
+# The narrowing wrap is only sound on a structurally balanced query (#2888)
+# ---------------------------------------------------------------------------
+#
+# `_compose_jql` narrows by wrapping the WHERE part in ONE pair of parentheses and
+# ANDing `project IN (...)` after it. That is only a narrowing if the thing being
+# wrapped is a single group. Given an unbalanced query the wrap closes the user's
+# own parenthesis instead, and because JQL binds AND tighter than OR the result is
+# valid JQL that pulls a whole project the owner never selected — the same "the
+# filter does not actually narrow" outcome #2888 exists to prevent, via grouping
+# rather than via a dead field.
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        # The bypass: the trailing wrap paren closes the user's group, leaving
+        # `(A) OR (B) AND project IN (...)` == `A OR (B AND project IN (...))`.
+        'project = "PUBLIC") OR (project = "SECRET"',
+        "(assignee = currentUser()",
+        "assignee = currentUser())",
+        'summary ~ "unterminated',
+    ],
+)
+def test_compose_jql_refuses_a_query_it_cannot_safely_wrap(malformed: str) -> None:
+    with pytest.raises(ExternalSourceConfigError):
+        external_sources._compose_jql(malformed, ["RIV"])
+
+
+def test_a_malformed_jql_with_no_project_keys_is_left_alone() -> None:
+    """No keys means no wrap, so there is nothing to be unsound about.
+
+    Jira's own parser stays the authority there; validating would reject queries
+    that are none of this function's business.
+    """
+    assert external_sources._compose_jql("(assignee = currentUser()", []) == (
+        "(assignee = currentUser()"
+    )
+
+
+def test_fetch_refuses_to_pull_on_a_malformed_stored_jql(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, str] = {}
+    _stub_search(monkeypatch, captured)
+
+    with pytest.raises(ExternalSourceConfigError):
+        JiraSource().fetch_assigned_items(
+            base_url="https://acme.atlassian.net",
+            secret="tok",
+            config={
+                "account_email": "p@acme.io",
+                "jql": 'project = "PUBLIC") OR (project = "SECRET"',
+                "project_keys": ["RIV"],
+            },
+        )
+    # Refused before the token reached the wire.
+    assert "url" not in captured
+
+
+def test_config_error_is_a_source_error_so_older_callers_degrade_safely() -> None:
+    """Any caller that only knows the base class keeps its existing behavior."""
+    assert issubclass(ExternalSourceConfigError, ExternalSourceError)
+
+
+def test_scan_jql_accepts_balanced_nesting_and_quoted_parens() -> None:
+    """A paren inside a quoted literal is data, not structure."""
+    where, order_by = scan_jql('(a = 1 AND (b = 2 OR summary ~ "a) b")) ORDER BY updated DESC')
+    assert where == '(a = 1 AND (b = 2 OR summary ~ "a) b"))'
+    assert order_by == "ORDER BY updated DESC"
+
+
+def test_scan_jql_ignores_an_order_by_inside_a_group() -> None:
+    """ORDER BY cannot legally appear inside parentheses, so it is not the sort."""
+    where, order_by = scan_jql('(summary ~ "order by rank")')
+    assert where == '(summary ~ "order by rank")'
+    assert order_by == ""
+
+
+def test_scan_jql_raises_its_own_error_type() -> None:
+    with pytest.raises(JqlNotWellFormed):
+        scan_jql("(a = 1")

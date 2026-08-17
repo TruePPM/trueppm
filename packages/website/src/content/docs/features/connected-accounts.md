@@ -160,7 +160,10 @@ field limits (custom fields are excluded there too).
   project keys **narrow** whichever filter you chose: they are combined with it
   (`AND`), never substituted for it, so naming `RIV, BAY` means nothing outside
   those two projects is pulled even if your own JQL would have matched it. Leave
-  the field blank to pull from every project you have access to. TruePPM
+  the field blank to pull from every project you have access to. Both fields are
+  checked before they are saved — a project key that is not a Jira project key,
+  or a JQL whose parentheses or quotes do not balance, is rejected on the field
+  with a message rather than stored. TruePPM
   verifies the token against Jira before storing it (encrypted), so a wrong,
   expired, wrong-scope, or non-allow-listed-host credential is rejected up front
   with a clear message and **nothing is saved**.
@@ -172,6 +175,13 @@ field limits (custom fields are excluded there too).
   **Disconnect** (with a confirmation step) removes the stored token and clears the
   source's items from My Work. Nothing in Jira is ever modified — you can reconnect
   at any time.
+- **When pulling stops** — two states get their own prompt, because they have
+  different fixes. **Reconnect** means the token was rejected (expired or revoked).
+  **Update filter** means the token is fine but the saved JQL or project keys can
+  no longer be scoped to the projects you selected, so TruePPM stops pulling rather
+  than pull wider than you asked for. Both are fixed by reopening the connect
+  wizard, and in both cases the items already in My Work are kept until the next
+  successful pull.
 - Enterprise sources appear here automatically when the Enterprise edition is
   installed — the OSS build shows only OSS sources.
 

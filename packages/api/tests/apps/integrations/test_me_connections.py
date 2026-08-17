@@ -334,3 +334,27 @@ def test_stored_project_keys_reach_the_jira_query(
         base_url=row.base_url, secret="jira-api-token", config=row.config
     )
     assert 'project IN ("RIV")' in urllib.parse.unquote_plus(captured["url"])
+
+
+def test_connect_rejects_an_unbalanced_jql(client: APIClient) -> None:
+    """#2888: the project filter narrows by wrapping this query, and the wrap is
+    only a narrowing on a balanced one — so an unbalanced query is refused at
+    connect with an inline message rather than stored and failed on first pull."""
+    response = client.put(
+        "/api/v1/me/connections/jira/",
+        _connect_body(jql='project = "PUBLIC") OR (project = "SECRET"', project_keys=["RIV"]),
+        format="json",
+    )
+    assert response.status_code == 400
+    assert "jql" in response.json()
+    assert not IntegrationCredential.objects.filter(provider="jira").exists()
+
+
+def test_connect_accepts_a_balanced_grouped_jql(client: APIClient) -> None:
+    """The guard rejects only broken input — real grouping must still work."""
+    response = client.put(
+        "/api/v1/me/connections/jira/",
+        _connect_body(jql="(assignee = currentUser() OR reporter = currentUser())"),
+        format="json",
+    )
+    assert response.status_code == 200

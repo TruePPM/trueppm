@@ -332,7 +332,7 @@ function TokenPurposeNote() {
         create one from{' '}
         <Link
           to="/me/settings/api-tokens"
-          className="rounded text-brand-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          className="rounded font-medium text-brand-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
           Personal Settings → API tokens
         </Link>

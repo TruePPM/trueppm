@@ -1447,6 +1447,15 @@ the disclosure the change removes — and enforces no webhook-specific body cap.
 | POST | `/api/v1/integrations/projects/{project_id}/git-automation/rotate-secret/` | Rotate the webhook signing secret |
 | POST | `/api/v1/integrations/projects/{project_id}/git-webhook/` | Inbound Git-event receiver (unauthenticated by session; verified by the rotatable secret). Every refusal before signature verification — no automation, disabled, no secret, unknown provider, an undecryptable secret, bad signature — returns the **same** `404`, so the endpoint cannot be used to discover which projects have automation configured; bodies over 1 MB get a `413` |
 
+`PUT /api/v1/me/connections/{source}/` takes `jql` and `project_keys`, which
+compose rather than compete: `project_keys` is applied as an additional
+`AND project IN (...)` on top of `jql` (or on top of the default
+"assigned to me and not done" when `jql` is blank), so it can only narrow the
+pull. Each key must be a Jira project key — a letter followed by letters, digits
+or underscores — and is stored upper-cased and de-duplicated; anything else is a
+`400` on the field. `jql` must have balanced parentheses and quotes for the same
+reason (the narrowing wraps it), and an unbalanced value is likewise a `400`.
+
 The org-wide, admin-configured, bidirectional Integration Hub is Enterprise;
 everything in this table is the OSS carve-out — a personal, one-way credential
 or connection, or a single project's own Git automation. See

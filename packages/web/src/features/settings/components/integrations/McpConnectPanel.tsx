@@ -109,41 +109,46 @@ export function McpConnectPanel({ token, onClose }: { token: string; onClose: ()
         </span>
         <span className="h-px flex-1 bg-neutral-border/55" />
       </div>
-      <p className="text-[12px] text-neutral-text-secondary mb-1.5">
-        <span className="font-medium text-neutral-text-primary">1.</span> Install the server, so
-        your client has something to launch:
-      </p>
-      <div className="flex items-start gap-2 mb-3">
-        <pre
-          role="group"
-          aria-label="Install command"
-          className="tppm-mono flex-1 overflow-x-auto whitespace-pre px-3 py-2 text-[12px] border border-neutral-border rounded bg-neutral-surface-sunken text-neutral-text-primary"
-        >
-          {MCP_INSTALL_COMMAND}
-        </pre>
-        <CopyButton
-          value={MCP_INSTALL_COMMAND}
-          label="Copy"
-          accessibleName="Copy install command"
-        />
-      </div>
-
-      <p className="text-[12px] text-neutral-text-secondary mb-2">
-        <span className="font-medium text-neutral-text-primary">2.</span> Add this to your MCP
-        client&apos;s config — for Claude Desktop that&apos;s{' '}
-        <span className="tppm-mono">claude_desktop_config.json</span> — then restart the client.
-      </p>
-
-      <div className="flex items-start gap-2 mb-3">
-        <pre
-          role="group"
-          aria-label="claude_desktop_config.json snippet"
-          className="tppm-mono flex-1 max-h-64 overflow-auto whitespace-pre px-3 py-2 text-[12px] border border-neutral-border rounded bg-neutral-surface-sunken text-neutral-text-primary"
-        >
-          {config}
-        </pre>
-        <CopyButton value={config} label="Copy config" accessibleName="Copy config" />
-      </div>
+      {/* An <ol> rather than hand-numbered <span>s: this is the house pattern for
+          a guided walkthrough (see WorkspaceEmailPage's GMAIL_HELP_BODY), and it
+          is what gives assistive tech "item 1 of 2" without the numerals having
+          to be literal text. */}
+      <ol className="list-decimal pl-4 mb-3 space-y-3 text-[12px] text-neutral-text-secondary">
+        <li>
+          <p className="mb-1.5">Install the server, so your client has something to launch:</p>
+          <div className="flex items-start gap-2">
+            <pre
+              role="group"
+              aria-label="Install command"
+              className="tppm-mono flex-1 overflow-x-auto whitespace-pre px-3 py-2 text-[12px] border border-neutral-border rounded bg-neutral-surface-sunken text-neutral-text-primary"
+            >
+              {MCP_INSTALL_COMMAND}
+            </pre>
+            <CopyButton
+              value={MCP_INSTALL_COMMAND}
+              label="Copy"
+              accessibleName="Copy install command"
+            />
+          </div>
+        </li>
+        <li>
+          <p className="mb-1.5">
+            Add this to your MCP client&apos;s config — for Claude Desktop that&apos;s{' '}
+            <span className="tppm-mono">claude_desktop_config.json</span> — then restart the
+            client.
+          </p>
+          <div className="flex items-start gap-2">
+            <pre
+              role="group"
+              aria-label="claude_desktop_config.json snippet"
+              className="tppm-mono flex-1 max-h-64 overflow-auto whitespace-pre px-3 py-2 text-[12px] border border-neutral-border rounded bg-neutral-surface-sunken text-neutral-text-primary"
+            >
+              {config}
+            </pre>
+            <CopyButton value={config} label="Copy config" accessibleName="Copy config" />
+          </div>
+        </li>
+      </ol>
 
       <McpTryAsking />
 

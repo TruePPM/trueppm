@@ -198,16 +198,44 @@ JIRA_PROJECT_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 _ORDER_BY_RE = re.compile(r"\border\s+by\b", re.IGNORECASE)
 
 
-def _split_order_by(jql: str) -> tuple[str, str]:
-    """Split a JQL string into ``(where_part, order_by_clause)``.
+class JqlNotWellFormed(ValueError):
+    """A JQL query's parentheses or quotes do not balance.
 
-    Scans for the last **top-level** ``ORDER BY`` — one outside any quoted string
-    — so a literal in the filter itself (``summary ~ "order by rank"``) is not
-    mistaken for the sort clause and does not corrupt the query. Either part may
-    be empty: a JQL with no sort yields ``("...", "")``, and a bare
-    ``"ORDER BY updated DESC"`` yields ``("", "ORDER BY updated DESC")``.
+    Its own exception type because two callers need to react differently to it:
+    the connect serializer turns it into an inline 400 on the ``jql`` field, and
+    the pull path turns it into an :class:`ExternalSourceError`.
+    """
+
+
+def scan_jql(jql: str) -> tuple[str, str]:
+    """Split a JQL string into ``(where_part, order_by_clause)``, validating structure.
+
+    Two jobs, in one pass, because they need the same quote/paren state:
+
+    1. Find the last **top-level** ``ORDER BY`` — outside any quoted string and
+       outside any parenthesized group — so a literal in the filter itself
+       (``summary ~ "order by rank"``) is not mistaken for the sort clause. Either
+       part may be empty: a JQL with no sort yields ``("...", "")``, and a bare
+       ``"ORDER BY updated DESC"`` yields ``("", "ORDER BY updated DESC")``.
+
+    2. Reject a query whose parentheses or quotes do not balance. This is the
+       load-bearing half. :func:`_compose_jql` narrows by wrapping the WHERE part
+       in one pair of parentheses and ANDing a project clause after it — and an
+       *unbalanced* input turns that wrap into a no-op::
+
+           jql      = 'project = "PUBLIC") OR (project = "SECRET"'
+           composed = '(project = "PUBLIC") OR (project = "SECRET") AND project IN ("RIV")'
+
+       which is valid JQL where ``AND`` binds tighter than ``OR``, so every
+       ``PUBLIC`` issue comes back unrestricted by the project filter. The wrap
+       only contains an ``OR`` when the thing being wrapped is a single group,
+       so structural balance is a precondition of the narrowing, not a nicety.
+
+    Raises:
+        JqlNotWellFormed: unbalanced parentheses, or an unterminated quoted string.
     """
     in_quote: str | None = None
+    depth = 0
     index = 0
     split_at = -1
     length = len(jql)
@@ -227,12 +255,30 @@ def _split_order_by(jql: str) -> tuple[str, str]:
             in_quote = char
             index += 1
             continue
-        match = _ORDER_BY_RE.match(jql, index)
-        if match:
-            split_at = index
-            index = match.end()
+        if char == "(":
+            depth += 1
+            index += 1
             continue
+        if char == ")":
+            depth -= 1
+            if depth < 0:
+                raise JqlNotWellFormed("unbalanced ')' in JQL")
+            index += 1
+            continue
+        # ORDER BY is only the sort clause at the top level; inside a group it
+        # cannot legally appear, so ignoring it there keeps the split honest.
+        if depth == 0:
+            match = _ORDER_BY_RE.match(jql, index)
+            if match:
+                split_at = index
+                index = match.end()
+                continue
         index += 1
+
+    if in_quote is not None:
+        raise JqlNotWellFormed("unterminated quoted string in JQL")
+    if depth != 0:
+        raise JqlNotWellFormed("unbalanced '(' in JQL")
 
     if split_at < 0:
         return jql.strip(), ""
@@ -252,8 +298,10 @@ def _compose_jql(jql: str, project_keys: Any) -> str:
 
     The WHERE part is parenthesized so an ``OR`` inside the user's own query cannot
     escape the project constraint (``a OR b AND project IN (…)`` binds ``AND``
-    tighter and would pull every ``a``). No keys selected means no clause and the
-    query is returned unchanged — "leave blank for all".
+    tighter and would pull every ``a``). That wrap is only sound on a structurally
+    balanced query, so the query is validated first — see :func:`scan_jql`. No keys
+    selected means no clause, no wrap and no validation: the query is returned
+    unchanged and Jira's own parser stays the authority ("leave blank for all").
 
     Args:
         jql: The effective query — a stored custom one, or :data:`_DEFAULT_JIRA_JQL`.
@@ -265,9 +313,10 @@ def _compose_jql(jql: str, project_keys: Any) -> str:
 
     Raises:
         ExternalSourceError: A stored key is not a syntactically valid Jira project
-            key. Failing the pull is deliberate: dropping the bad key would widen
-            the pull past what the user asked for, and a silent widening of a
-            privacy control is worse than a visible failure.
+            key, or the stored JQL is not well-formed enough to narrow safely.
+            Failing the pull is deliberate in both cases: proceeding would widen it
+            past what the user asked for, and a silent widening of a privacy control
+            is worse than a visible failure.
     """
     if not isinstance(project_keys, list | tuple):
         return jql
@@ -277,7 +326,7 @@ def _compose_jql(jql: str, project_keys: Any) -> str:
         if not key:
             continue
         if not JIRA_PROJECT_KEY_RE.match(key):
-            raise ExternalSourceError(
+            raise ExternalSourceConfigError(
                 "Jira project filter contains an invalid project key; "
                 "reconnect the source to correct it."
             )
@@ -286,7 +335,13 @@ def _compose_jql(jql: str, project_keys: Any) -> str:
         return jql
 
     clause = "project IN (" + ", ".join(f'"{key}"' for key in seen) + ")"
-    where, order_by = _split_order_by(jql)
+    try:
+        where, order_by = scan_jql(jql)
+    except JqlNotWellFormed as exc:
+        raise ExternalSourceConfigError(
+            f"Stored Jira filter cannot be scoped to the selected projects ({exc}); "
+            "reconnect the source to correct it."
+        ) from exc
     narrowed = f"({where}) AND {clause}" if where else clause
     return f"{narrowed} {order_by}" if order_by else narrowed
 
@@ -590,6 +645,21 @@ class ExternalSourceAuthError(ExternalSourceError):
     Distinct from :class:`ExternalSourceError` so the caller can short-circuit
     retries and flip the connection to ``auth_failed`` (ADR-0097 §5) instead of
     backing off and retrying a dead token.
+    """
+
+
+class ExternalSourceConfigError(ExternalSourceError):
+    """The connection's stored ``config`` cannot produce a safe query.
+
+    Distinct from :class:`ExternalSourceError` for the same reason
+    :class:`ExternalSourceAuthError` is: the generic case means "the provider is
+    having a moment, keep the cache and retry", and retrying fixes nothing here —
+    the stored filter will be just as unusable next time. Without the distinction
+    a connection carrying a bad filter reports "unreachable" forever while serving
+    a cache that was populated under the *unscoped* query, which is the wrong
+    belief #2888 exists to prevent, reached by another route. Subclasses
+    ``ExternalSourceError`` so any caller that only knows the base class still
+    degrades safely.
     """
 
 

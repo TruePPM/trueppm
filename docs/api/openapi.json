@@ -4902,6 +4902,9 @@
                         },
                         "description": ""
                     },
+                    "400": {
+                        "description": "Unknown source, disallowed host URL, or a field that failed validation (an unparseable JQL filter, or a project key that is not a Jira project key)."
+                    },
                     "422": {
                         "content": {
                             "application/json": {
@@ -46264,6 +46267,7 @@
                     "jql": {
                         "type": "string",
                         "default": "",
+                        "description": "Optional JQL selecting what to pull. Blank uses 'assigned to me and not done'. Parentheses and quotes must balance — the project filter is ANDed onto this query, which is only a narrowing on a well-formed one.",
                         "maxLength": 1024
                     },
                     "project_keys": {
@@ -46273,6 +46277,7 @@
                             "minLength": 1,
                             "maxLength": 64
                         },
+                        "description": "Optional Jira project keys to restrict the pull to. Each must be a Jira project key (a letter followed by letters, digits or underscores); stored upper-cased and de-duplicated. Composed into the query as 'AND project IN (...)' on top of jql, so it can only narrow the pull. Empty means every project you can see.",
                         "maxItems": 50
                     }
                 },
