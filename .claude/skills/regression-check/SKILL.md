@@ -162,6 +162,68 @@ If all checks pass: confirm the test suite ran clean, name the tier-2 sub-agents
 were spawned, and list any areas not covered by existing tests that warrant a manual
 smoke test.
 
+## The recurrence check — run this on every branch that fixes a defect
+
+A fix that lands only where the bug was found is half a fix. The other half is the
+mechanism that finds the *next* instance. Ten independent findings in the 0.4 pre-release
+audit — including all three release blockers — were one finding wearing ten costumes: **a
+defect class was fixed at its known instances, and the guard that would catch the next
+instance was never written, or was written narrower than the class it names.**
+
+For any branch that fixes a bug, ask these three in order:
+
+1. **Does this defect have siblings?** A fix applied to one member of a set almost never
+   belongs to only that member. Enumerate the set structurally, then check every member:
+   - one implementation of an interface fixed → check every other implementation
+     (authenticators, serializers, permission classes, engine passes, consumers)
+   - one call site fixed → grep the shape of the call, not the name of the function
+   - one route/page/component fixed → enumerate the sibling routes/pages/components
+   - one deployment path fixed → check the other rendering paths of the same config
+
+   Report the sweep's denominator: "checked N members of the set, M were affected." A fix
+   with no stated denominator has not had this check.
+
+2. **What guard should have caught this, and why didn't it?** There are three answers, and
+   they need different fixes:
+   - **No guard exists** → the fix is incomplete without one.
+   - **A guard exists but is narrower than the class it names** — it samples a couple of
+     instances where the rule is universal, or checks one tier of a multi-tier surface.
+     Widen it to the class.
+   - **A guard exists and is structurally incapable of matching the defect** — its pattern
+     cannot express the thing it claims to check, so it has been reporting green while
+     blind. **This is the most dangerous case and the hardest to see**, because the gate's
+     own output is evidence *for* the code. Read the guard's implementation against its
+     stated rule; do not infer coverage from a passing run.
+
+3. **Has this class been fixed before?** Search the tracker for the *class*, not the symptom.
+   If prior issues fixed the same class elsewhere, that is proof the point-fix approach has
+   already failed, and a guard is mandatory rather than optional. Cite the prior issues.
+
+**When no reliable guard is possible, say so with reasoning** — that is a legitimate and
+useful outcome. A semantic judgement (is this a primary data surface? is this error path
+user-visible?) often cannot be mechanized, and an over-broad rule that misfires gets
+disabled, taking the real protection with it. In that case gate the part that *is*
+mechanizable — frequently the population size, as a ratchet — so the trend is at least
+observed.
+
+## Tests that encode the defect
+
+A green suite is not evidence of correct behavior when a test asserts the bug. Three
+instances appeared in a single 0.4 fix batch: a spec pinning the exact enum value the API
+rejects; a test asserting an optimistic-update wipe was correct; and a hardening test
+asserting the **inverse** of the true invariant, documented as a contract, which passed only
+because its fixture happened to land on the boundary where both readings agree.
+
+So when a fix makes an existing test fail, **do not adjust the test to match the new
+behavior until you have established which one was right.** A failing test after a fix is a
+question, not a chore. Check specifically for:
+
+- an assertion pinning a literal that the production code path rejects
+- a test whose fixture sits exactly on a boundary, so opposite invariants both pass
+- a docstring or comment asserting a contract that the code does not implement
+- a "regression test" for a prior issue whose fixture cannot reach the regressed path
+  (verify the fixture actually exercises the condition, not just the function)
+
 ## Future hardening
 
 Tier 1 deterministic checks are the only zero-cost layer. As the codebase grows, more

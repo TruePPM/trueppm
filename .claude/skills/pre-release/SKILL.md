@@ -328,6 +328,35 @@ Run all agents above in 3 parallel waves **with gate checks between waves**. A g
 
 ---
 
+## Step 1.9 — Audit your own enumeration before trusting a count
+
+Every agent that reports "N of M" derived M from a scan, and **that scan is a guard subject
+to exactly the failure modes the audit is hunting.** The 2026-08-16 0.4 run found ten
+instances of "a guard narrower than the class it names" — and produced one itself: an agent
+enumerated `@action` methods with a glob over `apps/*/views.py`, which silently excluded a
+`*_views.py` module and hid a fifteenth wrong endpoint. It was found only because the fixing
+agent re-derived the set instead of trusting the issue.
+
+Before consolidating, sanity-check the enumerations the report will rest on:
+
+- **Globs miss siblings.** `views.py` is not every view module; `models.py` is not every
+  model module. Prefer deriving a set from the live registry (the router, the settings list,
+  `__all__`, the URL conf) over a filename pattern.
+- **A count with no denominator is not a measurement.** "14 endpoints lack annotations" is
+  only meaningful beside "out of N enumerated, from source X."
+- **Zero findings is a claim about scope, not safety.** A scanner that matched nothing and a
+  surface that is clean produce identical output. Require every agent reporting 🟢 to state
+  what it enumerated and how.
+- **Cross-check overlapping agents.** Where two agents enumerate the same surface by
+  different routes, a divergence in their totals is a defect in one of the scans — chase it
+  rather than averaging.
+
+Findings are also worth **re-verifying at fix time**: in this run the fixing agents corrected
+the audit twice (an issue over-called two endpoints as having a wrong contract when the
+generated schema showed they never did, and a claimed single-mode color divergence turned out
+to affect both modes). Treat an audit finding as a well-evidenced hypothesis, not a fact, and
+say so in the issues you file.
+
 ## Step 2 — Consolidate findings
 
 After all agents complete, before writing the report, **cross-reference every finding against GitLab issues in both `opened` and `closed` states**. A finding that matches a closed issue is not automatically new — it may be a regression, an already-decided design trade-off, or a won't-fix. Re-reporting it without that context wastes the user's time and erases the prior reasoning.

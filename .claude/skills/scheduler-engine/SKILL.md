@@ -82,6 +82,33 @@ change-gated to `packages/wasm-scheduler` and skips cleanly when cargo is absent
 - Performance benchmarks tracked across commits
 - Coverage ≥ 95%
 
+### A documented invariant with no executable test is not enforced
+
+**The invariant immediately below — "`monte_carlo()` must never finish earlier than
+`schedule()`" — was already written here, in this file, when a 0.4 release blocker shipped
+violating it.** The probabilistic pass never received the actual-start floor the
+deterministic pass applies, so percentiles were computed against a start window CPM had
+already rejected, and P95 could land *before* the plain CPM finish. A 4,000-project
+differential fuzz found 2,061 divergent projects. Line coverage on the package was ~99%.
+
+Nothing was wrong with the rule. Nothing enforced it. Every test checked each pass in
+isolation, and prose in a skill file does not fail a pipeline.
+
+So, for every invariant in this section: **locate the test that asserts it, by name.** If
+there is none, writing it is part of the current change, not a follow-up. Two further traps
+that showed up closing this one:
+
+- **A relationship test can pass against a provably broken engine.** The first attempt reused
+  the contract-fuzz suite's adversarial generator, whose examples are ~92% rejected by
+  validation (duplicate ids, self-edges) before reaching the forward pass — so almost nothing
+  exercised the code under test and the suite went green against the known-bad build.
+  **Run the new test against the pre-fix engine and watch it fail** before trusting it, and
+  check the generator's *acceptance rate*, not just its example count.
+- **An existing test may assert the inverse.** A hardening test asserted `p95 <= project_finish`
+  and documented it as a contract — the exact opposite of the true invariant. It passed only
+  because its fixture lands on the equality boundary where both readings agree. When a fix
+  makes a test fail, establish which one is right before touching either.
+
 ### Cross-engine invariants (assert the relationship, not just the values)
 Any code path that computes a schedule **twice** — deterministically and probabilistically, or in Python and in Rust — must be tested on the *relationship between the two results*, not only on each result independently. Two engines can each pass their own known-answer tests while disagreeing with each other.
 
