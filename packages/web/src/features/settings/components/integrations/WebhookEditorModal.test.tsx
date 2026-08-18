@@ -50,6 +50,12 @@ function makeWebhook(overrides: Partial<ApiWebhook> = {}): ApiWebhook {
     events: ['task.created'],
     format: 'slack',
     is_active: true,
+    secret_set: true,
+    consecutive_failures: 0,
+    last_failure_at: null,
+    last_failure_reason: '',
+    disabled_at: null,
+    disabled_reason: '',
     created_at: '2026-06-01T00:00:00Z',
     created_by: null,
     ...overrides,
@@ -65,13 +71,22 @@ function genericFormatButton(): HTMLElement {
   return screen.getByTitle('Raw event envelope.');
 }
 
-/** Fill the create form with a valid URL, one event, and a secret. */
+/** A hand-typed secret that clears the 32-character floor (MIN_SECRET_LENGTH). */
+const LONG_SECRET = 'whsec_' + 'a'.repeat(40);
+
+/** Uncheck "Generate a secret for me" so the manual secret input is rendered. */
+function declineGeneratedSecret() {
+  fireEvent.click(screen.getByLabelText(/Generate a secret for me/));
+}
+
+/** Fill the create form with a valid URL, one event, and a typed secret. */
 function fillValidCreateForm() {
   fireEvent.change(screen.getByPlaceholderText('https://hooks.slack.com/services/…'), {
     target: { value: 'https://example.com/hook' },
   });
   selectEvent('task.created');
-  fireEvent.change(screen.getByPlaceholderText('whsec_…'), { target: { value: 'whsec_abc' } });
+  declineGeneratedSecret();
+  fireEvent.change(screen.getByPlaceholderText('whsec_…'), { target: { value: LONG_SECRET } });
 }
 
 function selectEvent(eventId: string) {
@@ -132,39 +147,31 @@ describe('WebhookEditorModal', () => {
       target: { value: 'https://example.com/hook' },
     });
     selectEvent('task.created');
+    declineGeneratedSecret();
     fireEvent.change(screen.getByPlaceholderText('whsec_…'), {
-      target: { value: 'whsec_abc' },
+      target: { value: LONG_SECRET },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Create webhook' }));
 
     expect(h.createMutate).toHaveBeenCalledTimes(1);
     const [body, callbacks] = h.createMutate.mock.calls[0] as [
       Record<string, unknown>,
-      { onSuccess: () => void; onError: (e: Error) => void },
+      { onSuccess: (created: ApiWebhook) => void; onError: (e: Error) => void },
     ];
     expect(body).toEqual({
       url: 'https://example.com/hook',
       events: ['task.created'],
       format: 'slack',
-      secret: 'whsec_abc',
+      secret: LONG_SECRET,
     });
-    // The modal owns the success → onSaved bridge.
-    callbacks.onSuccess();
+    // The modal owns the success → onSaved bridge. A hand-typed secret is not
+    // echoed by the API, so there is nothing to show and the modal just closes.
+    callbacks.onSuccess(makeWebhook());
     expect(onSaved).toHaveBeenCalledTimes(1);
   });
 
   it('edits an existing webhook via the update hook (secret optional)', () => {
-    const webhook = {
-      id: 'w1',
-      project: 'p1',
-      program: null,
-      url: 'https://old.example/hook',
-      events: ['task.created'],
-      format: 'slack',
-      is_active: true,
-      created_at: '2026-06-01T00:00:00Z',
-      created_by: null,
-    };
+    const webhook = makeWebhook();
     render(
       <WebhookEditorModal scope={SCOPE} webhook={webhook} onClose={vi.fn()} onSaved={vi.fn()} />,
     );
@@ -184,17 +191,7 @@ describe('WebhookEditorModal', () => {
 
   it('shows the empty delivery state when editing a webhook with no deliveries', () => {
     h.deliveries.mockReturnValue({ data: [], isLoading: false });
-    const webhook = {
-      id: 'w1',
-      project: 'p1',
-      program: null,
-      url: 'https://old.example/hook',
-      events: ['task.created'],
-      format: 'slack',
-      is_active: true,
-      created_at: '2026-06-01T00:00:00Z',
-      created_by: null,
-    };
+    const webhook = makeWebhook();
     render(
       <WebhookEditorModal scope={SCOPE} webhook={webhook} onClose={vi.fn()} onSaved={vi.fn()} />,
     );
@@ -214,17 +211,7 @@ describe('WebhookEditorModal', () => {
       ],
       isLoading: false,
     });
-    const webhook = {
-      id: 'w1',
-      project: 'p1',
-      program: null,
-      url: 'https://old.example/hook',
-      events: ['task.created'],
-      format: 'slack',
-      is_active: true,
-      created_at: '2026-06-01T00:00:00Z',
-      created_by: null,
-    };
+    const webhook = makeWebhook();
     render(
       <WebhookEditorModal scope={SCOPE} webhook={webhook} onClose={vi.fn()} onSaved={vi.fn()} />,
     );
@@ -234,12 +221,13 @@ describe('WebhookEditorModal', () => {
 });
 
 describe('WebhookEditorModal — event selection', () => {
-  it('requires a signing secret on create even when URL and events are valid', () => {
+  it('requires a signing secret on create when generation is declined', () => {
     render(<WebhookEditorModal scope={SCOPE} onClose={vi.fn()} onSaved={vi.fn()} />);
     fireEvent.change(screen.getByPlaceholderText('https://hooks.slack.com/services/…'), {
       target: { value: 'https://example.com/hook' },
     });
     selectEvent('task.created');
+    declineGeneratedSecret();
 
     fireEvent.click(screen.getByRole('button', { name: 'Create webhook' }));
 
@@ -258,7 +246,15 @@ describe('WebhookEditorModal — event selection', () => {
     expect(screen.getByText('0 selected')).toBeInTheDocument();
   });
 
-  it('drops event ids the OSS catalog cannot emit from a saved webhook', () => {
+  it('preserves event ids the picker cannot render instead of deleting them', () => {
+    // This assertion is inverted from what it used to be, and that inversion IS the
+    // fix (#2883). The modal narrowed a saved webhook to its own catalog and PATCHed
+    // the narrowed list, so opening an API-created webhook to fix a URL typo silently
+    // deleted every subscription the picker had not caught up with — eight real OSS
+    // events at the time the drift was found. The guard was written to strip
+    // *Enterprise* ids like `portfolio.rebalanced`; it could not tell them apart from
+    // real ones, and destroying a valid subscription is far worse than carrying an
+    // inert id the backend simply never fires.
     render(
       <WebhookEditorModal
         scope={SCOPE}
@@ -267,12 +263,45 @@ describe('WebhookEditorModal — event selection', () => {
         onSaved={vi.fn()}
       />,
     );
-    // Only the one real id survives the defensive filter.
-    expect(screen.getByText('1 selected')).toBeInTheDocument();
+    expect(screen.getByText('2 selected')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     const [arg] = h.updateMutate.mock.calls[0] as [{ body: Record<string, unknown> }];
+    expect(arg.body.events).toEqual(['task.created', 'portfolio.rebalanced']);
+  });
+
+  it('lists an unrenderable id in its own section so it can be cleared deliberately', () => {
+    render(
+      <WebhookEditorModal
+        scope={SCOPE}
+        webhook={makeWebhook({ events: ['task.created', 'portfolio.rebalanced'] })}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Other subscriptions')).toBeInTheDocument();
+
+    // Unchecking it is a decision, and that decision is honored.
+    selectEvent('portfolio.rebalanced');
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    const [arg] = h.updateMutate.mock.calls[0] as [{ body: Record<string, unknown> }];
     expect(arg.body.events).toEqual(['task.created']);
+  });
+
+  it('offers every backend event, including the sprint / risk / baseline / comment cohorts', () => {
+    render(<WebhookEditorModal scope={SCOPE} onClose={vi.fn()} onSaved={vi.fn()} />);
+    for (const id of [
+      'sprint.activated',
+      'sprint.closed',
+      'sprint.scope_changed',
+      'risk.opened',
+      'risk.escalated',
+      'risk.closed',
+      'baseline.captured',
+      'comment.created',
+    ]) {
+      expect(screen.getByText(id)).toBeInTheDocument();
+    }
   });
 
   it('sends the rotated secret when one is typed while editing', () => {
@@ -280,22 +309,22 @@ describe('WebhookEditorModal — event selection', () => {
       <WebhookEditorModal scope={SCOPE} webhook={makeWebhook()} onClose={vi.fn()} onSaved={vi.fn()} />,
     );
     fireEvent.change(screen.getByPlaceholderText(/unchanged/), {
-      target: { value: '  whsec_new  ' },
+      target: { value: `  ${LONG_SECRET}  ` },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
     const [arg] = h.updateMutate.mock.calls[0] as [{ body: Record<string, unknown> }];
-    expect(arg.body.secret).toBe('whsec_new');
+    expect(arg.body.secret).toBe(LONG_SECRET);
   });
 });
 
 describe('WebhookEditorModal — format picker', () => {
   it('drops the Slack preview and sends the generic format when Generic is picked', () => {
     render(<WebhookEditorModal scope={SCOPE} onClose={vi.fn()} onSaved={vi.fn()} />);
-    expect(screen.getByText('Slack renderer preview')).toBeInTheDocument();
+    expect(screen.getByText('Slack render example')).toBeInTheDocument();
 
     fireEvent.click(genericFormatButton());
-    expect(screen.queryByText('Slack renderer preview')).not.toBeInTheDocument();
+    expect(screen.queryByText('Slack render example')).not.toBeInTheDocument();
 
     fillValidCreateForm();
     fireEvent.click(screen.getByRole('button', { name: 'Create webhook' }));
@@ -320,7 +349,7 @@ describe('WebhookEditorModal — format picker', () => {
         onSaved={vi.fn()}
       />,
     );
-    expect(screen.queryByText('Slack renderer preview')).not.toBeInTheDocument();
+    expect(screen.queryByText('Slack render example')).not.toBeInTheDocument();
     expect(genericFormatButton()).toHaveAttribute('aria-pressed', 'true');
   });
 });
@@ -488,5 +517,118 @@ describe('WebhookEditorModal — delivery log', () => {
     render(<WebhookEditorModal scope={SCOPE} onClose={vi.fn()} onSaved={vi.fn()} />);
     expect(screen.queryByText('Recent deliveries')).not.toBeInTheDocument();
     expect(h.deliveries).not.toHaveBeenCalled();
+  });
+});
+
+describe('WebhookEditorModal — signing secret (#2885)', () => {
+  it('defaults to generating a secret and omits the field from the create body', () => {
+    render(<WebhookEditorModal scope={SCOPE} onClose={vi.fn()} onSaved={vi.fn()} />);
+    // The manual input is not even rendered while generation is on.
+    expect(screen.queryByPlaceholderText('whsec_…')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText('https://hooks.slack.com/services/…'), {
+      target: { value: 'https://example.com/hook' },
+    });
+    selectEvent('task.created');
+    fireEvent.click(screen.getByRole('button', { name: 'Create webhook' }));
+
+    const [body] = h.createMutate.mock.calls[0] as [Record<string, unknown>];
+    // Omitted, not blank: the server auto-generates only when the field is absent
+    // or empty, and this is the path that reaches its 256-bit generator.
+    expect(body).not.toHaveProperty('secret');
+  });
+
+  it('rejects a hand-typed secret below the server floor before it round-trips', () => {
+    render(<WebhookEditorModal scope={SCOPE} onClose={vi.fn()} onSaved={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText('https://hooks.slack.com/services/…'), {
+      target: { value: 'https://example.com/hook' },
+    });
+    selectEvent('task.created');
+    declineGeneratedSecret();
+    fireEvent.change(screen.getByPlaceholderText('whsec_…'), { target: { value: 'whsec_hunter2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create webhook' }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('at least 32 characters');
+    expect(h.createMutate).not.toHaveBeenCalled();
+  });
+
+  it('shows the one-time secret echo instead of discarding it', () => {
+    const onSaved = vi.fn();
+    render(<WebhookEditorModal scope={SCOPE} onClose={vi.fn()} onSaved={onSaved} />);
+    fireEvent.change(screen.getByPlaceholderText('https://hooks.slack.com/services/…'), {
+      target: { value: 'https://example.com/hook' },
+    });
+    selectEvent('task.created');
+    fireEvent.click(screen.getByRole('button', { name: 'Create webhook' }));
+
+    const [, callbacks] = h.createMutate.mock.calls[0] as [
+      Record<string, unknown>,
+      { onSuccess: (created: ApiWebhook) => void },
+    ];
+    act(() => callbacks.onSuccess(makeWebhook({ secret: 'generated-256-bit-value' })));
+
+    // The modal must NOT close yet — there is no read path to this value again.
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole('heading', { name: 'Signing secret created — copy it now' }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Generated signing secret')).toHaveValue('generated-256-bit-value');
+    // The shared one-time-reveal primitives, not a hand-rolled copy button (#2205).
+    expect(screen.getByRole('button', { name: 'Copy signing secret' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(onSaved).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('WebhookEditorModal — auto-disable notice (#2884)', () => {
+  it('explains why deliveries stopped when the failure guard fired', () => {
+    render(
+      <WebhookEditorModal
+        scope={SCOPE}
+        webhook={makeWebhook({
+          is_active: false,
+          consecutive_failures: 5,
+          disabled_at: '2026-08-17T10:00:00Z',
+          disabled_reason: 'Automatically deactivated after 5 consecutive failed deliveries.',
+        })}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Deliveries paused automatically')).toBeInTheDocument();
+    expect(
+      screen.getByText(/Automatically deactivated after 5 consecutive failed deliveries/),
+    ).toBeInTheDocument();
+  });
+
+  it('offers a Resume control that actually writes is_active (#2884)', () => {
+    // The copy used to say "re-enable this webhook" while nothing in the web app
+    // could write is_active at all — so the only in-app recovery was delete and
+    // recreate, which loses the signing secret.
+    render(
+      <WebhookEditorModal
+        scope={SCOPE}
+        webhook={makeWebhook({
+          is_active: false,
+          consecutive_failures: 5,
+          disabled_at: '2026-08-17T10:00:00Z',
+          disabled_reason: 'Automatically deactivated after 5 consecutive failed deliveries.',
+        })}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Resume deliveries' }));
+
+    const [arg] = h.updateMutate.mock.calls[0] as [{ id: string; body: Record<string, unknown> }];
+    expect(arg).toMatchObject({ id: 'w1', body: { is_active: true } });
+  });
+
+  it('shows no notice on a healthy webhook', () => {
+    render(
+      <WebhookEditorModal scope={SCOPE} webhook={makeWebhook()} onClose={vi.fn()} onSaved={vi.fn()} />,
+    );
+    expect(screen.queryByText('Deliveries paused automatically')).not.toBeInTheDocument();
   });
 });

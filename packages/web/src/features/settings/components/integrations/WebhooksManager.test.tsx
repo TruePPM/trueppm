@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { WebhooksManager } from './WebhooksManager';
 import type { ApiWebhook } from '@/hooks/useWebhooks';
@@ -6,11 +6,24 @@ import type { ApiWebhook } from '@/hooks/useWebhooks';
 const useWebhooks = vi.fn();
 const deleteMutate = vi.fn();
 const testMutate = vi.fn();
+const testReset = vi.fn();
+/** What `useWebhookTestResult` reports back — the receiver's real answer (#2884). */
+const testResult = vi.fn(() => ({
+  delivery: null as unknown,
+  settled: false,
+  timedOut: false,
+}));
 
 vi.mock('@/hooks/useWebhooks', () => ({
   useWebhooks: () => useWebhooks() as unknown,
   useDeleteWebhook: () => ({ mutate: deleteMutate, isPending: false }),
-  useTestWebhook: () => ({ mutate: testMutate, isPending: false }),
+  useTestWebhook: () => ({
+    mutate: testMutate,
+    reset: testReset,
+    isPending: false,
+    isError: false,
+  }),
+  useWebhookTestResult: () => testResult(),
 }));
 
 // The editor modal has its own tests; here it's a marker so we can assert it opens.
@@ -30,6 +43,12 @@ const WEBHOOK: ApiWebhook = {
   events: ['task.created', 'task.assigned'],
   format: 'slack',
   is_active: true,
+  secret_set: true,
+  consecutive_failures: 0,
+  last_failure_at: null,
+  last_failure_reason: '',
+  disabled_at: null,
+  disabled_reason: '',
   created_at: '2026-05-20T12:00:00Z',
   created_by: null,
 };
@@ -38,6 +57,9 @@ beforeEach(() => {
   useWebhooks.mockReset();
   deleteMutate.mockReset();
   testMutate.mockReset();
+  testReset.mockReset();
+  testResult.mockReset();
+  testResult.mockReturnValue({ delivery: null, settled: false, timedOut: false });
 });
 
 describe('WebhooksManager', () => {
@@ -73,6 +95,105 @@ describe('WebhooksManager', () => {
     render(<WebhooksManager scope={SCOPE} />);
     fireEvent.click(screen.getByRole('button', { name: 'Test' }));
     expect(testMutate).toHaveBeenCalledWith('wh-1', expect.anything());
+  });
+
+  it('reports the receiver\'s real answer, not the enqueue ack (#2884)', () => {
+    // The old button flipped to "Sent ✓" in the POST's onSuccess. Because the ping
+    // also skipped the format renderer, a Slack-format webhook — the default — was
+    // guaranteed to fail while the UI claimed success. The button now waits for the
+    // delivery row.
+    useWebhooks.mockReturnValue({ data: [WEBHOOK], isLoading: false, isError: false, refetch: vi.fn() });
+    testResult.mockReturnValue({
+      delivery: { id: 'd1', status: 'failed', response_status: 400 } as unknown,
+      settled: true,
+      timedOut: false,
+    });
+    render(<WebhooksManager scope={SCOPE} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test' }));
+    const [, callbacks] = testMutate.mock.calls[0] as [
+      string,
+      { onSuccess: (d: { delivery_id: string }) => void },
+    ];
+    act(() => callbacks.onSuccess({ delivery_id: 'd1' }));
+
+    expect(screen.getByRole('button', { name: 'Failed 400' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Delivered/ })).not.toBeInTheDocument();
+    // The outcome must reach a live region too: the button's accessible name is only
+    // read on focus, and the click moved focus nowhere useful.
+    expect(screen.getByRole('status')).toHaveTextContent('The receiver answered HTTP 400.');
+  });
+
+  it('reports a delivered ping once the row settles', () => {
+    useWebhooks.mockReturnValue({ data: [WEBHOOK], isLoading: false, isError: false, refetch: vi.fn() });
+    testResult.mockReturnValue({
+      delivery: { id: 'd1', status: 'success', response_status: 200 } as unknown,
+      settled: true,
+      timedOut: false,
+    });
+    render(<WebhooksManager scope={SCOPE} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test' }));
+    const [, callbacks] = testMutate.mock.calls[0] as [
+      string,
+      { onSuccess: (d: { delivery_id: string }) => void },
+    ];
+    act(() => callbacks.onSuccess({ delivery_id: 'd1' }));
+
+    expect(screen.getByRole('button', { name: /Delivered/ })).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Test delivered successfully.');
+  });
+
+  it('keeps the Test button focusable while a delivery is in flight (#2884)', () => {
+    // aria-disabled, not disabled: a focused element that becomes `disabled` is
+    // removed from the focusability tree, so the browser blurs it and the keyboard
+    // user is thrown off the row for the whole poll.
+    useWebhooks.mockReturnValue({ data: [WEBHOOK], isLoading: false, isError: false, refetch: vi.fn() });
+    testResult.mockReturnValue({ delivery: null, settled: false, timedOut: false });
+    render(<WebhooksManager scope={SCOPE} />);
+
+    const button = screen.getByRole('button', { name: 'Test' });
+    fireEvent.click(button);
+    const [, callbacks] = testMutate.mock.calls[0] as [
+      string,
+      { onSuccess: (d: { delivery_id: string }) => void },
+    ];
+    act(() => callbacks.onSuccess({ delivery_id: 'd1' }));
+
+    const waiting = screen.getByRole('button', { name: 'Waiting…' });
+    expect(waiting).toHaveAttribute('aria-disabled', 'true');
+    expect(waiting).not.toBeDisabled();
+
+    // A second click while busy must not fire another request.
+    fireEvent.click(waiting);
+    expect(testMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a still-pending test rather than polling forever', () => {
+    useWebhooks.mockReturnValue({ data: [WEBHOOK], isLoading: false, isError: false, refetch: vi.fn() });
+    testResult.mockReturnValue({ delivery: null, settled: false, timedOut: true });
+    render(<WebhooksManager scope={SCOPE} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test' }));
+    const [, callbacks] = testMutate.mock.calls[0] as [
+      string,
+      { onSuccess: (d: { delivery_id: string }) => void },
+    ];
+    act(() => callbacks.onSuccess({ delivery_id: 'd1' }));
+
+    expect(screen.getByRole('button', { name: 'Pending' })).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('still pending');
+  });
+
+  it('surfaces the auto-disable state on the row (#2884)', () => {
+    useWebhooks.mockReturnValue({
+      data: [{ ...WEBHOOK, is_active: false, consecutive_failures: 5, disabled_at: 'x' }],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
+    render(<WebhooksManager scope={SCOPE} />);
+    expect(screen.getByText('paused after 5 failures')).toBeInTheDocument();
   });
 
   it('confirms before deleting', () => {

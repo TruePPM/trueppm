@@ -1069,6 +1069,8 @@ Webhooks are scoped to a project or a program:
 | GET | `/api/v1/projects/{id}/webhooks/{wid}/` | Retrieve |
 | PUT / PATCH | `/api/v1/projects/{id}/webhooks/{wid}/` | Update |
 | DELETE | `/api/v1/projects/{id}/webhooks/{wid}/` | Delete |
+| POST | `/api/v1/projects/{id}/webhooks/{wid}/test/` | Send a test ping (Admin) |
+| GET | `/api/v1/projects/{id}/webhooks/{wid}/deliveries/` | Delivery history, cursor-paginated (**Admin**) |
 
 TruePPM emits **19 event types** across tasks, dependencies, schedule, projects,
 sprints, risks, baselines, and comments. The full catalog — every event name, what
@@ -1080,7 +1082,10 @@ delivery ordering and gap detection, and the retry schedule — is documented in
 - [Payload shape](/features/webhooks/#payload-shape)
 - [Signature verification](/features/webhooks/#signature-verification)
 - [Delivery ordering and gap detection](/features/webhooks/#delivery-ordering-and-gap-detection)
-- [Delivery retries](/features/webhooks/#delivery-retries)
+- [Delivery retries](/features/webhooks/#delivery-retries) — and which statuses are
+  *not* retried
+- [Automatic deactivation](/features/webhooks/#automatic-deactivation) — the
+  consecutive-failure guard and the delivery-health fields it exposes
 
 The signing `secret` (used to HMAC-sign delivered payloads) is **write-only** and
 follows a one-time-secret model:
@@ -1095,6 +1100,12 @@ follows a one-time-secret model:
 - A supplied secret must be at least **32 characters**. A whitespace-only value
   is rejected; blank is treated as "auto-generate". Validation failures return
   `400`.
+- Reads expose only `secret_set` — a boolean saying whether a secret is stored.
+- It is **encrypted at rest**, so there is no path (API, database dump, or admin) to
+  the plaintext after that one-time create response.
+- Webhook create is **exempt from `Idempotency-Key`** for exactly this reason: the
+  response carries a value that must not be persisted for replay. See
+  [Idempotency](/api/idempotency/).
 
 ### Sync
 
