@@ -1,7 +1,16 @@
 ---
 title: MS Project configuration
 description: Operator reference for TruePPM's MS Project import / export — upload size cap, the optional MPXJ toolchain for .mpp files, the import-history retention window, and security boundaries on parsed input.
+documentedFor: "0.4"
 ---
+
+:::note[Ships in 0.4 — the API-only `.mpp` caution]
+One paragraph below describes **0.4**: the callout stating that neither file
+picker accepts a `.mpp`. On `0.3.0-alpha.3` and earlier the import-into-existing
+dialog still offers it, and an upload on a deployment without the toolchain is
+accepted and then fails in the worker with no user-visible reason. Every setting,
+default and security boundary on this page is shipped behavior.
+:::
 
 This page is the operator's reference for TruePPM's [MS Project import / export](/features/msproject-import-export/) surface. The user-facing flows ship with sensible defaults — most deployments do not need to change anything here — but the four knobs below cover upload size, the optional `.mpp` toolchain, history retention, and what's enforced on parsed input.
 
@@ -33,6 +42,18 @@ The `.xml` (MSPDI) format is parsed by TruePPM directly and **always works** —
 | Setting | Default | Notes |
 |---|---|---|
 | `MPXJ_JAR_PATH` | `/opt/mpxj/mpxj-cli.jar` | Path to the MPXJ CLI JAR inside the API container. Set via a Django settings override only — an environment-variable binding is not yet wired. |
+
+:::caution[`.mpp` is an API-only escape hatch — the UI does not offer it]
+Neither file picker accepts a `.mpp`: the create-from-import format picker
+disables it, and the import-into-existing dropzone rejects it before upload. Only
+`POST /api/v1/projects/{pk}/import/msproject/` accepts one, and only where you
+have installed the toolchain below. That split is deliberate — a `.mpp` uploaded
+to a deployment without the JAR returns `202` and then dead-letters in the
+worker, and `ImportRequest` has no field to carry the reason back to the user
+([#2714](https://gitlab.com/trueppm/trueppm/-/issues/2714)). First-class in-app
+`.mpp` import is [#128](https://gitlab.com/trueppm/trueppm/-/issues/128), planned
+for 0.6.
+:::
 
 If a user uploads a `.mpp` and the JAR isn't at the configured path, the import fails with `"MPXJ JAR not found … Expected at: {jar_path}. Set MPXJ_JAR_PATH in settings to override."` The user-facing import dialog and the format picker both recommend "**File → Save As → XML Format**" in MS Project as the workaround — `.xml` round-trips with everything `.mpp` round-trips, with the exception of MS Project's binary-only formatting / view state (which TruePPM never reads anyway).
 

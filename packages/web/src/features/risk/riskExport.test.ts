@@ -276,7 +276,10 @@ describe('exportRisksToCSV — download trigger', () => {
 
   it('blob content-type is text/csv;charset=utf-8', () => {
     exportRisksToCSV([makeRisk()], 'proj');
-    expect(capturedBlobType).toBe('text/csv;charset=utf-8');
+    // The trailing `;` comes from the shared `downloadCsv` (#2892): this export
+    // used to build its own Blob with a hand-rolled anchor sequence, which is
+    // where its duplicate cell-escaper lived. Both are valid MIME strings.
+    expect(capturedBlobType).toBe('text/csv;charset=utf-8;');
   });
 
   it('triggers anchor click', () => {

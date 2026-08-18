@@ -6,7 +6,8 @@ import {
   useImportMsProject,
 } from '@/hooks/useMsProjectImportExport';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
-import { ImportDropzone } from './ImportDropzone';
+import { ImportDropzone, type ImportRejectReason } from './ImportDropzone';
+import { MsProjectXmlRecipe } from './msProjectXmlRecipe';
 import { CheckIcon, XMarkIcon } from '@/components/Icons';
 
 interface Props {
@@ -38,6 +39,10 @@ function importErrorMessage(error: unknown): string {
 export function ImportModal({ projectId, onClose }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [rejectMsg, setRejectMsg] = useState<string | null>(null);
+  // Kept beside the message rather than derived from it: the advice branches on
+  // WHY the file was refused, and re-deriving that by matching on the message
+  // text would re-couple the copy to the logic.
+  const [rejectReason, setRejectReason] = useState<ImportRejectReason | null>(null);
 
   const importMut = useImportMsProject(projectId);
 
@@ -55,10 +60,9 @@ export function ImportModal({ projectId, onClose }: Props) {
         : 'picking';
   const dialogRef = useFocusTrap<HTMLDivElement>(true, onClose, phase);
 
-  const isMpp = file?.name.toLowerCase().endsWith('.mpp') ?? false;
-
   function handleSelect(picked: File) {
     setRejectMsg(null);
+    setRejectReason(null);
     importMut.reset();
     setFile(picked);
   }
@@ -66,7 +70,13 @@ export function ImportModal({ projectId, onClose }: Props) {
   function handleClear() {
     setFile(null);
     setRejectMsg(null);
+    setRejectReason(null);
     importMut.reset();
+  }
+
+  function handleReject(message: string, reason: ImportRejectReason) {
+    setRejectMsg(message);
+    setRejectReason(reason);
   }
 
   function handleImport() {
@@ -188,23 +198,34 @@ export function ImportModal({ projectId, onClose }: Props) {
                   file={file}
                   onSelect={handleSelect}
                   onClear={handleClear}
-                  onReject={setRejectMsg}
+                  onReject={handleReject}
                 />
 
-                {rejectMsg && (
-                  <p role="alert" className="text-xs text-semantic-critical">
-                    {rejectMsg}
-                  </p>
-                )}
+                {/* One `role="alert"` wrapping the failure AND its remedy. As
+                    siblings the recipe sits outside the alert's subtree, so a
+                    screen-reader user hears "that file can't be imported" and
+                    nothing about the fix — the actionable half never announced.
+                    This file's own error branch already does it this way.
 
-                {/* .mpp requires the server's MPXJ (Java) toolchain; not all
-                    deployments ship it. Warn rather than block — the API still
-                    accepts .mpp where the toolchain is present. */}
-                {isMpp && (
-                  <p className="rounded-card border border-semantic-warning/40 bg-semantic-warning-bg p-2 text-xs text-neutral-text-secondary">
-                    .mpp import needs the MS Project toolchain on the server. If the import fails,
-                    open the file in MS Project and save it as XML, then upload the .xml instead.
-                  </p>
+                    The recipe renders only for an `'extension'` rejection. A
+                    `'size'` rejection is usually a valid but oversized MSPDI
+                    `.xml`, and answering that with "save it as XML" describes what
+                    the user just did (#2892).
+
+                    Neutral, not amber: the class string was inherited from the
+                    `.mpp` caveat banner this replaced, which was a genuine warning
+                    *state*. This is instructional how-to (rules 8b/145), and an
+                    amber card outshouts the red line that is the actual error.
+                    `FormatPicker` renders the same copy neutral. */}
+                {rejectMsg && (
+                  <div role="alert" className="flex flex-col gap-2">
+                    <p className="text-xs text-semantic-critical">{rejectMsg}</p>
+                    {rejectReason === 'extension' && (
+                      <p className="rounded-card border border-neutral-border bg-neutral-surface-raised p-2 text-xs text-neutral-text-secondary">
+                        TruePPM imports MS Project XML. <MsProjectXmlRecipe />
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
 

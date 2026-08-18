@@ -1,8 +1,18 @@
 import { useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
 import { FileIcon, FolderIcon } from '@/components/Icons';
 
+/**
+ * Why a file was rejected.
+ *
+ * Hosts need this to decide what advice to give, and the two cases want opposite
+ * advice: `'extension'` earns a format-conversion recipe, `'size'` must not get
+ * one — telling someone who uploaded a 60 MB MSPDI to "save it as XML" describes
+ * exactly what they already did (#2892).
+ */
+export type ImportRejectReason = 'extension' | 'size';
+
 export interface ImportDropzoneProps {
-  /** Accepted file extensions, e.g. ['.mpp', '.xml']. Used for the picker and validation. */
+  /** Accepted file extensions, e.g. ['.csv', '.xlsx']. Used for the picker and validation. */
   accept: readonly string[];
   /** Soft client-side size cap in MB. The server enforces the authoritative limit. */
   maxSizeMb: number;
@@ -12,8 +22,8 @@ export interface ImportDropzoneProps {
   onSelect: (file: File) => void;
   /** Called when the user clears the selected file. */
   onClear: () => void;
-  /** Called with a human-readable message when a dropped/picked file is rejected. */
-  onReject?: (message: string) => void;
+  /** Called with a human-readable message and the reason when a file is rejected. */
+  onReject?: (message: string, reason: ImportRejectReason) => void;
   disabled?: boolean;
 }
 
@@ -33,8 +43,9 @@ function formatBytes(bytes: number): string {
  * Reusable drag-and-drop file picker for import flows.
  *
  * Validates extension and size against the `accept`/`maxSizeMb` props before
- * calling `onSelect`; rejections are surfaced via `onReject` so the host
- * (modal) can show a message without the dropzone owning that UI. This is the
+ * calling `onSelect`; rejections are surfaced via `onReject` — with an
+ * {@link ImportRejectReason}, because the right advice differs per cause — so the
+ * host (modal) can show a message without the dropzone owning that UI. This is the
  * shared shell the file-IO surfaces build on — MS Project import (#68) today,
  * the CSV/Excel wizard (#111) and risk CSV (#223) next.
  */
@@ -58,11 +69,14 @@ export function ImportDropzone({
 
   function validateAndSelect(candidate: File) {
     if (!acceptList.has(extensionOf(candidate.name))) {
-      onReject?.(`That file can't be imported. ${acceptLabel} only, up to ${maxSizeMb} MB.`);
+      onReject?.(
+        `That file can't be imported. ${acceptLabel} only, up to ${maxSizeMb} MB.`,
+        'extension',
+      );
       return;
     }
     if (candidate.size > maxSizeMb * 1024 * 1024) {
-      onReject?.(`That file is too large. ${acceptLabel} only, up to ${maxSizeMb} MB.`);
+      onReject?.(`That file is too large. ${acceptLabel} only, up to ${maxSizeMb} MB.`, 'size');
       return;
     }
     setAnnouncement(`${candidate.name} selected, ${formatBytes(candidate.size)}`);

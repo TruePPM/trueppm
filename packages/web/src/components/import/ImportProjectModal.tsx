@@ -14,7 +14,7 @@ import {
   type SeedReplaceConflict,
 } from '@/hooks/useProgramSeedIo';
 import { XMarkIcon } from '@/components/Icons';
-import { ImportDropzone } from './ImportDropzone';
+import { ImportDropzone, type ImportRejectReason } from './ImportDropzone';
 import { FormatPicker, type ImportFormat } from './FormatPicker';
 import { SeedReplaceConfirmDialog } from './SeedReplaceConfirmDialog';
 
@@ -187,11 +187,15 @@ export function ImportProjectModal({
     setFile(picked);
   }
 
-  function handleReject(message: string) {
+  function handleReject(message: string, reason: ImportRejectReason) {
     setRejectMsg(message);
     // For MS Project the usual rejected file is a .mpp/.mpx — surface the
     // conversion guidance. The native JSON path has no such disclosure.
-    if (!isTruePpm) setGuidanceOpen(true);
+    //
+    // Gated on `'extension'` (#2892): a `'size'` rejection is usually a valid but
+    // oversized MSPDI `.xml`, and opening a "how to save as XML" disclosure at
+    // that user describes what they just did.
+    if (!isTruePpm && reason === 'extension') setGuidanceOpen(true);
   }
 
   function submitSeed(input: ImportProgramSeedInput) {

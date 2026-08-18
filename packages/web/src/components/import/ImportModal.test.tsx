@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
 import { ImportModal } from './ImportModal';
@@ -100,5 +100,57 @@ describe('ImportModal', () => {
     h.mut.isSuccess = true;
     view.rerender(<ImportModal projectId="p1" onClose={() => {}} />);
     expect(screen.getByRole('button', { name: 'Done' })).toHaveFocus();
+  });
+});
+
+/**
+ * The rejection surface (#2891/#2892). `.mpp` is no longer offered here, so the
+ * Save-As-XML recipe moved from a post-selection caveat banner into the rejection
+ * — which is the only place it can still be reached, and the moment it is useful.
+ */
+describe('ImportModal — rejection advice', () => {
+  function drop(name: string, sizeBytes = 10) {
+    const file = new File(['x'], name, { type: 'application/octet-stream' });
+    Object.defineProperty(file, 'size', { value: sizeBytes });
+    const zone = screen.getByRole('button', { name: /Choose file or drag one here/ });
+    fireEvent.drop(zone, { dataTransfer: { files: [file] } });
+  }
+
+  it('offers .xml only — the picker no longer advertises .mpp (#2891)', () => {
+    setup();
+    expect(screen.getByText('.xml · up to 50 MB')).toBeInTheDocument();
+  });
+
+  it('gives the conversion recipe when the extension is wrong', () => {
+    setup();
+    drop('legacy.mpp');
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('.xml only');
+    // The recipe must be INSIDE the alert, or a screen-reader user hears the
+    // failure and nothing about the fix.
+    expect(alert).toHaveTextContent('File → Save As');
+    // The sentence FormatPicker carries and the old modal copy had dropped.
+    expect(alert).toHaveTextContent("Project for the web can't save XML");
+  });
+
+  it('does NOT give the conversion recipe on a size rejection', () => {
+    // A >50 MB MSPDI .xml is a valid file that is merely too big. Answering it
+    // with "save it as XML" describes exactly what the user already did (#2892).
+    setup();
+    drop('plan.xml', 60 * 1024 * 1024);
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('too large');
+    expect(alert).not.toHaveTextContent('File → Save As');
+  });
+
+  it('uses a neutral tone for the recipe, not the semantic-warning state', () => {
+    // The class string was inherited from the .mpp caveat banner, which was a real
+    // warning state. Instructional how-to is not a state (rules 8b/145), and an
+    // amber card outshouts the red line that is the actual error.
+    setup();
+    drop('legacy.mpp');
+    const recipe = screen.getByText(/TruePPM imports MS Project XML/);
+    expect(recipe.className).toContain('bg-neutral-surface-raised');
+    expect(recipe.className).not.toContain('semantic-warning');
   });
 });

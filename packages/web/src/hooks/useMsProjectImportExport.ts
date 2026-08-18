@@ -13,8 +13,26 @@ import { apiClient } from '@/api/client';
  */
 export const MS_PROJECT_MAX_UPLOAD_MB = 50;
 
-/** File extensions the MS Project import endpoint accepts. */
-export const MS_PROJECT_ACCEPT = ['.mpp', '.xml'] as const;
+/**
+ * File extensions the MS Project **import UI** offers.
+ *
+ * `.xml` only, deliberately (#2891). The server endpoint still accepts `.mpp` —
+ * that is the documented operator escape hatch, and it is unchanged — but `.mpp`
+ * parsing needs the optional MPXJ JAR and a Java runtime, and the reference image
+ * bundles neither. `MPXJ_JAR_PATH` is not even a declared setting; the parser
+ * reads it through a `getattr` default. So on a stock deployment a `.mpp` upload
+ * 202s and then dead-letters in the worker with "MPXJ JAR not found", and
+ * `ImportRequest` has no field to carry that reason back (#2714) — the user sees
+ * an import that never lands and no explanation.
+ *
+ * Offering it here also disagreed with the two surfaces beside it: the
+ * create-from-import dialog accepted `.xml` only, and `FormatPicker` rendered
+ * `.mpp` disabled and "planned for 0.6". Three answers to one question is worse
+ * than any one of them. First-class `.mpp` support is #128, sequenced for 0.6;
+ * until then the UI says `.xml` everywhere and the API keeps the escape hatch for
+ * operators who install the toolchain (`administration/msproject-configuration`).
+ */
+export const MS_PROJECT_ACCEPT = ['.xml'] as const;
 
 interface ImportResponse {
   detail: string;
@@ -23,7 +41,7 @@ interface ImportResponse {
 }
 
 /**
- * POST /api/v1/projects/:id/import/msproject/ — upload a .mpp/.xml file.
+ * POST /api/v1/projects/:id/import/msproject/ — upload a .xml (MSPDI) file.
  *
  * The import runs asynchronously (transactional outbox → Celery), so the 202
  * response only confirms the file was queued — tasks appear once the worker

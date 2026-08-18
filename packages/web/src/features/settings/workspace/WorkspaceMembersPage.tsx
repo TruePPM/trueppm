@@ -16,6 +16,7 @@ import { FieldHelp } from '@/components/FieldHelp';
 import { IDENTITY_VIOLET, tintedChipStyle } from '@/lib/identityColors';
 import { filterMembers } from './filterMembers';
 import { CheckIcon, CloseIcon } from '@/components/Icons';
+import { downloadCsv, escapeField } from '@/utils/exportCsv';
 
 const ROLE_PALETTE: Record<string, { bg: string; text: string; style?: CSSProperties }> = {
   // Admin is a distinct identity hue, not a status — the single-sourced violet
@@ -224,35 +225,30 @@ function MemberTableRow({ m, last, onRoleChange, onRemove, hasError }: MemberTab
 
 const ROLE_OPTIONS = ['Admin', 'PM', 'Lead', 'Member', 'Viewer'] as const;
 
-/** Quote a CSV cell only when it contains a comma, quote, or newline. */
-function csvCell(value: string): string {
-  return /[",\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
-}
-
 /**
  * Serialize the visible member columns (name, email, role, status, groups) to
  * CSV. Exported for unit testing — pure and deterministic for a given member
  * list. Groups collapse to a single semicolon-joined cell so the row stays
  * one CSV record regardless of group count.
+ *
+ * Cells go through the shared `escapeField`, which neutralizes a leading
+ * formula-trigger character as well as applying RFC 4180 quoting. This page
+ * previously carried its own `csvCell` doing quoting only, so a member whose
+ * display name began `=`/`+`/`-`/`@` executed as a formula when an admin opened
+ * the export in Excel, and an interior lone `\r` split the record (#2892). The
+ * guard is deliberately *not* reimplemented here — a second, subtly different
+ * copy of an injection guard is how this class survived #2762.
  */
 export function buildMembersCsv(members: WorkspaceMember[]): string {
-  const header = ['Name', 'Email', 'Role', 'Status', 'Groups'].map(csvCell).join(',');
+  const header = ['Name', 'Email', 'Role', 'Status', 'Groups'].map(escapeField).join(',');
   const rows = members.map((m) =>
-    [m.name, m.email, m.role, m.status, m.groups.join('; ')].map(csvCell).join(','),
+    [m.name, m.email, m.role, m.status, m.groups.join('; ')].map(escapeField).join(','),
   );
   return [header, ...rows].join('\n');
 }
 
 function exportMembersCsv(members: WorkspaceMember[]): void {
-  const blob = new Blob([buildMembersCsv(members)], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = 'trueppm-workspace-members.csv';
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+  downloadCsv(buildMembersCsv(members), 'trueppm-workspace-members.csv');
 }
 
 /** Workspace > Members management page. */

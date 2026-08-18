@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  #2891 fixture. A plan carrying every field family the importer used to drop
+  in silence: a Start No Earlier Than constraint whose date DIVERGES from the
+  computed <Start> (the case where reading only <Start> loses the commitment),
+  a Must Start On, a Finish No Later Than on the go-live milestone, a Deadline,
+  a <Baseline> block, ActualStart/ActualFinish, a non-default Priority, Work,
+  and Cost.
+
+  Task 4 deliberately carries ConstraintType 0 with the default Priority 500 and
+  zero Work/Cost, so the warning predicates are proved to stay quiet on the
+  values MS Project writes on every row whether or not the PM set them.
+-->
+<Project xmlns="http://schemas.microsoft.com/project">
+  <Name>Constraint fidelity</Name>
+  <StartDate>2026-03-02T08:00:00</StartDate>
+  <Tasks>
+    <Task>
+      <UID>1</UID>
+      <Name>Design</Name>
+      <OutlineNumber>1</OutlineNumber>
+      <OutlineLevel>1</OutlineLevel>
+      <Duration>PT40H0M0S</Duration>
+      <Start>2026-03-16T08:00:00</Start>
+      <Milestone>0</Milestone>
+      <PercentComplete>100</PercentComplete>
+      <!-- The commitment is 9 March; MS Project's computed start has slipped to
+           the 16th. Reading <Start> loses the date the PM actually defends. -->
+      <ConstraintType>4</ConstraintType>
+      <ConstraintDate>2026-03-09T08:00:00</ConstraintDate>
+      <ActualStart>2026-03-09T08:00:00</ActualStart>
+      <ActualFinish>2026-03-13T17:00:00</ActualFinish>
+      <Deadline>2026-03-20T17:00:00</Deadline>
+      <Priority>800</Priority>
+      <Work>PT40H0M0S</Work>
+      <Cost>12000</Cost>
+      <Baseline>
+        <Number>0</Number>
+        <Start>2026-03-02T08:00:00</Start>
+        <Finish>2026-03-06T17:00:00</Finish>
+      </Baseline>
+    </Task>
+    <Task>
+      <UID>2</UID>
+      <Name>Build</Name>
+      <OutlineNumber>2</OutlineNumber>
+      <OutlineLevel>1</OutlineLevel>
+      <Duration>PT80H0M0S</Duration>
+      <Start>2026-03-23T08:00:00</Start>
+      <Milestone>0</Milestone>
+      <PercentComplete>25</PercentComplete>
+      <ConstraintType>2</ConstraintType>
+      <ConstraintDate>2026-03-23T08:00:00</ConstraintDate>
+      <ActualStart>2026-03-23T08:00:00</ActualStart>
+      <Priority>500</Priority>
+      <Work>PT80H0M0S</Work>
+      <Cost>0</Cost>
+    </Task>
+    <Task>
+      <UID>3</UID>
+      <Name>Go live</Name>
+      <OutlineNumber>3</OutlineNumber>
+      <OutlineLevel>1</OutlineLevel>
+      <Duration>PT0H0M0S</Duration>
+      <Start>2026-04-30T08:00:00</Start>
+      <Milestone>1</Milestone>
+      <PercentComplete>0</PercentComplete>
+      <ConstraintType>7</ConstraintType>
+      <ConstraintDate>2026-04-30T17:00:00</ConstraintDate>
+      <Priority>500</Priority>
+      <Work>PT0H0M0S</Work>
+      <Cost>0</Cost>
+    </Task>
+    <Task>
+      <UID>4</UID>
+      <Name>Retrospective</Name>
+      <OutlineNumber>4</OutlineNumber>
+      <OutlineLevel>1</OutlineLevel>
+      <Duration>PT8H0M0S</Duration>
+      <Start>2026-05-04T08:00:00</Start>
+      <Milestone>0</Milestone>
+      <PercentComplete>0</PercentComplete>
+      <ConstraintType>0</ConstraintType>
+      <Priority>500</Priority>
+      <Work>PT0H0M0S</Work>
+      <Cost>0</Cost>
+    </Task>
+  </Tasks>
+</Project>

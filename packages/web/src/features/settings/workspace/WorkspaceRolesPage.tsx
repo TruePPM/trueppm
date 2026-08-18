@@ -3,6 +3,7 @@ import { SettingsPageTitle } from '../SettingsShell';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { docsUrl } from '@/lib/docsUrl';
 import { IDENTITY_VIOLET, tintedChipStyle } from '@/lib/identityColors';
+import { downloadCsv, escapeField } from '@/utils/exportCsv';
 
 const ROLES = ['Viewer', 'Member', 'Scheduler', 'Admin', 'Owner'] as const;
 type Role = (typeof ROLES)[number];
@@ -138,21 +139,24 @@ function CheckIcon() {
   );
 }
 
-/** Quote a CSV cell only when it contains a comma, quote, or newline. */
-function csvCell(value: string): string {
-  return /[",\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
-}
-
 /**
  * Serialize the static capability matrix to CSV. Exported for unit testing —
  * the matrix is hardcoded (no API), so this is pure and deterministic.
+ *
+ * Every value here is a literal from this module, so there is no injection
+ * *vector* — but it used the same quoting-only `csvCell` that made the member
+ * export exploitable, and leaving the drifted copy in the tree is how the guard
+ * gets copied to the next surface (#2892, the #2762 class). Routing it through
+ * the shared `escapeField` keeps exactly one implementation in the codebase,
+ * which is what the conformance test in `utils/exportCsv.conformance.test.ts`
+ * now enforces.
  */
 export function buildRolesMatrixCsv(): string {
-  const header = ['Section', 'Capability', ...ROLES].map(csvCell).join(',');
+  const header = ['Section', 'Capability', ...ROLES].map(escapeField).join(',');
   const rows = SECTIONS.flatMap((section) =>
     section.capabilities.map((cap) =>
       [section.label, cap.label, ...cap.grants.map((granted) => (granted ? 'Yes' : 'No'))]
-        .map(csvCell)
+        .map(escapeField)
         .join(','),
     ),
   );
@@ -160,15 +164,7 @@ export function buildRolesMatrixCsv(): string {
 }
 
 function exportRolesMatrixCsv(): void {
-  const blob = new Blob([buildRolesMatrixCsv()], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = 'trueppm-roles-matrix.csv';
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+  downloadCsv(buildRolesMatrixCsv(), 'trueppm-roles-matrix.csv');
 }
 
 /** Workspace > Roles & permissions RBAC matrix. */

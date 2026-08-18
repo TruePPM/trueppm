@@ -28,6 +28,7 @@ class ImportRequestProvenanceSerializer(serializers.ModelSerializer[ImportReques
 
     initiated_by_username = serializers.SerializerMethodField()
     task_count = serializers.SerializerMethodField()
+    warnings = serializers.SerializerMethodField()
 
     class Meta:
         model = ImportRequest
@@ -40,6 +41,7 @@ class ImportRequestProvenanceSerializer(serializers.ModelSerializer[ImportReques
             "initiated_by",
             "initiated_by_username",
             "task_count",
+            "warnings",
         )
         read_only_fields = fields
 
@@ -49,29 +51,35 @@ class ImportRequestProvenanceSerializer(serializers.ModelSerializer[ImportReques
             return None
         return obj.initiated_by.username if obj.initiated_by else None
 
-    def get_task_count(self, obj: ImportRequest) -> int | None:
-        """Pull the imported task count from the linked TaskRun summary.
+    def _task_run(self, obj: ImportRequest) -> TaskRun | None:
+        """Resolve the linked TaskRun, memoized across the rows of one response.
 
-        Returns ``None`` when the import is still in flight (no TaskRun yet)
-        or when the run failed before writing its summary. The TaskRun link
-        is by `celery_task_id` — the import view sets it once Celery dispatch
-        succeeds, so PENDING / DEAD rows reliably resolve to ``None``.
+        Returns ``None`` when the import is still in flight (no TaskRun yet) or
+        when the run failed before writing its summary. The TaskRun link is by
+        `celery_task_id` — the import view sets it once Celery dispatch succeeds,
+        so PENDING / DEAD rows reliably resolve to ``None``.
+
+        Shared by every summary-derived field so a second one cannot double the
+        query count: the view pre-seeds a mutable `_taskrun_cache` dict in context
+        and we only ever read from `self.context` here (the type is
+        `Mapping[str, Any]` under stricter django-stubs builds in CI, so indexed
+        assignment is not safe). When invoked outside the list view (e.g.
+        single-instance detail use), no cache is present and each row issues its
+        own query.
         """
         if not obj.celery_task_id:
             return None
-        # Memoize TaskRun lookups across rows in the same list response: the
-        # view pre-seeds a mutable `_taskrun_cache` dict in context so we only
-        # ever read from `self.context` here (the type is `Mapping[str, Any]`
-        # under stricter django-stubs builds in CI, so indexed assignment is
-        # not safe). When invoked outside the list view (e.g. single-instance
-        # detail use), no cache is present and each row issues its own query.
         cache: dict[str, TaskRun | None] | None = self.context.get("_taskrun_cache")
         if cache is not None and obj.celery_task_id in cache:
-            run = cache[obj.celery_task_id]
-        else:
-            run = TaskRun.objects.filter(celery_task_id=obj.celery_task_id).first()
-            if cache is not None:
-                cache[obj.celery_task_id] = run
+            return cache[obj.celery_task_id]
+        run = TaskRun.objects.filter(celery_task_id=obj.celery_task_id).first()
+        if cache is not None:
+            cache[obj.celery_task_id] = run
+        return run
+
+    def get_task_count(self, obj: ImportRequest) -> int | None:
+        """Pull the imported task count from the linked TaskRun summary."""
+        run = self._task_run(obj)
         if run is None or not run.result_summary:
             return None
         value: Any = run.result_summary.get("task_count")
@@ -79,3 +87,23 @@ class ImportRequestProvenanceSerializer(serializers.ModelSerializer[ImportReques
             return int(value) if value is not None else None
         except (TypeError, ValueError):
             return None
+
+    def get_warnings(self, obj: ImportRequest) -> list[str]:
+        """Everything the import did not carry over, in the parser's order (#2891).
+
+        The importer has always written these into ``TaskRun.result_summary``, and
+        nothing has ever read them back out — so "the parser warns" was true and
+        useless at the same time. Losing an MS Project constraint, deadline or
+        baseline is a correctness event, not a log line, and the operator has to be
+        able to reach it. This is the API-side half; a wizard surface for it is
+        tracked separately (#2714).
+
+        Empty for a queued or dead import, the same contract as ``task_count``.
+        """
+        run = self._task_run(obj)
+        if run is None or not run.result_summary:
+            return []
+        warnings: Any = run.result_summary.get("warnings")
+        if not isinstance(warnings, list):
+            return []
+        return [str(w) for w in warnings]

@@ -357,6 +357,39 @@ describe('buildMembersCsv — member CSV export (issue 969)', () => {
     ]);
     expect(csv.split('\n')).toHaveLength(3); // header + 2 rows
   });
+
+  // #2892: this export carried a quoting-only `csvCell` while the task and risk
+  // exports had applied the #2762 formula guard for months. Member display names
+  // are user-controlled, so a name beginning `=`/`+`/`-`/`@` executed as a formula
+  // the moment an admin opened the file in Excel.
+  it.each(['=cmd|\'/C calc\'!A0', '+1+1', '-2+3', '@SUM(A1:A9)', '\tlead', '\rlead'])(
+    'neutralizes the formula-trigger prefix %j in a member name',
+    (payload) => {
+      const csv = buildMembersCsv([member({ name: payload })]);
+      const [, row] = csv.split('\n');
+      // A leading apostrophe makes the cell literal text in Excel / Sheets /
+      // LibreOffice; the payload itself is preserved so the name still reads.
+      expect(row.startsWith(`'${payload}`) || row.startsWith(`"'${payload}`)).toBe(true);
+    },
+  );
+
+  it('quotes an interior lone CR so it cannot split the record', () => {
+    // The hole the old `/[",\n]/` regex left: records join on a newline and the
+    // formula guard only inspects position 0, so an interior CR ended the record
+    // and whatever followed it started the next one unprefixed — smuggling a live
+    // formula past a guard that believed it had neutralized the cell.
+    const csv = buildMembersCsv([member({ name: "Anika\r=cmd|'/C calc'!A0" })]);
+    expect(csv).toContain('"Anika\r=cmd|\'/C calc\'!A0"');
+  });
+
+  it('leaves an ordinary name untouched', () => {
+    // The guard must not prefix values that were never dangerous, or every
+    // export grows a stray apostrophe.
+    const csv = buildMembersCsv([member({ name: 'Anika Krishnan' })]);
+    expect(csv.split('\n')[1]).toBe(
+      'Anika Krishnan,anika.k@truescope.io,Admin,active,Propulsion; Leadership',
+    );
+  });
 });
 
 describe('WorkspaceMembersPage — Export CSV (issue 969)', () => {
