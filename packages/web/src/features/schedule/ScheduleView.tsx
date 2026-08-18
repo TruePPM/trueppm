@@ -44,6 +44,7 @@ import { ScheduleDisplayMenu } from './ScheduleDisplayMenu';
 import { ScheduleSummaryChip } from './ScheduleSummaryChip';
 import { ScheduleAddMilestoneButton } from './ScheduleAddMilestoneButton';
 import { ScheduleAddPhaseButton } from './ScheduleAddPhaseButton';
+import { ScheduleViewOnlyBadge } from './ScheduleViewOnlyBadge';
 import { MilestonePulseOverlay } from './MilestonePulseOverlay';
 import { ScheduleLegend } from './ScheduleLegend';
 import { useScheduleKeyboard } from './useScheduleKeyboard';
@@ -1328,7 +1329,22 @@ export function ScheduleView() {
   // a replacement for it. "Read" mode forces readOnly regardless of role.
   const authorMode = useScheduleAuthorMode(projectIdUndef);
   const { toggle: toggleAuthorMode } = authorMode;
-  const readOnly = !canEditTask(currentRole) || authorMode.mode === 'read';
+  //
+  // Two states that must never collapse into one (#2949, design handoff
+  // "No edit rights"):
+  //
+  //   hasEditRights=false  a viewer. There is no mode to be in, because nothing
+  //                        is on offer — the authoring apparatus is ABSENT, not
+  //                        disabled, and a refused gesture stays silent.
+  //   hasEditRights=true,  an editor who pressed ⌥A. The apparatus is PRESENT
+  //   mode==='read'        and inert, and one key gets them back.
+  //
+  // Offering a control and then refusing it teaches a viewer the product is
+  // broken; explaining a refusal to someone who never should have seen the
+  // button is noise. `readOnly` still governs BEHAVIOR for both — this is
+  // presentation only, and the server remains the thing that actually refuses.
+  const hasEditRights = canEditTask(currentRole);
+  const readOnly = !hasEditRights || authorMode.mode === 'read';
   // Per-project leaf-surface visibility (ADR-0193, issue 956): the in-Schedule
   // Monte-Carlo sub-surface reads the server-resolved values. Hide-only
   // (ADR-0041) — a false value hides the chrome; the underlying data is still computed
@@ -2512,6 +2528,7 @@ export function ScheduleView() {
     <div className="flex flex-col h-full overflow-hidden">
       <h1 className="sr-only">Schedule</h1>
       <ScheduleToolbar
+        hasEditRights={hasEditRights}
         isMobile={isMobile}
         projectId={projectId}
         readOnly={readOnly}
@@ -3336,6 +3353,12 @@ function buildProjectActionsItems(ctx: {
 }
 
 interface ScheduleToolbarProps {
+  /**
+   * Whether this user may author at all — distinct from `readOnly`, which is
+   * also true for an editor who chose Read. Without rights the authoring
+   * apparatus is absent rather than disabled (#2949).
+   */
+  hasEditRights: boolean;
   isMobile: boolean;
   projectId: string | null;
   readOnly: boolean;
@@ -3393,6 +3416,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
     isMobile,
     projectId,
     readOnly,
+    hasEditRights,
     showAddForm,
     setShowAddForm,
     handleAddMilestone,
@@ -3451,10 +3475,11 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
       aria-label="Schedule toolbar"
       className="flex flex-nowrap items-center gap-2 px-4 h-10 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0"
     >
-      {/* "+ Task" button — only shown when a project is selected, and disabled
-          for viewers on the same `readOnly` gate as its "+ Milestone" / "+ Phase"
-          peers (#2145). */}
-      {projectId && (
+      {/* "+ Task" button — shown when a project is selected AND the user may
+          author. A viewer never sees it (#2949); an editor who chose Read sees
+          it disabled, on the same `readOnly` gate as its "+ Milestone" /
+          "+ Phase" peers (#2145). */}
+      {projectId && hasEditRights && (
         <button
           type="button"
           onClick={() => setShowAddForm((v) => !v)}
@@ -3470,8 +3495,9 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           + Task
         </button>
       )}
-      {/* "+ Milestone" peer button (#340) — same gate as "+ Task" */}
-      {projectId && (
+      {/* "+ Milestone" peer button (#340). Absent without edit rights (#2949),
+          disabled for an editor who chose Read — the two are different states. */}
+      {projectId && hasEditRights && (
         <ScheduleAddMilestoneButton
           onAddMilestone={handleAddMilestone}
           disabled={readOnly}
@@ -3480,15 +3506,22 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
       )}
       {/* "+ Phase" peer button (epic #1752, issue #1754) — same gate as
           "+ Task" / "+ Milestone". */}
-      {projectId && (
+      {projectId && hasEditRights && (
         <ScheduleAddPhaseButton
           onAddPhase={handleAddPhase}
           disabled={readOnly}
           pending={createPending}
         />
       )}
-      {buildModeActive && <BuildModePill onShowCheatsheet={() => setCheatsheetOpen(true)} />}
-      {buildModeActive && <AuthorModePill mode={authorMode} onToggle={onToggleAuthorMode} />}
+      {buildModeActive && hasEditRights && (
+        <BuildModePill onShowCheatsheet={() => setCheatsheetOpen(true)} />
+      )}
+      {/* The Read/Author toggle is meaningless without rights: there is no mode
+          to leave. It goes, and the View-only badge takes its place. */}
+      {buildModeActive && hasEditRights && (
+        <AuthorModePill mode={authorMode} onToggle={onToggleAuthorMode} />
+      )}
+      {buildModeActive && !hasEditRights && <ScheduleViewOnlyBadge />}
       {/* Show the badge for in-flight optimistic edits, and also while a
           freshly-imported sample's first post-import CPM pass is still pending
           (recalculated_at null) so the demo never reads as broken (#1053). */}
