@@ -124,6 +124,35 @@ _ROLLUP_UNSET: Any = object()
 _IMMUTABLE_AFTER_CREATE = "cannot be changed after creation."
 
 
+class StructureRoleConflictSerializer(serializers.Serializer[dict[str, Any]]):
+    """The body of the ``409`` a contradicted ``structure_role`` returns (#2976).
+
+    Declared as a real serializer rather than ``OpenApiTypes.OBJECT`` so the shape
+    is visible in ``openapi.json``. #2942 records what OBJECT costs: the whole
+    response becomes invisible to anyone diffing the schema, which is the only
+    early-warning mechanism an integrator has.
+
+    **Every field is a string, and that is a contract, not an accident.** DRF
+    wraps every value in an exception detail as an ``ErrorDetail`` (a ``str``
+    subclass), so a boolean here would reach a client as ``"True"``. Declaring
+    the types explicitly is what stops the next person adding a boolean field to
+    this body and shipping that trap.
+    """
+
+    detail = serializers.CharField(
+        help_text="Human-readable explanation naming the contradiction.",
+    )
+    code = serializers.CharField(
+        help_text="Always `structure_role_contradicted`.",
+    )
+    structure_role = serializers.CharField(
+        help_text=(
+            "The role the tree actually implies — `container`. Sent so the caller "
+            "can correct the declaration without a second round trip."
+        ),
+    )
+
+
 class StructureRoleConflict(APIException):
     """A declared ``structure_role`` the tree already contradicts (#2950).
 

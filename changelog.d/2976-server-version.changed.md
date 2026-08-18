@@ -1,0 +1,1 @@
+Sync: creating a task under a parent that had no children now advances that parent's `server_version`. The parent genuinely changes — it becomes a container, and its own status and estimate are parked — so a client doing delta sync needs to see it. The bump happens only on that first transition, so importing or pasting many rows under one parent still moves it once.

@@ -242,3 +242,43 @@ class TestShadowValues:
         parent.refresh_from_db()
         assert sync_structure_shadow_values(parent) is False
         assert parent.structure_role == StructureRole.WORK
+
+
+class TestConflictIsInTheContract:
+    """The 409 must be visible to someone diffing openapi.json (#2976).
+
+    A refusal that only exists in code is invisible to the one early-warning
+    mechanism an integrator has. #2950 shipped the behavior and not the
+    declaration; this pins both halves together so they cannot drift apart
+    again.
+    """
+
+    @staticmethod
+    def _schema() -> dict:
+        import json
+        from pathlib import Path
+
+        # tests/apps/projects/<file> → packages/api → packages → repo root
+        root = Path(__file__).resolve().parents[5]
+        return json.loads((root / "docs" / "api" / "openapi.json").read_text())
+
+    def test_declared_on_both_update_verbs(self) -> None:
+        paths = self._schema()["paths"]["/api/v1/tasks/{id}/"]
+        assert "409" in paths["patch"]["responses"], "PATCH is the path the outline uses"
+        assert "409" in paths["put"]["responses"]
+
+    def test_body_shape_is_visible_not_a_bare_object(self) -> None:
+        """`OpenApiTypes.OBJECT` would make the whole body invisible — see #2942."""
+        schema = self._schema()["components"]["schemas"]["StructureRoleConflict"]
+        assert set(schema["properties"]) == {"detail", "code", "structure_role"}
+        assert set(schema["required"]) == {"detail", "code", "structure_role"}
+
+    def test_every_field_is_declared_a_string(self) -> None:
+        """Not cosmetic.
+
+        DRF wraps exception-detail values in ``ErrorDetail`` (a ``str``
+        subclass), so a boolean field here would reach a client as ``"True"``.
+        Declaring the types is what stops the next person adding one.
+        """
+        props = self._schema()["components"]["schemas"]["StructureRoleConflict"]["properties"]
+        assert [p["type"] for p in props.values()] == ["string", "string", "string"]

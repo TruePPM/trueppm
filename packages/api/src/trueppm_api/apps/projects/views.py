@@ -202,6 +202,7 @@ from trueppm_api.apps.projects.serializers import (
     SprintForecastSerializer,
     SprintOutcomeSerializer,
     SprintSerializer,
+    StructureRoleConflictSerializer,
     TaskAttachmentSerializer,
     TaskBulkSerializer,
     TaskClassificationResponseSerializer,
@@ -4509,6 +4510,37 @@ class ScheduleFetchPagination(pagination.PageNumberPagination):
 
 
 @extend_schema_view(
+    update=extend_schema(
+        responses={
+            200: TaskSerializer,
+            409: OpenApiResponse(
+                response=StructureRoleConflictSerializer,
+                description=(
+                    "The declared `structure_role` contradicts the tree (#2950, "
+                    "ADR-0844). Returned when a client declares `work` on a row that "
+                    "has structural children: the derived fact wins for every "
+                    "computation, so storing the declaration would leave the row "
+                    "rendering as a task while every rollup treats it as a phase.\n\n"
+                    "`409` rather than `400` because the payload is valid — it is the "
+                    "current state of the tree that forbids it, and that state can "
+                    "change without the client doing anything wrong. The body carries "
+                    "the derived role so the refusal is recoverable in one round trip."
+                ),
+            ),
+        },
+    ),
+    partial_update=extend_schema(
+        responses={
+            200: TaskSerializer,
+            409: OpenApiResponse(
+                response=StructureRoleConflictSerializer,
+                description=(
+                    "The declared `structure_role` contradicts the tree — see the note "
+                    "on `PUT`. This is the path the outline actually uses."
+                ),
+            ),
+        },
+    ),
     list=extend_schema(
         parameters=[
             OpenApiParameter(
