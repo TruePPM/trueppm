@@ -685,11 +685,44 @@ describe('ScheduleView — populated desktop', () => {
 });
 
 describe('ScheduleView — read-only vs authoring gates', () => {
-  it('disables milestone + phase authoring for a viewer', () => {
+  // The Author/Read preference persists per-user per-project, so a test that
+  // toggles it leaks into every later test in the file unless it is cleared
+  // here (the Author/Read describe below clears the same key for the same
+  // reason).
+  beforeEach(() => {
+    window.localStorage.removeItem('trueppm.schedule.authorMode.test-user-1.project-1');
+  });
+
+  it('gives a viewer no authoring apparatus at all — absent, not disabled (#2949)', () => {
     mockRole = ROLE_VIEWER;
     renderSchedule();
+    // A viewer is not "in Read mode": there is no mode, because nothing is on
+    // offer. Offering a control and then refusing it teaches them the product
+    // is broken, so the create controls and the mode toggle are gone entirely.
+    expect(screen.queryByRole('button', { name: '+ Milestone' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+ Phase' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add task' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('author-mode-pill')).not.toBeInTheDocument();
+  });
+
+  it('tells a viewer what to do instead, once', () => {
+    mockRole = ROLE_VIEWER;
+    renderSchedule();
+    const badge = screen.getByTestId('schedule-view-only');
+    expect(badge).toHaveTextContent('View only');
+    expect(badge).toHaveTextContent('Ask the project owner for edit rights');
+  });
+
+  it('keeps the apparatus present and inert for an EDITOR who chose Read', async () => {
+    // The state that must not collapse into the one above: an editor can get
+    // back with one key, so the controls stay where they were.
+    const user = userEvent.setup();
+    mockRole = ROLE_MEMBER;
+    renderSchedule();
+    await user.click(screen.getByTestId('author-mode-pill'));
+    expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Read');
     expect(screen.getByRole('button', { name: '+ Milestone' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: '+ Phase' })).toBeDisabled();
+    expect(screen.queryByTestId('schedule-view-only')).not.toBeInTheDocument();
   });
 
   it('enables milestone + phase authoring for a member', () => {
@@ -1218,10 +1251,13 @@ describe('ScheduleView — Alt+A Author/Read toggle (#2727, ADR-0776 §5)', () =
   it('is not a permission change — the server role gate still applies independently', () => {
     mockRole = ROLE_VIEWER;
     renderSchedule();
-    // A Viewer is already readOnly via the role gate, before Read mode is
-    // ever touched — Author/Read layers on top, it doesn't replace this.
-    expect(screen.getByRole('button', { name: '+ Milestone' })).toBeDisabled();
-    expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Author');
+    // A Viewer is already readOnly via the role gate, before Read mode is ever
+    // touched — Author/Read layers on top, it doesn't replace this. Since
+    // #2949 that shows up as the apparatus being absent rather than disabled,
+    // and the toggle itself is gone: there is no mode for a viewer to be in.
+    expect(screen.queryByRole('button', { name: '+ Milestone' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('author-mode-pill')).not.toBeInTheDocument();
+    expect(screen.getByTestId('schedule-view-only')).toBeInTheDocument();
   });
 
   it('persists the preference per-user per-project across a remount', async () => {
