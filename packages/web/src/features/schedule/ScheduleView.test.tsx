@@ -669,7 +669,7 @@ describe('ScheduleView — populated desktop', () => {
     renderSchedule();
     await user.click(screen.getByRole('button', { name: '+ Phase' }));
     expect(createTaskMutate).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'New phase' }),
+      expect.objectContaining({ name: 'Untitled phase' }),
       expect.anything(),
     );
   });
@@ -1031,7 +1031,7 @@ describe('ScheduleView — mod+p phase authoring binding', () => {
     act(() => capturedKeyBindings['mod+p']?.(e));
     expect(preventDefault).toHaveBeenCalled();
     expect(createTaskMutate).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'New phase' }),
+      expect.objectContaining({ name: 'Untitled phase' }),
       expect.anything(),
     );
   });

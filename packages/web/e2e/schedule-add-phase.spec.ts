@@ -155,7 +155,7 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
 
     // The new row opens straight into the inline rename input (create-empty-
     // then-nest) — no dialog, matching the ux-design decision.
-    const nameInput = page.getByRole('textbox', { name: 'Rename task New phase' });
+    const nameInput = page.getByRole('textbox', { name: 'Rename task Untitled phase' });
     await expect(nameInput).toBeVisible();
 
     await nameInput.fill('Design Phase');
@@ -168,7 +168,7 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
 
   test('a phase-in-waiting shows the ghost hint; adding its first task retires it', async ({ page }) => {
     await page.getByRole('button', { name: 'Add new phase (Cmd+P)' }).click();
-    const nameInput = page.getByRole('textbox', { name: 'Rename task New phase' });
+    const nameInput = page.getByRole('textbox', { name: 'Rename task Untitled phase' });
     await nameInput.fill('Design Phase');
     await nameInput.press('Enter');
 

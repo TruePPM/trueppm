@@ -2134,8 +2134,14 @@ export function ScheduleView() {
     // (mirrors handleAddFirstTask below): the API rejects a blank name at
     // create, so the row opens straight into cell-edit for the user to
     // overwrite.
+    //
+    // "Untitled phase", not "New phase" (#2952 vocabulary lock). The word is
+    // transient — the row opens select-all in cell-edit — but if the user
+    // abandons the edit it becomes a real committed name, and "Untitled" reads
+    // as the state it is rather than as a name someone might mistake for their
+    // own.
     createTaskMut.mutate(
-      { name: 'New phase', duration: 1, parent_id: inferredParentId },
+      { name: 'Untitled phase', duration: 1, parent_id: inferredParentId },
       {
         onSuccess: (data) => {
           setPhaseInWaitingIds((prev) => {
