@@ -165,6 +165,8 @@ export interface UpdateTaskPayload {
    * Never sent to the API.
    */
   suppressConflictToast?: boolean;
+  /** Unit the duration is authored/displayed in — presentation only (#2975). */
+  duration_unit?: 'days' | 'hours';
 }
 
 /**

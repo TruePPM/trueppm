@@ -46062,6 +46062,14 @@
                 "type": "string",
                 "description": "* `idea` - Idea\n* `refine` - Refine\n* `ready` - Ready"
             },
+            "DurationUnitEnum": {
+                "enum": [
+                    "days",
+                    "hours"
+                ],
+                "type": "string",
+                "description": "* `days` - Days\n* `hours` - Hours"
+            },
             "EditionResponse": {
                 "type": "object",
                 "properties": {
@@ -51529,6 +51537,14 @@
                         "maximum": 36525,
                         "minimum": 0,
                         "description": "Duration in working days"
+                    },
+                    "duration_unit": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/DurationUnitEnum"
+                            }
+                        ],
+                        "description": "Unit this task's duration is entered and displayed in. Presentation only — `duration` is always working days.\n\n* `days` - Days\n* `hours` - Hours"
                     },
                     "percent_complete": {
                         "type": "number",
@@ -58704,6 +58720,14 @@
                         "minimum": 0,
                         "description": "Duration in working days"
                     },
+                    "duration_unit": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/DurationUnitEnum"
+                            }
+                        ],
+                        "description": "Unit this task's duration is entered and displayed in. Presentation only — `duration` is always working days.\n\n* `days` - Days\n* `hours` - Hours"
+                    },
                     "percent_complete": {
                         "type": "number",
                         "format": "double",
@@ -60711,6 +60735,14 @@
                         "maximum": 36525,
                         "minimum": 0,
                         "description": "Duration in working days"
+                    },
+                    "duration_unit": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/DurationUnitEnum"
+                            }
+                        ],
+                        "description": "Unit this task's duration is entered and displayed in. Presentation only — `duration` is always working days.\n\n* `days` - Days\n* `hours` - Hours"
                     },
                     "percent_complete": {
                         "type": "number",

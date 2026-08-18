@@ -12,7 +12,8 @@ import {
  * The inline authoring grammar for the row editor (#2722).
  *
  * ```
- *   #5d  #2w  #0    duration — a bare number is days; zero makes it a milestone
+ *   #5d  #2w  #4h  #0    duration — a bare number is days; `h` converts through the
+ *                          calendar's hours_per_day and rounds up; zero makes it a milestone
  *   @ana @ana:50    owner, as a TaskResource allocation (ADR-0774, #2718)
  *   >2.3 >Survey    predecessor, by WBS path or by name; `>2.3+2d` lag, `>2.3-1d` lead
  *   !               milestone
@@ -124,7 +125,7 @@ export type AnyAuthoringToken =
  * Two regexes rather than one with a conditional lookahead, because the difference
  * is precisely the anchor and a single pattern would hide that.
  */
-const DURATION_WITH_UNIT_RE = /(?:^|\s)(#(\d+)\s*([dw]))(?=\s|$)/g;
+const DURATION_WITH_UNIT_RE = /(?:^|\s)(#(\d+)\s*([dwh]))(?=\s|$)/g;
 const TRAILING_BARE_DURATION_RE = /(?:^|\s)(#(\d+))\s*$/;
 
 /**
@@ -151,9 +152,22 @@ const PARENT_RE = /(\[([^\][]+)\])/g;
 /** A bare `!` at a whitespace boundary. `Ship it!` is not a milestone. */
 const MILESTONE_RE = /(?:^|\s)(!)(?=\s|$)/g;
 
-/** Convert a `d`/`w` unit to working days. Weeks are 5 working days. */
-function toDays(count: number, unit: string | undefined): number {
-  return unit === 'w' ? count * 5 : count;
+/**
+ * Convert a `d`/`w`/`h` unit to working days. Weeks are 5 working days.
+ *
+ * Hours (#2975) divide by the project calendar's `hours_per_day` and round **up**
+ * — `Task.duration` is an integer working-day count by engine invariant
+ * (ADR-0132), and rounding an estimate down silently under-plans the task. The
+ * lexer is pure, so it takes the rate rather than reading a calendar; callers
+ * that have no calendar loaded pass the 8h default.
+ */
+function toDays(count: number, unit: string | undefined, hoursPerDay = 8): number {
+  if (unit === 'w') return count * 5;
+  if (unit === 'h') {
+    const rate = hoursPerDay > 0 ? hoursPerDay : 8;
+    return Math.max(0, Math.ceil(count / rate));
+  }
+  return count;
 }
 
 /**

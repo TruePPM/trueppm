@@ -10,6 +10,14 @@ import { ABBREVIATIONS } from '@/lib/abbreviations';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { HowDatesWorkLink } from './HowDatesWorkLink';
 import { parseDurationInput } from './buildMode/EditableCell';
+import { DurationUnitPicker } from './duration/DurationUnitPicker';
+import {
+  describeEntry,
+  formatDuration,
+  spellDuration,
+  toStoredDays,
+  type DurationUnit,
+} from './duration/durationUnit';
 import { RecalcPercentChip } from './RecalcPercentChip';
 import { buildRecalcPrompt, type RecalcPromptState } from './recalcPercentPrompt';
 import { useCommitStartOrTodo } from './useCommitStartOrTodo';
@@ -113,6 +121,12 @@ interface DurationCellProps {
   onParseError: () => void;
   /** Clear any prior inline error (on edit entry / valid commit). */
   onClearError: () => void;
+  /** Unit this task is authored in (#2975). Presentation only. */
+  unit: DurationUnit;
+  /** The project calendar's hours per working day — governs the conversion. */
+  hoursPerDay: number | null | undefined;
+  /** Persist a unit change. */
+  onUnitChange: (unit: DurationUnit) => void;
 }
 
 /**
@@ -132,7 +146,14 @@ function DurationCell({
   onCommit,
   onParseError,
   onClearError,
+  unit,
+  hoursPerDay,
+  onUnitChange,
 }: DurationCellProps) {
+  // The rounding notice from the last hours entry — cleared on the next edit.
+  // It has to persist past the commit, because the whole point is telling the
+  // user what got stored *instead of* what they typed (#2975).
+  const [roundingNote, setRoundingNote] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(days));
   const [flash, setFlash] = useState<'commit' | 'error' | null>(null);
@@ -176,7 +197,15 @@ function DurationCell({
   };
 
   const commit = (raw: string, viaBlur: boolean) => {
-    const parsed = parseDurationInput(raw);
+    // An explicit `d` or `w` suffix always wins over the picker — a power user
+    // who types "2w" means two weeks whichever unit the cell is showing. A bare
+    // number is read in the cell's own unit (#2975).
+    const explicitUnit = /[dw]\s*$/i.test(raw.trim());
+    const bare = Number(raw.trim());
+    const parsed =
+      unit === 'hours' && !explicitUnit && Number.isFinite(bare) && bare >= 0
+        ? toStoredDays(bare, 'hours', hoursPerDay).days
+        : parseDurationInput(raw);
     if (parsed === null) {
       onParseError();
       setFlash('error');
@@ -189,6 +218,13 @@ function DurationCell({
       return;
     }
     onClearError();
+    // Say what got stored when it is not what was typed. Silence here is the
+    // thing that makes a planner stop trusting every other number on screen.
+    if (unit === 'hours' && !explicitUnit && Number.isFinite(bare)) {
+      setRoundingNote(describeEntry(toStoredDays(bare, 'hours', hoursPerDay), 'hours'));
+    } else {
+      setRoundingNote(null);
+    }
     if (parsed !== days) {
       onCommit(parsed);
       setFlash('commit');
@@ -270,10 +306,11 @@ function DurationCell({
     remainingDays !== null ? `, ${remainingDays} ${remainingDays === 1 ? 'day' : 'days'} left` : '';
 
   return (
+    <div className="flex items-start gap-2">
     <button
       ref={buttonRef}
       type="button"
-      aria-label={`Duration, ${days} ${days === 1 ? 'day' : 'days'}${remainingSuffix}. Edit.`}
+      aria-label={`Duration, ${spellDuration(days, unit, hoursPerDay)}${remainingSuffix}. Edit.`}
       className={[
         'group relative flex flex-col items-start text-left w-full cursor-text',
         'transition-colors hover:bg-neutral-surface-sunken',
@@ -298,7 +335,7 @@ function DurationCell({
           className="tppm-mono text-sm font-semibold text-neutral-text-primary
             border-b border-dashed border-neutral-border group-hover:border-brand-primary"
         >
-          {days}d
+          {formatDuration(days, unit, hoursPerDay)}
         </span>
         {remainingDays !== null && (
           <span
@@ -323,6 +360,17 @@ function DurationCell({
         ].join(' ')}
       />
     </button>
+    <div className="pt-4 flex flex-col gap-1 items-start">
+      <DurationUnitPicker value={unit} onChange={onUnitChange} />
+      {roundingNote && (
+        // role=status, not an error: the value was accepted, it just is not the
+        // number that was typed, and the user is owed that fact.
+        <p role="status" className="text-xs text-neutral-text-secondary max-w-[210px]">
+          {roundingNote}
+        </p>
+      )}
+    </div>
+    </div>
   );
 }
 
@@ -565,10 +613,24 @@ function NoCommittedStartAdvisory({ task, projectId }: { task: Task; projectId: 
  * for a non-milestone task the user can edit, so all data hooks live here and
  * the read-only path never needs a QueryClient.
  */
-function EditableStrip({ task, projectId }: { task: Task; projectId: string }) {
+function EditableStrip({
+  task,
+  projectId,
+  hoursPerDay,
+}: {
+  task: Task;
+  projectId: string;
+  hoursPerDay?: number;
+}) {
   const updateTask = useUpdateTask();
   const policy = useEffectiveDurationPolicy(projectId);
   const isCoarse = useIsCoarsePointer();
+  const durationUnit: DurationUnit = task.durationUnit ?? 'days';
+  const onDurationUnitChange = (unit: DurationUnit) => {
+    // Presentation only — no CPM recompute, so this is safe to send on its own
+    // and safe offline in a way a duration change is not.
+    updateTask.mutate({ id: task.id, projectId, duration_unit: unit });
+  };
 
   const [recalcPrompt, setRecalcPrompt] = useState<RecalcPromptState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -656,6 +718,9 @@ function EditableStrip({ task, projectId }: { task: Task; projectId: string }) {
             onCommit={commitDuration}
             onParseError={() => setError('Enter a whole number of days (e.g. 10).')}
             onClearError={() => setError(null)}
+            unit={durationUnit}
+            hoursPerDay={hoursPerDay}
+            onUnitChange={onDurationUnitChange}
           />
         }
         belowGrid={belowGrid}
@@ -686,13 +751,32 @@ export function TaskScheduleStrip({
   task,
   projectId,
   canEdit,
+  hoursPerDay,
 }: {
   task: Task;
   projectId?: string;
   canEdit?: boolean;
+  /**
+   * The project calendar's hours per working day, for rendering and entering an
+   * hours-unit duration (#2975). Passed in rather than fetched: this component
+   * renders in contexts with no QueryClientProvider (print layouts, overlays,
+   * several harnesses), so a query here breaks them. Omitted falls back to 8.
+   */
+  hoursPerDay?: number;
 }) {
+  // Read-only path renders the duration in the task's own unit too (#2975) — a
+  // value that changed unit when you gained edit rights would be a worse bug
+  // than not having the unit at all.
+  //
+  // It deliberately does NOT fetch the calendar. This component is rendered in
+  // contexts without a QueryClientProvider (print layouts, overlays, several
+  // test harnesses), and adding a query here breaks all of them. Hours therefore
+  // render at the 8h default in the read-only strip; the editable strip, which
+  // always lives under a provider, uses the project's real hours_per_day.
+  const durationUnit: DurationUnit = task.durationUnit ?? 'days';
+
   if (canEdit && projectId && !task.isMilestone) {
-    return <EditableStrip task={task} projectId={projectId} />;
+    return <EditableStrip task={task} projectId={projectId} hoursPerDay={hoursPerDay} />;
   }
 
   return (
@@ -707,7 +791,7 @@ export function TaskScheduleStrip({
           task.isMilestone ? null : (
             <Cell label="Duration">
               <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                <span>{task.duration}d</span>
+                <span>{formatDuration(task.duration, durationUnit, hoursPerDay)}</span>
                 {shouldShowRemainingChip(task) && (
                   <RemainingDurationChip remaining={task.remainingDuration as number} />
                 )}

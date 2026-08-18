@@ -3126,6 +3126,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "wbs_path",
             "status",
             "duration",
+            "duration_unit",
             "percent_complete",
             "notes",
             "planned_start",
