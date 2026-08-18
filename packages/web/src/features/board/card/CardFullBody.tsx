@@ -14,6 +14,7 @@ import { CardBadgeRow } from './CardBadgeRow';
 import { CardHealthPeek } from './CardHealthPeek';
 import { cardTitleToneClass, cpTooltip } from './cardFormat';
 import type { BoardCardView } from './useBoardCardView';
+import { useLaneCrumb } from '../LaneCrumbContext';
 
 /**
  * Baseline variance in calendar days between forecast finish and baseline
@@ -153,8 +154,23 @@ export function CardFullBody({
   // 100%-complete nudge: the card claims done but the column says otherwise.
   const showNudge = task.progress === 100 && task.status !== 'COMPLETE';
 
+  // The container this card actually sits in, when the lane above it names a
+  // different (higher) one — see LaneCrumbContext.
+  const laneCrumb = useLaneCrumb(task.id);
+
   return (
     <div className="pl-2.5 pr-2.5 pt-2.5 pb-2.5">
+      {laneCrumb && (
+        <div
+          className="mb-1 text-xs text-neutral-text-secondary truncate"
+          // Not aria-hidden: "which phase is this in" is the whole point of the
+          // crumb, and it is the one fact the lane header cannot carry for a
+          // card that lives below it.
+          title={`In ${laneCrumb}`}
+        >
+          {laneCrumb} <span aria-hidden="true">&#9656;</span>
+        </div>
+      )}
       {/* Readiness chip — top-left (issue 179). Suppressed board-wide when every
           visible card shares one readiness value: a chip true of everything on
           screen conveys nothing, and it costs a line of the card's scarcest
