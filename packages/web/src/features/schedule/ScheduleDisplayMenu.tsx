@@ -157,6 +157,10 @@ export function ScheduleDisplayMenu({
           {
             id: 'outline-chrome',
             label: 'Outline',
+            // 'structureButtons' is deliberately absent until #2955 ships the
+            // Phase / Group / Ungroup buttons it governs. A toggle that changes
+            // nothing is a dead control, and the correct shipped state for one
+            // is to be hidden — not present and inert (ux-review, live-wiring).
             items: [
               {
                 kind: 'checkbox' as const,
@@ -164,13 +168,6 @@ export function ScheduleDisplayMenu({
                 label: 'How-to bar',
                 checked: displayOptions.coach,
                 activate: () => onToggleDisplayOption('coach'),
-              },
-              {
-                kind: 'checkbox' as const,
-                id: 'structure-buttons',
-                label: 'Structure buttons',
-                checked: displayOptions.structureButtons,
-                activate: () => onToggleDisplayOption('structureButtons'),
               },
               {
                 kind: 'checkbox' as const,

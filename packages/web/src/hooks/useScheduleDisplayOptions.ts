@@ -15,7 +15,11 @@ import { useCurrentUser } from './useCurrentUser';
  * the same schedule are allowed to want different chrome.
  */
 export interface ScheduleDisplayOptions {
-  /** Phase / Group / Ungroup in the toolbar. Default off — the keys already do it. */
+  /**
+   * Phase / Group / Ungroup in the toolbar. Default off — the keys already do
+   * it. Not yet surfaced in the Display menu: the buttons it governs arrive with
+   * #2955, and a toggle that changes nothing is a dead control.
+   */
   structureButtons: boolean;
   /** The three-line how-to bar above the outline. Default on, dismissible. */
   coach: boolean;
