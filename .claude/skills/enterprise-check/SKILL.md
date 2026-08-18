@@ -128,6 +128,12 @@ OSS feature list (non-exhaustive):
 - **Basic project setting templates** — copy settings from another project, optional
   default-from-program-parent. **Manual** override per project. Policy-enforced
   inheritance with locks is Enterprise.
+- **Per-project template-divergence digest** — a project's own settings page shows how
+  it has diverged from the template it adopted. Ruled OSS 2026-08-18 (#2971, epic
+  #2743). The **cross-project rollup** of the same signal is Enterprise (see below).
+  The team-side row is not merely allowed in OSS, it is **required** to ship with or
+  before the governance-side rollup: a report about a team's decisions that the team
+  cannot read is surveillance, and the epic ruled that out explicitly.
 - **Outbound integration extension points** — task carries external URL with
   on-demand preview, board posts one-way events to webhook URL, user opts into
   SMTP notifications. Read-on-demand pulls from external systems are also OK
@@ -186,6 +192,14 @@ Enterprise feature list (non-exhaustive):
 - **Policy-enforced setting inheritance** — program admin locks settings as policy
   in child projects, audit trail of policy changes, override flag governance. (OSS
   has manual setting templates; this is the lock + audit layer.)
+- **Template-divergence rollup across a governed project set** — "9 of 40 projects
+  dropped a gate", conformance reporting against a centrally published template.
+  Ruled Enterprise 2026-08-18 (OSS #2973 closed -> trueppm-enterprise#193). **That it
+  never blocks does not make it OSS** — this was the argument advanced for OSS and it
+  does not survive: portfolio health dashboards do not block either. The measurement
+  half of a governance layer is still governance, and "the 40 projects a PMO governs"
+  is the Portfolio layer. Enterprise **reads** the OSS per-project divergence fact and
+  aggregates; it must not recompute it or reach around the OSS surface.
 - **Bidirectional integration sync** — webhook ingest with HMAC verification and
   replay protection, OAuth flows, conflict resolution policy, reconciliation loop,
   per-tenant rate-limit budgets, audit trail of every inbound/outbound mutation.
