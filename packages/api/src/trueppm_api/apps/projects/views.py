@@ -139,6 +139,8 @@ from trueppm_api.apps.projects.models import (
     TaskStatus,
     TaskType,
     format_short_id_display,
+    structural_parent,
+    sync_structure_shadow_values,
 )
 from trueppm_api.apps.projects.schema_migrations import (
     SURFACE_BOARD_SAVED_VIEW,
@@ -4795,6 +4797,10 @@ class TaskViewSet(
         # _resolve_create_parent's three placement guards (milestone-has-no-children,
         # depth-1, phase-vs-subtask) — the same guards a PATCH used to bypass.
         #
+        # A create can push a leaf over the container line: the parent has just
+        # gained its first child, so its own status and estimate are parked and
+        # its declared role promoted (#2950). Handled after the save below.
+        #
         # The count + save share one atomic block so the SELECT FOR UPDATE lock
         # covers the INSERT and prevents concurrent creates racing to the same path.
         is_subtask = str(self.request.data.get("is_subtask", "")).lower() in ("true", "1")
@@ -4815,6 +4821,23 @@ class TaskViewSet(
 
             if is_subtask and parent is not None:
                 _record_subtask_spawn(parent, instance, self.request.user)
+
+            # A structural create can push its parent over the container line
+            # (#2950): the parent has just gained its first child, so its own
+            # status and estimate are parked and a declared-work row is promoted.
+            # Subtasks are excluded — a checklist item is never structural.
+            if not is_subtask and parent is not None:
+                parent.refresh_from_db()
+                if sync_structure_shadow_values(parent):
+                    parent.save(
+                        update_fields=[
+                            "structure_role",
+                            "auto_container",
+                            "own_status",
+                            "own_estimate",
+                            "server_version",
+                        ]
+                    )
 
             # ADR-0102 §4: a NON-subtask task created directly into an ACTIVE
             # sprint (the board "add card to the active sprint" flow) is a
@@ -5024,7 +5047,27 @@ class TaskViewSet(
 
         project_id = str(instance.project_id)
         task_id = str(instance.pk)
+        parent = structural_parent(instance)
         instance.soft_delete()
+        # The former parent may have just lost its last child (#2950). An
+        # ACCIDENTAL container reverts and gets its own estimate back; a DECLARED
+        # one stays declared and becomes an empty lane — silently un-declaring
+        # somebody's phase because its last task was deleted is the same silent
+        # identity change structure_role exists to remove.
+        if parent is not None:
+            parent.refresh_from_db()
+            if sync_structure_shadow_values(parent):
+                parent.save(
+                    update_fields=[
+                        "status",
+                        "duration",
+                        "structure_role",
+                        "auto_container",
+                        "own_status",
+                        "own_estimate",
+                        "server_version",
+                    ]
+                )
         transaction.on_commit(lambda: _enqueue_recalculate(project_id))
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "task_deleted", {"id": task_id})
