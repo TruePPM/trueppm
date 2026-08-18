@@ -13,6 +13,12 @@
  * The ⌘M shortcut is exercised at the unit layer (useScheduleKeyboard tests)
  * because Playwright's keyboard.press('Meta+M') has cross-OS quirks.
  */
+// The Display trigger is located THROUGH the toolbar, not by name alone.
+// `name` matching is substring by default, and the coach bar's dismiss control
+// says "bring it back from Display options" (#2959), so a bare 'Display' now
+// resolves to two buttons. `exact: true` is not the fix either — the trigger's
+// own accessible name becomes "Display, 1 active filter" once a filter is on.
+// Scoping to the toolbar is stable under both.
 import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
@@ -31,26 +37,47 @@ const FIXTURE_PROJECTS = [
 
 const FIXTURE_TASKS = [
   {
-    id: 'rp1', wbs_path: '1', name: 'Foundation',
-    early_start: '2026-04-05', early_finish: '2026-04-09',
+    id: 'rp1',
+    wbs_path: '1',
+    name: 'Foundation',
+    early_start: '2026-04-05',
+    early_finish: '2026-04-09',
     planned_start: '2026-04-05',
-    duration: 5, percent_complete: 0, is_critical: true,
-    is_milestone: false, is_summary: false, parent_id: null,
+    duration: 5,
+    percent_complete: 0,
+    is_critical: true,
+    is_milestone: false,
+    is_summary: false,
+    parent_id: null,
     status: 'NOT_STARTED',
     assignments: [{ resource_id: 'r1', resource_name: 'Alice', units: 1 }],
     assignees: [],
-    total_float: 0, predecessor_count: 0, is_blocked: false,
-    linked_risks_count: 0, linked_risks_max_severity: null,
+    total_float: 0,
+    predecessor_count: 0,
+    is_blocked: false,
+    linked_risks_count: 0,
+    linked_risks_max_severity: null,
   },
   {
-    id: 'rp2', wbs_path: '2', name: 'Framing',
-    early_start: '2026-04-12', early_finish: '2026-04-16',
+    id: 'rp2',
+    wbs_path: '2',
+    name: 'Framing',
+    early_start: '2026-04-12',
+    early_finish: '2026-04-16',
     planned_start: '2026-04-12',
-    duration: 5, percent_complete: 0, is_critical: true,
-    is_milestone: false, is_summary: false, parent_id: null,
-    status: 'NOT_STARTED', assignees: [],
-    total_float: 0, predecessor_count: 0, is_blocked: false,
-    linked_risks_count: 0, linked_risks_max_severity: null,
+    duration: 5,
+    percent_complete: 0,
+    is_critical: true,
+    is_milestone: false,
+    is_summary: false,
+    parent_id: null,
+    status: 'NOT_STARTED',
+    assignees: [],
+    total_float: 0,
+    predecessor_count: 0,
+    is_blocked: false,
+    linked_risks_count: 0,
+    linked_risks_max_severity: null,
   },
 ];
 
@@ -83,7 +110,10 @@ test.describe('Schedule render parity — toolbar + columns (#248)', () => {
     // #1741: the four filters moved from inline toolbar toggles into the Display
     // popover as menuitemcheckbox rows.
     await page.goto(BASE_URL);
-    await page.getByRole('button', { name: 'Display' }).click();
+    await page
+      .getByRole('toolbar', { name: 'Schedule toolbar' })
+      .getByRole('button', { name: 'Display' })
+      .click();
     const menu = page.getByRole('menu', { name: 'Display options' });
     for (const name of ['CP only', 'Focus chain', 'Critical path', 'Milestones']) {
       const item = menu.getByRole('menuitemcheckbox', { name });
@@ -92,12 +122,17 @@ test.describe('Schedule render parity — toolbar + columns (#248)', () => {
     }
   });
 
-  test('Toggling Critical path filters non-critical tasks out (summaries stay)', async ({ page }) => {
+  test('Toggling Critical path filters non-critical tasks out (summaries stay)', async ({
+    page,
+  }) => {
     await page.goto(BASE_URL);
     await expect(page.getByText('Foundation')).toBeVisible();
     await expect(page.getByText('Framing')).toBeVisible();
     // Both fixture tasks are critical, so toggling on should leave them visible.
-    await page.getByRole('button', { name: 'Display' }).click();
+    await page
+      .getByRole('toolbar', { name: 'Schedule toolbar' })
+      .getByRole('button', { name: 'Display' })
+      .click();
     const criticalItem = page
       .getByRole('menu', { name: 'Display options' })
       .getByRole('menuitemcheckbox', { name: 'Critical path' });
@@ -113,9 +148,7 @@ test.describe('Schedule render parity — toolbar + columns (#248)', () => {
   test('Summary chip shows task count and critical count', async ({ page }) => {
     await page.goto(BASE_URL);
     // Chip label includes counts and CPM healthy state.
-    await expect(
-      page.getByLabel(/Project status: 2 tasks, 2 critical, CPM healthy/),
-    ).toBeVisible();
+    await expect(page.getByLabel(/Project status: 2 tasks, 2 critical, CPM healthy/)).toBeVisible();
   });
 });
 
@@ -158,12 +191,12 @@ test.describe('Schedule milestone toolbar — +Milestone (#340)', () => {
 
   test('+ Milestone button has the Cmd+M accessible label', async ({ page }) => {
     await page.goto(BASE_URL);
-    await expect(
-      page.getByRole('button', { name: 'Add new milestone (Cmd+M)' }),
-    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Add new milestone (Cmd+M)' })).toBeVisible();
   });
 
-  test('clicking + Milestone opens the milestone-create dialog (no eager POST)', async ({ page }) => {
+  test('clicking + Milestone opens the milestone-create dialog (no eager POST)', async ({
+    page,
+  }) => {
     // Updated for the milestone-add dialog (issue #240 follow-up). The
     // button now opens TaskFormModal in milestone mode so the user can pick
     // name + date + parent up front; no /tasks/ POST fires until the user

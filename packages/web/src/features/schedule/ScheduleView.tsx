@@ -131,6 +131,12 @@ import {
 } from './buildMode';
 import { useScheduleAuthorMode, type ScheduleAuthorMode } from '@/hooks/useScheduleAuthorMode';
 import {
+  useScheduleDisplayOptions,
+  type ScheduleDisplayOptions,
+  type ScheduleDisplayOptionKey,
+} from '@/hooks/useScheduleDisplayOptions';
+import { ScheduleCoachBar } from './buildMode/ScheduleCoachBar';
+import {
   useIndentTask,
   useOutdentTask,
   useUpdateTask,
@@ -1339,6 +1345,8 @@ export function ScheduleView() {
   // per-project preference layered on top of the server role gate below, not
   // a replacement for it. "Read" mode forces readOnly regardless of role.
   const authorMode = useScheduleAuthorMode(projectIdUndef);
+  const { options: displayOptions, toggle: toggleDisplayOption } =
+    useScheduleDisplayOptions(projectIdUndef);
   const { toggle: toggleAuthorMode } = authorMode;
   //
   // Two states that must never collapse into one (#2949, design handoff
@@ -2600,6 +2608,8 @@ export function ScheduleView() {
       <h1 className="sr-only">Schedule</h1>
       <ScheduleToolbar
         hasEditRights={hasEditRights}
+        displayOptions={displayOptions}
+        onToggleDisplayOption={toggleDisplayOption}
         isMobile={isMobile}
         projectId={projectId}
         readOnly={readOnly}
@@ -2761,6 +2771,17 @@ export function ScheduleView() {
           strip is unmounted so ScheduleForecastBar sits flush at the bottom and the
           P50/P80/P95 signal isn't subordinated by always-on discoverability chrome.
           The always-on BuildModePill in the toolbar remains the discovery affordance. */}
+      {/* The coach teaches the gestures a static screen cannot show — the row
+          controls only appear on hover, so nothing else can announce them
+          (#2959). Dismissible, and restorable from Display options; the strip it
+          replaces could only ever be dismissed. */}
+      {buildModeActive && hasEditRights && displayOptions.coach && (
+        <ScheduleCoachBar
+          onDismiss={() => toggleDisplayOption('coach')}
+          onShowCheatsheet={() => setCheatsheetOpen(true)}
+        />
+      )}
+
       {buildModeActive && focus.state.mode !== 'NoSelection' && (
         <BuildModeHintStrip
           mode={focus.state.mode}
@@ -3424,6 +3445,9 @@ function buildProjectActionsItems(ctx: {
 }
 
 interface ScheduleToolbarProps {
+  /** Per-person outline chrome (#2959) — surfaced in the Display menu. */
+  displayOptions: ScheduleDisplayOptions;
+  onToggleDisplayOption: (key: ScheduleDisplayOptionKey) => void;
   /**
    * Whether this user may author at all — distinct from `readOnly`, which is
    * also true for an editor who chose Read. Without rights the authoring
@@ -3487,6 +3511,8 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
     isMobile,
     projectId,
     readOnly,
+    displayOptions,
+    onToggleDisplayOption,
     hasEditRights,
     showAddForm,
     setShowAddForm,
@@ -3622,6 +3648,8 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
       {/* Show cluster (#1741) — the Display popover is the single home for the
           four view/render filters plus (in Grid mode) column visibility. */}
       <ScheduleDisplayMenu
+        displayOptions={displayOptions}
+        onToggleDisplayOption={onToggleDisplayOption}
         showCpOnly={showCpOnly}
         setShowCpOnly={setShowCpOnly}
         focusModeEnabled={focusModeEnabled}

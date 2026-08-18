@@ -13,6 +13,12 @@ import { setupCatchAll } from './fixtures/api-mocks';
  * Timeline-only "Aligned left" option, and switching a view's placement leaves
  * the other view untouched.
  */
+// The Display trigger is located THROUGH the toolbar, not by name alone.
+// `name` matching is substring by default, and the coach bar's dismiss control
+// says "bring it back from Display options" (#2959), so a bare 'Display' now
+// resolves to two buttons. `exact: true` is not the fix either — the trigger's
+// own accessible name becomes "Display, 1 active filter" once a filter is on.
+// Scoping to the toolbar is stable under both.
 
 /**
  * Shape of the persisted `trueppm.schedule.chartDisplay.v1` blob, as far as the
@@ -28,21 +34,43 @@ interface ChartDisplayStore {
 const FIXTURE_PROJECT_ID = 'e2e-fixture-00000000-0000-0000-0000-000000000001';
 
 const FIXTURE_API_PROJECTS = [
-  { id: FIXTURE_PROJECT_ID, name: 'Alpha Platform Upgrade', description: '', start_date: '2026-01-01', calendar: 'default' },
+  {
+    id: FIXTURE_PROJECT_ID,
+    name: 'Alpha Platform Upgrade',
+    description: '',
+    start_date: '2026-01-01',
+    calendar: 'default',
+  },
 ];
 
 const FIXTURE_API_TASKS = [
   {
-    id: 't1', wbs_path: '1', name: 'Alpha Platform Upgrade',
-    early_start: '2026-10-05', early_finish: '2026-11-14',
-    duration: 30, percent_complete: 40, is_critical: false, is_milestone: false,
-    status: 'IN_PROGRESS', is_summary: false, parent_id: null,
+    id: 't1',
+    wbs_path: '1',
+    name: 'Alpha Platform Upgrade',
+    early_start: '2026-10-05',
+    early_finish: '2026-11-14',
+    duration: 30,
+    percent_complete: 40,
+    is_critical: false,
+    is_milestone: false,
+    status: 'IN_PROGRESS',
+    is_summary: false,
+    parent_id: null,
   },
   {
-    id: 't2', wbs_path: '1.1', name: 'Discovery & Design',
-    early_start: '2026-10-05', early_finish: '2026-10-16',
-    duration: 10, percent_complete: 100, is_critical: false, is_milestone: false,
-    status: 'COMPLETE', is_summary: false, parent_id: null,
+    id: 't2',
+    wbs_path: '1.1',
+    name: 'Discovery & Design',
+    early_start: '2026-10-05',
+    early_finish: '2026-10-16',
+    duration: 10,
+    percent_complete: 100,
+    is_critical: false,
+    is_milestone: false,
+    status: 'COMPLETE',
+    is_summary: false,
+    parent_id: null,
   },
 ];
 
@@ -58,34 +86,125 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
   });
   await setupCatchAll(page);
   await page.route('**/api/v1/projects/', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: FIXTURE_API_PROJECTS.length, next: null, previous: null, results: FIXTURE_API_PROJECTS }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        count: FIXTURE_API_PROJECTS.length,
+        next: null,
+        previous: null,
+        results: FIXTURE_API_PROJECTS,
+      }),
+    }),
   );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: FIXTURE_PROJECT_ID, name: 'Alpha Platform Upgrade', description: '', start_date: '2026-01-01', calendar: 'default', estimation_mode: 'OPEN', agile_features: false, methodology: 'HYBRID', code: '', health: 'AUTO', visibility: 'WORKSPACE', timezone: '', default_view: 'SCHEDULE', lead: null, lead_detail: null, iteration_label: 'Sprint', is_archived: false, archived_at: null, archived_by: null, recalculated_at: null, is_sample: false, program_detail: null, server_version: 1 }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: FIXTURE_PROJECT_ID,
+        name: 'Alpha Platform Upgrade',
+        description: '',
+        start_date: '2026-01-01',
+        calendar: 'default',
+        estimation_mode: 'OPEN',
+        agile_features: false,
+        methodology: 'HYBRID',
+        code: '',
+        health: 'AUTO',
+        visibility: 'WORKSPACE',
+        timezone: '',
+        default_view: 'SCHEDULE',
+        lead: null,
+        lead_detail: null,
+        iteration_label: 'Sprint',
+        is_archived: false,
+        archived_at: null,
+        archived_by: null,
+        recalculated_at: null,
+        is_sample: false,
+        program_detail: null,
+        server_version: 1,
+      }),
+    }),
   );
   await page.route('**/api/v1/projects/*/presence/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   );
   await page.route('**/api/v1/projects/*/status-summary/', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ task_count: 0, critical_path_count: 0, monte_carlo_p80: null, at_risk_count: 0, critical_count: 0, at_risk_tasks: [], critical_tasks: [], last_saved: null, recalculated_at: null }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        task_count: 0,
+        critical_path_count: 0,
+        monte_carlo_p80: null,
+        at_risk_count: 0,
+        critical_count: 0,
+        at_risk_tasks: [],
+        critical_tasks: [],
+        last_saved: null,
+        recalculated_at: null,
+      }),
+    }),
   );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/overview/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ schedule_health: 'unknown', spi: null, tasks_late_count: 0, critical_task_count: 0, total_tasks: 0, complete_tasks: 0, next_milestone: null, team_utilization_pct: null, owner_name: null, start_date: '2026-01-01' }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        schedule_health: 'unknown',
+        spi: null,
+        tasks_late_count: 0,
+        critical_task_count: 0,
+        total_tasks: 0,
+        complete_tasks: 0,
+        next_milestone: null,
+        team_utilization_pct: null,
+        owner_name: null,
+        start_date: '2026-01-01',
+      }),
+    }),
   );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/attention/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [] }),
+    }),
   );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/my-tasks/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: [] }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ tasks: [] }),
+    }),
   );
   await page.route('**/api/v1/tasks/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: FIXTURE_API_TASKS.length, next: null, previous: null, results: FIXTURE_API_TASKS }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        count: FIXTURE_API_TASKS.length,
+        next: null,
+        previous: null,
+        results: FIXTURE_API_TASKS,
+      }),
+    }),
   );
   await page.route('**/api/v1/dependencies/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
   );
   await page.route('**/api/v1/ws/ticket/', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ticket: 'e2e-ticket', expires_in: 30 }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ticket: 'e2e-ticket', expires_in: 30 }),
+    }),
   );
   await page.routeWebSocket('**/ws/v1/projects/**', () => {
     /* accept and hold open */
@@ -99,11 +218,16 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
     // list renders (Columns section only appears in Grid mode).
     await page.setViewportSize({ width: 1440, height: 900 });
     await gotoSchedule(page);
-    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
   test('exposes WBS + Owner column toggles and the Grid-scoped Chart section', async ({ page }) => {
-    await page.getByRole('button', { name: 'Display' }).click();
+    await page
+      .getByRole('toolbar', { name: 'Schedule toolbar' })
+      .getByRole('button', { name: 'Display' })
+      .click();
     const menu = page.getByRole('menu', { name: 'Display options' });
     await expect(menu).toBeVisible();
 
@@ -124,8 +248,13 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
     await expect(menu.getByRole('menuitemradio', { name: 'Aligned left' })).toHaveCount(0);
   });
 
-  test('hiding dependency lines persists to localStorage and lights the badge', async ({ page }) => {
-    await page.getByRole('button', { name: 'Display' }).click();
+  test('hiding dependency lines persists to localStorage and lights the badge', async ({
+    page,
+  }) => {
+    await page
+      .getByRole('toolbar', { name: 'Schedule toolbar' })
+      .getByRole('button', { name: 'Display' })
+      .click();
     const menu = page.getByRole('menu', { name: 'Display options' });
     await menu.getByRole('menuitemcheckbox', { name: 'Dependency lines' }).click();
 
@@ -147,7 +276,10 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
     // "Aligned left" is Timeline-only — switch to Timeline first.
     await page.getByRole('radio', { name: 'Timeline' }).click();
 
-    await page.getByRole('button', { name: 'Display' }).click();
+    await page
+      .getByRole('toolbar', { name: 'Schedule toolbar' })
+      .getByRole('button', { name: 'Display' })
+      .click();
     const menu = page.getByRole('menu', { name: 'Display options' });
     await expect(menu.getByText('Task names (Timeline)')).toBeVisible();
     const aligned = menu.getByRole('menuitemradio', { name: 'Aligned left' });
@@ -169,7 +301,10 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
     page,
   }) => {
     // Set Grid → "Next to bar" (Grid defaults to Hidden).
-    await page.getByRole('button', { name: 'Display' }).click();
+    await page
+      .getByRole('toolbar', { name: 'Schedule toolbar' })
+      .getByRole('button', { name: 'Display' })
+      .click();
     let menu = page.getByRole('menu', { name: 'Display options' });
     await expect(menu.getByText('Task names (Grid)')).toBeVisible();
     await menu.getByRole('menuitemradio', { name: 'Next to bar' }).click();
@@ -177,7 +312,10 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
 
     // Switch to Timeline and set a *different* placement — "Hidden".
     await page.getByRole('radio', { name: 'Timeline' }).click();
-    await page.getByRole('button', { name: 'Display' }).click();
+    await page
+      .getByRole('toolbar', { name: 'Schedule toolbar' })
+      .getByRole('button', { name: 'Display' })
+      .click();
     menu = page.getByRole('menu', { name: 'Display options' });
     await expect(menu.getByText('Task names (Timeline)')).toBeVisible();
     await menu.getByRole('menuitemradio', { name: 'Hidden' }).click();
@@ -197,10 +335,17 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
     // (they "save when you go back"). The view mode is also persisted, so the
     // schedule reopens in Timeline.
     await page.reload();
-    await expect(page.getByRole('button', { name: 'Display' })).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page
+        .getByRole('toolbar', { name: 'Schedule toolbar' })
+        .getByRole('button', { name: 'Display' }),
+    ).toBeVisible({ timeout: 10_000 });
 
     // Still in Timeline: "Hidden" is the restored selection.
-    await page.getByRole('button', { name: 'Display' }).click();
+    await page
+      .getByRole('toolbar', { name: 'Schedule toolbar' })
+      .getByRole('button', { name: 'Display' })
+      .click();
     menu = page.getByRole('menu', { name: 'Display options' });
     await expect(menu.getByText('Task names (Timeline)')).toBeVisible();
     await expect(menu.getByRole('menuitemradio', { name: 'Hidden' })).toHaveAttribute(
@@ -211,7 +356,10 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
 
     // Switch back to Grid: its independent "Next to bar" choice is intact.
     await page.getByRole('radio', { name: 'Grid' }).click();
-    await page.getByRole('button', { name: 'Display' }).click();
+    await page
+      .getByRole('toolbar', { name: 'Schedule toolbar' })
+      .getByRole('button', { name: 'Display' })
+      .click();
     menu = page.getByRole('menu', { name: 'Display options' });
     await expect(menu.getByText('Task names (Grid)')).toBeVisible();
     await expect(menu.getByRole('menuitemradio', { name: 'Next to bar' })).toHaveAttribute(

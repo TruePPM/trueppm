@@ -33,6 +33,10 @@ import {
 import { CheckIcon, ChevronDownIcon, RadioDotIcon, SlidersIcon } from '@/components/Icons';
 import type { ScheduleViewMode } from '@/stores/scheduleStore';
 import type { TaskNamePlacement } from './engine';
+import type {
+  ScheduleDisplayOptions,
+  ScheduleDisplayOptionKey,
+} from '@/hooks/useScheduleDisplayOptions';
 
 /** A single checkbox toggle row inside the Display menu. */
 export interface DisplayMenuRow {
@@ -95,6 +99,12 @@ interface RenderSection {
 }
 
 export interface ScheduleDisplayMenuProps {
+  /**
+   * Per-person outline chrome (#2959) — the three settings a persona panel split
+   * on. Optional so callers that do not own them (the print layout) still work.
+   */
+  displayOptions?: ScheduleDisplayOptions;
+  onToggleDisplayOption?: (key: ScheduleDisplayOptionKey) => void;
   showCpOnly: boolean;
   setShowCpOnly: (v: boolean) => void;
   focusModeEnabled: boolean;
@@ -128,6 +138,8 @@ export function ScheduleDisplayMenu({
   chart = null,
   hiddenChartCount = 0,
   iconOnly,
+  displayOptions,
+  onToggleDisplayOption,
 }: ScheduleDisplayMenuProps) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -137,6 +149,37 @@ export function ScheduleDisplayMenu({
   const menuId = useId();
 
   const sections: RenderSection[] = [
+    // Outline chrome (#2959). Listed first because it is the section that
+    // answers "why can't I see the how-to bar any more" — the restore path has
+    // to be findable, or dismissing it is still one-way.
+    ...(displayOptions && onToggleDisplayOption
+      ? [
+          {
+            id: 'outline-chrome',
+            label: 'Outline',
+            // 'structureButtons' is deliberately absent until #2955 ships the
+            // Phase / Group / Ungroup buttons it governs. A toggle that changes
+            // nothing is a dead control, and the correct shipped state for one
+            // is to be hidden — not present and inert (ux-review, live-wiring).
+            items: [
+              {
+                kind: 'checkbox' as const,
+                id: 'coach',
+                label: 'How-to bar',
+                checked: displayOptions.coach,
+                activate: () => onToggleDisplayOption('coach'),
+              },
+              {
+                kind: 'checkbox' as const,
+                id: 'comfortable-rows',
+                label: 'Comfortable rows',
+                checked: displayOptions.comfortableRows,
+                activate: () => onToggleDisplayOption('comfortableRows'),
+              },
+            ],
+          },
+        ]
+      : []),
     {
       id: 'view-filters',
       label: 'View filters',
