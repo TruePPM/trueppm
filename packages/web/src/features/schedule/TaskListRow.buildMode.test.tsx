@@ -709,3 +709,40 @@ describe('TaskListRow — structure controls at the WBS number (#2956)', () => {
     expect(screen.queryByRole('button', { name: /Outdent Foundation/ })).not.toBeInTheDocument();
   });
 });
+
+describe('TaskListRow — insert lands where its position implies (#2957)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const editable: Task = { ...baseTask, canEdit: true };
+
+  it('offers an insert affordance on the row itself', () => {
+    renderHarness({ task: editable });
+    expect(
+      screen.getByRole('button', { name: /Insert an item below Foundation/ }),
+    ).toBeInTheDocument();
+  });
+
+  it('says it lands below THIS row, at the same level', () => {
+    // The old single "Add task" button sat at the foot of the list and inserted
+    // at the cursor — a position that implied one thing and did another.
+    renderHarness({ task: editable });
+    expect(
+      screen.getByRole('button', {
+        name: 'Insert an item below Foundation, at the same level',
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it('inserts below that row, not at the end of the plan', () => {
+    renderHarness({ task: editable });
+    fireEvent.click(screen.getByRole('button', { name: /Insert an item below Foundation/ }));
+    expect(stableSpies.insertBelow).toHaveBeenCalledWith('t-build-1');
+  });
+
+  it('is absent without edit rights (rule 302)', () => {
+    renderHarness({ task: { ...baseTask, canEdit: false } });
+    expect(
+      screen.queryByRole('button', { name: /Insert an item below/ }),
+    ).not.toBeInTheDocument();
+  });
+});

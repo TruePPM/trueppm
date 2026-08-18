@@ -1834,6 +1834,41 @@ function TaskListRowInner({
       {buildMode && siblingIds && <RowReorderHandle handlers={reorderHandlers} />}
 
       {/* ── WBS column (#248) ───────────────────────────────────────────────── */}
+      {/* Insert-below affordance (#2957). On the row's BOTTOM EDGE, because that
+          is where the new row will appear — the single "Add task" button at the
+          foot of the list did the cursor's bidding from somewhere its position
+          did not imply, which reads as a bug.
+
+          Out of the tab order on purpose: a tab stop per row would make a
+          40-row outline unnavigable. Its keyboard twin is `⏎`, which already
+          inserts a sibling below the focused row and is what the coach bar and
+          the cheatsheet teach — so this is a pointer affordance for an operation
+          the keyboard already has, not a pointer-only capability. It still
+          carries `focus:opacity-100` so programmatic focus reveals it. */}
+      {canEdit && buildMode && (
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={(e) => {
+            e.stopPropagation();
+            buildMode.insertBelow(task.id);
+          }}
+          aria-label={`Insert an item below ${task.name || 'this row'}, at the same level`}
+          title="Insert an item here"
+          className="absolute left-0 bottom-0 translate-y-1/2 z-10 ml-1 w-4 h-4
+            flex items-center justify-center rounded-full
+            border border-neutral-border bg-neutral-surface-raised
+            text-xs leading-none text-neutral-text-secondary
+            opacity-0 group-hover:opacity-100 focus:opacity-100
+            hover:text-brand-primary hover:border-brand-primary
+            focus:outline-none focus:ring-2 focus:ring-brand-primary
+            transition-opacity"
+          style={{ marginLeft: 4 + (level - 1) * 12 }}
+        >
+          +
+        </button>
+      )}
+
       {visible.wbs && (
         <RowWbsCell
           wbs={task.wbs}
