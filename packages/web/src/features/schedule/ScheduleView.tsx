@@ -145,6 +145,15 @@ import {
 import { toast } from '@/components/Toast';
 import { wbsParentPath, siblingIdsOf } from './buildMode/insertBelow';
 import { isPhaseTask } from '@/lib/isPhaseTask';
+import {
+  indentSentence,
+  outdentSentence,
+  deleteSentence,
+  milestoneSentence,
+  type ActRow,
+} from './trail/structuralActs';
+import { useTrailStore } from './trail/trailStore';
+import { SessionTrail } from './trail/SessionTrail';
 
 // ---------------------------------------------------------------------------
 // ScheduleEmptyState — shown when tasks.length === 0 (rule 78)
@@ -666,6 +675,8 @@ export function ScheduleView() {
     if (!chartPrefs.dependencyLinesVisible) return [];
     return showCpOnly ? allLinks.filter((l) => l.isCritical) : allLinks;
   }, [allLinks, showCpOnly, chartPrefs.dependencyLinesVisible]);
+
+  const recordTrailAct = useTrailStore((st) => st.record);
 
   // aria-live (polite) — drag announcements via DOM ref (rule 30)
   const ariaLiveRef = useRef<HTMLDivElement>(null);
@@ -1583,6 +1594,38 @@ export function ScheduleView() {
     [restoreTaskMut, focus, setScheduleActionToast],
   );
 
+  /**
+   * Say what a structural act did — once, to both audiences (#2948).
+   *
+   * The screen reader hears it through the existing polite region (rule 30 —
+   * deliberately reusing that channel rather than adding a second one, which
+   * would double-announce), and it joins the session trail so the change is
+   * still there to inspect after three more edits.
+   *
+   * One helper rather than a call at each site precisely so the two can never
+   * drift: an act that announces but leaves no trail entry, or the reverse, is
+   * the failure this is meant to prevent.
+   */
+  const recordAct = useCallback(
+    (sentence: string) => {
+      if (ariaLiveRef.current) ariaLiveRef.current.textContent = sentence;
+      if (projectId) recordTrailAct(projectId, sentence);
+    },
+    [projectId, recordTrailAct],
+  );
+
+  /** A row reduced to what a sentence needs: its name and what travels with it. */
+  const actRow = useCallback(
+    (taskId: string): ActRow => {
+      const task = allTasks.find((t) => t.id === taskId);
+      return {
+        name: task?.name ?? '',
+        descendantCount: childCountById.get(taskId)?.count ?? 0,
+      };
+    },
+    [allTasks, childCountById],
+  );
+
   // The actual build-mode delete + Undo toast, factored out so both the fast
   // path (leaf rows, no confirm) and the confirmed subtree path share it.
   // `descendantCount` only sizes the "Deleted X and its N subtasks" message; the
@@ -1599,6 +1642,12 @@ export function ScheduleView() {
         onSuccess: () => {
           onDeleted?.();
           if (!snapshot) return;
+          // The trail entry is written on SUCCESS, not on the click: a delete
+          // that the server refused must not leave a record claiming it
+          // happened (#2948).
+          recordAct(
+            deleteSentence({ name: snapshot.name, descendantCount: descendantCount }),
+          );
           const label = snapshot.name || 'Untitled task';
           const subtaskSuffix =
             descendantCount > 0
@@ -1614,7 +1663,7 @@ export function ScheduleView() {
         },
       });
     },
-    [projectId, allTasks, deleteTaskMut, undoBuildModeDelete, setScheduleActionToast],
+    [projectId, allTasks, deleteTaskMut, undoBuildModeDelete, setScheduleActionToast, recordAct],
   );
 
   // The one task, if any, that `insertBelow`/`insertAbove`/`insertChild` just
@@ -1669,8 +1718,25 @@ export function ScheduleView() {
   const buildModeApi = useMemo<BuildModeApi>(
     () => ({
       focus,
-      indent: (taskId) => indentTask.mutate(taskId),
-      outdent: (taskId) => outdentTask.mutate(taskId),
+      indent: (taskId) => {
+        // Capture BEFORE the mutation: the sentence describes the tree as it
+        // was, and whether the row above is about to change identity is only
+        // knowable from the pre-move state.
+        const row = actRow(taskId);
+        const idx = allTasks.findIndex((t) => t.id === taskId);
+        const prev = idx > 0 ? allTasks[idx - 1] : undefined;
+        const prevBecomesPhase = prev != null && !prev.isSummary;
+        indentTask.mutate(taskId);
+        if (prev) {
+          recordAct(indentSentence(row, { name: prev.name }, prevBecomesPhase));
+        }
+      },
+      outdent: (taskId) => {
+        const row = actRow(taskId);
+        const parent = allTasks.find((t) => t.id === allTasks.find((x) => x.id === taskId)?.parentId);
+        outdentTask.mutate(taskId);
+        if (parent) recordAct(outdentSentence(row, { name: parent.name }));
+      },
       insertBelow: (taskId) => {
         // Enter creates a SIBLING of the focused row — same parent, same depth
         // (#1666). The previous behavior ignored the arg and created at the WBS
@@ -1720,7 +1786,9 @@ export function ScheduleView() {
       clearPristineNewRow: (taskId) => setPristineNewRowId((cur) => (cur === taskId ? null : cur)),
       convertToMilestone: (taskId) => {
         if (!projectId) return;
+        const row = actRow(taskId);
         updateTaskMut.mutate({ id: taskId, projectId, duration: 0 });
+        recordAct(milestoneSentence(row, true));
       },
       duplicateSubtree: (taskId) => {
         // ⌘D / Ctrl+D / row menu Duplicate (#2727, ADR-0776 §2, amending
@@ -1881,6 +1949,8 @@ export function ScheduleView() {
       createTaskMut,
       sprintsById,
       setScheduleActionToast,
+      actRow,
+      recordAct,
     ],
   );
 
@@ -3522,6 +3592,12 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
         <AuthorModePill mode={authorMode} onToggle={onToggleAuthorMode} />
       )}
       {buildModeActive && !hasEditRights && <ScheduleViewOnlyBadge />}
+      {/* Session trail (#2948). Lives in the toolbar rather than the Forecast
+          strip the prototype drew it in: that strip early-returns whenever there
+          is no Monte Carlo result yet, which is exactly the fresh project where
+          someone is authoring structure. It renders null with no acts, so a
+          viewer never sees it. */}
+      <SessionTrail />
       {/* Show the badge for in-flight optimistic edits, and also while a
           freshly-imported sample's first post-import CPM pass is still pending
           (recalculated_at null) so the demo never reads as broken (#1053). */}
