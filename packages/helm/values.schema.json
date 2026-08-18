@@ -10,62 +10,128 @@
       "type": "object"
     },
     "global": {
-      "description": "Values shared with the bundled subcharts. Open by design — Helm's global block is a cross-chart channel, not something this chart can enumerate.",
+      "description": "Values shared with the bundled subcharts. Open by design \u2014 Helm's global block is a cross-chart channel, not something this chart can enumerate.",
       "type": "object"
     },
-    "nameOverride": { "type": "string" },
-    "fullnameOverride": { "type": "string" },
-    "replicaCount": { "type": "integer", "minimum": 0 },
-
+    "nameOverride": {
+      "type": "string"
+    },
+    "fullnameOverride": {
+      "type": "string"
+    },
+    "replicaCount": {
+      "type": "integer",
+      "minimum": 0
+    },
     "image": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "repository": { "type": "string" },
-        "webRepository": { "type": "string" },
-        "tag": { "type": "string" },
-        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+        "repository": {
+          "type": "string"
+        },
+        "webRepository": {
+          "type": "string"
+        },
+        "tag": {
+          "type": "string"
+        },
+        "pullPolicy": {
+          "type": "string",
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
+        }
       }
     },
-
     "service": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
-        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        "type": {
+          "type": "string",
+          "enum": [
+            "ClusterIP",
+            "NodePort",
+            "LoadBalancer"
+          ]
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
       }
     },
-
     "web": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
-        "replicaCount": { "type": ["integer", "null"] },
-        "containerPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
-        "maxBodySize": { "type": "string" },
+        "enabled": {
+          "type": "boolean"
+        },
+        "replicaCount": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "containerPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "maxBodySize": {
+          "type": "string"
+        },
         "service": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
-            "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+            "type": {
+              "type": "string",
+              "enum": [
+                "ClusterIP",
+                "NodePort",
+                "LoadBalancer"
+              ]
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            }
           }
         },
         "adminAccess": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "enabled": { "type": "boolean" },
-            "allowCIDRs": { "type": "array", "items": { "type": "string" } },
+            "enabled": {
+              "type": "boolean"
+            },
+            "allowCIDRs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
             "rateLimit": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "enabled": { "type": "boolean" },
-                "rate": { "type": "string" },
-                "burst": { "type": "integer", "minimum": 0 }
+                "enabled": {
+                  "type": "boolean"
+                },
+                "rate": {
+                  "type": "string"
+                },
+                "burst": {
+                  "type": "integer",
+                  "minimum": 0
+                }
               }
             }
           }
@@ -74,22 +140,35 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "enabled": { "type": "boolean" },
-            "frameOptions": { "type": "string" },
-            "contentTypeOptions": { "type": "string" },
-            "contentSecurityPolicy": { "type": "string" },
-            "strictTransportSecurity": { "type": "string" }
+            "enabled": {
+              "type": "boolean"
+            },
+            "frameOptions": {
+              "type": "string"
+            },
+            "contentTypeOptions": {
+              "type": "string"
+            },
+            "contentSecurityPolicy": {
+              "type": "string"
+            },
+            "strictTransportSecurity": {
+              "type": "string"
+            }
           }
         }
       }
     },
-
     "ingress": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
-        "className": { "type": "string" },
+        "enabled": {
+          "type": "boolean"
+        },
+        "className": {
+          "type": "string"
+        },
         "annotations": {
           "description": "Controller / cert-manager annotations, passed through with toYaml. Open: the set of valid annotations belongs to your ingress controller.",
           "type": "object"
@@ -100,16 +179,33 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "host": { "type": "string" },
+              "host": {
+                "type": "string"
+              },
               "paths": {
                 "type": "array",
                 "items": {
                   "type": "object",
                   "additionalProperties": false,
                   "properties": {
-                    "path": { "type": "string" },
-                    "pathType": { "type": "string", "enum": ["Prefix", "Exact", "ImplementationSpecific"] },
-                    "service": { "type": "string", "enum": ["api", "web"] }
+                    "path": {
+                      "type": "string"
+                    },
+                    "pathType": {
+                      "type": "string",
+                      "enum": [
+                        "Prefix",
+                        "Exact",
+                        "ImplementationSpecific"
+                      ]
+                    },
+                    "service": {
+                      "type": "string",
+                      "enum": [
+                        "api",
+                        "web"
+                      ]
+                    }
                   }
                 }
               }
@@ -122,81 +218,126 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "secretName": { "type": "string" },
-              "hosts": { "type": "array", "items": { "type": "string" } }
+              "secretName": {
+                "type": "string"
+              },
+              "hosts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
             }
           }
         }
       }
     },
-
     "postgresql": {
       "description": "Bundled PostgreSQL subchart (packages/helm/charts/postgresql). `enabled` is the parent's condition key; the rest is the subchart's own surface.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
+        "enabled": {
+          "type": "boolean"
+        },
         "global": {
-          "description": "Injected by Helm into every subchart's values section before validation runs — declared so the closed block above does not reject Helm's own plumbing.",
+          "description": "Injected by Helm into every subchart's values section before validation runs \u2014 declared so the closed block above does not reject Helm's own plumbing.",
           "type": "object"
         },
-        "image": { "type": "object" },
+        "image": {
+          "type": "object"
+        },
         "auth": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "username": { "type": "string" },
-            "password": { "type": "string" },
-            "database": { "type": "string" }
+            "username": {
+              "type": "string"
+            },
+            "password": {
+              "type": "string"
+            },
+            "database": {
+              "type": "string"
+            }
           }
         },
-        "persistence": { "type": "object" },
-        "resources": { "type": "object" }
+        "persistence": {
+          "type": "object"
+        },
+        "resources": {
+          "type": "object"
+        }
       }
     },
-
     "valkey": {
       "description": "Bundled Valkey subchart (packages/helm/charts/valkey), plus the parent-owned `sentinel` block that points the app at an external Sentinel topology instead.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
+        "enabled": {
+          "type": "boolean"
+        },
         "global": {
-          "description": "Injected by Helm into every subchart's values section before validation runs — see the postgresql block.",
+          "description": "Injected by Helm into every subchart's values section before validation runs \u2014 see the postgresql block.",
           "type": "object"
         },
-        "image": { "type": "object" },
+        "image": {
+          "type": "object"
+        },
         "auth": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "enabled": { "type": "boolean" },
-            "password": { "type": "string" }
+            "enabled": {
+              "type": "boolean"
+            },
+            "password": {
+              "type": "string"
+            }
           }
         },
-        "persistence": { "type": "object" },
-        "resources": { "type": "object" },
+        "persistence": {
+          "type": "object"
+        },
+        "resources": {
+          "type": "object"
+        },
         "sentinel": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "enabled": { "type": "boolean" },
-            "nodes": { "type": "string" },
-            "masterName": { "type": "string" },
-            "password": { "type": "string" },
-            "sentinelPassword": { "type": "string" },
-            "tls": { "type": "boolean" }
+            "enabled": {
+              "type": "boolean"
+            },
+            "nodes": {
+              "type": "string"
+            },
+            "masterName": {
+              "type": "string"
+            },
+            "password": {
+              "type": "string"
+            },
+            "sentinelPassword": {
+              "type": "string"
+            },
+            "tls": {
+              "type": "boolean"
+            }
           }
         }
       }
     },
-
     "networkPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "properties": { "enabled": { "type": "boolean" } }
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
     },
-
     "tests": {
       "type": "object",
       "additionalProperties": false,
@@ -205,14 +346,19 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "repository": { "type": "string" },
-            "tag": { "type": "string" }
+            "repository": {
+              "type": "string"
+            },
+            "tag": {
+              "type": "string"
+            }
           }
         },
-        "probeReadyz": { "type": "boolean" }
+        "probeReadyz": {
+          "type": "boolean"
+        }
       }
     },
-
     "podSecurityContext": {
       "description": "Rendered wholesale with toYaml into every pod spec. Open: the valid keys are Kubernetes', not this chart's.",
       "type": "object"
@@ -221,29 +367,45 @@
       "description": "Rendered wholesale with toYaml into every container spec. Open for the same reason as podSecurityContext.",
       "type": "object"
     },
-
     "celeryWorker": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "concurrency": { "type": "integer", "minimum": 1 },
-        "maxTasksPerChild": { "type": "integer", "minimum": 0 },
-        "extraArgs": { "type": "array", "items": { "type": "string" } }
+        "concurrency": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxTasksPerChild": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "extraArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     },
-
     "resources": {
       "description": "Per-tier resource requests/limits, each rendered wholesale with toYaml. The four tier keys are closed; their contents are open so extended resources (e.g. a vendor device plugin) still validate.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "api": { "type": "object" },
-        "worker": { "type": "object" },
-        "beat": { "type": "object" },
-        "web": { "type": "object" }
+        "api": {
+          "type": "object"
+        },
+        "worker": {
+          "type": "object"
+        },
+        "beat": {
+          "type": "object"
+        },
+        "web": {
+          "type": "object"
+        }
       }
     },
-
     "probes": {
       "type": "object",
       "additionalProperties": false,
@@ -252,79 +414,162 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "readinessPath": { "type": "string" },
-            "readinessInitialDelaySeconds": { "type": "integer", "minimum": 0 },
-            "readinessPeriodSeconds": { "type": "integer", "minimum": 1 },
-            "livenessPath": { "type": "string" },
-            "livenessInitialDelaySeconds": { "type": "integer", "minimum": 0 },
-            "livenessPeriodSeconds": { "type": "integer", "minimum": 1 }
+            "readinessPath": {
+              "type": "string"
+            },
+            "readinessInitialDelaySeconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "readinessPeriodSeconds": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "livenessPath": {
+              "type": "string"
+            },
+            "livenessInitialDelaySeconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "livenessPeriodSeconds": {
+              "type": "integer",
+              "minimum": 1
+            }
           }
         },
-        "worker": { "$ref": "#/definitions/celeryProbe" },
-        "beat": { "$ref": "#/definitions/celeryProbe" }
+        "worker": {
+          "$ref": "#/definitions/celeryProbe"
+        },
+        "beat": {
+          "$ref": "#/definitions/celeryProbe"
+        }
       }
     },
-
     "logging": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "level": { "type": "string", "enum": ["", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] }
+        "level": {
+          "type": "string",
+          "enum": [
+            "",
+            "DEBUG",
+            "INFO",
+            "WARNING",
+            "ERROR",
+            "CRITICAL"
+          ]
+        }
       }
     },
-
     "podDisruptionBudget": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
+        "enabled": {
+          "type": "boolean"
+        },
         "api": {
           "type": "object",
           "additionalProperties": false,
-          "properties": { "maxUnavailable": { "type": ["integer", "string"] } }
+          "properties": {
+            "maxUnavailable": {
+              "type": [
+                "integer",
+                "string"
+              ]
+            }
+          }
         },
         "worker": {
           "type": "object",
           "additionalProperties": false,
-          "properties": { "maxUnavailable": { "type": ["integer", "string"] } }
+          "properties": {
+            "maxUnavailable": {
+              "type": [
+                "integer",
+                "string"
+              ]
+            }
+          }
         }
       }
     },
-
     "autoscaling": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
+        "enabled": {
+          "type": "boolean"
+        },
         "api": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "minReplicas": { "type": "integer", "minimum": 1 },
-            "maxReplicas": { "type": "integer", "minimum": 1 },
-            "targetCPUUtilizationPercentage": { "type": ["integer", "string", "null"] },
-            "targetMemoryUtilizationPercentage": { "type": ["integer", "string", "null"] }
+            "minReplicas": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxReplicas": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "targetCPUUtilizationPercentage": {
+              "type": [
+                "integer",
+                "string",
+                "null"
+              ]
+            },
+            "targetMemoryUtilizationPercentage": {
+              "type": [
+                "integer",
+                "string",
+                "null"
+              ]
+            }
           }
         },
         "worker": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "enabled": { "type": "boolean" },
-            "minReplicas": { "type": "integer", "minimum": 1 },
-            "maxReplicas": { "type": "integer", "minimum": 1 },
-            "targetCPUUtilizationPercentage": { "type": ["integer", "string", "null"] }
+            "enabled": {
+              "type": "boolean"
+            },
+            "minReplicas": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxReplicas": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "targetCPUUtilizationPercentage": {
+              "type": [
+                "integer",
+                "string",
+                "null"
+              ]
+            }
           }
         }
       }
     },
-
     "env": {
-      "description": "Application env vars injected into the api, celery worker/beat, and the bootstrap/migrate init containers. Each value is either a scalar (rendered as a literal `value:`) or a single-key map `{secretKeyRef: {name, key}}`. Key names are the app's, so they are not enumerated here — but a value of the WRONG SHAPE is rejected.",
+      "description": "Application env vars injected into the api, celery worker/beat, and the bootstrap/migrate init containers. Each value is either a scalar (rendered as a literal `value:`) or a single-key map `{secretKeyRef: {name, key}}`. Key names are the app's, so they are not enumerated here \u2014 but a value of the WRONG SHAPE is rejected.",
       "type": "object",
       "additionalProperties": {
         "oneOf": [
-          { "type": ["string", "number", "boolean", "null"] },
+          {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
           {
             "type": "object",
             "additionalProperties": false,
@@ -333,8 +578,12 @@
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
-                  "name": { "type": "string" },
-                  "key": { "type": "string" }
+                  "name": {
+                    "type": "string"
+                  },
+                  "key": {
+                    "type": "string"
+                  }
                 }
               }
             }
@@ -342,7 +591,6 @@
         ]
       }
     },
-
     "envFrom": {
       "description": "Bulk env sources (Secret/ConfigMap) for the api, worker/beat, and init containers. A LIST, so Helm REPLACES it rather than merging: a values file that sets envFrom drops every entry it does not repeat.",
       "type": "array",
@@ -350,27 +598,36 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "prefix": { "type": "string" },
+          "prefix": {
+            "type": "string"
+          },
           "secretRef": {
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "name": { "type": "string" },
-              "optional": { "type": "boolean" }
+              "name": {
+                "type": "string"
+              },
+              "optional": {
+                "type": "boolean"
+              }
             }
           },
           "configMapRef": {
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "name": { "type": "string" },
-              "optional": { "type": "boolean" }
+              "name": {
+                "type": "string"
+              },
+              "optional": {
+                "type": "boolean"
+              }
             }
           }
         }
       }
     },
-
     "observability": {
       "type": "object",
       "additionalProperties": false,
@@ -379,15 +636,40 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "endpoint": { "type": "string" },
-            "protocol": { "type": "string", "enum": ["grpc", "http/protobuf"] },
-            "serviceName": { "type": "string" },
-            "enabled": { "type": "boolean" },
-            "tracesEnabled": { "type": "boolean" },
-            "metricsEnabled": { "type": "boolean" },
-            "tracesSampler": { "type": "string" },
-            "tracesSamplerArg": { "type": ["string", "number"] },
-            "headers": { "type": "string" },
+            "endpoint": {
+              "type": "string"
+            },
+            "protocol": {
+              "type": "string",
+              "enum": [
+                "grpc",
+                "http/protobuf"
+              ]
+            },
+            "serviceName": {
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "tracesEnabled": {
+              "type": "boolean"
+            },
+            "metricsEnabled": {
+              "type": "boolean"
+            },
+            "tracesSampler": {
+              "type": "string"
+            },
+            "tracesSamplerArg": {
+              "type": [
+                "string",
+                "number"
+              ]
+            },
+            "headers": {
+              "type": "string"
+            },
             "actorAttributes": {
               "description": "Stamp trueppm.user.id / trueppm.user.role on each request span (default true). False exports no per-user identifier; resource ids are unaffected.",
               "type": "boolean"
@@ -396,41 +678,76 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "name": { "type": "string" },
-                "key": { "type": "string" }
+                "name": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string"
+                }
               }
             },
             "exportHealth": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "enabled": { "type": "boolean" },
-                "stalenessSeconds": { "type": ["integer", "string", "null"] },
-                "healthyWithinSeconds": { "type": ["integer", "string", "null"] },
-                "windowSeconds": { "type": ["integer", "string", "null"] }
+                "enabled": {
+                  "type": "boolean"
+                },
+                "stalenessSeconds": {
+                  "type": [
+                    "integer",
+                    "string",
+                    "null"
+                  ]
+                },
+                "healthyWithinSeconds": {
+                  "type": [
+                    "integer",
+                    "string",
+                    "null"
+                  ]
+                },
+                "windowSeconds": {
+                  "type": [
+                    "integer",
+                    "string",
+                    "null"
+                  ]
+                }
               }
             }
           }
         }
       }
     },
-
     "dashboards": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
-        "label": { "type": "string" },
-        "labelValue": { "type": ["string", "integer"] },
-        "annotations": { "type": "object" }
+        "enabled": {
+          "type": "boolean"
+        },
+        "label": {
+          "type": "string"
+        },
+        "labelValue": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "annotations": {
+          "type": "object"
+        }
       }
     },
-
     "alerts": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
+        "enabled": {
+          "type": "boolean"
+        },
         "labels": {
           "description": "Extra labels stamped on the PrometheusRule, passed through with toYaml.",
           "type": "object"
@@ -439,125 +756,261 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "beatStaleFor": { "type": "string" },
-            "outboxDepth": { "type": "integer", "minimum": 0 },
-            "outboxDepthFor": { "type": "string" },
-            "outboxOldestAgeSeconds": { "type": "integer", "minimum": 0 },
-            "outboxOldestAgeFor": { "type": "string" },
-            "deadLetter": { "type": "integer", "minimum": 0 },
-            "deadLetterFor": { "type": "string" }
+            "beatStaleFor": {
+              "type": "string"
+            },
+            "outboxDepth": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "outboxDepthFor": {
+              "type": "string"
+            },
+            "outboxOldestAgeSeconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "outboxOldestAgeFor": {
+              "type": "string"
+            },
+            "deadLetter": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "deadLetterFor": {
+              "type": "string"
+            },
+            "emailTransportFor": {
+              "type": "string"
+            },
+            "emailFailed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "emailFailedFor": {
+              "type": "string"
+            },
+            "emailQueueAging": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "emailQueueAgingFor": {
+              "type": "string"
+            }
           }
         }
       }
     },
-
     "otelCollector": {
-      "description": "Documentation-only reminder flag. The chart reads nothing from here — run the Collector as a sibling release.",
+      "description": "Documentation-only reminder flag. The chart reads nothing from here \u2014 run the Collector as a sibling release.",
       "type": "object",
       "additionalProperties": false,
-      "properties": { "enabled": { "type": "boolean" } }
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
     },
-
     "backup": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
-        "schedule": { "type": "string" },
+        "enabled": {
+          "type": "boolean"
+        },
+        "schedule": {
+          "type": "string"
+        },
         "image": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "repository": { "type": "string" },
-            "tag": { "type": "string" },
-            "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+            "repository": {
+              "type": "string"
+            },
+            "tag": {
+              "type": "string"
+            },
+            "pullPolicy": {
+              "type": "string",
+              "enum": [
+                "Always",
+                "IfNotPresent",
+                "Never"
+              ]
+            }
           }
         },
-        "successfulJobsHistoryLimit": { "type": "integer", "minimum": 0 },
-        "failedJobsHistoryLimit": { "type": "integer", "minimum": 0 },
-        "outputDir": { "type": "string" },
-        "mediaDir": { "type": "string" },
-        "keepDaily": { "type": "integer", "minimum": 0 },
-        "keepWeekly": { "type": "integer", "minimum": 0 },
+        "successfulJobsHistoryLimit": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failedJobsHistoryLimit": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "outputDir": {
+          "type": "string"
+        },
+        "mediaDir": {
+          "type": "string"
+        },
+        "keepDaily": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "keepWeekly": {
+          "type": "integer",
+          "minimum": 0
+        },
         "persistence": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "enabled": { "type": "boolean" },
-            "existingClaim": { "type": "string" },
-            "storageClass": { "type": "string" },
-            "accessMode": { "type": "string" },
-            "size": { "type": "string" }
+            "enabled": {
+              "type": "boolean"
+            },
+            "existingClaim": {
+              "type": "string"
+            },
+            "storageClass": {
+              "type": "string"
+            },
+            "accessMode": {
+              "type": "string"
+            },
+            "size": {
+              "type": "string"
+            }
           }
         },
         "s3": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "enabled": { "type": "boolean" },
-            "bucket": { "type": "string" },
-            "endpoint": { "type": "string" },
-            "region": { "type": "string" },
-            "allowPlaintext": { "type": "boolean" },
-            "prefix": { "type": "string" },
-            "existingSecret": { "type": "string" },
+            "enabled": {
+              "type": "boolean"
+            },
+            "bucket": {
+              "type": "string"
+            },
+            "endpoint": {
+              "type": "string"
+            },
+            "region": {
+              "type": "string"
+            },
+            "allowPlaintext": {
+              "type": "boolean"
+            },
+            "prefix": {
+              "type": "string"
+            },
+            "existingSecret": {
+              "type": "string"
+            },
             "image": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "repository": { "type": "string" },
-                "tag": { "type": "string" },
-                "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+                "repository": {
+                  "type": "string"
+                },
+                "tag": {
+                  "type": "string"
+                },
+                "pullPolicy": {
+                  "type": "string",
+                  "enum": [
+                    "Always",
+                    "IfNotPresent",
+                    "Never"
+                  ]
+                }
               }
             }
           }
         },
-        "resources": { "type": "object" },
-        "extraVolumes": { "type": "array" },
-        "extraVolumeMounts": { "type": "array" }
+        "resources": {
+          "type": "object"
+        },
+        "extraVolumes": {
+          "type": "array"
+        },
+        "extraVolumeMounts": {
+          "type": "array"
+        }
       }
     },
-
     "admin": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "passwordFile": { "type": "string" },
-        "email": { "type": "string" }
+        "passwordFile": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        }
       }
     },
-
     "demo": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
-        "baseUrl": { "type": "string" },
+        "enabled": {
+          "type": "boolean"
+        },
+        "baseUrl": {
+          "type": "string"
+        },
         "shareToken": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "schedule": { "type": "string" },
-            "board": { "type": "string" }
+            "schedule": {
+              "type": "string"
+            },
+            "board": {
+              "type": "string"
+            }
           }
         },
-        "backoffLimit": { "type": "integer", "minimum": 0 },
-        "resources": { "type": "object" }
+        "backoffLimit": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resources": {
+          "type": "object"
+        }
       }
     }
   },
-
   "definitions": {
     "celeryProbe": {
       "description": "`celery inspect ping` exec probe knobs shared by the worker and beat deployments.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
-        "initialDelaySeconds": { "type": "integer", "minimum": 0 },
-        "periodSeconds": { "type": "integer", "minimum": 1 },
-        "timeoutSeconds": { "type": "integer", "minimum": 1 },
-        "failureThreshold": { "type": "integer", "minimum": 1 }
+        "enabled": {
+          "type": "boolean"
+        },
+        "initialDelaySeconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "periodSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "failureThreshold": {
+          "type": "integer",
+          "minimum": 1
+        }
       }
     }
   }
