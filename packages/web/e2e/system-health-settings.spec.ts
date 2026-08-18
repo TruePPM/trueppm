@@ -139,7 +139,7 @@ const TELEMETRY_TEST_SUCCESS = {
   endpoint: 'otel-collector.internal:4317',
   protocol: 'grpc',
   duration_ms: 84,
-  detail: 'Canary span accepted by the collector — the export path is working end to end.',
+  detail: 'Canary span accepted by the collector — the export path from this pod is working. Worker and beat pods export independently and carry most of the volume; the live export strip covers them.',
   checked_at: '2026-05-25T12:00:05Z',
 };
 
@@ -149,7 +149,8 @@ const TELEMETRY_TEST_FAILURE = {
   endpoint: 'otel-collector.internal:4317',
   protocol: 'grpc',
   duration_ms: 5012,
-  detail: 'The collector did not accept the canary span. Check that the collector is running.',
+  detail:
+    'The collector did not accept the canary span. Check that the collector is running, that the endpoint host and port are correct, and that the endpoint port matches OTEL_EXPORTER_OTLP_PROTOCOL (4317 for grpc, 4318 for http/protobuf).',
   checked_at: '2026-05-25T12:00:05Z',
 };
 
@@ -453,7 +454,15 @@ test.describe('Workspace Settings → Observability (#2250)', () => {
     await expect(page.getByText(/OTEL_EXPORTER_OTLP_ENDPOINT=/)).toBeVisible();
 
     await page.getByRole('button', { name: 'Helm values' }).click();
-    await expect(page.getByText(/helm upgrade trueppm/)).toBeVisible();
+    const helm = page.getByText(/helm upgrade trueppm/);
+    await expect(helm).toBeVisible();
+    // #2879: the snippet must emit the chart's observability.otlp block. A
+    // top-level `envFrom:` is a LIST, and Helm replaces lists — pasting it dropped
+    // the operator's trueppm-env Secret and crash-looped the migrate init container.
+    await expect(helm).toContainText('observability:');
+    await expect(helm).toContainText('headersSecret:');
+    await expect(helm).not.toContainText('envFrom:');
+    await expect(helm).not.toContainText('extraEnv');
   });
 
   test('Test export golden path reports a collector ACK', async ({ page }) => {
@@ -463,7 +472,7 @@ test.describe('Workspace Settings → Observability (#2250)', () => {
 
     await page.getByRole('button', { name: 'Test export' }).click();
     await expect(page.getByText('Collector accepted the canary span')).toBeVisible();
-    await expect(page.getByText(/working end to end/i)).toBeVisible();
+    await expect(page.getByText(/the export path from this pod is working/i)).toBeVisible();
   });
 
   test('Test export surfaces a failure outcome', async ({ page }) => {
@@ -510,6 +519,36 @@ test.describe('Workspace Settings → Observability (#2250)', () => {
     await expect(page.getByText(/Live export stats are unavailable/)).toBeVisible();
     // Config posture still renders — the strip failure never blanks the card.
     await expect(page.getByText('otel-collector.internal:4317')).toBeVisible();
+  });
+
+  test('re-reads the live strip on demand (#2880)', async ({ page }) => {
+    // The strip reports "8s ago · 1,204 spans" — true only when fetched. It shipped
+    // onto a page pinned to poll:false, so a stall beginning after load was
+    // invisible and nothing on the success path could re-read it. Counting the
+    // requests is what proves the button reaches the network rather than just
+    // rendering; asserting the numbers again would pass on a frozen page.
+    await setup(page);
+    // Registered AFTER setup on purpose: Playwright matches routes in reverse
+    // registration order, so a counter added first would be shadowed by setup's
+    // own handler and would sit at zero while the test still passed.
+    let reads = 0;
+    await page.route('**/api/v1/health/system/', async (r) => {
+      reads += 1;
+      await r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(FIXTURE_HEALTH),
+      });
+    });
+    await page.goto('/settings/observability');
+    await expect(page.getByRole('heading', { name: 'Observability' })).toBeVisible();
+    await expect(page.getByText(/1,204 spans/)).toBeVisible();
+
+    const before = reads;
+    await page.getByRole('button', { name: 'Refresh live export stats' }).click();
+    // Well under the routed page's 10s background poll, so only the click can
+    // account for the increment.
+    await expect.poll(() => reads, { timeout: 3000 }).toBeGreaterThan(before);
   });
 
   test('hides the program/project scope segments (workspace-only tool) (#2251)', async ({ page }) => {

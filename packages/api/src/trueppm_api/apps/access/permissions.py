@@ -51,6 +51,27 @@ def _get_project_id_from_obj(obj: Any) -> Any | None:
     return None
 
 
+#: Attribute names the per-request RBAC role caches live under. Read (never written)
+#: by the OTel request-span annotator, which sources ``trueppm.user.role`` from them
+#: so it costs no extra query — see ``observability/otel/request_attributes.py``.
+RBAC_ROLE_CACHE_ATTR = "_rbac_role_cache"
+PROGRAM_RBAC_ROLE_CACHE_ATTR = "_program_rbac_role_cache"
+
+
+def _cache_host(request: Request) -> Any:
+    """Return the object a per-request RBAC cache should be stored on.
+
+    The underlying Django ``HttpRequest`` rather than the DRF ``Request`` wrapper.
+    Lifetime and per-request identity are identical either way — DRF builds exactly
+    one wrapper per ``HttpRequest`` — but only the Django request survives into
+    ``process_response``, which is where OTel's Django ``response_hook`` runs and
+    where ``trueppm.user.role`` is read from (#2880). Reads through the DRF wrapper
+    keep working: DRF's ``Request.__getattr__`` proxies any unknown attribute to
+    ``self._request``.
+    """
+    return getattr(request, "_request", request)
+
+
 def _membership_role(request: Request, project_id: Any) -> int | None:
     """Return the requesting user's role ordinal for a project, or None if absent.
 
@@ -63,11 +84,12 @@ def _membership_role(request: Request, project_id: Any) -> int | None:
     if not request.user or not request.user.is_authenticated:
         return None
 
-    # Per-request cache: initialise lazily on the DRF request object.
-    cache: dict[str, int | None] | None = getattr(request, "_rbac_role_cache", None)
+    # Per-request cache, lazily initialised on the underlying Django request.
+    host = _cache_host(request)
+    cache: dict[str, int | None] | None = getattr(host, RBAC_ROLE_CACHE_ATTR, None)
     if cache is None:
         cache = {}
-        request._rbac_role_cache = cache  # type: ignore[attr-defined]
+        setattr(host, RBAC_ROLE_CACHE_ATTR, cache)
 
     cache_key = str(project_id)
     if cache_key in cache:
@@ -785,10 +807,11 @@ def _program_membership_role(request: Request, program_id: Any) -> int | None:
     if not request.user or not request.user.is_authenticated:
         return None
 
-    cache: dict[str, int | None] | None = getattr(request, "_program_rbac_role_cache", None)
+    host = _cache_host(request)
+    cache: dict[str, int | None] | None = getattr(host, PROGRAM_RBAC_ROLE_CACHE_ATTR, None)
     if cache is None:
         cache = {}
-        request._program_rbac_role_cache = cache  # type: ignore[attr-defined]
+        setattr(host, PROGRAM_RBAC_ROLE_CACHE_ATTR, cache)
 
     cache_key = str(program_id)
     if cache_key in cache:

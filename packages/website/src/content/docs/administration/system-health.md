@@ -144,10 +144,18 @@ the detail pane once the action has run.
 The list header offers **Requeue all** and **Drop all**, which apply the same action to
 **the current filter set** — for example, filter by task name to "all seven tasks routed
 to the vendor relay" and requeue them in one confirmation. Bulk actions are **bounded**:
-each run processes up to a fixed maximum (500 by default,
-`FAILED_TASK_BULK_ACTION_MAX`), oldest-first, so a "drop all" over a large parked queue
-cannot overload the database. When more tasks match than the cap, the result reports how
-many were processed and that the batch was capped — repeat the action to continue.
+each run processes up to a fixed maximum (500 by default, set with
+`TRUEPPM_FAILED_TASK_BULK_ACTION_MAX`), oldest-first, so a "drop all" over a large
+parked queue cannot overload the database. When more tasks match than the cap, the
+result reports how many were processed and that the batch was capped — repeat the
+action to continue.
+
+:::note[The cap becomes tunable in 0.4]
+The 500 bound applies on every release, but the environment variable that changes it
+lands in **0.4**. On the current release no settings module reads the name this page
+previously gave (`FAILED_TASK_BULK_ACTION_MAX`), so setting it has no effect and the
+default always wins.
+:::
 
 ## API
 

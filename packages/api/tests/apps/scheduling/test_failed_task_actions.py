@@ -227,6 +227,24 @@ class TestBulkActions:
         # Exactly one row was dropped despite three matching.
         assert FailedTask.objects.filter(status=FailedTaskStatus.DISMISSED).count() == 1
 
+    def test_the_bound_is_actually_bound_to_a_setting(self) -> None:
+        """The cap is documented as tunable, so a settings module has to bind it.
+
+        For its whole life the view read it as
+        ``getattr(settings, "FAILED_TASK_BULK_ACTION_MAX", 500)`` while NO settings
+        module defined the name, so the 500 always won and an operator who set the
+        env var per the System Health docs changed nothing (#2880 — the same class as
+        TRUEPPM_INTEGRATION_ALLOWED_HOSTS in #2860). A `getattr` default is exactly
+        what makes that invisible, so this asserts the binding exists rather than
+        that the constant has a value.
+        """
+        from django.conf import settings
+
+        from trueppm_api.apps.scheduling import views
+
+        assert hasattr(settings, "FAILED_TASK_BULK_ACTION_MAX")
+        assert views.FAILED_TASK_BULK_ACTION_MAX == settings.FAILED_TASK_BULK_ACTION_MAX
+
 
 @pytest.mark.django_db
 class TestPermissions:

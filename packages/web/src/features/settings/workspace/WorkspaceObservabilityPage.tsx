@@ -27,12 +27,18 @@ const NAV_GROUPS = buildWorkspaceNavGroups({ linked: true });
 /**
  * Observability content (title + telemetry card) with NO shell wrapper, so it
  * renders both as its own routed page and as an inline `<SettingsSection>` on the
- * consolidated `/settings` page (#2298). Telemetry posture is static env/Helm
- * config, so this reads `useSystemHealth({ poll: false })` — one fetch, no poll —
- * and shares that query with the System-health landing card on the same page.
+ * consolidated `/settings` page (#2298).
+ *
+ * `poll` defaults to FALSE for the inline rendering: the consolidated page is a
+ * form-editing surface and #2298 exists to keep a background poll out of it. But
+ * "telemetry posture is static env/Helm config" — the old rationale for pinning it
+ * everywhere — stopped being true when the live export-health strip landed (#2109),
+ * and the strip then sat frozen at page load, so a stall that began afterwards was
+ * invisible (#2880). The routed page passes `poll` so the strip is actually live;
+ * both renderings additionally get a manual refresh control on the strip itself.
  */
-export function ObservabilitySection() {
-  const { data, isLoading, error, refetch } = useSystemHealth({ poll: false });
+export function ObservabilitySection({ poll = false }: { poll?: boolean } = {}) {
+  const { data, isLoading, error, refetch } = useSystemHealth({ poll });
 
   const is403 = error !== null && axios.isAxiosError(error) && error.response?.status === 403;
 
@@ -64,7 +70,10 @@ export function ObservabilitySection() {
             )}
           </div>
         ) : (
-          <TelemetryCard telemetry={data!.telemetry} />
+          // Hand the card the refetch PROMISE, not `isFetching` — the polled query
+          // reports isFetching on every 10 s tick, and a control disabled on a timer
+          // ejects keyboard focus (rule 303). The card tracks its own busy state.
+          <TelemetryCard telemetry={data!.telemetry} onRefresh={() => refetch()} />
         )}
       </div>
     </>
@@ -88,7 +97,7 @@ export function WorkspaceObservabilityPage() {
       exitTo="/"
       exitLabel="Home"
     >
-      <ObservabilitySection />
+      <ObservabilitySection poll />
     </SettingsShell>
   );
 }

@@ -993,6 +993,17 @@ TRUEPPM_OTEL_EXPORT_HEALTH_HEALTHY_WITHIN_SECONDS: int = env.int(
 TRUEPPM_OTEL_EXPORT_HEALTH_WINDOW_SECONDS: int = env.int(
     "TRUEPPM_OTEL_EXPORT_HEALTH_WINDOW_SECONDS", default=60
 )
+# Actor attributes on the HTTP server span (#2880). When on (default), each request
+# span carries trueppm.user.id (the acting account's opaque UUID) and
+# trueppm.user.role (the symbolic project role the request was authorized under), so
+# a trace can be attributed to a who and a permission level without opening the
+# payload. NOTHING else about the person is ever exported under trueppm.user.* — no
+# email, username, display name, or client IP. Set false where a per-user identifier
+# must not leave the instance even to a self-hosted collector; resource identity
+# (trueppm.project.id / .program.id / .task.id) is unaffected either way.
+TRUEPPM_OTEL_ACTOR_ATTRIBUTES_ENABLED: bool = env.bool(
+    "TRUEPPM_OTEL_ACTOR_ATTRIBUTES_ENABLED", default=True
+)
 
 # ---------------------------------------------------------------------------
 # Structured logging + trace correlation (ADR-0223, #1899)
@@ -1688,6 +1699,21 @@ TIMETRACKING_TIMER_MAX_MINUTES: int = env.int("TIMETRACKING_TIMER_MAX_MINUTES", 
 # future or older than this many days, so a contributor can fill in last week but
 # not rewrite arbitrary history. Default 60 days.
 TIMETRACKING_BACKDATE_DAYS: int = env.int("TIMETRACKING_BACKDATE_DAYS", default=60)
+
+# ---------------------------------------------------------------------------
+# Dead-letter inspector bulk actions (ADR-0210)
+# ---------------------------------------------------------------------------
+
+# Upper bound on how many parked tasks one `requeue_all` / `drop_all` call may act
+# on, oldest-first; the response's `capped` flag tells the operator more remain
+# (ADR-0210 §4). Documented as tunable in docs → Administration → System Health, and
+# for its whole life it was not: `scheduling/views.py` read it with
+# `getattr(settings, "FAILED_TASK_BULK_ACTION_MAX", 500)` and no settings module
+# bound it, so the fallback always won and setting the env var did nothing (#2880 —
+# the same class as TRUEPPM_INTEGRATION_ALLOWED_HOSTS in #2860). The env var is
+# TRUEPPM_-prefixed per #1355; the setting name keeps its established spelling
+# because the view constant and its tests already reference it.
+FAILED_TASK_BULK_ACTION_MAX: int = env.int("TRUEPPM_FAILED_TASK_BULK_ACTION_MAX", default=500)
 
 # ---------------------------------------------------------------------------
 # Outbox retention + Beat liveness (ADR-0081)

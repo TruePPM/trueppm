@@ -253,20 +253,22 @@ class TestAttributeConvention:
         assert attributes.RESOURCE_EDITION == "trueppm.edition"
         assert attributes.RESOURCE_SERVICE_NAME == "service.name"
 
-    def test_span_keys_are_under_the_namespace(self) -> None:
-        span_keys = [
-            attributes.PROJECT_ID,
-            attributes.PROJECT_KEY,
-            attributes.PROGRAM_ID,
-            attributes.TASK_ID,
-            attributes.BOARD_ID,
-            attributes.USER_ID,
-            attributes.USER_ROLE,
-            attributes.SCHEDULE_RECOMPUTE_REASON,
-            attributes.REQUEST_EDITION,
-        ]
-        for key in span_keys:
+    def test_span_keys_are_classified_as_emitted_or_reserved(self) -> None:
+        """Naming a key is not publishing it — every key must state which it is.
+
+        This replaces an iteration over nine constants that asserted only
+        ``key.startswith("trueppm.")`` (#2880). Seven of those nine had zero emit
+        sites, so the assertion passed for years while the contract they belonged to
+        promised the enterprise edition it could depend on them. The emission itself
+        is asserted in ``test_otel_attribute_contract.py`` by running the consumers;
+        what this pins is that no key can sit in the module unclassified.
+        """
+        for key in attributes.SPAN_ATTRIBUTES:
             assert key.startswith("trueppm.")
+            assert (
+                key in attributes.EMITTED_SPAN_ATTRIBUTES
+                or key in attributes.RESERVED_SPAN_ATTRIBUTES
+            ), f"{key} is published but classified as neither emitted nor reserved"
 
     def test_all_exported_names_resolve(self) -> None:
         for name in attributes.__all__:
