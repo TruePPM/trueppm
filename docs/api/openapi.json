@@ -16051,6 +16051,76 @@
                 "summary": "Delete board view"
             }
         },
+        "/api/v1/projects/{id}/board/lanes/": {
+            "get": {
+                "operationId": "v1_projects_board_lanes_retrieve",
+                "description": "The board's swimlane grouping, as a server fact (#2953, ADR-0843).\n\nLanes are **real container ids plus the project node** — there is no synthetic catch-all lane and no promotion of childless rows. Three invariants, identical to the web client's:\n\n1. A container is never a card, at any depth.\n2. Every task appears exactly once, in the lane of its top-level container ancestor; a nested container travels on the card as a crumb.\n3. Root-level work belongs to the project node, whose lane carries the project's name and is absent when it holds nothing.\n\nThis closes the #986 API-first gap: the grouping previously existed only in the browser, so no agent, MCP client or integration could reproduce the board a human sees.",
+                "summary": "Board swimlanes",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "group_depth",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "WBS depth at which lanes are cut. Defaults to 1. No UI exposes this; it exists so a client may ask. Measured 2026-08-18, 94.9% of leaf rows sit at depth <= 2 and carry no crumb at all."
+                    },
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sprints"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BoardLanes"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/burn/": {
             "get": {
                 "operationId": "v1_projects_burn_retrieve",
@@ -44715,6 +44785,65 @@
                 },
                 "required": [
                     "columns"
+                ]
+            },
+            "BoardLane": {
+                "type": "object",
+                "description": "One board swimlane (#2953).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Container task id, or `root` for the project node."
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "The container's name, or the project's own name for the root lane."
+                    },
+                    "is_root": {
+                        "type": "boolean",
+                        "description": "True for the project-node lane. Says WHICH object it is, not that it lacks one."
+                    },
+                    "task_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Cards in this lane, in WBS order. A container is never among them."
+                    }
+                },
+                "required": [
+                    "id",
+                    "is_root",
+                    "name",
+                    "task_ids"
+                ]
+            },
+            "BoardLanes": {
+                "type": "object",
+                "description": "The board's lane grouping (#2953, ADR-0843).\n\nDeclared as a real serializer rather than ``OpenApiTypes.OBJECT`` so the\nshape is visible to anyone diffing the schema — see #2942 for what OBJECT\ncosts.",
+                "properties": {
+                    "group_depth": {
+                        "type": "integer",
+                        "description": "Depth the lanes were cut at."
+                    },
+                    "lanes": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BoardLane"
+                        }
+                    },
+                    "crumbs": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        },
+                        "description": "task id → the name of the nested container it actually sits in, when that differs from its lane. Absent for a card sitting directly in its lane, which is the overwhelming majority."
+                    }
+                },
+                "required": [
+                    "crumbs",
+                    "group_depth",
+                    "lanes"
                 ]
             },
             "BoardSavedView": {

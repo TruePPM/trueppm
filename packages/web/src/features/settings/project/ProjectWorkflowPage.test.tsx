@@ -212,11 +212,15 @@ describe('ProjectWorkflowPage — Phases section', () => {
     expect(within(phasesSection).getByText('8 tasks')).toBeInTheDocument();
   });
 
-  it('add-phase button triggers create with a default name', async () => {
-    const user = userEvent.setup();
+  it('offers no way to manufacture an empty phase from settings (#2952)', () => {
+    // The button created a childless container literally named "New phase" —
+    // the exact defect the creation-coherence work exists to remove, and why
+    // the board used to render the same object as a lane and a card
+    // (ADR-0843). A phase now comes from the authoring gesture, where it
+    // arrives with work in it. Nothing replaces the button.
     renderPage();
-    await user.click(screen.getByRole('button', { name: /\+ Add phase/i }));
-    expect(phaseCreate).toHaveBeenCalledWith({ name: 'New phase' });
+    expect(screen.queryByRole('button', { name: /\+ Add phase/i })).not.toBeInTheDocument();
+    expect(phaseCreate).not.toHaveBeenCalled();
   });
 
   it('names the inline rename field for assistive tech (issue 2199)', async () => {
@@ -243,7 +247,25 @@ describe('ProjectWorkflowPage — Phases section', () => {
   it('hides edit controls for MEMBER role', () => {
     useCurrentUserRole.mockReturnValue({ role: ROLE_MEMBER, isLoading: false });
     renderPage();
-    expect(screen.queryByRole('button', { name: /\+ Add phase/i })).not.toBeInTheDocument();
+    // The rename affordance is the edit control that remains here now that
+    // "+ Add phase" is gone for everyone (#2952).
+    expect(screen.queryByRole('button', { name: /^Engineering$/ })).not.toBeInTheDocument();
+  });
+
+  it('the empty state says where phases actually come from (#2952)', () => {
+    // Deleting the create button without saying where phases come from would
+    // dead-end the page — the wayfinding failure class in #2864.
+    useProjectPhases.mockReturnValue({
+      phases: [],
+      isLoading: false,
+      create: { mutate: phaseCreate, isPending: false },
+      update: { mutate: phaseUpdate },
+      remove: { mutate: vi.fn() },
+      reorder: { mutate: vi.fn() },
+    });
+    renderPage();
+    expect(screen.getByRole('link', { name: 'schedule' })).toBeInTheDocument();
+    expect(screen.getByText(/indenting a task under another/)).toBeInTheDocument();
   });
 
   it('shows empty state when there are no phases', () => {

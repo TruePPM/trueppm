@@ -62,6 +62,7 @@ from trueppm_api.apps.projects.views import (
     BaselineActivateView,
     BaselineViewSet,
     BoardColumnConfigView,
+    BoardLanesView,
     BoardSavedViewDetailView,
     BoardSavedViewListView,
     CalendarExceptionViewSet,
@@ -210,6 +211,11 @@ urlpatterns = [
         "projects/<project_pk>/baselines/<baseline_pk>/activate/",
         BaselineActivateView.as_view(),
         name="project-baselines-activate",
+    ),
+    path(
+        "projects/<pk>/board/lanes/",
+        BoardLanesView.as_view(),
+        name="project-board-lanes",
     ),
     path(
         "projects/<pk>/board-config/",

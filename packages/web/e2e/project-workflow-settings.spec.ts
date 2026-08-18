@@ -6,7 +6,7 @@ import { setupCatchAll } from './fixtures/api-mocks';
  *
  * Verifies the page is wired to the real /phases/, /board-config/, and
  * /fields/ endpoints — the stub PHASES / STATUSES / FIELDS arrays are gone:
- * - Phases list renders from GET /phases/ and "+ Add phase" POSTs it.
+ * - Phases list renders from GET /phases/; phase CREATION is deliberately absent (#2952).
  * - Status visibility toggle issues a PUT /board-config/.
  * - "+ New field" opens a modal whose Add button POSTs to /fields/.
  * - The stub banner is no longer rendered.
@@ -298,15 +298,16 @@ test.describe('Project Settings → Workflow (#521)', () => {
     ).toHaveCount(0);
   });
 
-  test('+ Add phase POSTs to /phases/ with the default name', async ({ page }) => {
+  test('settings offers no way to manufacture an empty phase (#2952)', async ({ page }) => {
+    // "+ Add phase" created a childless container named "New phase" — the exact
+    // defect the creation-coherence work removes. A phase now comes from the
+    // authoring gesture, arriving with work in it. Nothing replaces the button.
     const captures: Captures = {};
     await setup(page, captures);
     await page.goto(`/projects/${PROJECT_ID}/settings/workflow`);
 
-    await page.getByRole('button', { name: /\+ Add phase/i }).click();
-    await expect
-      .poll(() => captures.phaseCreate)
-      .toEqual(expect.objectContaining({ name: 'New phase' }));
+    await expect(page.getByRole('button', { name: /\+ Add phase/i })).toHaveCount(0);
+    expect(captures.phaseCreate).toBeUndefined();
   });
 
   test('Hide column toggle issues a PUT /board-config/ with visible=false', async ({ page }) => {
