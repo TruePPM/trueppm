@@ -13,6 +13,7 @@ import { cardSignalToneClass } from '../cardSignal';
 import { CardSignalChips } from './CardSignalChips';
 import { cardTitleToneClass, cpTooltip } from './cardFormat';
 import type { BoardCardView } from './useBoardCardView';
+import { useLaneCrumb } from '../LaneCrumbContext';
 
 /** Progress-strip fill: red on a critical card, green at 100%, brand otherwise. */
 function progressColorClass(showCriticalState: boolean, effectiveProgress: number): string {
@@ -103,9 +104,24 @@ export function CardCompactBody({
   const { el: titleEl, setEl: setTitleEl } = useElementRef<HTMLSpanElement>();
   const titleOverflowing = useIsOverflowing(titleEl);
 
+  // The nested phase this card sits in (#2947). It renders here as well as on
+  // the full card because mobile pins compact density — and under the case 16
+  // rule the crumb is the *only* carrier of that fact, now that a nested phase
+  // is no longer a lane of its own. Omitting it here would leave the phone with
+  // strictly less information than before the rule landed.
+  const laneCrumb = useLaneCrumb(task.id);
+
   return (
     <>
       <div className="pl-2.5 pr-8 py-2 flex items-center gap-1 min-w-0">
+        {laneCrumb && (
+          <span
+            className="text-xs text-neutral-text-secondary shrink min-w-0 max-w-[40%] truncate"
+            title={`In ${laneCrumb}`}
+          >
+            {laneCrumb} <span aria-hidden="true">&#9656;</span>
+          </span>
+        )}
         <span
           ref={setTitleEl}
           className={[

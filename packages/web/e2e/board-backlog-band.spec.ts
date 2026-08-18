@@ -167,9 +167,9 @@ test.describe('Board BACKLOG rail (ADR-0057, epic #361 child A)', () => {
     await expect(rail.getByText(/stalled/i)).toHaveCount(0);
   });
 
-  test('synthetic Project Tasks lane defaults task creation to BACKLOG (issue #387)', async ({ page }) => {
+  test('empty backlog-only root lane defaults task creation to BACKLOG (issue #387)', async ({ page }) => {
     // #387 — Option C from the VoC panel. On a phase-less project the
-    // Project Tasks lane is intake scaffolding, so its "+" button reads
+    // project-node lane is intake scaffolding, so its "+" button reads
     // "Add to backlog" and TaskFormModal opens with status pre-set to
     // BACKLOG. Phase lanes are unaffected (covered by board.spec.ts).
     const PHASE_LESS_BACKLOG = {
@@ -197,11 +197,11 @@ test.describe('Board BACKLOG rail (ADR-0057, epic #361 child A)', () => {
     await expect(statusSelect).toHaveValue('BACKLOG');
   });
 
-  test('phase-less project still renders Project Tasks lane as a drop target (issue #386)', async ({ page }) => {
+  test('phase-less project still renders the project-node lane as a drop target (issue #386)', async ({ page }) => {
     // Fixture: ONE backlog card, NO summary tasks, NO committed cards.
     // Without #386 the grid renders the empty-state copy and the rail's
     // "Drag right onto a phase" affordance has no target; with the fix
-    // the synthetic Project Tasks lane appears with the four status columns.
+    // the project-node lane appears with the four status columns.
     const PHASE_LESS_BACKLOG = {
       id: 'idea-phaseless',
       wbs_path: '1',
@@ -222,8 +222,12 @@ test.describe('Board BACKLOG rail (ADR-0057, epic #361 child A)', () => {
     // (#1934: the board's zero-task state is now the warm shared EmptyState.)
     await expect(page.getByText(/Add your first task to get started/)).toHaveCount(0);
 
-    // Project Tasks lane appears with the four status columns to drop onto.
-    await expect(page.getByText('Project Tasks')).toBeVisible();
+    // The project-node lane appears with the four status columns to drop onto.
+    // It carries the project's own name now, not a synthetic label (#2947), so
+    // scope to the swimlane role — the name also appears in the board header.
+    await expect(
+      page.getByRole('group', { name: 'Backlog Rail Test Project swimlane' }),
+    ).toBeVisible();
     await expect(page.getByRole('heading', { name: /^To Do,/ })).toBeVisible();
     await expect(page.getByRole('heading', { name: /^In Progress,/ })).toBeVisible();
     await expect(page.getByRole('heading', { name: /^Review,/ })).toBeVisible();

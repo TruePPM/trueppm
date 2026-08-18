@@ -2,8 +2,10 @@
  * Board view — progress-aware Kanban with phase swimlanes (issue #130).
  *
  * Layout:
- *   - Rows = WBS phases (summary tasks). Tasks with no summary parent appear
- *     in a "Project Tasks" lane at the bottom.
+ *   - Rows = top-level WBS containers, plus the project node itself for work
+ *     that hangs off no container. A container is never also a card, and a card
+ *     below a nested container renders in its top-level lane wearing a crumb
+ *     (case 16 rendering rule, #2947 — see `laneAssignment.ts`).
  *   - Columns = task status (To Do / In Progress / On Hold / Done).
  *   - Each cell is an individual dnd-kit droppable (id = `${phaseId}:${status}`).
  *     Dropping a card updates its status; phase membership follows parentId.
@@ -17,6 +19,8 @@
  * features from the design doc (p3m-vs-oss-views-original.html § ⑤).
  */
 import { selectVisibleCards, DEFAULT_CELL_CAP } from './cellCap';
+import { buildLaneIndex, collectLaneHeads, ROOT_LANE_ID } from './laneAssignment';
+import { LaneCrumbProvider } from './LaneCrumbContext';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import {
   memo,
@@ -243,91 +247,75 @@ function sortTasksBy(tasks: Task[], sort: BoardSortKey): Task[] {
 // ---------------------------------------------------------------------------
 
 interface Phase {
-  id: string; // summary task ID, or 'root' for ungrouped
+  /** Container task id, or {@link ROOT_LANE_ID} for work on the project node. */
+  id: string;
+  /**
+   * True for the project-node lane. Distinct from "has no summary task": it
+   * says *which* object the lane is, not that it lacks one.
+   */
+  isRoot?: boolean;
   name: string;
   tasks: Task[];
   summaryTask: Task | undefined;
 }
 
 /**
- * Group leaf tasks by their parent (phase) summary task.
- * Summary tasks are excluded from cards — they appear as lane headers.
+ * Lane construction — the case 16 rendering rule (#2947, epic #2946).
  *
- * In workshop mode, root-level tasks (parentId === null) that aren't yet
- * summary tasks are treated as proto-phases so a newly created phase appears
- * as an empty column before any child tasks are added (the backend only sets
- * is_summary=true once children exist).  Empty phases are also kept visible
- * so participants can see and fill them during the session.
- */
-/**
- * The tasks that become columns, in board order.
+ * Lanes are **real container ids plus the root node**. A container is never a
+ * card; a card sits in the lane of its top-level container ancestor and wears a
+ * crumb naming any deeper container it actually lives in. The rule itself is
+ * `laneAssignment.ts`, kept separate because it is the part with invariants
+ * worth testing on its own.
  *
- * Workshop mode additionally promotes every childless root task to a column, so
- * a freshly-drafted phase shows up before the backend flips `is_summary` (which
- * it only does once children exist).
+ * Two things that used to happen here, and no longer do:
+ *
+ *  - **The synthetic `Project Tasks` lane is gone.** Root-level work belongs to
+ *    the project node, so the lane carries the project's own name. A lane with
+ *    no object behind it could not be renamed, reordered, linked or scheduled,
+ *    and its `+` had to say `Add to backlog` because there was nothing to name.
+ *  - **Workshop mode no longer promotes childless roots to lanes.** An object's
+ *    identity must not depend on which mode the viewer has toggled. Declaring
+ *    the role — and with it a legal empty container — is `structure_role` in
+ *    0.5 (#2946); until then a childless row is a task, consistently.
  */
-function collectPhaseHeads(
-  allTasks: Task[],
-  workshopMode: boolean,
-): { summaryById: Map<string, Task>; summaryOrder: string[] } {
-  const summaryById = new Map<string, Task>();
-  const summaryOrder: string[] = [];
-  const claim = (t: Task) => {
-    summaryById.set(t.id, t);
-    summaryOrder.push(t.id);
-  };
-
+function buildPhases(allTasks: Task[], projectName: string | undefined): Phase[] {
+  const placements = buildLaneIndex(allTasks);
+  const byLane = new Map<string, Task[]>();
   for (const t of allTasks) {
-    if (t.isSummary) claim(t);
+    const placement = placements.get(t.id);
+    if (!placement) continue; // a container: invariant 1, never a card
+    const arr = byLane.get(placement.laneId) ?? [];
+    arr.push(t);
+    byLane.set(placement.laneId, arr);
   }
-  if (workshopMode) {
-    for (const t of allTasks) {
-      if (!t.isSummary && t.parentId === null && !summaryById.has(t.id)) claim(t);
-    }
-  }
-  return { summaryById, summaryOrder };
-}
 
-/**
- * Split the non-column tasks into per-column buckets and the leftovers that
- * hang off no column at all (rendered as the "Project Tasks" catch-all).
- */
-function bucketByPhase(
-  allTasks: Task[],
-  summaryById: Map<string, Task>,
-): { byPhase: Map<string, Task[]>; rootTasks: Task[] } {
-  const byPhase = new Map<string, Task[]>();
-  const rootTasks: Task[] = [];
-
-  for (const t of allTasks) {
-    if (summaryById.has(t.id)) continue;
-    const parentId = t.parentId;
-    if (parentId && summaryById.has(parentId)) {
-      const arr = byPhase.get(parentId) ?? [];
-      arr.push(t);
-      byPhase.set(parentId, arr);
-    } else {
-      rootTasks.push(t);
-    }
-  }
-  return { byPhase, rootTasks };
-}
-
-function buildPhases(allTasks: Task[], workshopMode = false): Phase[] {
-  const { summaryById, summaryOrder } = collectPhaseHeads(allTasks, workshopMode);
-  const { byPhase, rootTasks } = bucketByPhase(allTasks, summaryById);
-
-  const phases: Phase[] = summaryOrder
-    .map((id) => ({
-      id,
-      name: summaryById.get(id)!.name,
-      summaryTask: summaryById.get(id),
-      tasks: byPhase.get(id) ?? [],
+  // A lane that ends up with no cards here is one the *caller* filtered to
+  // nothing — a sprint scope, a lens chip, the backlog partition — not a phase
+  // someone declared empty. Hiding it is right, and it is why the board can
+  // still reach its "No tasks yet" empty state. Making a genuinely empty
+  // container legal and visible needs `structure_role` to tell the two apart,
+  // which is 0.5 (#2946); until then there is no such thing to render.
+  const phases: Phase[] = collectLaneHeads(allTasks)
+    .map((head) => ({
+      id: head.id,
+      name: head.name,
+      summaryTask: head,
+      tasks: byLane.get(head.id) ?? [],
     }))
-    .filter((p) => workshopMode || p.tasks.length > 0);
+    .filter((p) => p.tasks.length > 0);
 
+  // The root lane is a real node, so it is named after the project — and it is
+  // absent when it holds nothing, rather than standing there empty.
+  const rootTasks = byLane.get(ROOT_LANE_ID) ?? [];
   if (rootTasks.length > 0) {
-    phases.push({ id: 'root', name: 'Project Tasks', summaryTask: undefined, tasks: rootTasks });
+    phases.push({
+      id: ROOT_LANE_ID,
+      name: projectName ?? 'Project',
+      summaryTask: undefined,
+      tasks: rootTasks,
+      isRoot: true,
+    });
   }
 
   return phases;
@@ -1135,13 +1123,14 @@ function PhaseLaneImpl({
   const avg = phaseProgress(phase);
   const committedTaskCount = phase.tasks.filter(isTaskScheduled).length;
   const color = phaseColor(phase.id);
-  // Synthetic phase-less Project Tasks lane (#386 / #387): the only way the
-  // 'root' lane has zero tasks is when the `phases` useMemo injected it
-  // because the project has no committed structure but at least one BACKLOG
-  // card exists. The real 'root' lane (parentless committed tasks) always
-  // has tasks.length > 0 by construction in `buildPhases`. When synthetic,
-  // the "+ Add task" button reads "Add to backlog" and the modal defaults
-  // status to BACKLOG — VoC consensus on the BACKLOG-vs-TO-DO question.
+  // Backlog-only project (#386 / #387): the only way the root lane renders with
+  // zero cards is the `phases` useMemo injecting it because the project has no
+  // committed structure at all but does have a BACKLOG card to promote. A root
+  // lane built from real work always has tasks.length > 0 by construction in
+  // `buildPhases`. In that one empty case the "+ Add task" button reads
+  // "Add to backlog" and the modal defaults status to BACKLOG — VoC consensus
+  // on the BACKLOG-vs-TO-DO question. The name is now the project's own; the
+  // synthetic "Project Tasks" label is gone with the synthetic lane (#2947).
   const isSynthetic = phase.id === 'root' && phase.tasks.length === 0;
 
   // Aggregate cost data for phase header (issue #189).
@@ -2160,6 +2149,20 @@ export function BoardView() {
     return m;
   }, [tasks]);
 
+  // Where each card renders, and the deeper container it wears as a crumb —
+  // the single source both the lanes and the drop path read, so a drop can
+  // never disagree with what was drawn (#2947).
+  const laneIndex = useMemo(() => buildLaneIndex(committedTasks), [committedTasks]);
+  // Narrowed to just the crumb so the context value changes only when a card's
+  // containing phase changes, not on every lane recompute.
+  const laneCrumbs = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const [id, placement] of laneIndex) {
+      if (placement.crumb) m.set(id, placement.crumb);
+    }
+    return m;
+  }, [laneIndex]);
+
   const phases = useMemo<Phase[]>(() => {
     // Epic grouping (364): one lane per parent epic + a "(No epic)" lane. A pure
     // client lens over the same cards — read-only (the epic FK is edited from the
@@ -2173,20 +2176,24 @@ export function BoardView() {
     if (groupMode === 'assignee') {
       return buildAssigneeLanes(committedTasks);
     }
-    const built = buildPhases(committedTasks, workshopMode);
-    // #386: phase-less projects with at least one backlog card need a drop
-    // target so the rail/drawer's "Drag right onto a phase" affordance works.
-    // The synthetic 'root' lane already covers parentless committed tasks
-    // (`buildPhases` injects it when rootTasks.length > 0); extend the same
-    // injection to "has backlog but nothing committed" so promote-from-band
-    // lands on `parent_id = null`. Workshop mode is a separate path (it
-    // already shows + Add Phase as the empty CTA), so skip there.
-    const hasRootLane = built.some((p) => p.id === 'root');
+    const built = buildPhases(committedTasks, projectName);
+    // #386: a project with no committed structure but at least one backlog card
+    // still needs a drop target, so the rail/drawer's "drag right onto a phase"
+    // affordance has somewhere to land (`parent_id = null`). That is the one
+    // case where the root lane renders empty — it is still the project node,
+    // named after the project, not a synthetic catch-all (#2947).
+    const hasRootLane = built.some((p) => p.id === ROOT_LANE_ID);
     if (!workshopMode && !hasRootLane && built.length === 0 && backlogTasks.length > 0) {
-      built.push({ id: 'root', name: 'Project Tasks', summaryTask: undefined, tasks: [] });
+      built.push({
+        id: ROOT_LANE_ID,
+        name: projectName ?? 'Project',
+        summaryTask: undefined,
+        tasks: [],
+        isRoot: true,
+      });
     }
     return built;
-  }, [committedTasks, workshopMode, backlogTasks.length, groupMode, epicNameById]);
+  }, [committedTasks, workshopMode, backlogTasks.length, groupMode, epicNameById, projectName]);
 
   // Board PDF export (issue 326, ADR-0159). An off-screen `BoardPrintLayout`
   // (mounted below) is rasterized on demand; we render it from the same
@@ -2545,7 +2552,13 @@ export function BoardView() {
       // deliberate assignee/epic status-only asymmetry below (drag-to-reassign
       // isn't available yet) is untouched — this fix is scoped to phase-lane
       // grouping only.
-      const phaseChanged = groupMode === 'phase' && newPhaseId !== (task.parentId ?? 'root');
+      // Compare against the lane the card is actually IN, not its parentId.
+      // Under the case 16 rule those differ for any card below a nested
+      // container: a card parented to `2.3 Electrical` renders in lane `2`, so
+      // keying on parentId would read a drop back onto its own lane as a
+      // re-parent and flatten it out of `2.3` (#2947).
+      const currentLaneId = laneIndex.get(task.id)?.laneId ?? ROOT_LANE_ID;
+      const phaseChanged = groupMode === 'phase' && newPhaseId !== currentLaneId;
       // Cross-lane drag under assignee (324) or epic (364) grouping: drag-to-
       // reassign is a deferred follow-up, so a drop into a different assignee or
       // epic lane never changes the assignee or the parent epic. A status
@@ -2603,6 +2616,7 @@ export function BoardView() {
       groupMode,
       guardWipThenMove,
       iterationLabel,
+      laneIndex,
       projectId,
       readOnly,
       selectedSprint,
@@ -2992,7 +3006,7 @@ export function BoardView() {
   }
 
   return (
-    <>
+    <LaneCrumbProvider value={laneCrumbs}>
       {/* aria-live region for status change announcements (rule 105) */}
       <div ref={ariaLiveRef} aria-live="polite" className="sr-only" />
       <h1 className="sr-only">Board</h1>
@@ -3360,6 +3374,6 @@ export function BoardView() {
         canManageScope={canManageScope}
         onCloseScopeReview={() => setScopeReviewOpen(false)}
       />
-    </>
+    </LaneCrumbProvider>
   );
 }

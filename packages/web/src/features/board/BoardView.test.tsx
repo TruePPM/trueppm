@@ -425,10 +425,13 @@ describe('BoardView', () => {
     expect(screen.getByRole('textbox', { name: /Capture a backlog idea/i })).toBeInTheDocument();
   });
 
-  it('renders an "Project Tasks" lane for ungrouped tasks', () => {
+  it('names the root lane after the project, not a synthetic "Project Tasks" label (#2947)', () => {
     renderBoard();
-    // t7 "Documentation" has no summary parent — appears in "Project Tasks" lane
-    expect(screen.getByText('Project Tasks')).toBeInTheDocument();
+    // t7 "Documentation" has no summary parent — so it appears in the project-node
+    // lane, which carries the project's own name (#2947).
+    // Scoped to the swimlane role: the project name also appears in the board
+    // header, so a bare text match is ambiguous under strict mode.
+    expect(screen.getByRole('group', { name: 'Test Project swimlane' })).toBeInTheDocument();
     expect(screen.getByText('Documentation')).toBeInTheDocument();
   });
 
@@ -541,12 +544,94 @@ describe('BoardView', () => {
   });
 
   // -------------------------------------------------------------------------
+  // The case 16 rendering rule (#2947, epic #2946): one object, one rendering.
+  // -------------------------------------------------------------------------
+  describe('rendering rule — a container is never a card (#2947)', () => {
+    // 1 Mobilization > 1.1 Permits
+    // 2 Procurement  > 2.3 Electrical > Switchgear PO
+    function nestedTree(): Task[] {
+      const base = FIXTURE_TASKS[1];
+      const mk = (over: Partial<Task> & { id: string; name: string }): Task => ({
+        ...base,
+        isSummary: false,
+        isMilestone: false,
+        parentId: null,
+        status: 'NOT_STARTED',
+        progress: 0,
+        ...over,
+      });
+      return [
+        mk({ id: 'p1', name: 'Mobilization', isSummary: true }),
+        mk({ id: 'p1a', name: 'Site access permits', parentId: 'p1' }),
+        mk({ id: 'p2', name: 'Long-lead procurement', isSummary: true }),
+        mk({ id: 'p2c', name: 'Electrical', parentId: 'p2', isSummary: true }),
+        mk({ id: 'p2c1', name: 'Switchgear PO', parentId: 'p2c' }),
+      ];
+    }
+
+    it('renders a lane per TOP-LEVEL container only — a nested one does not get its own', () => {
+      mockTasks = nestedTree();
+      renderBoard();
+      expect(screen.getByRole('group', { name: 'Mobilization swimlane' })).toBeInTheDocument();
+      expect(
+        screen.getByRole('group', { name: 'Long-lead procurement swimlane' }),
+      ).toBeInTheDocument();
+      // The nested container is not a lane...
+      expect(screen.queryByRole('group', { name: 'Electrical swimlane' })).not.toBeInTheDocument();
+    });
+
+    it('never renders a container as a card, at any depth', () => {
+      mockTasks = nestedTree();
+      renderBoard();
+      const lane = screen.getByRole('group', { name: 'Long-lead procurement swimlane' });
+      // ...and it is not a card inside its parent's lane either. This is the
+      // duplicate the design named: the same object as a lane and a card.
+      // "Electrical" may appear exactly once in the lane, as the crumb on its
+      // own child's card — never as a card of its own.
+      const mentions = within(lane).getAllByText('Electrical');
+      expect(mentions).toHaveLength(1);
+      expect(mentions[0]).toHaveAttribute('title', 'In Electrical');
+      expect(within(lane).getByText('Switchgear PO')).toBeInTheDocument();
+    });
+
+    it("carries the nested container's name on the card as a crumb", () => {
+      mockTasks = nestedTree();
+      renderBoard();
+      const lane = screen.getByRole('group', { name: 'Long-lead procurement swimlane' });
+      // The structure the lane cannot show travels on the card instead, so
+      // collapsing depth does not lose the fact.
+      expect(within(lane).getByTitle('In Electrical')).toBeInTheDocument();
+    });
+
+    it('carries the crumb at compact density too — mobile pins compact', () => {
+      // The crumb is the only carrier of "which phase" once a nested phase
+      // stops being a lane. Rendering it on the full card alone would leave the
+      // phone with less information than before the rule landed (#2947).
+      mockTasks = nestedTree();
+      const user = userEvent.setup();
+      renderBoard();
+      return setBoardDensity(user, 'compact').then(() => {
+        const lane = screen.getByRole('group', { name: 'Long-lead procurement swimlane' });
+        expect(within(lane).getByTitle('In Electrical')).toBeInTheDocument();
+      });
+    });
+
+    it('carries no crumb on a card that sits directly in its lane', () => {
+      mockTasks = nestedTree();
+      renderBoard();
+      const lane = screen.getByRole('group', { name: 'Mobilization swimlane' });
+      expect(within(lane).getByText('Site access permits')).toBeInTheDocument();
+      expect(within(lane).queryByTitle(/^In /)).not.toBeInTheDocument();
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // No-phases backlog drop target (issue #386)
   // Phase-less projects with at least one BACKLOG card must still render the
-  // four status columns + Project Tasks lane so the rail/drawer's promote-by-
+  // four status columns + the project-node lane so the rail/drawer's promote-by-
   // drag affordance has a target.
   // -------------------------------------------------------------------------
-  it('renders the Project Tasks lane on a phase-less project that has BACKLOG cards (issue #386)', () => {
+  it('renders the project-node lane on a phase-less project that has BACKLOG cards (issue #386)', () => {
     const backlogTask: Task = {
       ...FIXTURE_TASKS[1],
       id: 'idea-1',
@@ -561,26 +646,28 @@ describe('BoardView', () => {
     renderBoard();
     // Empty-state copy must NOT render — there's a backlog card to promote.
     expect(screen.queryByText(/No tasks yet/)).not.toBeInTheDocument();
-    // Project Tasks lane appears with the four status columns.
-    expect(screen.getByText('Project Tasks')).toBeInTheDocument();
+    // The project-node lane appears with the four status columns.
+    // Scoped to the swimlane role: the project name also appears in the board
+    // header, so a bare text match is ambiguous under strict mode.
+    expect(screen.getByRole('group', { name: 'Test Project swimlane' })).toBeInTheDocument();
     expect(screen.getByText('TO DO')).toBeInTheDocument();
     expect(screen.getByText('IN PROGRESS')).toBeInTheDocument();
     expect(screen.getByText('REVIEW')).toBeInTheDocument();
     expect(screen.getByText('DONE')).toBeInTheDocument();
   });
 
-  it('does NOT render the Project Tasks lane when there are no tasks at all (issue #386)', () => {
+  it('does NOT render the project-node lane when there are no tasks at all (issue #386)', () => {
     mockTasks = [];
     renderBoard();
-    expect(screen.queryByText('Project Tasks')).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Test Project swimlane' })).not.toBeInTheDocument();
     expect(screen.getByText(/No tasks yet/)).toBeInTheDocument();
   });
 
   // -------------------------------------------------------------------------
-  // Synthetic Project Tasks lane intake-default (issue #387, VoC consensus
+  // Backlog-only root-lane intake default (issue #387, VoC consensus
   // resolution to the BACKLOG-vs-TO-DO question raised by #386).
   // -------------------------------------------------------------------------
-  it('renames the + button to "Add to backlog" on the synthetic Project Tasks lane (issue #387)', () => {
+  it('renames the + button to "Add to backlog" on an empty backlog-only root lane (issue #387)', () => {
     const backlogTask: Task = {
       ...FIXTURE_TASKS[1],
       id: 'idea-1',
@@ -598,7 +685,7 @@ describe('BoardView', () => {
     expect(screen.getByRole('button', { name: 'Add to backlog' })).toBeInTheDocument();
     // The default per-phase label must NOT be present on the synthetic lane.
     expect(
-      screen.queryByRole('button', { name: /Add task to Project Tasks/i }),
+      screen.queryByRole('button', { name: /Add task to Test Project/i }),
     ).not.toBeInTheDocument();
   });
 
@@ -835,7 +922,7 @@ describe('BoardView', () => {
     expect(
       screen.getByRole('button', { name: /Add task to Alpha Platform Upgrade/ }),
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Add task to Project Tasks/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Add task to Test Project/ })).toBeInTheDocument();
   });
 
   it('opens the unified task form modal when phase + button is clicked (issue #208 / #305)', async () => {
@@ -1593,7 +1680,7 @@ describe('BoardView', () => {
         },
       ];
       renderBoard();
-      // The synthetic Project Tasks lane renders one progressbar; assert that
+      // The project-node lane renders one progressbar; assert that
       // the rollup reads 100%, not 50%.
       const bar = screen.getByRole('progressbar', { name: /Phase progress 100 percent/i });
       expect(bar).toHaveAttribute('aria-valuenow', '100');
@@ -2497,11 +2584,11 @@ describe('phase-lane focus mode (#1460)', () => {
   it('focusing a lane hides the other lanes and shows an escape banner', async () => {
     const user = userEvent.setup();
     renderBoard();
-    // Both the Alpha phase lane and the Project Tasks (root) lane render by default.
+    // Both the Alpha phase lane and the project-node (root) lane render by default.
     expect(
       screen.getByRole('group', { name: 'Alpha Platform Upgrade swimlane' }),
     ).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: 'Project Tasks swimlane' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Test Project swimlane' })).toBeInTheDocument();
 
     // Focus the Alpha lane via its focus toggle (keyed by summary-task id t1).
     await user.click(screen.getByTestId('focus-lane-t1'));
@@ -2512,7 +2599,7 @@ describe('phase-lane focus mode (#1460)', () => {
     expect(
       screen.getByRole('group', { name: 'Alpha Platform Upgrade swimlane' }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole('group', { name: 'Project Tasks swimlane' })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Test Project swimlane' })).toBeNull();
   });
 
   it('exits focus mode from the banner, restoring all lanes', async () => {
@@ -2523,7 +2610,7 @@ describe('phase-lane focus mode (#1460)', () => {
 
     await user.click(screen.getByTestId('exit-focus'));
     expect(screen.queryByTestId('focus-banner')).toBeNull();
-    expect(screen.getByRole('group', { name: 'Project Tasks swimlane' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Test Project swimlane' })).toBeInTheDocument();
   });
 
   it('re-clicking the focused lane toggle clears focus', async () => {
@@ -2671,7 +2758,7 @@ describe('lens filter chips in the phase grid', () => {
     await user.click(screen.getByRole('button', { name: 'Risk-linked only' }));
     // The Alpha lane (no risk-linked tasks) drops out; the root lane survives.
     expect(screen.queryByRole('group', { name: 'Alpha Platform Upgrade swimlane' })).toBeNull();
-    expect(screen.getByRole('group', { name: 'Project Tasks swimlane' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Test Project swimlane' })).toBeInTheDocument();
   });
 });
 
@@ -2922,7 +3009,7 @@ describe('cross-phase drop re-parenting (#2681)', () => {
     );
   });
 
-  it('lands a backlog-promoted idea in the phase lane it was dropped on, not the synthetic Project Tasks lane', () => {
+  it('lands a backlog-promoted idea in the phase lane it was dropped on, not the project-node lane', () => {
     // Regression case for the backlog-promote scenario named in #2681: a
     // quick-captured idea (parentId: null) dropped onto a real phase lane
     // must send THAT phase's id as parentId, not fall through to whatever
