@@ -51546,6 +51546,14 @@
                         ],
                         "description": "Unit this task's duration is entered and displayed in. Presentation only — `duration` is always working days.\n\n* `days` - Days\n* `hours` - Hours"
                     },
+                    "structure_role": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StructureRoleEnum"
+                            }
+                        ],
+                        "description": "What this row is, as declared by its author: work, container or milestone. Presentation and grouping only — rollup still derives from structural child count.\n\n* `work` - Work\n* `container` - Container\n* `milestone` - Milestone"
+                    },
                     "percent_complete": {
                         "type": "number",
                         "format": "double",
@@ -58524,6 +58532,15 @@
                 "type": "string",
                 "description": "* `active` - Active\n* `undone` - Undone"
             },
+            "StructureRoleEnum": {
+                "enum": [
+                    "work",
+                    "container",
+                    "milestone"
+                ],
+                "type": "string",
+                "description": "* `work` - Work\n* `container` - Container\n* `milestone` - Milestone"
+            },
             "SyncPullResponse": {
                 "type": "object",
                 "description": "Response envelope for the paginated delta pull (#1013).\n\n``next_cursor``/``has_more`` are added for cursor pagination; the pre-existing\n``changes`` and ``timestamp`` fields are unchanged, so an older client that\nignores the cursor still gets a valid (first) page. The client loops while\n``has_more`` is true, sending the previous ``next_cursor`` back and keeping\n``since`` constant, then adopts ``timestamp`` as the next ``since``.",
@@ -58727,6 +58744,33 @@
                             }
                         ],
                         "description": "Unit this task's duration is entered and displayed in. Presentation only — `duration` is always working days.\n\n* `days` - Days\n* `hours` - Hours"
+                    },
+                    "structure_role": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StructureRoleEnum"
+                            }
+                        ],
+                        "description": "What this row is, as declared by its author: work, container or milestone. Presentation and grouping only — rollup still derives from structural child count.\n\n* `work` - Work\n* `container` - Container\n* `milestone` - Milestone"
+                    },
+                    "own_status": {
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Status this task had before it became a container. Parked, not used, while it has children; restored when it loses the last one.\n\n* `BACKLOG` - Backlog\n* `NOT_STARTED` - Not started\n* `IN_PROGRESS` - In progress\n* `REVIEW` - Review\n* `ON_HOLD` - On hold\n* `COMPLETE` - Complete",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/TaskStatusEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "own_estimate": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Working-day duration this task had before it became a container. Parked, not used, while it has children."
                     },
                     "percent_complete": {
                         "type": "number",
@@ -59305,6 +59349,8 @@
                     "linked_risks_max_severity",
                     "milestone_rollup",
                     "name",
+                    "own_estimate",
+                    "own_status",
                     "parent_governance_inherited",
                     "parent_id",
                     "predecessor_count",
@@ -60743,6 +60789,14 @@
                             }
                         ],
                         "description": "Unit this task's duration is entered and displayed in. Presentation only — `duration` is always working days.\n\n* `days` - Days\n* `hours` - Hours"
+                    },
+                    "structure_role": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StructureRoleEnum"
+                            }
+                        ],
+                        "description": "What this row is, as declared by its author: work, container or milestone. Presentation and grouping only — rollup still derives from structural child count.\n\n* `work` - Work\n* `container` - Container\n* `milestone` - Milestone"
                     },
                     "percent_complete": {
                         "type": "number",

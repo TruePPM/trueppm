@@ -124,6 +124,23 @@ _ROLLUP_UNSET: Any = object()
 _IMMUTABLE_AFTER_CREATE = "cannot be changed after creation."
 
 
+class StructureRoleConflict(APIException):
+    """A declared ``structure_role`` the tree already contradicts (#2950).
+
+    ``409``, not ``400``. The request is well-formed and the value is valid — it
+    is the *current state of the tree* that makes it impossible, and that state
+    can change without the client doing anything wrong. A ``400`` would tell an
+    integrator to fix their payload; the payload is fine.
+
+    The body carries the derived fact so the caller can act on it without a
+    second round trip, which is what makes the refusal recoverable rather than
+    merely correct.
+    """
+
+    status_code = 409
+    default_code = "structure_role_contradicted"
+
+
 class _UserSummarySerializer(serializers.ModelSerializer):  # type: ignore[type-arg]
     """Compact user payload nested inside Program/Project responses.
 
@@ -3127,6 +3144,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "status",
             "duration",
             "duration_unit",
+            "structure_role",
+            "own_status",
+            "own_estimate",
             "percent_complete",
             "notes",
             "planned_start",
@@ -3262,6 +3282,12 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "is_stalled",
             "is_summary",
             "is_phase",
+            # Shadow values are SERVER-managed (#2950): the server parks them when a
+            # row gains its first child and restores them when it loses the last. A
+            # writable own_estimate would let a client resurrect a stale number over a
+            # live rollup, which is the data loss this field exists to prevent.
+            "own_status",
+            "own_estimate",
             "parent_id",
             "assignments",
             "labels",
@@ -3376,6 +3402,42 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
 
         return task_is_phase(self.instance)
 
+    def _reject_contradicted_structure_role(self, attrs: dict[str, Any]) -> None:
+        """Refuse a declared role the tree already disproves (#2950).
+
+        Declaring ``work`` on a row that has structural children is the one
+        contradiction the server must not silently accept: the derived fact wins
+        for every computation, so storing the declaration would leave the row
+        rendering as a task while every rollup treats it as a phase — which is
+        the exact lane-versus-card split ADR-0843 exists to end.
+
+        Raises ``409`` with the derived fact rather than ``400``: the payload is
+        valid, the *tree* is what makes it impossible, and the caller can act on
+        the response without a second round trip.
+        """
+        from trueppm_api.apps.projects.models import StructureRole, task_is_phase
+
+        declared = attrs.get("structure_role")
+        if declared != StructureRole.WORK or self.instance is None:
+            return
+        if not task_is_phase(self.instance):
+            return
+        # Strings only. DRF wraps every value in an exception detail as an
+        # ``ErrorDetail`` (a str subclass), so a boolean here would reach an
+        # integrator as ``"True"`` rather than ``true`` — a field that lies about
+        # its own type is worse than one that is absent. ``structure_role``
+        # already states the derived fact.
+        raise StructureRoleConflict(
+            {
+                "detail": (
+                    "This row has work under it, so it is a phase. Move or delete "
+                    "its children first, or declare it a container."
+                ),
+                "code": "structure_role_contradicted",
+                "structure_role": StructureRole.CONTAINER,
+            }
+        )
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         """Enforce the milestone invariant and progress-anchor gate.
 
@@ -3403,6 +3465,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         either planned_start or a sprint assignment. ADMIN+ users are exempt
         so project managers can correct imported or manually-entered data.
         """
+        self._reject_contradicted_structure_role(attrs)
         # Each guard is an independent read/mutation of ``attrs`` with no shared
         # local state, so this method decomposes into focused helpers that run in
         # the original order (#2081 — this was a 118-complexity single block). The

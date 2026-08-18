@@ -124,9 +124,21 @@ class TestSubtaskCreate:
         parent_task.refresh_from_db()
         assert parent_task.server_version == initial_version + 1
 
-    def test_non_subtask_does_not_bump_parent_version(
+    def test_first_structural_child_bumps_the_parent_once(
         self, client: APIClient, project: Project, parent_task: Task
     ) -> None:
+        """A structural child changes its parent, so the parent's version moves.
+
+        This inverts the pre-#2950 assertion that a non-subtask create left the
+        parent untouched. It now genuinely does change it: the parent crosses the
+        container line, so its `structure_role` is promoted and its own status and
+        estimate are parked. A sync client that never learns that renders the row
+        as work forever.
+
+        The write happens on the TRANSITION only — parking is idempotent — so a
+        paste-many creating forty rows under one parent bumps it once, not forty
+        times.
+        """
         initial_version = parent_task.server_version
         client.post(
             "/api/v1/tasks/",
@@ -138,7 +150,23 @@ class TestSubtaskCreate:
             },
         )
         parent_task.refresh_from_db()
-        assert parent_task.server_version == initial_version
+        assert parent_task.server_version == initial_version + 1
+        assert parent_task.structure_role == "container"
+        assert parent_task.own_estimate is not None
+
+        # A SECOND child must not move it again.
+        second = parent_task.server_version
+        client.post(
+            "/api/v1/tasks/",
+            {
+                "name": "Another child",
+                "duration": 3,
+                "project": str(project.pk),
+                "parent_id": str(parent_task.pk),
+            },
+        )
+        parent_task.refresh_from_db()
+        assert parent_task.server_version == second
 
 
 # ---------------------------------------------------------------------------

@@ -153,6 +153,24 @@ export interface Task {
    * scheduling engine is integer-days end to end (ADR-0132).
    */
   durationUnit?: 'days' | 'hours';
+  /**
+   * What this row IS, as declared by its author (#2950) — as opposed to
+   * `isSummary`, which the server derives from structural child count.
+   *
+   * Governs rendering, board grouping, creation affordances and vocabulary, and
+   * nothing else. The derived fact still wins for every computation: declared
+   * `work` that has children is a container for the math, and the server returns
+   * `409` rather than storing a declaration it will contradict.
+   */
+  structureRole?: 'work' | 'container' | 'milestone';
+  /**
+   * Status and estimate this row had before it became a container — parked, not
+   * cleared, and restored if it loses its last child. Server-managed and
+   * read-only: a writable `ownEstimate` would let a client resurrect a stale
+   * number over a live rollup.
+   */
+  ownStatus?: string | null;
+  ownEstimate?: number | null;
   /** 0–100 */
   progress: number;
   parentId: string | null;

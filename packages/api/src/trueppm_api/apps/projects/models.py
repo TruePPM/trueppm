@@ -1998,6 +1998,42 @@ class DurationUnit(models.TextChoices):
     HOURS = "hours", "Hours"
 
 
+class StructureRole(models.TextChoices):
+    """What a row IS, declared by the author rather than inferred (#2950).
+
+    The defect this closes: container-ness is derived from a live structural
+    child-count probe (:func:`task_is_phase`), so a row's identity is
+    **retroactive and silent** — a card now, a lane once someone drops work under
+    it, a card again when that work is deleted. The Board has to decide "lane or
+    card?" on every render from a fact that flips underneath it, which is why the
+    same object rendered as both (ADR-0843, #2947).
+
+    This field governs **rendering, board grouping, creation affordances and
+    vocabulary — and nothing else.** It is deliberately NOT an input to
+    computation:
+
+    * ``is_summary`` / ``is_phase`` stay derived server-side from structural
+      child count, and stay the only input to rollup. This design does not move
+      one line of the rollup code.
+    * The **derived fact wins for the math.** Declared ``WORK`` that somehow has
+      children *is* a container for every computation; the declaration is a
+      display claim the server refuses to accept once it is contradicted (the
+      ``409`` on the write path), not a lever over the schedule.
+    * A declared ``CONTAINER`` with no children computes as a leaf with nothing
+      to roll up — **empty, not zero** — so it never drags a rollup down or
+      reports false health, and still renders as a container everywhere.
+
+    ``MILESTONE`` is the same object the existing ``is_milestone`` /
+    ``DeliveryMode.MILESTONE`` / ``duration = 0`` invariant already describes;
+    this field only lets the author *say so* on the create path instead of the
+    server inferring it from a zero duration.
+    """
+
+    WORK = "work", "Work"
+    CONTAINER = "container", "Container"
+    MILESTONE = "milestone", "Milestone"
+
+
 class TaskStatus(models.TextChoices):
     """Workflow state for a task on the Kanban board.
 
@@ -2288,6 +2324,83 @@ def task_is_phase(task: Task) -> bool:
     )
 
 
+def structural_parent(task: Task) -> Task | None:
+    """The task one WBS level up, or None at the root (#2950).
+
+    Parenthood in this tree is the ltree ``wbs_path``, not a FK — there is no
+    ``parent_id`` column to read. ``1.2.3`` therefore resolves through ``1.2``.
+    Subtasks are excluded on both sides: a subtask is a checklist item, never
+    structural, so it neither has nor is a structural parent.
+    """
+    if task.wbs_path is None or task.is_subtask:
+        return None
+    parts = str(task.wbs_path).split(".")
+    if len(parts) < 2:
+        return None
+    return (
+        Task.objects.filter(
+            project_id=task.project_id,
+            wbs_path=".".join(parts[:-1]),
+            is_deleted=False,
+            is_subtask=False,
+        )
+        .exclude(pk=task.pk)
+        .first()
+    )
+
+
+def sync_structure_shadow_values(task: Task) -> bool:
+    """Park or restore a task's own status and estimate around the container line (#2950).
+
+    Called after any write that can change a row's structural child count — task
+    create with a parent, delete, and reparent. It is the whole mechanism behind
+    "kept, not cleared":
+
+    * **Gained its first child** — copy ``status`` / ``duration`` into
+      ``own_status`` / ``own_estimate`` and mark the row a container if it was
+      declared work. The live fields keep whatever the rollup writes; the
+      author's values survive underneath.
+    * **Lost its last child** — restore the parked values, but *only* if the row
+      became a container by accident. A **declared** container stays declared and
+      becomes an empty lane; reverting it is offered to the user, never applied
+      here. Silently un-declaring somebody's phase because its last task moved is
+      the same class of silent identity change this field exists to remove.
+
+    Returns True when it changed something, so callers can skip a pointless save.
+    """
+    if task.pk is None or task.is_subtask:
+        return False
+
+    is_container_now = task_is_phase(task)
+
+    if is_container_now:
+        if task.own_estimate is None and task.own_status is None:
+            task.own_status = task.status
+            task.own_estimate = task.duration
+            # An accidental container is one that was DECLARED work. Recording
+            # the promotion is what lets the reverse be automatic and safe.
+            if task.structure_role == StructureRole.WORK:
+                task.structure_role = StructureRole.CONTAINER
+                task.auto_container = True
+            return True
+        return False
+
+    # No children any more.
+    if task.auto_container:
+        if task.own_status is not None:
+            task.status = task.own_status
+        if task.own_estimate is not None:
+            task.duration = task.own_estimate
+        task.structure_role = StructureRole.WORK
+        task.auto_container = False
+        task.own_status = None
+        task.own_estimate = None
+        return True
+
+    # Declared container with nothing in it: legal, visible, and left alone.
+    return False
+
+
 class Task(VersionedModel):
     """A schedulable unit of work within a project.
 
@@ -2339,6 +2452,54 @@ class Task(VersionedModel):
         help_text=(
             "Unit this task's duration is entered and displayed in. "
             "Presentation only — `duration` is always working days."
+        ),
+    )
+    # Declared identity (#2950). Governs rendering, board grouping, creation
+    # affordances and vocabulary — never computation. See StructureRole.
+    structure_role = models.CharField(
+        max_length=9,
+        choices=StructureRole.choices,
+        default=StructureRole.WORK,
+        db_index=True,
+        help_text=(
+            "What this row is, as declared by its author: work, container or "
+            "milestone. Presentation and grouping only — rollup still derives "
+            "from structural child count."
+        ),
+    )
+    # Shadow values (#2950). A work task's own status and estimate are RETAINED
+    # when it gains a first child, unused while it has one, and RESTORED when it
+    # loses the last. That is the difference between a transition and a data
+    # loss: today the values are simply gone, silently, the moment someone else
+    # drops work underneath.
+    own_status = models.CharField(  # noqa: DJ001 — null = never parked
+        max_length=12,
+        choices=TaskStatus.choices,
+        null=True,
+        blank=True,
+        help_text=(
+            "Status this task had before it became a container. Parked, not "
+            "used, while it has children; restored when it loses the last one."
+        ),
+    )
+    own_estimate = models.IntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(MAX_TASK_DURATION_DAYS)],
+        help_text=(
+            "Working-day duration this task had before it became a container. "
+            "Parked, not used, while it has children."
+        ),
+    )
+    # True when the row became a container by GAINING A CHILD rather than by
+    # anyone saying so (#2950). It is what makes the reverse safe to automate:
+    # an accidental container reverts to a task when it loses its last child, a
+    # declared one stays declared and becomes an empty lane.
+    auto_container = models.BooleanField(
+        default=False,
+        help_text=(
+            "Set when this row became a container by gaining a child rather than "
+            "by declaration. Governs whether losing the last child reverts it."
         ),
     )
     status = models.CharField(
