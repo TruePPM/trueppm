@@ -344,6 +344,39 @@ test.describe('Available sources section (#1420)', () => {
     await expect(dialog.getByRole('heading', { name: 'Connect Jira' })).toBeVisible();
   });
 
+  test('shows an Update filter banner when the connection is invalid_filter (#2888)', async ({
+    page,
+  }) => {
+    // Distinct from auth_failed on purpose: the token works, the saved filter
+    // cannot be scoped to the selected projects, and the worker refuses to pull
+    // rather than pull wider. "Reconnect" here would send the user to re-issue a
+    // credential that was never the problem.
+    await setup(page, defaultCredentials(), {
+      jira: {
+        name: 'Jira',
+        exists: true,
+        base_url: 'https://acme.atlassian.net',
+        account_email: 'alice@example.com',
+        status: 'invalid_filter',
+        last_synced_at: '2026-05-20T14:00:00Z',
+        jql: '',
+        project_keys: [],
+      },
+    });
+    await page.goto('/me/settings/connected-accounts');
+
+    const jiraCard = page.locator('#source-jira');
+    const banner = jiraCard.getByRole('status');
+    await expect(banner).toContainText(/saved filter or project keys are no longer valid/i);
+    await expect(banner).not.toContainText(/reauthorization/i);
+    await expect(jiraCard.getByRole('button', { name: 'Reconnect' })).toHaveCount(0);
+
+    // Same remedy as auth_failed — the wizard re-submits the filter.
+    await jiraCard.getByRole('button', { name: 'Update filter' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('heading', { name: 'Connect Jira' })).toBeVisible();
+  });
+
   test('shows a stale "Last synced … ago" note for an old sync with no reconnect banner (#1910)', async ({
     page,
   }) => {

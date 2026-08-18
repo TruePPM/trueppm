@@ -236,7 +236,12 @@ test.describe('MS Project import', () => {
       mimeType: 'application/octet-stream',
       buffer: Buffer.from('nope'),
     });
-    await expect(page.getByRole('alert')).toContainText('.mpp, .xml only');
+    // `.xml` only in the UI since #2891 — the three surfaces that used to
+    // disagree about `.mpp` now all say the same thing.
+    await expect(page.getByRole('alert')).toContainText('.xml only');
+    // The rejection is where the conversion recipe lives now that the
+    // post-selection `.mpp` caveat banner is gone.
+    await expect(page.getByText('File → Save As')).toBeVisible();
     // The Import button stays disabled because no valid file was selected.
     await expect(
       page

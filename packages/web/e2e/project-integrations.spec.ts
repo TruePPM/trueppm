@@ -42,6 +42,12 @@ const WEBHOOK = {
   events: ['task.created'],
   format: 'slack',
   is_active: true,
+  secret_set: true,
+  consecutive_failures: 0,
+  last_failure_at: null,
+  last_failure_reason: '',
+  disabled_at: null,
+  disabled_reason: '',
   created_at: '2026-05-20T12:00:00Z',
   created_by: null,
 };
@@ -145,9 +151,79 @@ test.describe('Project Integrations — CRUD UI', () => {
     const dialog = page.getByRole('dialog', { name: 'New webhook' });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText('task.assigned')).toBeVisible();
-    // The new 0.2 events carry a "new" badge.
+    // Every backend event is offered, not just the task cohort — the picker
+    // shipped 11 of 19 for two releases (#2883). A pytest gate
+    // (test_web_event_catalog_covers_every_backend_event) binds events.ts to
+    // WebhookEventType; these spot-checks assert the picker actually renders them.
+    await expect(dialog.getByText('sprint.closed', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('risk.escalated', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('baseline.captured', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('comment.created', { exact: true })).toBeVisible();
+    // The most recent cohort carries a "new" badge.
     await expect(dialog.getByText('new').first()).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'Create webhook' })).toBeVisible();
+  });
+
+  test('preserves a subscription the picker cannot render (#2883)', async ({ page }) => {
+    // The regression this guards: the modal narrowed a saved webhook to its own
+    // catalog and PATCHed the narrowed list, so editing an API-created webhook
+    // silently deleted the subscriptions the picker did not know about.
+    const WIDE = { ...WEBHOOK, events: ['task.created', 'portfolio.rebalanced'] };
+    await commonRoutes(page, [FIXTURE_PROJECT]);
+    await listRoutes(page, { webhooks: [WIDE], tokens: [] });
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/webhooks/${WIDE.id}/`, (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj(WIDE) }),
+    );
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/integrations`);
+    await page.getByRole('button', { name: 'Edit' }).first().click();
+
+    const dialog = page.getByRole('dialog', { name: 'Edit webhook' });
+    await expect(dialog.getByText('Other subscriptions')).toBeVisible();
+    await expect(dialog.getByText('2 selected')).toBeVisible();
+
+    const patchReq = page.waitForRequest(
+      (req) => req.url().includes(`/webhooks/${WIDE.id}/`) && req.method() === 'PATCH',
+    );
+    await dialog.getByRole('button', { name: 'Save changes' }).click();
+    const body = (await (await patchReq).postDataJSON()) as { events: string[] };
+    expect(body.events).toContain('portfolio.rebalanced');
+  });
+
+  test('generates a signing secret and shows it exactly once (#2885)', async ({ page }) => {
+    await commonRoutes(page, [FIXTURE_PROJECT]);
+    await listRoutes(page, { webhooks: [], tokens: [] });
+
+    let postBody: Record<string, unknown> = {};
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/webhooks/`, async (r) => {
+      if (r.request().method() === 'POST') {
+        postBody = r.request().postDataJSON() as Record<string, unknown>;
+        await r.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: pj({ ...WEBHOOK, id: 'wh-new', secret: 'generated-256-bit-value' }),
+        });
+        return;
+      }
+      await r.fulfill({ status: 200, contentType: 'application/json', body: page1([]) });
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/integrations`);
+    await page.getByRole('button', { name: 'New webhook' }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'New webhook' });
+    await dialog.getByPlaceholder('hooks.slack.com/services').fill('https://example.com/hooks/ci');
+    await dialog.getByText('task.assigned', { exact: true }).click();
+    // Generation is the default, so no secret field is even rendered.
+    await expect(dialog.getByPlaceholder('whsec_')).toBeHidden();
+    await dialog.getByRole('button', { name: 'Create webhook' }).click();
+
+    // The 201 echoes the secret once — the modal must show it, not discard it.
+    await expect(page.getByRole('heading', { name: 'Webhook created' })).toBeVisible();
+    await expect(page.getByLabel('Generated signing secret')).toHaveValue(
+      'generated-256-bit-value',
+    );
+    expect(postBody).not.toHaveProperty('secret');
   });
 
   test('creates a webhook — POST dispatched and the new row appears', async ({ page }) => {
@@ -175,7 +251,11 @@ test.describe('Project Integrations — CRUD UI', () => {
 
     const dialog = page.getByRole('dialog', { name: 'New webhook' });
     await dialog.getByPlaceholder('hooks.slack.com/services').fill('https://example.com/hooks/ci');
-    await dialog.getByPlaceholder('whsec_').fill('whsec_supersecret');
+    // Opt out of the generated secret to exercise the hand-typed path. The value
+    // must clear the 32-character server floor, which the modal now checks
+    // client-side (#2885).
+    await dialog.getByLabel(/Generate a secret for me/).uncheck();
+    await dialog.getByPlaceholder('whsec_').fill(`whsec_${'a'.repeat(40)}`);
     await dialog.getByText('task.assigned', { exact: true }).click(); // subscribe to ≥1 event
 
     const postReq = page.waitForRequest(
@@ -267,59 +347,32 @@ test.describe('Project Integrations — CRUD UI', () => {
     );
   });
 
-  test('mints an mcp:read token and shows the copy-paste connect snippet (#1481)', async ({
+  test('does not offer mcp:read at project scope; points at Personal Settings (#2890)', async ({
     page,
   }) => {
+    // This spec used to assert the opposite — that the project surface mints an
+    // mcp:read token and reveals a claude_desktop_config.json snippet. That token
+    // has a null owner, and TokenIsOwnerScoped (#1712) 401s exactly those on the
+    // MCP read surface, so the generated config failed at the MCP server's
+    // boot-time verify_auth() with nothing pointing at why. The 201 mock hid it:
+    // the real API now rejects the scope here.
     await commonRoutes(page, [FIXTURE_PROJECT]);
     await listRoutes(page, { webhooks: [], tokens: [] });
-    // The create POST echoes back the read-only scope so the reveal branches to
-    // the MCP connect panel (in production the scope comes from #601's backend).
-    await page.route(`**/api/v1/projects/${PROJECT_ID}/api-tokens/`, (r) => {
-      if (r.request().method() === 'POST') {
-        return r.fulfill({
-          status: 201,
-          contentType: 'application/json',
-          body: pj({
-            ...TOKEN,
-            id: 'tok-mcp',
-            name: 'Claude Desktop',
-            scopes: ['mcp:read'],
-            token: 'tppm_MCP_RAW_SECRET',
-          }),
-        });
-      }
-      return r.fulfill({ status: 200, contentType: 'application/json', body: page1([]) });
-    });
 
     await page.goto(`/projects/${PROJECT_ID}/settings/integrations`);
     await page.getByRole('button', { name: 'Create token' }).click();
 
     const dialog = page.getByRole('dialog', { name: 'Create API token' });
-    await dialog.getByPlaceholder('e.g. Jira Production').fill('Claude Desktop');
-    await dialog.getByRole('radio', { name: /Read-only for AI assistants/i }).check();
-
-    const postReq = page.waitForRequest(
-      (req) => req.url().includes(`/api-tokens/`) && req.method() === 'POST',
-    );
-    await dialog.getByRole('button', { name: 'Create token' }).click();
-    const req = await postReq;
-    expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ scopes: ['mcp:read'] });
-
-    // The one-time token is shown, and the paste-ready config snippet renders.
-    await expect(page.getByRole('textbox', { name: 'New API token' })).toHaveValue(
-      'tppm_MCP_RAW_SECRET',
-    );
-    const snippet = page.getByLabel('claude_desktop_config.json snippet');
-    await expect(snippet).toContainText('"command": "trueppm-mcp"');
-    await expect(snippet).toContainText('"TRUEPPM_API_TOKEN": "tppm_MCP_RAW_SECRET"');
-    await expect(page.getByRole('button', { name: 'Copy config' })).toBeVisible();
-
-    // "Try asking:" surfaces the curated starter prompts (#1847) so an evaluator
-    // knows what to type once the client is wired up.
-    await expect(page.getByText('Try asking')).toBeVisible();
     await expect(
-      page.getByText('What breaks if I slip the integration task 5 days?'),
-    ).toBeVisible();
+      dialog.getByRole('radio', { name: /Read-only for AI assistants/i }),
+    ).toHaveCount(0);
+    await expect(dialog.getByLabel('claude_desktop_config.json snippet')).toHaveCount(0);
+
+    // The signpost: this is the page a user looks on for "connect an AI assistant".
+    await expect(dialog.getByRole('link', { name: /Personal Settings/i })).toHaveAttribute(
+      'href',
+      '/me/settings/api-tokens',
+    );
   });
 
   test('shows empty states when there are no integrations', async ({ page }) => {

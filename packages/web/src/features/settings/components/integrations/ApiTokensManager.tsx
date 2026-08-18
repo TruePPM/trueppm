@@ -6,15 +6,21 @@
  * create modal's success state, with a copy button and an explicit "you won't
  * see this again" warning. After the modal closes it is unrecoverable.
  *
- * A token is minted with a capability scope (issue 601, ADR-0186 §F):
- * `legacy:full` (the default — read + write, for CI / inbound sync) or
- * `mcp:read` (read-only, for pointing an MCP client such as Claude Desktop at
- * the instance). Creating an `mcp:read` token additionally reveals a
- * copy-paste `claude_desktop_config.json` snippet so the user can wire up their
- * AI client without touching the shell.
+ * A token is minted with a capability scope (issue 601, ADR-0186 §F). At project
+ * and program scope the only scope on offer is `legacy:full` (read + write, for CI
+ * / inbound sync).
+ *
+ * `mcp:read` is deliberately NOT offered here (#2890). A token minted at project
+ * or program scope has a null `owner`, and the MCP read surface admits owner-scoped
+ * (personal) tokens only (`TokenIsOwnerScoped`, #1712) — so the config this page
+ * used to generate 401'd the MCP server at `verify_auth()` on its very first boot,
+ * with no message pointing at the cause. The server now rejects the scope on this
+ * endpoint too; the connect affordance lives on the Personal Access Tokens page,
+ * which mints the credential the read surface actually accepts.
  */
 
 import { useState } from 'react';
+import { Link } from 'react-router';
 import { isAxiosError } from 'axios';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { SettingsCard } from '../../SettingsShell';
@@ -28,12 +34,7 @@ import {
 } from '@/hooks/useApiTokens';
 import type { IntegrationScope } from '@/hooks/useWebhooks';
 import { ConfirmDialog } from './WebhooksManager';
-import {
-  CopyButton,
-  DoneButton,
-  McpConnectPanel,
-  buildClaudeDesktopConfig,
-} from './McpConnectPanel';
+import { CopyButton, DoneButton, buildClaudeDesktopConfig } from './McpConnectPanel';
 
 // Re-exported for the existing unit test and any other consumers that imported
 // the helper from this module before it was extracted into McpConnectPanel.tsx.
@@ -110,8 +111,7 @@ export function ApiTokensManager({ scope }: ApiTokensManagerProps) {
         ) : !tokens || tokens.length === 0 ? (
           <p className="text-[13px] text-neutral-text-secondary">
             No tokens yet. Generate one to let CI or external tools push tasks into{' '}
-            {scope.kind === 'program' ? 'any project in this program' : 'this project'}, or connect
-            an AI assistant read-only.
+            {scope.kind === 'program' ? 'any project in this program' : 'this project'}.
           </p>
         ) : (
           <ul className="space-y-1.5">
@@ -205,7 +205,6 @@ function ScopesReference() {
 function CreateTokenModal({ scope, onClose }: { scope: IntegrationScope; onClose: () => void }) {
   const create = useCreateApiToken(scope);
   const [name, setName] = useState('');
-  const [tokenScope, setTokenScope] = useState<ApiTokenScope>('legacy:full');
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatedApiToken | null>(null);
 
@@ -213,7 +212,7 @@ function CreateTokenModal({ scope, onClose }: { scope: IntegrationScope; onClose
   // the create form to the one-time-reveal panel, so focus never drops to <body>
   // when the form controls unmount. Escape/close is guarded while the create
   // mutation is in-flight to mirror the backdrop-dismiss guard.
-  const phase = created ? (isMcpRead(created.scopes ?? [tokenScope]) ? 'mcp' : 'plain') : 'form';
+  const phase = created ? 'reveal' : 'form';
   const trapRef = useFocusTrap<HTMLDivElement>(
     true,
     () => {
@@ -229,15 +228,13 @@ function CreateTokenModal({ scope, onClose }: { scope: IntegrationScope; onClose
     }
     setError(null);
     create.mutate(
-      { name: name.trim(), scopes: [tokenScope] },
+      { name: name.trim(), scopes: ['legacy:full'] },
       {
         onSuccess: (data) => setCreated(data),
         onError: (e) => setError(extractError(e)),
       },
     );
   }
-
-  const revealMcp = phase === 'mcp';
 
   return (
     <div
@@ -254,18 +251,9 @@ function CreateTokenModal({ scope, onClose }: { scope: IntegrationScope; onClose
         if (e.target === e.currentTarget && !create.isPending && !created) onClose();
       }}
     >
-      <div
-        className={[
-          'bg-neutral-surface border border-neutral-border rounded-card w-full p-5',
-          created && revealMcp ? 'max-w-lg' : 'max-w-md',
-        ].join(' ')}
-      >
+      <div className="bg-neutral-surface border border-neutral-border rounded-card w-full p-5 max-w-md">
         {created ? (
-          revealMcp ? (
-            <McpConnectPanel token={created.token} onClose={onClose} />
-          ) : (
-            <PlainTokenReveal token={created.token} onClose={onClose} />
-          )
+          <PlainTokenReveal token={created.token} onClose={onClose} />
         ) : (
           <>
             <h2 className="text-sm font-semibold text-neutral-text-primary mb-3">
@@ -286,7 +274,7 @@ function CreateTokenModal({ scope, onClose }: { scope: IntegrationScope; onClose
               className="w-full h-8 px-2 text-[13px] border border-neutral-border rounded bg-neutral-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             />
 
-            <ScopeSelector value={tokenScope} onChange={setTokenScope} />
+            <TokenPurposeNote />
 
             {error && (
               <p className="text-[12px] text-semantic-critical mt-2" role="alert">
@@ -318,78 +306,39 @@ function CreateTokenModal({ scope, onClose }: { scope: IntegrationScope; onClose
   );
 }
 
-/** Radio group choosing what a new token is for (issue 1481, ADR-0186 §F). */
-function ScopeSelector({
-  value,
-  onChange,
-}: {
-  value: ApiTokenScope;
-  onChange: (v: ApiTokenScope) => void;
-}) {
-  const options: {
-    scope: ApiTokenScope;
-    label: string;
-    help: string;
-    describedBy: string;
-  }[] = [
-    {
-      scope: 'legacy:full',
-      label: 'Full access (inbound sync)',
-      help: "Read and write this project's data — lets CI or external tools push tasks in.",
-      describedBy: 'token-scope-full-help',
-    },
-    {
-      scope: 'mcp:read',
-      label: 'Read-only for AI assistants',
-      help: "Lets Claude Desktop and other MCP clients read the schedule. It can't make any changes.",
-      describedBy: 'token-scope-mcp-help',
-    },
-  ];
-
+/**
+ * What this token is for, and where to go if it is the other thing (#2890).
+ *
+ * This replaced a two-option scope picker whose second option, "Read-only for AI
+ * assistants" (`mcp:read`), minted a credential the MCP read surface refuses: a
+ * project/program token has a null `owner` and `TokenIsOwnerScoped` (#1712) 401s it
+ * at the MCP server's boot-time auth check. So the picker offered a choice with one
+ * real answer and one dead end that failed several steps later, outside the app.
+ *
+ * A single scope needs no radio group — but it does need the signpost, because the
+ * page a user lands on looking for "connect an AI assistant" is this one.
+ */
+function TokenPurposeNote() {
   return (
-    <fieldset className="mt-4">
-      <legend className="mb-1.5 text-[13px] font-medium text-neutral-text-primary">
-        What is this token for?
-      </legend>
-      <div className="space-y-2">
-        {options.map((opt) => {
-          const selected = value === opt.scope;
-          const inputId = `${opt.describedBy}-radio`;
-          return (
-            <label
-              key={opt.scope}
-              htmlFor={inputId}
-              className={[
-                'flex gap-2.5 p-2.5 rounded border cursor-pointer',
-                selected
-                  ? 'border-brand-primary ring-1 ring-brand-primary/40 bg-brand-primary/5'
-                  : 'border-neutral-border hover:bg-neutral-surface-sunken',
-              ].join(' ')}
-            >
-              <input
-                id={inputId}
-                type="radio"
-                name="token-scope"
-                value={opt.scope}
-                checked={selected}
-                onChange={() => onChange(opt.scope)}
-                aria-describedby={opt.describedBy}
-                className="mt-0.5 accent-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-              />
-              <span className="flex flex-col text-[13px] font-medium text-neutral-text-primary">
-                {opt.label}
-                <span
-                  id={opt.describedBy}
-                  className="text-[12px] font-normal text-neutral-text-secondary"
-                >
-                  {opt.help}
-                </span>
-              </span>
-            </label>
-          );
-        })}
-      </div>
-    </fieldset>
+    <div className="mt-4">
+      <p className="text-[13px] font-medium text-neutral-text-primary">
+        Full access (inbound sync)
+      </p>
+      <p className="mt-0.5 text-[12px] text-neutral-text-secondary">
+        Reads and writes this project&apos;s data — lets CI or external tools push tasks in.
+      </p>
+      <p className="mt-2 text-[12px] text-neutral-text-secondary">
+        Connecting an AI assistant? Read-only MCP tokens are personal, not project-scoped —
+        create one from{' '}
+        <Link
+          to="/me/settings/api-tokens"
+          className="rounded font-medium text-brand-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        >
+          Personal Settings → API tokens
+        </Link>
+        . It then reads only what your own role can see.
+      </p>
+    </div>
   );
 }
 

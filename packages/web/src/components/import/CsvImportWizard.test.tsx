@@ -1,7 +1,8 @@
-import { screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderWithProvidersAndRouter } from '@/test/utils';
+import { isUndoShortcutClaimed } from '@/hooks/useGlobalShortcut';
 import { CsvImportWizard } from './CsvImportWizard';
 import type { CsvPreview } from '@/hooks/useCsvImport';
 
@@ -716,6 +717,134 @@ describe('CsvImportWizard (#746)', () => {
       await advanceToResult(user, container, { error: 'Bad file' }, 'dead');
 
       expect(screen.queryByRole('button', { name: 'Undo import (⌘Z)' })).not.toBeInTheDocument();
+    });
+
+    // #2892: the label has advertised "(⌘Z)" since #2756 and nothing listened
+    // for it. A label naming a shortcut that does not exist is worse than no
+    // label — the user tries it, the import they wanted gone stays, and they
+    // have no reason to go looking for the button.
+    it.each([
+      ['metaKey', { metaKey: true }],
+      ['ctrlKey', { ctrlKey: true }],
+    ])('undoes on %s+Z, the shortcut the button advertises', async (_label, modifier) => {
+      const user = userEvent.setup();
+      h.undo.mutate = vi.fn();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, { tasks_created: 12, row_errors: [], warnings: [] });
+
+      fireEvent.keyDown(document, { key: 'z', ...modifier });
+
+      expect(h.undo.mutate).toHaveBeenCalledWith('imp-1', expect.anything());
+    });
+
+    it('ignores Shift+⌘Z — that is redo, and there is nothing to redo', async () => {
+      const user = userEvent.setup();
+      h.undo.mutate = vi.fn();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, { tasks_created: 12, row_errors: [], warnings: [] });
+
+      fireEvent.keyDown(document, { key: 'z', metaKey: true, shiftKey: true });
+
+      expect(h.undo.mutate).not.toHaveBeenCalled();
+    });
+
+    it('ignores a bare Z with no modifier', async () => {
+      const user = userEvent.setup();
+      h.undo.mutate = vi.fn();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, { tasks_created: 12, row_errors: [], warnings: [] });
+
+      fireEvent.keyDown(document, { key: 'z' });
+
+      expect(h.undo.mutate).not.toHaveBeenCalled();
+    });
+
+    it('binds nothing on a failed import, so ⌘Z stays the browser default', async () => {
+      // The listener must not exist when there is no undo available — otherwise
+      // it swallows the platform ⌘Z on a screen where it does nothing.
+      const user = userEvent.setup();
+      h.undo.mutate = vi.fn();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, { error: 'Bad file' }, 'dead');
+
+      const event = new KeyboardEvent('keydown', {
+        key: 'z',
+        metaKey: true,
+        cancelable: true,
+        bubbles: true,
+      });
+      document.dispatchEvent(event);
+
+      expect(h.undo.mutate).not.toHaveBeenCalled();
+      expect(event.defaultPrevented).toBe(false);
+    });
+
+    it('claims ⌘Z while its undo is live, so the sibling undos on Schedule yield', async () => {
+      // ScheduleView's paste-many undo and SeedBanner's template-apply undo both
+      // bind ⌘Z and both render as siblings of this wizard. Before the claim, one
+      // keypress ran two destructive undos (#2892).
+      const user = userEvent.setup();
+      expect(isUndoShortcutClaimed()).toBe(false);
+      const { container, unmount } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, { tasks_created: 12, row_errors: [], warnings: [] });
+
+      expect(isUndoShortcutClaimed()).toBe(true);
+      unmount();
+      expect(isUndoShortcutClaimed()).toBe(false);
+    });
+
+    it('claims nothing on a failed import, so the sibling undos keep working', async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, { error: 'Bad file' }, 'dead');
+
+      expect(isUndoShortcutClaimed()).toBe(false);
+    });
+
+    it('yields ⌘Z to a text field — mid-edit that means "undo my typing"', async () => {
+      const user = userEvent.setup();
+      h.undo.mutate = vi.fn();
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, { tasks_created: 12, row_errors: [], warnings: [] });
+
+      const input = document.createElement('input');
+      document.body.appendChild(input);
+      fireEvent.keyDown(input, { key: 'z', metaKey: true, bubbles: true });
+      expect(h.undo.mutate).not.toHaveBeenCalled();
+      input.remove();
+    });
+
+    it('stops listening once the import has been undone', async () => {
+      const user = userEvent.setup();
+      h.undo.mutate = vi.fn(
+        (_id, opts?: { onSuccess?: (d: { undo: { deleted: number; kept: number } }) => void }) => {
+          opts?.onSuccess?.({ undo: { deleted: 12, kept: 0 } });
+        },
+      );
+      const { container } = renderWithProvidersAndRouter(
+        <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
+      );
+      await advanceToResult(user, container, { tasks_created: 12, row_errors: [], warnings: [] });
+      fireEvent.keyDown(document, { key: 'z', metaKey: true });
+      expect(h.undo.mutate).toHaveBeenCalledTimes(1);
+
+      // A second press must not fire a second undo against an already-undone import.
+      fireEvent.keyDown(document, { key: 'z', metaKey: true });
+      expect(h.undo.mutate).toHaveBeenCalledTimes(1);
     });
   });
 

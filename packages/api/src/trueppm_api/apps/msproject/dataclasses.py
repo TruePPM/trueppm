@@ -4,6 +4,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+#: MSPDI ``<ConstraintType>`` codes the importer can express, mapped onto
+#: ``Task.planned_start`` — which *is* a start-no-earlier-than floor applied by
+#: the CPM forward pass (#2891).
+#:
+#: - **4, Start No Earlier Than** — exactly ``planned_start``'s semantics. Carried
+#:   across losslessly.
+#: - **2, Must Start On** — floors the start on the same date, but TruePPM has no
+#:   way to enforce the "and no later" half. Carried across as the floor *and*
+#:   warned, because a half-enforced commitment the operator believes is whole is
+#:   worse than one they know is advisory.
+#:
+#: Code 0 (As Soon As Possible) is TruePPM's own default and therefore loses
+#: nothing when dropped. Every remaining code (1 ALAP, 3 MFO, 5 SNLT, 6 FNET,
+#: 7 FNLT) has no model home at all and is reported in the import warnings.
+#:
+#: Lives here rather than in ``parser`` because it is a claim about the
+#: *interchange contract* — what a ``TaskData.constraint_type`` value causes the
+#: importer to do — which every adapter that fills the field needs to know.
+CONSTRAINT_TYPES_APPLIED_AS_SNET: frozenset[int] = frozenset({2, 4})
+
 
 @dataclass
 class TaskData:
@@ -37,6 +57,22 @@ class TaskData:
     optimistic_duration_days: int | None = None
     most_likely_duration_days: int | None = None
     pessimistic_duration_days: int | None = None
+    # MSPDI <ConstraintType> code, 0-7 (#2891). This is the mechanism a PM uses
+    # to *pin a committed date*, so dropping it silently turned a defensible
+    # commitment into a CPM-derived guess. TruePPM models exactly one constraint
+    # — the start-no-earlier-than floor `Task.planned_start` — so only the two
+    # codes that floor a start (4 SNET, 2 MSO) reach the model; the parser warns
+    # for every other code rather than pretending it was carried over. See
+    # `MSPDI_CONSTRAINT_NAMES` / `CONSTRAINT_TYPES_APPLIED_AS_SNET` in parser.py.
+    constraint_type: int | None = None
+    # <ConstraintDate> as an ISO date string, or None. Only meaningful alongside
+    # a constraint_type that carries a date (codes 2-7).
+    constraint_date: str | None = None
+    # <ActualStart> / <ActualFinish> as ISO date strings (#2891). These map
+    # one-to-one onto Task.actual_start / Task.actual_finish, so unlike the
+    # constraint family they are carried across exactly.
+    actual_start: str | None = None
+    actual_finish: str | None = None
     predecessor_links: list[PredecessorLinkData] = field(default_factory=list)
     resource_assignments: list[AssignmentData] = field(default_factory=list)
     # Label *names* (not slugs or ids) this task carries, in first-seen order

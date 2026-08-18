@@ -1,4 +1,5 @@
 import type { KeyboardEvent } from 'react';
+import { MsProjectXmlRecipe } from './msProjectXmlRecipe';
 
 /** The two import sources the create-from-import dialog can ingest (ADR-0222). */
 export type ImportFormat = 'msproject' | 'trueppm';
@@ -196,10 +197,8 @@ export function FormatPicker({
             hidden={!guidanceOpen}
             className="mt-1 rounded-card border border-neutral-border bg-neutral-surface-raised p-3 text-xs text-neutral-text-secondary"
           >
-            In MS Project (desktop): <strong>File → Save As</strong>, choose{' '}
-            <strong>XML Format (*.xml)</strong>, then <strong>Save</strong>. Upload that{' '}
-            <code>.xml</code> here. Project for the web can&apos;t save XML — use the desktop app.{' '}
-            .mpp import is tracked in issue 128 and .mpx in issue 120 (planned for 0.6).
+            <MsProjectXmlRecipe /> .mpp import is tracked in issue 128 and .mpx in issue 120
+            (planned for 0.6).
           </div>
         </fieldset>
       )}

@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import abc
 import base64
+import re
 import urllib.parse
 from dataclasses import dataclass
 from datetime import date
@@ -178,6 +179,171 @@ _JIRA_CATEGORY_TO_BUCKET: dict[str, str] = {
 # Valid on both Cloud (v3) and Server/DC (v2) — ``currentUser()`` and
 # ``statusCategory`` are core JQL, not version-specific.
 _DEFAULT_JIRA_JQL = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
+
+# Jira project keys are short tokens: a letter followed by letters, digits or
+# underscores (Jira Cloud caps them at 10 characters; DC/Server is looser, so the
+# ceiling here matches the serializer's ``max_length``).
+#
+# Enforced at *this* boundary, not only at the serializer, for two reasons. A
+# stored ``config`` can predate the serializer's rule, and the key is interpolated
+# into a JQL query — so a key carrying a quote or a parenthesis could rewrite the
+# very filter it is supposed to narrow. An unusable key therefore fails the pull
+# loudly (see :func:`_compose_jql`) rather than being dropped, because dropping it
+# would silently *widen* what leaves Jira, which is the defect #2888 fixed.
+JIRA_PROJECT_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
+
+# JQL's one trailing clause. The project filter has to be ANDed into the WHERE
+# part, *before* the sort — `... ORDER BY updated DESC AND project IN (...)` is a
+# syntax error, so the clause cannot simply be appended.
+_ORDER_BY_RE = re.compile(r"\border\s+by\b", re.IGNORECASE)
+
+
+class JqlNotWellFormed(ValueError):
+    """A JQL query's parentheses or quotes do not balance.
+
+    Its own exception type because two callers need to react differently to it:
+    the connect serializer turns it into an inline 400 on the ``jql`` field, and
+    the pull path turns it into an :class:`ExternalSourceError`.
+    """
+
+
+def scan_jql(jql: str) -> tuple[str, str]:
+    """Split a JQL string into ``(where_part, order_by_clause)``, validating structure.
+
+    Two jobs, in one pass, because they need the same quote/paren state:
+
+    1. Find the last **top-level** ``ORDER BY`` — outside any quoted string and
+       outside any parenthesized group — so a literal in the filter itself
+       (``summary ~ "order by rank"``) is not mistaken for the sort clause. Either
+       part may be empty: a JQL with no sort yields ``("...", "")``, and a bare
+       ``"ORDER BY updated DESC"`` yields ``("", "ORDER BY updated DESC")``.
+
+    2. Reject a query whose parentheses or quotes do not balance. This is the
+       load-bearing half. :func:`_compose_jql` narrows by wrapping the WHERE part
+       in one pair of parentheses and ANDing a project clause after it — and an
+       *unbalanced* input turns that wrap into a no-op::
+
+           jql      = 'project = "PUBLIC") OR (project = "SECRET"'
+           composed = '(project = "PUBLIC") OR (project = "SECRET") AND project IN ("RIV")'
+
+       which is valid JQL where ``AND`` binds tighter than ``OR``, so every
+       ``PUBLIC`` issue comes back unrestricted by the project filter. The wrap
+       only contains an ``OR`` when the thing being wrapped is a single group,
+       so structural balance is a precondition of the narrowing, not a nicety.
+
+    Raises:
+        JqlNotWellFormed: unbalanced parentheses, or an unterminated quoted string.
+    """
+    in_quote: str | None = None
+    depth = 0
+    index = 0
+    split_at = -1
+    length = len(jql)
+    while index < length:
+        char = jql[index]
+        if in_quote is not None:
+            # JQL escapes a quote inside a string with a backslash; skip the pair
+            # so an escaped quote does not look like the end of the string.
+            if char == "\\":
+                index += 2
+                continue
+            if char == in_quote:
+                in_quote = None
+            index += 1
+            continue
+        if char in ('"', "'"):
+            in_quote = char
+            index += 1
+            continue
+        if char == "(":
+            depth += 1
+            index += 1
+            continue
+        if char == ")":
+            depth -= 1
+            if depth < 0:
+                raise JqlNotWellFormed("unbalanced ')' in JQL")
+            index += 1
+            continue
+        # ORDER BY is only the sort clause at the top level; inside a group it
+        # cannot legally appear, so ignoring it there keeps the split honest.
+        if depth == 0:
+            match = _ORDER_BY_RE.match(jql, index)
+            if match:
+                split_at = index
+                index = match.end()
+                continue
+        index += 1
+
+    if in_quote is not None:
+        raise JqlNotWellFormed("unterminated quoted string in JQL")
+    if depth != 0:
+        raise JqlNotWellFormed("unbalanced '(' in JQL")
+
+    if split_at < 0:
+        return jql.strip(), ""
+    return jql[:split_at].strip(), jql[split_at:].strip()
+
+
+def _compose_jql(jql: str, project_keys: Any) -> str:
+    """Narrow a JQL query to the connection's selected Jira projects (#2888).
+
+    The "Projects" filter on a connection is a **scoping** control: a contributor
+    naming two keys to keep a third project out of a shared tool has to get that,
+    and the guarantee cannot be one a custom JQL is able to widen. So the keys are
+    always ANDed on top of whatever query is in effect — the default one *and* a
+    user-supplied ``config["jql"]``::
+
+        (assignee = currentUser()) AND project IN ("RIV", "BAY") ORDER BY updated DESC
+
+    The WHERE part is parenthesized so an ``OR`` inside the user's own query cannot
+    escape the project constraint (``a OR b AND project IN (…)`` binds ``AND``
+    tighter and would pull every ``a``). That wrap is only sound on a structurally
+    balanced query, so the query is validated first — see :func:`scan_jql`. No keys
+    selected means no clause, no wrap and no validation: the query is returned
+    unchanged and Jira's own parser stays the authority ("leave blank for all").
+
+    Args:
+        jql: The effective query — a stored custom one, or :data:`_DEFAULT_JIRA_JQL`.
+        project_keys: The connection's ``config["project_keys"]`` (any JSON value;
+            a non-list is treated as no selection).
+
+    Returns:
+        The JQL to send to Jira.
+
+    Raises:
+        ExternalSourceError: A stored key is not a syntactically valid Jira project
+            key, or the stored JQL is not well-formed enough to narrow safely.
+            Failing the pull is deliberate in both cases: proceeding would widen it
+            past what the user asked for, and a silent widening of a privacy control
+            is worse than a visible failure.
+    """
+    if not isinstance(project_keys, list | tuple):
+        return jql
+    seen: dict[str, None] = {}
+    for raw in project_keys:
+        key = str(raw).strip()
+        if not key:
+            continue
+        if not JIRA_PROJECT_KEY_RE.match(key):
+            raise ExternalSourceConfigError(
+                "Jira project filter contains an invalid project key; "
+                "reconnect the source to correct it."
+            )
+        seen.setdefault(key.upper(), None)
+    if not seen:
+        return jql
+
+    clause = "project IN (" + ", ".join(f'"{key}"' for key in seen) + ")"
+    try:
+        where, order_by = scan_jql(jql)
+    except JqlNotWellFormed as exc:
+        raise ExternalSourceConfigError(
+            f"Stored Jira filter cannot be scoped to the selected projects ({exc}); "
+            "reconnect the source to correct it."
+        ) from exc
+    narrowed = f"({where}) AND {clause}" if where else clause
+    return f"{narrowed} {order_by}" if order_by else narrowed
 
 
 def _jira_origin(base_url: str) -> str:
@@ -330,12 +496,20 @@ class _JiraBackend(abc.ABC):
         ``auth_failed`` rather than silently returning an empty list that would
         soft-remove every cached item.
 
+        The connection's ``config["project_keys"]`` is ANDed onto the query here
+        (:func:`_compose_jql`), so the "Projects" filter narrows what actually
+        leaves Jira instead of only being echoed back to the owner (#2888).
+
         Raises:
             ExternalSourceAuthError: 401/403 — token expired or revoked.
-            ExternalSourceError: any other non-200 or a transport failure.
+            ExternalSourceError: any other non-200, a transport failure, or a
+                stored project key that is not a valid Jira project key.
         """
         cfg = config or {}
-        jql = (cfg.get("jql") or "").strip() or _DEFAULT_JIRA_JQL
+        jql = _compose_jql(
+            (cfg.get("jql") or "").strip() or _DEFAULT_JIRA_JQL,
+            cfg.get("project_keys"),
+        )
         base = self._base(base_url)
         query = urllib.parse.urlencode(
             {
@@ -411,7 +585,9 @@ class JiraSource(ExternalTaskSource):
     ``"server"``) selects the API version + auth shape; ``base_url`` is the
     tenant/host, allow-listed by the connection endpoint before any request is
     made. ``config`` also carries ``{"account_email" (Cloud only), "jql",
-    "project_keys"}``.
+    "project_keys"}`` — ``jql`` selects *what* to pull (defaulting to
+    :data:`_DEFAULT_JIRA_JQL`) and ``project_keys`` narrows it to named projects,
+    ANDed on top of the query rather than replaced by it (#2888).
     """
 
     key: ClassVar[str] = "jira"
@@ -469,6 +645,21 @@ class ExternalSourceAuthError(ExternalSourceError):
     Distinct from :class:`ExternalSourceError` so the caller can short-circuit
     retries and flip the connection to ``auth_failed`` (ADR-0097 §5) instead of
     backing off and retrying a dead token.
+    """
+
+
+class ExternalSourceConfigError(ExternalSourceError):
+    """The connection's stored ``config`` cannot produce a safe query.
+
+    Distinct from :class:`ExternalSourceError` for the same reason
+    :class:`ExternalSourceAuthError` is: the generic case means "the provider is
+    having a moment, keep the cache and retry", and retrying fixes nothing here —
+    the stored filter will be just as unusable next time. Without the distinction
+    a connection carrying a bad filter reports "unreachable" forever while serving
+    a cache that was populated under the *unscoped* query, which is the wrong
+    belief #2888 exists to prevent, reached by another route. Subclasses
+    ``ExternalSourceError`` so any caller that only knows the base class still
+    degrades safely.
     """
 
 

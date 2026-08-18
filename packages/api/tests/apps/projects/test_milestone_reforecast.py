@@ -18,6 +18,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from tests.on_commit import capture_on_commit_callbacks
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
     Calendar,
@@ -237,7 +238,10 @@ class ReforecastPrivacyTests(TestCase):
 
             with (
                 patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
-                self.captureOnCommitCallbacks(execute=True),
+                # Not self.captureOnCommitCallbacks: setUp leaves callbacks on
+                # run_on_commit, which is the precondition its index slice cannot
+                # survive a savepoint unwind under (#2945).
+                capture_on_commit_callbacks(execute=True),
             ):
                 reforecast_bound_milestone(self.milestone.pk)
         finally:

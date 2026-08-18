@@ -1501,6 +1501,23 @@ helm:lint:
   <<: *rules-helm
   script:
     - helm lint packages/helm/
+    # Lint each shipped overlay too (#2879). `helm lint` validates values against
+    # values.schema.json, and the schema is the only thing that catches a values key
+    # no template reads — an unknown or misspelled key is otherwise accepted in
+    # silence and changes nothing on the pod (the #2860 mechanism). Linting the
+    # default values alone would leave the overlays uncovered. Each overlay is given
+    # the minimum extra --set it needs to RENDER, so a schema violation is the only
+    # thing that can fail here.
+    - helm lint packages/helm/ -f packages/helm/values-dev.yaml
+    - |
+      helm lint packages/helm/ -f packages/helm/values-prod.yaml \
+        --set 'env.DATABASE_URL=postgres://u:p@db.example.com:5432/trueppm?sslmode=require' \
+        --set 'env.REDIS_URL=redis://cache.example.com:6379/0'
+    - |
+      helm lint packages/helm/ -f packages/helm/values-demo.yaml \
+        --set demo.baseUrl=https://demo.example.com \
+        --set demo.shareToken.schedule=ci-schedule-token \
+        --set demo.shareToken.board=ci-board-token
     # Guard the bug class from #777: a `DJANGO_SETTINGS_MODULE` typo in the chart
     # (e.g. `settings.production` vs the real `settings.prod`) crash-loops every
     # fresh deploy yet passes `helm lint` silently. Verify every settings module
@@ -1650,9 +1667,11 @@ ci:build-deploy-images:
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
   # The changes: list is the UNION of every drill that `needs:` this job —
-  # helm:install AND compose:prod (#2817). It has to be a superset: a
-  # compose-only MR that created compose:prod without this job would be a
-  # pipeline configuration error, not a skipped drill.
+  # helm:install, compose:prod (#2817) AND helm:netpol (#2944). It has to be a
+  # superset: a drill scheduled without this job is a pipeline configuration
+  # error that fails the whole pipeline instantly with zero jobs, not a skipped
+  # drill. helm-netpol-drill.sh was missing here until #2944, so an MR touching
+  # only that script scheduled helm:netpol against a `needs:` that did not exist.
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
       allow_failure: true
@@ -1661,6 +1680,7 @@ ci:build-deploy-images:
         - packages/helm/**/*
         - scripts/helm-install-drill.sh
         - scripts/prod-compose-drill.sh
+        - scripts/helm-netpol-drill.sh
         - docker-compose.prod.yml
         - init-prod.sh
         - .env.example

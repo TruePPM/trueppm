@@ -14,6 +14,13 @@
  * computed server-side; when the metrics store is unreachable the strip reports
  * itself unavailable and the card falls back to the config posture — never a
  * fabricated number.
+ *
+ * The strip is the one part of this card that is NOT static posture, so it takes an
+ * `onRefresh` (#2880). It shipped onto a page that had been pinned to `poll: false`
+ * hours earlier, which froze it at page load — a stall beginning afterwards was
+ * invisible, and `refetch` reached only the error branch's Retry button. The routed
+ * Observability page now polls; `onRefresh` covers the inline consolidated-settings
+ * rendering, which deliberately does not poll (#2298).
  */
 
 import { useState } from 'react';
@@ -84,30 +91,54 @@ function envSnippet(b: Backend): string {
 /**
  * Copy-paste Helm values for the chosen backend.
  *
- * `env` is a **map**, not a list of `{name, value}` entries (#2860). This snippet
- * previously emitted a top-level `extraEnv:` list — a key the chart has nowhere,
- * and there is no `values.schema.json`, so `helm upgrade -f values.yaml` accepted
- * the pasted block silently and changed nothing on the pod. The operator then
- * looked at a card that said telemetry was configured and a cluster where it was
- * not. See `packages/helm/templates/_helpers.tpl` (`trueppm.envVars`), which
- * ranges `$key, $value := .Values.env`.
+ * Emits the chart's purpose-built `observability.otlp.*` block — NOT raw `OTEL_*`
+ * entries under `env:`, and NOT a top-level `envFrom:`. Three separate defects lived
+ * in the four lines this replaced (#2879, follow-up to #2860):
  *
- * `envFrom` below IS a real chart value (a list of source refs, used by
- * `values-demo.yaml` and documented in the chart README) — only the `env` half
- * was wrong.
+ * 1. **`envFrom` clobbered the operator's app-secret list.** `envFrom` is a real
+ *    chart key, but it is a LIST, and Helm REPLACES lists rather than merging them.
+ *    Pasted into a values file it dropped the operator's own entry (typically
+ *    `trueppm-env`, carrying SECRET_KEY / ALLOWED_HOSTS / INTEGRATION_ENCRYPTION_KEY),
+ *    which `settings.prod` validates at *import* time — so the migrate init container
+ *    crash-looped before any app log an operator would think to read. The chart's boot
+ *    guard could not catch it either: it tested `len(envFrom) > 0`, and the list was
+ *    non-empty, just wrong.
+ * 2. **The secret key name never matched the documented recipe.** `envFrom` +
+ *    `secretRef` injects each Secret KEY verbatim as an env var name, so it only works
+ *    if the key is literally `OTEL_EXPORTER_OTLP_HEADERS`. The documented recipe
+ *    (`--from-literal=headers=…`) produces a key named `headers`, so auth never
+ *    applied and the collector 401'd. `headersSecret` below is the mapping the chart
+ *    provides for exactly this (`_helpers.tpl`, `trueppm.observabilityEnv`).
+ * 3. **Raw `env:` entries lose half the feature and can be silently overridden.**
+ *    `trueppm.envVars` renders BEFORE `trueppm.observabilityEnv` in `trueppm.appEnv`,
+ *    and Kubernetes keeps the LAST entry for a duplicated env name — so an operator
+ *    who ever sets the structured block too finds the pasted values doing nothing.
+ *    Raw entries also skip the `TRUEPPM_POD_NAME` downward-API injection the live
+ *    export-health strip needs, and every `exportHealth` knob.
+ *
+ * `packages/helm/values.schema.json` now closes the root with
+ * `additionalProperties: false`, so a wrong key fails the upgrade instead of being
+ * accepted in silence — the mechanism, rather than this one instance.
  */
 function helmSnippet(b: Backend): string {
   return [
     '# values.yaml — then: helm upgrade trueppm trueppm/trueppm -f values.yaml',
-    'env:',
-    '  TRUEPPM_OTEL_ENABLED: "true"',
-    `  OTEL_EXPORTER_OTLP_ENDPOINT: "${b.endpoint}"`,
-    `  OTEL_EXPORTER_OTLP_PROTOCOL: "${b.proto}"`,
-    '  OTEL_SERVICE_NAME: "trueppm-api"',
-    '# Bearer token / headers: reference a Secret, never inline in values.',
-    'envFrom:',
-    '  - secretRef:',
-    '      name: trueppm-otel-auth',
+    '# Merges with your existing values; nothing else is replaced.',
+    'observability:',
+    '  otlp:',
+    `    endpoint: "${b.endpoint}"`,
+    `    protocol: "${b.proto}"`,
+    '    serviceName: "trueppm-api"',
+    '    enabled: true',
+    '    tracesSampler: "parentbased_traceidratio"',
+    '    tracesSamplerArg: "0.1"   # keep 10% of root traces',
+    '    # Auth header — only if your collector requires it. Create the Secret with',
+    '    #   kubectl create secret generic trueppm-otel-auth \\',
+    '    #     --from-literal=headers="authorization=Bearer <token>"',
+    '    # then uncomment (the key name must match the one you created):',
+    '    # headersSecret:',
+    '    #   name: "trueppm-otel-auth"',
+    '    #   key: "headers"',
   ].join('\n');
 }
 
@@ -154,6 +185,34 @@ function SendIcon({ className }: IconProps) {
         d="M2 8l11.5-4.5L9.5 14 7 9 2 8z"
         stroke="currentColor"
         strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function RefreshIcon({ spinning }: { spinning?: boolean }) {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      className={spinning ? 'animate-spin shrink-0' : 'shrink-0'}
+    >
+      <polyline
+        points="23 4 23 10 17 10"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M20.49 15a9 9 0 11-2.13-9.36L23 10"
+        stroke="currentColor"
+        strokeWidth="2.4"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -398,20 +457,86 @@ function SignalHealthRow({
 }
 
 /**
+ * Refresh affordance for the live strip (#2880).
+ *
+ * The strip reports "last export 8s ago · 1,204 spans / 60s" — numbers that are only
+ * true at the moment they were fetched. It shipped onto a page pinned to
+ * `poll: false` hours earlier, so a stall that began after page load was invisible
+ * and nothing on the success path could re-read it (`refetch` was wired to the error
+ * branch's Retry button only). The routed Observability page now polls; this button
+ * covers the inline consolidated-settings rendering, which deliberately does not
+ * (#2298 — no background poll wedged into a form-editing page), and gives any
+ * operator a way to re-read on demand.
+ *
+ * Busy state is tracked LOCALLY off the click, never from the query's `isFetching`
+ * (rule 303). The routed page polls every 10 s, and `isFetching` is true for a poll
+ * tick as much as for a click — binding it to `disabled` would disable the control
+ * every 10 s, and a browser blurs a focused element the instant it becomes disabled,
+ * so a keyboard user resting on the button would lose focus on a timer.
+ */
+function LiveRefreshButton({ onRefresh }: { onRefresh: () => void | Promise<unknown> }) {
+  const [pending, setPending] = useState(false);
+  const [announcement, setAnnouncement] = useState('');
+
+  const handleClick = () => {
+    setAnnouncement('');
+    const result = onRefresh();
+    if (!(result instanceof Promise)) {
+      setAnnouncement('Live export stats refreshed.');
+      return;
+    }
+    setPending(true);
+    void result.finally(() => {
+      setPending(false);
+      setAnnouncement('Live export stats refreshed.');
+    });
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={pending}
+        aria-label="Refresh live export stats"
+        className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[11px] font-semibold text-neutral-text-primary hover:bg-neutral-surface-sunken focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
+      >
+        <RefreshIcon spinning={pending} />
+        {pending ? 'Refreshing…' : 'Refresh'}
+      </button>
+      {/* The strip's numbers change in place, so a sighted user sees the update and a
+          screen-reader user would not. Announced only for a USER-initiated refresh —
+          putting aria-live on the strip itself would re-announce on every 10 s poll
+          tick, which is worse than silence. */}
+      <span className="sr-only" role="status" aria-live="polite">
+        {announcement}
+      </span>
+    </>
+  );
+}
+
+/**
  * Live cross-process export-health strip. Renders only when export is on. Falls
  * back to a muted "unavailable" note when the metrics store is unreachable so the
  * card never shows a fabricated number.
  */
-function LiveStrip({ live }: { live: SystemHealthTelemetryLive }) {
+function LiveStrip({
+  live,
+  onRefresh,
+}: {
+  live: SystemHealthTelemetryLive;
+  onRefresh?: () => void | Promise<unknown>;
+}) {
   if (!live.available) {
     return (
       <div className="px-4 py-3 border-b border-neutral-border/55">
         <div className="flex items-start gap-2 text-[12px] text-neutral-text-secondary leading-snug">
           <span aria-hidden="true" className="w-2.5 h-2.5 rounded-full shrink-0 mt-1 border-2 border-neutral-border" />
-          <span>
+          <span className="flex-1">
             Live export stats are unavailable — the metrics store (Valkey) is unreachable. The
             configuration below is unaffected.
           </span>
+          {onRefresh ? <LiveRefreshButton onRefresh={onRefresh} /> : null}
         </div>
       </div>
     );
@@ -427,9 +552,12 @@ function LiveStrip({ live }: { live: SystemHealthTelemetryLive }) {
         <h3 className="text-[11px] uppercase tracking-wide font-semibold text-neutral-text-secondary">
           Live export · last {live.window_seconds}s
         </h3>
-        <span className="text-[11px] text-neutral-text-secondary">
-          {live.pods_reporting} pod{live.pods_reporting === 1 ? '' : 's'} reporting
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-neutral-text-secondary">
+            {live.pods_reporting} pod{live.pods_reporting === 1 ? '' : 's'} reporting
+          </span>
+          {onRefresh ? <LiveRefreshButton onRefresh={onRefresh} /> : null}
+        </div>
       </div>
 
       {alerting ? (
@@ -713,7 +841,18 @@ function GuidedSetup() {
 // Main card
 // ---------------------------------------------------------------------------
 
-export function TelemetryCard({ telemetry }: { telemetry: SystemHealthTelemetry }) {
+export function TelemetryCard({
+  telemetry,
+  onRefresh,
+}: {
+  telemetry: SystemHealthTelemetry;
+  /**
+   * Re-read the live export strip on demand. Omit to render no refresh control.
+   * Return the refetch promise and the button shows a busy state until it settles;
+   * do NOT pass a separate `isFetching` flag (rule 303).
+   */
+  onRefresh?: () => void | Promise<unknown>;
+}) {
   const status = telemetryStatus(telemetry);
 
   return (
@@ -736,7 +875,9 @@ export function TelemetryCard({ telemetry }: { telemetry: SystemHealthTelemetry 
               </p>
             </div>
           ) : null}
-          {status === 'exporting' ? <LiveStrip live={telemetry.live} /> : null}
+          {status === 'exporting' ? (
+            <LiveStrip live={telemetry.live} onRefresh={onRefresh} />
+          ) : null}
           <ConfigSummary telemetry={telemetry} />
           <Signals telemetry={telemetry} />
           <TestExport />

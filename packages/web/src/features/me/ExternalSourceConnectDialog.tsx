@@ -102,6 +102,11 @@ export function ExternalSourceConnectDialog({ source, onDismiss, onConnected }: 
   function parseProjectKeys(): string[] {
     // Split on commas/whitespace, upper-case, dedupe — Jira project keys are
     // short upper-case tokens (RIV, BAY). Empty → no project filter.
+    //
+    // The backend ANDs these onto the pull query — the default one *and* a custom
+    // JQL — so the filter can only narrow what leaves Jira, never widen it
+    // (#2888). It re-validates the key shape, so a bad key comes back as a 400 on
+    // this field rather than being stored and silently ignored.
     const keys = projects
       .split(/[\s,]+/)
       .map((k) => k.trim().toUpperCase())
@@ -379,7 +384,8 @@ export function ExternalSourceConnectDialog({ source, onDismiss, onConnected }: 
                 className="h-9 px-3 text-[13px] border border-neutral-border rounded-control bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
               />
               <span className="text-xs text-neutral-text-secondary">
-                Comma-separated project keys to limit the import. Leave blank for all.
+                Comma-separated project keys. Narrows whatever you chose above, so only
+                issues in these projects are pulled. Leave blank for all.
               </span>
             </label>
 

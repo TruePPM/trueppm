@@ -10,6 +10,7 @@ import {
 } from '@/hooks/useProjectTemplates';
 import { ROLE_ADMIN } from '@/lib/roles';
 import type { Task } from '@/types';
+import { isUndoShortcutClaimed } from '@/hooks/useGlobalShortcut';
 
 interface SeedBannerProps {
   projectId: string;
@@ -78,6 +79,13 @@ export function SeedBanner({
     if (!canManage || application?.status !== 'success') return;
     function handleKeyDown(e: KeyboardEvent) {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'z' || e.shiftKey) return;
+      // Yield to a nearer surface that owns ⌘Z (#2892). The CSV import wizard is a
+      // *sibling* of this banner on ScheduleView, and both undos are destructive:
+      // before the claim registry, one keypress reverted the CSV import and the
+      // template apply, with this banner's toast painted behind the open modal.
+      // `preventDefault()` in the wizard cannot stop this listener — only
+      // arbitration can.
+      if (isUndoShortcutClaimed()) return;
       const target = e.target as HTMLElement | null;
       if (
         target &&

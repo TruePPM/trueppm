@@ -35,8 +35,15 @@ from trueppm_api.apps.access.permissions import (
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Program, Project
-from trueppm_api.apps.webhooks.models import Webhook, WebhookDelivery
+from trueppm_api.apps.webhooks.dispatch import build_delivery_body
+from trueppm_api.apps.webhooks.models import (
+    PING_EVENT_TYPE,
+    Webhook,
+    WebhookDelivery,
+    _next_delivery_sequence,
+)
 from trueppm_api.apps.webhooks.serializers import (
+    WebhookCreateResponseSerializer,
     WebhookDeliverySerializer,
     WebhookSerializer,
 )
@@ -82,6 +89,20 @@ WEBHOOK_DELIVERY_PAGE = inline_serializer(
 )
 
 
+# The 201 body carries the one-time `secret`; the shared Webhook schema does not
+# declare it (the field is write_only, which is right for every read). Declared per
+# viewset because one shared declaration would publish the same operationId on both
+# the project- and program-scoped paths — a duplicate-operationId collision. Ids are
+# pinned for the same reason as `deliveries`: operationId is the *method name* in a
+# generated client, so fixing a response shape must not rename every caller's method
+# (#2583).
+@extend_schema_view(
+    create=extend_schema(
+        summary="Register a webhook",
+        responses={201: WebhookCreateResponseSerializer},
+        operation_id="v1_projects_webhooks_create",
+    )
+)
 class WebhookViewSet(
     IdempotencyMixin,
     CreateModelMixin,
@@ -98,6 +119,16 @@ class WebhookViewSet(
     """
 
     serializer_class = WebhookSerializer
+
+    # Exempt from the generic Idempotency-Key path (ADR-0170): the create response
+    # carries the one-time plaintext signing secret, which must never be persisted
+    # in the idempotency store for replay. Mirrors ProjectApiTokenViewSet, and it is
+    # the same reasoning #2885 encrypts the column for — storing the plaintext in
+    # IdempotencyKey.response_body (a plain JSONField, retained for
+    # IDEMPOTENCY_RETENTION_HOURS) would move the secret to another table rather than
+    # remove it, and would re-serve it on replay, contradicting the documented
+    # "returned exactly once" guarantee.
+    idempotency_exempt = True
 
     def get_permissions(self) -> list[BasePermission]:
         # `deliveries` exposes the full event payload (task notes, comment
@@ -169,12 +200,34 @@ class WebhookViewSet(
     )
     @action(detail=True, methods=["post"], url_path="test")
     def test_ping(self, request: Request, **kwargs: object) -> Response:
-        """Send a test ping event to the webhook URL."""
+        """Send a test ping to the webhook URL.
+
+        The ping takes exactly the same path as a real delivery: it renders through
+        the subscription's registered format, is signed identically, and consumes a
+        sequence number with a matching ``_meta.sequence``. A test therefore fails
+        wherever a real delivery would, and never shows up as a gap in the
+        consumer's sequence counter.
+
+        Returns 202 with the ``delivery_id``. That acknowledges the *enqueue*, not
+        the receiver's answer — read the ``deliveries`` action back for that row's
+        terminal ``status`` and ``response_status`` to learn what the receiver said.
+        """
+        # Building the ping inline (rather than through the provider) was how a
+        # slack-format webhook — the UI default — got sent a body Slack rejects with
+        # 400 invalid_payload while the API reported success on the 202 (#2884).
         webhook = self.get_object()
+        sequence = _next_delivery_sequence(webhook.pk)
+        body = build_delivery_body(
+            webhook,
+            PING_EVENT_TYPE,
+            {"event": PING_EVENT_TYPE, "webhook_id": str(webhook.pk)},
+            sequence,
+        )
         delivery = WebhookDelivery.objects.create(
             webhook=webhook,
-            event_type="ping",
-            payload={"event": "ping", "webhook_id": str(webhook.pk)},
+            event_type=PING_EVENT_TYPE,
+            payload=body,
+            sequence_number=sequence,
         )
         # Defer dispatch until the delivery row is committed so the task never
         # races against an uncommitted row.  If the broker is down the delay()
@@ -239,7 +292,12 @@ class WebhookViewSet(
         summary="List recent webhook deliveries",
         responses={200: WEBHOOK_DELIVERY_PAGE},
         operation_id="v1_programs_webhooks_deliveries_list",
-    )
+    ),
+    create=extend_schema(
+        summary="Register a webhook",
+        responses={201: WebhookCreateResponseSerializer},
+        operation_id="v1_programs_webhooks_create",
+    ),
 )
 class ProgramWebhookViewSet(WebhookViewSet):
     """CRUD for outbound webhooks scoped to a program (ADR-0076).

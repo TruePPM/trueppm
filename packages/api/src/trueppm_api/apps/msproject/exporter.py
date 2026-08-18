@@ -23,6 +23,12 @@ from trueppm_api.apps.scheduling.units import (
 # MS Project XML namespace.
 _NS = "http://schemas.microsoft.com/project"
 
+# MSPDI <ConstraintType> codes this exporter emits (#2891). Named rather than
+# inlined because the importer's mapping table (`CONSTRAINT_TYPES_APPLIED_AS_SNET`
+# in `dataclasses`) has to stay in agreement with them for the round trip to close.
+MSPDI_CONSTRAINT_AS_SOON_AS_POSSIBLE = 0
+MSPDI_CONSTRAINT_START_NO_EARLIER_THAN = 4
+
 # TruePPM dep_type -> MS Project PredecessorLink/Type.
 _DEP_TYPE_TO_LINK_TYPE = {
     "FF": "0",
@@ -199,6 +205,27 @@ def _add_task_element(
         _sub_text(task_el, "Start", _format_date(task.planned_start))
     if task.early_finish:
         _sub_text(task_el, "Finish", _format_date(task.early_finish))
+
+    # Constraint + actuals round-trip (#2891). `planned_start` IS a
+    # start-no-earlier-than floor, so emitting it as MSPDI ConstraintType 4 with a
+    # ConstraintDate is a faithful translation rather than an approximation — and
+    # it is what makes the round trip closed: the importer reads the constraint
+    # date back as `planned_start`. Emitting only <Start> (which is CPM output, and
+    # per ADR-0132 a remaining-work date on a partially-complete task) meant a
+    # re-import silently promoted computed dates to committed ones.
+    #
+    # Tasks with no floor get ConstraintType 0 (As Soon As Possible), which is
+    # TruePPM's own default: an omitted element would leave MS Project to infer a
+    # constraint from the <Start> we emit, re-creating the same promotion.
+    if task.planned_start:
+        _sub_text(task_el, "ConstraintType", str(MSPDI_CONSTRAINT_START_NO_EARLIER_THAN))
+        _sub_text(task_el, "ConstraintDate", _format_date(task.planned_start))
+    else:
+        _sub_text(task_el, "ConstraintType", str(MSPDI_CONSTRAINT_AS_SOON_AS_POSSIBLE))
+    if task.actual_start:
+        _sub_text(task_el, "ActualStart", _format_date(task.actual_start))
+    if task.actual_finish:
+        _sub_text(task_el, "ActualFinish", _format_date(task.actual_finish))
 
     # PERT three-point per-task values. Only emitted for the leaf, non-milestone
     # tasks selected by _select_pert_tasks. Duration4 is the PERT-Expected

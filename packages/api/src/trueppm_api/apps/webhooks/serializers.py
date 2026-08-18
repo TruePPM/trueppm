@@ -9,6 +9,7 @@ from typing import Any
 from rest_framework import serializers
 
 from trueppm_api.apps.webhooks.models import (
+    PING_EVENT_TYPE,
     Webhook,
     WebhookDelivery,
     WebhookEventType,
@@ -34,16 +35,33 @@ class WebhookSerializer(serializers.ModelSerializer[Webhook]):
     supplied it must be at least :data:`MIN_WEBHOOK_SECRET_LENGTH` non-whitespace
     characters.
 
-    The ``events`` field is validated against the known event type choices.
+    ``secret_set`` is the read-side counterpart: a boolean saying whether a secret
+    is stored. The secret itself is encrypted at rest and there is no API path that
+    reads the plaintext back.
+
+    The ``events`` field is validated against the known event type choices and is
+    **required** — there is no "subscribe to everything" shorthand, so omitting it
+    returns 400 rather than creating a silently empty subscription.
+
+    ``consecutive_failures``, ``last_failure_at``, ``last_failure_reason``,
+    ``disabled_at`` and ``disabled_reason`` are read-only delivery health, written
+    only by the delivery task. ``disabled_at`` is set solely by the automatic
+    failure guard, so a subscription an admin paused by hand is distinguishable from
+    one TruePPM gave up on. PATCHing ``is_active`` back to true clears the record.
     """
 
     events = serializers.ListField(
         child=serializers.ChoiceField(choices=WebhookEventType.choices),
         allow_empty=False,
     )
-    # required=False so the secret may be omitted and auto-generated. Still
-    # write_only (Meta.extra_kwargs) so it never appears in normal reads; the
-    # one-time create echo is handled explicitly in to_representation.
+    # Mirrors SsoProviderPolicySerializer / BoardAutomationSerializer — the
+    # repo-wide shape for "a secret exists, and that is all you may know" (#2885).
+    # Reads the Webhook.secret_set property, which tests the stored ciphertext.
+    secret_set = serializers.BooleanField(read_only=True)
+    # required=False so the secret may be omitted and auto-generated. write_only so
+    # it never appears in normal reads; the one-time create echo is handled
+    # explicitly in to_representation. There is no model field behind it any more —
+    # it writes through the Webhook.secret property, which encrypts.
     secret = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -63,16 +81,34 @@ class WebhookSerializer(serializers.ModelSerializer[Webhook]):
             "program",
             "url",
             "secret",
+            "secret_set",
             "events",
             "format",
             "is_active",
+            "consecutive_failures",
+            "last_failure_at",
+            "last_failure_reason",
+            "disabled_at",
+            "disabled_reason",
             "created_at",
             "created_by",
         ]
-        read_only_fields = ["id", "project", "program", "created_at", "created_by"]
-        extra_kwargs = {
-            "secret": {"write_only": True},
-        }
+        read_only_fields = [
+            "id",
+            "project",
+            "program",
+            "created_at",
+            "created_by",
+            # Delivery health is written only by the delivery task (#2884) — a
+            # client cannot fake a healthy webhook or clear the auto-disable
+            # record. Re-enabling is done by PATCHing is_active, which resets the
+            # counters in update() below.
+            "consecutive_failures",
+            "last_failure_at",
+            "last_failure_reason",
+            "disabled_at",
+            "disabled_reason",
+        ]
 
     def validate_secret(self, value: str) -> str:
         """Enforce a minimum length / reject whitespace-only secrets (#893).
@@ -119,6 +155,50 @@ class WebhookSerializer(serializers.ModelSerializer[Webhook]):
         # Flag this instance so to_representation echoes the secret exactly once,
         # in the create response only. Reads of a refetched instance never see it.
         self._created_secret = instance.secret
+        return instance
+
+    def update(self, instance: Webhook, validated_data: dict[str, Any]) -> Webhook:
+        """Reactivating a webhook clears the automatic failure record (#2884).
+
+        The consecutive-failure guard deactivates a subscription whose endpoint has
+        been failing terminally. Re-enabling it must reset the counter in the same
+        write: otherwise the very next failure lands on an already-at-threshold
+        counter and the guard re-disables the webhook immediately, so an admin who
+        has genuinely fixed the receiver can never get out of the disabled state.
+
+        The write is narrowed to ``update_fields`` rather than left as
+        ``ModelSerializer``'s bare ``instance.save()``. A full-row save writes back
+        every column from the copy loaded at ``get_object()`` time, and the delivery
+        task concurrently writes the health counters from a Celery worker — so an
+        admin PATCHing only ``url`` would silently revert an increment that landed in
+        between, delaying auto-disable. The counters are read-only to the client, so
+        this is a lost update rather than an escalation, but it is still a write the
+        caller did not ask for.
+        """
+        reset_fields: list[str] = []
+        if validated_data.get("is_active") is True and not instance.is_active:
+            instance.consecutive_failures = 0
+            instance.last_failure_at = None
+            instance.last_failure_reason = ""
+            instance.disabled_at = None
+            instance.disabled_reason = ""
+            reset_fields = [
+                "consecutive_failures",
+                "last_failure_at",
+                "last_failure_reason",
+                "disabled_at",
+                "disabled_reason",
+            ]
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        # `secret` is a property, not a column — it writes through to
+        # `secret_ciphertext`, which is the name `update_fields` must carry. Passing
+        # "secret" would raise; omitting the translation would silently drop a
+        # rotation.
+        columns = ["secret_ciphertext" if attr == "secret" else attr for attr in validated_data]
+        instance.save(update_fields=[*columns, *reset_fields])
         return instance
 
     def to_representation(self, instance: Webhook) -> dict[str, Any]:
@@ -186,6 +266,19 @@ class WebhookSerializer(serializers.ModelSerializer[Webhook]):
 class WebhookDeliverySerializer(serializers.ModelSerializer[WebhookDelivery]):
     """Read-only serializer for webhook delivery log entries."""
 
+    # Declared explicitly so the published enum includes the reserved PING_EVENT_TYPE.
+    # The model field's ``choices`` are the *subscribable* domain events, which is
+    # correct for validation but wrong as a response contract: a test ping is recorded
+    # here with ``event_type="ping"``, and the docs now tell integrators to read that
+    # exact row back to see what the receiver answered. A strict-enum generated client
+    # built from the 19-member model enum fails to deserialize the one row it was sent
+    # to fetch. Named distinctly so it does not collide with the shared EventTypeEnum
+    # component that the Webhook write schema publishes.
+    event_type = serializers.ChoiceField(
+        choices=[*WebhookEventType.choices, (PING_EVENT_TYPE, "Test Ping")],
+        read_only=True,
+    )
+
     class Meta:
         model = WebhookDelivery
         fields = [
@@ -200,3 +293,26 @@ class WebhookDeliverySerializer(serializers.ModelSerializer[WebhookDelivery]):
             "completed_at",
         ]
         read_only_fields = fields
+
+
+class WebhookCreateResponseSerializer(WebhookSerializer):
+    """Schema-only serializer for the 201 body, which DOES carry ``secret``.
+
+    ``WebhookSerializer.secret`` is ``write_only``, so the published ``Webhook``
+    schema has no ``secret`` property — correct for every read. But ``create``
+    echoes the value exactly once via ``to_representation``, and the docs now make
+    "omit ``secret`` and let TruePPM generate one" the recommended path. An
+    integrator whose client is generated from a schema that does not declare the
+    field drops it silently, and there is no read path to recover it — so the
+    undeclared key is a permanent loss of the only copy.
+
+    Used only in ``@extend_schema(responses={201: ...})``; nothing instantiates it.
+    """
+
+    secret = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "The signing secret, returned ONLY in this create response and never "
+            "again. Present whether it was supplied or auto-generated. Record it now."
+        ),
+    )

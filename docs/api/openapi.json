@@ -4902,6 +4902,9 @@
                         },
                         "description": ""
                     },
+                    "400": {
+                        "description": "Unknown source, disallowed host URL, or a field that failed validation (an unparseable JQL filter, or a project key that is not a Jira project key)."
+                    },
                     "422": {
                         "content": {
                             "application/json": {
@@ -13275,6 +13278,7 @@
             "post": {
                 "operationId": "v1_programs_webhooks_create",
                 "description": "CRUD for outbound webhooks scoped to a program (ADR-0076).\n\nA program-scoped webhook fires for events on any project within the program.\nInherits the test/deliveries actions and the rendering/dispatch substrate\nfrom WebhookViewSet; only the scope resolution and RBAC ladder change:\nlist/retrieve require Program Viewer+ (IsProgramMember), mutations require\nProgram Admin+ (IsProgramAdmin).",
+                "summary": "Register a webhook",
                 "parameters": [
                     {
                         "in": "path",
@@ -13324,7 +13328,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Webhook"
+                                    "$ref": "#/components/schemas/WebhookCreateResponse"
                                 }
                             }
                         },
@@ -13346,8 +13350,7 @@
                             }
                         }
                     }
-                },
-                "summary": "Create webhook"
+                }
             }
         },
         "/api/v1/programs/{program_pk}/webhooks/{id}/": {
@@ -13714,7 +13717,7 @@
         "/api/v1/programs/{program_pk}/webhooks/{id}/test/": {
             "post": {
                 "operationId": "v1_programs_webhooks_test_create",
-                "description": "Send a test ping event to the webhook URL.",
+                "description": "Send a test ping to the webhook URL.\n\nThe ping takes exactly the same path as a real delivery: it renders through\nthe subscription's registered format, is signed identically, and consumes a\nsequence number with a matching ``_meta.sequence``. A test therefore fails\nwherever a real delivery would, and never shows up as a gap in the\nconsumer's sequence counter.\n\nReturns 202 with the ``delivery_id``. That acknowledges the *enqueue*, not\nthe receiver's answer — read the ``deliveries`` action back for that row's\nterminal ``status`` and ``response_status`` to learn what the receiver said.",
                 "summary": "Send a test webhook ping",
                 "parameters": [
                     {
@@ -23277,14 +23280,22 @@
                                 "examples": {
                                     "Imports": {
                                         "value": {
+                                            "count": 1,
+                                            "next": null,
+                                            "previous": null,
                                             "results": [
                                                 {
                                                     "id": "…",
                                                     "filename": "plan.xml",
-                                                    "initiated_by": "sarah",
+                                                    "status": "done",
+                                                    "creates_project": false,
                                                     "requested_at": "2026-05-28T14:03:00Z",
-                                                    "status": "succeeded",
-                                                    "task_count": 142
+                                                    "initiated_by": 17,
+                                                    "initiated_by_username": "sarah",
+                                                    "task_count": 142,
+                                                    "warnings": [
+                                                        "Not imported: deadline dates (TruePPM has no deadline field) — set on 6 of 142 tasks."
+                                                    ]
                                                 }
                                             ]
                                         },
@@ -23293,7 +23304,7 @@
                                 }
                             }
                         },
-                        "description": "Recent import-request provenance rows for the project, newest first: {results: [{id, filename, initiated_by, requested_at, status, task_count}]}. Rows are purged after 7 days."
+                        "description": "Page of import-request provenance rows for the project, newest first: {count, next, previous, results: [{id, filename, status, creates_project, requested_at, initiated_by, initiated_by_username, task_count, warnings}]}. `status` is one of pending / dispatched / done / dead; `initiated_by` is the user's integer id (`initiated_by_username` carries the name, and is null once that user is deleted). `warnings` lists everything the import did not carry over — MS Project constraints, deadlines, baselines, priority, work and cost have no TruePPM column and are reported with per-family task counts; the strings are prose for a person, so match the leading 'Not imported: ' / 'Partially imported: ' marker rather than the whole line. Empty for a queued or dead import. Rows are purged after 7 days."
                     },
                     "404": {
                         "content": {
@@ -30480,6 +30491,7 @@
             "post": {
                 "operationId": "v1_projects_webhooks_create",
                 "description": "CRUD for outbound webhooks scoped to a project.\n\nList/retrieve: requires Viewer+ (IsProjectMember).\nCreate/update/delete: requires Admin+ (IsProjectAdmin).",
+                "summary": "Register a webhook",
                 "parameters": [
                     {
                         "in": "path",
@@ -30529,7 +30541,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Webhook"
+                                    "$ref": "#/components/schemas/WebhookCreateResponse"
                                 }
                             }
                         },
@@ -30551,8 +30563,7 @@
                             }
                         }
                     }
-                },
-                "summary": "Create webhook"
+                }
             }
         },
         "/api/v1/projects/{project_pk}/webhooks/{id}/": {
@@ -30919,7 +30930,7 @@
         "/api/v1/projects/{project_pk}/webhooks/{id}/test/": {
             "post": {
                 "operationId": "v1_projects_webhooks_test_create",
-                "description": "Send a test ping event to the webhook URL.",
+                "description": "Send a test ping to the webhook URL.\n\nThe ping takes exactly the same path as a real delivery: it renders through\nthe subscription's registered format, is signed identically, and consumes a\nsequence number with a matching ``_meta.sequence``. A test therefore fails\nwherever a real delivery would, and never shows up as a gap in the\nconsumer's sequence counter.\n\nReturns 202 with the ``delivery_id``. That acknowledges the *enqueue*, not\nthe receiver's answer — read the ``deliveries`` action back for that row's\nterminal ``status`` and ``response_status`` to learn what the receiver said.",
                 "summary": "Send a test webhook ping",
                 "parameters": [
                     {
@@ -46125,10 +46136,11 @@
                     "risk.escalated",
                     "risk.closed",
                     "baseline.captured",
-                    "comment.created"
+                    "comment.created",
+                    "ping"
                 ],
                 "type": "string",
-                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created"
+                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created\n* `ping` - Test Ping"
             },
             "EventsEnum": {
                 "enum": [
@@ -46227,7 +46239,7 @@
             },
             "ExternalConnectionUpsertRequest": {
                 "type": "object",
-                "description": "Payload for ``PUT /me/connections/{source}/`` (connect or update).\n\n``secret`` is the user's own API token / PAT (write-only, never echoed).\n``base_url`` is the source host — Jira Cloud ``https://<tenant>.atlassian.net``\nor a self-hosted Jira Data Center / Server host — allow-listed downstream.\n``deployment`` (``cloud`` default | ``server``) selects the Cloud vs DC/Server\nAPI + auth shape. ``account_email`` (Cloud Basic auth only) + ``jql`` +\n``project_keys`` are stored in the credential's ``config`` — the source reads\nthem at pull time.",
+                "description": "Payload for ``PUT /me/connections/{source}/`` (connect or update).\n\n``secret`` is the user's own API token / PAT (write-only, never echoed).\n``base_url`` is the source host — Jira Cloud ``https://<tenant>.atlassian.net``\nor a self-hosted Jira Data Center / Server host — allow-listed downstream.\n``deployment`` (``cloud`` default | ``server``) selects the Cloud vs DC/Server\nAPI + auth shape. ``account_email`` (Cloud Basic auth only) + ``jql`` +\n``project_keys`` are stored in the credential's ``config`` — the source reads\nthem at pull time. ``jql`` selects what to pull; ``project_keys`` narrows it\nand is **ANDed onto** the query, whether that query is the default or a\ncustom ``jql``, so the project filter can only ever restrict the pull.",
                 "properties": {
                     "secret": {
                         "type": "string",
@@ -46264,6 +46276,7 @@
                     "jql": {
                         "type": "string",
                         "default": "",
+                        "description": "Optional JQL selecting what to pull. Blank uses 'assigned to me and not done'. Parentheses and quotes must balance — the project filter is ANDed onto this query, which is only a narrowing on a well-formed one.",
                         "maxLength": 1024
                     },
                     "project_keys": {
@@ -46273,6 +46286,7 @@
                             "minLength": 1,
                             "maxLength": 64
                         },
+                        "description": "Optional Jira project keys to restrict the pull to. Each must be a Jira project key (a letter followed by letters, digits or underscores); stored upper-cased and de-duplicated. Composed into the query as 'AND project IN (...)' on top of jql, so it can only narrow the pull. Empty means every project you can see.",
                         "maxItems": 50
                     }
                 },
@@ -51875,7 +51889,7 @@
             },
             "PatchedWebhookRequest": {
                 "type": "object",
-                "description": "Serializer for Webhook CRUD.\n\nThe ``secret`` field is write-only — it is never returned in GET/list\nresponses. It is echoed back exactly once, in the create response, so the\ncaller can record it; subsequent reads never expose it (#893). When omitted\non create, a cryptographically-strong secret is auto-generated. When\nsupplied it must be at least :data:`MIN_WEBHOOK_SECRET_LENGTH` non-whitespace\ncharacters.\n\nThe ``events`` field is validated against the known event type choices.",
+                "description": "Serializer for Webhook CRUD.\n\nThe ``secret`` field is write-only — it is never returned in GET/list\nresponses. It is echoed back exactly once, in the create response, so the\ncaller can record it; subsequent reads never expose it (#893). When omitted\non create, a cryptographically-strong secret is auto-generated. When\nsupplied it must be at least :data:`MIN_WEBHOOK_SECRET_LENGTH` non-whitespace\ncharacters.\n\n``secret_set`` is the read-side counterpart: a boolean saying whether a secret\nis stored. The secret itself is encrypted at rest and there is no API path that\nreads the plaintext back.\n\nThe ``events`` field is validated against the known event type choices and is\n**required** — there is no \"subscribe to everything\" shorthand, so omitting it\nreturns 400 rather than creating a silently empty subscription.\n\n``consecutive_failures``, ``last_failure_at``, ``last_failure_reason``,\n``disabled_at`` and ``disabled_reason`` are read-only delivery health, written\nonly by the delivery task. ``disabled_at`` is set solely by the automatic\nfailure guard, so a subscription an admin paused by hand is distinguishable from\none TruePPM gave up on. PATCHing ``is_active`` back to true clears the record.",
                 "properties": {
                     "url": {
                         "type": "string",
@@ -62078,7 +62092,7 @@
             },
             "Webhook": {
                 "type": "object",
-                "description": "Serializer for Webhook CRUD.\n\nThe ``secret`` field is write-only — it is never returned in GET/list\nresponses. It is echoed back exactly once, in the create response, so the\ncaller can record it; subsequent reads never expose it (#893). When omitted\non create, a cryptographically-strong secret is auto-generated. When\nsupplied it must be at least :data:`MIN_WEBHOOK_SECRET_LENGTH` non-whitespace\ncharacters.\n\nThe ``events`` field is validated against the known event type choices.",
+                "description": "Serializer for Webhook CRUD.\n\nThe ``secret`` field is write-only — it is never returned in GET/list\nresponses. It is echoed back exactly once, in the create response, so the\ncaller can record it; subsequent reads never expose it (#893). When omitted\non create, a cryptographically-strong secret is auto-generated. When\nsupplied it must be at least :data:`MIN_WEBHOOK_SECRET_LENGTH` non-whitespace\ncharacters.\n\n``secret_set`` is the read-side counterpart: a boolean saying whether a secret\nis stored. The secret itself is encrypted at rest and there is no API path that\nreads the plaintext back.\n\nThe ``events`` field is validated against the known event type choices and is\n**required** — there is no \"subscribe to everything\" shorthand, so omitting it\nreturns 400 rather than creating a silently empty subscription.\n\n``consecutive_failures``, ``last_failure_at``, ``last_failure_reason``,\n``disabled_at`` and ``disabled_reason`` are read-only delivery health, written\nonly by the delivery task. ``disabled_at`` is set solely by the automatic\nfailure guard, so a subscription an admin paused by hand is distinguishable from\none TruePPM gave up on. PATCHing ``is_active`` back to true clears the record.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -62104,6 +62118,10 @@
                         "format": "uri",
                         "maxLength": 2048
                     },
+                    "secret_set": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "events": {
                         "type": "array",
                         "items": {
@@ -62117,6 +62135,32 @@
                     "is_active": {
                         "type": "boolean"
                     },
+                    "consecutive_failures": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "Terminal delivery failures since the last success. Resets to 0 on any successful delivery."
+                    },
+                    "last_failure_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "last_failure_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "disabled_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "When the automatic failure guard deactivated this subscription. Null when it is active, or when an admin deactivated it by hand."
+                    },
+                    "disabled_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time",
@@ -62129,12 +62173,122 @@
                     }
                 },
                 "required": [
+                    "consecutive_failures",
                     "created_at",
                     "created_by",
+                    "disabled_at",
+                    "disabled_reason",
                     "events",
                     "id",
+                    "last_failure_at",
+                    "last_failure_reason",
                     "program",
                     "project",
+                    "secret_set",
+                    "url"
+                ]
+            },
+            "WebhookCreateResponse": {
+                "type": "object",
+                "description": "Schema-only serializer for the 201 body, which DOES carry ``secret``.\n\n``WebhookSerializer.secret`` is ``write_only``, so the published ``Webhook``\nschema has no ``secret`` property — correct for every read. But ``create``\nechoes the value exactly once via ``to_representation``, and the docs now make\n\"omit ``secret`` and let TruePPM generate one\" the recommended path. An\nintegrator whose client is generated from a schema that does not declare the\nfield drops it silently, and there is no read path to recover it — so the\nundeclared key is a permanent loss of the only copy.\n\nUsed only in ``@extend_schema(responses={201: ...})``; nothing instantiates it.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Set when the webhook fires for events on a single project. Exactly one of project/program is non-null (DB constraint)."
+                    },
+                    "program": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Set when the webhook fires for events on any project within this program. Exactly one of project/program is non-null (DB constraint)."
+                    },
+                    "url": {
+                        "type": "string",
+                        "format": "uri",
+                        "maxLength": 2048
+                    },
+                    "secret": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "The signing secret, returned ONLY in this create response and never again. Present whether it was supplied or auto-generated. Record it now."
+                    },
+                    "secret_set": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "events": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/EventsEnum"
+                        }
+                    },
+                    "format": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
+                    "is_active": {
+                        "type": "boolean"
+                    },
+                    "consecutive_failures": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "Terminal delivery failures since the last success. Resets to 0 on any successful delivery."
+                    },
+                    "last_failure_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "last_failure_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "disabled_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "When the automatic failure guard deactivated this subscription. Null when it is active, or when an admin deactivated it by hand."
+                    },
+                    "disabled_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "created_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "consecutive_failures",
+                    "created_at",
+                    "created_by",
+                    "disabled_at",
+                    "disabled_reason",
+                    "events",
+                    "id",
+                    "last_failure_at",
+                    "last_failure_reason",
+                    "program",
+                    "project",
+                    "secret",
+                    "secret_set",
                     "url"
                 ]
             },
@@ -62240,7 +62394,7 @@
             },
             "WebhookRequest": {
                 "type": "object",
-                "description": "Serializer for Webhook CRUD.\n\nThe ``secret`` field is write-only — it is never returned in GET/list\nresponses. It is echoed back exactly once, in the create response, so the\ncaller can record it; subsequent reads never expose it (#893). When omitted\non create, a cryptographically-strong secret is auto-generated. When\nsupplied it must be at least :data:`MIN_WEBHOOK_SECRET_LENGTH` non-whitespace\ncharacters.\n\nThe ``events`` field is validated against the known event type choices.",
+                "description": "Serializer for Webhook CRUD.\n\nThe ``secret`` field is write-only — it is never returned in GET/list\nresponses. It is echoed back exactly once, in the create response, so the\ncaller can record it; subsequent reads never expose it (#893). When omitted\non create, a cryptographically-strong secret is auto-generated. When\nsupplied it must be at least :data:`MIN_WEBHOOK_SECRET_LENGTH` non-whitespace\ncharacters.\n\n``secret_set`` is the read-side counterpart: a boolean saying whether a secret\nis stored. The secret itself is encrypted at rest and there is no API path that\nreads the plaintext back.\n\nThe ``events`` field is validated against the known event type choices and is\n**required** — there is no \"subscribe to everything\" shorthand, so omitting it\nreturns 400 rather than creating a silently empty subscription.\n\n``consecutive_failures``, ``last_failure_at``, ``last_failure_reason``,\n``disabled_at`` and ``disabled_reason`` are read-only delivery health, written\nonly by the delivery task. ``disabled_at`` is set solely by the automatic\nfailure guard, so a subscription an admin paused by hand is distinguishable from\none TruePPM gave up on. PATCHing ``is_active`` back to true clears the record.",
                 "properties": {
                     "url": {
                         "type": "string",

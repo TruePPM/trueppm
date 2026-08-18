@@ -5,17 +5,22 @@ import { setupCatchAll } from './fixtures/api-mocks';
  * Program Settings → Integrations E2E (#1852, closing out the read-only MCP
  * umbrella #603 / ADR-0186).
  *
- * The project-scope MCP token-mint + Connect flow is already covered by
- * `project-integrations.spec.ts` (#1481). This spec covers the PROGRAM-scope
- * equivalent, which had no E2E coverage: the same `ApiTokensManager` mounted with
- * `scope={kind:'program'}` hits `/api/v1/programs/{id}/api-tokens/` instead of the
- * project endpoint. A program-wide `mcp:read` token lets an agent read the whole
- * program's schedule — a distinct surface from a single project.
+ * The project-scope token surface is covered by `project-integrations.spec.ts`.
+ * This spec covers the PROGRAM-scope equivalent, which had no E2E coverage: the
+ * same `ApiTokensManager` mounted with `scope={kind:'program'}` hits
+ * `/api/v1/programs/{id}/api-tokens/` instead of the project endpoint.
+ *
+ * This file previously asserted, as its stated intent, that "a program-wide
+ * `mcp:read` token lets an agent read the whole program's schedule". That is the
+ * confused-deputy read #1712 forbids, and #2890 found the assertion still pinning
+ * the affordance in place: the API mints such a token with a null `owner`, and
+ * `TokenIsOwnerScoped` 401s it on the entire MCP read surface. Program tokens are
+ * `legacy:full` inbound-sync credentials only.
  *
  * Covers:
- *   - golden path: mint an mcp:read token at program scope → POST carries
- *     scopes:['mcp:read'] against the PROGRAM endpoint → McpConnectPanel reveals
- *     the one-time token + claude_desktop_config.json snippet
+ *   - golden path: mint a token at program scope → POST carries scopes:
+ *     ['legacy:full'] against the PROGRAM endpoint → one-time reveal
+ *   - no MCP connect snippet is offered here (#2890)
  *   - the program-scoped token list renders (heading "Program API tokens")
  *   - empty state when there are no tokens
  */
@@ -141,11 +146,9 @@ test.describe('Program Integrations — MCP token surface', () => {
     await expect(section.getByRole('button', { name: 'Create token' })).toBeVisible();
   });
 
-  test('mints a program-scope mcp:read token and shows the connect snippet', async ({ page }) => {
+  test('mints a program-scope token against the program endpoint', async ({ page }) => {
     await commonRoutes(page);
     await listRoutes(page, { webhooks: [], tokens: [] });
-    // The create POST echoes the read-only scope so the reveal branches to the MCP
-    // connect panel (in production the scope comes from the backend).
     await page.route(`**/api/v1/programs/${PROGRAM_ID}/api-tokens/`, (r) => {
       if (r.request().method() === 'POST') {
         return r.fulfill({
@@ -153,10 +156,10 @@ test.describe('Program Integrations — MCP token surface', () => {
           contentType: 'application/json',
           body: pj({
             ...TOKEN,
-            id: 'tok-mcp',
-            name: 'Claude Desktop',
-            scopes: ['mcp:read'],
-            token: 'tppm_PROGRAM_MCP_SECRET',
+            id: 'tok-ci',
+            name: 'Program CI',
+            scopes: ['legacy:full'],
+            token: 'tppm_PROGRAM_RAW_SECRET',
           }),
         });
       }
@@ -169,8 +172,7 @@ test.describe('Program Integrations — MCP token surface', () => {
     await section.getByRole('button', { name: 'Create token' }).click();
 
     const dialog = page.getByRole('dialog', { name: 'Create API token' });
-    await dialog.getByPlaceholder('e.g. Jira Production').fill('Claude Desktop');
-    await dialog.getByRole('radio', { name: /Read-only for AI assistants/i }).check();
+    await dialog.getByPlaceholder('e.g. Jira Production').fill('Program CI');
 
     // The POST must hit the PROGRAM endpoint (not a project one) and carry the scope.
     const postReq = page.waitForRequest(
@@ -178,16 +180,16 @@ test.describe('Program Integrations — MCP token surface', () => {
     );
     await dialog.getByRole('button', { name: 'Create token' }).click();
     const req = await postReq;
-    expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ scopes: ['mcp:read'] });
+    expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ scopes: ['legacy:full'] });
 
-    // The one-time token is revealed and the paste-ready config snippet renders.
+    // The one-time token is revealed. #2890: no MCP config snippet here — a
+    // program token's owner is null, and the MCP read surface 401s exactly those
+    // (TokenIsOwnerScoped, #1712), so a config generated from one could never
+    // connect. The connect affordance lives on the Personal Access Tokens page.
     await expect(page.getByRole('textbox', { name: 'New API token' })).toHaveValue(
-      'tppm_PROGRAM_MCP_SECRET',
+      'tppm_PROGRAM_RAW_SECRET',
     );
-    const snippet = page.getByLabel('claude_desktop_config.json snippet');
-    await expect(snippet).toContainText('"command": "trueppm-mcp"');
-    await expect(snippet).toContainText('"TRUEPPM_API_TOKEN": "tppm_PROGRAM_MCP_SECRET"');
-    await expect(page.getByRole('button', { name: 'Copy config' })).toBeVisible();
+    await expect(page.getByLabel('claude_desktop_config.json snippet')).toHaveCount(0);
 
     // #2205: the one-time token is unrecoverable, so a stray backdrop click must
     // NOT dismiss the reveal. Click the dialog backdrop (top-left corner, outside

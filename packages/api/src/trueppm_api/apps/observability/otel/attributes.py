@@ -21,6 +21,33 @@ being forced under ``trueppm.*``.
 
 The contract is **additive-only**: new keys may be added, but existing keys are
 never renamed or removed, because the enterprise edition depends on them.
+
+Emitted vs reserved (#2880)
+---------------------------
+Additive-only makes the key set a promise, so the promise has to distinguish a key
+OSS actually writes from one it merely owns. Seven of the eight original span keys
+had **zero** emit sites — a collector-side processor keyed on ``trueppm.task.id``
+silently never fired, and the only test covering them asserted that the strings
+started with ``trueppm.``, which is coverage of the constant rather than of
+emission. :data:`EMITTED_SPAN_ATTRIBUTES` and :data:`RESERVED_SPAN_ATTRIBUTES`
+partition :data:`SPAN_ATTRIBUTES` so the distinction is machine-checkable: a new
+constant that lands in neither set fails ``test_otel_attribute_contract``, and every
+emitted key is asserted against a span the real consumer produced.
+
+Reserved keys are kept (removing a constant would break an enterprise import) but
+carry the reason they are not emitted, next to the constant. Do not read a reserved
+key as "not implemented yet" — two of the three name a fact this data model does not
+have, and the third duplicates a resource attribute.
+
+Actor attributes and privacy
+----------------------------
+``trueppm.user.*`` is the only part of the namespace that attributes a span to a
+person. The policy, enforced by :mod:`.request_attributes`, is: the opaque primary
+key and the symbolic project role, and **nothing else** — never an email, username,
+display name, or client IP, which is why no key for them exists here. Operators who
+must not export a per-user identifier at all set
+``TRUEPPM_OTEL_ACTOR_ATTRIBUTES_ENABLED=false`` (Helm:
+``observability.otlp.actorAttributes``); resource identity is unaffected.
 """
 
 from __future__ import annotations
@@ -40,12 +67,36 @@ RESOURCE_EDITION = "trueppm.edition"
 
 # --- Span attributes (OSS-owned) -------------------------------------------
 PROJECT_ID = "trueppm.project.id"
+"""Project UUID. On the HTTP server span for any project-scoped route, and on the
+CPM / Monte Carlo engine spans."""
 PROJECT_KEY = "trueppm.project.key"
+"""RESERVED — not emitted. There is no ``Project.key``: the human-readable short
+code is ``Project.code``, which is blank by default and not an identifier. The
+additive-only rule forbids renaming this to ``trueppm.project.code``, so the key is
+kept and left unwritten rather than filled with something it does not name. Use
+``trueppm.project.id``."""
 PROGRAM_ID = "trueppm.program.id"
+"""Program UUID. On the HTTP server span for any program-scoped route."""
 TASK_ID = "trueppm.task.id"
+"""Task UUID. On the HTTP server span for a task-scoped route."""
 BOARD_ID = "trueppm.board.id"
+"""RESERVED — not emitted. TruePPM has no board entity to identify: a board is a
+view of a project (``BoardColumnConfig`` / ``BoardSavedView`` are project-scoped
+config rows), and the board WebSocket group and ``broadcast_board_event()`` both fan
+out on the *project* id. A board-scoped consumer keys on ``trueppm.project.id``."""
 USER_ID = "trueppm.user.id"
+"""Acting user's primary key, on the HTTP server span. Opaque UUID only — see the
+actor-attribute policy in this module's docstring. Suppressed by
+``TRUEPPM_OTEL_ACTOR_ATTRIBUTES_ENABLED=false``."""
 USER_ROLE = "trueppm.user.role"
+"""Symbolic project role the request was authorized under (``VIEWER`` | ``MEMBER`` |
+``SCHEDULER`` | ``ADMIN`` | ``OWNER``), on the HTTP server span.
+
+Only set when it is well defined: TruePPM roles are PROJECT-scoped (ADR-0072), so a
+request that resolved exactly one project carries that project's role and a list
+endpoint spanning many projects carries none — an arbitrary pick would be worse than
+absent. Read from the RBAC layer's per-request role cache, so it costs no extra
+query. Suppressed by ``TRUEPPM_OTEL_ACTOR_ATTRIBUTES_ENABLED=false``."""
 SCHEDULE_RECOMPUTE_REASON = "trueppm.schedule.recompute_reason"
 # CPM / Monte Carlo engine-span sizing attributes (Phase 1, #709). These are the
 # few low-cardinality shape facts worth attaching to a scheduling-engine span so an
@@ -55,6 +106,11 @@ SCHEDULE_DEPENDENCY_COUNT = "trueppm.schedule.dependency_count"
 SCHEDULE_CRITICAL_COUNT = "trueppm.schedule.critical_count"
 SCHEDULE_SIMULATION_COUNT = "trueppm.schedule.simulation_count"
 REQUEST_EDITION = "trueppm.request.edition"
+"""RESERVED — not emitted. Duplicates :data:`RESOURCE_EDITION` (``trueppm.edition``),
+which the provider sets on the ``Resource`` and every backend therefore attaches to
+every span from the process. Edition cannot vary between two requests to the same
+process, so a per-span copy carries no information and only multiplies payload. Group
+by ``trueppm.edition``."""
 
 # --- Metric-dimension attributes (Phase 2, #710) ---------------------------
 # Low-cardinality dimensions on the native OTLP metrics. These are TruePPM-owned
@@ -95,6 +151,67 @@ AGENT_ACTOR_KIND = "trueppm.agent.actor_kind"
 AGENT_VERDICT = "trueppm.agent.verdict"
 """The decision outcome: ``allowed`` | ``refused`` | ``requires_approval``."""
 
+# --- Emitted / reserved partition (#2880) ----------------------------------
+# Every span-attribute key this module owns, and the two-way split that says which
+# of them OSS actually writes. `test_otel_attribute_contract` asserts (a) the split
+# partitions SPAN_ATTRIBUTES exactly — so a new constant that is classified in
+# neither set fails the suite rather than joining the published surface unnoticed —
+# and (b) each EMITTED key appears on a span produced by RUNNING its consumer, not
+# merely that the string is well formed. Metric dimensions are a separate surface
+# (their emission is covered by test_otel_metrics) and are deliberately not listed.
+SPAN_ATTRIBUTES: tuple[str, ...] = (
+    PROJECT_ID,
+    PROJECT_KEY,
+    PROGRAM_ID,
+    TASK_ID,
+    BOARD_ID,
+    USER_ID,
+    USER_ROLE,
+    SCHEDULE_RECOMPUTE_REASON,
+    SCHEDULE_TASK_COUNT,
+    SCHEDULE_DEPENDENCY_COUNT,
+    SCHEDULE_CRITICAL_COUNT,
+    SCHEDULE_SIMULATION_COUNT,
+    REQUEST_EDITION,
+    AGENT_TOKEN_PREFIX,
+    AGENT_CAPABILITY,
+    AGENT_ACTOR_KIND,
+    AGENT_VERDICT,
+)
+"""Every ``trueppm.*`` span-attribute key this module publishes."""
+
+EMITTED_SPAN_ATTRIBUTES: frozenset[str] = frozenset(
+    {
+        PROJECT_ID,
+        PROGRAM_ID,
+        TASK_ID,
+        USER_ID,
+        USER_ROLE,
+        SCHEDULE_RECOMPUTE_REASON,
+        SCHEDULE_TASK_COUNT,
+        SCHEDULE_DEPENDENCY_COUNT,
+        SCHEDULE_CRITICAL_COUNT,
+        SCHEDULE_SIMULATION_COUNT,
+        AGENT_TOKEN_PREFIX,
+        AGENT_CAPABILITY,
+        AGENT_ACTOR_KIND,
+        AGENT_VERDICT,
+    }
+)
+"""Keys OSS writes to a real span. A backend processor may key on these."""
+
+RESERVED_SPAN_ATTRIBUTES: frozenset[str] = frozenset(
+    {
+        PROJECT_KEY,
+        BOARD_ID,
+        REQUEST_EDITION,
+    }
+)
+"""Keys the namespace owns but OSS never writes. Each constant's docstring gives the
+reason, and none of them is "not yet implemented": two name a fact this data model
+does not have, and the third duplicates a resource attribute. A processor keyed on
+one of these will never fire."""
+
 __all__ = [
     "AGENT_ACTOR_KIND",
     "AGENT_CAPABILITY",
@@ -105,6 +222,7 @@ __all__ = [
     "CELERY_TASK_NAME",
     "CELERY_TASK_OUTCOME",
     "DB_STATE",
+    "EMITTED_SPAN_ATTRIBUTES",
     "NAMESPACE",
     "OUTBOX_NAME",
     "OUTBOX_STATE",
@@ -112,6 +230,7 @@ __all__ = [
     "PROJECT_ID",
     "PROJECT_KEY",
     "REQUEST_EDITION",
+    "RESERVED_SPAN_ATTRIBUTES",
     "RESOURCE_EDITION",
     "RESOURCE_SERVICE_NAME",
     "RESOURCE_SERVICE_NAMESPACE",
@@ -121,6 +240,7 @@ __all__ = [
     "SCHEDULE_RECOMPUTE_REASON",
     "SCHEDULE_SIMULATION_COUNT",
     "SCHEDULE_TASK_COUNT",
+    "SPAN_ATTRIBUTES",
     "TASK_ID",
     "USER_ID",
     "USER_ROLE",

@@ -1,11 +1,21 @@
 ---
 title: Dead-letter Alerting
 description: How TruePPM surfaces permanently-failed background tasks via a structured alert log, a Prometheus gauge, and an Enterprise signal for off-box paging.
+documentedFor: "0.4"
 ---
 
 
 :::note[Added in 0.2 (alpha)]
 This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is an alpha release; the first beta is planned for 0.4.
+:::
+
+:::note[Ships in 0.4]
+One section on this page is not in the latest release (`v0.3.0-alpha.3`):
+[Outbound webhook deliveries](#outbound-webhook-deliveries). Webhook delivery
+failures reach the dead-letter queue from **0.4** onward. On the current release
+a permanently failed delivery is recorded only on its own delivery row — it
+produces no `FailedTask`, no alert line, and no movement in
+`trueppm_task_dead_letter_parked`.
 :::
 
 When a background Celery task in TruePPM exhausts its retries, the work is
@@ -203,8 +213,59 @@ is a stable extension contract — OSS does not change it without treating it as
 breaking change for Enterprise. See ADR-0084.
 :::
 
+## Outbound webhook deliveries
+
+Outbound [webhook](/features/webhooks/) delivery is covered by this page's
+machinery, with one wrinkle worth knowing: the delivery task does not fail the way
+a normal Celery task does.
+
+A delivery that will never be attempted again — a permanent `4xx`, an exhausted
+retry chain, a host blocked by the SSRF egress guard, or a missing signing secret —
+marks its own delivery row `failed` and **returns normally**. Nothing raises,
+because raising would hand the retry decision back to Celery for something the task
+has already decided not to retry. The task therefore parks itself explicitly, and
+the result is indistinguishable from any other dead-lettered task:
+
+```
+WARNING dead-letter alert: task webhooks.deliver_webhook (a1b2c3d4-…) permanently failed: WebhookDeliveryFailed
+```
+
+```
+trueppm_task_dead_letter_parked{task_name="webhooks.deliver_webhook"} 2
+```
+
+The `FailedTask` row carries the delivery id in `args`, the webhook id in
+`kwargs`, and the project (for project-scoped webhooks) in `project_id`. The
+`exception_message` is the human-readable cause — `Permanent client error HTTP 410
+— not retried`, `HTTP 503 after 5 attempts`, and so on.
+
+Two things this does **not** cover:
+
+- **A delivery to an inactive webhook is not parked.** Skipping a paused
+  subscription is a deliberate state, not a fault; parking every skipped delivery
+  would bury real failures under noise from a webhook nobody expects to fire.
+
+  The consequence is worth internalizing, because it inverts the usual reading of
+  your alert stream: when the
+  [automatic guard](/features/webhooks/#automatic-deactivation) deactivates a
+  subscription, that webhook's dead-letter records **stop**. Silence after a burst of
+  `webhooks.deliver_webhook` failures means the integration is dead, not that it
+  recovered. The parked record for the failure that crossed the threshold carries
+  `SUBSCRIPTION DEACTIVATED` in its `exception_message` precisely so the transition is
+  greppable — alert on that string, not only on the parked count.
+- **Requeuing a parked delivery does not resend it.** The dead-letter admin's
+  requeue action re-dispatches *scheduling* tasks; there is no replay path for a
+  webhook delivery. Treat a parked delivery as evidence for the operator, and
+  reconcile missed events through the API.
+
+Alongside this, a webhook that fails terminally five times in a row is
+[deactivated automatically](/features/webhooks/#automatic-deactivation), which is
+the project-admin-facing half of the same signal.
+
 ## Related
 
+- [Webhooks](/features/webhooks/) — outbound delivery, its retry classification,
+  and the automatic-deactivation guard.
 - [Beat Liveness & Durability](/administration/durability/) — the sibling
   `/api/v1/health/beat/` detector for a dead Celery Beat process.
 - [Outbox & Record Retention](/administration/retention/) — `FailedTask` retention

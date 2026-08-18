@@ -2,12 +2,21 @@
 
 Covers the OUTGOING_CHANNEL_PROVIDERS registry registration, the generic and
 slack renderers, per-webhook rendering in dispatch, the serializer format
-validation, and the 11-event hard cap.
+validation, and the 19-event hard cap.
+
+Also holds the two **catalog-parity gates** added in #2883. Both the Slack
+renderer's title/color table and the web event picker had drifted to 11 of the 19
+backend events, and nothing compared any of the three: the Python gate
+(``test_event_type_cap``) and the TS build each passed in isolation while
+`risk.opened` rendered to Slack as a bare uuid and the picker silently deleted
+eight real subscriptions on save.
 """
 
 from __future__ import annotations
 
+import re
 from datetime import date
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -102,6 +111,83 @@ def test_event_type_cap() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Catalog parity gates (#2883)
+# ---------------------------------------------------------------------------
+
+# packages/api/tests/apps/webhooks/<this file> → repo root is five levels up.
+_REPO_ROOT = Path(__file__).resolve().parents[5]
+_WEB_EVENT_CATALOG = (
+    _REPO_ROOT / "packages/web/src/features/settings/components/integrations/events.ts"
+)
+# Matches `id: 'task.created'` entries in the TS catalog. A bare `^\s*id: ` count
+# undercounts the file (prettier keeps short group entries on one line), so match
+# the quoted value rather than the line.
+_TS_EVENT_ID_RE = re.compile(r"id: '([a-z_]+\.[a-z_]+)'")
+
+
+def test_slack_meta_covers_every_event() -> None:
+    """Every backend event has a Slack title + color (#2883).
+
+    Without this, an unmapped event fell through to the
+    ``(event.event_type, neutral)`` fallback and posted to Slack as
+    ``*risk.opened* — <uuid>`` with an empty ``fields`` array. The fallback stays
+    (it must never raise), but it is no longer reachable for a real OSS event.
+    """
+    from trueppm_api.apps.integrations.outgoing import _SLACK_EVENT_META
+
+    missing = set(ALL_WEBHOOK_EVENTS) - set(_SLACK_EVENT_META)
+    assert missing == set(), f"Slack renderer has no title/color for: {sorted(missing)}"
+
+
+def test_slack_field_specs_exist_for_every_event_family() -> None:
+    """Every event family surfaces at least one field its payload actually carries.
+
+    The field extractor read only task keys (name/status/assignee/planned_start),
+    none of which appear in a sprint, risk, or baseline payload — so those events
+    rendered with an empty ``fields`` array even once they had a title.
+    """
+    from trueppm_api.apps.integrations.outgoing import (
+        _SLACK_DEFAULT_FIELDS,
+        _slack_field_specs,
+    )
+
+    families = {event.split(".", 1)[0] for event in ALL_WEBHOOK_EVENTS}
+    non_task_families = families - {"task", "dependency", "schedule", "project"}
+    for event in ALL_WEBHOOK_EVENTS:
+        specs = _slack_field_specs(event)
+        assert specs, f"no field specs for {event}"
+        if event.split(".", 1)[0] in non_task_families:
+            # A family that fell back to the task defaults is the exact bug: the
+            # keys do not exist in its payload.
+            assert specs != _SLACK_DEFAULT_FIELDS, (
+                f"{event} still falls back to the task field specs"
+            )
+
+
+def test_web_event_catalog_covers_every_backend_event() -> None:
+    """The Settings event picker must offer every event the backend can fire (#2883).
+
+    This is the gate that was missing. The web catalog is hand-maintained TypeScript
+    with no generator, so the only thing that can bind it to ``WebhookEventType`` is
+    a test that reads the file. If this fails, add the event to
+    ``packages/web/src/features/settings/components/integrations/events.ts`` (with a
+    group and a label) — do not relax the assertion. Note that the *data-loss* half
+    of #2883 is fixed independently in the modal: a save preserves ids the picker
+    did not render, so a future gap here degrades to "not selectable", never to
+    "silently deleted".
+    """
+    assert _WEB_EVENT_CATALOG.is_file(), f"web event catalog not found at {_WEB_EVENT_CATALOG}"
+    ts_ids = set(_TS_EVENT_ID_RE.findall(_WEB_EVENT_CATALOG.read_text(encoding="utf-8")))
+
+    missing = set(ALL_WEBHOOK_EVENTS) - ts_ids
+    assert missing == set(), f"web event picker is missing: {sorted(missing)}"
+    # The reverse direction matters too: an id the backend cannot emit would be an
+    # unfireable subscription offered to an admin.
+    extra = ts_ids - set(ALL_WEBHOOK_EVENTS)
+    assert extra == set(), f"web event picker offers unfireable events: {sorted(extra)}"
+
+
+# ---------------------------------------------------------------------------
 # Provider registry + renderers
 # ---------------------------------------------------------------------------
 
@@ -149,6 +235,110 @@ def test_slack_render_omits_absent_fields() -> None:
     event = OutgoingChannelEvent(event_type="task.deleted", project_id="p1", payload=payload)
     rendered = SlackOutgoingChannelProvider().render(event)
     assert rendered["attachments"][0]["fields"] == []
+
+
+def test_slack_render_sprint_event() -> None:
+    """A sprint payload renders its own fields, not the (absent) task keys (#2883)."""
+    payload = {
+        "id": "s1",
+        "name": "Sprint 14",
+        "state": "active",
+        "goal": "Ship the intake form",
+        "committed_points": 21,
+        "start_date": "2026-08-17",
+        "finish_date": "2026-08-31",
+    }
+    event = OutgoingChannelEvent(event_type="sprint.activated", project_id="p1", payload=payload)
+    rendered = SlackOutgoingChannelProvider().render(event)
+
+    assert rendered["text"] == "*Sprint started* — Sprint 14"
+    field_titles = {f["title"] for f in rendered["attachments"][0]["fields"]}
+    assert {"State", "Goal", "Committed points", "Start", "Finish"} == field_titles
+
+
+def test_slack_render_risk_event_uses_title_as_the_subject() -> None:
+    """A risk payload has no ``name`` — the subject comes from ``title``."""
+    payload = {
+        "id": "r1",
+        "short_id": "R-4",
+        "title": "Permit delay",
+        "status": "open",
+        "probability": 4,
+        "impact": 5,
+        "severity": 20,
+        "category": "external",
+    }
+    event = OutgoingChannelEvent(event_type="risk.escalated", project_id="p1", payload=payload)
+    rendered = SlackOutgoingChannelProvider().render(event)
+
+    assert rendered["text"] == "*Risk escalated* — Permit delay"
+    fields = {f["title"]: f["value"] for f in rendered["attachments"][0]["fields"]}
+    assert fields["Severity"] == "20"
+    assert fields["Status"] == "open"
+
+
+def test_slack_render_scope_change_uses_item_name() -> None:
+    """sprint.scope_changed is about the injected item, not the sprint's plan."""
+    payload = {
+        "id": "sc1",
+        "sprint": "s1",
+        "item_name": "Hotfix the export",
+        "status": "accepted",
+        "goal_impact": "at_risk",
+    }
+    event = OutgoingChannelEvent(
+        event_type="sprint.scope_changed", project_id="p1", payload=payload
+    )
+    rendered = SlackOutgoingChannelProvider().render(event)
+
+    assert rendered["text"] == "*Sprint scope changed* — Hotfix the export"
+    fields = {f["title"]: f["value"] for f in rendered["attachments"][0]["fields"]}
+    assert fields == {
+        "Item": "Hotfix the export",
+        "Decision": "accepted",
+        "Goal impact": "at_risk",
+    }
+
+
+def test_slack_render_baseline_surfaces_zero_and_false() -> None:
+    """A genuine 0/False must render, not vanish behind a truthiness check (#2883)."""
+    payload = {"id": "b1", "name": "Rebaseline Q3", "task_count": 0, "has_cpm_dates": False}
+    event = OutgoingChannelEvent(event_type="baseline.captured", project_id="p1", payload=payload)
+    rendered = SlackOutgoingChannelProvider().render(event)
+
+    fields = {f["title"]: f["value"] for f in rendered["attachments"][0]["fields"]}
+    assert fields == {"Tasks captured": "0", "Has CPM dates": "False"}
+
+
+def test_slack_render_comment_event() -> None:
+    """comment.created spreads the task payload and adds the author (never the body)."""
+    payload = {
+        "id": "t1",
+        "name": "Foundation pour",
+        "status": "in_progress",
+        "comment_id": "c1",
+        "author_display": "Jordan Mehta",
+    }
+    event = OutgoingChannelEvent(event_type="comment.created", project_id="p1", payload=payload)
+    rendered = SlackOutgoingChannelProvider().render(event)
+
+    assert rendered["text"] == "*New comment* — Foundation pour"
+    fields = {f["title"]: f["value"] for f in rendered["attachments"][0]["fields"]}
+    assert fields["Author"] == "Jordan Mehta"
+
+
+def test_slack_render_ping_has_a_readable_title() -> None:
+    """The test ping now renders through this provider, so it needs a real title."""
+    from trueppm_api.apps.webhooks.models import PING_EVENT_TYPE
+
+    payload = {"event": PING_EVENT_TYPE, "webhook_id": "w1"}
+    event = OutgoingChannelEvent(event_type=PING_EVENT_TYPE, project_id="p1", payload=payload)
+    rendered = SlackOutgoingChannelProvider().render(event)
+
+    assert "Test ping" in rendered["text"]
+    # Slack rejects a body with no text/blocks/attachments (400 invalid_payload).
+    assert rendered["text"]
+    assert len(rendered["attachments"]) == 1
 
 
 # ---------------------------------------------------------------------------

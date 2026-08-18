@@ -223,7 +223,7 @@ export interface MyWorkExternalSource {
   label: string;
   /** Bare host, e.g. 'truescope.atlassian.net'. */
   site_url: string;
-  status: 'connected' | 'auth_failed' | 'not_connected';
+  status: 'connected' | 'auth_failed' | 'invalid_filter' | 'not_connected';
   last_synced_at: string | null;
 }
 

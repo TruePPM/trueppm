@@ -257,7 +257,8 @@ def test_jira_import_persists_mapped_status(project: Project) -> None:
     # Unknown / missing status falls back to the model default.
     assert by_name["Unknown status"].status == TaskStatus.NOT_STARTED
     assert by_name["No status element"].status == TaskStatus.NOT_STARTED
-    # A COMPLETE issue is 100% delivered (1.0 fraction), not the 0% bulk_create
-    # would otherwise persist; non-terminal statuses stay 0%.
-    assert by_name["Shipped work"].percent_complete == 1.0
+    # #2889: a COMPLETE issue lands at 100 on the field's own 0-100 scale, not
+    # the 1.0 fraction that read as 1% everywhere, and not the 0% bulk_create
+    # would otherwise persist. Non-terminal statuses stay 0%.
+    assert by_name["Shipped work"].percent_complete == 100.0
     assert by_name["Active work"].percent_complete == 0.0

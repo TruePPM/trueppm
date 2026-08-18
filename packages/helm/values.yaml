@@ -632,9 +632,22 @@ envFrom: []
 # endpoint to your OTLP collector (Grafana Tempo/Alloy, Jaeger, an OpenTelemetry
 # Collector, or a SaaS APM) to export traces and metrics. These values render into
 # the standard OTEL_*/TRUEPPM_OTEL_* env vars for BOTH the API and the Celery
-# worker/beat, via the trueppm.observabilityEnv helper. This is the foundation
-# only (provider + naming convention) — business-logic spans arrive in a later
-# release. Enterprise attaches its own exporters against the same OSS provider.
+# worker/beat, via the trueppm.observabilityEnv helper.
+#
+# What you actually get once an endpoint is set (#708-#710): TRACES for HTTP
+# requests (Django), SQL statements (psycopg), Celery tasks with trace context
+# propagated across the broker, WebSocket connections, and the CPM / Monte Carlo
+# scheduling engine; and METRICS for request latency/count, Celery task duration,
+# transactional-outbox depth/lag, broker queue depth, database backend counts, and
+# WebSocket connections/broadcasts. Enterprise attaches its own exporters against
+# the same OSS provider.
+#
+# THIS BLOCK IS THE SUPPORTED WAY TO CONFIGURE TELEMETRY. Setting the underlying
+# OTEL_* variables by hand under `env:` also works, but it loses the TRUEPPM_POD_NAME
+# downward-API injection and every exportHealth knob below — and if BOTH are set the
+# structured block wins (it renders after `env:` in trueppm.appEnv, and Kubernetes
+# keeps the last entry for a duplicated name), so the hand-set values silently do
+# nothing. Configure telemetry here, not there (#2879).
 observability:
   otlp:
     # Collector endpoint. EMPTY = telemetry off (default). Examples:
@@ -665,10 +678,20 @@ observability:
     headersSecret:
       name: ""
       key: "headers"
+    # Actor attributes on the HTTP request span (#2880). true (default) stamps each
+    # request span with trueppm.user.id (the acting account's opaque UUID) and
+    # trueppm.user.role (the symbolic project role the request was authorized under:
+    # VIEWER | MEMBER | SCHEDULER | ADMIN | OWNER), so a slow or failing trace can be
+    # attributed to a who and a permission level. NOTHING else about the person is
+    # exported under trueppm.user.* — no email, username, display name, or client IP.
+    # Set false where a per-user identifier must not leave the instance even to your
+    # own collector; project/program/task ids are unaffected either way.
+    actorAttributes: true
     # Live export-health strip (ADR-0601, #2109). When enabled (default), each pod
-    # records per-signal export success/error/counts into Valkey /2 so the System
-    # Health → Telemetry card shows a cross-process live strip ("last export 8s ago ·
-    # 1,204 spans / 60s") aggregated across the worker/beat pods that actually export.
+    # records per-signal export success/error/counts into Valkey /2 so the Telemetry
+    # card at Settings → Workspace → Observability (#2250) shows a cross-process live
+    # strip ("last export 8s ago · 1,204 spans / 60s") aggregated across the
+    # worker/beat pods that actually export.
     # Best-effort and non-fatal — it can never slow or break export. REQUIRES the
     # Valkey /2 DB to run maxmemory-policy noeviction (the same requirement the
     # rate-limit counters already impose). Each pod's identity is injected from the

@@ -37,6 +37,16 @@ describe('MyWorkSourceFreshness', () => {
     expect(link).toHaveAttribute('href', '/me/settings/connected-accounts');
   });
 
+  it('names the filter, not the token, when the stored filter is unusable (#2888)', () => {
+    // Same destination, different fault: `invalid_filter` means the credential
+    // works and the saved filter cannot be scoped, so "Reconnect" would point at
+    // the wrong fix.
+    wrap(<MyWorkSourceFreshness sources={[{ ...connected, status: 'invalid_filter' }]} />);
+    const link = screen.getByRole('link', { name: 'Fix Jira filter' });
+    expect(link).toHaveAttribute('href', '/me/settings/connected-accounts');
+    expect(screen.queryByRole('link', { name: /Reconnect/ })).not.toBeInTheDocument();
+  });
+
   it('handles a connected source that has never synced', () => {
     wrap(<MyWorkSourceFreshness sources={[{ ...connected, last_synced_at: null }]} />);
     expect(screen.getByText('not synced yet')).toBeInTheDocument();

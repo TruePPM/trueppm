@@ -99,6 +99,8 @@ def instrument(
     from opentelemetry.instrumentation.celery import CeleryInstrumentor
     from opentelemetry.instrumentation.django import DjangoInstrumentor
 
+    from .request_attributes import annotate_request_span
+
     try:
         # Django: server span per HTTP request, plus http.server.duration /
         # http.server.active_requests metrics when a meter provider is bound. The
@@ -106,11 +108,18 @@ def instrument(
         # secrets) out of the URL-bearing span attributes before export (#1895,
         # extends #1723) — otherwise GET /auth/oidc/callback/?code=...&state=...
         # would ship a live authorization code to the trace store.
+        # The response_hook attaches the trueppm.* identity attributes (project /
+        # program / task id, acting user, authorized role) to the server span
+        # (#2880). It has to be the RESPONSE hook, not the request hook: the
+        # instrumentor's process_request runs before AuthenticationMiddleware and
+        # before DRF authenticates, so at request time there is no user and no
+        # resolved RBAC role to read. See otel/request_attributes.py.
         django = DjangoInstrumentor()
         django.instrument(
             tracer_provider=tracer,
             meter_provider=meter,
             request_hook=_redact_http_credential_span,
+            response_hook=annotate_request_span,
         )
         _installed.append(django)
 

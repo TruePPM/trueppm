@@ -72,3 +72,39 @@ export function claimHelpShortcut(): () => void {
 export function isHelpShortcutClaimed(): boolean {
   return helpShortcutClaims > 0;
 }
+
+/**
+ * `⌘Z` / `Ctrl+Z`-ownership registry — the same mechanism as `?` above, for a
+ * chord where getting it wrong destroys data rather than opening two dialogs.
+ *
+ * Three surfaces on the Schedule view bind ⌘Z to a *different* destructive undo,
+ * and they are independently mountable siblings: the paste-many receipt strip
+ * (`ScheduleView`), the template-apply banner (`SeedBanner`), and the CSV import
+ * wizard's result step. Without arbitration one keypress ran two of them —
+ * reverting a template apply *and* a CSV import, the second toast painted behind
+ * the modal where nobody saw it (#2892).
+ *
+ * `preventDefault()` is not arbitration: it stops the browser's default action,
+ * never a sibling listener. And propagation order cannot arbitrate either,
+ * because it depends on whether each site happened to attach to `document` or to
+ * `window` — which no contract fixes. So precedence is explicit and the
+ * innermost claimant wins: the wizard claims while its undo is live, and the two
+ * outer handlers yield.
+ */
+let undoShortcutClaims = 0;
+
+/** Register a surface as owning `⌘Z`. Returns an idempotent release function. */
+export function claimUndoShortcut(): () => void {
+  undoShortcutClaims += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    undoShortcutClaims = Math.max(0, undoShortcutClaims - 1);
+  };
+}
+
+/** True when a nearer surface currently owns `⌘Z` and this handler must yield. */
+export function isUndoShortcutClaimed(): boolean {
+  return undoShortcutClaims > 0;
+}

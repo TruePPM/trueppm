@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import os
 import socket
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from typing import Any
 from urllib.parse import urlsplit
 
 import pytest
 from pytest_socket import enable_socket, socket_allow_hosts
+
+from tests.on_commit import capture_on_commit_callbacks
 
 
 def _resolve(host: str) -> set[str]:
@@ -98,6 +101,20 @@ def _reset_throttle_cache() -> Iterator[None]:
     from django.core.cache import cache
 
     cache.clear()
+
+
+@pytest.fixture
+def django_capture_on_commit_callbacks() -> Callable[..., Any]:
+    """Override pytest-django's fixture with the savepoint-safe capture (#2945).
+
+    pytest-django hands back Django's ``TestCase.captureOnCommitCallbacks``, which
+    harvests the callbacks by list index and therefore silently returns nothing when a
+    savepoint unwind shrinks ``run_on_commit`` below the offset it memorized on entry.
+    Roughly fifty test modules assert "this work is deferred to ``on_commit``" through
+    this fixture, so the fix belongs here rather than in any one of them — see
+    ``tests/on_commit.py`` for the full mechanism.
+    """
+    return capture_on_commit_callbacks
 
 
 def pytest_configure(config: object) -> None:

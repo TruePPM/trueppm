@@ -417,62 +417,49 @@ def _future() -> str:
 
 
 @pytest.mark.django_db
-def test_create_token_with_mcp_read_scope(admin_client: APIClient, project: Project) -> None:
+def test_create_mcp_read_token_at_project_scope_is_rejected(
+    admin_client: APIClient, project: Project
+) -> None:
+    """#2890: the project surface refuses mcp:read instead of minting a dead token.
+
+    A token minted here has a null ``owner``, and the tests above prove
+    ``TokenIsOwnerScoped`` (#1712) 401s exactly those on the whole MCP read
+    surface — so the credential could read nothing, and the failure landed at the
+    MCP server's boot-time ``verify_auth()`` with nothing pointing at the cause.
+    The 400 names the endpoint that does work.
+
+    The mcp:read expiry rules themselves (#1713 non-null, #2764 ceiling) are
+    exercised where mcp:read can actually be minted, in
+    ``test_personal_access_tokens.py``.
+    """
     resp = admin_client.post(
         _tokens_url(project),
         {"name": "MCP", "scopes": ["mcp:read"], "expires_at": _future()},
         format="json",
     )
-    assert resp.status_code == 201, resp.data
-    assert resp.data["scopes"] == [SCOPE_MCP_READ]
-    token = ApiToken.objects.get(pk=resp.data["id"])
-    assert token.scopes == [SCOPE_MCP_READ]
-    assert token.expires_at is not None
-
-
-@pytest.mark.django_db
-def test_create_mcp_read_token_without_expiry_rejected(
-    admin_client: APIClient, project: Project
-) -> None:
-    # #1713: an mcp:read token must expire so a leaked read credential is
-    # self-limiting. Minting one with no expires_at is a 400 at mint time.
-    resp = admin_client.post(
-        _tokens_url(project), {"name": "MCP", "scopes": ["mcp:read"]}, format="json"
-    )
     assert resp.status_code == 400, resp.data
-    assert "expires_at" in resp.data
+    assert "scopes" in resp.data
+    assert "me/api-tokens" in str(resp.data["scopes"])
+    assert not ApiToken.objects.filter(project=project).exists()
 
 
 @pytest.mark.django_db
-def test_create_mcp_read_token_beyond_max_horizon_rejected(
+def test_create_mixed_scope_token_at_project_scope_is_rejected(
     admin_client: APIClient, project: Project
 ) -> None:
-    # #2764: "must expire" alone still let a caller mint an effectively
-    # non-expiring token (e.g. a far-future date). A ceiling closes that gap.
-    too_far = (timezone.now() + timedelta(days=MCP_READ_TOKEN_MAX_EXPIRY_DAYS + 1)).isoformat()
+    """mcp:read alongside legacy:full is refused too — the check is on presence.
+
+    Pairing it with a scope that *is* valid here must not smuggle it through: the
+    resulting token would still be owner-null and still be refused by the read
+    surface, so the write scope would silently be the only thing that worked.
+    """
     resp = admin_client.post(
         _tokens_url(project),
-        {"name": "MCP", "scopes": ["mcp:read"], "expires_at": too_far},
+        {"name": "Both", "scopes": ["legacy:full", "mcp:read"], "expires_at": _future()},
         format="json",
     )
     assert resp.status_code == 400, resp.data
-    assert "expires_at" in resp.data
-
-
-@pytest.mark.django_db
-def test_create_mcp_read_token_at_max_horizon_accepted(
-    admin_client: APIClient, project: Project
-) -> None:
-    # A value within the ceiling must still succeed — the fix should not
-    # regress the existing "non-null, in the future" behavior.
-    within = (timezone.now() + timedelta(days=MCP_READ_TOKEN_MAX_EXPIRY_DAYS - 1)).isoformat()
-    resp = admin_client.post(
-        _tokens_url(project),
-        {"name": "MCP", "scopes": ["mcp:read"], "expires_at": within},
-        format="json",
-    )
-    assert resp.status_code == 201, resp.data
-    assert resp.data["scopes"] == [SCOPE_MCP_READ]
+    assert "scopes" in resp.data
 
 
 @pytest.mark.django_db
@@ -515,11 +502,11 @@ def test_create_token_empty_scopes_collapses_to_legacy_full(
 def test_create_token_dedupes_scopes(admin_client: APIClient, project: Project) -> None:
     resp = admin_client.post(
         _tokens_url(project),
-        {"name": "CI", "scopes": ["mcp:read", "mcp:read"], "expires_at": _future()},
+        {"name": "CI", "scopes": ["legacy:full", "legacy:full"]},
         format="json",
     )
     assert resp.status_code == 201, resp.data
-    assert resp.data["scopes"] == [SCOPE_MCP_READ]
+    assert resp.data["scopes"] == [SCOPE_LEGACY_FULL]
 
 
 @pytest.mark.django_db
@@ -534,11 +521,11 @@ def test_create_token_invalid_scope_rejected(admin_client: APIClient, project: P
 def test_scopes_are_read_only_on_token_detail(admin_client: APIClient, project: Project) -> None:
     created = admin_client.post(
         _tokens_url(project),
-        {"name": "MCP", "scopes": ["mcp:read"], "expires_at": _future()},
+        {"name": "CI", "scopes": ["legacy:full"], "expires_at": _future()},
         format="json",
     )
     token_id = created.data["id"]
     # scopes surface on the read serializer (immutable after mint).
     resp = admin_client.get(f"{_tokens_url(project)}{token_id}/")
     assert resp.status_code == 200
-    assert resp.data["scopes"] == [SCOPE_MCP_READ]
+    assert resp.data["scopes"] == [SCOPE_LEGACY_FULL]

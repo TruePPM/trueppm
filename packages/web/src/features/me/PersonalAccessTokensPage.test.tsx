@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor, within, act } from '@testing-librar
 import { MemoryRouter } from 'react-router';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PersonalAccessTokensPage } from './PersonalAccessTokensPage';
+import { MCP_INSTALL_COMMAND } from '@/features/settings/components/integrations/McpConnectPanel';
 import type { MyApiToken, CreatedMyApiToken } from '@/hooks/useMyApiTokens';
 
 const useMyApiTokens = vi.fn();
@@ -220,6 +221,13 @@ describe('PersonalAccessTokensPage', () => {
     expect(snippet).toHaveTextContent('trueppm-mcp');
     expect(snippet).toHaveTextContent('tppm_mcp_reveal_token');
     expect(screen.getByRole('button', { name: 'Copy config' })).toBeInTheDocument();
+
+    // #2890: the config invokes a `trueppm-mcp` executable, so the panel has to
+    // say how to get one. Without this step, "add this and restart" ends in
+    // command-not-found on the restart, outside the app where nothing explains it.
+    const install = screen.getByRole('group', { name: /install command/i });
+    expect(install).toHaveTextContent(MCP_INSTALL_COMMAND);
+    expect(screen.getByRole('button', { name: 'Copy install command' })).toBeInTheDocument();
     // The mutation carried the read scope.
     expect(createMutate).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Claude', scopes: ['mcp:read'] }),
