@@ -90,6 +90,25 @@ interface CrossGroup {
   items: PickItem[];
 }
 
+
+/**
+ * Match a row against the query the way a planner means it (#2958).
+ *
+ * A leading digit is a **WBS prefix**: `1.` matches 1.1, 1.2, 1.4 and nothing
+ * else. Anything else is a **name substring**: `lay` matches "Lay-down area
+ * survey".
+ *
+ * The distinction is not cosmetic. Treating `1.` as a substring across both
+ * fields returns every task whose *name* contains a 1, burying the phase the
+ * planner asked for.
+ */
+export function matchesQuery(name: string, wbs: string, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (q === '') return true;
+  if (/^\d/.test(q)) return wbs.toLowerCase().startsWith(q);
+  return name.toLowerCase().includes(q);
+}
+
 export function ScheduleDependencyPicker({
   task,
   mode,
@@ -143,13 +162,11 @@ export function ScheduleDependencyPicker({
     return allTasks
       .filter((t) => t.id !== task.id)
       .filter((t) => !excludedIds.has(t.id))
-      .filter(
-        (t) =>
-          q === '' ||
-          t.name.toLowerCase().includes(q) ||
-          (t.wbs ?? '').toLowerCase().includes(q),
-      )
-      .slice(0, MAX_RESULTS)
+      // A leading digit reads as a WBS PREFIX, anything else as a name substring
+      // (#2958). Typing `1.` means "everything in phase 1" — matching it as a
+      // loose substring against names too would bury those rows among every task
+      // whose title happens to contain a 1.
+      .filter((t) => matchesQuery(t.name, t.wbs ?? '', q))
       .map<PickItem>((t) => ({
         id: t.id,
         name: t.name,
@@ -160,6 +177,15 @@ export function ScheduleDependencyPicker({
         isMilestone: t.isMilestone,
       }));
   }, [scope, allTasks, task.id, excludedIds, search, projectId]);
+
+  // The list is capped, so the count has to say so (#2958). A silent
+  // `.slice(0, 12)` reads as "these are all your options" — which, on a picker
+  // whose whole job is finding one row among many, is the failure mode.
+  const projectMatchTotal = projectItems.length;
+  const shownProjectItems = useMemo(
+    () => projectItems.slice(0, MAX_RESULTS),
+    [projectItems],
+  );
 
   const crossGroups = useMemo<CrossGroup[]>(() => {
     if (scope !== 'program') return [];
@@ -188,8 +214,8 @@ export function ScheduleDependencyPicker({
 
   // Flat list backing keyboard navigation — group order in program scope.
   const flatItems = useMemo<PickItem[]>(
-    () => (scope === 'project' ? projectItems : crossGroups.flatMap((g) => g.items)),
-    [scope, projectItems, crossGroups],
+    () => (scope === 'project' ? shownProjectItems : crossGroups.flatMap((g) => g.items)),
+    [scope, shownProjectItems, crossGroups],
   );
 
   // Clamp active index when the list shrinks during typing / scope change.
@@ -351,14 +377,28 @@ export function ScheduleDependencyPicker({
           />
         </div>
 
+        {scope === 'project' && projectMatchTotal > 0 && (
+          // "3 of 4" — and it is honest about the cap, so a planner who cannot
+          // see the row they want knows to narrow rather than assuming it is
+          // ineligible (#2958).
+          <p
+            role="status"
+            className="px-3 pb-1 text-xs text-neutral-text-secondary"
+          >
+            {shownProjectItems.length === projectMatchTotal
+              ? `${projectMatchTotal} ${projectMatchTotal === 1 ? 'match' : 'matches'}`
+              : `Showing ${shownProjectItems.length} of ${projectMatchTotal} matches — keep typing to narrow`}
+          </p>
+        )}
+
         {scope === 'project' ? (
           <ul role="listbox" aria-label="Task results" className="flex-1 overflow-y-auto px-2 pb-2">
-            {projectItems.length === 0 ? (
+            {shownProjectItems.length === 0 ? (
               <li className="py-3 px-2 text-[13px] text-neutral-text-secondary">
                 No matching tasks. Try a different search.
               </li>
             ) : (
-              projectItems.map((item, i) => (
+              shownProjectItems.map((item, i) => (
                 <ResultRow
                   key={item.id}
                   item={item}

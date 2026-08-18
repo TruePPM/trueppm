@@ -137,6 +137,7 @@ import {
 } from '@/hooks/useScheduleDisplayOptions';
 import { ScheduleCoachBar } from './buildMode/ScheduleCoachBar';
 import { ConversionNotice } from './buildMode/ConversionNotice';
+import { ineligiblePredecessorIds } from './deps/cycleSafety';
 import {
   useIndentTask,
   useOutdentTask,
@@ -1034,8 +1035,22 @@ export function ScheduleView() {
         ids.add(link.targetId);
       }
     }
+    // Structural ineligibility (#2958): the row itself, its own subtree, and
+    // anything that would close a loop — INCLUDING through the implicit edges a
+    // gate and a phase carry, which have no dependency row to walk. Previously
+    // the picker offered these and the server's cycle-detection 400 was the
+    // first the user heard of it, with no way to tell which options were real.
+    if (depPickerState.mode === 'predecessor') {
+      for (const id of ineligiblePredecessorIds(
+        depPickerState.task,
+        allTasks,
+        allLinks.map((l) => ({ sourceId: l.sourceId, targetId: l.targetId })),
+      )) {
+        ids.add(id);
+      }
+    }
     return ids;
-  }, [depPickerState, allLinks]);
+  }, [depPickerState, allLinks, allTasks]);
   // Reactive scales — updated via scales-change so totalCanvasWidth stays in sync
   // when setTasks rebuilds the scale after a project switch or task edit (issue #96).
   const [scheduleScales, setScheduleScales] = useState<GanttScaleData | null>(null);
