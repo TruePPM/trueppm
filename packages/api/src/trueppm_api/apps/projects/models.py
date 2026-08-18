@@ -1984,6 +1984,20 @@ class EstimateStatus(models.TextChoices):
     ACCEPTED = "accepted", "Accepted"
 
 
+class DurationUnit(models.TextChoices):
+    """Unit a task's estimate is authored and displayed in (#2975).
+
+    Presentation only. ``Task.duration`` is always an integer count of working
+    days — the engine, the WASM conformance fixtures, MS Project export and the
+    ``TaskDurationChange`` audit all depend on that. ``HOURS`` changes what the
+    user types and reads, converting through ``Calendar.hours_per_day``, and the
+    client states any rounding out loud.
+    """
+
+    DAYS = "days", "Days"
+    HOURS = "hours", "Hours"
+
+
 class TaskStatus(models.TextChoices):
     """Workflow state for a task on the Kanban board.
 
@@ -2310,6 +2324,22 @@ class Task(VersionedModel):
         default=1,
         help_text="Duration in working days",
         validators=[MinValueValidator(0), MaxValueValidator(MAX_TASK_DURATION_DAYS)],
+    )
+    # How this task's estimate is WRITTEN and READ — not how it is stored or
+    # scheduled (#2975). `duration` above stays the integer working-day value the
+    # engine consumes, because `_effective_duration_days() -> int` and its integer
+    # truncation are part of the Python/Rust conformance contract (ADR-0132).
+    # Hours entry converts through the project calendar's `hours_per_day` and
+    # rounds to whole days; the UI states the rounding rather than hiding it.
+    # Sub-day scheduling is deliberately NOT what this enables.
+    duration_unit = models.CharField(
+        max_length=5,
+        choices=DurationUnit.choices,
+        default=DurationUnit.DAYS,
+        help_text=(
+            "Unit this task's duration is entered and displayed in. "
+            "Presentation only — `duration` is always working days."
+        ),
     )
     status = models.CharField(
         max_length=12,

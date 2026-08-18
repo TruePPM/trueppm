@@ -147,6 +147,12 @@ export interface Task {
    * The Unscheduled gutter filter (#317) uses this. */
   plannedStart?: string | null;
   duration: number;
+  /**
+   * Unit this task's duration is entered and displayed in (#2975).
+   * Presentation only — `duration` above is always working days, because the
+   * scheduling engine is integer-days end to end (ADR-0132).
+   */
+  durationUnit?: 'days' | 'hours';
   /** 0–100 */
   progress: number;
   parentId: string | null;
