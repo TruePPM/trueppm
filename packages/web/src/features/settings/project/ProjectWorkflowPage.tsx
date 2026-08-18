@@ -44,6 +44,7 @@ import {
 } from '@/hooks/useProjectCustomFields';
 import { ROLE_ADMIN, ROLE_SCHEDULER } from '@/lib/roles';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { Link } from 'react-router';
 
 // Preset palette for phase & status colors. Limited so a settings page stays
 // approachable; "More colors" via free-form hex is intentionally not exposed
@@ -590,7 +591,9 @@ function PhasesSection({
   projectId: string | undefined;
   canEdit: boolean;
 }) {
-  const { phases, isLoading, create, update, remove, reorder } = useProjectPhases(projectId);
+  // No `create` (#2952): this page no longer manufactures phases. It configures
+  // the ones the authoring gesture produced.
+  const { phases, isLoading, update, remove, reorder } = useProjectPhases(projectId);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -627,10 +630,6 @@ function PhasesSection({
     });
   };
 
-  const handleAddPhase = () => {
-    create.mutate({ name: 'New phase' });
-  };
-
   return (
     <section
       aria-labelledby="phases-heading"
@@ -644,24 +643,29 @@ function PhasesSection({
           · Swim-lanes on the board, summary rows on the schedule
         </span>
         <div className="flex-1" />
-        {canEdit && (
-          <button
-            type="button"
-            onClick={handleAddPhase}
-            disabled={create.isPending}
-            className="px-2.5 py-1 rounded-control border border-neutral-border text-[12px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
-          >
-            + Add phase
-          </button>
-        )}
+        {/* "+ Add phase" is deliberately GONE (#2952). It created a childless
+            container literally named "New phase" — the exact defect the
+            creation-coherence work exists to remove, and the reason the board
+            used to render the same object as a lane and a card (ADR-0843).
+            A phase now comes from the authoring gesture, where it arrives with
+            work inside it. Nothing replaces the button; this page configures
+            phases that exist rather than manufacturing empty ones. */}
       </div>
 
       {isLoading ? (
         <LoadingSkeleton label="Loading phases…" rows={3} className="px-4 py-6" />
       ) : orderedPhases.length === 0 ? (
         <div className="px-4 py-6 text-[12px] text-neutral-text-secondary">
-          No phases yet. Phases group tasks into swim-lanes on the board and summary rows on the
-          schedule.
+          No phases yet. Phases group tasks into swim-lanes on the board and summary rows on
+          the schedule — they are created on the{' '}
+          <Link
+            to={`/projects/${projectId}/schedule`}
+            className="text-brand-primary underline underline-offset-2
+              focus:outline-none focus:ring-2 focus:ring-brand-primary rounded-control"
+          >
+            schedule
+          </Link>
+          , by indenting a task under another, so a phase always arrives with work in it.
         </div>
       ) : (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
