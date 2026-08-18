@@ -15,7 +15,9 @@ Isolation & security posture (ADR-0097 §3 / §Threat Model → Resolution):
   the token is ever put on the wire in the verify ping (#902 ordering).
 
 This surface reuses ``IntegrationCredential`` (ADR-0097 §2) with the row's
-``config`` carrying ``{account_email, jql, project_keys, status}``. It does
+``config`` carrying ``{account_email, jql, project_keys, status}`` — both ``jql``
+and ``project_keys`` are read by the source at pull time, the latter ANDed onto
+the query so it can only narrow what leaves the provider (#2888). It does
 **not** call ``IntegrationCredential.upsert`` — that validates ``provider``
 against ``TASK_LINK_PROVIDERS`` (where ``jira`` is reserved Enterprise), whereas
 an external source validates against the distinct ``EXTERNAL_TASK_SOURCES``
@@ -33,7 +35,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import generics, pagination, serializers, status
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
@@ -48,7 +50,10 @@ from .external_sources import (
     DEPLOYMENT_CLOUD,
     EXTERNAL_TASK_SOURCES,
     JIRA_DEPLOYMENTS,
+    JIRA_PROJECT_KEY_RE,
     ExternalTaskSource,
+    JqlNotWellFormed,
+    scan_jql,
 )
 from .models import ExternalWorkItem, IntegrationCredential
 from .services import SyncCooldownActive, enqueue_external_sync
@@ -63,6 +68,12 @@ if TYPE_CHECKING:
 STATUS_CONNECTED = "connected"
 STATUS_NOT_CONNECTED = "not_connected"
 STATUS_AUTH_FAILED = "auth_failed"
+# The credential is fine but its stored filter cannot be scoped safely, so the
+# worker refuses to pull rather than pull wider than the owner asked for (#2888).
+# A separate state from ``auth_failed`` because the remedy is the same wizard but
+# the cause is not the token — telling the user their token expired would send
+# them to re-issue a credential that was never the problem.
+STATUS_INVALID_FILTER = "invalid_filter"
 
 # Human-readable 422 detail per ``VerifyResult.reason`` (mirrors the credentials
 # viewset map, plus the Jira-specific ``missing_email``).
@@ -90,7 +101,9 @@ class ExternalConnectionUpsertSerializer(serializers.Serializer[Any]):
     ``deployment`` (``cloud`` default | ``server``) selects the Cloud vs DC/Server
     API + auth shape. ``account_email`` (Cloud Basic auth only) + ``jql`` +
     ``project_keys`` are stored in the credential's ``config`` — the source reads
-    them at pull time.
+    them at pull time. ``jql`` selects what to pull; ``project_keys`` narrows it
+    and is **ANDed onto** the query, whether that query is the default or a
+    custom ``jql``, so the project filter can only ever restrict the pull.
     """
 
     secret = serializers.CharField(
@@ -104,18 +117,82 @@ class ExternalConnectionUpsertSerializer(serializers.Serializer[Any]):
         choices=JIRA_DEPLOYMENTS, required=False, default=DEPLOYMENT_CLOUD
     )
     account_email = serializers.EmailField(required=False, allow_blank=True, default="")
-    jql = serializers.CharField(required=False, allow_blank=True, max_length=1024, default="")
+    jql = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=1024,
+        default="",
+        help_text=(
+            "Optional JQL selecting what to pull. Blank uses 'assigned to me and "
+            "not done'. Parentheses and quotes must balance — the project filter "
+            "is ANDed onto this query, which is only a narrowing on a "
+            "well-formed one."
+        ),
+    )
     project_keys = serializers.ListField(
         child=serializers.CharField(max_length=64),
         required=False,
         default=list,
         max_length=50,
+        help_text=(
+            "Optional Jira project keys to restrict the pull to. Each must be a "
+            "Jira project key (a letter followed by letters, digits or "
+            "underscores); stored upper-cased and de-duplicated. Composed into "
+            "the query as 'AND project IN (...)' on top of jql, so it can only "
+            "narrow the pull. Empty means every project you can see."
+        ),
     )
 
     def validate_secret(self, value: str) -> str:
         if not value.strip():
             raise serializers.ValidationError("Secret must not be blank.")
         return value
+
+    def validate_jql(self, value: str) -> str:
+        """Reject a JQL whose parentheses or quotes do not balance.
+
+        Not style policing. ``project_keys`` narrows the pull by wrapping this
+        query in one pair of parentheses and ANDing a ``project IN (...)`` clause
+        onto it, and an unbalanced query turns that wrap into a no-op that pulls
+        from projects the owner did not select. Jira would reject a malformed query
+        outright anyway, so the only thing this forbids is input that is already
+        broken — and it surfaces as an inline message on the field instead of a
+        connection that verifies, stores, and then fails on its first pull.
+        """
+        text = value.strip()
+        if not text:
+            return value
+        try:
+            scan_jql(text)
+        except JqlNotWellFormed as exc:
+            raise serializers.ValidationError(
+                f"This filter is not valid JQL ({exc}). Check the parentheses and quotes."
+            ) from exc
+        return value
+
+    def validate_project_keys(self, value: list[str]) -> list[str]:
+        """Normalize + reject anything that is not a Jira project key (#2888).
+
+        These keys are composed into the JQL the pull worker sends, so a value
+        carrying a quote or a parenthesis could rewrite the filter it is meant to
+        narrow. Rejecting at mint time gives the user an inline message on the
+        connect wizard rather than a connection that fails on its first pull.
+        Upper-cased and de-duplicated so the stored value matches what the wizard
+        shows and what the query will carry.
+        """
+        cleaned: dict[str, None] = {}
+        for raw in value:
+            key = raw.strip()
+            if not key:
+                continue
+            if not JIRA_PROJECT_KEY_RE.match(key):
+                raise serializers.ValidationError(
+                    f"{key!r} is not a valid project key. Use the short key Jira "
+                    "shows on an issue (letters, digits and underscores, starting "
+                    "with a letter) — for example RIV."
+                )
+            cleaned.setdefault(key.upper(), None)
+        return list(cleaned)
 
     def validate_base_url(self, value: str) -> str:
         if "://" not in value:
@@ -241,6 +318,19 @@ class ExternalConnectionView(IdempotencyMixin, APIView):
         request=ExternalConnectionUpsertSerializer,
         responses={
             200: ExternalConnectionSummarySerializer,
+            # Two different 400 bodies reach a caller here, so this is declared as
+            # a description rather than a serializer: an unknown source key or a
+            # disallowed ``base_url`` returns ``{detail, code}``, while DRF field
+            # validation (``secret``, ``base_url``, ``jql``, ``project_keys``)
+            # returns its own field-keyed ``{field: [message]}`` shape. Declaring
+            # either serializer would document one and misdescribe the other.
+            400: OpenApiResponse(
+                description=(
+                    "Unknown source, disallowed host URL, or a field that failed "
+                    "validation (an unparseable JQL filter, or a project key that "
+                    "is not a Jira project key)."
+                )
+            ),
             422: ExternalConnectionErrorSerializer,
         },
     )

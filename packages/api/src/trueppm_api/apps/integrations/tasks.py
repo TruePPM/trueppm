@@ -5,7 +5,8 @@ Four tasks, all registered under short names for Beat (#319):
 - ``external_sync`` — pull one ``ExternalSyncRequest``'s connection: fetch the
   owner's assigned items from the source, upsert them into ``ExternalWorkItem``,
   soft-remove any that vanished, and flip the connection to ``connected`` /
-  ``auth_failed``. Idempotent under the row's ``@idempotent_task`` lock.
+  ``auth_failed`` / ``invalid_filter``. Idempotent under the row's
+  ``@idempotent_task`` lock.
 - ``drain_external_sync`` — 300 s outbox drain: dispatch stranded ``PENDING``
   rows and recover orphaned ``DISPATCHED`` ones (ADR-0097 §Durable Execution #2).
 - ``poll_external_sources`` — low-frequency opt-in poll: enqueue a pull for every
@@ -29,11 +30,12 @@ from django.utils import timezone
 
 from trueppm_api.core.idempotent import idempotent_task
 
-from .connections import STATUS_AUTH_FAILED, STATUS_CONNECTED
+from .connections import STATUS_AUTH_FAILED, STATUS_CONNECTED, STATUS_INVALID_FILTER
 from .encryption import decrypt_secret
 from .external_sources import (
     EXTERNAL_TASK_SOURCES,
     ExternalSourceAuthError,
+    ExternalSourceConfigError,
     ExternalSourceError,
     ExternalWorkItemDTO,
 )
@@ -153,6 +155,22 @@ def _do_sync(request_id: str) -> None:
             _mark_dead(req, "auth_failed")
             logger.info(
                 "external_sync: auth failed for user=%s source=%s — connection flagged",
+                req.user_id,
+                req.source,
+            )
+            return
+        except ExternalSourceConfigError:
+            # The stored filter cannot be scoped safely (a project key that is not
+            # a project key, or a JQL whose parentheses do not balance — both are
+            # reachable on rows written before those values were validated). A
+            # retry can never fix it, and the alternative to refusing is pulling
+            # wider than the owner selected, so flag the connection with a state
+            # whose remedy is the connect wizard and stop. Must precede the generic
+            # ExternalSourceError arm below — this is a subclass of it.
+            _set_connection_status(cred, STATUS_INVALID_FILTER)
+            _mark_dead(req, "invalid_filter")
+            logger.info(
+                "external_sync: stored filter unusable for user=%s source=%s — connection flagged",
                 req.user_id,
                 req.source,
             )
@@ -337,8 +355,9 @@ def poll_external_sources(self: object) -> None:
     """Enqueue a pull for every connection whose owner opted into polling.
 
     Default-off (ADR-0097 §4): a connection polls only when its ``config`` carries
-    ``poll_enabled: true`` and it is not in ``auth_failed``. With no UI toggle yet
-    this task is a wired-but-dormant hook — it fans out zero pulls today.
+    ``poll_enabled: true`` and it is in neither ``auth_failed`` nor
+    ``invalid_filter``. With no UI toggle yet this task is a wired-but-dormant hook
+    — it fans out zero pulls today.
     """
     _do_poll()
 
@@ -352,13 +371,16 @@ def _do_poll() -> None:
         return
     # Push the opt-in gates into the DB so a default-off install scans (and
     # returns) ~zero rows each tick rather than every registered-source
-    # credential: poll_enabled must be truthy and the connection must not be in
-    # auth_failed. The Python re-check below is belt-and-suspenders for the rare
-    # config shapes a JSON lookup can't express (e.g. poll_enabled stored as a
-    # string). ``.iterator()` keeps memory flat if the opted-in set ever grows.
+    # credential: poll_enabled must be truthy and the connection must be in
+    # neither auth_failed nor invalid_filter — the two states a retry cannot clear
+    # without the user reconnecting, so polling them just burns a pull per tick.
+    # The Python re-check below is belt-and-suspenders for the rare config shapes
+    # a JSON lookup can't express (e.g. poll_enabled stored as a string).
+    # ``.iterator()` keeps memory flat if the opted-in set ever grows.
+    blocked_statuses = (STATUS_AUTH_FAILED, STATUS_INVALID_FILTER)
     candidates = (
         IntegrationCredential.objects.filter(provider__in=source_keys, config__poll_enabled=True)
-        .exclude(config__status=STATUS_AUTH_FAILED)
+        .exclude(config__status__in=blocked_statuses)
         .iterator()
     )
     queued = 0
@@ -366,7 +388,7 @@ def _do_poll() -> None:
         config = cred.config or {}
         if not config.get("poll_enabled"):
             continue
-        if config.get("status") == STATUS_AUTH_FAILED:
+        if config.get("status") in blocked_statuses:
             continue
         try:
             enqueue_external_sync(

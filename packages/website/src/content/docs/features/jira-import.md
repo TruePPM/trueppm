@@ -69,6 +69,7 @@ background. The schedule refreshes once the import finishes.
 | One `<item>` (issue) | one `Task` | Flat WBS — sequential top-level outline numbers, no hierarchy |
 | `<summary>` | `Task.name` | Falls back to the RSS `<title>` (key prefix stripped), then the bare issue key, so a task is never nameless |
 | `<timeoriginalestimate seconds="…">` | `Task.duration` | Seconds → whole working days on an 8-hour day (see [Duration mapping](#duration-mapping)) |
+| `<status>` | `Task.status` and `Task.percent_complete` | Recognized status names only; a delivered issue arrives at **100%** (see [Status and progress mapping](#status-and-progress-mapping)) |
 | `Blocks` issue link | Finish-to-Start `Dependency` | Both directions read ("blocks" and "is blocked by"); lag `0`. See [Dependency mapping](#dependency-mapping) |
 | `<channel><title>` | `Project.name` (on the import summary) | Used to label the imported set; falls back to "Imported from Jira" |
 
@@ -89,6 +90,30 @@ reads estimates at all.
 | 12 h (43 200 s) | 2 |
 | 16 h (57 600 s) | 2 |
 | 3 d @ 8 h (86 400 s) | 3 |
+
+### Status and progress mapping
+
+An issue's `<status>` name sets the imported task's status, so work that is
+already done or in flight does not arrive as unstarted future work and inflate
+every forecast. The match is on the status **name**, case-insensitively:
+
+| Jira status | TruePPM `Task.status` |
+|---|---|
+| Backlog | Backlog |
+| To Do, Todo, Open, Reopened, Selected for Development | Not started |
+| In Progress, In Development | In progress |
+| In Review, Review, In Test | Review |
+| Done, Closed, Resolved, Complete | Complete |
+
+An issue whose status is **not** in that list — a customized workflow step such
+as "Ready for QA" or "Deployed" — imports as **Not started**, and so does an
+issue with no `<status>` element at all.
+
+A Jira XML export carries no percent-complete field, so progress is derived from
+the status alone: an issue that maps to **Review** or **Complete** arrives at
+**100%**, and every other status arrives at **0%**. `Task.percent_complete` is a
+0–100 percent, and it is the same figure the progress ring, the Gantt fill and
+the parent rollup read, so a delivered issue reads as delivered everywhere.
 
 ### Dependency mapping
 

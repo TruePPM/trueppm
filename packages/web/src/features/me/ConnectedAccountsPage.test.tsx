@@ -118,6 +118,17 @@ const CONNECTED_JIRA_AUTH_FAILED: ConnReturn = {
   isLoading: false,
 };
 
+const CONNECTED_JIRA_INVALID_FILTER: ConnReturn = {
+  connection: {
+    account_email: 'p.patel@acme.com',
+    base_url: 'https://acme.atlassian.net',
+    status: 'invalid_filter',
+    last_synced_at: THREE_DAYS_AGO,
+  },
+  isConnected: true,
+  isLoading: false,
+};
+
 function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -474,6 +485,26 @@ describe('ConnectedAccountsPage — Available sources (#1420)', () => {
 
     // "Reconnect" reuses the same PAT wizard as the initial Connect — no new flow.
     fireEvent.click(card.getByRole('button', { name: 'Reconnect' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: /Connect Jira/i })).toBeInTheDocument();
+  });
+
+  it('renders an invalid_filter banner naming the filter, not the token (#2888)', async () => {
+    // The credential is fine; the saved filter can no longer be scoped to the
+    // selected projects, so the worker refuses to pull rather than pull wider.
+    // Saying "needs reauthorization" here would send the user to re-issue a
+    // working token and watch nothing change.
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira' ? CONNECTED_JIRA_INVALID_FILTER : NOT_CONNECTED,
+    );
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    const banner = card.getByRole('status');
+    expect(banner).toHaveTextContent(/saved filter or project keys are no longer valid/i);
+    expect(banner).not.toHaveTextContent(/reauthorization/i);
+
+    // Same remedy as auth_failed — the wizard re-submits the filter.
+    fireEvent.click(card.getByRole('button', { name: 'Update filter' }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByRole('heading', { name: /Connect Jira/i })).toBeInTheDocument();
   });

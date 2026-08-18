@@ -4,10 +4,12 @@ description: Operate the read-only TruePPM MCP server — transports (stdio, HTT
 documentedFor: "0.4"
 ---
 
-:::caution[Pre-GA]
-The read-only MCP server ships in 0.4, TruePPM's first beta. On unreleased builds
-the tool list and the token-scope surface may still change. Expect API contract
-changes across 0.x point releases; a stable contract arrives at 1.0.
+:::note[Ships in 0.4]
+The read-only MCP server ships in 0.4, TruePPM's first beta — everything on this
+page describes 0.4, not the latest release (`v0.3.0-alpha.3`), where there is no
+MCP server to operate. On unreleased builds the tool list and the token-scope
+surface may still change. Expect API contract changes across 0.x point releases;
+a stable contract arrives at 1.0.
 :::
 
 :::note[Ships in 0.4]

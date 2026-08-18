@@ -145,6 +145,14 @@ task-sync with their normal credentials, so every inbound push is attributable
 to a minted token. A token whose project does not match the URL returns `401`
 (not `403`) so callers cannot enumerate project existence.
 
+The only scope this endpoint mints is **`legacy:full`**. Sending
+`{"scopes": ["mcp:read"]}` to `POST /api/v1/projects/{id}/api-tokens/` (or the
+program equivalent) is a `400`: a token minted at project or program scope has no
+owner, and the MCP read surface accepts owner-scoped (personal) tokens only, so
+such a token could read nothing at all. Mint MCP credentials from
+[`POST /api/v1/me/api-tokens/`](#personal-access-tokens-apiv1meapi-tokens-adr-0214)
+instead.
+
 ### Personal Access Tokens (`/api/v1/me/api-tokens/`, ADR-0214)
 
 ```http
@@ -1449,6 +1457,15 @@ the disclosure the change removes — and enforces no webhook-specific body cap.
 | GET / PUT | `/api/v1/integrations/projects/{project_id}/git-automation/` | A project's Git-event board-automation config (Admin+, ADR-0158) |
 | POST | `/api/v1/integrations/projects/{project_id}/git-automation/rotate-secret/` | Rotate the webhook signing secret |
 | POST | `/api/v1/integrations/projects/{project_id}/git-webhook/` | Inbound Git-event receiver (unauthenticated by session; verified by the rotatable secret). Every refusal before signature verification — no automation, disabled, no secret, unknown provider, an undecryptable secret, bad signature — returns the **same** `404`, so the endpoint cannot be used to discover which projects have automation configured; bodies over 1 MB get a `413` |
+
+`PUT /api/v1/me/connections/{source}/` takes `jql` and `project_keys`, which
+compose rather than compete: `project_keys` is applied as an additional
+`AND project IN (...)` on top of `jql` (or on top of the default
+"assigned to me and not done" when `jql` is blank), so it can only narrow the
+pull. Each key must be a Jira project key — a letter followed by letters, digits
+or underscores — and is stored upper-cased and de-duplicated; anything else is a
+`400` on the field. `jql` must have balanced parentheses and quotes for the same
+reason (the narrowing wraps it), and an unbalanced value is likewise a `400`.
 
 The org-wide, admin-configured, bidirectional Integration Hub is Enterprise;
 everything in this table is the OSS carve-out — a personal, one-way credential

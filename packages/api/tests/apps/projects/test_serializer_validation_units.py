@@ -473,8 +473,14 @@ class TestProjectApiTokenCreateValidation:
         with pytest.raises(serializers.ValidationError, match="cannot be combined"):
             MyApiTokenCreateSerializer().validate_scopes(["legacy:full", "mcp:read"])
 
-    def test_an_mcp_read_token_must_carry_an_expiry(self) -> None:
-        with pytest.raises(serializers.ValidationError, match="expires_at is required"):
+    def test_an_mcp_read_token_is_refused_at_project_scope(self) -> None:
+        # #2890: a project/program token has a null owner and the MCP read surface
+        # admits owner-scoped tokens only, so the scope is rejected here outright
+        # rather than minting a credential that can read nothing. This replaced an
+        # assertion on the mcp:read *expiry* rule (#1713/#2764), which is now only
+        # reachable on the personal surface — see TestPersonalAccessTokenCreate-
+        # Validation below and test_personal_access_tokens.py.
+        with pytest.raises(serializers.ValidationError, match="not available on a project"):
             ProjectApiTokenCreateSerializer().validate({"scopes": ["mcp:read"], "expires_at": None})
 
     def test_a_legacy_full_token_may_never_expire(self) -> None:
@@ -498,6 +504,15 @@ class TestPersonalAccessTokenCreateValidation:
     def test_past_expiry_is_rejected(self) -> None:
         with pytest.raises(serializers.ValidationError):
             MyApiTokenCreateSerializer().validate_expires_at(timezone.now() - timedelta(days=1))
+
+    def test_an_mcp_read_token_must_carry_an_expiry(self) -> None:
+        # #1713: a leaked read credential must be self-limiting. This unit-level
+        # assertion moved here from the project serializer when #2890 made the
+        # personal surface the only one that can mint mcp:read at all — the shared
+        # `_validate_mcp_read_expiry` helper is now only reachable through this
+        # serializer, so this is where its coverage belongs.
+        with pytest.raises(serializers.ValidationError, match="expires_at is required"):
+            MyApiTokenCreateSerializer().validate({"scopes": ["mcp:read"], "expires_at": None})
 
 
 # --------------------------------------------------------------------------- #

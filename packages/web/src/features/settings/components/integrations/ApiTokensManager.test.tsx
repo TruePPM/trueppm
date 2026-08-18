@@ -1,6 +1,6 @@
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderWithProviders } from '@/test/utils';
+import { renderWithProvidersAndRouter } from '@/test/utils';
 import { ApiTokensManager, buildClaudeDesktopConfig } from './ApiTokensManager';
 import type { ApiToken, CreatedApiToken, ApiTokenCreateBody } from '@/hooks/useApiTokens';
 
@@ -73,13 +73,13 @@ beforeEach(() => {
 describe('ApiTokensManager', () => {
   it('shows the empty state with no tokens', () => {
     useApiTokens.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() });
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     expect(screen.getByText(/No tokens yet/i)).toBeInTheDocument();
   });
 
   it('renders a token row with name and prefix', () => {
     useApiTokens.mockReturnValue({ data: [TOKEN], isLoading: false, isError: false, refetch: vi.fn() });
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     expect(screen.getByText('CI Pipeline')).toBeInTheDocument();
     expect(screen.getByText(/tppm_a1b/)).toBeInTheDocument();
   });
@@ -97,7 +97,7 @@ describe('ApiTokensManager', () => {
       isError: false,
       refetch: vi.fn(),
     });
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     expect(screen.getByText('Full')).toBeInTheDocument();
     expect(screen.getByText('Read-only')).toBeInTheDocument();
   });
@@ -110,32 +110,38 @@ describe('ApiTokensManager', () => {
       isError: false,
       refetch: vi.fn(),
     });
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     expect(screen.queryByText('Full')).not.toBeInTheDocument();
     expect(screen.queryByText('Read-only')).not.toBeInTheDocument();
   });
 
-  it('offers both capability scopes in the create form', () => {
+  it('does not offer the mcp:read scope here, and says where to get one (#2890)', () => {
+    // A token minted at project/program scope has a null owner, and the MCP read
+    // surface admits owner-scoped (personal) tokens only (#1712) — so the option
+    // that used to sit here produced a config that 401'd the MCP server at boot.
+    // The pointer is load-bearing: this page is where a user looks for it.
     useApiTokens.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() });
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
     const dialog = screen.getByRole('dialog', { name: /Create API token/i });
-    expect(within(dialog).getByRole('radio', { name: /Full access/i })).toBeChecked();
-    expect(within(dialog).getByRole('radio', { name: /Read-only for AI assistants/i })).toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole('radio', { name: /Read-only for AI assistants/i }),
+    ).not.toBeInTheDocument();
+    const link = within(dialog).getByRole('link', { name: /Personal Settings/i });
+    expect(link).toHaveAttribute('href', '/me/settings/api-tokens');
   });
 
-  it('submits the selected scope in the create body', () => {
+  it('submits the full-access scope in the create body', () => {
     useApiTokens.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() });
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
     const dialog = screen.getByRole('dialog', { name: /Create API token/i });
     fireEvent.change(within(dialog).getByPlaceholderText(/Jira Production/i), {
-      target: { value: 'Claude' },
+      target: { value: 'CI Pipeline' },
     });
-    fireEvent.click(within(dialog).getByRole('radio', { name: /Read-only for AI assistants/i }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Create token' }));
     const body = createMutate.mock.calls[0][0] as ApiTokenCreateBody;
-    expect(body).toEqual({ name: 'Claude', scopes: ['mcp:read'] });
+    expect(body).toEqual({ name: 'CI Pipeline', scopes: ['legacy:full'] });
   });
 
   it('reveals the raw token exactly once on create (full scope)', async () => {
@@ -145,7 +151,7 @@ describe('ApiTokensManager', () => {
         opts.onSuccess({ ...TOKEN, id: 'tok-2', scopes: ['legacy:full'], token: 'tppm_THE_RAW_SECRET' });
       },
     );
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
     const dialog = screen.getByRole('dialog', { name: /Create API token/i });
     fireEvent.change(within(dialog).getByPlaceholderText(/Jira Production/i), {
@@ -158,37 +164,31 @@ describe('ApiTokensManager', () => {
     expect(screen.getByDisplayValue('tppm_THE_RAW_SECRET')).toBeInTheDocument();
   });
 
-  it('reveals the connect snippet for an mcp:read token, once', async () => {
+  it('never renders the MCP connect snippet on this surface (#2890)', async () => {
+    // Belt and braces on the scope removal: even if the API echoed an mcp:read
+    // token back, this page must not hand out a config that cannot connect. The
+    // snippet's own coverage lives with the surface that mints the credential the
+    // MCP server accepts — PersonalAccessTokensPage.test.tsx.
     useApiTokens.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() });
     createMutate.mockImplementation(
       (_body: unknown, opts: { onSuccess: (t: CreatedApiToken) => void }) => {
         opts.onSuccess({ ...TOKEN, id: 'tok-3', scopes: ['mcp:read'], token: 'tppm_MCP_SECRET' });
       },
     );
-    const { unmount } = renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    const { unmount } = renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
     const dialog = screen.getByRole('dialog', { name: /Create API token/i });
     fireEvent.change(within(dialog).getByPlaceholderText(/Jira Production/i), {
-      target: { value: 'Claude Desktop' },
+      target: { value: 'CI Pipeline' },
     });
-    fireEvent.click(within(dialog).getByRole('radio', { name: /Read-only for AI assistants/i }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Create token' }));
 
-    // The connect snippet renders with the command, env vars, instance URL, and token.
-    const snippet = await screen.findByLabelText('claude_desktop_config.json snippet');
-    expect(snippet.textContent).toContain('"command": "trueppm-mcp"');
-    expect(snippet.textContent).toContain('"TRUEPPM_API_URL"');
-    expect(snippet.textContent).toContain('"TRUEPPM_API_TOKEN": "tppm_MCP_SECRET"');
-    expect(snippet.textContent).toContain(window.location.origin);
-    // The raw token is also shown in its own field, exactly once.
-    expect(screen.getByDisplayValue('tppm_MCP_SECRET')).toBeInTheDocument();
-
-    // "Try asking:" surfaces the curated starter prompts (#1847) so an evaluator
-    // knows what to type — including the what-if headliner.
-    expect(screen.getByText('Try asking')).toBeInTheDocument();
-    expect(
-      screen.getByText('What breaks if I slip the integration task 5 days?'),
-    ).toBeInTheDocument();
+    // The plain one-time reveal, not the connect panel.
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('tppm_MCP_SECRET')).toBeInTheDocument();
+    });
+    expect(screen.queryByLabelText('claude_desktop_config.json snippet')).not.toBeInTheDocument();
+    expect(screen.queryByText('Try asking')).not.toBeInTheDocument();
 
     // One-time secret: after Done the modal closes and the token is not re-shown.
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
@@ -198,7 +198,7 @@ describe('ApiTokensManager', () => {
 
   it('confirms before revoking', () => {
     useApiTokens.mockReturnValue({ data: [TOKEN], isLoading: false, isError: false, refetch: vi.fn() });
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
     expect(screen.getByRole('alertdialog', { name: /Revoke token/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Revoke token' }));
@@ -207,7 +207,7 @@ describe('ApiTokensManager', () => {
 
   it('renders program-scoped explanatory copy at program scope (#597)', () => {
     useApiTokens.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() });
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     expect(
       screen.getByText(/Program API tokens authenticate scripts and integrations/i),
     ).toBeInTheDocument();
@@ -215,7 +215,7 @@ describe('ApiTokensManager', () => {
 
   it('renders project-scoped explanatory copy at project scope (#597)', () => {
     useApiTokens.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() });
-    renderWithProviders(<ApiTokensManager scope={{ kind: 'project', id: 'p-1' }} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={{ kind: 'project', id: 'p-1' }} />);
     expect(
       screen.getByText(/API tokens authenticate scripts and integrations that read or modify/i),
     ).toBeInTheDocument();
@@ -232,7 +232,7 @@ describe('ApiTokensManager', () => {
       isError: false,
       refetch: vi.fn(),
     });
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     expect(screen.getByLabelText('Loading tokens')).toHaveAttribute('aria-busy', 'true');
     expect(screen.queryByText(/No tokens yet/i)).not.toBeInTheDocument();
   });
@@ -240,7 +240,7 @@ describe('ApiTokensManager', () => {
   it('offers a retry that refetches when the list fails to load', () => {
     const refetch = vi.fn();
     useApiTokens.mockReturnValue({ data: undefined, isLoading: false, isError: true, refetch });
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     expect(screen.getByText(/Couldn.t load tokens/i)).toBeInTheDocument();
     expect(screen.queryByText(/No tokens yet/i)).not.toBeInTheDocument();
 
@@ -255,7 +255,7 @@ describe('ApiTokensManager', () => {
       isError: false,
       refetch: vi.fn(),
     });
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     expect(screen.getByText(/No tokens yet/i)).toBeInTheDocument();
     expect(screen.queryByLabelText(/active tokens/i)).not.toBeInTheDocument();
   });
@@ -273,7 +273,7 @@ describe('ApiTokensManager', () => {
       revoked_at: '2026-05-21T00:00:00Z',
     };
     useApiTokens.mockReturnValue(LOADED([TOKEN, revoked]));
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
 
     // Two rows, but the badge counts the one that still works.
     expect(screen.getByLabelText('1 active tokens')).toHaveTextContent('1');
@@ -284,7 +284,7 @@ describe('ApiTokensManager', () => {
 
   it('marks a token that has never been used', () => {
     useApiTokens.mockReturnValue(LOADED([{ ...TOKEN, last_used_at: null }]));
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     expect(screen.getByText('never used')).toBeInTheDocument();
     expect(screen.queryByText('in use')).not.toBeInTheDocument();
   });
@@ -295,7 +295,7 @@ describe('ApiTokensManager', () => {
 
   it('refuses to create a token with a blank name', () => {
     useApiTokens.mockReturnValue(LOADED([]));
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     const dialog = openCreateModal();
     fireEvent.change(within(dialog).getByPlaceholderText(/Jira Production/i), {
       target: { value: '   ' },
@@ -308,7 +308,7 @@ describe('ApiTokensManager', () => {
 
   it('clears the validation error once a valid name is submitted', () => {
     useApiTokens.mockReturnValue(LOADED([]));
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     const dialog = openCreateModal();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Create token' }));
     expect(within(dialog).getByRole('alert')).toBeInTheDocument();
@@ -328,7 +328,7 @@ describe('ApiTokensManager', () => {
     createMutate.mockImplementation((_body: unknown, opts: CreateHandlers) => {
       opts.onError(axiosErrorWith({ name: ['A token with that name already exists.'] }));
     });
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     const dialog = openCreateModal();
     fireEvent.change(within(dialog).getByPlaceholderText(/Jira Production/i), {
       target: { value: 'CI Pipeline' },
@@ -345,7 +345,7 @@ describe('ApiTokensManager', () => {
     createMutate.mockImplementation((_body: unknown, opts: CreateHandlers) => {
       opts.onError(axiosErrorWith({ detail: 'You do not have permission.' }));
     });
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     const dialog = openCreateModal();
     fireEvent.change(within(dialog).getByPlaceholderText(/Jira Production/i), {
       target: { value: 'CI Pipeline' },
@@ -362,7 +362,7 @@ describe('ApiTokensManager', () => {
     createMutate.mockImplementation((_body: unknown, opts: CreateHandlers) => {
       opts.onError(axiosErrorWith({}));
     });
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     const dialog = openCreateModal();
     fireEvent.change(within(dialog).getByPlaceholderText(/Jira Production/i), {
       target: { value: 'CI Pipeline' },
@@ -379,7 +379,7 @@ describe('ApiTokensManager', () => {
     createMutate.mockImplementation((_body: unknown, opts: CreateHandlers) => {
       opts.onError(new Error('Network Error'));
     });
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     const dialog = openCreateModal();
     fireEvent.change(within(dialog).getByPlaceholderText(/Jira Production/i), {
       target: { value: 'CI Pipeline' },
@@ -394,7 +394,7 @@ describe('ApiTokensManager', () => {
   it('shows a pending label and locks both actions while the create is in flight', () => {
     createPending = true;
     useApiTokens.mockReturnValue(LOADED([]));
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
     const dialog = screen.getByRole('dialog', { name: /Create API token/i });
 
@@ -404,7 +404,7 @@ describe('ApiTokensManager', () => {
 
   it('closes the create form on Escape', () => {
     useApiTokens.mockReturnValue(LOADED([]));
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     openCreateModal();
 
     fireEvent.keyDown(document, { key: 'Escape' });
@@ -414,7 +414,7 @@ describe('ApiTokensManager', () => {
   it('ignores Escape while the create is in flight', () => {
     createPending = true;
     useApiTokens.mockReturnValue(LOADED([]));
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
 
     fireEvent.keyDown(document, { key: 'Escape' });
@@ -423,7 +423,7 @@ describe('ApiTokensManager', () => {
 
   it('dismisses the create form on a backdrop press but not on a press inside it', () => {
     useApiTokens.mockReturnValue(LOADED([]));
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     const dialog = openCreateModal();
 
     // A press that originates on a control inside the panel must not dismiss.
@@ -439,7 +439,7 @@ describe('ApiTokensManager', () => {
     createMutate.mockImplementation((_body: unknown, opts: CreateHandlers) => {
       opts.onSuccess({ ...TOKEN, id: 'tok-9', scopes: ['legacy:full'], token: 'tppm_ONE_SHOT' });
     });
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     const dialog = openCreateModal();
     fireEvent.change(within(dialog).getByPlaceholderText(/Jira Production/i), {
       target: { value: 'CI' },
@@ -457,7 +457,7 @@ describe('ApiTokensManager', () => {
     createMutate.mockImplementation((_body: unknown, opts: CreateHandlers) => {
       opts.onSuccess({ ...TOKEN, id: 'tok-10', scopes: ['legacy:full'], token: 'tppm_SELECT_ME' });
     });
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     const dialog = openCreateModal();
     fireEvent.change(within(dialog).getByPlaceholderText(/Jira Production/i), {
       target: { value: 'CI' },
@@ -471,29 +471,29 @@ describe('ApiTokensManager', () => {
     expect(field.selectionEnd).toBe('tppm_SELECT_ME'.length);
   });
 
-  it('falls back to the requested scope when the create response omits scopes', async () => {
-    // The backend rolled out ahead of / behind the scopes field: the reveal
-    // phase must still be chosen from what the user asked for, so an MCP token
-    // never lands in the plain reveal without its connect snippet.
+  it('still reveals the token when the create response omits scopes', async () => {
+    // A backend rolled out ahead of / behind the scopes field omits the key
+    // entirely. The reveal must not depend on reading it back — losing a
+    // one-time secret to a missing optional field is unrecoverable.
     useApiTokens.mockReturnValue(LOADED([]));
     createMutate.mockImplementation((_body: unknown, opts: CreateHandlers) => {
       opts.onSuccess({ ...TOKEN, id: 'tok-11', scopes: undefined, token: 'tppm_NO_SCOPES' });
     });
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     const dialog = openCreateModal();
     fireEvent.change(within(dialog).getByPlaceholderText(/Jira Production/i), {
-      target: { value: 'Claude Desktop' },
+      target: { value: 'CI Pipeline' },
     });
-    fireEvent.click(within(dialog).getByRole('radio', { name: /Read-only for AI assistants/i }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Create token' }));
 
-    const snippet = await screen.findByLabelText('claude_desktop_config.json snippet');
-    expect(snippet.textContent).toContain('"TRUEPPM_API_TOKEN": "tppm_NO_SCOPES"');
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('tppm_NO_SCOPES')).toBeInTheDocument();
+    });
   });
 
   it('closes the create form when Cancel is pressed', () => {
     useApiTokens.mockReturnValue(LOADED([]));
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     const dialog = openCreateModal();
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
@@ -507,7 +507,7 @@ describe('ApiTokensManager', () => {
 
   it('leaves the token alone when the revoke confirmation is canceled', () => {
     useApiTokens.mockReturnValue(LOADED([TOKEN]));
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
     const confirm = screen.getByRole('alertdialog', { name: /Revoke token/i });
 
@@ -521,7 +521,7 @@ describe('ApiTokensManager', () => {
     revokeMutate.mockImplementation((_id: string, opts: { onSuccess: () => void }) => {
       opts.onSuccess();
     });
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
     fireEvent.click(screen.getByRole('button', { name: 'Revoke token' }));
 
@@ -534,7 +534,7 @@ describe('ApiTokensManager', () => {
   it('keeps the confirmation open and its buttons locked while the revoke is in flight', () => {
     revokePending = true;
     useApiTokens.mockReturnValue(LOADED([TOKEN]));
-    renderWithProviders(<ApiTokensManager scope={SCOPE} />);
+    renderWithProvidersAndRouter(<ApiTokensManager scope={SCOPE} />);
     fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
     const confirm = screen.getByRole('alertdialog', { name: /Revoke token/i });
 

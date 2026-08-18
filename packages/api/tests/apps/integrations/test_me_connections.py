@@ -12,6 +12,8 @@ Covers the connection-management contract:
 
 from __future__ import annotations
 
+import urllib.parse
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AbstractBaseUser
@@ -269,3 +271,90 @@ def test_external_jira_row_absent_from_git_credentials_list(client: APIClient) -
     client.put("/api/v1/me/connections/jira/", _connect_body(), format="json")
     listed = {row["provider"] for row in client.get("/api/v1/me/credentials/").json()}
     assert "jira" not in listed
+
+
+# ---------------------------------------------------------------------------
+# project_keys — validated at mint, and live at pull time (#2888)
+# ---------------------------------------------------------------------------
+
+
+def test_connect_normalizes_project_keys(client: APIClient, user: AbstractBaseUser) -> None:
+    """Keys are upper-cased and de-duplicated so the stored, echoed and queried
+    values are the same string."""
+    response = client.put(
+        "/api/v1/me/connections/jira/",
+        _connect_body(project_keys=["riv", " BAY ", "RIV"]),
+        format="json",
+    )
+    assert response.status_code == 200
+    assert response.json()["project_keys"] == ["RIV", "BAY"]
+    row = IntegrationCredential.objects.get(user=user, provider="jira")
+    assert row.config["project_keys"] == ["RIV", "BAY"]
+
+
+def test_connect_rejects_a_project_key_that_is_not_a_project_key(client: APIClient) -> None:
+    """The keys are composed into JQL, so a value carrying quotes or parentheses
+    is refused at mint with an inline message rather than stored."""
+    response = client.put(
+        "/api/v1/me/connections/jira/",
+        _connect_body(project_keys=['RIV") OR project IN ("SECRET']),
+        format="json",
+    )
+    assert response.status_code == 400
+    assert "project_keys" in response.json()
+    assert not IntegrationCredential.objects.filter(provider="jira").exists()
+
+
+def test_stored_project_keys_reach_the_jira_query(
+    client: APIClient, user: AbstractBaseUser, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The consumer, end to end: what the wizard stored is what Jira is asked for.
+
+    #2888 was that this assertion had no counterpart in the codebase — the field
+    was persisted, echoed and documented as scoping the pull while
+    ``JiraSource.fetch`` read only ``config["jql"]``.
+    """
+    client.put(
+        "/api/v1/me/connections/jira/",
+        _connect_body(project_keys=["RIV"]),
+        format="json",
+    )
+    row = IntegrationCredential.objects.get(user=user, provider="jira")
+
+    captured: dict[str, str] = {}
+
+    def _get(url: str, **k: object) -> http.EgressResponse:
+        captured["url"] = url
+        return http.EgressResponse(200, b'{"issues": []}', {})
+
+    monkeypatch.setattr(http, "get", _get)
+    from trueppm_api.apps.integrations.external_sources import JiraSource
+
+    JiraSource().fetch_assigned_items(
+        base_url=row.base_url, secret="jira-api-token", config=row.config
+    )
+    assert 'project IN ("RIV")' in urllib.parse.unquote_plus(captured["url"])
+
+
+def test_connect_rejects_an_unbalanced_jql(client: APIClient) -> None:
+    """#2888: the project filter narrows by wrapping this query, and the wrap is
+    only a narrowing on a balanced one — so an unbalanced query is refused at
+    connect with an inline message rather than stored and failed on first pull."""
+    response = client.put(
+        "/api/v1/me/connections/jira/",
+        _connect_body(jql='project = "PUBLIC") OR (project = "SECRET"', project_keys=["RIV"]),
+        format="json",
+    )
+    assert response.status_code == 400
+    assert "jql" in response.json()
+    assert not IntegrationCredential.objects.filter(provider="jira").exists()
+
+
+def test_connect_accepts_a_balanced_grouped_jql(client: APIClient) -> None:
+    """The guard rejects only broken input — real grouping must still work."""
+    response = client.put(
+        "/api/v1/me/connections/jira/",
+        _connect_body(jql="(assignee = currentUser() OR reporter = currentUser())"),
+        format="json",
+    )
+    assert response.status_code == 200

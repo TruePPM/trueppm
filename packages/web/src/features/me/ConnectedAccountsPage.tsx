@@ -691,6 +691,21 @@ function ConnectionHealthNotice({
   if (connection?.status === 'auth_failed') {
     return <ReconnectBanner sourceName={sourceName} onReconnect={onReconnect} />;
   }
+  // `invalid_filter` (#2888): the token is fine, but the stored "what to pull"
+  // filter cannot be scoped to the selected projects, so the worker refuses to
+  // pull rather than pull wider than the owner asked for. Same remedy as
+  // auth_failed — the connect wizard re-submits the filter — but naming
+  // reauthorization here would send the user to re-issue a working credential.
+  if (connection?.status === 'invalid_filter') {
+    return (
+      <ReconnectBanner
+        sourceName={sourceName}
+        onReconnect={onReconnect}
+        message={`${sourceName} stopped pulling — its saved filter or project keys are no longer valid. Update them to resume.`}
+        actionLabel="Update filter"
+      />
+    );
+  }
   const lastSynced = connection?.last_synced_at ?? null;
   if (lastSynced && isStaleSync(lastSynced)) {
     return (
@@ -705,9 +720,14 @@ function ConnectionHealthNotice({
 function ReconnectBanner({
   sourceName,
   onReconnect,
+  message,
+  actionLabel = 'Reconnect',
 }: {
   sourceName: string;
   onReconnect: () => void;
+  /** Overrides the default reauthorization wording. */
+  message?: string;
+  actionLabel?: string;
 }) {
   return (
     <div
@@ -719,7 +739,7 @@ function ReconnectBanner({
         <span aria-hidden="true" className="font-semibold text-semantic-at-risk">
           ⚠{' '}
         </span>
-        {sourceName} needs reauthorization — items stopped pulling into My Work.
+        {message ?? `${sourceName} needs reauthorization — items stopped pulling into My Work.`}
       </span>
       <button
         type="button"
@@ -729,7 +749,7 @@ function ReconnectBanner({
            Inputs and the external-link <a> in this file keep focus-visible:. */
         className="h-7 shrink-0 rounded-control border border-semantic-at-risk/50 bg-transparent px-3 text-[12px] font-medium text-semantic-at-risk hover:bg-semantic-at-risk/10 focus:outline-none focus:ring-2 focus:ring-semantic-at-risk focus:ring-offset-1"
       >
-        Reconnect
+        {actionLabel}
       </button>
     </div>
   );

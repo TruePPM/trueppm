@@ -8610,14 +8610,20 @@ class ProjectApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToke
     ``scopes`` are immutable after creation by design; this serializer is the only
     code path that writes them.  Omitting ``scopes`` (or sending an empty list)
     mints a full-access ``legacy:full`` token, preserving pre-scopes behavior.
+
+    ``mcp:read`` is rejected here (#2890): a token minted at project or program
+    scope has a null ``owner``, and the MCP read surface admits owner-scoped
+    (personal) tokens only (``TokenIsOwnerScoped``, #1712). Personal tokens are
+    minted from ``/api/v1/me/api-tokens/`` (``MyApiTokenCreateSerializer``).
     """
 
     scopes = serializers.ListField(
         child=serializers.ChoiceField(choices=API_TOKEN_SCOPES),
         required=False,
         help_text="Capabilities to grant. Defaults to ['legacy:full'] "
-        "(full access). Send ['mcp:read'] to mint a read-only token for the "
-        "MCP server; an mcp:read token requires a non-null expires_at.",
+        "(full access). 'mcp:read' is NOT available here — the MCP read "
+        "surface accepts only owner-scoped (personal) tokens, so mint one "
+        "from POST /api/v1/me/api-tokens/ instead.",
     )
     expires_at = serializers.DateTimeField(
         required=False,
@@ -8655,6 +8661,26 @@ class ProjectApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToke
         # legitimately never expire — are unaffected. ``scopes`` may be absent
         # (defaults to legacy:full) so read it defensively.
         scopes = attrs.get("scopes") or [SCOPE_LEGACY_FULL]
+        # This endpoint mints project- and program-scoped tokens, whose ``owner``
+        # is null by construction. ``TokenIsOwnerScoped`` (#1712) refuses exactly
+        # those on the MCP read surface — a project token carries no pk on a
+        # collection tool, so accepting one would let it read the minter's whole
+        # membership. So an mcp:read token minted here can read nothing at all: it
+        # 401s the MCP server at boot, and the read-only scope satisfies no write
+        # path either. Refusing it up front, naming the endpoint that does work, is
+        # the difference between a 400 the caller can act on and a credential that
+        # looks minted and fails later with no way to debug it (#2890).
+        if SCOPE_MCP_READ in scopes:
+            raise serializers.ValidationError(
+                {
+                    "scopes": (
+                        "'mcp:read' is not available on a project or program token. "
+                        "The MCP read surface accepts only personal tokens — mint one "
+                        "from Personal Settings -> API tokens "
+                        "(POST /api/v1/me/api-tokens/)."
+                    )
+                }
+            )
         _validate_mcp_read_expiry(scopes, attrs.get("expires_at"))
         return attrs
 

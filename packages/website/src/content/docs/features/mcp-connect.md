@@ -24,9 +24,10 @@ see the [MCP server administration guide](/administration/mcp-server/).
 
 The server authenticates with a **personal access token** (`tppm_<64-hex>`)
 carrying the **`mcp:read` scope**. The read surface accepts only owner-scoped
-(personal) tokens — a project- or program-scoped token is rejected here with a
-401 — so the credential acts as *you* and reads only what your role permits,
-never beyond it.
+(personal) tokens — so the credential acts as *you* and reads only what your role
+permits, never beyond it. The project and program **Settings → Integrations**
+pages mint inbound-sync tokens and do not offer this scope; asking for it there
+is a `400` naming this path instead.
 
 1. Open **Personal Settings → API tokens → Create token**.
 2. Choose the **"Read-only for AI assistants"** scope (`mcp:read`) and **set an
@@ -38,10 +39,10 @@ never beyond it.
    only revoked and re-minted.
 
 The token acts as you and can read only what your own role permits across the
-projects and programs you belong to. The reveal dialog also offers a
-ready-to-paste `claude_desktop_config.json` snippet built from the token — if you
-use Claude Desktop, that snippet is the fastest path and you can skip the manual
-assembly below.
+projects and programs you belong to. The reveal dialog also offers the two steps
+below in copy-paste form — the `pip install trueppm-mcp` command and a
+`claude_desktop_config.json` snippet built from the token — so if you use Claude
+Desktop, that is the fastest path and you can skip the manual assembly.
 
 :::caution
 Treat the token like a password. Anyone holding it can read everything your role

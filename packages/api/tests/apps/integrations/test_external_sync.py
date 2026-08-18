@@ -208,6 +208,56 @@ def test_sync_auth_failed_flips_connection_and_keeps_cache(
     assert keep.is_stale is False
 
 
+def test_sync_unusable_stored_filter_flags_the_connection_not_unreachable(
+    user: AbstractBaseUser, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#2888: a filter that cannot be scoped safely gets its own terminal state.
+
+    ``project_keys`` was persisted and echoed but never read before this, so a row
+    can carry a value that is not a Jira project key. The pull now refuses it
+    rather than widening — but if that refusal read as "provider unreachable" the
+    connection would retry forever while serving a cache populated under the old
+    *unscoped* query, which is the same wrong belief by another route. The
+    distinct ``invalid_filter`` state points the user at the one fix that works.
+    """
+    cred = _connect(user)
+    cred.config = {**cred.config, "project_keys": ["RIV-482"]}
+    cred.save(update_fields=["config"])
+    keep = ExternalWorkItem.objects.create(
+        user=user, source="jira", external_id="RIV-1", is_stale=False
+    )
+    req = _pending_request(user)
+
+    def _never(*a: object, **k: object) -> http.EgressResponse:
+        raise AssertionError("the pull must be refused before the token is on the wire")
+
+    monkeypatch.setattr(http, "get", _never)
+
+    tasks._do_sync(str(req.id))
+
+    cred.refresh_from_db()
+    req.refresh_from_db()
+    keep.refresh_from_db()
+    assert cred.config["status"] == "invalid_filter"
+    assert req.status == ExternalSyncRequestStatus.DEAD
+    assert req.last_error == "invalid_filter"
+    # Last-good cache preserved — the user has not lost their list, only its refresh.
+    assert keep.is_stale is False
+
+
+def test_poll_skips_invalid_filter_connections(user: AbstractBaseUser) -> None:
+    """A retry cannot clear it, so polling it just burns a pull every tick."""
+    IntegrationCredential.objects.create(
+        user=user,
+        provider="jira",
+        secret_ciphertext=encrypt_secret("t"),
+        base_url=_JIRA_BASE,
+        config={"status": "invalid_filter", "poll_enabled": True},
+    )
+    tasks._do_poll()
+    assert ExternalSyncRequest.objects.filter(user=user).count() == 0
+
+
 def test_sync_transient_error_preserves_cache_and_connection(
     user: AbstractBaseUser, monkeypatch: pytest.MonkeyPatch
 ) -> None:
