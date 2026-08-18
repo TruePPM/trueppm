@@ -150,6 +150,12 @@ interface Props {
   summaryIds: Set<string>;
   /** Set of expanded task IDs for collapse/expand. */
   expandedIds: Set<string>;
+  /**
+   * Direct structural child count per summary row (#2956) — what the fold caret
+   * states as "N inside" / "N hidden". Optional so callers that do not compute
+   * it (the print layout) keep working.
+   */
+  childCountById?: ReadonlyMap<string, { name: string; count: number }>;
   /** Toggle expand/collapse for a task. */
   onToggle: (id: string) => void;
   /**
@@ -231,6 +237,7 @@ export function TaskListPanel({
   totalWidth,
   summaryIds,
   expandedIds,
+  childCountById,
   onToggle,
   focusChainIds,
   depChipsById,
@@ -422,6 +429,7 @@ export function TaskListPanel({
                   widths={widths}
                   visible={visible}
                   hasChildren={summaryIds.has(task.id)}
+                  childCount={childCountById?.get(task.id)?.count ?? 0}
                   isExpanded={expandedIds.has(task.id)}
                   onToggleId={onToggle}
                   prevTaskId={virtualRow.index > 0 ? tasks[virtualRow.index - 1].id : null}

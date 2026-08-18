@@ -652,3 +652,60 @@ describe('TaskListRow — build-mode editable cells', () => {
     expect(screen.getByLabelText('milestone')).toBeInTheDocument();
   });
 });
+
+describe('TaskListRow — structure controls at the WBS number (#2956)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  // The controls are gated on edit rights (web rule 302, #2949) — the harness
+  // has no project role, so the server-declared per-task flag is what turns
+  // them on here.
+  const editable: Task = { ...baseTask, canEdit: true };
+
+  it('offers indent and outdent on the row itself, not only from a menu', () => {
+    // Restructuring must not be keyboard-or-right-click-only knowledge.
+    renderHarness({ task: editable });
+    expect(screen.getByRole('button', { name: /Indent Foundation/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Outdent Foundation/ })).toBeInTheDocument();
+  });
+
+  it('states the consequence in the accessible name, not the mechanism', () => {
+    renderHarness({ task: editable });
+    expect(
+      screen.getByRole('button', { name: 'Indent Foundation — move it under the row above' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Outdent Foundation — move it out of its phase' }),
+    ).toBeInTheDocument();
+  });
+
+  it('calls the same build-mode operations the keyboard does', () => {
+    renderHarness({ task: editable });
+    fireEvent.click(screen.getByRole('button', { name: /Indent Foundation/ }));
+    expect(stableSpies.indent).toHaveBeenCalledWith('t-build-1');
+    fireEvent.click(screen.getByRole('button', { name: /Outdent Foundation/ }));
+    expect(stableSpies.outdent).toHaveBeenCalledWith('t-build-1');
+  });
+
+  it('disables outdent at the top level rather than moving a root row nowhere', () => {
+    renderHarness({ task: editable, level: 1 });
+    expect(screen.getByRole('button', { name: /Outdent Foundation/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Indent Foundation/ })).toBeEnabled();
+  });
+
+  it('keeps the pair away from delete — they are not neighbours in the tab order either', () => {
+    // A structural nudge and a destructive act must not sit next to each other;
+    // mis-hitting one must never cost the other. The buttons live in the WBS
+    // cell and are skipped by Tab (tabIndex -1), reached by the row's own keys.
+    renderHarness({ task: editable });
+    expect(screen.getByRole('button', { name: /Indent Foundation/ })).toHaveAttribute(
+      'tabindex',
+      '-1',
+    );
+  });
+
+  it('gives a viewer no structure controls at all — absent, not disabled (rule 302)', () => {
+    renderHarness({ task: { ...baseTask, canEdit: false } });
+    expect(screen.queryByRole('button', { name: /Indent Foundation/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Outdent Foundation/ })).not.toBeInTheDocument();
+  });
+});
