@@ -226,7 +226,7 @@ test.describe('Board BACKLOG rail (ADR-0057, epic #361 child A)', () => {
     // It carries the project's own name now, not a synthetic label (#2947), so
     // scope to the swimlane role — the name also appears in the board header.
     await expect(
-      page.getByRole('group', { name: 'E2E Test Project swimlane' }),
+      page.getByRole('group', { name: 'Backlog Rail Test Project swimlane' }),
     ).toBeVisible();
     await expect(page.getByRole('heading', { name: /^To Do,/ })).toBeVisible();
     await expect(page.getByRole('heading', { name: /^In Progress,/ })).toBeVisible();
