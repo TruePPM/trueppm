@@ -38700,6 +38700,16 @@
                         },
                         "description": ""
                     },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/StructureRoleConflict"
+                                }
+                            }
+                        },
+                        "description": "The declared `structure_role` contradicts the tree (#2950, ADR-0844). Returned when a client declares `work` on a row that has structural children: the derived fact wins for every computation, so storing the declaration would leave the row rendering as a task while every rollup treats it as a phase.\n\n`409` rather than `400` because the payload is valid — it is the current state of the tree that forbids it, and that state can change without the client doing anything wrong. The body carries the derived role so the refusal is recoverable in one round trip."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -38777,6 +38787,16 @@
                             }
                         },
                         "description": ""
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/StructureRoleConflict"
+                                }
+                            }
+                        },
+                        "description": "The declared `structure_role` contradicts the tree — see the note on `PUT`. This is the path the outline actually uses."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -58531,6 +58551,29 @@
                 ],
                 "type": "string",
                 "description": "* `active` - Active\n* `undone` - Undone"
+            },
+            "StructureRoleConflict": {
+                "type": "object",
+                "description": "The body of the ``409`` a contradicted ``structure_role`` returns (#2976).\n\nDeclared as a real serializer rather than ``OpenApiTypes.OBJECT`` so the shape\nis visible in ``openapi.json``. #2942 records what OBJECT costs: the whole\nresponse becomes invisible to anyone diffing the schema, which is the only\nearly-warning mechanism an integrator has.\n\n**Every field is a string, and that is a contract, not an accident.** DRF\nwraps every value in an exception detail as an ``ErrorDetail`` (a ``str``\nsubclass), so a boolean here would reach a client as ``\"True\"``. Declaring\nthe types explicitly is what stops the next person adding a boolean field to\nthis body and shipping that trap.",
+                "properties": {
+                    "detail": {
+                        "type": "string",
+                        "description": "Human-readable explanation naming the contradiction."
+                    },
+                    "code": {
+                        "type": "string",
+                        "description": "Always `structure_role_contradicted`."
+                    },
+                    "structure_role": {
+                        "type": "string",
+                        "description": "The role the tree actually implies — `container`. Sent so the caller can correct the declaration without a second round trip."
+                    }
+                },
+                "required": [
+                    "code",
+                    "detail",
+                    "structure_role"
+                ]
             },
             "StructureRoleEnum": {
                 "enum": [
