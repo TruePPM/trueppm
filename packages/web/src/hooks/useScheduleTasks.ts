@@ -51,6 +51,12 @@ export interface ApiTask {
   status: TaskStatus;
   is_milestone: boolean;
   is_summary: boolean;
+  /** Declared identity + parked values (#2950, ADR-0844). Optional: a row
+   *  synced before the field existed simply omits them. */
+  structure_role?: 'work' | 'container' | 'milestone';
+  own_status?: string | null;
+  own_estimate?: number | null;
+  auto_container?: boolean;
   /** Server-computed phase verdict (ADR-0293, #1753). Absent on a server that
    *  hasn't shipped #1753 yet — `mapTask` maps a missing key to `undefined`,
    *  and callers fall back to the client-side derivation in `isPhaseTask()`. */
@@ -343,6 +349,10 @@ export function mapTask(t: ApiTask): Task {
     isSummary: t.is_summary,
     isMilestone: t.is_milestone,
     isPhase: t.is_phase,
+    structureRole: t.structure_role,
+    ownStatus: t.own_status,
+    ownEstimate: t.own_estimate,
+    autoContainer: t.auto_container,
     status: t.status,
     // Server-derived edit capabilities (ADR-0133). Preserve `undefined` when the
     // payload omits them (pre-field synced rows) so the drawer's

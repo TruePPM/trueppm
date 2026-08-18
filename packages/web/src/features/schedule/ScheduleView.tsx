@@ -136,6 +136,7 @@ import {
   type ScheduleDisplayOptionKey,
 } from '@/hooks/useScheduleDisplayOptions';
 import { ScheduleCoachBar } from './buildMode/ScheduleCoachBar';
+import { ConversionNotice } from './buildMode/ConversionNotice';
 import {
   useIndentTask,
   useOutdentTask,
@@ -2775,6 +2776,11 @@ export function ScheduleView() {
           controls only appear on hover, so nothing else can announce them
           (#2959). Dismissible, and restorable from Display options; the strip it
           replaces could only ever be dismissed. */}
+      {/* One line, once per row, when a task's identity changes under its author
+          (#2951). The parked estimate is real (ADR-0844) but invisible without
+          this. */}
+      {hasEditRights && <ConversionNotice tasks={allTasks} />}
+
       {buildModeActive && hasEditRights && displayOptions.coach && (
         <ScheduleCoachBar
           onDismiss={() => toggleDisplayOption('coach')}

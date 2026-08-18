@@ -853,6 +853,8 @@ function getRowClassName(s: {
 }
 
 interface TaskDataCellsProps {
+  /** Structural children — how many tasks the Σ rolls up from (#2951). */
+  childCount: number;
   isEditing: boolean;
   visible: ColumnWidths['visible'];
   widths: ColumnWidths['widths'];
@@ -896,6 +898,7 @@ function TaskDataCells({
   setRecalcPrompt,
   effectiveDurationPolicy,
   isCoarsePointer,
+  childCount,
   showMilestonePicker,
   setShowMilestonePicker,
   milestoneParents,
@@ -911,6 +914,7 @@ function TaskDataCells({
           buildMode={buildMode}
           task={task}
           widthPx={widths.dur}
+          childCount={childCount}
           editingColumnDuration={editingColumnDuration}
           projectId={projectId}
           updateTask={updateTask}
@@ -1973,6 +1977,7 @@ function TaskListRowInner({
       </div>
 
       <TaskDataCells
+        childCount={childCount}
         isEditing={isEditing}
         visible={visible}
         widths={widths}
@@ -2721,6 +2726,8 @@ interface TaskDurationCellProps {
   buildMode: BuildMode | null;
   task: Task;
   widthPx: number;
+  /** Structural children — how many tasks the Σ rolls up from (#2951). */
+  childCount: number;
   editingColumnDuration: boolean;
   projectId: string;
   updateTask: UpdateTaskMutation;
@@ -2733,6 +2740,7 @@ function TaskDurationCell({
   buildMode,
   task,
   widthPx,
+  childCount,
   editingColumnDuration,
   projectId,
   updateTask,
@@ -2740,6 +2748,34 @@ function TaskDurationCell({
   effectiveDurationPolicy,
   isCoarsePointer,
 }: TaskDurationCellProps) {
+  // Σ — the value is computed, not yours (#2951, ADR-0844).
+  //
+  // A container's estimate rolls up from its children and is server-enforced
+  // (`phase_estimate_rollup_locked`), so the editable cell below was offering a
+  // write the API refuses. Rendering the marker instead is not decoration: no
+  // screen in this package should present a control that would set a
+  // container's estimate directly, because a control that appears to override a
+  // server-enforced rollup is a lie with a spinner.
+  if (task.isSummary) {
+    const noun = childCount === 1 ? 'task' : 'tasks';
+    const rollsUpFrom = `Rolls up from ${childCount} ${noun}. Change a task to change this.`;
+    return (
+      <div
+        role="gridcell"
+        aria-label={`Estimate: ${task.duration} days, rolled up from ${childCount} ${noun}. Not editable here.`}
+        title={rollsUpFrom}
+        className="flex items-center justify-end shrink-0 border-r border-neutral-border/20
+          text-right text-neutral-text-secondary tabular-nums pr-2 gap-1"
+        style={{ width: widthPx }}
+      >
+        <span aria-hidden="true" className="text-neutral-text-secondary/70">
+          Σ
+        </span>
+        {task.duration}d
+      </div>
+    );
+  }
+
   return buildMode && !task.isMilestone ? (
     <EditableCell
       column="duration"
