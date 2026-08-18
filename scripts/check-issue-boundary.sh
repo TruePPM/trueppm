@@ -73,8 +73,15 @@ Remediation per issue:
     the trueppm-enterprise equivalent, OR move via the GitLab API
     (POST /projects/:id/issues/:iid/move with to_project_id=<enterprise>).
   - If it represents OSS extension-point work (slot registration or edition
-    routing per ADR-0029 / ADR-0030): rename to clarify, drop the
-    `enterprise` / `portfolio` label.
+    routing per ADR-0029 / ADR-0030): rename to clarify, and relabel to
+    `enterprise-extension-point`, which this gate does not match. Examples:
+    #2064, #2219, #1175. Do NOT keep `enterprise` / `portfolio` on it — this
+    gate reads the label alone, so there is no open issue on which those two
+    are valid.
+  - If it is a TRIAGE issue filed to ASK whether something is enterprise:
+    it must not carry the label it is asking about, or filing the question
+    reds main (#2973 did exactly this, for 6.5 hours). Run enterprise-check,
+    then apply one of the two branches above to the ruling.
 
 See CLAUDE.md § Two-Repo Rule for the boundary definition.
 MSG
