@@ -746,3 +746,36 @@ describe('TaskListRow — insert lands where its position implies (#2957)', () =
     ).not.toBeInTheDocument();
   });
 });
+
+describe('TaskListRow — the Σ cell (#2951)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const container: Task = { ...baseTask, canEdit: true, isSummary: true, duration: 19 };
+
+  it('marks a rolled-up estimate rather than offering to edit it', () => {
+    // The editable cell was offering a write the API refuses
+    // (`phase_estimate_rollup_locked`) — a control that appears to override a
+    // server-enforced rollup is a lie with a spinner.
+    renderHarness({ task: container });
+    const cell = screen.getByRole('gridcell', { name: /Estimate: 19 days/ });
+    expect(cell).toHaveTextContent('Σ');
+    expect(cell).toHaveTextContent('19d');
+  });
+
+  it('says where the number comes from, and what to change instead', () => {
+    renderHarness({ task: container });
+    expect(screen.getByTitle(/Rolls up from .* Change a task to change this\./)).toBeInTheDocument();
+  });
+
+  it('spells the rollup out in the accessible name, not just the Σ glyph', () => {
+    renderHarness({ task: container });
+    expect(
+      screen.getByRole('gridcell', { name: /rolled up from .* Not editable here\./ }),
+    ).toBeInTheDocument();
+  });
+
+  it('leaves a leaf task editable', () => {
+    renderHarness({ task: { ...baseTask, canEdit: true } });
+    expect(screen.queryByRole('gridcell', { name: /Estimate:/ })).not.toBeInTheDocument();
+  });
+});

@@ -171,6 +171,12 @@ export interface Task {
    */
   ownStatus?: string | null;
   ownEstimate?: number | null;
+  /**
+   * True when this row became a container by GAINING A CHILD rather than by
+   * declaration (#2950). Drives the one-time conversion notice, and is why the
+   * reverse is safe to automate — a declared phase is never silently reverted.
+   */
+  autoContainer?: boolean;
   /** 0–100 */
   progress: number;
   parentId: string | null;
