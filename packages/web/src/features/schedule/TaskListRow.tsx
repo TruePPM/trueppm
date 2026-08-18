@@ -94,6 +94,12 @@ interface Props {
   widths: ColumnWidths['widths'];
   visible: ColumnWidths['visible'];
   hasChildren?: boolean;
+  /**
+   * Structural children directly under this row (#2956). Drives the fold
+   * caret's "N inside" / "N hidden" statement — a caret that folds without
+   * saying what it folded leaves the user guessing what disappeared.
+   */
+  childCount?: number;
   isExpanded?: boolean;
   /**
    * Collapse/expand callback. Takes the task id so the parent can pass its own
@@ -1273,17 +1279,79 @@ function RowReorderHandle({
  * WBS column (#248). Split out of TaskListRowInner (#2081) — the character
  * budget that drives the middle-ellipsis truncation is verbatim.
  */
-function RowWbsCell({ wbs, widthPx }: { wbs: string; widthPx: number }) {
+function RowWbsCell({
+  wbs,
+  widthPx,
+  onIndent,
+  onOutdent,
+  canOutdent,
+  taskName,
+}: {
+  wbs: string;
+  widthPx: number;
+  onIndent?: () => void;
+  onOutdent?: () => void;
+  canOutdent: boolean;
+  taskName: string;
+}) {
+  const showControls = onIndent != null || onOutdent != null;
   return (
     <div
-      className="flex items-center justify-end shrink-0 border-r border-neutral-border/20
-        text-right text-neutral-text-secondary tppm-mono pr-2 text-xs"
+      className="group/wbs flex items-center justify-end shrink-0 border-r border-neutral-border/20
+        text-right text-neutral-text-secondary tppm-mono pr-2 text-xs gap-0.5"
       style={{ width: widthPx }}
       role="gridcell"
       aria-label={`WBS ${wbs}`}
       title={wbs}
     >
-      {truncateWbsPath(wbs, Math.max(3, Math.floor(widthPx / 8) - 1))}
+      {showControls && (
+        // Structural nudges live HERE, at the WBS number, because that is where
+        // the row's depth is already stated — and deliberately NOT next to
+        // delete, which sits alone at the far right of the row. A structural
+        // nudge and a destructive act should not be neighbours; mis-hitting one
+        // must never cost the other (#2956).
+        //
+        // Always rendered, at 32% opacity, so the space is reserved and nothing
+        // shifts under the pointer on hover.
+        <span className="flex items-center opacity-[0.32] focus-within:opacity-100 group-hover/wbs:opacity-100 transition-opacity">
+          <button
+            type="button"
+            tabIndex={-1}
+            disabled={!canOutdent}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOutdent?.();
+            }}
+            // The glyph IS the keyboard notation, so the button documents its
+            // own shortcut instead of needing a label.
+            aria-label={`Outdent ${taskName} — move it out of its phase`}
+            title="Outdent (⌥←)"
+            className="w-4 h-4 flex items-center justify-center rounded-control
+              hover:text-brand-primary disabled:opacity-40 disabled:cursor-not-allowed
+              focus:outline-none focus:ring-1 focus:ring-inset focus:ring-brand-primary"
+          >
+            ⇤
+          </button>
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={(e) => {
+              e.stopPropagation();
+              onIndent?.();
+            }}
+            aria-label={`Indent ${taskName} — move it under the row above`}
+            title="Indent (⌥→)"
+            className="w-4 h-4 flex items-center justify-center rounded-control
+              hover:text-brand-primary
+              focus:outline-none focus:ring-1 focus:ring-inset focus:ring-brand-primary"
+          >
+            ⇥
+          </button>
+        </span>
+      )}
+      <span className="truncate">
+        {truncateWbsPath(wbs, Math.max(3, Math.floor(widthPx / 8) - 1))}
+      </span>
     </div>
   );
 }
@@ -1298,12 +1366,14 @@ function RowExpandChevron({
   task,
   onToggleId,
   tabIndex,
+  childCount,
 }: {
   hasChildren: boolean;
   isExpanded: boolean;
   task: Task;
   onToggleId?: (id: string) => void;
   tabIndex: number;
+  childCount: number;
 }) {
   if (!hasChildren) return <span className="shrink-0 w-4 mr-0.5" aria-hidden="true" />;
   return (
@@ -1315,7 +1385,21 @@ function RowExpandChevron({
       }}
       tabIndex={tabIndex}
       aria-expanded={isExpanded}
-      aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
+      // The count is the point: "Expand Mobilization" tells you nothing about
+      // what is behind the caret, and a collapsed phase is otherwise
+      // indistinguishable from an empty one (#2956).
+      aria-label={
+        childCount > 0
+          ? isExpanded
+            ? `Collapse ${task.name}, ${childCount} inside`
+            : `Expand ${task.name}, ${childCount} hidden`
+          : isExpanded
+            ? `Collapse ${task.name}`
+            : `Expand ${task.name}`
+      }
+      title={
+        childCount > 0 ? `${childCount} ${isExpanded ? 'inside' : 'hidden'}` : undefined
+      }
       className="shrink-0 w-4 h-4 flex items-center justify-center mr-0.5
         text-neutral-text-secondary hover:text-neutral-text-primary
         focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-primary rounded-control"
@@ -1472,6 +1556,7 @@ function TaskListRowInner({
   widths,
   visible,
   hasChildren = false,
+  childCount = 0,
   isExpanded = false,
   onToggleId,
   prevTaskId = null,
@@ -1749,7 +1834,17 @@ function TaskListRowInner({
       {buildMode && siblingIds && <RowReorderHandle handlers={reorderHandlers} />}
 
       {/* ── WBS column (#248) ───────────────────────────────────────────────── */}
-      {visible.wbs && <RowWbsCell wbs={task.wbs} widthPx={widths.wbs} />}
+      {visible.wbs && (
+        <RowWbsCell
+          wbs={task.wbs}
+          widthPx={widths.wbs}
+          taskName={task.name}
+          canOutdent={level > 1}
+          // Absent, not disabled, without edit rights — web rule 302 (#2949).
+          onIndent={canEdit && buildMode ? () => buildMode.indent(task.id) : undefined}
+          onOutdent={canEdit && buildMode ? () => buildMode.outdent(task.id) : undefined}
+        />
+      )}
 
       {/* ── Task column ─────────────────────────────────────────────────────── */}
       {/* Positioned wrapper carries the WBS indent. Properties button lives here
@@ -1764,6 +1859,7 @@ function TaskListRowInner({
         {/* Collapse/expand chevron for summary tasks */}
         <RowExpandChevron
           hasChildren={hasChildren}
+          childCount={childCount}
           isExpanded={isExpanded}
           task={task}
           onToggleId={onToggleId}

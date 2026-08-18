@@ -2572,6 +2572,7 @@ export function ScheduleView() {
 
         <div className="flex flex-1 overflow-hidden">
           <TaskListPanel
+            childCountById={childCountById}
             tasks={visibleTasks}
             scrollRef={taskListScrollRef}
             widths={widths}
