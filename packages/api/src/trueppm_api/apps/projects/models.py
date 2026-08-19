@@ -1220,6 +1220,34 @@ def _member_role_choices() -> list[tuple[int, str]]:
 _DEFAULT_MEMBER_ROLE = 100
 
 
+class ProjectLifecycle(models.TextChoices):
+    """Whether a plan has been committed to (#2962).
+
+    **Deliberately not ``is_archived``.** Archived is hard read-only — writes are
+    refused on the project and every nested viewset — which would make Resume
+    impossible, and Resume is the entire point of a draft. The two answer
+    different questions:
+
+    * ``is_archived`` — "this is history, do not touch it."
+    * ``lifecycle`` — "nobody has agreed to this yet."
+
+    A draft is fully writable. What it is *not* is visible: it stays out of
+    program rollup, portfolio health, search and notifications, because a
+    half-built plan appearing in an aggregate makes that aggregate a guess with
+    a chart around it.
+
+    One deliberate exception, and it is a correction to the design: the **MCP
+    read surface does not exclude drafts** — it returns ``lifecycle`` as an
+    ordinary field. Hiding a project from an agent's reads is indistinguishable
+    from a 404 or a scope miss, so the agent cannot tell "not committed" from
+    "does not exist" and cannot debug its way out. Filtering on a stated fact is
+    something a client can do; recovering from silence is not.
+    """
+
+    DRAFT = "draft", "Draft"
+    ACTIVE = "active", "Active"
+
+
 class Project(VersionedModel):
     """A project — the top-level container for tasks and scheduling."""
 
@@ -1521,6 +1549,22 @@ class Project(VersionedModel):
     # unrestricted. Soft-archive (UI-only hide) was rejected in the architect
     # review because it invites accidental edits to historical projects and
     # confuses sync clients. Use ``POST /unarchive/`` to restore writes.
+    # Has anyone agreed to this plan yet? (#2962) Distinct from is_archived —
+    # see ProjectLifecycle. A draft is fully writable and simply not yet visible
+    # in aggregates.
+    lifecycle = models.CharField(
+        max_length=6,
+        choices=ProjectLifecycle.choices,
+        default=ProjectLifecycle.ACTIVE,
+        db_index=True,
+        help_text=(
+            "draft = nobody has committed to this plan yet; it stays out of "
+            "rollup, portfolio health, search and notifications. active = "
+            "committed. Not a write gate — use is_archived for that."
+        ),
+    )
+    #: When the draft was created, for the 7-day resume window.
+    draft_started_at = models.DateTimeField(null=True, blank=True)
     is_archived = models.BooleanField(default=False, db_index=True)
     archived_at = models.DateTimeField(null=True, blank=True)
     archived_by = models.ForeignKey(

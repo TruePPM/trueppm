@@ -67,6 +67,7 @@ from trueppm_api.apps.projects.bulk_settings import (
     apply_bulk_fields,
     build_bulk_response,
 )
+from trueppm_api.apps.projects.lifecycle import visible_projects
 from trueppm_api.apps.projects.models import (
     ExportJobStatus,
     Methodology,
@@ -2015,7 +2016,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         today = timezone.localdate()
         incomplete = ~Q(tasks__status=TaskStatus.COMPLETE) & Q(tasks__is_deleted=False)
         qs = (
-            Project.objects.filter(program=program, is_deleted=False)
+            visible_projects(Project.objects.filter(program=program, is_deleted=False))
             # ADR-0441: ProjectSerializer.effective_calendar resolves project ?? program
             # ?? workspace and reports holiday_count, so select_related the program-tier
             # calendar and prefetch both tiers' exceptions to keep this list N+1-free.

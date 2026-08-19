@@ -792,6 +792,8 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             # Whether the caller may enter the Designer's Author mode (ADR-0773 §(d)).
             "can_author",
             # Lifecycle (#530) — read-only; flipped via /archive/ and /unarchive/.
+            "lifecycle",
+            "draft_started_at",
             "is_archived",
             "archived_at",
             "archived_by",

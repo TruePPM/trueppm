@@ -101,7 +101,13 @@ def compute_program_rollup(
     policy = program.rollup_aggregation_policy or AggregationPolicy.WORST.value
     enabled = list(program.rollup_enabled_kpis or [])
 
-    project_qs = Project.objects.filter(program=program, is_deleted=False)
+    # Drafts are excluded (#2962): a plan nobody has committed to must not move a
+    # number a PMO puts in front of a CEO. `visible_projects` is the single
+    # definition of that exclusion — see lifecycle.py for why it is one helper
+    # and not a filter repeated per surface.
+    from trueppm_api.apps.projects.lifecycle import visible_projects
+
+    project_qs = visible_projects(Project.objects.filter(program=program, is_deleted=False))
     if exclude_project_ids is not None:
         # ADR-0678 (#2482): a project that opted out of agent reads does not feed the
         # rolled-up KPIs an agent sees. ``contributing_project_count`` derives from this

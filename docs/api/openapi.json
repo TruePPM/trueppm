@@ -47609,6 +47609,14 @@
                 "type": "string",
                 "description": "* `automation_disabled` - automation_disabled\n* `no_secret` - no_secret\n* `unknown_provider` - unknown_provider\n* `secret_unreadable` - secret_unreadable\n* `bad_signature` - bad_signature"
             },
+            "LifecycleEnum": {
+                "enum": [
+                    "draft",
+                    "active"
+                ],
+                "type": "string",
+                "description": "* `draft` - Draft\n* `active` - Active"
+            },
             "LoadSampleResponse": {
                 "type": "object",
                 "description": "Response envelope for the load-sample action (#1054).\n\n``landing_project_id`` is the project whose first open sprint was assigned to\nthe caller — the board a contributor should land on so their assigned work is\nimmediately visible; ``null`` when the sample has no open sprint (e.g. the\nwaterfall-only sample), in which case the client falls back to the program\noverview. ``sample_key`` echoes the loaded sample so the client renders the\nmatching \"Start exploring\" guidance without having to guess the default.",
@@ -51194,6 +51202,19 @@
                         "type": "string",
                         "format": "uuid",
                         "nullable": true
+                    },
+                    "lifecycle": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/LifecycleEnum"
+                            }
+                        ],
+                        "description": "draft = nobody has committed to this plan yet; it stays out of rollup, portfolio health, search and notifications. active = committed. Not a write gate — use is_archived for that.\n\n* `draft` - Draft\n* `active` - Active"
+                    },
+                    "draft_started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
                     }
                 }
             },
@@ -54158,6 +54179,19 @@
                         "description": "Whether the caller may author this project's plan (ADR-0773 §2).\n\nPrefers the viewset's ``_my_role`` annotation so a project list costs no\nextra query per row, and falls back to the request-scoped predicate when the\nannotation is absent (a freshly-created instance, or a detail route that does\nnot annotate). Both paths end in ``role_can_author_plan``, so the field can\nnever disagree with ``IsProjectPlanAuthor``.\n\nFails closed to ``False`` without a request.",
                         "readOnly": true
                     },
+                    "lifecycle": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/LifecycleEnum"
+                            }
+                        ],
+                        "description": "draft = nobody has committed to this plan yet; it stays out of rollup, portfolio health, search and notifications. active = committed. Not a write gate — use is_archived for that.\n\n* `draft` - Draft\n* `active` - Active"
+                    },
+                    "draft_started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
                     "is_archived": {
                         "type": "boolean",
                         "readOnly": true
@@ -54829,6 +54863,19 @@
                         "type": "boolean",
                         "description": "Whether the caller may author this project's plan (ADR-0773 §2).\n\nPrefers the viewset's ``_my_role`` annotation so a project list costs no\nextra query per row, and falls back to the request-scoped predicate when the\nannotation is absent (a freshly-created instance, or a detail route that does\nnot annotate). Both paths end in ``role_can_author_plan``, so the field can\nnever disagree with ``IsProjectPlanAuthor``.\n\nFails closed to ``False`` without a request.",
                         "readOnly": true
+                    },
+                    "lifecycle": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/LifecycleEnum"
+                            }
+                        ],
+                        "description": "draft = nobody has committed to this plan yet; it stays out of rollup, portfolio health, search and notifications. active = committed. Not a write gate — use is_archived for that.\n\n* `draft` - Draft\n* `active` - Active"
+                    },
+                    "draft_started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
                     },
                     "is_archived": {
                         "type": "boolean",
@@ -55560,6 +55607,19 @@
                     "program": {
                         "type": "string",
                         "format": "uuid",
+                        "nullable": true
+                    },
+                    "lifecycle": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/LifecycleEnum"
+                            }
+                        ],
+                        "description": "draft = nobody has committed to this plan yet; it stays out of rollup, portfolio health, search and notifications. active = committed. Not a write gate — use is_archived for that.\n\n* `draft` - Draft\n* `active` - Active"
+                    },
+                    "draft_started_at": {
+                        "type": "string",
+                        "format": "date-time",
                         "nullable": true
                     }
                 },
