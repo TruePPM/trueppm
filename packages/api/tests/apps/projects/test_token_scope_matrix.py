@@ -409,6 +409,27 @@ def test_a_refused_scoped_token_probe_is_blocked_but_not_audited(
 
 
 @pytest.mark.django_db
+def test_unsupported_format_suffix_does_not_crash_finalize_response(
+    project: Project, owner: Any
+) -> None:
+    """A pre-authentication exception must not 500 in ``_record_mcp_agent_action`` (#2989).
+
+    An unsupported URL format suffix (``/projects/{id}.xyz/``) fails DRF's content
+    negotiation inside ``initial()`` — *before* ``perform_authentication()`` ever runs.
+    DRF's ``exception_handler`` still calls ``set_rollback()`` for that ``NotAcceptable``
+    (ATOMIC_REQUESTS), and ``finalize_response`` still runs afterward (it sits outside
+    ``dispatch()``'s try/except). Reading ``request.successful_authenticator`` there
+    lazily runs authentication for the first time against an already-poisoned
+    transaction, and previously raised ``TransactionManagementError`` instead of letting
+    the 406 response through — reproduced by nightly ``api:fuzz`` on
+    ``/projects/{id}/``, ``/programs/{id}/``, and ``/tasks/{id}/`` alike.
+    """
+    raw = _mint_personal(owner, [SCOPE_MCP_READ])
+    resp = _bearer(raw).get(f"/api/v1/projects/{project.pk}.xyz/")
+    assert resp.status_code != 500, resp.content
+
+
+@pytest.mark.django_db
 def test_a_full_access_pats_successful_read_is_not_audited_as_agent_activity(
     project: Project, owner: Any
 ) -> None:
