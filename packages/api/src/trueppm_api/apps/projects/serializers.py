@@ -124,6 +124,21 @@ _ROLLUP_UNSET: Any = object()
 _IMMUTABLE_AFTER_CREATE = "cannot be changed after creation."
 
 
+class CommitProjectResultSerializer(serializers.Serializer[dict[str, Any]]):
+    """What committing a plan returns (#2963)."""
+
+    baseline_id = serializers.CharField(help_text="The baseline captured by this commit.")
+    baseline_name = serializers.CharField(help_text="Always `Baseline v1` for the first commit.")
+    task_count = serializers.IntegerField(help_text="Rows captured into the baseline.")
+    notified_resource_count = serializers.IntegerField(
+        help_text=(
+            "People with a resource assignment in the plan, who are told what was "
+            "committed. Counted from TaskResource, never Task.assignee — a bare "
+            "assignee carries no load and may not reach the person at all."
+        )
+    )
+
+
 class BoardLaneSerializer(serializers.Serializer[dict[str, Any]]):
     """One board swimlane (#2953)."""
 
@@ -3011,6 +3026,25 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     remaining_duration = serializers.SerializerMethodField()
 
     # Summary task annotations — computed from wbs_path hierarchy, not stored.
+    # Why this edit was made, when the plan is committed (#2964). Write-only:
+    # it is not stored on Task — it rides the edit into `HistoricalTask`'s
+    # change reason and into the notice. Declared rather than read off
+    # `request.data` so it gets validation, a schema entry and type safety; a raw
+    # body read is the #2795 500 class (a body that is not a dict has no `.get`).
+    #
+    # Free text with no choices on purpose: a dropdown of blessed reasons collects
+    # the nearest wrong one, which is worse than nothing because it looks like data.
+    amend_reason = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        max_length=500,
+        help_text=(
+            "Why this change was made. Recorded in plan history and sent to the "
+            "people assigned to the task when the project is committed. Ignored on "
+            "a draft — authoring a plan nobody has agreed to yet carries no reason."
+        ),
+    )
     is_summary = serializers.BooleanField(read_only=True, default=False)
     # is_phase — computed: a non-subtask task with >=1 structural (non-subtask)
     # child. A phase is a pure rollup (ADR-0293): status, estimate, assignee,
@@ -3211,6 +3245,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "status",
             "duration",
             "duration_unit",
+            "amend_reason",
             "structure_role",
             "own_status",
             "own_estimate",
