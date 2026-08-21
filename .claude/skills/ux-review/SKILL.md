@@ -118,6 +118,49 @@ The correct treatment now depends on the **surface class**:
 
 This check is not greppable. Read the relevant ADR for the surface's OSS↔Enterprise scope statement, classify the surface, and confirm it follows the treatment for its class. Run whenever an MR adds or modifies a surface documented as the OSS side of an OSS↔Enterprise boundary.
 
+### 6.3 Capability Claims in Copy — name the code path
+
+For every **present-tense capability claim** in new or changed UI copy, name the code
+path that delivers it. If you cannot, the copy is wrong and the fix is the copy, not the
+feature.
+
+This is not a style check, and no existing gate reaches it. `docs:version-accuracy`
+only sees text that *names a version*; a screen that asserts unbuilt behavior in plain
+present tense and mentions no version is invisible to it. Rule 8's live-wiring
+discipline covers a dead *control*; this covers a dead *claim*, which is harder to see
+because the surrounding control works fine.
+
+Three verified instances from one audit, each a different shape:
+
+- **A promise about automation.** A settings screen states "Gate reviews are
+  automatically scheduled when a phase boundary milestone is saved." The model's own
+  docstring says v1 is config-only with dispatch out of scope, and nothing in the API
+  reacts to saving a phase-boundary milestone. A PM builds a governance pack assuming a
+  gate review happened. This is the worst class — the product asserts a compliance
+  control it does not have.
+- **A destination that does not exist.** The project-template gallery's empty state
+  says "Publish one from a project's Settings." There is no publish affordance anywhere
+  in the web app, so the empty state sends the user looking for a screen that was never
+  built.
+- **A control that is live but cannot succeed.** The Share dialog opens from three
+  places on a fresh install where `public_sharing` defaults false, and submits into a
+  403. It reads no effective-policy flag and links nowhere. Honest error copy is not a
+  substitute for either gating the affordance or routing the user to the setting.
+
+What to do on a review:
+
+- [ ] List every sentence in the diff's copy that asserts the product *does* something —
+  "are automatically", "is synced", "will notify", "publishes", "enforces".
+- [ ] For each, grep for the dispatcher, receiver, service call, or scheduled job. A
+  model field, a serializer, and a settings row are **not** a code path.
+- [ ] For each empty state or error state that names a destination, confirm the
+  destination is reachable in this edition, for this role, from where the user is now.
+- [ ] For each affordance that can fail on default configuration, confirm it is either
+  gated on the resolved policy or that its failure state links to the lever that
+  unblocks it.
+- [ ] Where the behavior is real but unshipped, use future tense **and** a tracking
+  reference — the same discipline the docs tree applies, in the app.
+
 ### 7. Information Hierarchy
 - Can a PM see project health in <2 seconds?
 - Is the most important information visible without scrolling?
