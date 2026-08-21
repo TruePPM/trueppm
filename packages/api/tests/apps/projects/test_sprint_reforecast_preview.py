@@ -407,3 +407,130 @@ def test_milestones_list_readable_by_viewer(project: Project) -> None:
     resp = c.get(f"/api/v1/projects/{project.id}/milestones/")
     assert resp.status_code == 200
     assert len(resp.data) == 1
+
+
+# ---------------------------------------------------------------------------
+# reforecast-preview — the ADR-0104 velocity gate (#2982)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_preview_suppresses_the_band_for_a_below_audience_reader(project: Project) -> None:
+    """An ADMIN reads the PM band, which velocity's TEAM default excludes (#2982).
+
+    ``velocity_low``/``velocity_high`` here are ``velocity_summary``'s
+    ``forecast_range_low``/``_high`` verbatim — two of the exact five fields
+    ``suppress_velocity_summary`` nulls. Ungated, this endpoint handed a reader
+    suppressed on ``/velocity/``, ``/forecast/``, ``/sprint-forecast/`` and
+    ``/me/active-sprints/`` the identical band from any sprint in the project.
+    """
+    _seed_velocity(project)
+    sprint = _sprint(project)
+    Task.objects.create(project=project, name="A", sprint=sprint, story_points=21, wbs_path="1")
+    Task.objects.create(project=project, name="B", sprint=sprint, story_points=19, wbs_path="2")
+
+    admin = User.objects.create_user(username="pm", password="pw")
+    ProjectMembership.objects.create(project=project, user=admin, role=Role.ADMIN)
+    c = APIClient()
+    c.force_authenticate(user=admin)
+
+    resp = c.get(f"/api/v1/sprints/{sprint.id}/reforecast-preview/")
+
+    assert resp.status_code == 200, resp.data
+    assert resp.data["velocity_low"] is None
+    assert resp.data["velocity_high"] is None
+
+
+@pytest.mark.django_db
+def test_preview_keeps_the_date_artifacts_for_a_suppressed_reader(project: Project) -> None:
+    """Suppression removes the band, not the preview (ADR-0106 3 / ProjectForecastView).
+
+    The persisted twin of this payload already made this ruling: a snapshot's
+    ``velocity_low``/``velocity_high`` are nulled and its ``cpm_finish``/``p50``/
+    ``p80`` date artifacts stay. Nulling the dates here instead would delete the
+    dialog's entire purpose for a PM, which is a worse answer than the residue
+    documented on the gate.
+    """
+    _seed_velocity(project)
+    sprint = _sprint(project)
+    Task.objects.create(project=project, name="A", sprint=sprint, story_points=21, wbs_path="1")
+    Task.objects.create(project=project, name="B", sprint=sprint, story_points=19, wbs_path="2")
+
+    admin = User.objects.create_user(username="pm2", password="pw")
+    ProjectMembership.objects.create(project=project, user=admin, role=Role.ADMIN)
+    c = APIClient()
+    c.force_authenticate(user=admin)
+
+    body = c.get(f"/api/v1/sprints/{sprint.id}/reforecast-preview/").data
+
+    assert body["cpm_finish"] == "2026-04-14"
+    assert body["p50"] <= body["p80"] <= body["p95"]
+    # Still a real spread — the band shaped the dates before it was stripped.
+    assert body["p95"] > body["p50"]
+
+
+@pytest.mark.django_db
+def test_preview_still_gives_the_team_its_own_band(project: Project) -> None:
+    """The gate measures management distance, not seniority — the team always reads.
+
+    A regression here would be the failure mode ADR-0104 2 warns about most: a
+    privacy gate that quietly hides a team's own signal from the team.
+    """
+    _seed_velocity(project)
+    sprint = _sprint(project)
+    Task.objects.create(project=project, name="A", sprint=sprint, story_points=21, wbs_path="1")
+    Task.objects.create(project=project, name="B", sprint=sprint, story_points=19, wbs_path="2")
+
+    member = User.objects.create_user(username="dev", password="pw")
+    ProjectMembership.objects.create(project=project, user=member, role=Role.MEMBER)
+    c = APIClient()
+    c.force_authenticate(user=member)
+
+    body = c.get(f"/api/v1/sprints/{sprint.id}/reforecast-preview/").data
+
+    assert body["velocity_low"] == 18
+    assert body["velocity_high"] == 32
+
+
+@pytest.mark.django_db
+def test_preview_band_returns_once_the_team_shares_velocity_upward(project: Project) -> None:
+    """Raising the audience widens who reads — the gate is a policy, not a role check."""
+    from trueppm_api.apps.projects.models import ProjectSignalPrivacyPolicy
+    from trueppm_api.apps.projects.signal_privacy_services import SignalAudience
+
+    _seed_velocity(project)
+    sprint = _sprint(project)
+    Task.objects.create(project=project, name="A", sprint=sprint, story_points=21, wbs_path="1")
+    Task.objects.create(project=project, name="B", sprint=sprint, story_points=19, wbs_path="2")
+
+    ProjectSignalPrivacyPolicy.objects.create(
+        project=project,
+        signal_visibility={
+            "velocity": {
+                "audience": SignalAudience.TEAM_SM_PM,
+                "ceiling": SignalAudience.TEAM_SM_PM,
+            }
+        },
+    )
+
+    admin = User.objects.create_user(username="pm3", password="pw")
+    ProjectMembership.objects.create(project=project, user=admin, role=Role.ADMIN)
+    c = APIClient()
+    c.force_authenticate(user=admin)
+
+    body = c.get(f"/api/v1/sprints/{sprint.id}/reforecast-preview/").data
+
+    assert body["velocity_low"] == 18
+    assert body["velocity_high"] == 32
+
+
+@pytest.mark.django_db
+def test_preview_gate_does_not_leak_membership_to_a_non_member(project: Project) -> None:
+    """The gate runs after the permission check, so a non-member never reaches it."""
+    _seed_velocity(project)
+    sprint = _sprint(project)
+    outsider = User.objects.create_user(username="outsider2", password="pw")
+    c = APIClient()
+    c.force_authenticate(user=outsider)
+
+    assert c.get(f"/api/v1/sprints/{sprint.id}/reforecast-preview/").status_code in (403, 404)
