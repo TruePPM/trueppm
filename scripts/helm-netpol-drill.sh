@@ -164,11 +164,19 @@ log "installing Calico ${CALICO_VERSION}"
 # resolves the same tag.
 CALICO_MANIFEST_URL="https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/calico.yaml"
 CALICO_MANIFEST_MIRROR_URL="https://cdn.jsdelivr.net/gh/projectcalico/calico@${CALICO_VERSION}/manifests/calico.yaml"
-if ! curl --fail -sSL --retry 5 --retry-delay 2 --retry-all-errors \
-  -o /tmp/calico.yaml "$CALICO_MANIFEST_URL"; then
+# `-L` follows redirects, and both hosts are CDNs that legitimately use them — but an
+# unrestricted -L will follow one to plaintext http:// just as happily. What lands in
+# /tmp/calico.yaml is `kubectl apply`d as cluster-admin two lines below, so a downgrade
+# here hands an on-path attacker arbitrary-manifest injection against the drill cluster.
+# The mirror branch is the more exposed of the two: it runs only when the primary host is
+# already misbehaving, which is precisely when a hostile redirect is plausible.
+# --proto pins the initial request, --proto-redir pins every hop after it (the flag that
+# closes the actual hole); same combination as .gitlab/ci-images/wasm.Dockerfile (#2988).
+CURL_MANIFEST_OPTS=(--proto '=https' --proto-redir '=https' --tlsv1.2
+  --fail -sSL --retry 5 --retry-delay 2 --retry-all-errors)
+if ! curl "${CURL_MANIFEST_OPTS[@]}" -o /tmp/calico.yaml "$CALICO_MANIFEST_URL"; then
   log "fetching Calico manifest from raw.githubusercontent.com failed after retries, falling back to jsdelivr mirror"
-  curl --fail -sSL --retry 5 --retry-delay 2 --retry-all-errors \
-    -o /tmp/calico.yaml "$CALICO_MANIFEST_MIRROR_URL"
+  curl "${CURL_MANIFEST_OPTS[@]}" -o /tmp/calico.yaml "$CALICO_MANIFEST_MIRROR_URL"
 fi
 kubectl apply -f /tmp/calico.yaml
 log "waiting for calico-node to be ready"
