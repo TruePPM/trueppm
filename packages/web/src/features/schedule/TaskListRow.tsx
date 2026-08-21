@@ -1651,23 +1651,33 @@ function TaskListRowInner({
   const setScheduleActionToast = useScheduleStore((s) => s.setScheduleActionToast);
   const isSelected = selectedTaskId === task.id;
   const updateTask = useUpdateTask();
-  const { role: currentRole, isLoading: roleLoading } = useCurrentUserRole(projectId || undefined);
+  const {
+    role: currentRole,
+    isLoading: roleLoading,
+    isError: roleError,
+  } = useCurrentUserRole(projectId || undefined);
   // Same UX gate the drawer sections use — server capability first, role
   // fallback. Gates the remediation actions in the "no committed start" chip
   // popover (web-rules 156/272) and, since #2961, the row's whole authoring
   // apparatus.
   //
-  // Presence follows the *settled* entitlement. While the role query is still
-  // resolving we assume rights, and that direction is deliberate: the server is
-  // the enforcement point (rule 302), so briefly offering a control to someone
-  // who turns out to be a viewer costs at worst one silent refusal — whereas
+  // Presence follows the *settled* entitlement. While the role is unresolved we
+  // assume rights, and that direction is deliberate: the server is the
+  // enforcement point (rule 302), so briefly offering a control to someone who
+  // turns out to be a viewer costs at worst one silent refusal — whereas
   // briefly hiding it from an editor is a layout shift on every schedule load
   // and a row that grows controls a second after it appeared. An unresolved
   // role is not "no rights"; treating unknown as denial *is* the flicker.
   //
+  // A FAILED lookup is unresolved too, and that is the case worth naming: the
+  // hook retries nothing, so before #2961 an error was indistinguishable from
+  // "settled: not a member", and one dropped request would have stripped an
+  // editor's whole apparatus with no error state anywhere to explain it.
+  //
   // `task.canEdit` still wins outright when the server sent it, because that is
   // a settled answer and does not depend on the role query at all.
-  const canEdit = task.canEdit ?? (roleLoading ? true : canEditTask(currentRole));
+  const roleUnsettled = roleLoading || roleError === true;
+  const canEdit = task.canEdit ?? (roleUnsettled ? true : canEditTask(currentRole));
 
   // #2639: confirmation gate for the progress=100 auto-status side effect
   // (REVIEW for contributors, COMPLETE for Admin+ — Option E, #381 follow-up),

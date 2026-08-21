@@ -23,6 +23,23 @@ export interface UseCurrentUserRoleResult {
    */
   roleLabel?: string | null;
   isLoading: boolean;
+  /**
+   * The membership lookup failed. Distinct from `role: null` with
+   * `isLoading: false`, which means "settled: this user is not a member"
+   * (#2961).
+   *
+   * The two used to be indistinguishable, and that was a live defect for any
+   * caller deciding *presence* rather than just hiding something
+   * pessimistically: a failed request read as a definitive "no role", so a
+   * transient network error silently stripped an editor's controls with no
+   * error state anywhere. Treat it as **unsettled**, not as denial — the
+   * server is the enforcement point, so assuming rights on an unknown costs at
+   * worst one refusal, while assuming denial removes a working control.
+   *
+   * Optional in the type so the existing role mocks across the suite keep
+   * type-checking; `undefined` is not a third state, read it as `false`.
+   */
+  isError?: boolean;
 }
 
 /**
@@ -58,12 +75,16 @@ export function useCurrentUserRole(
   });
 
   if (!projectId || query.isPending) {
-    return { role: null, roleLabel: null, isLoading: true };
+    return { role: null, roleLabel: null, isLoading: true, isError: false };
   }
 
   return {
     role: query.data?.role ?? null,
     roleLabel: query.data?.role_label ?? null,
     isLoading: false,
+    // `retry: false` above means one failed request is terminal, so this is the
+    // only signal a caller gets that the null role is "unknown" rather than
+    // "not a member" (#2961).
+    isError: query.isError,
   };
 }

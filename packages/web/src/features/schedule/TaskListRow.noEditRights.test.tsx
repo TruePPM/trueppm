@@ -35,6 +35,7 @@ import type { ColumnWidths } from '@/hooks/useColumnWidths';
 
 const mocks = vi.hoisted(() => ({
   role: null as number | null,
+  roleError: false,
   toggleMutate: vi.fn(),
   duplicateMutate: vi.fn(),
   updateMutate: vi.fn(),
@@ -47,7 +48,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/hooks/useCurrentUserRole', () => ({
-  useCurrentUserRole: () => ({ role: mocks.role, roleLabel: null, isLoading: false }),
+  useCurrentUserRole: () => ({
+    role: mocks.role,
+    roleLabel: null,
+    isLoading: false,
+    isError: mocks.roleError,
+  }),
 }));
 
 vi.mock('@/hooks/useTaskMutations', async (importOriginal) => {
@@ -78,6 +84,7 @@ const base: Task = {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.role = null;
+  mocks.roleError = false;
   useScheduleStore.setState({ selectedTaskId: null, scheduleError: null });
 });
 
@@ -269,5 +276,27 @@ describe('an editor outside build mode keeps the classic inline rename', () => {
     row.focus();
     fireEvent.keyDown(row, { key: 'F2' });
     expect(screen.queryByLabelText(/Rename task/i)).not.toBeInTheDocument();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// A failed lookup is UNKNOWN, not denial (#2961). The hook retries nothing, so
+// before this the error case was indistinguishable from "settled: not a
+// member" — one dropped request would strip an editor's whole apparatus, with
+// no error state anywhere to explain where the controls went.
+// ───────────────────────────────────────────────────────────────────────────
+describe('a failed role lookup does not read as "no rights"', () => {
+  it('keeps the apparatus when the membership request errored', () => {
+    mocks.role = null;
+    mocks.roleError = true;
+    renderBuild({ siblingIds: ['t1', 't2'] });
+    expect(screen.getByTitle(/Drag to reorder/i)).toBeInTheDocument();
+  });
+
+  it('still removes it for a settled non-member — the error flag is the only difference', () => {
+    mocks.role = null;
+    mocks.roleError = false;
+    renderBuild({ siblingIds: ['t1', 't2'] });
+    expect(screen.queryByTitle(/Drag to reorder/i)).not.toBeInTheDocument();
   });
 });
