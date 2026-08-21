@@ -57,7 +57,7 @@ def unseed(apps: Any, schema_editor: Any) -> None:
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0143_projecttemplate_source_project_and_more"),
+        ("projects", "0144_projecttemplate_source_project_and_more"),
     ]
 
     operations = [

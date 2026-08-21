@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0142_baseline_calendar_hours_per_day_and_more"),
+        ("projects", "0143_sprintcloserequest_failure_reason_and_more"),
     ]
 
     operations = [
