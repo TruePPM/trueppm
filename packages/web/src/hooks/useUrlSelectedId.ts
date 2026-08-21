@@ -6,12 +6,21 @@ import { useSearchParams, type SetURLSearchParams } from 'react-router';
  * truthy, drop the key entirely when it is null/empty so a clean view keeps a
  * clean URL.
  *
- * Always uses the functional-updater form so concurrent param writes within one
- * effect flush compose instead of clobbering each other — both updaters read the
- * live `prev` params rather than a stale captured snapshot. This is the guard
- * that stops a `?task=` write from wiping a sibling `?sprint=` written in the
- * same flush (#2031). Every single-param URL round-trip in the Board, Sprints,
- * Schedule, and Grid views routes through here.
+ * Always uses the functional-updater form so param writes across separate
+ * commits compose instead of clobbering each other — each updater reads the live
+ * `prev` params rather than a stale captured snapshot. This is the guard that
+ * stops a `?task=` write from wiping a sibling `?sprint=` (#2031). Every
+ * single-param URL round-trip in the Board, Sprints, Schedule, and Grid views
+ * routes through here.
+ *
+ * **It does NOT make two writes in the SAME commit safe** (#2952). `prev` is
+ * resolved from the live location at call time, and react-router does not apply
+ * the first write before the second reads — so two `setSearchParam` calls in one
+ * effect pass, or one of these racing a sibling effect's write on the same pass,
+ * lose the earlier one entirely. When a single pass must change more than one
+ * key, write them in **one** `setSearchParams` updater; when a write must
+ * survive a sibling effect that also writes on mount, defer it to a later commit
+ * (see the `?author=` strip in `ScheduleView`, which does both).
  */
 export function setSearchParam(
   setSearchParams: SetURLSearchParams,
