@@ -14,7 +14,7 @@ from django.http import HttpResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -25,6 +25,7 @@ from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import IsProjectNotArchived, IsProjectScheduler
 from trueppm_api.apps.csvimport.mapping import field_choices
 from trueppm_api.apps.csvimport.parser import (
+    DATE_ORDERS,
     REVIEW_BRANCH_NAME,
     SUPPORTED_EXTENSIONS,
     CsvImportError,
@@ -152,6 +153,58 @@ def _parse_column_map(request: Request) -> dict[str, str]:
     return {str(k): str(v) for k, v in parsed.items() if isinstance(k, str)}
 
 
+def _parse_date_order(request: Request) -> str:
+    """Read the optional ``date_order`` multipart field (#2926).
+
+    Rejected rather than ignored, unlike ``column_map``: a bad mapping hint
+    degrades to auto-detection and the operator sees the result, but a
+    misspelled date order that silently fell back to ``auto`` would import
+    03/04 as March 4 while the caller believed they had asserted day-first —
+    which is precisely the silent-corruption failure this endpoint exists to
+    close. A scripted caller must hear that its parameter did nothing.
+
+    Non-string input is caught here too: ``request.data`` is attacker-shaped,
+    and a JSON list reaching a membership test against strings is the #2795
+    container-type-confusion class.
+    """
+    raw = request.data.get("date_order")
+    if raw is None or raw == "":
+        return "auto"
+    if not isinstance(raw, str) or raw not in DATE_ORDERS:
+        raise ValidationError({"date_order": f"Must be one of {', '.join(DATE_ORDERS)}."})
+    return raw
+
+
+#: Multipart request schema shared by preview and commit.
+#:
+#: Declared rather than left as bare ``BINARY`` so ``date_order`` is visible to
+#: SDK codegen — a parameter a caller cannot discover from the schema is a
+#: parameter that does not exist for them (the #2942 class, one endpoint over).
+_IMPORT_REQUEST_SCHEMA = {
+    "multipart/form-data": {
+        "type": "object",
+        "properties": {
+            "file": {"type": "string", "format": "binary"},
+            "column_map": {
+                "type": "string",
+                "description": "JSON object of {header: field} overrides from the wizard.",
+            },
+            "date_order": {
+                "type": "string",
+                "enum": list(DATE_ORDERS),
+                "default": "auto",
+                "description": (
+                    "How to read slash dates. `auto` scans the file and settles the order "
+                    "from the first self-identifying value; the other three assert a "
+                    "convention. An unknown value is a 400, never a silent fallback."
+                ),
+            },
+        },
+        "required": ["file"],
+    }
+}
+
+
 class CsvImportPreviewView(IdempotencyMixin, APIView):
     """Parse a spreadsheet and return the detected mapping — persisting nothing.
 
@@ -170,21 +223,33 @@ class CsvImportPreviewView(IdempotencyMixin, APIView):
 
     @extend_schema(
         summary="Preview a CSV/Excel import: detected column mapping and sample rows",
-        request=OpenApiTypes.BINARY,
+        request=_IMPORT_REQUEST_SCHEMA,
         responses={
             200: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
                 description=(
                     "Detected mapping, first 10 parsed rows, row-level warnings and the "
-                    "field catalog for the wizard's dropdown. Nothing is persisted."
+                    "field catalog for the wizard's dropdown. Nothing is persisted. "
+                    "Also carries how the date order was settled and the evidence for "
+                    "it: `date_order_resolved`, `date_order_auto`, "
+                    "`date_order_ambiguous`, `date_order_evidence` "
+                    "({row, column, value, reason}), `date_order_has_columns`, "
+                    "`values_matched`/`values_failed`, `date_preview` (per-row raw cell, "
+                    "reading and duration), and — only when the file identifies no "
+                    "convention — `date_order_readings`, both conventions with the "
+                    "duration each produces for one sample row."
                 ),
             ),
-            400: OpenApiResponse(description="Missing, oversized, or unreadable upload."),
+            400: OpenApiResponse(
+                description="Missing, oversized, or unreadable upload, or an unknown `date_order`."
+            ),
             403: OpenApiResponse(description="Caller lacks the Scheduler role on the project."),
         },
     )
     def post(self, request: Request, project_pk: str) -> Response:
         _require_project_scheduler(request.user, project_pk)
+
+        date_order = _parse_date_order(request)
 
         validated = _read_validated_upload(request)
         if isinstance(validated, Response):
@@ -196,6 +261,7 @@ class CsvImportPreviewView(IdempotencyMixin, APIView):
                 content,
                 filename,
                 column_map=_parse_column_map(request) or None,
+                date_order=date_order,
                 max_rows=settings.CSV_IMPORT_MAX_ROWS,
                 max_uncompressed_bytes=settings.CSV_IMPORT_MAX_UNCOMPRESSED_MB * 1024 * 1024,
             )
@@ -234,6 +300,22 @@ class CsvImportPreviewView(IdempotencyMixin, APIView):
                 "error_count": parsed.error_count,
                 "warning_count": parsed.warning_count,
                 "warnings": parsed.warnings,
+                # How the date order was settled, and the evidence for it
+                # (#2926). Flattened onto the response rather than nested so the
+                # wizard's Dates block reads one shape whether it is confirming
+                # an inference or reporting an override. `readings` is populated
+                # only for the ambiguous file, which is the state that needs both
+                # conventions' durations side by side to be decidable at all.
+                "date_order": parsed.date_order.requested,
+                "date_order_resolved": parsed.date_order.resolved,
+                "date_order_auto": parsed.date_order.auto_resolved,
+                "date_order_ambiguous": parsed.date_order.ambiguous,
+                "date_order_evidence": parsed.date_order.evidence,
+                "date_order_has_columns": parsed.date_order.has_date_columns,
+                "date_order_readings": [r.as_dict() for r in parsed.date_order.readings],
+                "values_matched": parsed.date_order.values_matched,
+                "values_failed": parsed.date_order.values_failed,
+                "date_preview": parsed.date_preview,
                 "available_fields": field_choices(),
             },
             status=status.HTTP_200_OK,
@@ -256,18 +338,32 @@ class CsvImportView(IdempotencyMixin, APIView):
 
     @extend_schema(
         summary="Import a CSV/Excel spreadsheet into an existing project",
-        request=OpenApiTypes.BINARY,
+        request=_IMPORT_REQUEST_SCHEMA,
         responses={
             202: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
                 description='Import queued; body is {"detail", "queued", "import_request_id"}.',
             ),
-            400: OpenApiResponse(description="Missing or invalid upload (wrong type/too large)."),
+            400: OpenApiResponse(
+                description=(
+                    "Missing or invalid upload (wrong type/too large), or an unknown "
+                    "`date_order`. The order is persisted on the import request so a "
+                    "drain re-dispatch replays the convention the operator confirmed."
+                )
+            ),
             403: OpenApiResponse(description="Caller lacks the Scheduler role on the project."),
         },
     )
     def post(self, request: Request, project_pk: str) -> Response:
         _require_project_scheduler(request.user, project_pk)
+        date_order = _parse_date_order(request)
+        # True when the operator explicitly accepted a convention rather than
+        # letting auto decide. Kept for support archaeology only — nothing
+        # branches on it (#2926).
+        date_order_confirmed = str(request.data.get("date_order_confirmed", "")).lower() in {
+            "true",
+            "1",
+        }
 
         validated = _read_validated_upload(request)
         if isinstance(validated, Response):
@@ -285,6 +381,8 @@ class CsvImportView(IdempotencyMixin, APIView):
                 filename=filename,
                 file_content_b64=base64.b64encode(content).decode("ascii"),
                 column_map=_parse_column_map(request),
+                date_order=date_order,
+                date_order_confirmed=date_order_confirmed,
                 initiated_by_id=request.user.pk,
             )
 
@@ -312,7 +410,10 @@ class CsvImportStatusView(APIView):
         responses={
             200: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
-                description='{"status", "filename", "summary", "requested_at"}.',
+                description=(
+                    '{"status", "filename", "summary", "requested_at", '
+                    '"date_order", "date_order_confirmed"}.'
+                ),
             ),
             403: OpenApiResponse(description="Caller lacks the Scheduler role on the project."),
             404: OpenApiResponse(description="No such import for this project."),
@@ -336,6 +437,14 @@ class CsvImportStatusView(APIView):
                 "filename": req.filename,
                 "summary": req.result_summary,
                 "requested_at": req.requested_at,
+                # The convention this import actually ran under, and whether a
+                # human accepted it (#2926). Read back here rather than only
+                # persisted: "why does this task say 62 days" is answerable only
+                # if the convention is legible after the fact, and a field
+                # nothing can read is a field that does not exist for a headless
+                # client. `date_order_confirmed` had no reader at all until this.
+                "date_order": req.date_order,
+                "date_order_confirmed": req.date_order_confirmed,
             },
             status=status.HTTP_200_OK,
         )

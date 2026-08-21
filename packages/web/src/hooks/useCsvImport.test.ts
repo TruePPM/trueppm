@@ -132,6 +132,65 @@ describe('useCsvImportPreview and useCsvImportCommit (#2777)', () => {
   });
 });
 
+describe('date_order on the wire (#2926)', () => {
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    vi.clearAllMocks();
+    postMock.mockResolvedValue({ data: { queued: true, import_request_id: 'r1' } });
+  });
+
+  async function commitWith(vars: Record<string, unknown>): Promise<FormData> {
+    const { result } = renderHook(() => useCsvImportCommit('p1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ file: csvFile(), ...vars });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    return (postMock.mock.calls[0] as [string, FormData, unknown])[1];
+  }
+
+  it('omits the field entirely when the control was never touched', async () => {
+    // The server's default is the same value, so sending it would make every
+    // existing request look changed for no behavioral difference.
+    const body = await commitWith({});
+    expect(body.get('date_order')).toBeNull();
+  });
+
+  it('sends the order the operator asserted', async () => {
+    const body = await commitWith({ dateOrder: 'dmy' });
+    expect(body.get('date_order')).toBe('dmy');
+  });
+
+  it('records that a human accepted a convention on a file that identified none', async () => {
+    const body = await commitWith({ dateOrder: 'mdy', dateOrderConfirmed: true });
+    expect(body.get('date_order_confirmed')).toBe('true');
+  });
+
+  it('sends the same order on the preview, so the commit cannot diverge from it', async () => {
+    postMock.mockResolvedValue({
+      data: {
+        filename: 'plan.csv',
+        headers: [],
+        columns: [],
+        sample_rows: [],
+        row_count: 1,
+        truncated_rows: 0,
+        task_count: 1,
+        resource_count: 0,
+        row_errors: [],
+        error_count: 0,
+        warning_count: 0,
+        warnings: [],
+        available_fields: [],
+      },
+    });
+    const { result } = renderHook(() => useCsvImportPreview('p1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ file: csvFile(), dateOrder: 'iso' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const body = (postMock.mock.calls[0] as [string, FormData, unknown])[1];
+    expect(body.get('date_order')).toBe('iso');
+  });
+});
+
 describe('missingRequiredFields', () => {
   it('reports a required field no column maps to', () => {
     const missing = missingRequiredFields([col(0, 'Days', 'duration')], FIELDS);
