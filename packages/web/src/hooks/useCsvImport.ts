@@ -82,6 +82,80 @@ export interface CsvColumnMappingWire extends Omit<CsvColumnMapping, 'field'> {
   field: string | null;
 }
 
+/**
+ * The date conventions a caller may assert on the import endpoints (#2926).
+ *
+ * `auto` is the shipped behavior — the server scans the file and settles the
+ * order from the first self-identifying value. The other three are the operator
+ * asserting what their own export uses, which is the only thing that can
+ * resolve a file where every value reads validly both ways.
+ */
+export type CsvDateOrder = 'auto' | 'mdy' | 'dmy' | 'iso';
+
+/** Display labels for {@link CsvDateOrder}, in the order the control shows them. */
+export const CSV_DATE_ORDERS: { value: CsvDateOrder; label: string }[] = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'mdy', label: 'M/D/Y' },
+  { value: 'dmy', label: 'D/M/Y' },
+  { value: 'iso', label: 'ISO' },
+];
+
+/** The label a resolved (never `auto`) order renders as, inside a sentence. */
+export const CSV_DATE_ORDER_NAMES: Record<string, string> = {
+  mdy: 'M/D/Y (month first)',
+  dmy: 'D/M/Y (day first)',
+  iso: 'ISO 8601 (YYYY-MM-DD)',
+};
+
+/**
+ * The value that settled the convention, and why.
+ *
+ * The whole point of the feature: a statement that names a row, a column and a
+ * value can be checked against the file in five seconds, and "dates were
+ * interpreted as M/D/Y" cannot. The server has always known this and discarded
+ * it into a rendered sentence; it now crosses the API boundary intact.
+ */
+export interface CsvDateEvidence {
+  row: number;
+  column: string;
+  value: string;
+  /**
+   * Why the value settled it. Widened to `string` on purpose: the client picks
+   * a clause per known reason and falls back for anything the server adds
+   * later, so a new reason degrades to a generic sentence rather than a build
+   * break or a blank statement.
+   */
+  reason: string;
+}
+
+/** What one convention does to this file — the ambiguous state's comparison. */
+export interface CsvDateReading {
+  order: CsvDateOrder;
+  sample_row: number | null;
+  sample_name: string;
+  sample_raw_start: string;
+  start: string | null;
+  finish: string | null;
+  /** Inclusive of both endpoints — 3 Apr → 5 Apr is 3, matching the import. */
+  duration_days: number | null;
+  values_matched: number;
+  values_failed: number;
+  rows_unparseable: number;
+}
+
+/** One row as the preview table renders it: raw cell, reading, and duration. */
+export interface CsvDatePreviewRow {
+  row: number;
+  name: string;
+  raw_start: string;
+  raw_finish: string;
+  start: string | null;
+  finish: string | null;
+  duration_days: number | null;
+  /** A cell that was present and would not parse under the chosen order. */
+  unreadable: boolean;
+}
+
 export interface CsvPreview {
   filename: string;
   headers: string[];
@@ -102,6 +176,22 @@ export interface CsvPreview {
   /** Rows that would land with a field defaulted. */
   warning_count: number;
   warnings: string[];
+  /** What the caller asked for. */
+  date_order?: CsvDateOrder;
+  /** What will actually be used — never `auto`. */
+  date_order_resolved?: Exclude<CsvDateOrder, 'auto'>;
+  /** What `auto` would have chosen; the override copy names both. */
+  date_order_auto?: Exclude<CsvDateOrder, 'auto'>;
+  /** True only when auto had a real decision to make and no evidence for it. */
+  date_order_ambiguous?: boolean;
+  date_order_evidence?: CsvDateEvidence | null;
+  /** False when no column is mapped to a date field — the control is inert. */
+  date_order_has_columns?: boolean;
+  /** Populated only for the ambiguous file, which needs both readings to decide. */
+  date_order_readings?: CsvDateReading[];
+  values_matched?: number;
+  values_failed?: number;
+  date_preview?: CsvDatePreviewRow[];
   available_fields: CsvTargetField[];
 }
 
@@ -139,7 +229,12 @@ export interface CsvImportStatusResponse {
   requested_at: string;
 }
 
-function buildForm(file: File, columnMap?: Record<string, string>): FormData {
+function buildForm(
+  file: File,
+  columnMap?: Record<string, string>,
+  dateOrder?: CsvDateOrder,
+  dateOrderConfirmed?: boolean,
+): FormData {
   const form = new FormData();
   form.append('file', file);
   // Sent as a JSON *string*: that is what a browser FormData produces, and the
@@ -147,18 +242,36 @@ function buildForm(file: File, columnMap?: Record<string, string>): FormData {
   if (columnMap && Object.keys(columnMap).length > 0) {
     form.append('column_map', JSON.stringify(columnMap));
   }
+  // Omitted when 'auto' so an untouched control sends nothing and the request is
+  // byte-identical to the shipped one — the server's default is the same value,
+  // and a redundant field would make every existing fixture look changed.
+  if (dateOrder && dateOrder !== 'auto') {
+    form.append('date_order', dateOrder);
+  }
+  if (dateOrderConfirmed) {
+    form.append('date_order_confirmed', 'true');
+  }
   return form;
+}
+
+/** What both the preview and the commit call carry. */
+export interface CsvImportVars {
+  file: File;
+  columnMap?: Record<string, string>;
+  dateOrder?: CsvDateOrder;
+  /** Records that a human accepted a convention on a file that identified none. */
+  dateOrderConfirmed?: boolean;
 }
 
 /** Parse a spreadsheet and return the detected mapping. Persists nothing. */
 export function useCsvImportPreview(
   projectId: string | null,
-): UseMutationResult<CsvPreview, Error, { file: File; columnMap?: Record<string, string> }> {
-  return useMutation<CsvPreview, Error, { file: File; columnMap?: Record<string, string> }>({
-    mutationFn: async ({ file, columnMap }) => {
+): UseMutationResult<CsvPreview, Error, CsvImportVars> {
+  return useMutation<CsvPreview, Error, CsvImportVars>({
+    mutationFn: async ({ file, columnMap, dateOrder }) => {
       const res = await apiClient.post<CsvPreview>(
         `/projects/${projectId}/import/csv/preview/`,
-        buildForm(file, columnMap),
+        buildForm(file, columnMap, dateOrder),
         { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 0 },
       );
       return res.data;
@@ -169,12 +282,12 @@ export function useCsvImportPreview(
 /** Commit the import. Resolves once the outbox row is queued, not imported. */
 export function useCsvImportCommit(
   projectId: string | null,
-): UseMutationResult<CsvCommitResponse, Error, { file: File; columnMap?: Record<string, string> }> {
-  return useMutation<CsvCommitResponse, Error, { file: File; columnMap?: Record<string, string> }>({
-    mutationFn: async ({ file, columnMap }) => {
+): UseMutationResult<CsvCommitResponse, Error, CsvImportVars> {
+  return useMutation<CsvCommitResponse, Error, CsvImportVars>({
+    mutationFn: async ({ file, columnMap, dateOrder, dateOrderConfirmed }) => {
       const res = await apiClient.post<CsvCommitResponse>(
         `/projects/${projectId}/import/csv/`,
-        buildForm(file, columnMap),
+        buildForm(file, columnMap, dateOrder, dateOrderConfirmed),
         { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 0 },
       );
       return res.data;

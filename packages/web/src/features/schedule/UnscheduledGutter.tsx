@@ -10,6 +10,7 @@ import { UnscheduledTaskRow } from './UnscheduledTaskRow';
 import { UnscheduledDragPreview } from './UnscheduledDragPreview';
 import { UnscheduledDropIndicator } from './UnscheduledDropIndicator';
 import { ScheduleTaskDialog } from './ScheduleTaskDialog';
+import { Button } from '@/components/Button';
 import { formatShortDate } from './scheduleUtils';
 
 interface UnscheduledGutterProps {
@@ -24,6 +25,16 @@ interface UnscheduledGutterProps {
   /** Project sprints (#1790) — used to group sprint-assigned backlog under its
    *  target sprint with an honest window/state header. */
   sprints?: ApiSprint[];
+  /**
+   * Select these rows in the outline and open the bulk-edit sheet (#2987).
+   *
+   * The tray does not own a selection model: the sheet resolves its selection
+   * against the outline's `visibleTasks`, so a second selection here would have
+   * to be marshalled across anyway — and a row inside a collapsed phase would
+   * silently resolve to nothing. Absent when the viewer cannot edit, which is
+   * why the button is omitted rather than disabled (rule 302).
+   */
+  onScheduleMany?: (taskIds: string[]) => void;
 }
 
 interface DragState {
@@ -62,6 +73,7 @@ export function UnscheduledGutter({
   canvasScrollRef,
   taskListWidth,
   sprints,
+  onScheduleMany,
 }: UnscheduledGutterProps) {
   const itl = useIterationLabel();
   // Absent a persisted choice, default to collapsed when there is nothing
@@ -299,6 +311,41 @@ export function UnscheduledGutter({
 
   const totalCount = tasks.length;
 
+  /**
+   * The rows the "Schedule N…" button acts on — everything the tray renders as
+   * draggable. Sprint-targeted groups are excluded: their dates come from sprint
+   * planning, so the apparatus is absent rather than disabled.
+   *
+   * The header count stays the TOTAL while the button counts only what it can
+   * act on. When they differ that is honest, not a bug — but the difference has
+   * to reach a screen reader, hence the explicit label below.
+   */
+  const datableIds = useMemo(
+    () => [...todoTasks, ...backlogTasks].map((t) => t.id),
+    [todoTasks, backlogTasks],
+  );
+  const excludedCount = totalCount - datableIds.length;
+
+  /**
+   * Offline guard (rule 29), read at click time rather than render time so a
+   * connection that drops while the tray sits open is still caught.
+   *
+   * Opening the sheet offline would walk the planner through picking a date and
+   * then fail at Apply — a batch write cannot be queued, for the same reason
+   * `handleSetDate` refuses one: it recomputes CPM server-side.
+   */
+  const handleScheduleClick = useCallback(() => {
+    if (!navigator.onLine) {
+      if (ariaLiveRef.current) {
+        ariaLiveRef.current.textContent =
+          'You are offline — reconnect to schedule these tasks.';
+      }
+      setActionToast({ message: 'You are offline — reconnect to schedule these tasks.' });
+      return;
+    }
+    onScheduleMany?.(datableIds);
+  }, [onScheduleMany, datableIds, setActionToast]);
+
   return (
     <>
       {/* Gutter panel */}
@@ -323,7 +370,27 @@ export function UnscheduledGutter({
               All To Do and Backlog tasks have planned dates
             </span>
           )}
+          {totalCount > 0 && (
+            <span className="hidden md:inline text-xs italic text-neutral-text-secondary ml-3">
+              no committed start yet
+            </span>
+          )}
           <div className="flex-1" />
+          {onScheduleMany && datableIds.length > 0 && (
+            <Button
+              variant="primary"
+              size="sm"
+              className="mr-2"
+              onClick={handleScheduleClick}
+              aria-label={
+                excludedCount > 0
+                  ? `Schedule ${datableIds.length} unscheduled ${datableIds.length === 1 ? 'task' : 'tasks'} — ${excludedCount} ${itl.lower}-targeted ${excludedCount === 1 ? 'item is' : 'items are'} excluded`
+                  : undefined
+              }
+            >
+              Schedule {datableIds.length}…
+            </Button>
+          )}
           <button
             type="button"
             aria-label={collapsed ? 'Expand unscheduled tasks' : 'Collapse unscheduled tasks'}

@@ -34,6 +34,21 @@ DEFAULT_EXPORT_RETENTION_DAYS = 7  # ADR-0219 §Durable Execution item 6 (shared
 # ---------------------------------------------------------------------------
 
 
+# How many times a close may be attempted before the request is abandoned, and
+# how long a failed one waits before the drain re-queues it (#2894). The budget
+# is enforced by the drain rather than by the Celery decorator's ``max_retries``
+# — see the exception handler in close_sprint for why a broker-level retry
+# cannot work here.
+_MAX_CLOSE_ATTEMPTS = 3
+_CLOSE_RETRY_BACKOFF = timedelta(seconds=60)
+# Per-sweep caps. Fresh closes and retries draw from separate dispatch budgets so
+# neither can starve the other — see the drain for why one shared, ordered slice
+# stopped being safe once failed rows could re-enter the pool.
+_DISPATCH_BUDGET = 50
+_RETRY_DISPATCH_BUDGET = 10
+_RETRY_REQUEUE_BUDGET = 200
+
+
 @idempotent_task(
     lock_key_template="sprint_close_lock:{0}",
     lock_ttl=120,
@@ -55,6 +70,16 @@ def close_sprint(self: object, request_id: str) -> None:
     request is short-circuited to COMPLETED. Re-entry under broker retry
     therefore never produces duplicate close side-effects.
 
+    Recovery from a failure runs through the **drain**, not through the broker
+    (#2894). A failure rolls the transaction back and marks the row FAILED with
+    a ``next_attempt_at``; ``drain_sprint_close_requests`` resets it to PENDING
+    once that time passes and re-dispatches, up to ``_MAX_CLOSE_ATTEMPTS``. The
+    decorator's ``max_retries`` cannot serve this: its retry re-enters here and
+    hits the FAILED short-circuit above, so it would spend the budget without
+    running the close. When the budget is spent ``next_attempt_at`` stays null,
+    the row is abandoned, and the sprint remains ACTIVE — recoverable only by
+    issuing a fresh close request.
+
     On success the function:
       1. Snapshots ``completed_*`` from current task state
       2. Transitions sprint state to COMPLETED + sets closed_at
@@ -68,6 +93,7 @@ def close_sprint(self: object, request_id: str) -> None:
     """
     from trueppm_api.apps.projects.models import (
         SprintCloseRequest,
+        SprintCloseRequestFailureReason,
         SprintCloseRequestStatus,
         SprintState,
     )
@@ -96,6 +122,13 @@ def close_sprint(self: object, request_id: str) -> None:
         logger.info("close_sprint: request %s already %s — short-circuit", request_id, req.status)
         return
 
+    # This increment MUST stay outside the `transaction.atomic()` below, and that
+    # placement is load-bearing rather than incidental (#2894): the retry budget
+    # is the only thing bounding the drain's re-queue loop, and it is enforced by
+    # comparing attempt_count. Wrapping close_sprint in @transaction.atomic — or
+    # moving this inside the block — rolls the increment back together with the
+    # failed close, so attempt_count never advances, the budget is never spent,
+    # and a permanently failing close is re-queued forever.
     SprintCloseRequest.objects.filter(pk=req.pk).update(
         status=SprintCloseRequestStatus.IN_FLIGHT,
         started_at=timezone.now(),
@@ -131,7 +164,14 @@ def close_sprint(self: object, request_id: str) -> None:
             # is destroyed (carried tasks move to the next sprint, dropped tasks
             # to the backlog). NOT wrapped in try/except: the audit is part of the
             # close's definition of done, so a failure rolls the whole close back
-            # and the drain retries.
+            # and the drain re-queues the request.
+            #
+            # That second clause was false when written (#2894) — the handler
+            # marked the row FAILED and nothing ever picked a FAILED row up. It
+            # is true now, but bounded: _MAX_CLOSE_ATTEMPTS tries, then the
+            # request is abandoned and the sprint stays ACTIVE. An audit failure
+            # that reproduces will still strand the close; it just no longer does
+            # so on the first try, silently.
             snapshot_sprint_task_outcomes(sprint, carry_over_to=req.carry_over_to)
 
             _clear_sprint_ranks(sprint)
@@ -168,6 +208,12 @@ def close_sprint(self: object, request_id: str) -> None:
                 status=SprintCloseRequestStatus.COMPLETED,
                 completed_at=timezone.now(),
                 error_message="",
+                failure_reason="",
+                # Structural, not incidental: every terminal writer clears the
+                # retry clock, so "null means no further attempt" holds by
+                # construction rather than because no live path happens to leave
+                # a stale value behind.
+                next_attempt_at=None,
             )
 
             # Enqueue downstream CPM recompute with the SPRINT_CLOSED reason
@@ -218,11 +264,32 @@ def close_sprint(self: object, request_id: str) -> None:
 
     except Exception as exc:
         logger.exception("close_sprint: failed for request %s", request_id)
+        # The whole close rolled back, so the sprint is still ACTIVE and the row
+        # is safe to run again from the top. Schedule a retry until the budget is
+        # spent; ``next_attempt_at=None`` on the last one is what makes it
+        # terminal (#2894).
+        #
+        # Deliberately NOT re-raised to drive the decorator's max_retries. A
+        # retry there re-enters close_sprint, which short-circuits on a FAILED
+        # row and returns immediately — the retry would burn the budget without
+        # ever reaching the work. The drain is the recovery path because it is
+        # the thing that can reset status back to PENDING first.
+        attempts = req.attempt_count + 1  # this run, already applied above
+        exhausted = attempts >= _MAX_CLOSE_ATTEMPTS
         SprintCloseRequest.objects.filter(pk=req.pk).update(
             status=SprintCloseRequestStatus.FAILED,
             completed_at=timezone.now(),
             error_message=str(exc)[:1000],
+            failure_reason=SprintCloseRequestFailureReason.ERROR,
+            next_attempt_at=None if exhausted else timezone.now() + _CLOSE_RETRY_BACKOFF,
         )
+        if exhausted:
+            logger.error(
+                "close_sprint: request %s exhausted %d attempts — sprint %s stays ACTIVE",
+                request_id,
+                attempts,
+                req.sprint_id,
+            )
 
 
 def _finalize_non_closable_sprint(req: Any, sprint: Any) -> bool:
@@ -235,6 +302,7 @@ def _finalize_non_closable_sprint(req: Any, sprint: Any) -> bool:
     """
     from trueppm_api.apps.projects.models import (
         SprintCloseRequest,
+        SprintCloseRequestFailureReason,
         SprintCloseRequestStatus,
         SprintState,
     )
@@ -244,6 +312,7 @@ def _finalize_non_closable_sprint(req: Any, sprint: Any) -> bool:
         SprintCloseRequest.objects.filter(pk=req.pk).update(
             status=SprintCloseRequestStatus.COMPLETED,
             completed_at=timezone.now(),
+            next_attempt_at=None,
         )
         return True
 
@@ -252,6 +321,10 @@ def _finalize_non_closable_sprint(req: Any, sprint: Any) -> bool:
             status=SprintCloseRequestStatus.FAILED,
             completed_at=timezone.now(),
             error_message="Sprint was cancelled before close could complete.",
+            failure_reason=SprintCloseRequestFailureReason.CANCELLED,
+            # Terminal by nature: no retry can un-cancel a sprint. Leaving the
+            # clock null is what keeps the drain's retry sweep off this row.
+            next_attempt_at=None,
         )
         return True
 
@@ -260,6 +333,8 @@ def _finalize_non_closable_sprint(req: Any, sprint: Any) -> bool:
             status=SprintCloseRequestStatus.FAILED,
             completed_at=timezone.now(),
             error_message=f"Sprint state {sprint.state} is not closable.",
+            failure_reason=SprintCloseRequestFailureReason.NOT_CLOSABLE,
+            next_attempt_at=None,
         )
         return True
 
@@ -463,20 +538,38 @@ def generate_recurring_occurrences(self: object) -> None:
     name="projects.purge_sprint_close_requests",
 )
 def purge_sprint_close_requests(self: object) -> None:
-    """Delete COMPLETED / FAILED SprintCloseRequest rows older than 7 days."""
+    """Delete COMPLETED / *terminally* FAILED SprintCloseRequest rows older than 7 days.
+
+    The retention window is measured from ``requested_at``, so a request that sat
+    PENDING for longer than the window — a drain or broker outage, which the purge
+    survives because it excludes PENDING — is already older than the cutoff the
+    moment it finally runs. Without the ``next_attempt_at`` guard below, a
+    transient failure on that first attempt would schedule a 60-second retry and
+    the nightly purge could delete the row before the retry ever fired: the sprint
+    stays ACTIVE *and* the record of why is gone, which is strictly worse than the
+    stranding #2894 exists to fix. A row with a live retry clock is not finished,
+    whatever its status says, so it is not eligible for retention purging.
+    """
     from trueppm_api.apps.projects.models import (
         SprintCloseRequest,
         SprintCloseRequestStatus,
     )
 
     cutoff = timezone.now() - timedelta(days=7)
-    deleted, _ = SprintCloseRequest.objects.filter(
-        status__in=[
-            SprintCloseRequestStatus.COMPLETED,
-            SprintCloseRequestStatus.FAILED,
-        ],
-        requested_at__lt=cutoff,
-    ).delete()
+    deleted, _ = (
+        SprintCloseRequest.objects.filter(
+            status__in=[
+                SprintCloseRequestStatus.COMPLETED,
+                SprintCloseRequestStatus.FAILED,
+            ],
+            requested_at__lt=cutoff,
+        )
+        .exclude(
+            status=SprintCloseRequestStatus.FAILED,
+            next_attempt_at__isnull=False,
+        )
+        .delete()
+    )
     logger.info("purge_sprint_close_requests: deleted %d row(s)", deleted)
 
 
@@ -589,6 +682,7 @@ _ORPHAN_WINDOW = timedelta(minutes=5)
 def _do_drain() -> None:
     from trueppm_api.apps.projects.models import (
         SprintCloseRequest,
+        SprintCloseRequestFailureReason,
         SprintCloseRequestStatus,
     )
 
@@ -598,21 +692,103 @@ def _do_drain() -> None:
     # Recover IN_FLIGHT rows that have stalled past the orphan window — the
     # task_id may not match anything live, so we reset and let the next
     # dispatch attempt acquire the per-request lock fresh.
+    #
+    # Bounded by the same budget as the failure path (#2894). ``close_sprint``
+    # increments ``attempt_count`` on every entry, so a close that orphans rather
+    # than raising — a worker OOM-killed on each attempt — was recovered here
+    # without limit while the counter climbed forever. A constant named as *the*
+    # close attempt budget that only one of the two recovery paths honors is a
+    # guard narrower than the class it names, which is how this bug survived in
+    # the failure path to begin with.
     recovered = SprintCloseRequest.objects.filter(
         status=SprintCloseRequestStatus.IN_FLIGHT,
         started_at__lt=orphan_cutoff,
+        attempt_count__lt=_MAX_CLOSE_ATTEMPTS,
     ).update(status=SprintCloseRequestStatus.PENDING)
+
+    # An orphan whose budget is spent must be *abandoned*, not left IN_FLIGHT.
+    # Capping the recovery above without this would trade an unbounded loop for a
+    # row wedged in a non-terminal state that no sweep touches and no reader can
+    # interpret — the same silent stranding in a different status.
+    abandoned = SprintCloseRequest.objects.filter(
+        status=SprintCloseRequestStatus.IN_FLIGHT,
+        started_at__lt=orphan_cutoff,
+        attempt_count__gte=_MAX_CLOSE_ATTEMPTS,
+    ).update(
+        status=SprintCloseRequestStatus.FAILED,
+        completed_at=now,
+        next_attempt_at=None,
+        error_message=(
+            "The close stopped responding on every attempt and was abandoned. "
+            "The sprint is still open."
+        ),
+        failure_reason=SprintCloseRequestFailureReason.STALLED,
+    )
+    if abandoned:
+        logger.error(
+            "drain_sprint_close_requests: abandoned %d close request(s) stalled past "
+            "the attempt budget",
+            abandoned,
+        )
     if recovered:
         logger.warning(
             "drain_sprint_close_requests: recovered %d orphaned IN_FLIGHT row(s)",
             recovered,
         )
 
+    # Re-queue FAILED rows whose retry clock has come round (#2894). Before this
+    # the drain recovered IN_FLIGHT only, so a single unsnapshottable task left
+    # the sprint ACTIVE indefinitely behind a terminally-FAILED request, with no
+    # path back except manual DB intervention.
+    #
+    # `next_attempt_at__isnull=False` is the whole guard: a failure nothing can
+    # fix (sprint cancelled, sprint not closable) and an exhausted budget both
+    # leave it null, so neither is picked up here. `completed_at` is cleared so
+    # the row does not read as finished while it waits to run again.
+    # Capped like the dispatch slices below: a correlated failure could otherwise
+    # flip an unbounded number of rows, and hold their locks, in one statement
+    # inside a task that has a soft time limit.
+    retry_ids = SprintCloseRequest.objects.filter(
+        status=SprintCloseRequestStatus.FAILED,
+        next_attempt_at__isnull=False,
+        next_attempt_at__lte=now,
+        attempt_count__lt=_MAX_CLOSE_ATTEMPTS,
+    ).values("pk")[:_RETRY_REQUEUE_BUDGET]
+    requeued = SprintCloseRequest.objects.filter(pk__in=retry_ids).update(
+        status=SprintCloseRequestStatus.PENDING,
+        next_attempt_at=None,
+        completed_at=None,
+        # Cleared alongside completed_at: a row waiting to run again has not
+        # started, and a stale started_at would both misread on the API and feed
+        # the orphan sweep above a start time from a previous attempt.
+        started_at=None,
+    )
+    if requeued:
+        logger.warning(
+            "drain_sprint_close_requests: re-queued %d failed close request(s) for retry",
+            requeued,
+        )
+
     pending = list(
         SprintCloseRequest.objects.filter(
             status=SprintCloseRequestStatus.PENDING,
             requested_at__lt=now - timedelta(seconds=2),
-        ).order_by("requested_at")[:50]
+            attempt_count=0,
+        ).order_by("requested_at")[:_DISPATCH_BUDGET]
+    )
+    # Retries draw from their own budget rather than competing for the slice
+    # above (#2894). A re-queued row keeps its original ``requested_at`` — that
+    # field answers "when did the user ask", and the read route shows it — so it
+    # sorts ahead of every newer close. Before the retry sweep existed nothing
+    # old could re-enter the PENDING pool, so a single ordered slice was safe;
+    # now a correlated failure would let the retry cohort fill the whole budget
+    # and strand fresh user closes behind it. Two budgets, neither starving.
+    pending += list(
+        SprintCloseRequest.objects.filter(
+            status=SprintCloseRequestStatus.PENDING,
+            requested_at__lt=now - timedelta(seconds=2),
+            attempt_count__gt=0,
+        ).order_by("requested_at")[:_RETRY_DISPATCH_BUDGET]
     )
     dispatched = 0
     for req in pending:
@@ -625,9 +801,12 @@ def _do_drain() -> None:
             )
             continue
         dispatched += 1
-    if dispatched or recovered:
+    if dispatched or recovered or requeued:
         logger.info(
-            "drain_sprint_close_requests: dispatched=%d recovered=%d", dispatched, recovered
+            "drain_sprint_close_requests: dispatched=%d recovered=%d requeued=%d",
+            dispatched,
+            recovered,
+            requeued,
         )
 
 

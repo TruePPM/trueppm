@@ -575,7 +575,20 @@ export interface ForecastSnapshot {
  */
 export interface ProjectForecast {
   velocity: ProjectVelocity;
-  remaining_committed_points: number;
+  /**
+   * `null` when the ADR-0104 velocity gate suppressed it — the reader is below
+   * the velocity audience, so the basis is withheld along with the band
+   * (`views.py`: /forecast/ must not be a side-channel back to the same numbers,
+   * #981).
+   *
+   * Was typed `number`, which was a lie the compiler enforced: the server has
+   * always been able to send `null` here, and the only thing standing between a
+   * below-audience reader and a wrong render was one call site remembering to
+   * pass `enabled: false`. Typed honestly so a second call site cannot forget
+   * silently (#2966).
+   */
+  remaining_committed_points: number | null;
+  /** `null` for two different reasons — warm-up, or the velocity gate. */
   sprints_to_complete_low: number | null;
   sprints_to_complete_high: number | null;
   milestones: ForecastSnapshot[];

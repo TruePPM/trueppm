@@ -32,6 +32,17 @@ export interface UseBulkEditReturn {
   skippedLocallyCount: number;
   /** ⌘⇧K. No-op when there is nothing to act on — never opens an empty sheet. */
   open: () => void;
+  /**
+   * Open for a selection dispatched in the SAME event handler (#2987).
+   *
+   * `open` guards on `focus.state.selectedIds`, which is the value captured when
+   * this render's closure was built — so a caller that dispatches `selectIds`
+   * and then calls `open` reads the selection as it was *before* its own
+   * dispatch and bails. This variant takes the ids it is opening for, leaving
+   * `selectedTasks` to resolve normally on the next render once the reducer and
+   * the expand have both landed.
+   */
+  openForIds: (ids: string[]) => void;
   close: () => void;
   apply: (spec: BulkEditSpec) => void;
   reviewFailed: (taskIds: string[]) => void;
@@ -81,6 +92,17 @@ export function useBulkEdit({
     setSkippedLocallyCount(0);
     setIsOpen(true);
   }, [readOnly, projectId, selectedIds, rowId]);
+
+  const openForIds = useCallback(
+    (ids: string[]) => {
+      if (readOnly || !projectId || ids.length === 0) return;
+      setResult(null);
+      setError(null);
+      setSkippedLocallyCount(0);
+      setIsOpen(true);
+    },
+    [readOnly, projectId],
+  );
 
   const close = useCallback(() => {
     setIsOpen(false);
@@ -134,6 +156,7 @@ export function useBulkEdit({
     result,
     skippedLocallyCount,
     open,
+    openForIds,
     close,
     apply,
     reviewFailed,

@@ -64,6 +64,18 @@ class CsvImportRequest(models.Model):
     filename = models.CharField(max_length=255)
     file_content_b64 = models.TextField()
     column_map = models.JSONField(default=dict, blank=True)
+    # The operator's date-order decision, persisted for the same reason
+    # column_map is: a drain re-dispatch must replay what they confirmed rather
+    # than re-inferring, or the retry imports different dates than the preview
+    # they approved (#2926).
+    date_order = models.CharField(
+        max_length=4,
+        default="auto",
+        help_text="auto | mdy | dmy | iso — the date convention this import was committed under.",
+    )
+    # Records that a human accepted a convention on a file that identified none.
+    # Purely for support archaeology: "who chose M/D/Y on this 62-day task".
+    date_order_confirmed = models.BooleanField(default=False)
     result_summary = models.JSONField(default=dict, blank=True)
     initiated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

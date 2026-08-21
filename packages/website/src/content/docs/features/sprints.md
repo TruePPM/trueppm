@@ -1,9 +1,18 @@
 ---
 title: Sprints workspace
 description: Sprint header, goal, milestone link, and the cadence timeline strip.
+documentedFor: "0.4"
 ---
 
 The Sprints workspace is the agile-side surface — Maya the Scrum Master and Tom the engineer live here. It composes five panels (header, goal, milestone link, timeline, backlog) into a single route at `/projects/:id/sprints`.
+
+:::note[Ships in 0.4]
+One item on this page is not in the latest release: the
+`GET /api/v1/sprints/{id}/close-request/` endpoint, and the retry behavior it
+reports, land in **TruePPM 0.4**. Before 0.4 a close that fails is not retried
+and reports nothing — the sprint simply stays open. Everything else on this page
+has shipped.
+:::
 
 :::note[Added in 0.3]
 Three of the capabilities below — the read-only **closed-sprint review**, the per-sprint **WIP limit** chip, and **Exclude from velocity** — were added in 0.3, available since the `0.3.0-alpha.1` pre-release (Jun 28, 2026).
@@ -67,6 +76,7 @@ A read-only sidebar lists the unfinished tasks from the **previous closed sprint
 | `GET`  | `/api/v1/sprints/{id}/incoming_carryover/` | Unfinished tasks that rolled forward from the previous closed sprint, with points carried (added in 0.3) |
 | `POST` | `/api/v1/sprints/{id}/activate/` | PLANNED → ACTIVE; returns capacity warnings |
 | `POST` | `/api/v1/sprints/{id}/close/` | Async close via outbox; returns 202 + request id |
+| `GET`  | `/api/v1/sprints/{id}/close-request/` | Outcome of the most recent close attempt — status, `failure_reason`, and whether it will be retried (Viewer+, ships in 0.4). The raw error text is shown to project admins only, and never to an API token; everyone else sets the reason plus a fixed summary. Branch on `terminal`, not on `status` — a failed close may still be retried automatically |
 | `POST` | `/api/v1/sprints/{id}/cancel/` | PLANNED → CANCELLED |
 | `GET`  | `/api/v1/sprints/{id}/outcome/` | Consolidated review read — commitment, goal, velocity, the "didn't ship" list, and the review breakdown (added in 0.3) |
 | `POST` | `/api/v1/sprints/{id}/demo-list/reorder/` | Reorder the demo walkthrough (Member+; full ordered outcome-id list, added in 0.3) |

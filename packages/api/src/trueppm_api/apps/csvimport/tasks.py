@@ -78,6 +78,7 @@ def import_csv(
     file_content_b64: str,
     filename: str,
     column_map: dict[str, str] | None = None,
+    date_order: str = "auto",
     initiated_by_id: int | None = None,
     import_request_id: str | None = None,
 ) -> dict[str, Any]:
@@ -117,6 +118,7 @@ def import_csv(
                 file_content,
                 filename,
                 column_map=column_map or None,
+                date_order=date_order or "auto",
                 max_rows=settings.CSV_IMPORT_MAX_ROWS,
                 max_uncompressed_bytes=settings.CSV_IMPORT_MAX_UNCOMPRESSED_MB * 1024 * 1024,
             )
@@ -395,6 +397,7 @@ def _do_csv_import_drain() -> None:
                 file_content_b64=req.file_content_b64,
                 filename=req.filename,
                 column_map=req.column_map,
+                date_order=req.date_order,
                 initiated_by_id=req.initiated_by_id,
                 import_request_id=str(req.id),
             )

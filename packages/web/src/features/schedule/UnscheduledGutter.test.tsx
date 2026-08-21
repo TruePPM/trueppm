@@ -58,7 +58,11 @@ function makeSprint(overrides: Partial<ApiSprint> & { id: string }): ApiSprint {
   } as unknown as ApiSprint;
 }
 
-function renderGutter(tasks: Task[], sprints?: ApiSprint[]): ReturnType<typeof render> {
+function renderGutter(
+  tasks: Task[],
+  sprints?: ApiSprint[],
+  onScheduleMany?: (ids: string[]) => void,
+): ReturnType<typeof render> {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -72,6 +76,7 @@ function renderGutter(tasks: Task[], sprints?: ApiSprint[]): ReturnType<typeof r
         canvasScrollRef={canvasScrollRef}
         taskListWidth={200}
         sprints={sprints}
+        onScheduleMany={onScheduleMany}
       />
     </QueryClientProvider>
   );
@@ -757,5 +762,114 @@ describe('UnscheduledGutter — reveal bridge edge cases (#1798)', () => {
 
     await new Promise((r) => setTimeout(r, 60));
     expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+});
+
+describe('UnscheduledGutter — bulk "Schedule N…" button (#2987)', () => {
+  it('is absent when the viewer cannot edit — apparatus omitted, not disabled', () => {
+    renderGutter([makeTask({ id: 'a', status: 'NOT_STARTED' })]);
+    expect(screen.queryByRole('button', { name: /^Schedule \d/ })).not.toBeInTheDocument();
+  });
+
+  it('is absent when every unscheduled row is sprint-targeted', () => {
+    const onScheduleMany = vi.fn();
+    renderGutter(
+      [makeTask({ id: 'a', status: 'BACKLOG', sprintId: 's1' })],
+      [makeSprint({ id: 's1' })],
+      onScheduleMany,
+    );
+    expect(screen.queryByRole('button', { name: /^Schedule \d/ })).not.toBeInTheDocument();
+  });
+
+  it('hands up exactly the To Do and Backlog row ids, excluding sprint-targeted rows', () => {
+    const onScheduleMany = vi.fn();
+    renderGutter(
+      [
+        makeTask({ id: 'a', status: 'NOT_STARTED' }),
+        makeTask({ id: 'b', status: 'BACKLOG' }),
+        makeTask({ id: 'c', status: 'BACKLOG', sprintId: 's1' }),
+      ],
+      [makeSprint({ id: 's1' })],
+      onScheduleMany,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Schedule 2 unscheduled tasks/i }));
+    expect(onScheduleMany).toHaveBeenCalledWith(['a', 'b']);
+  });
+
+  it('counts only what it can act on, while the header keeps the total', () => {
+    renderGutter(
+      [
+        makeTask({ id: 'a', status: 'NOT_STARTED' }),
+        makeTask({ id: 'c', status: 'BACKLOG', sprintId: 's1' }),
+      ],
+      [makeSprint({ id: 's1' })],
+      vi.fn(),
+    );
+
+    // Header total is 2; the button acts on 1.
+    expect(screen.getByText('(2)')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Schedule 1 unscheduled task/ })).toBeInTheDocument();
+  });
+
+  it('explains the excluded rows to a screen reader when the counts differ', () => {
+    renderGutter(
+      [
+        makeTask({ id: 'a', status: 'NOT_STARTED' }),
+        makeTask({ id: 'c', status: 'BACKLOG', sprintId: 's1' }),
+        makeTask({ id: 'd', status: 'BACKLOG', sprintId: 's1' }),
+      ],
+      [makeSprint({ id: 's1' })],
+      vi.fn(),
+    );
+
+    expect(
+      screen.getByRole('button', {
+        name: 'Schedule 1 unscheduled task — 2 sprint-targeted items are excluded',
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it('leaves the visible label as the accessible name when nothing is excluded', () => {
+    renderGutter(
+      [
+        makeTask({ id: 'a', status: 'NOT_STARTED' }),
+        makeTask({ id: 'b', status: 'BACKLOG' }),
+      ],
+      undefined,
+      vi.fn(),
+    );
+    expect(screen.getByRole('button', { name: 'Schedule 2…' })).toBeInTheDocument();
+  });
+
+  it('stays reachable while the tray is collapsed — the count and its answer travel together', () => {
+    const onScheduleMany = vi.fn();
+    renderGutter([makeTask({ id: 'a', status: 'NOT_STARTED' })], undefined, onScheduleMany);
+
+    fireEvent.click(screen.getByRole('button', { name: /Collapse unscheduled tasks/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Schedule 1/ }));
+    expect(onScheduleMany).toHaveBeenCalledWith(['a']);
+  });
+});
+
+describe('UnscheduledGutter — offline guard on bulk schedule (#2987, rule 29)', () => {
+  it('refuses to open the sheet offline and says why, rather than failing at Apply', () => {
+    Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+    const onScheduleMany = vi.fn();
+    renderGutter([makeTask({ id: 'a', status: 'NOT_STARTED' })], undefined, onScheduleMany);
+
+    fireEvent.click(screen.getByRole('button', { name: /^Schedule 1/ }));
+
+    expect(onScheduleMany).not.toHaveBeenCalled();
+    expect(useScheduleStore.getState().scheduleActionToast?.message).toMatch(/offline/i);
+  });
+
+  it('opens normally once back online', () => {
+    Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+    const onScheduleMany = vi.fn();
+    renderGutter([makeTask({ id: 'a', status: 'NOT_STARTED' })], undefined, onScheduleMany);
+
+    fireEvent.click(screen.getByRole('button', { name: /^Schedule 1/ }));
+    expect(onScheduleMany).toHaveBeenCalledWith(['a']);
   });
 });
