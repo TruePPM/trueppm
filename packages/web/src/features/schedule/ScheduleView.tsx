@@ -15,6 +15,7 @@ import { useLocation, useSearchParams } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { setSearchParam } from '@/hooks/useUrlSelectedId';
 import { findUndatedRow } from './buildMode/undatedNav';
+import { ancestorIdsOf } from './unscheduledSelection';
 import type { GanttEngine, GanttScaleData } from './engine';
 import { dateToLeft, leftToDate, ZOOM_STEP_FACTOR } from './engine';
 import { computeInitialFraming, type RowBar } from './scheduleUtils';
@@ -602,7 +603,7 @@ export function ScheduleView() {
   const { data: mcResult } = useMonteCarloResult(projectIdUndef);
   const allTasks = useMemo(() => rawTasks ?? [], [rawTasks]);
   const allLinks = useMemo(() => rawLinks ?? [], [rawLinks]);
-  const { expandedIds, toggle: toggleExpandRaw, expandAll } = useWbsStore();
+  const { expandedIds, toggle: toggleExpandRaw, expandAll, expand } = useWbsStore();
 
   // Sprint lookup for the Duplicate Undo affordance (#477).
   const { sprints } = useSprints(projectId);
@@ -700,6 +701,7 @@ export function ScheduleView() {
   const reviewFilterActive = useReconcileStore((s) => s.reviewFilterActive);
   const reconcileEntries = useReconcileStore((s) => s.entries);
   const setWorkingDaysMask = useReconcileStore((s) => s.setWorkingDaysMask);
+  const setReviewFilter = useReconcileStore((s) => s.setReviewFilter);
   const reviewTaskIds = useMemo(() => reviewableTaskIds(reconcileEntries), [reconcileEntries]);
 
   // Build tree and compute visible tasks for collapse/expand
@@ -2336,6 +2338,80 @@ export function ScheduleView() {
     focusRowById: focusRowByIdSoon,
   });
 
+  /**
+   * Schedule many unscheduled rows at once — the gutter's "Schedule N…" button
+   * (#2987). The tray names the problem with a count; this is the route from
+   * that count to the sheet that already knows how to write dates in one batch.
+   *
+   * The three steps before the selection are not optional. `selectedTasks`
+   * resolves against `visibleTasks`, which is the WBS tree flattened through
+   * `expandedIds` and then narrowed by the render filters — so a target row in a
+   * collapsed phase, or one hidden by an active critical/milestone/review
+   * filter, is absent from that array and would be dropped from the batch
+   * silently. "Selected 18, edited 4" is the failure this prevents.
+   *
+   * Clearing a filter the user switched on is a state change they did not ask
+   * for, so it is announced rather than done quietly.
+   */
+  const handleScheduleMany = useCallback(
+    (taskIds: string[]) => {
+      if (readOnly || !projectId || taskIds.length === 0) return;
+
+      const ancestors = ancestorIdsOf(allTasks, taskIds);
+      if (ancestors.length > 0) expand(ancestors);
+
+      const filtersWereActive = showCriticalOnly || showMilestonesOnly || reviewFilterActive;
+      if (filtersWereActive) {
+        setShowCriticalOnly(false);
+        setShowMilestonesOnly(false);
+        setReviewFilter(false);
+      }
+
+      // Order is load-bearing, in both directions.
+      //
+      // `focusRow` FIRST: `SELECT_IDS` returns the state untouched when the mode
+      // is `NoSelection` or no row is focused, and it anchors the selection on
+      // `state.rowId`. Clicking the tray's button from an idle Schedule is
+      // exactly that state, so selecting before focusing is a silent no-op.
+      //
+      // `selectIds` SECOND: `FOCUS_ROW` sets `selectedIds: null` by design — a
+      // plain focus collapses a multi-row selection, which is how a planner
+      // escapes one. Focusing after selecting would throw the batch away and
+      // open the sheet over a single row.
+      //
+      // Deliberately NOT `focusRowByIdSoon`: that helper retries `el.focus()`
+      // across ~10 animation frames, so on the branch this handler exists to
+      // serve (a row inside a collapsed phase, mounting a frame or two after the
+      // expand) it lands *after* the sheet's focus trap has seated focus and
+      // drags focus out of an open modal.
+      focus.focusRow(taskIds[0]);
+      focus.selectIds(taskIds);
+      // `openForIds`, not `open`: `open` guards on the selection captured in this
+      // render's closure, which predates the `selectIds` dispatch above.
+      bulkEdit.openForIds(taskIds);
+
+      if (ariaLiveRef.current) {
+        const n = taskIds.length;
+        const selected = `${n} unscheduled ${n === 1 ? 'row' : 'rows'} selected.`;
+        ariaLiveRef.current.textContent = filtersWereActive
+          ? `Render filters cleared so all ${n} rows are selectable. ${selected}`
+          : selected;
+      }
+    },
+    [
+      readOnly,
+      projectId,
+      allTasks,
+      expand,
+      showCriticalOnly,
+      showMilestonesOnly,
+      reviewFilterActive,
+      setReviewFilter,
+      focus,
+      bulkEdit,
+    ],
+  );
+
   const keyBindings = useMemo<Record<string, (e: KeyboardEvent) => void>>(() => {
     const out: Record<string, (e: KeyboardEvent) => void> = {};
     out['mod+m'] = (e) => {
@@ -2789,6 +2865,7 @@ export function ScheduleView() {
         effectiveMethodology={effectiveMethodology}
         rowModes={rowModes}
         onClassifyRequest={readOnly ? undefined : handleClassifyRequest}
+        onScheduleMany={readOnly ? undefined : handleScheduleMany}
       />
 
       {/* Contextual hint strip (#1250, web rule 194): render only while the user
@@ -2815,6 +2892,7 @@ export function ScheduleView() {
       {buildModeActive && focus.state.mode !== 'NoSelection' && (
         <BuildModeHintStrip
           mode={focus.state.mode}
+          selectionCount={focus.state.selectedIds?.size ?? 0}
           onShowCheatsheet={() => setCheatsheetOpen(true)}
         />
       )}
@@ -3847,6 +3925,9 @@ interface ScheduleMainAreaProps {
   rowModes: Map<string, RowMode>;
   /** Opens the classification popover on a row (#2736); omitted when read-only. */
   onClassifyRequest?: (taskId: string) => void;
+  /** Selects the tray's rows in the outline and opens the bulk-edit sheet
+   *  (#2987); omitted when read-only, so the button is absent not disabled. */
+  onScheduleMany?: (taskIds: string[]) => void;
 }
 
 /**
@@ -3967,6 +4048,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
     effectiveMethodology,
     rowModes,
     onClassifyRequest,
+    onScheduleMany,
   } = props;
 
   const itl = useIterationLabel(projectId ?? undefined);
@@ -4153,6 +4235,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
           canvasScrollRef={canvasScrollRef}
           taskListWidth={panelWidth}
           sprints={sprints}
+          onScheduleMany={onScheduleMany}
         />
       )}
     </>
