@@ -19,6 +19,7 @@ from typing import Any
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -40,6 +41,7 @@ from trueppm_api.apps.projects.project_templates import (
     validate_structure,
 )
 from trueppm_api.apps.projects.template_services import undo_template_application
+from trueppm_api.apps.workspace.models import AuditEvent
 
 User = get_user_model()
 
@@ -287,7 +289,10 @@ def test_publish_refuses_a_non_string_field_with_a_400_not_a_500(
     resp = admin_client.post("/api/v1/project-templates/publish/", body, format="json")
 
     assert resp.status_code == 400, resp.data
-    assert not ProjectTemplate.objects.exists()
+    # Scoped to what *this request* would have written, not to an empty table:
+    # #2909 seeds bundled starters, so a bare `.exists()` here stopped meaning
+    # "the refusal wrote nothing" and started meaning "the table is empty".
+    assert not ProjectTemplate.objects.filter(source_project=source_project).exists()
 
 
 @pytest.mark.django_db
@@ -596,3 +601,311 @@ def test_templates_cannot_be_minted_or_renamed_outside_publish(
 
     template.refresh_from_db()
     assert template.name == "Skeleton"
+
+
+# ---------------------------------------------------------------------------
+# #2909 — the way in was empty, and the screen its empty state named did not exist
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestBundledStarters:
+    """Every fresh install now has something in the Template way-in.
+
+    Before this, the only row-creation site was the publish action and no publish
+    UI existed, so the gallery was empty on every install and its empty state
+    pointed at a screen nobody had built.
+    """
+
+    def test_one_starter_ships_per_methodology(self) -> None:
+        # Whichever way in a new team picks, the gallery has something for it.
+        bundled = ProjectTemplate.objects.filter(source_kind=TemplateSource.COMMUNITY)
+        assert bundled.count() == 3
+        assert {t.structure["methodology"] for t in bundled} == {"AGILE", "WATERFALL", "HYBRID"}
+
+    def test_every_starter_is_a_document_apply_would_accept(self) -> None:
+        """A starter that fails validation is worse than no starter: it is a
+        way in that visibly exists and cannot be walked."""
+        for template in ProjectTemplate.objects.filter(source_kind=TemplateSource.COMMUNITY):
+            validate_structure(template.structure)
+
+    def test_starters_claim_no_publisher(self) -> None:
+        """Nobody in this workspace published them, and a name on the provenance
+        line that means nothing to the reader is worse than no name."""
+        for template in ProjectTemplate.objects.filter(source_kind=TemplateSource.COMMUNITY):
+            assert template.owner_id is None
+            assert template.published_by_id is None
+            assert template.source_project_id is None
+
+    def test_the_gallery_sorts_bundled_last(self, admin_client: APIClient) -> None:
+        """On a workspace with its own published shapes, those are read first."""
+        ProjectTemplate.objects.create(
+            name="Aardvark local shape",
+            source_kind=TemplateSource.WORKSPACE,
+            structure={"version": STRUCTURE_VERSION, "tasks": [], "methodology": "AGILE"},
+        )
+        rows = admin_client.get("/api/v1/project-templates/").data["results"]
+        kinds = [r["source_kind"] for r in rows]
+        # Not merely "workspace is present" — every community row after every
+        # non-community one, which alphabetical ordering alone would not give.
+        assert kinds == sorted(kinds, key=lambda k: k == "community")
+        assert kinds[0] == "workspace"
+
+
+@pytest.mark.django_db
+class TestPublishPreview:
+    """The dry run behind the Settings page's six counts and the confirm step."""
+
+    def test_counts_come_from_the_same_extraction_publish_runs(
+        self, admin_client: APIClient, source_project: Project
+    ) -> None:
+        _shape(source_project)
+        resp = admin_client.get(
+            "/api/v1/project-templates/publish-preview/", {"project": str(source_project.pk)}
+        )
+        assert resp.status_code == 200
+        assert resp.data["task_count"] == 2
+        assert resp.data["dependency_count"] == 1
+        assert "durations" in resp.data["carries"]
+
+    def test_phases_and_gates_are_counted_off_the_document(
+        self, admin_client: APIClient, source_project: Project
+    ) -> None:
+        """A phase is a node with structural descendants; a gate is a gated milestone."""
+        Task.objects.create(project=source_project, name="Initiate", duration=5, wbs_path="1")
+        Task.objects.create(project=source_project, name="Charter", duration=5, wbs_path="1.1")
+        Task.objects.create(
+            project=source_project,
+            name="Gate 1",
+            duration=0,
+            wbs_path="1.2",
+            is_milestone=True,
+            governance_class="gated",
+        )
+        resp = admin_client.get(
+            "/api/v1/project-templates/publish-preview/", {"project": str(source_project.pk)}
+        )
+        assert resp.data["phase_count"] == 1
+        assert resp.data["gate_count"] == 1
+        assert resp.data["milestone_count"] == 1
+
+    def test_it_reports_a_taken_name_before_the_form_is_filled_in(
+        self, admin_client: APIClient, source_project: Project
+    ) -> None:
+        _shape(source_project)
+        ProjectTemplate.objects.create(
+            name="Delivery skeleton",
+            version=2,
+            structure={"version": STRUCTURE_VERSION, "tasks": []},
+        )
+        resp = admin_client.get(
+            "/api/v1/project-templates/publish-preview/",
+            {"project": str(source_project.pk), "name": "Delivery skeleton"},
+        )
+        assert resp.data["name_taken"] is True
+        assert resp.data["next_version"] == 3
+
+    def test_it_writes_nothing(self, admin_client: APIClient, source_project: Project) -> None:
+        _shape(source_project)
+        before = ProjectTemplate.objects.count()
+        admin_client.get(
+            "/api/v1/project-templates/publish-preview/", {"project": str(source_project.pk)}
+        )
+        assert ProjectTemplate.objects.count() == before
+
+    def test_it_is_admin_only(self, source_project: Project, owner: Any) -> None:
+        member = User.objects.create_user(username="member", password="pw")
+        ProjectMembership.objects.create(project=source_project, user=member, role=Role.MEMBER)
+        client = APIClient()
+        client.force_authenticate(user=member)
+        resp = client.get(
+            "/api/v1/project-templates/publish-preview/", {"project": str(source_project.pk)}
+        )
+        assert resp.status_code == 403
+
+    def test_a_junk_project_id_is_a_400_not_a_500(self, admin_client: APIClient) -> None:
+        """`UUIDField.to_python` raises Django's ValidationError, which DRF does
+        not convert — the #2785 class, on a new query parameter."""
+        resp = admin_client.get(
+            "/api/v1/project-templates/publish-preview/", {"project": "not-a-uuid"}
+        )
+        assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+class TestRepublishVersioning:
+    """Republishing writes a new version and leaves the old one selectable.
+
+    The projects already created from v1 are the only audit trail a PMO has for
+    why they look the way they do; a version edited under them makes that a lie.
+    """
+
+    def _publish(self, client: APIClient, project: Project, **extra: Any) -> Any:
+        return client.post(
+            "/api/v1/project-templates/publish/",
+            {"project": str(project.pk), "name": "Delivery skeleton", **extra},
+            format="json",
+        )
+
+    def test_a_taken_name_is_a_409_offering_the_next_version(
+        self, admin_client: APIClient, source_project: Project
+    ) -> None:
+        _shape(source_project)
+        assert self._publish(admin_client, source_project).status_code == 201
+        resp = self._publish(admin_client, source_project)
+        assert resp.status_code == 409
+        assert resp.data["code"] == "name_taken"
+        # The form's recovery is "publish as v2 instead", so the number is in the body.
+        assert resp.data["next_version"] == 2
+
+    def test_republishing_writes_a_new_row_and_keeps_the_old_one(
+        self, admin_client: APIClient, source_project: Project
+    ) -> None:
+        _shape(source_project)
+        first = self._publish(admin_client, source_project).data
+        second = self._publish(admin_client, source_project, new_version=True).data
+
+        assert second["version"] == 2
+        assert str(second["supersedes"]) == str(first["id"])
+        assert second["id"] != first["id"]
+        # v1 is still there and still selectable — that is the point.
+        assert ProjectTemplate.objects.filter(pk=first["id"], is_published=True).exists()
+
+    def test_the_superseded_version_says_so(
+        self, admin_client: APIClient, source_project: Project
+    ) -> None:
+        _shape(source_project)
+        first = self._publish(admin_client, source_project).data
+        self._publish(admin_client, source_project, new_version=True)
+
+        rows = {
+            str(r["id"]): r for r in admin_client.get("/api/v1/project-templates/").data["results"]
+        }
+        assert rows[str(first["id"])]["is_superseded"] is True
+
+    def test_publish_records_the_project_it_was_frozen_from(
+        self, admin_client: APIClient, source_project: Project
+    ) -> None:
+        _shape(source_project)
+        data = self._publish(admin_client, source_project).data
+        assert str(data["source_project"]) == str(source_project.pk)
+        assert data["source_project_name"] == "Source"
+
+    def test_deleting_the_source_project_does_not_take_the_template(
+        self, admin_client: APIClient, source_project: Project
+    ) -> None:
+        """SET_NULL, not CASCADE: the structure is frozen, so a lost source is a
+        dropped provenance line and never a broken template."""
+        _shape(source_project)
+        data = self._publish(admin_client, source_project).data
+        # Memberships PROTECT the project, so clear them first — the thing under
+        # test is the template FK's on_delete, not the membership FK's.
+        ProjectMembership.objects.filter(project=source_project).delete()
+        source_project.delete()
+
+        template = ProjectTemplate.objects.get(pk=data["id"])
+        assert template.source_project_id is None
+        assert template.structure["tasks"]
+
+    def test_a_non_string_new_version_flag_is_not_a_500(
+        self, admin_client: APIClient, source_project: Project
+    ) -> None:
+        """The #2795 container-type class on the one new raw-body read."""
+        _shape(source_project)
+        self._publish(admin_client, source_project)
+        resp = self._publish(admin_client, source_project, new_version=[1, 2])
+        assert resp.status_code == 409
+
+
+@pytest.mark.django_db
+class TestUsageCount:
+    """ "12 projects" is the PMO's only evidence that a shape is the house standard."""
+
+    def _template(self) -> ProjectTemplate:
+        return ProjectTemplate.objects.create(
+            name="Counted", structure={"version": STRUCTURE_VERSION, "tasks": []}
+        )
+
+    def test_it_counts_successful_adoptions(
+        self, admin_client: APIClient, target_project: Project
+    ) -> None:
+        template = self._template()
+        TemplateApplication.objects.create(
+            template=template,
+            project=target_project,
+            template_name=template.name,
+            status=TemplateApplicationStatus.SUCCESS,
+        )
+        rows = {
+            str(r["id"]): r for r in admin_client.get("/api/v1/project-templates/").data["results"]
+        }
+        assert rows[str(template.pk)]["usage_count"] == 1
+
+    def test_an_undone_adoption_does_not_count(
+        self, admin_client: APIClient, target_project: Project
+    ) -> None:
+        """A template whose seeding was reversed was not adopted, and counting it
+        would overstate the standard it is supposed to be evidence of."""
+        template = self._template()
+        TemplateApplication.objects.create(
+            template=template,
+            project=target_project,
+            template_name=template.name,
+            status=TemplateApplicationStatus.SUCCESS,
+            undone_at=timezone.now(),
+        )
+        rows = {
+            str(r["id"]): r for r in admin_client.get("/api/v1/project-templates/").data["results"]
+        }
+        assert rows[str(template.pk)]["usage_count"] == 0
+
+
+@pytest.mark.django_db
+class TestPublishIsAudited:
+    """Publishing is a workspace-visible disclosure act, and must be legible after.
+
+    It takes one project's shape — task names included — and makes it readable by
+    everyone in the workspace, a wider audience than the source project's own
+    members. Republishing additionally changes what the house shape resolves to
+    for every future adopter. Found by the `ai-review` gate: both were Admin-gated
+    and neither left a trace.
+    """
+
+    def _publish(self, client: APIClient, project: Project, **extra: Any) -> Any:
+        return client.post(
+            "/api/v1/project-templates/publish/",
+            {"project": str(project.pk), "name": "Audited shape", **extra},
+            format="json",
+        )
+
+    def test_a_publish_writes_an_audit_event(
+        self, admin_client: APIClient, source_project: Project
+    ) -> None:
+        _shape(source_project)
+        self._publish(admin_client, source_project)
+
+        event = AuditEvent.objects.get(event_type="template_published")
+        assert event.target_label == "Audited shape v1"
+        assert event.metadata["version"] == 1
+        assert event.metadata["source_project"] == str(source_project.pk)
+        assert event.metadata["supersedes"] is None
+
+    def test_a_republish_records_what_it_superseded(
+        self, admin_client: APIClient, source_project: Project
+    ) -> None:
+        _shape(source_project)
+        first = self._publish(admin_client, source_project).data
+        self._publish(admin_client, source_project, new_version=True)
+
+        event = AuditEvent.objects.get(event_type="template_published", target_label__endswith="v2")
+        assert event.metadata["supersedes"] == str(first["id"])
+
+    def test_a_refused_publish_leaves_no_audit_entry(
+        self, admin_client: APIClient, source_project: Project
+    ) -> None:
+        """The log must never claim a publish that did not happen — a 409 writes
+        no template, so it writes no event either."""
+        _shape(source_project)
+        self._publish(admin_client, source_project)
+        assert self._publish(admin_client, source_project).status_code == 409
+        assert AuditEvent.objects.filter(event_type="template_published").count() == 1

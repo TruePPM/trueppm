@@ -2,6 +2,7 @@ import { useRef, useState, useEffect, type ChangeEvent, type FormEvent } from 'r
 import { useQueryClient } from '@tanstack/react-query';
 import { useCreateProject } from '@/hooks/useProjectMutations';
 import { usePrograms } from '@/hooks/usePrograms';
+import { useProjects } from '@/hooks/useProjects';
 import { useWorkspaceSettings } from '@/features/settings/hooks/useWorkspaceSettings';
 import { toast } from '@/components/Toast';
 import { TemplateGallery } from './TemplateGallery';
@@ -215,6 +216,14 @@ export function NewProjectModal({
   // landing on Template always lands on a ready-to-create state, never an empty
   // list waiting for a first click.
   const { data: templatesForWay } = useProjectTemplates(selectedProgramId);
+
+  // The first project the reader can see, for the empty state's "publish from…"
+  // route. Undefined on a truly fresh workspace with no projects at all, where
+  // the gallery falls back to naming the path in prose — there is nowhere to
+  // publish from yet, so a link would point at nothing.
+  const { data: visibleProjects } = useProjects();
+  const firstProject = visibleProjects?.[0];
+  const publishFrom = firstProject ? { id: firstProject.id, name: firstProject.name } : null;
   useEffect(() => {
     if (way === 'template' && !template && templatesForWay && templatesForWay.length > 0) {
       setTemplate(templatesForWay[0]);
@@ -468,6 +477,12 @@ export function NewProjectModal({
                       programId={selectedProgramId}
                       selectedId={template?.id ?? null}
                       onSelect={setTemplate}
+                      // Gives the never-published empty state a route to name
+                      // instead of prose (#2909). Any project the reader can see
+                      // will do: the Settings page states the Project-Manager
+                      // gate itself, so a Member who follows the link is told the
+                      // rule rather than shown a control that cannot be pressed.
+                      publishFrom={publishFrom}
                     />
                   ) : (
                     <div className="flex flex-col gap-1 rounded-card border border-neutral-border p-3">

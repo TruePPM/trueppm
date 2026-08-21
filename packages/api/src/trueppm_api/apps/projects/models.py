@@ -7643,6 +7643,29 @@ class ProjectTemplate(models.Model):
     # so "this project came from Delivery Skeleton v3" survives the template moving
     # to v4 (ADR-0789 §1).
     version = models.PositiveIntegerField(default=1)
+    # The project this shape was frozen from (#2909). Advisory and nullable:
+    # SET_NULL rather than CASCADE because deleting the source project must not
+    # take the template — and every project already created from it — with it.
+    # The template's `structure` is a frozen document, so a dangling source is
+    # a lost provenance line, never a broken template.
+    source_project = models.ForeignKey(
+        PROJECT_MODEL_LABEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="published_templates",
+    )
+    # The earlier version this one replaces (#2909). Republishing writes a NEW
+    # row rather than editing in place, because projects already created from v1
+    # are the only audit trail a PMO has for why they look the way they do —
+    # and a version edited under them makes that trail a lie.
+    supersedes = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="superseded_by",
+    )
     # What this publish carried, recorded at publish time so a reader can see the
     # answer without re-deriving it from the structure document (issue §1).
     carries = models.JSONField(default=list, blank=True)

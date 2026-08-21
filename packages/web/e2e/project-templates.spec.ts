@@ -18,6 +18,21 @@ const NEW_PID = 'e2e-2729-0000-0000-0000-000000000042';
 const pj = (b: unknown) => JSON.stringify(b);
 const page200 = { count: 0, next: null, previous: null, results: [] };
 
+/** A bundled starter — `community` provenance, which the gallery labels Bundled. */
+const BUNDLED = {
+  id: 'tpl-0000-0000-0000-000000000002',
+  name: 'Scrum product team',
+  description: 'Discovery, then two sprints.',
+  source_kind: 'community',
+  provenance: 'Community',
+  carries: ['structure', 'dependencies'],
+  methodology: 'AGILE',
+  task_count: 13,
+  version: 1,
+  program: null,
+  published_at: '2026-08-01T00:00:00Z',
+};
+
 const TEMPLATE = {
   id: 'tpl-0000-0000-0000-000000000001',
   name: 'Delivery skeleton',
@@ -34,7 +49,7 @@ const TEMPLATE = {
 
 async function setup(
   page: import('@playwright/test').Page,
-  opts: { templatesStatus?: number } = {},
+  opts: { templatesStatus?: number; templatesEmpty?: boolean; templatesMulti?: boolean } = {},
 ) {
   await page.addInitScript(() => {
     localStorage.setItem(
@@ -97,7 +112,16 @@ async function setup(
       contentType: 'application/json',
       body: pj(
         (opts.templatesStatus ?? 200) === 200
-          ? { count: 1, next: null, previous: null, results: [TEMPLATE] }
+          ? {
+              count: opts.templatesEmpty ? 0 : opts.templatesMulti ? 2 : 1,
+              next: null,
+              previous: null,
+              results: opts.templatesEmpty
+                ? []
+                : opts.templatesMulti
+                  ? [TEMPLATE, BUNDLED]
+                  : [TEMPLATE],
+            }
           : { detail: 'boom' },
       ),
     }),
@@ -177,10 +201,48 @@ test.describe('Project template list — the Start sheet Template way (#2729, #2
     const dialog = await openStartSheet(page);
     await dialog.getByRole('radio', { name: /^template/i }).click();
 
-    await expect(dialog.getByText(/try blank or import instead/i)).toBeVisible();
+    // #2909 restates this: a list failure is not a creation failure, and says so.
+    await expect(dialog.getByText(/Blank.*Import.*still work/i)).toBeVisible();
     // Create is disabled on Template with nothing to select — but the user can
     // still pick a sibling way and proceed.
     await dialog.getByRole('radio', { name: /^blank/i }).click();
     await expect(dialog.getByRole('button', { name: /create project/i })).toBeEnabled();
+  });
+});
+
+
+test.describe('Template way-in is never empty (#2909)', () => {
+  test('the empty state names a screen that exists, and links to it', async ({ page }) => {
+    // The whole ticket: the old copy said "publish one from a project's Settings"
+    // when that page had never been built, so the way in was a dead end.
+    await setup(page, { templatesEmpty: true });
+    const dialog = await openStartSheet(page);
+    await dialog.getByRole('radio', { name: /^template/i }).click();
+
+    await expect(dialog.getByText('No templates yet')).toBeVisible();
+    // This fixture is a genuinely fresh workspace — "Create your first project"
+    // means there is nothing to publish *from* yet, so the prose variant is the
+    // correct state and a link would point at nothing. The route variant is
+    // covered in TemplateGallery.test.tsx, where a project exists.
+    await expect(dialog.getByText(/Settings → Templates/)).toBeVisible();
+    await expect(dialog.getByText(/Project Manager role on it/)).toBeVisible();
+
+    // And the other two ways are still offered rather than implied.
+    await expect(dialog.getByText(/Blank.*Import.*are ready to use now/i)).toBeVisible();
+  });
+
+  test('bundled starters are legible as bundled and sort after local shapes', async ({
+    page,
+  }) => {
+    await setup(page, { templatesMulti: true });
+    const dialog = await openStartSheet(page);
+    await dialog.getByRole('radio', { name: /^template/i }).click();
+
+    const rows = dialog.getByRole('radio', { name: /skeleton|Scrum product team/ });
+    await expect(rows.first()).toContainText('Delivery skeleton');
+    // On a workspace with its own published shape, the bundled starter reads
+    // second — order is a nudge, and the chip carries the information.
+    await expect(rows.nth(1)).toContainText('Scrum product team');
+    await expect(rows.nth(1)).toContainText('Community');
   });
 });
