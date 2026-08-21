@@ -253,6 +253,7 @@ function makeTeamEntry(id: string, name: string): MyActiveSprintEntry {
       rolling_avg_points: 18,
       forecast_range_low: 16,
       forecast_range_high: 22,
+      velocity_suppressed: false,
     },
   };
 }

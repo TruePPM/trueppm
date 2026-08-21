@@ -23,6 +23,12 @@ export interface MyActiveSprintEntry {
     rolling_avg_points: number | null;
     forecast_range_low: number | null;
     forecast_range_high: number | null;
+    /**
+     * True when the ADR-0104 velocity gate stripped this project's point figures
+     * for the caller — the three nulls above are a gated band, not an absent one.
+     * False when they simply mean "no closed sprints yet" (#2895).
+     */
+    velocity_suppressed: boolean;
   };
 }
 

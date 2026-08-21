@@ -4284,7 +4284,7 @@
         "/api/v1/me/active-sprints/": {
             "get": {
                 "operationId": "v1_me_active_sprints_retrieve",
-                "description": "``GET /api/v1/me/active-sprints/`` — multi-team Sprints lens (#230).\n\nReturns a summary entry for every project where the requesting user has\na non-complete task assignment in that project's currently-ACTIVE\nsprint. Frontends use this to render the multi-team Sprints lens\nwithout iterating ``/projects/`` and ``/sprints/`` per project.\n\nEach entry includes enough data to render a card without follow-up\nrequests: sprint name + window + day-N-of-M, points remaining, capacity\nratio + label, and the rolling-velocity forecast range. The user's\nproject membership is implicit — if they are assigned to a task they\nare at minimum a Member.",
+                "description": "``GET /api/v1/me/active-sprints/`` — multi-team Sprints lens (#230).\n\nReturns a summary entry for every project where the requesting user has\na non-complete task assignment in that project's currently-ACTIVE\nsprint. Frontends use this to render the multi-team Sprints lens\nwithout iterating ``/projects/`` and ``/sprints/`` per project.\n\nEach entry includes enough data to render a card without follow-up\nrequests: sprint name + window + day-N-of-M, points remaining, capacity\nratio + label, and the rolling-velocity forecast range.\n\nMembership is **checked, never inferred** (#2895). An assignment is not a\nmembership: ``ProjectMembership`` is soft-deleted, so a revoked member keeps\ntheir stale ``Task.assignee`` rows and would otherwise keep reading the\nproject through this lens long after every other endpoint denied them. The\nqueryset below therefore joins live membership explicitly, and the velocity\nblock runs the ADR-0104 gate per project — this is a sink for\n``velocity_summary`` exactly like ``/velocity/`` and ``/forecast/``, and the\ngate has to fire at *every* sink or the lens is a side-channel back to the\nband those two suppress.\n\nThat sink set is **not** closed as of this writing: ``reforecast-preview``\nstill returns ``forecast_range_low``/``_high`` ungated (#2982). Do not read\nthe paragraph above as a guarantee that every sibling is gated — it is the\nrule, not a statement that the rule currently holds everywhere.",
                 "summary": "Multi-team active-sprints lens for the current user",
                 "tags": [
                     "me"
@@ -63384,7 +63384,7 @@
             },
             "_ActiveSprintCardVelocity": {
                 "type": "object",
-                "description": "Rolling-velocity forecast block nested in each ``/me/active-sprints/`` card.",
+                "description": "Rolling-velocity forecast block nested in each ``/me/active-sprints/`` card.\n\nThe three point figures are nulled — not withheld — when the caller is below\nthe project's velocity audience (ADR-0104 §2.1, #2895); ``velocity_suppressed``\nis what distinguishes that from a team with no closed sprints yet.",
                 "properties": {
                     "rolling_avg_points": {
                         "type": "number",
@@ -63400,12 +63400,17 @@
                         "type": "number",
                         "format": "double",
                         "nullable": true
+                    },
+                    "velocity_suppressed": {
+                        "type": "boolean",
+                        "description": "True when the ADR-0104 velocity gate stripped this project's point figures for the caller. False when the nulls mean 'no velocity data yet' instead."
                     }
                 },
                 "required": [
                     "forecast_range_high",
                     "forecast_range_low",
-                    "rolling_avg_points"
+                    "rolling_avg_points",
+                    "velocity_suppressed"
                 ]
             },
             "_CookieRefreshResponse": {

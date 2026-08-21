@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import { LockIcon } from '@/components/Icons';
 import type { MyActiveSprintEntry } from '@/hooks/useMyActiveSprints';
 
 interface Props {
@@ -73,8 +74,16 @@ function TeamCard({ entry }: { entry: MyActiveSprintEntry }) {
       ? `${trend} pts ahead`
       : `${Math.abs(trend)} pts behind`;
   const velocity = entry.velocity;
+  // ADR-0104 §2.1: the server nulls this project's band when the reader is above
+  // its velocity audience. Both states are three nulls on the wire, so branch on
+  // the flag first — "no velocity yet" would be a lie to a gated reader, and it
+  // is the wrong lie: it reports the team as having no history rather than as
+  // not having shared it (#2895).
+  const suppressed = velocity.velocity_suppressed;
   const showForecast =
-    velocity.forecast_range_low !== null && velocity.forecast_range_high !== null;
+    !suppressed &&
+    velocity.forecast_range_low !== null &&
+    velocity.forecast_range_high !== null;
 
   return (
     <li>
@@ -121,6 +130,17 @@ function TeamCard({ entry }: { entry: MyActiveSprintEntry }) {
                 {velocity.forecast_range_low}–{velocity.forecast_range_high}
               </span>{' '}
               pts
+            </span>
+          ) : suppressed ? (
+            <span
+              className="text-neutral-text-secondary"
+              data-testid="lens-velocity-suppressed"
+            >
+              <LockIcon
+                className="inline-block h-3 w-3 align-[-0.125em] mr-1"
+                aria-hidden="true"
+              />
+              Team-private
             </span>
           ) : (
             <span className="text-neutral-text-disabled italic">no velocity yet</span>

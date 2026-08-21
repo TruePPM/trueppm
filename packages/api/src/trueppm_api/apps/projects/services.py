@@ -4700,9 +4700,11 @@ def _emit_sprint_membership_notifications(
 def project_forecast(project_id: str | uuid.UUID) -> dict[str, Any]:
     """Aggregate the project forecast read (ADR-0106 §5, #487/#860).
 
-    Returns the velocity range (avg ± 1σ, with the per-sprint series — the
-    velocity privacy gate of ADR-0104 / #553, not yet merged, will suppress it for
-    below-tier readers once it lands at the shared ``velocity_summary`` sink), the
+    Returns the velocity range (avg ± 1σ, with the per-sprint series — ADR-0104's
+    privacy gate suppresses both for a below-tier reader, and is applied by the
+    *caller*: this function is an ungated computation, so every view that reaches
+    it must run ``can_read_signal`` / ``suppress_velocity_summary`` itself, as
+    ``ProjectForecastView`` does. Missing that at one sink is #2895), the
     remaining committed backlog re-paced into a sprints-to-complete range, and the
     latest ``ForecastSnapshot`` per bound milestone.
 

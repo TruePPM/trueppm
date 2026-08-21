@@ -13,12 +13,16 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.projects import signal_privacy_services
 from trueppm_api.apps.projects.models import (
     Calendar,
     Project,
+    ProjectSignalPrivacyPolicy,
+    SignalAudience,
     Sprint,
     SprintState,
     Task,
@@ -368,3 +372,219 @@ def test_user_with_no_active_assignments_gets_empty_list(calendar: Calendar, ali
     resp = _client(alice).get("/api/v1/me/active-sprints/")
     assert resp.status_code == 200
     assert resp.data == []
+
+
+# --------------------------------------------------------------------------- #
+# #2895 — the velocity gate and the membership re-check
+# --------------------------------------------------------------------------- #
+
+
+def _closed_sprints(project: Project, n: int = 2) -> None:
+    """``n`` closed sprints so ``velocity_summary`` returns a real, non-null band.
+
+    Without these the point figures are null for *everyone*, and a suppression
+    assertion would pass vacuously against absent data rather than a fired gate.
+    """
+    base = date(2026, 1, 6)
+    for i in range(n):
+        Sprint.objects.create(
+            project=project,
+            name=f"Closed {i + 1}",
+            start_date=base + timedelta(days=14 * i),
+            finish_date=base + timedelta(days=14 * i + 10),
+            state=SprintState.COMPLETED,
+            completed_points=20 + i,
+            completed_task_count=5 + i,
+            closed_at=timezone.now() - timedelta(days=14 * (n - i)),
+        )
+
+
+@pytest.mark.django_db
+def test_member_reads_the_full_velocity_band_at_the_default_audience(
+    calendar: Calendar, alice: object
+) -> None:
+    """The regression guard for the gate below: at the default TEAM audience an
+    ordinary member's card is byte-for-byte what it was before #2895 — the gate
+    only ever fires for a reader *above* the audience."""
+    p1 = _project(calendar, "Alpha")
+    _membership(p1, alice)
+    _closed_sprints(p1)
+    s1 = _active_sprint(p1, "Alpha S1")
+    Task.objects.create(project=p1, name="T1", duration=1, sprint=s1, assignee=alice)
+
+    resp = _client(alice).get("/api/v1/me/active-sprints/")
+    assert resp.status_code == 200
+    vel = resp.data[0]["velocity"]
+    assert vel["velocity_suppressed"] is False
+    assert vel["rolling_avg_points"] is not None
+    assert vel["forecast_range_low"] is not None
+    assert vel["forecast_range_high"] is not None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("role", [Role.ADMIN, Role.OWNER])
+def test_admin_gets_the_velocity_band_suppressed_at_the_default_audience(
+    calendar: Calendar, role: int
+) -> None:
+    """🔴 #2895: an ADMIN/OWNER resolves to the TEAM_SM_PM band, which is above
+    velocity's TEAM default — so this lens must strip the point figures exactly as
+    ``/velocity/`` and ``/forecast/`` do. Before the fix this endpoint was the
+    management bypass around ADR-0104's team-privacy inversion.
+
+    Both roles are pinned: ``requester_signal_tier`` branches on ``role >= ADMIN``,
+    so OWNER rides the same path and a future split of that comparison would
+    otherwise reopen the bypass for the higher role only."""
+    pm = User.objects.create_user(username="pm", password="pw")
+    p1 = _project(calendar, "Alpha")
+    ProjectMembership.objects.create(project=p1, user=pm, role=role)
+    _closed_sprints(p1)
+    s1 = _active_sprint(p1, "Alpha S1")
+    Task.objects.create(project=p1, name="T1", duration=1, sprint=s1, assignee=pm)
+
+    resp = _client(pm).get("/api/v1/me/active-sprints/")
+    assert resp.status_code == 200
+    assert len(resp.data) == 1, "the card itself is suppressed, not withheld"
+    vel = resp.data[0]["velocity"]
+    assert vel["velocity_suppressed"] is True
+    assert vel["rolling_avg_points"] is None
+    assert vel["forecast_range_low"] is None
+    assert vel["forecast_range_high"] is None
+    # The rest of the card is untouched — suppression is scoped to the band.
+    assert resp.data[0]["sprint"]["committed_points"] == 40
+    assert resp.data[0]["capacity_label"] is not None
+
+
+@pytest.mark.django_db
+def test_viewer_reads_the_band_like_any_other_team_insider(calendar: Calendar) -> None:
+    """A VIEWER resolves to the TEAM band, not below it — the ladder measures
+    management distance, not role power, so the lowest-privilege team member
+    reads the team's own signal. Guards against "fix" the gate by ranking on the
+    role ordinal, which would deny the team and keep admitting the PM."""
+    viewer = User.objects.create_user(username="viewer", password="pw")
+    p1 = _project(calendar, "Alpha")
+    ProjectMembership.objects.create(project=p1, user=viewer, role=Role.VIEWER)
+    _closed_sprints(p1)
+    s1 = _active_sprint(p1, "Alpha S1")
+    Task.objects.create(project=p1, name="T1", duration=1, sprint=s1, assignee=viewer)
+
+    resp = _client(viewer).get("/api/v1/me/active-sprints/")
+    assert resp.status_code == 200
+    vel = resp.data[0]["velocity"]
+    assert vel["velocity_suppressed"] is False
+    assert vel["rolling_avg_points"] is not None
+
+
+@pytest.mark.django_db
+def test_gate_falls_back_to_the_coded_default_when_the_policy_omits_velocity(
+    calendar: Calendar,
+) -> None:
+    """A policy row exists but carries no ``velocity`` entry — the signal must
+    resolve to its coded TEAM default and still suppress the PM. Pins the
+    SIGNAL_DEFAULTS branch of can_read_signal, which a partially-written policy
+    (any signal configured but not this one) reaches in production."""
+    pm = User.objects.create_user(username="pm", password="pw")
+    p1 = _project(calendar, "Alpha")
+    ProjectMembership.objects.create(project=p1, user=pm, role=Role.ADMIN)
+    _closed_sprints(p1)
+    s1 = _active_sprint(p1, "Alpha S1")
+    Task.objects.create(project=p1, name="T1", duration=1, sprint=s1, assignee=pm)
+
+    # A row that configures a different signal entirely, leaving velocity absent.
+    ProjectSignalPrivacyPolicy.objects.create(
+        project=p1, signal_visibility={"pulse": {"audience": SignalAudience.TEAM_SM_PM}}
+    )
+
+    resp = _client(pm).get("/api/v1/me/active-sprints/")
+    assert resp.status_code == 200
+    assert resp.data[0]["velocity"]["velocity_suppressed"] is True
+    assert resp.data[0]["velocity"]["rolling_avg_points"] is None
+
+
+@pytest.mark.django_db
+def test_admin_reads_the_band_once_the_team_shares_velocity_upward(
+    calendar: Calendar,
+) -> None:
+    """The gate is an audience check, not a role ban: once the team raises
+    velocity's audience to TEAM_SM_PM the same ADMIN reads the full band."""
+    pm = User.objects.create_user(username="pm", password="pw")
+    p1 = _project(calendar, "Alpha")
+    ProjectMembership.objects.create(project=p1, user=pm, role=Role.ADMIN)
+    _closed_sprints(p1)
+    s1 = _active_sprint(p1, "Alpha S1")
+    Task.objects.create(project=p1, name="T1", duration=1, sprint=s1, assignee=pm)
+
+    # Raise the ceiling then the audience through the services — the model exposes
+    # no bare field write, and the ``audience <= ceiling`` invariant lives there.
+    policy, _ = ProjectSignalPrivacyPolicy.objects.get_or_create(project=p1)
+    signal_privacy_services.raise_signal_ceiling(policy, "velocity", SignalAudience.TEAM_SM_PM)
+    signal_privacy_services.set_signal_audience(policy, "velocity", SignalAudience.TEAM_SM_PM)
+
+    resp = _client(pm).get("/api/v1/me/active-sprints/")
+    assert resp.status_code == 200
+    vel = resp.data[0]["velocity"]
+    assert vel["velocity_suppressed"] is False
+    assert vel["rolling_avg_points"] is not None
+
+
+@pytest.mark.django_db
+def test_revoked_member_with_a_stale_assignment_gets_no_card(
+    calendar: Calendar, alice: object
+) -> None:
+    """🔴 #2895: ProjectMembership is *soft*-deleted, so revoking a member leaves
+    their ``Task.assignee`` rows intact. The docstring used to call membership
+    "implicit" from the assignment — under soft delete that inference is false, and
+    it let a removed member keep reading the project's velocity band through this
+    lens while every other endpoint denied them."""
+    p1 = _project(calendar, "Alpha")
+    membership = _membership(p1, alice)
+    _closed_sprints(p1)
+    s1 = _active_sprint(p1, "Alpha S1")
+    Task.objects.create(project=p1, name="T1", duration=1, sprint=s1, assignee=alice)
+
+    # Sanity: the card is there while the membership is live.
+    assert len(_client(alice).get("/api/v1/me/active-sprints/").data) == 1
+
+    membership.is_deleted = True
+    membership.save()
+
+    resp = _client(alice).get("/api/v1/me/active-sprints/")
+    assert resp.status_code == 200
+    assert resp.data == [], "a revoked member must not read the project at all"
+
+
+@pytest.mark.django_db
+def test_assignment_without_any_membership_gets_no_card(calendar: Calendar, alice: object) -> None:
+    """The same hole reached the other way: a task assigned to a user who was never
+    a member of the project (a stale import, a cross-project reassignment) is not a
+    grant of read access either."""
+    p1 = _project(calendar, "Alpha")
+    _closed_sprints(p1)
+    s1 = _active_sprint(p1, "Alpha S1")
+    Task.objects.create(project=p1, name="T1", duration=1, sprint=s1, assignee=alice)
+
+    resp = _client(alice).get("/api/v1/me/active-sprints/")
+    assert resp.status_code == 200
+    assert resp.data == []
+
+
+@pytest.mark.django_db
+def test_gate_is_resolved_per_project_not_per_request(calendar: Calendar) -> None:
+    """This lens spans teams, so one caller can be a plain member of one project and
+    the PM of the next. Each project's own audience decides its own card."""
+    user = User.objects.create_user(username="both", password="pw")
+    as_member = _project(calendar, "AsMember")
+    as_pm = _project(calendar, "AsPM")
+    ProjectMembership.objects.create(project=as_member, user=user, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=as_pm, user=user, role=Role.ADMIN)
+    for project in (as_member, as_pm):
+        _closed_sprints(project)
+        sprint = _active_sprint(project, f"{project.name} S1")
+        Task.objects.create(project=project, name="T1", duration=1, sprint=sprint, assignee=user)
+
+    resp = _client(user).get("/api/v1/me/active-sprints/")
+    assert resp.status_code == 200
+    by_name = {row["project_name"]: row["velocity"] for row in resp.data}
+    assert by_name["AsMember"]["velocity_suppressed"] is False
+    assert by_name["AsMember"]["rolling_avg_points"] is not None
+    assert by_name["AsPM"]["velocity_suppressed"] is True
+    assert by_name["AsPM"]["rolling_avg_points"] is None
