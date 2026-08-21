@@ -1911,6 +1911,22 @@ class McpReadableViewMixin(_McpViewBase):
         # ``request.auth`` in a way that could re-trigger (and re-raise) a failed
         # authentication inside finalize_response. (Identity refusals — a revoked/expired
         # token — are audited in the authenticator, which still has the token context.)
+        #
+        # ``successful_authenticator`` is a *lazy* DRF property: if authentication was
+        # never attempted this request, reading it runs ``_authenticate()`` for the
+        # first time right here. That happens when an exception is raised in
+        # ``initial()`` *before* ``perform_authentication()`` — e.g. an unsupported URL
+        # format suffix (``/projects/0.5/`` parses as pk="0", format="5") fails content
+        # negotiation first. DRF's exception_handler has already called
+        # ``set_rollback()`` for that exception by the time we get here, so triggering
+        # authentication's own DB lookup (``JWTAuthentication.get_user()``) now raises
+        # ``TransactionManagementError`` instead of returning cleanly (#2989). Check
+        # ``_authenticator`` first — DRF sets it (to an authenticator or ``None``)
+        # on every *attempted* authentication, so its absence means one never ran, and
+        # a request that was never authenticated is not an authenticated agent-token
+        # call either way.
+        if not hasattr(request, "_authenticator"):
+            return
         if getattr(request, "successful_authenticator", None) is None:
             return
         token = getattr(request, "auth", None)
