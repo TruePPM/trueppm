@@ -143,10 +143,34 @@ function BacklogForecast({
 }) {
   const itl = useIterationLabel(projectId);
   const { sprints_to_complete_low: low, sprints_to_complete_high: high } = forecast;
+  const remaining = forecast.remaining_committed_points;
+
+  // A null band means one of TWO different things, and they must not be
+  // conflated (#2966):
+  //
+  //   • the ADR-0104 velocity gate suppressed it — the reader is below the
+  //     velocity audience, and the server nulls the BASIS too so /forecast/ is
+  //     not a side-channel back to the band (#981);
+  //   • warm-up — fewer than 3 closed sprints, so there is no defensible band.
+  //
+  // Showing the warm-up nudge to a suppressed reader would tell them the team
+  // has no forecast, which is false, and deep-link them to "fix" inputs that
+  // are not broken. `remaining` is the discriminator: the gate nulls it, warm-up
+  // does not.
+  //
+  // The single call site does pass `enabled: false` when velocity is suppressed,
+  // so this branch is defence-in-depth on a privacy boundary rather than a live
+  // bug — which is exactly where a second layer is worth having.
+  if (remaining == null) {
+    return (
+      <span>
+        Velocity is private to this team, so the delivery forecast is not shown here.
+      </span>
+    );
+  }
   if (low == null || high == null) {
     return <ForecastWarmup forecast={forecast} projectId={projectId} />;
   }
-  const remaining = forecast.remaining_committed_points;
   if (remaining <= 0) {
     return <span>No remaining committed backlog — the current scope is fully delivered.</span>;
   }
