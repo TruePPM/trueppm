@@ -162,6 +162,7 @@ from trueppm_api.apps.projects.serializers import (
     CalendarSerializer,
     CommentAcknowledgementSerializer,
     CommentReactionSerializer,
+    CommitProjectResultSerializer,
     CrossProjectSlipConflictSerializer,
     CycleDetectedError,
     DecisionNoteSerializer,
@@ -9944,6 +9945,71 @@ class BoardLanesView(McpReadableViewMixin, APIView):
                     for lane in lanes
                 ],
                 "crumbs": crumbs,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema(
+    summary="Commit the plan",
+    description=(
+        "Takes the project from `draft` to `active` and captures **baseline v1** "
+        "automatically (#2963).\n\n"
+        "This is not a lock. Authoring continues afterwards; what changes is that "
+        "the plan starts having a past, and a structural edit to committed work "
+        "carries a reason from here on.\n\n"
+        "The baseline **freezes the working calendar** it was computed against "
+        "(ADR-0845), so a later calendar edit changes variance rather than "
+        "silently moving the thing variance is measured from.\n\n"
+        "Returns `409` if the project is already active — a second commit would "
+        "capture a second 'v1' and move the anchor."
+    ),
+    request=None,
+    responses={
+        200: CommitProjectResultSerializer,
+        409: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Already active. The plan has been committed once already.",
+        ),
+    },
+)
+class ProjectCommitView(IdempotencyMixin, APIView):
+    """POST /projects/{pk}/commit/ — draft → active with baseline v1."""
+
+    def get_permissions(self) -> list[BasePermission]:
+        # Committing is a schedule-affecting act with a notification fan-out, so
+        # it sits at the same floor as other schedule writes rather than at
+        # plain membership.
+        return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
+
+    def post(self, request: Request, pk: str) -> Response:
+        from trueppm_api.apps.projects.commit_moment import (
+            AlreadyCommitted,
+            commit_project,
+        )
+
+        project = get_object_or_404(Project, pk=pk)
+        self.check_object_permissions(request, project)
+        try:
+            # IsAuthenticated has already run, so this is a real user — narrow
+            # for the type checker rather than widening the service signature to
+            # accept AnonymousUser, which it must never be handed.
+            user = request.user if request.user.is_authenticated else None
+            result = commit_project(project, user=user)
+        except AlreadyCommitted:
+            return Response(
+                {
+                    "detail": "This plan has already been committed.",
+                    "code": "already_committed",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(
+            {
+                "baseline_id": str(result.baseline.id),
+                "baseline_name": result.baseline.name,
+                "task_count": result.task_count,
+                "notified_resource_count": len(result.notified_resource_ids),
             },
             status=status.HTTP_200_OK,
         )

@@ -157,6 +157,7 @@ api/v1/programs/<uuid:program_pk>/mention-groups/<uuid:pk>/unmute/
 api/v1/projects/<pk>/board-config/
 api/v1/projects/<pk>/board-views/
 api/v1/projects/<pk>/board-views/<view_pk>/
+api/v1/projects/<pk>/commit/
 api/v1/projects/<pk>/phases/reorder/
 api/v1/projects/<pk>/tasks/<task_id>/indent/
 api/v1/projects/<pk>/tasks/<task_id>/outdent/
