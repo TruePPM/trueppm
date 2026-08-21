@@ -30,6 +30,7 @@ def enqueue_csv_import(import_request_id: str) -> None:
             file_content_b64=req.file_content_b64,
             filename=req.filename,
             column_map=req.column_map,
+            date_order=req.date_order,
             initiated_by_id=req.initiated_by_id,
             import_request_id=str(req.id),
         )

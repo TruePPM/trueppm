@@ -190,6 +190,19 @@ _DATE_FORMATS = (
     "%d-%b-%y",
 )
 
+#: The date orders a caller may request on the import endpoints (#2926).
+#:
+#: ``auto`` is the shipped behavior — scan the file and settle the convention
+#: from the first self-identifying value. The other three are the operator
+#: asserting what their own export uses, which is the only thing that can
+#: resolve a file where every value reads validly both ways.
+DATE_ORDERS = ("auto", "mdy", "dmy", "iso")
+
+#: What ``auto`` falls back to when the file identifies nothing. US English, per
+#: project convention — and the reason the ambiguous state has to be announced
+#: rather than assumed: it is a coin flip, not a reading.
+AMBIGUOUS_FALLBACK_ORDER = "mdy"
+
 
 class CsvImportError(Exception):
     """The upload is structurally unusable and no rows can be produced."""
@@ -277,6 +290,89 @@ class UnresolvedRow:
 
 
 @dataclass
+class DateReading:
+    """One convention's reading of the file — the ambiguous state's comparison row.
+
+    An ambiguous file is one where both readings are internally valid, so the
+    only honest way to present the choice is to show what each one *does* to the
+    same task. ``duration_days`` is the field that makes a wrong order
+    impossible to miss: 03/04 → 05/04 is either 3 days or 62.
+    """
+
+    order: str
+    #: Spreadsheet row the sample was taken from, 1-based including the header.
+    sample_row: int | None = None
+    sample_name: str = ""
+    sample_raw_start: str = ""
+    start: str | None = None
+    finish: str | None = None
+    duration_days: int | None = None
+    #: Date cells that parse under this order, and those that do not.
+    values_matched: int = 0
+    values_failed: int = 0
+    #: Rows losing at least one date cell under this order.
+    rows_unparseable: int = 0
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "order": self.order,
+            "sample_row": self.sample_row,
+            "sample_name": self.sample_name,
+            "sample_raw_start": self.sample_raw_start,
+            "start": self.start,
+            "finish": self.finish,
+            "duration_days": self.duration_days,
+            "values_matched": self.values_matched,
+            "values_failed": self.values_failed,
+            "rows_unparseable": self.rows_unparseable,
+        }
+
+
+@dataclass
+class DateConvention:
+    """How the date order was settled, and the evidence for it (#2926).
+
+    The server has always known *why* it picked a convention and then discarded
+    that reasoning into a rendered sentence. This carries the reasoning across
+    the API boundary instead, because the client cannot reconstruct "row 14 is
+    13/04/2026, so the file can only be day-first" from a bare enum — and a
+    statement the operator cannot check against their own file is just a guess
+    with better typography.
+    """
+
+    #: What the caller asked for: one of :data:`DATE_ORDERS`.
+    requested: str = "auto"
+    #: What will actually be used: ``mdy``/``dmy``/``iso``, never ``auto``.
+    resolved: str = AMBIGUOUS_FALLBACK_ORDER
+    #: What ``auto`` would have chosen. Equals ``resolved`` unless overridden —
+    #: the override copy names both ("Auto would have read this as M/D/Y").
+    auto_resolved: str = AMBIGUOUS_FALLBACK_ORDER
+    #: True only when auto had no evidence *and* there was something to settle.
+    ambiguous: bool = False
+    #: ``{row, column, value, reason}`` for the value that settled it, if any.
+    evidence: dict[str, Any] | None = None
+    values_matched: int = 0
+    values_failed: int = 0
+    #: Both readings, populated only for the ambiguous case that needs them.
+    readings: list[DateReading] = field(default_factory=list)
+    #: False when no column is mapped to a date field — the control is inert.
+    has_date_columns: bool = False
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "requested": self.requested,
+            "resolved": self.resolved,
+            "auto_resolved": self.auto_resolved,
+            "ambiguous": self.ambiguous,
+            "evidence": self.evidence,
+            "values_matched": self.values_matched,
+            "values_failed": self.values_failed,
+            "readings": [r.as_dict() for r in self.readings],
+            "has_date_columns": self.has_date_columns,
+        }
+
+
+@dataclass
 class ParseResult:
     """Everything both the preview and the commit path need from one upload."""
 
@@ -293,6 +389,12 @@ class ParseResult:
     total_rows: int = 0
     #: Data rows dropped because ``max_rows`` was reached.
     truncated_rows: int = 0
+    #: How the date order was settled, and the evidence for it (#2926).
+    date_order: DateConvention = field(default_factory=DateConvention)
+    #: Per-row date rendering for the wizard's preview table (#2926): the raw
+    #: cell beside what it was read as, and the duration that produces. The
+    #: duration is the column that makes a wrong order impossible to miss.
+    date_preview: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def error_count(self) -> int:
@@ -512,39 +614,70 @@ def _cell_text(value: Any) -> str:
 # --- Value coercion ------------------------------------------------------
 
 
-def _prefers_day_first(raw_dates: list[str]) -> bool:
-    """Decide whether ambiguous ``a/b/yyyy`` dates are D/M/Y rather than M/D/Y.
+def _slash_date_evidence(
+    cells: list[tuple[int, str, str]],
+) -> tuple[str | None, dict[str, Any] | None]:
+    """Find the first value that can only be read one way, and say why.
 
-    A slash date is only self-identifying when its first component exceeds 12
-    (13/04/2026 can only be D/M). We scan **every** date cell in the file before
-    parsing any of them, so one unambiguous row settles the whole column. With
-    no evidence either way we assume M/D/Y (US English, per project convention)
-    and the caller warns, because silently reading 03/04 as March 4 when the
-    operator meant 3 April is a data-integrity bug, not a formatting nit.
+    A slash date is self-identifying only when one component exceeds 12
+    (13/04/2026 can only be D/M). We scan **every** date cell before parsing any
+    of them, so one unambiguous row settles the whole file rather than letting
+    consecutive rows be read under different conventions.
+
+    Returns ``(order, evidence)`` where evidence is the ``{row, column, value,
+    reason}`` the wizard quotes back at the operator. ``(None, None)`` means the
+    file identifies nothing — the ambiguous case, which the caller must announce
+    rather than quietly resolve.
+
+    Args:
+        cells: ``(row_number, column_header, raw_text)`` for every date cell.
+
+    Returns:
+        The settled order (``"dmy"``/``"mdy"``) and its evidence, or two Nones.
     """
-    for raw in raw_dates:
+    for row_number, column, raw in cells:
         match = _SLASH_DATE_RE.match(raw.strip())
         if not match:
             continue
         first, second = int(match.group(1)), int(match.group(2))
         if first > 12 and second <= 12:
-            return True
+            return "dmy", {
+                "row": row_number,
+                "column": column,
+                "value": raw.strip(),
+                "reason": "no_thirteenth_month",
+            }
         if second > 12 and first <= 12:
-            return False
-    return False
+            return "mdy", {
+                "row": row_number,
+                "column": column,
+                "value": raw.strip(),
+                "reason": "second_part_exceeds_twelve",
+            }
+    return None, None
 
 
-def _parse_date(raw: str, day_first: bool) -> date | None:
+def _parse_date(raw: str, order: str) -> date | None:
+    """Read one cell under a settled date order.
+
+    ``order`` is ``mdy``/``dmy``/``iso``, never ``auto`` — resolution happens
+    once per file, not once per cell. Under ``iso`` a slash date is deliberately
+    *not* reinterpreted: an operator who asserts ISO is telling us their export
+    is unambiguous, so a ``03/04/2026`` in it is a malformed row to be reported,
+    not a value to guess at under a convention they just ruled out.
+    """
     text = (raw or "").strip()
     if not text:
         return None
 
     match = _SLASH_DATE_RE.match(text)
     if match:
+        if order == "iso":
+            return None
         a, b, year = int(match.group(1)), int(match.group(2)), int(match.group(3))
         if year < 100:
             year += 2000 if year < 70 else 1900
-        day, month = (a, b) if day_first else (b, a)
+        day, month = (a, b) if order == "dmy" else (b, a)
         try:
             return date(year, month, day)
         except ValueError:
@@ -731,6 +864,7 @@ def parse_spreadsheet(
     max_rows: int = 5000,
     max_uncompressed_bytes: int = 100 * 1024 * 1024,
     project_name: str = "",
+    date_order: str = "auto",
 ) -> ParseResult:
     """Parse an uploaded CSV/XLSX into ``ProjectData`` plus preview metadata.
 
@@ -749,11 +883,24 @@ def parse_spreadsheet(
             ``truncated_rows`` rather than silently dropped.
         max_uncompressed_bytes: Zip-bomb ceiling for .xlsx uploads.
         project_name: Fallback name for the ``ProjectData`` header.
+        date_order: ``auto``/``mdy``/``dmy``/``iso`` (#2926). ``auto`` keeps the
+            file-wide inference; the other three are the operator asserting what
+            their own export uses. Date order is the last locale decision that
+            was inferred and unaddressable — encoding, delimiter and decimal
+            separator are all settled from the file's own evidence — and an
+            inference nothing can override makes the endpoint non-deterministic
+            for a scripted caller, since the same rows import differently
+            depending on which values happen to disambiguate the column.
 
     Raises:
         CsvImportError: The file is unreadable, empty, has no header row, or has
             no column that can supply ``Task.name``.
     """
+    if date_order not in DATE_ORDERS:
+        raise CsvImportError(
+            f"Unknown date order: {date_order}. Use one of {', '.join(DATE_ORDERS)}."
+        )
+
     ext = _extension(filename)
     if ext in _XLSX_EXTENSIONS:
         raw_rows, warnings = _read_xlsx_rows(content, max_uncompressed_bytes)
@@ -802,7 +949,7 @@ def parse_spreadsheet(
         [_cell(row, i) for i in range(len(headers))] for row in data_rows[:SAMPLE_ROW_COUNT]
     ]
 
-    _build_tasks(result, data_rows, by_field)
+    _build_tasks(result, data_rows, by_field, date_order)
     _resolve_predecessors(result, data_rows, by_field)
     _build_resources(result, data_rows, by_field)
     _build_labels(result, data_rows, by_field)
@@ -854,10 +1001,12 @@ def _build_tasks(
     result: ParseResult,
     data_rows: list[list[Any]],
     by_field: dict[str, list[int]],
+    date_order: str,
 ) -> None:
     """Turn each data row into a ``TaskData``, recording per-field failures."""
     name_index = _one(by_field, "name")
-    day_first = _resolve_date_convention(result, data_rows, by_field)
+    result.date_order = _resolve_date_convention(result, data_rows, by_field, date_order)
+    order = result.date_order.resolved
     tasks: list[TaskData] = []
 
     for offset, row in enumerate(data_rows):
@@ -879,10 +1028,54 @@ def _build_tasks(
             )
             continue
         tasks.append(
-            _build_task(offset, raw_name, row, by_field, result, row_number, day_first, len(tasks))
+            _build_task(offset, raw_name, row, by_field, result, row_number, order, len(tasks))
         )
 
     result.project_data.tasks = tasks
+    _build_date_preview(result, data_rows, by_field, order)
+
+
+def _build_date_preview(
+    result: ParseResult,
+    data_rows: list[list[Any]],
+    by_field: dict[str, list[int]],
+    order: str,
+) -> None:
+    """Render the first rows' dates as the wizard's preview table shows them.
+
+    Built server-side beside the parse rather than re-derived in the client,
+    for the same reason the mapping is: the operator is confirming what the
+    parser will actually do, and a second implementation of "read this cell as
+    a date" is a second thing that can disagree with the import.
+    """
+    if not result.date_order.has_date_columns:
+        return
+    start_idx = _one(by_field, "planned_start") if "planned_start" in by_field else None
+    finish_idx = _one(by_field, "planned_finish") if "planned_finish" in by_field else None
+    name_idx = _one(by_field, "name") if "name" in by_field else None
+
+    rows: list[dict[str, Any]] = []
+    for offset, row in enumerate(data_rows[:SAMPLE_ROW_COUNT]):
+        raw_start = _cell(row, start_idx).strip() if start_idx is not None else ""
+        raw_finish = _cell(row, finish_idx).strip() if finish_idx is not None else ""
+        start = _parse_date(raw_start, order) if raw_start else None
+        finish = _parse_date(raw_finish, order) if raw_finish else None
+        rows.append(
+            {
+                "row": offset + 2,
+                "name": _cell(row, name_idx).strip() if name_idx is not None else "",
+                "raw_start": raw_start,
+                "raw_finish": raw_finish,
+                "start": start.isoformat() if start else None,
+                "finish": finish.isoformat() if finish else None,
+                # Inclusive of both endpoints, matching _apply_derived_duration.
+                "duration_days": (finish - start).days + 1 if start and finish else None,
+                # A cell that was present and would not parse — the state the
+                # "{k} of {n} rows cannot be read as {order}" copy counts.
+                "unreadable": bool((raw_start and not start) or (raw_finish and not finish)),
+            }
+        )
+    result.date_preview = rows
 
 
 # --- Import review branch (#2732) ----------------------------------------
@@ -1023,22 +1216,127 @@ def _resolve_date_convention(
     result: ParseResult,
     data_rows: list[list[Any]],
     by_field: dict[str, list[int]],
-) -> bool:
-    """Decide day/month vs month/day once, over every date cell in the file.
+    requested: str,
+) -> DateConvention:
+    """Settle the date order once, over every date cell, and record the evidence.
 
     Resolved file-wide rather than per row so that a single unambiguous value
     (13/04 can only be day-first) settles the whole import — a per-row guess
     would read consecutive rows under different conventions.
+
+    An explicit ``requested`` order always wins: the operator knows what their
+    own export contains, and a heuristic that overrode them would make the
+    control decorative. ``auto`` keeps the shipped behavior, and additionally
+    reports *why* it chose what it chose, plus both readings when it could not
+    tell (which is the state this whole feature exists for — see #2926).
+
+    Args:
+        result: Parse result; its ``headers`` name the columns in the evidence.
+        data_rows: Every data row, so one late unambiguous value still counts.
+        by_field: Column indexes per mapped field.
+        requested: One of :data:`DATE_ORDERS`.
+
+    Returns:
+        The convention, its evidence, and the per-order tallies the wizard needs.
     """
     date_indices = [_one(by_field, f) for f in ("planned_start", "planned_finish") if f in by_field]
-    raw_dates = [_cell(row, i) for row in data_rows for i in date_indices]
-    day_first = _prefers_day_first(raw_dates)
-    if date_indices and any(_SLASH_DATE_RE.match(d.strip()) for d in raw_dates):
-        result.warnings.append(
-            "Dates like 03/04/2026 were read as "
-            + ("day/month/year." if day_first else "month/day/year.")
+    convention = DateConvention(requested=requested, has_date_columns=bool(date_indices))
+    if not date_indices:
+        # Nothing is mapped to a date field, so there is no convention to settle
+        # and nothing for the control to act on. Reported rather than guessed:
+        # the wizard renders an inert block instead of a confident-looking one.
+        return convention
+
+    cells = [
+        (offset + 2, result.headers[i], _cell(row, i))
+        for offset, row in enumerate(data_rows)
+        for i in date_indices
+        if _cell(row, i).strip()
+    ]
+    has_slash = any(_SLASH_DATE_RE.match(raw.strip()) for _, _, raw in cells)
+
+    auto_order, evidence = _slash_date_evidence(cells)
+    if auto_order is None and not has_slash and cells:
+        # Every value is a non-slash layout, so the file is self-describing and
+        # there was never a decision to make. Named as ISO because that is what
+        # the operator sees offered, and what the vast majority of such files are.
+        auto_order, evidence = (
+            "iso",
+            {
+                "row": cells[0][0],
+                "column": cells[0][1],
+                "value": cells[0][2].strip(),
+                "reason": "non_slash_layout",
+            },
         )
-    return day_first
+    convention.auto_resolved = auto_order or AMBIGUOUS_FALLBACK_ORDER
+
+    if requested == "auto":
+        convention.resolved = convention.auto_resolved
+        convention.evidence = evidence
+        # Ambiguous only when auto had a real decision to make and no evidence
+        # for it. A file with no slash dates at all is not ambiguous; it is
+        # simply unambiguous in a way that needed no argument.
+        convention.ambiguous = auto_order is None and has_slash
+    else:
+        convention.resolved = requested
+        convention.evidence = evidence
+        convention.ambiguous = False
+
+    convention.values_matched, convention.values_failed = _tally(cells, convention.resolved)
+
+    if convention.ambiguous:
+        convention.readings = [
+            _reading(order, cells, data_rows, by_field, result) for order in ("mdy", "dmy")
+        ]
+    return convention
+
+
+def _tally(cells: list[tuple[int, str, str]], order: str) -> tuple[int, int]:
+    """Date cells that parse under ``order``, and those that do not."""
+    matched = sum(1 for _, _, raw in cells if _parse_date(raw, order) is not None)
+    return matched, len(cells) - matched
+
+
+def _reading(
+    order: str,
+    cells: list[tuple[int, str, str]],
+    data_rows: list[list[Any]],
+    by_field: dict[str, list[int]],
+    result: ParseResult,
+) -> DateReading:
+    """What one convention does to this file — tallies plus one worked example.
+
+    The sample is the first row that has both a start and a finish under this
+    order, because a duration is the only rendering of the choice that is
+    self-evidently right or wrong to a reader.
+    """
+    matched, failed = _tally(cells, order)
+    reading = DateReading(order=order, values_matched=matched, values_failed=failed)
+
+    start_idx = _one(by_field, "planned_start") if "planned_start" in by_field else None
+    finish_idx = _one(by_field, "planned_finish") if "planned_finish" in by_field else None
+    name_idx = _one(by_field, "name") if "name" in by_field else None
+
+    for offset, row in enumerate(data_rows):
+        raws = [_cell(row, i) for i in (start_idx, finish_idx) if i is not None]
+        if any(raw.strip() and _parse_date(raw, order) is None for raw in raws):
+            reading.rows_unparseable += 1
+        if reading.sample_row is not None:
+            continue
+        start = _parse_date(_cell(row, start_idx), order) if start_idx is not None else None
+        finish = _parse_date(_cell(row, finish_idx), order) if finish_idx is not None else None
+        if start and finish:
+            reading.sample_row = offset + 2
+            reading.sample_name = _cell(row, name_idx).strip() if name_idx is not None else ""
+            reading.sample_raw_start = _cell(row, start_idx).strip()
+            reading.start = start.isoformat()
+            reading.finish = finish.isoformat()
+            # Inclusive of both endpoints, matching _apply_derived_duration —
+            # the comparison is worthless if it disagrees with the duration the
+            # import will actually write.
+            reading.duration_days = (finish - start).days + 1
+    return reading
 
 
 def _build_task(
@@ -1048,7 +1346,7 @@ def _build_task(
     by_field: dict[str, list[int]],
     result: ParseResult,
     row_number: int,
-    day_first: bool,
+    order: str,
     task_count: int,
 ) -> TaskData:
     """Build one ``TaskData`` from a named row, applying every mapped column."""
@@ -1065,7 +1363,7 @@ def _build_task(
             _apply_wbs(task, wbs_raw, result, row_number, result.headers[wbs_index])
 
     _apply_duration(task, row, by_field, result, row_number)
-    _apply_dates(task, row, by_field, result, row_number, day_first)
+    _apply_dates(task, row, by_field, result, row_number, order)
     _apply_percent(task, row, by_field, result, row_number)
 
     if "milestone" in by_field and _parse_bool(_cell(row, _one(by_field, "milestone"))):
@@ -1144,12 +1442,10 @@ def _apply_dates(
     by_field: dict[str, list[int]],
     result: ParseResult,
     row_number: int,
-    day_first: bool,
+    order: str,
 ) -> None:
-    start = _read_date_cell("planned_start", "start", row, by_field, result, row_number, day_first)
-    finish = _read_date_cell(
-        "planned_finish", "finish", row, by_field, result, row_number, day_first
-    )
+    start = _read_date_cell("planned_start", "start", row, by_field, result, row_number, order)
+    finish = _read_date_cell("planned_finish", "finish", row, by_field, result, row_number, order)
 
     if start:
         task.start = start.isoformat()
@@ -1169,7 +1465,7 @@ def _read_date_cell(
     by_field: dict[str, list[int]],
     result: ParseResult,
     row_number: int,
-    day_first: bool,
+    order: str,
 ) -> date | None:
     """Read one date column, recording a row error when the cell will not parse.
 
@@ -1182,7 +1478,7 @@ def _read_date_cell(
     raw = _cell(row, _one(by_field, field_name))
     if not raw.strip():
         return None
-    value = _parse_date(raw, day_first)
+    value = _parse_date(raw, order)
     if value is None:
         result.row_errors.append(
             RowError(

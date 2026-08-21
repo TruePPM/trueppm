@@ -22948,8 +22948,31 @@
                     "content": {
                         "multipart/form-data": {
                             "schema": {
-                                "type": "string",
-                                "format": "binary"
+                                "type": "object",
+                                "properties": {
+                                    "file": {
+                                        "type": "string",
+                                        "format": "binary"
+                                    },
+                                    "column_map": {
+                                        "type": "string",
+                                        "description": "JSON object of {header: field} overrides from the wizard."
+                                    },
+                                    "date_order": {
+                                        "type": "string",
+                                        "enum": [
+                                            "auto",
+                                            "mdy",
+                                            "dmy",
+                                            "iso"
+                                        ],
+                                        "default": "auto",
+                                        "description": "How to read slash dates. `auto` scans the file and settles the order from the first self-identifying value; the other three assert a convention. An unknown value is a 400, never a silent fallback."
+                                    }
+                                },
+                                "required": [
+                                    "file"
+                                ]
                             }
                         }
                     }
@@ -22978,7 +23001,7 @@
                         "description": "Import queued; body is {\"detail\", \"queued\", \"import_request_id\"}."
                     },
                     "400": {
-                        "description": "Missing or invalid upload (wrong type/too large)."
+                        "description": "Missing or invalid upload (wrong type/too large), or an unknown `date_order`. The order is persisted on the import request so a drain re-dispatch replays the convention the operator confirmed."
                     },
                     "403": {
                         "description": "Caller lacks the Scheduler role on the project."
@@ -23175,8 +23198,31 @@
                     "content": {
                         "multipart/form-data": {
                             "schema": {
-                                "type": "string",
-                                "format": "binary"
+                                "type": "object",
+                                "properties": {
+                                    "file": {
+                                        "type": "string",
+                                        "format": "binary"
+                                    },
+                                    "column_map": {
+                                        "type": "string",
+                                        "description": "JSON object of {header: field} overrides from the wizard."
+                                    },
+                                    "date_order": {
+                                        "type": "string",
+                                        "enum": [
+                                            "auto",
+                                            "mdy",
+                                            "dmy",
+                                            "iso"
+                                        ],
+                                        "default": "auto",
+                                        "description": "How to read slash dates. `auto` scans the file and settles the order from the first self-identifying value; the other three assert a convention. An unknown value is a 400, never a silent fallback."
+                                    }
+                                },
+                                "required": [
+                                    "file"
+                                ]
                             }
                         }
                     }
@@ -23202,10 +23248,10 @@
                                 }
                             }
                         },
-                        "description": "Detected mapping, first 10 parsed rows, row-level warnings and the field catalog for the wizard's dropdown. Nothing is persisted."
+                        "description": "Detected mapping, first 10 parsed rows, row-level warnings and the field catalog for the wizard's dropdown. Nothing is persisted. Also carries how the date order was settled and the evidence for it: `date_order_resolved`, `date_order_auto`, `date_order_ambiguous`, `date_order_evidence` ({row, column, value, reason}), `date_order_has_columns`, `values_matched`/`values_failed`, `date_preview` (per-row raw cell, reading and duration), and — only when the file identifies no convention — `date_order_readings`, both conventions with the duration each produces for one sample row."
                     },
                     "400": {
-                        "description": "Missing, oversized, or unreadable upload."
+                        "description": "Missing, oversized, or unreadable upload, or an unknown `date_order`."
                     },
                     "403": {
                         "description": "Caller lacks the Scheduler role on the project."
