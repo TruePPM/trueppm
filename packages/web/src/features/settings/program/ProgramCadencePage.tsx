@@ -320,9 +320,16 @@ export function ProgramCadencePage() {
 
   return (
     <>
+      {/* The subtitle claimed "Instances are created when the program starts and
+          linked to milestones." Nothing creates instances — there is no ceremony
+          instance model at all, and CeremonyTemplate's own docstring says the row
+          "does NOT generate calendar invite instances or notifications today"
+          (#2896). Same false-capability class as the phase-gate paragraph below;
+          the model docstring is the source of truth for what a settings screen
+          may claim. */}
       <SettingsPageTitle
         title="Cadence & ceremonies"
-        subtitle="Recurring meeting templates. Instances are created when the program starts and linked to milestones."
+        subtitle="Recurring meeting templates. TruePPM stores them — it does not create the meetings or link them to milestones."
         action={
           canEdit ? (
             <button
@@ -431,12 +438,31 @@ export function ProgramCadencePage() {
           >
             Phase gate calendar
           </h2>
-          <p className="text-[12px] text-neutral-text-secondary mb-3 leading-snug">
-            Gate reviews are automatically scheduled when a phase boundary milestone is saved.
-            Attach a calendar invite template here.
+          {/* This copy asserted that gate reviews "are automatically scheduled"
+              when a phase boundary milestone is saved. Nothing dispatches
+              anything — PhaseGateConfig is config-only, invite_template has no
+              readers, and there is no gate object or approval model (#2896).
+              Claiming a compliance control the product does not have is worse
+              than an admitted gap, because a PM cannot plan around it: they
+              build the steering pack believing a review was booked and find out
+              in the room. Keep this describing storage until #2983 ships the
+              dispatch, then say what it actually does. */}
+          <p
+            id="phasegate-desc"
+            className="text-[12px] text-neutral-text-secondary mb-3 leading-snug"
+          >
+            Keep the calendar invite text for phase gate reviews here. TruePPM stores it but does
+            not send it — saving a phase boundary milestone schedules nothing, so copy the template
+            into your calendar yourself.
           </p>
+          {/* The caveat above is the load-bearing information in this section, so
+              it is bound to the control rather than left as adjacent prose: the
+              section's aria-labelledby associates only the heading, and a user
+              tabbing straight to the button would otherwise hear "Configure gate
+              template, button" and none of the limitation. */}
           <button
             type="button"
+            aria-describedby="phasegate-desc"
             onClick={() => setPhaseGateOpen(true)}
             className="px-3 py-1.5 rounded-control border border-neutral-border text-[12px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           >

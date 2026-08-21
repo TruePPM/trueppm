@@ -284,10 +284,27 @@ test.describe('Program Settings → Cadence & ceremonies', () => {
     await setup(page, captures);
     await page.goto(`/programs/${PROGRAM_ID}/settings/cadence`);
 
+    // #2896: no surface here may claim a gate review is scheduled automatically,
+    // or that ceremony instances are created — nothing dispatches and there is no
+    // instance model at all.
+    //
+    // Order matters. `toHaveCount(0)` retries *toward* zero, so it passes
+    // instantly on a blank or still-loading page — asserting absence first would
+    // prove nothing about the rendered DOM. Gate on the honest copy being visible
+    // (which waits for render), and only then assert the claims are gone.
+    await expect(page.getByText(/does not send it/i)).toBeVisible();
+    await expect(page.getByText(/does not create the meetings/i)).toBeVisible();
+    for (const claim of [/automatically scheduled/i, /instances are created/i]) {
+      await expect(page.getByText(claim)).toHaveCount(0);
+    }
+
     await page.getByRole('button', { name: /Configure gate template/ }).click();
-    await expect(
-      page.getByRole('dialog', { name: /Phase gate calendar/ }),
-    ).toBeVisible();
+    const gateDialog = page.getByRole('dialog', { name: /Phase gate calendar/ });
+    await expect(gateDialog).toBeVisible();
+    await expect(gateDialog.getByText(/does not replace them/i)).toBeVisible();
+    await expect(gateDialog.getByText(/auto-scheduled/i)).toHaveCount(0);
+    await expect(gateDialog.getByText(/available variables/i)).toHaveCount(0);
+
     await page.getByLabel(/Invite template/).fill('Subject: gate review');
     await page.getByRole('button', { name: /^Save$/ }).click();
 

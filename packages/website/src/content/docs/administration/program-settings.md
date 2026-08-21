@@ -197,8 +197,16 @@ overview shows a dash with the reason instead of a number.
 The **Cadence** section defines the program's recurring ceremonies — meeting
 templates such as steering reviews or demos. Each ceremony carries a **name**,
 **cadence**, **duration**, and **owner**, and an optional **phase-gate
-calendar**. Ceremony instances are created when the program starts and linked to
-the relevant milestones.
+calendar**.
+
+These are **templates you record, not meetings TruePPM books**. Nothing is
+scheduled, dispatched, or linked to a milestone on your behalf: saving a
+ceremony stores its definition, and saving a phase-gate invite template stores
+that text. Saving a phase-boundary milestone does not schedule a gate review —
+you still book the meeting yourself, and the template is there to paste from.
+The `{{milestone.name}}`-style placeholders are yours to fill in when you copy
+the text out; nothing substitutes them. Dispatch is tracked as
+[#2983](https://gitlab.com/trueppm/trueppm/-/issues/2983).
 
 ## Working calendar
 

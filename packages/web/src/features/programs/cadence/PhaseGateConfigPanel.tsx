@@ -95,8 +95,11 @@ export function PhaseGateConfigPanel({ programId, canEdit, onClose }: PhaseGateC
               >
                 Phase gate calendar
               </h2>
+              {/* Was "Auto-scheduled when a phase boundary milestone is saved."
+                  Nothing dispatches (#2896); the template is stored and read by
+                  nothing until #2983. */}
               <p className="text-xs text-neutral-text-secondary mt-0.5 leading-snug">
-                Auto-scheduled when a phase boundary milestone is saved.
+                Stored here for you to copy — TruePPM does not send it or book the review.
               </p>
             </div>
             <button
@@ -163,6 +166,10 @@ export function PhaseGateConfigPanel({ programId, canEdit, onClose }: PhaseGateC
                 >
                   Invite template
                 </label>
+                {/* The example used {{phase.name}}, which is absent from the list
+                    below — a placeholder vocabulary that was not even internally
+                    consistent, because nothing validates it against a renderer
+                    that does not exist (#2896). */}
                 <textarea
                   id="phase-gate-invite"
                   value={inviteTemplate}
@@ -172,11 +179,18 @@ export function PhaseGateConfigPanel({ programId, canEdit, onClose }: PhaseGateC
                   disabled={update.isPending}
                   placeholder="Subject: Gate review – {{milestone.name}}
 
-Hi team, we're reviewing the {{phase.name}} phase gate on {{date}}…"
+Hi team, we're reviewing the {{milestone.name}} phase gate on {{date}}…"
                   className="w-full px-2.5 py-1.5 rounded-control border border-neutral-border bg-neutral-surface-base text-[12px] font-mono leading-snug focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-50"
                 />
+                {/* Was "Available variables:", which asserts that something
+                    substitutes them. Nothing does — invite_template has no
+                    readers, and the serializer docstring calls substitution a
+                    downstream follow-up (#2896, #2983). A vocabulary list is a
+                    capability claim: it only makes sense if an engine renders
+                    it, so it has to say who does the replacing. */}
                 <p className="text-xs text-neutral-text-secondary mt-1 leading-snug">
-                  Available variables: <code>{'{{milestone.name}}'}</code>
+                  Placeholders to fill in yourself when you copy this out — TruePPM does not
+                  replace them: <code>{'{{milestone.name}}'}</code>
                   {' · '}
                   <code>{'{{date}}'}</code>
                   {' · '}
