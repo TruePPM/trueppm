@@ -98,6 +98,50 @@ and compare it to the declared `200` schema in `openapi.json`:
 - [ ] Error responses the endpoint can actually return (`400`, `403`, `404`, `409`,
   `429`) are declared, and their `code` values exist in `errors.md`.
 
+### Every declared name has a consumer — read params and enum members included
+
+A declared thing that nothing reads is a published lie, and the check for it is
+**grep for a consumer, never for the field**. The existing discipline covers new
+*writable* fields; that is the narrowest third of this defect class, and the two
+wider thirds are what keeps shipping:
+
+- [ ] **Read parameters.** A query param that is *validated and accepted* by the view
+  and then ignored by the service is worse than an unimplemented one, because the
+  400 you would have got is the only signal that would have told you. Verified
+  instance: `/projects/{id}/resources/heatmap/` validates and accepts
+  `group_by=project` while `aggregate_utilization_weekly` implements only `role`.
+  For every param the diff declares, find the line that branches on it.
+- [ ] **Enum members.** A `TextChoices` member reaches the schema, the settings
+  matrix, and a default — none of which is a consumer. Verified instance: **eight of
+  nine** `ProjectNotificationEventType` values are persisted, defaulted mostly ON
+  across in-app/email/Slack, rendered in the settings UI, and dispatched by nothing;
+  the only consumer of the enum outside its own model file is `COMMENT_MENTION`.
+  Grep each member name across the app tree and require a dispatch or read site, not
+  just a definition and a default.
+- [ ] **Hard-coded nulls and always-empty fields.** A field pinned to `None` in the
+  view body is indistinguishable, from a client, from a field with a race. Verified
+  instance: `status-summary` returns `monte_carlo_p80`, `last_saved` and
+  `recalculated_at` as unconditional nulls while `Project.recalculated_at` is written
+  on every CPM pass and a P80 is persisted — and the web reads that endpoint, so its
+  primary `stats?.monteCarlop80 ?? mc?.p80` branch is dead by construction. If a
+  field cannot yet carry a value, say so in the schema description with a `TODO(#NNN)`
+  or drop it; do not ship a null that reads as data-not-ready.
+- [ ] **Reason codes and availability flags decay.** The `{available: false, reason:
+  "..."}` pattern is the right shape and creates an obligation: the reason string is a
+  **published server fact** that clients render as user-facing copy. Verified
+  instance: `program_rollup.py` published `no_montecarlo_store` for 72 days after the
+  store shipped (ADR-0175, migration `0005_montecarlorun`, 2026-06-06), and the web
+  turned it into "Needs a saved Monte Carlo run" — telling a PM to do the one thing
+  that would not help. When a diff lands the dependency a reason code names, deleting
+  that code is part of the same MR. Also confirm the KPI actually appears once the
+  entry is gone: a `for` loop with no `else` branch omits it silently instead.
+- [ ] **A field the server does not enforce is marked as advisory.** Where a name
+  reads like a constraint and binds nothing (`Project.visibility`, `wip_limit`, an
+  `ENFORCE` policy that degrades to `SUGGEST` in OSS), the schema must say so — the
+  established in-tree pattern is a `policy_available: false` companion, per
+  `program_rollup.py`. An integrator's documented hard NO is exactly this: "a field
+  documented as a constraint that the server does not enforce."
+
 ### operationId churn is a breaking change
 
 - [ ] **Check the `operationId` diff separately from the schema diff.** spectacular
