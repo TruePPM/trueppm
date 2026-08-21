@@ -22948,8 +22948,31 @@
                     "content": {
                         "multipart/form-data": {
                             "schema": {
-                                "type": "string",
-                                "format": "binary"
+                                "type": "object",
+                                "properties": {
+                                    "file": {
+                                        "type": "string",
+                                        "format": "binary"
+                                    },
+                                    "column_map": {
+                                        "type": "string",
+                                        "description": "JSON object of {header: field} overrides from the wizard."
+                                    },
+                                    "date_order": {
+                                        "type": "string",
+                                        "enum": [
+                                            "auto",
+                                            "mdy",
+                                            "dmy",
+                                            "iso"
+                                        ],
+                                        "default": "auto",
+                                        "description": "How to read slash dates. `auto` scans the file and settles the order from the first self-identifying value; the other three assert a convention. An unknown value is a 400, never a silent fallback."
+                                    }
+                                },
+                                "required": [
+                                    "file"
+                                ]
                             }
                         }
                     }
@@ -22978,7 +23001,7 @@
                         "description": "Import queued; body is {\"detail\", \"queued\", \"import_request_id\"}."
                     },
                     "400": {
-                        "description": "Missing or invalid upload (wrong type/too large)."
+                        "description": "Missing or invalid upload (wrong type/too large), or an unknown `date_order`. The order is persisted on the import request so a drain re-dispatch replays the convention the operator confirmed."
                     },
                     "403": {
                         "description": "Caller lacks the Scheduler role on the project."
@@ -23049,7 +23072,7 @@
                                 }
                             }
                         },
-                        "description": "{\"status\", \"filename\", \"summary\", \"requested_at\"}."
+                        "description": "{\"status\", \"filename\", \"summary\", \"requested_at\", \"date_order\", \"date_order_confirmed\"}."
                     },
                     "403": {
                         "description": "Caller lacks the Scheduler role on the project."
@@ -23175,8 +23198,31 @@
                     "content": {
                         "multipart/form-data": {
                             "schema": {
-                                "type": "string",
-                                "format": "binary"
+                                "type": "object",
+                                "properties": {
+                                    "file": {
+                                        "type": "string",
+                                        "format": "binary"
+                                    },
+                                    "column_map": {
+                                        "type": "string",
+                                        "description": "JSON object of {header: field} overrides from the wizard."
+                                    },
+                                    "date_order": {
+                                        "type": "string",
+                                        "enum": [
+                                            "auto",
+                                            "mdy",
+                                            "dmy",
+                                            "iso"
+                                        ],
+                                        "default": "auto",
+                                        "description": "How to read slash dates. `auto` scans the file and settles the order from the first self-identifying value; the other three assert a convention. An unknown value is a 400, never a silent fallback."
+                                    }
+                                },
+                                "required": [
+                                    "file"
+                                ]
                             }
                         }
                     }
@@ -23202,10 +23248,10 @@
                                 }
                             }
                         },
-                        "description": "Detected mapping, first 10 parsed rows, row-level warnings and the field catalog for the wizard's dropdown. Nothing is persisted."
+                        "description": "Detected mapping, first 10 parsed rows, row-level warnings and the field catalog for the wizard's dropdown. Nothing is persisted. Also carries how the date order was settled and the evidence for it: `date_order_resolved`, `date_order_auto`, `date_order_ambiguous`, `date_order_evidence` ({row, column, value, reason}), `date_order_has_columns`, `values_matched`/`values_failed`, `date_preview` (per-row raw cell, reading and duration), and — only when the file identifies no convention — `date_order_readings`, both conventions with the duration each produces for one sample row."
                     },
                     "400": {
-                        "description": "Missing, oversized, or unreadable upload."
+                        "description": "Missing, oversized, or unreadable upload, or an unknown `date_order`."
                     },
                     "403": {
                         "description": "Caller lacks the Scheduler role on the project."
@@ -34981,6 +35027,73 @@
                     },
                     "403": {
                         "description": "Rejecting pending scope changes is team-owned (Admin or SM/PO facet)."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sprints/{id}/close-request/": {
+            "get": {
+                "operationId": "v1_sprints_close_request_retrieve",
+                "description": "Latest ``SprintCloseRequest`` for this sprint — what the 202 promised (#2894).\n\n``close`` returns 202 with a ``request_id`` and its docstring says the\nfrontend polls to observe completion, but no read route existed: the id\naddressed nothing, so a close that failed showed the user a sprint that\nnever closed and an error message nowhere.\n\nReturns the most recent attempt rather than requiring the caller to have\nkept the id, because the question being asked is \"what happened to my\nclose?\" and the answer must be reachable after a page reload. Clients\nholding a ``request_id`` can confirm identity against ``id``.\n\nBranch on ``terminal``, not on ``status``: a FAILED row may still be\nre-queued by the drain, so FAILED alone does not mean the close is dead.",
+                "summary": "Read the outcome of this sprint's most recent close attempt",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sprints"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SprintCloseRequestState"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "description": "No close has ever been requested for this sprint."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -58023,6 +58136,78 @@
                     "target_milestone_detail",
                     "updated_at",
                     "wip_count"
+                ]
+            },
+            "SprintCloseRequestState": {
+                "type": "object",
+                "description": "Read shape for ``GET /api/v1/sprints/{id}/close-request/`` (#2894).\n\n``POST /sprints/{id}/close/`` returns 202 with a ``request_id`` and its\ndocstring told the frontend to poll — but there was no read route, so the id\nreferred to nothing and a failed close surfaced nowhere: the user saw a\nsprint that never closed and no error.\n\n``terminal`` is the field a client should branch on rather than re-deriving\nthe rule: a FAILED row may still be retried by the drain, so FAILED alone\ndoes not mean \"give up\". Null ``next_attempt_at`` on a FAILED row is what\nmarks it abandoned, and ``terminal`` is exactly that condition named.\n\n``error_message`` is **role-gated**. The stored value is a raw\n``str(exc)[:1000]`` off an arbitrary exception — the same shape carried by\n``ImportJob``/``ExportJob``'s ``error_detail`` — and a database or broker\nfailure puts internal hostnames, container IPs, DB usernames, constraint and\ncolumn names, or SQL fragments in it. Django's production 500 handler exists\nto suppress exactly that. The sibling surface for this pattern\n(``ProjectViewSet.export_jobs``) is gated at ``IsProjectAdmin``, so serving\nthe raw text to Viewer+ here would widen the audience for it rather than\nfollow the house pattern. Below Admin the field carries a fixed summary\ninstead: everyone still learns the close failed and whether it will be\nretried, which is the whole point of the endpoint, without the operational\ndetail riding along.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "sprint": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "attempt_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "failure_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "error_message": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "requested_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "completed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "next_attempt_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "terminal": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "attempt_count",
+                    "completed_at",
+                    "error_message",
+                    "failure_reason",
+                    "id",
+                    "next_attempt_at",
+                    "requested_at",
+                    "sprint",
+                    "started_at",
+                    "status",
+                    "terminal"
                 ]
             },
             "SprintDailyDelta": {

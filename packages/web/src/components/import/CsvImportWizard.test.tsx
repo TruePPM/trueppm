@@ -401,7 +401,10 @@ describe('CsvImportWizard (#746)', () => {
       ...PREVIEW,
       warnings: [
         "Only the first sheet ('Sheet1') was imported. 2 other sheet(s) were ignored.",
-        'Dates like 03/04/2026 were read as day/month/year.',
+        // The date-convention notice used to be the second sample here. #2926
+        // deleted it — it is now a live control, not a whole-file notice — so
+        // this asserts against a warning the parser still actually emits.
+        "Detected ';' as the column separator.",
       ],
     };
 
@@ -414,7 +417,7 @@ describe('CsvImportWizard (#746)', () => {
 
       const notices = screen.getByRole('region', { name: 'How we read this file' });
       expect(notices).toHaveTextContent(/Only the first sheet/);
-      expect(notices).toHaveTextContent(/day\/month\/year/);
+      expect(notices).toHaveTextContent(/column separator/);
     });
 
     it('repeats them on the confirm step, the last screen before commit', async () => {

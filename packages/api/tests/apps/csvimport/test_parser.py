@@ -341,10 +341,27 @@ class TestDateHandling:
         result = parse_spreadsheet(content, "plan.csv")
         assert result.project_data.tasks[0].start == "2026-03-04"
 
-    def test_the_assumed_convention_is_stated_in_a_warning(self) -> None:
-        """Silently guessing a date order would be a data-integrity bug."""
+    def test_the_convention_is_reported_with_the_value_that_settled_it(self) -> None:
+        """The passive warning is replaced by evidence a reader can check (#2926).
+
+        The old behavior appended "Dates like 03/04/2026 were read as
+        day/month/year." to ``warnings`` — read-only, below the preview, and
+        unfalsifiable by the reader. It is deleted, not moved: leaving it in
+        place alongside a live control would be two sources of truth about the
+        same inference.
+        """
         result = parse_spreadsheet(DAY_FIRST_CSV, "plan.csv")
-        assert any("day/month/year" in w for w in result.warnings)
+        assert not any("day/month/year" in w for w in result.warnings)
+
+        convention = result.date_order
+        assert convention.resolved == "dmy"
+        assert convention.ambiguous is False
+        assert convention.evidence is not None
+        # Names the row, column and value it was derived from, so the operator
+        # can check the claim against their own file in five seconds.
+        assert convention.evidence["value"] == "13/04/2026"
+        assert convention.evidence["reason"] == "no_thirteenth_month"
+        assert convention.evidence["row"] > 1
 
     def test_iso_dates_parse_regardless_of_convention(self) -> None:
         content = b"Name,Start\nTask,2026-11-30\n"
@@ -588,3 +605,98 @@ class TestMultiColumnPredecessors:
         result = parse_spreadsheet(csv, "preds.csv")
         [error] = [e for e in result.row_errors if e.code == "unknown_predecessor"]
         assert error.column == "Predecessor 2"
+
+
+class TestDateOrderOverride:
+    """#2926 — the operator can assert the convention their own export uses.
+
+    The bug this closes is silent: ``Design,03/04/2026,05/04/2026`` means 3 Apr
+    → 5 Apr (three days) to a European exporter, and auto reads it as 4 Mar →
+    4 May (sixty-two days) with no control anywhere to say otherwise.
+    """
+
+    #: Every value valid under both conventions — nothing self-identifies.
+    AMBIGUOUS = b"Name,Start,Finish\nDesign,03/04/2026,05/04/2026\n"
+
+    def test_auto_still_reads_the_ambiguous_file_as_month_first(self) -> None:
+        """`auto` is unchanged, byte for byte — this ticket adds a control, not a new default."""
+        result = parse_spreadsheet(self.AMBIGUOUS, "plan.csv", date_order="auto")
+        assert result.project_data.tasks[0].start == "2026-03-04"
+        assert result.project_data.tasks[0].duration_days == 62
+
+    def test_the_override_produces_the_duration_the_operator_meant(self) -> None:
+        result = parse_spreadsheet(self.AMBIGUOUS, "plan.csv", date_order="dmy")
+        assert result.project_data.tasks[0].start == "2026-04-03"
+        assert result.project_data.tasks[0].duration_days == 3
+
+    def test_an_ambiguous_file_says_so_and_offers_both_readings(self) -> None:
+        """The state the ticket exists for: auto is a coin flip and must announce it."""
+        convention = parse_spreadsheet(self.AMBIGUOUS, "plan.csv").date_order
+        assert convention.ambiguous is True
+        assert convention.evidence is None
+        assert convention.resolved == "mdy"
+
+        readings = {r.order: r for r in convention.readings}
+        assert set(readings) == {"mdy", "dmy"}
+        # The 59-day difference on one task is the whole argument for the block.
+        assert readings["mdy"].duration_days == 62
+        assert readings["dmy"].duration_days == 3
+        assert readings["mdy"].sample_name == "Design"
+
+    def test_a_self_identifying_file_is_never_ambiguous(self) -> None:
+        convention = parse_spreadsheet(DAY_FIRST_CSV, "plan.csv").date_order
+        assert convention.ambiguous is False
+        assert convention.readings == []
+
+    def test_an_iso_file_is_not_ambiguous_and_needs_no_argument(self) -> None:
+        content = b"Name,Start,Finish\nTask,2026-04-03,2026-04-05\n"
+        convention = parse_spreadsheet(content, "plan.csv").date_order
+        assert convention.resolved == "iso"
+        assert convention.ambiguous is False
+
+    def test_iso_refuses_to_reinterpret_a_slash_date(self) -> None:
+        """Asserting ISO rules out slash dates; a row carrying one is malformed, not re-guessed."""
+        result = parse_spreadsheet(self.AMBIGUOUS, "plan.csv", date_order="iso")
+        assert result.project_data.tasks[0].start is None
+        assert [e.code for e in result.row_errors] == ["bad_date", "bad_date"]
+        assert result.date_order.values_failed == 2
+
+    def test_rows_that_fail_under_the_chosen_order_are_counted_not_hidden(self) -> None:
+        """Choosing M/D/Y on a file containing 13/04 is allowed, counted, and named."""
+        content = (
+            b"Name,Start,Finish\nDesign,03/04/2026,05/04/2026\nHandover,13/04/2026,14/04/2026\n"
+        )
+        convention = parse_spreadsheet(content, "plan.csv", date_order="mdy").date_order
+        assert convention.values_matched == 2
+        assert convention.values_failed == 2
+
+    def test_the_override_still_reports_what_auto_would_have_done(self) -> None:
+        """The override copy names both, so the operator can see what they changed."""
+        convention = parse_spreadsheet(self.AMBIGUOUS, "plan.csv", date_order="dmy").date_order
+        assert convention.requested == "dmy"
+        assert convention.resolved == "dmy"
+        assert convention.auto_resolved == "mdy"
+
+    def test_no_mapped_date_column_means_nothing_to_settle(self) -> None:
+        """Reported as inert rather than resolved — the wizard greys the control out."""
+        convention = parse_spreadsheet(b"Name,Notes\nTask,hello\n", "plan.csv").date_order
+        assert convention.has_date_columns is False
+        assert convention.ambiguous is False
+
+    def test_an_unknown_order_is_rejected_rather_than_ignored(self) -> None:
+        """A misspelled order that silently fell back to auto is the corruption this closes."""
+        with pytest.raises(CsvImportError, match="Unknown date order"):
+            parse_spreadsheet(self.AMBIGUOUS, "plan.csv", date_order="d/m/y")
+
+    def test_the_preview_shows_the_raw_cell_beside_what_it_was_read_as(self) -> None:
+        content = (
+            b"Name,Start,Finish\nDesign,03/04/2026,05/04/2026\nHandover,13/04/2026,14/04/2026\n"
+        )
+        rows = parse_spreadsheet(content, "plan.csv", date_order="mdy").date_preview
+        assert rows[0]["raw_start"] == "03/04/2026"
+        assert rows[0]["start"] == "2026-03-04"
+        assert rows[0]["duration_days"] == 62
+        # Row 14 in the design's example: unreadable under the guess, and shown
+        # as such rather than omitted.
+        assert rows[1]["start"] is None
+        assert rows[1]["unreadable"] is True

@@ -81,8 +81,12 @@ export function MilestoneBridgeForecast({
   // The projection is velocity-derived, so it stays hidden for a suppressed
   // reader. The server already nulls all three inputs; the explicit check keeps
   // the intent readable here rather than resting on a remote implementation detail.
+  // `remaining` is nullable because the ADR-0104 gate nulls it (#2966). The
+  // `!velocitySuppressed` check above already covers that case; `?? 0` makes the
+  // comparison honest rather than relying on it, since the two guards protect
+  // against the same thing from different directions.
   const showProjection =
-    !velocitySuppressed && stcLow != null && stcHigh != null && remaining > 0;
+    !velocitySuppressed && stcLow != null && stcHigh != null && (remaining ?? 0) > 0;
 
   const prev = milestone.previous;
   const showDelta =

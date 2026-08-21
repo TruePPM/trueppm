@@ -7768,6 +7768,103 @@ class SprintCloseRequestSerializer(serializers.Serializer[dict[str, Any]]):
         return value
 
 
+class SprintCloseRequestStateSerializer(serializers.Serializer[Any]):
+    """Read shape for ``GET /api/v1/sprints/{id}/close-request/`` (#2894).
+
+    ``POST /sprints/{id}/close/`` returns 202 with a ``request_id`` and its
+    docstring told the frontend to poll — but there was no read route, so the id
+    referred to nothing and a failed close surfaced nowhere: the user saw a
+    sprint that never closed and no error.
+
+    ``terminal`` is the field a client should branch on rather than re-deriving
+    the rule: a FAILED row may still be retried by the drain, so FAILED alone
+    does not mean "give up". Null ``next_attempt_at`` on a FAILED row is what
+    marks it abandoned, and ``terminal`` is exactly that condition named.
+
+    ``error_message`` is **role-gated**. The stored value is a raw
+    ``str(exc)[:1000]`` off an arbitrary exception — the same shape carried by
+    ``ImportJob``/``ExportJob``'s ``error_detail`` — and a database or broker
+    failure puts internal hostnames, container IPs, DB usernames, constraint and
+    column names, or SQL fragments in it. Django's production 500 handler exists
+    to suppress exactly that. The sibling surface for this pattern
+    (``ProjectViewSet.export_jobs``) is gated at ``IsProjectAdmin``, so serving
+    the raw text to Viewer+ here would widen the audience for it rather than
+    follow the house pattern. Below Admin the field carries a fixed summary
+    instead: everyone still learns the close failed and whether it will be
+    retried, which is the whole point of the endpoint, without the operational
+    detail riding along.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    sprint = serializers.UUIDField(source="sprint_id", read_only=True)
+    status = serializers.CharField(read_only=True)
+    attempt_count = serializers.IntegerField(read_only=True)
+    # Unconditional, unlike error_message: a structural cause the server already
+    # knows carries no operational detail, and withholding it would leave every
+    # non-Admin reader — human or agent — with a verdict and no derivation.
+    failure_reason = serializers.CharField(read_only=True)
+    error_message = serializers.SerializerMethodField()
+    requested_at = serializers.DateTimeField(read_only=True)
+    started_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    completed_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    next_attempt_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    terminal = serializers.SerializerMethodField()
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_terminal(self, obj: Any) -> bool:
+        """Whether this request will never be attempted again.
+
+        COMPLETED is terminal by success. FAILED is terminal only once the retry
+        clock is null — either the failure is unfixable (sprint cancelled or not
+        closable) or the attempt budget is spent.
+        """
+        from trueppm_api.apps.projects.models import SprintCloseRequestStatus
+
+        if obj.status == SprintCloseRequestStatus.COMPLETED:
+            return True
+        return bool(obj.status == SprintCloseRequestStatus.FAILED and obj.next_attempt_at is None)
+
+    @extend_schema_field(serializers.CharField())
+    def get_error_message(self, obj: Any) -> str:
+        """The stored failure text for a human Admin; a fixed summary otherwise.
+
+        Fails closed: a missing request in context, an unresolvable role, or an
+        agent credential yields the summary rather than the raw string.
+        """
+        from trueppm_api.apps.access.models import Role
+        from trueppm_api.apps.access.permissions import _membership_role
+        from trueppm_api.apps.projects.models import SprintCloseRequestStatus, is_agent_token
+
+        if not obj.error_message:
+            return ""
+
+        request = self.context.get("request")
+        # An agent credential never receives the raw text, whatever its owner's
+        # role. The gate above exists because a database or broker failure puts
+        # internal hostnames, container IPs, DB usernames, and SQL fragments in
+        # this string; an ``mcp:read`` token resolves to its owner, so gating on
+        # role alone would hand exactly that to an Admin's agent — and from there
+        # into an LLM context, possibly a hosted one. ``is_agent_token`` is the
+        # single place that human-vs-agent distinction is made (#2877), so this
+        # guard cannot drift from the other MCP controls. ``failure_reason`` above
+        # is unconditional, so an agent still learns *why* — just not the internals.
+        if request is not None and is_agent_token(getattr(request, "auth", None)):
+            role = None
+        else:
+            role = _membership_role(request, obj.sprint.project_id) if request is not None else None
+        if role is not None and role >= Role.ADMIN:
+            return str(obj.error_message)
+
+        # Deliberately does not vary with the exception: anything derived from it
+        # is the leak this gate exists to stop.
+        if obj.status == SprintCloseRequestStatus.FAILED and obj.next_attempt_at is None:
+            return (
+                "The close failed and will not be retried. The sprint is still open — "
+                "ask a project admin for the details."
+            )
+        return "The close failed and will be retried automatically."
+
+
 class SprintScopeChangeSerializer(serializers.Serializer[dict[str, Any]]):
     """Read-only response shape for an accept/reject scope-change action (ADR-0102 §5).
 

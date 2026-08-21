@@ -1,0 +1,1 @@
+Schedule view: the Unscheduled tray now carries a **Schedule N…** button that selects its rows in the outline and opens the bulk-edit sheet, so many undated tasks can be dated in one batch instead of one at a time. Sprint-targeted rows are left out — their dates come from sprint planning. The hint strip now advertises `⌘⇧K` whenever more than one row is selected.

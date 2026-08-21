@@ -4,19 +4,21 @@ from __future__ import annotations
 
 import base64
 from datetime import date
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.csvimport.models import CsvImportRequest, CsvImportStatus
 from trueppm_api.apps.csvimport.parser import parse_spreadsheet
-from trueppm_api.apps.csvimport.views import _require_project_scheduler
+from trueppm_api.apps.csvimport.views import _parse_date_order, _require_project_scheduler
 from trueppm_api.apps.msproject.importer import import_project
 from trueppm_api.apps.projects.models import (
     Calendar,
@@ -972,3 +974,161 @@ def test_multi_column_predecessors_create_both_dependencies(project: Project) ->
     # The same ref repeated across two columns is one relationship, not two.
     inspect = Task.objects.get(project=project, name="Inspect")
     assert Dependency.objects.filter(successor=inspect).count() == 1
+
+
+@pytest.mark.django_db
+class TestDateOrderEndpoint:
+    """#2926 — `date_order` on both the preview and the commit call.
+
+    Date order was the last locale decision that was inferred and unaddressable:
+    encoding, delimiter and decimal separator are all settled from the file's own
+    evidence, so the same rows could import differently depending on which values
+    happened to disambiguate the column. That is a correctness bug for an
+    operator and a non-determinism bug for a scripted caller.
+    """
+
+    #: Every value valid under both conventions — the file identifies nothing.
+    AMBIGUOUS = b"Name,Start,Finish\nDesign,03/04/2026,05/04/2026\n"
+
+    def _client(self, project: Project, username: str) -> APIClient:
+        user = get_user_model().objects.create_user(username=username, password="pw")
+        ProjectMembership.objects.create(project=project, user=user, role=Role.SCHEDULER)
+        c = APIClient()
+        c.force_authenticate(user=user)
+        return c
+
+    def _preview(self, client: APIClient, project: Project, **extra: object) -> Any:
+        return client.post(
+            f"/api/v1/projects/{project.pk}/import/csv/preview/",
+            {
+                "file": SimpleUploadedFile("plan.csv", self.AMBIGUOUS, content_type="text/csv"),
+                **extra,
+            },
+            format="multipart",
+        )
+
+    def test_preview_reports_the_ambiguity_and_both_readings(self, project: Project) -> None:
+        r = self._preview(self._client(project, "d1"), project)
+        assert r.status_code == 200
+        assert r.data["date_order_ambiguous"] is True
+        assert r.data["date_order_resolved"] == "mdy"
+        assert r.data["date_order_evidence"] is None
+        durations = {x["order"]: x["duration_days"] for x in r.data["date_order_readings"]}
+        # The 59-day difference the operator is being asked to rule on.
+        assert durations == {"mdy": 62, "dmy": 3}
+
+    def test_preview_under_an_override_reads_the_dates_the_operator_meant(
+        self, project: Project
+    ) -> None:
+        r = self._preview(self._client(project, "d2"), project, date_order="dmy")
+        assert r.data["date_order_resolved"] == "dmy"
+        assert r.data["date_order_ambiguous"] is False
+        # Still names what auto would have done, so the change is legible.
+        assert r.data["date_order_auto"] == "mdy"
+        assert r.data["date_preview"][0]["start"] == "2026-04-03"
+        assert r.data["date_preview"][0]["duration_days"] == 3
+
+    def test_preview_states_the_evidence_when_the_file_identifies_itself(
+        self, project: Project
+    ) -> None:
+        client = self._client(project, "d3")
+        r = client.post(
+            f"/api/v1/projects/{project.pk}/import/csv/preview/",
+            {
+                "file": SimpleUploadedFile(
+                    "plan.csv",
+                    b"Name,Start\nDesign,03/04/2026\nHandover,13/04/2026\n",
+                    content_type="text/csv",
+                )
+            },
+            format="multipart",
+        )
+        evidence = r.data["date_order_evidence"]
+        assert r.data["date_order_resolved"] == "dmy"
+        assert evidence["value"] == "13/04/2026"
+        assert evidence["column"] == "Start"
+        assert evidence["reason"] == "no_thirteenth_month"
+
+    def test_an_unknown_order_is_a_400_not_a_silent_fallback(self, project: Project) -> None:
+        """A misspelled parameter that quietly reverted to auto is the whole bug class."""
+        r = self._preview(self._client(project, "d4"), project, date_order="d/m/y")
+        assert r.status_code == 400
+        assert "date_order" in r.data
+
+    def test_a_non_string_order_is_a_400_not_a_500(self) -> None:
+        """`request.data` is attacker-shaped — the #2795 container-type class.
+
+        Asserted against the helper rather than through the endpoint on purpose:
+        ``MultiPartParser`` coerces every non-file value to ``str``, so a list
+        posted as multipart arrives as its last element and the container case
+        is genuinely unreachable *by that parser*. Pinning it here keeps the
+        guard honest if the view ever accepts JSON — and documents why the
+        endpoint test below cannot be the one that covers it.
+        """
+        for value in (["dmy"], {"order": "dmy"}, 3):
+            request = SimpleNamespace(data={"date_order": value})
+            with pytest.raises(DRFValidationError):
+                _parse_date_order(cast("Any", request))
+
+    def test_omitting_the_field_keeps_the_shipped_behavior(self, project: Project) -> None:
+        r = self._preview(self._client(project, "d6"), project)
+        assert r.data["date_order"] == "auto"
+        assert r.data["date_preview"][0]["duration_days"] == 62
+
+    def test_commit_persists_the_order_so_a_redispatch_replays_it(self, project: Project) -> None:
+        """A drain re-dispatch must not re-infer — it would import different dates
+        than the preview the operator approved."""
+        client = self._client(project, "d7")
+        r = client.post(
+            f"/api/v1/projects/{project.pk}/import/csv/",
+            {
+                "file": SimpleUploadedFile("plan.csv", self.AMBIGUOUS, content_type="text/csv"),
+                "date_order": "dmy",
+                "date_order_confirmed": "true",
+            },
+            format="multipart",
+        )
+        assert r.status_code == 202
+        req = CsvImportRequest.objects.get(project=project)
+        assert req.date_order == "dmy"
+        assert req.date_order_confirmed is True
+
+    def test_commit_rejects_an_unknown_order_before_writing_the_outbox_row(
+        self, project: Project
+    ) -> None:
+        client = self._client(project, "d8")
+        r = client.post(
+            f"/api/v1/projects/{project.pk}/import/csv/",
+            {
+                "file": SimpleUploadedFile("plan.csv", self.AMBIGUOUS, content_type="text/csv"),
+                "date_order": "nope",
+            },
+            format="multipart",
+        )
+        assert r.status_code == 400
+        assert not CsvImportRequest.objects.filter(project=project).exists()
+
+    def test_the_status_endpoint_reports_the_convention_the_import_ran_under(
+        self, project: Project
+    ) -> None:
+        """A persisted field with no reader does not exist for a headless client.
+
+        `date_order_confirmed` was written by the commit and read by nothing —
+        the dead-control shape, on a field whose whole stated purpose ("who chose
+        M/D/Y on this 62-day task") requires it to be legible after the fact.
+        """
+        client = self._client(project, "d9")
+        commit = client.post(
+            f"/api/v1/projects/{project.pk}/import/csv/",
+            {
+                "file": SimpleUploadedFile("plan.csv", self.AMBIGUOUS, content_type="text/csv"),
+                "date_order": "dmy",
+                "date_order_confirmed": "true",
+            },
+            format="multipart",
+        )
+        req_id = commit.data["import_request_id"]
+
+        status_resp = client.get(f"/api/v1/projects/{project.pk}/import/csv/{req_id}/")
+        assert status_resp.data["date_order"] == "dmy"
+        assert status_resp.data["date_order_confirmed"] is True

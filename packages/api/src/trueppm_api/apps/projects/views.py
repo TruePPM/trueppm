@@ -124,6 +124,7 @@ from trueppm_api.apps.projects.models import (
     RiskComment,
     RiskStatus,
     Sprint,
+    SprintCloseRequest,
     SprintScopeChange,
     SprintState,
     SprintTaskOutcome,
@@ -199,6 +200,7 @@ from trueppm_api.apps.projects.serializers import (
     SignedDownloadUrlSerializer,
     SprintBurnSnapshotSerializer,
     SprintCloseRequestSerializer,
+    SprintCloseRequestStateSerializer,
     SprintDailyDeltaSerializer,
     SprintDurationChangeEventSerializer,
     SprintForecastSerializer,
@@ -12231,6 +12233,11 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             # ADR-0151 (issue 1254): the per-sprint duration-change audit is a
             # team-readable Viewer+ read, exactly mirroring scope_changes above.
             "duration_events",
+            # #2894: the outcome of one's own close attempt. Viewer+ deliberately
+            # — closing needs write, but *seeing that a close failed* is a plain
+            # team read, and gating it at write would hide the failure from the
+            # people most likely to notice the sprint never closed.
+            "close_request",
         ):
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         # ADR-0106 §E1.1/§E1.4 (#928): the reforecast preview is a read-only dry
@@ -12600,6 +12607,60 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         return Response(payload, status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(
+        summary="Read the outcome of this sprint's most recent close attempt",
+        responses={
+            200: SprintCloseRequestStateSerializer,
+            404: OpenApiResponse(description="No close has ever been requested for this sprint."),
+        },
+    )
+    @action(detail=True, methods=["get"], url_path="close-request")
+    def close_request(self, request: Request, pk: str | None = None) -> Response:
+        """Latest ``SprintCloseRequest`` for this sprint — what the 202 promised (#2894).
+
+        ``close`` returns 202 with a ``request_id`` and its docstring says the
+        frontend polls to observe completion, but no read route existed: the id
+        addressed nothing, so a close that failed showed the user a sprint that
+        never closed and an error message nowhere.
+
+        Returns the most recent attempt rather than requiring the caller to have
+        kept the id, because the question being asked is "what happened to my
+        close?" and the answer must be reachable after a page reload. Clients
+        holding a ``request_id`` can confirm identity against ``id``.
+
+        Branch on ``terminal``, not on ``status``: a FAILED row may still be
+        re-queued by the drain, so FAILED alone does not mean the close is dead.
+        """
+        # Resolved through ``get_queryset()`` rather than the bare manager that
+        # every sibling action here uses. Two consequences, both wanted:
+        #
+        #  * ADR-0678: this viewset is ``McpScope.QUERYSET``, so the team's agent
+        #    opt-out is enforced *row-level in the queryset* —
+        #    ``McpProjectEnabled`` returns True for non-PATH scopes, and a bare
+        #    manager lookup would therefore let an ``mcp:read`` token read a
+        #    project that had opted out of agent reads.
+        #  * The membership filter runs first, so a non-member gets a flat 404
+        #    instead of a 403 that confirms the sprint exists.
+        sprint = get_object_or_404(self.get_queryset(), pk=pk, is_deleted=False)
+        self.check_object_permissions(request, sprint)
+        req = (
+            SprintCloseRequest.objects.filter(sprint_id=sprint.pk)
+            # The serializer resolves the caller's role off sprint.project_id to
+            # decide whether the raw failure text is theirs to see.
+            .select_related("sprint")
+            .order_by("-requested_at")
+            .first()
+        )
+        if req is None:
+            return Response(
+                {"detail": "No close has been requested for this sprint."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(
+            SprintCloseRequestStateSerializer(req, context={"request": request}).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(
         summary="Cancel a planned sprint",
         responses={
             200: SprintSerializer,
@@ -12786,6 +12847,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         omitted previews the to-be-created milestone. Any project member.
         """
         from trueppm_api.apps.projects.services import MilestoneNotFound, reforecast_preview
+        from trueppm_api.apps.projects.signal_privacy_services import can_read_signal
 
         if pk is None:  # pragma: no cover - pk from URL route
             return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
@@ -12801,6 +12863,30 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
                 {"milestone_id": "Milestone not found in this project."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        # ADR-0104 §2.1 at a ninth sink (#2982). ``velocity_low``/``velocity_high``
+        # here are ``velocity_summary``'s ``forecast_range_low``/``_high`` passed
+        # through verbatim — the same two fields ``suppress_velocity_summary``
+        # nulls — so without this a reader suppressed on /velocity/, /forecast/,
+        # /sprint-forecast/ and /me/active-sprints/ reads the identical band with
+        # one GET against any sprint in the project, and #981's fix buys nothing.
+        #
+        # The gate must live here rather than in the service: ``reforecast_preview``
+        # takes no ``request``, so it cannot know the reader and could not gate even
+        # in principle. The caller owns it.
+        #
+        # ``cpm_finish``/``p50``/``p80``/``p95`` deliberately stay. That is the
+        # ruling ADR-0106 §3 already made for the persisted twin of this payload —
+        # see ProjectForecastView, which nulls a snapshot's band and leaves its
+        # date artifacts intact. Being exact about the residue rather than claiming
+        # none: ``p95 - cpm_finish`` is ``round(remaining x sprint_days x
+        # (1/velocity_low - 1/avg))``, so a reader who separately knows
+        # ``remaining`` and ``sprint_days`` gets one equation in two unknowns. That
+        # constrains the band; it does not recover it, and it is the same residue
+        # the persisted path has always carried. Nulling the dates instead would
+        # delete the preview's entire purpose for the reader.
+        if not can_read_signal(request, sprint.project_id, "velocity"):
+            payload["velocity_low"] = None
+            payload["velocity_high"] = None
         return Response(ReforecastPreviewSerializer(payload).data, status=status.HTTP_200_OK)
 
     def _bulk_scope_change(self, request: Request, pk: str | None, *, accept: bool) -> Response:

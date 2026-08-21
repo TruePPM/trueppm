@@ -18,6 +18,8 @@ import {
   useCsvImportTemplate,
   type CsvColumnMapping,
   type CsvMappingConfidence,
+  type CsvDateOrder,
+  type CsvDatePreviewRow,
   type CsvPreview,
   type CsvRowIssue,
 } from '@/hooks/useCsvImport';
@@ -27,6 +29,7 @@ import { useUndoImportFixOperation, describeUndo } from '@/hooks/useBatchOperati
 import { toast } from '@/components/Toast';
 import { ImportDropzone } from './ImportDropzone';
 import { CheckIcon, WarningIcon } from '@/components/Icons';
+import { DateOrderBlock, ambiguousContinueLabel } from './DateOrderBlock';
 
 interface Props {
   /** Active project; the wizard is gated on a non-null id by the caller. */
@@ -312,6 +315,10 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
   // result step then shows what happened instead of a "View schedule" button
   // pointing at rows that no longer exist.
   const [undone, setUndone] = useState(false);
+  // The operator's date-order decision (#2926). Held in wizard state like the
+  // mapping is, and sent on both the preview and the commit — the two must
+  // agree or the import writes dates the confirmed preview never showed.
+  const [dateOrder, setDateOrder] = useState<CsvDateOrder>('auto');
 
   const previewMut = useCsvImportPreview(projectId);
   const commitMut = useCsvImportCommit(projectId);
@@ -336,9 +343,13 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
   const previewErrorMsg = previewMut.isError ? importErrorMessage(previewMut.error) : null;
   const commitErrorMsg = commitMut.isError ? importErrorMessage(commitMut.error) : null;
 
-  function runPreview(nextFile: File, columnMap?: Record<string, string>) {
+  function runPreview(
+    nextFile: File,
+    columnMap?: Record<string, string>,
+    order: CsvDateOrder = dateOrder,
+  ) {
     previewMut.mutate(
-      { file: nextFile, columnMap },
+      { file: nextFile, columnMap, dateOrder: order },
       {
         onSuccess: (data) => {
           setPreview(data);
@@ -350,6 +361,20 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
         },
       },
     );
+  }
+
+  /**
+   * Re-read the file under a new date order (#2926).
+   *
+   * Fires one preview per change, keeping the operator's pinned columns. The
+   * control itself never locks: TanStack Query's mutation already drops a
+   * superseded response, so a third click supersedes the second rather than
+   * racing it. Only the date and duration cells visibly change — the mapping
+   * and the row names do not move.
+   */
+  function handleDateOrderChange(next: CsvDateOrder) {
+    setDateOrder(next);
+    if (file) runPreview(file, overrideMap(columns, changed), next);
   }
 
   function handleSelect(picked: File) {
@@ -382,7 +407,14 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
   function handleCommit() {
     if (!file) return;
     commitMut.mutate(
-      { file, columnMap: toColumnMap(columns) },
+      {
+        file,
+        columnMap: toColumnMap(columns),
+        dateOrder,
+        // Records that a human accepted a convention on a file that identified
+        // none — support archaeology for "who chose M/D/Y on this 62-day task".
+        dateOrderConfirmed: dateOrder !== 'auto' || Boolean(preview?.date_order_ambiguous),
+      },
       {
         onSuccess: (data) => {
           setImportId(data.import_request_id);
@@ -423,6 +455,14 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
   const datesImported = columns.some(
     (c) => c.field === 'planned_start' || c.field === 'planned_finish',
   );
+  // Named in the evidence sentence as prose ("Start and Finish"), never a count.
+  const dateColumnNames = columns
+    .filter((c) => c.field === 'planned_start' || c.field === 'planned_finish')
+    .map((c) => c.header);
+  // An ambiguous file is never blocked; the primary button instead names the
+  // convention it is about to accept, so "continue" cannot be pressed without
+  // reading the decision (#2926).
+  const dateOrderUnconfirmed = step === 'map' && Boolean(preview?.date_order_ambiguous);
 
   // A clean import has nothing to read: tasks landed, nothing was parked, and
   // the parser made no decision worth reporting.
@@ -505,6 +545,10 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
             missing={missing}
             previewErrorMsg={previewErrorMsg}
             onFieldChange={handleFieldChange}
+            dateOrder={dateOrder}
+            onDateOrderChange={handleDateOrderChange}
+            dateColumnNames={dateColumnNames}
+            datePreviewBusy={previewMut.isPending}
           />
         )}
 
@@ -541,6 +585,11 @@ export function CsvImportWizard({ projectId, onClose }: Props) {
           terminal={terminal}
           busy={busy}
           canAdvanceFromMap={missing.length === 0}
+          nextFromMapLabel={
+            dateOrderUnconfirmed && preview
+              ? ambiguousContinueLabel(preview.date_order_resolved ?? 'mdy')
+              : undefined
+          }
           hasFile={file !== null}
           previewPending={previewMut.isPending}
           commitPending={commitMut.isPending}
@@ -658,6 +707,10 @@ function MapStep({
   missing,
   previewErrorMsg,
   onFieldChange,
+  dateOrder,
+  onDateOrderChange,
+  dateColumnNames,
+  datePreviewBusy,
 }: {
   preview: CsvPreview;
   columns: CsvColumnMapping[];
@@ -665,6 +718,10 @@ function MapStep({
   missing: { field: string; label: string }[];
   previewErrorMsg: string | null;
   onFieldChange: (index: number, field: string) => void;
+  dateOrder: CsvDateOrder;
+  onDateOrderChange: (order: CsvDateOrder) => void;
+  dateColumnNames: string[];
+  datePreviewBusy: boolean;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -741,6 +798,22 @@ function MapStep({
         </table>
       </div>
 
+      {/* Between the mapping and the preview it governs: the date order is
+          meaningless before Start/Finish are mapped and unfixable once the
+          preview has been read as truth, so there is exactly one correct slot
+          in this step (#2926). */}
+      <DateOrderBlock
+        preview={preview}
+        value={dateOrder}
+        onChange={onDateOrderChange}
+        busy={datePreviewBusy}
+        dateColumnNames={dateColumnNames}
+      />
+
+      {(preview.date_preview?.length ?? 0) > 0 && (
+        <DatePreviewTable rows={preview.date_preview ?? []} busy={datePreviewBusy} />
+      )}
+
       {preview.sample_rows.length > 0 && (
         <details className="rounded-card border border-neutral-border p-3">
           <summary className="cursor-pointer text-sm font-medium text-neutral-text-primary">
@@ -792,6 +865,80 @@ function MapStep({
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * The raw cell beside what it was read as, and the duration that produces (#2926).
+ *
+ * The **Duration** column is the point: a 62-day Design task is obvious to a
+ * reader and "04/03/2026" is not, so this is what makes the control above it
+ * self-checking. Only the date and duration cells go to skeleton on a refetch —
+ * the row names and the mapping must not flicker.
+ */
+function DatePreviewTable({ rows, busy }: { rows: CsvDatePreviewRow[]; busy: boolean }) {
+  return (
+    <div className="overflow-x-auto rounded-card border border-neutral-border">
+      <table className="w-full min-w-[28rem] text-xs">
+        <caption className="sr-only">
+          How the first rows&rsquo; dates will be read, and the duration each produces
+        </caption>
+        <thead>
+          <tr className="border-b border-neutral-border text-left text-neutral-text-secondary">
+            <th scope="col" className="px-2 py-1 font-medium">
+              Row
+            </th>
+            <th scope="col" className="px-2 py-1 font-medium">
+              Task name
+            </th>
+            <th scope="col" className="px-2 py-1 font-medium">
+              Start (in file)
+            </th>
+            <th scope="col" className="px-2 py-1 font-medium">
+              Start (as read)
+            </th>
+            <th scope="col" className="px-2 py-1 font-medium">
+              Finish (as read)
+            </th>
+            <th scope="col" className="px-2 py-1 font-medium">
+              Duration
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.row} className="border-t border-neutral-border">
+              <td className="px-2 py-1 tabular-nums">{r.row}</td>
+              <th scope="row" className="px-2 py-1 text-left font-normal">
+                {r.name}
+              </th>
+              <td className="whitespace-nowrap px-2 py-1 text-neutral-text-secondary">
+                {r.raw_start || '—'}
+              </td>
+              <td className="whitespace-nowrap px-2 py-1">
+                {busy ? <Skeleton /> : (r.start ?? '—')}
+              </td>
+              <td className="whitespace-nowrap px-2 py-1">
+                {busy ? <Skeleton /> : (r.finish ?? '—')}
+              </td>
+              <td className="whitespace-nowrap px-2 py-1 font-medium">
+                {busy ? <Skeleton /> : r.duration_days === null ? '—' : `${r.duration_days} d`}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** A cell placeholder during a re-read — never a spinner over the whole table. */
+function Skeleton() {
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-block h-3 w-14 rounded bg-neutral-surface-sunken align-middle"
+    />
   );
 }
 
@@ -1060,6 +1207,7 @@ function WizardFooter({
   terminal,
   busy,
   canAdvanceFromMap,
+  nextFromMapLabel,
   hasFile,
   previewPending,
   commitPending,
@@ -1080,6 +1228,16 @@ function WizardFooter({
   terminal: boolean;
   busy: boolean;
   canAdvanceFromMap: boolean;
+  /**
+   * Overrides the map step's "Next" copy when a decision rides on it (#2926).
+   *
+   * An ambiguous file is never blocked from committing — that would strand
+   * anyone whose export genuinely is ambiguous — so the button itself names
+   * the convention being accepted. It is the fourth of the four non-colour
+   * signals for that state, and the only one a keyboard user tabbing
+   * straight to the footer will hit.
+   */
+  nextFromMapLabel?: string;
   hasFile: boolean;
   previewPending: boolean;
   commitPending: boolean;
@@ -1147,7 +1305,7 @@ function WizardFooter({
                 disabled:cursor-not-allowed focus:outline-none focus:ring-2
                 focus:ring-brand-primary focus:ring-offset-1"
         >
-          Next
+          {nextFromMapLabel ?? 'Next'}
         </button>
       )}
       {step === 'confirm' && (

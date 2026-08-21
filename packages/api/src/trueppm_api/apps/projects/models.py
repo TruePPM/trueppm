@@ -4837,6 +4837,24 @@ class SprintCloseRequestStatus(models.TextChoices):
     FAILED = "failed", "Failed"
 
 
+class SprintCloseRequestFailureReason(models.TextChoices):
+    """Why a sprint close failed, as a server fact rather than prose (#2894).
+
+    ``error_message`` carries a raw ``str(exc)`` and is therefore Admin-gated, but
+    two of the three failure writers record a deterministic, non-sensitive
+    structural cause the server already knows. Classifying them here means every
+    reader — including an agent asking why a sprint is still open — gets the
+    reason without the operational detail, instead of a verdict with no
+    derivation. Derived state must not be reconstructed by matching on the
+    message text: that couples every reader to prose nobody treats as an API.
+    """
+
+    CANCELLED = "cancelled", "Sprint was cancelled before the close completed"
+    NOT_CLOSABLE = "not_closable", "Sprint state is not closable"
+    STALLED = "stalled", "Stopped responding on every attempt and was abandoned"
+    ERROR = "error", "Raised an exception (detail in error_message)"
+
+
 class SprintCloseRequest(models.Model):
     """Transactional outbox record for sprint close operations (ADR-0037).
 
@@ -4888,7 +4906,34 @@ class SprintCloseRequest(models.Model):
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     error_message = models.TextField(blank=True, default="")
+    # Set alongside every FAILED transition; blank on any other status. Unlike
+    # error_message this is safe to expose at Viewer+ — see the TextChoices above.
+    failure_reason = models.CharField(
+        max_length=16,
+        choices=SprintCloseRequestFailureReason.choices,
+        blank=True,
+        default="",
+    )
     attempt_count = models.PositiveIntegerField(default=0)
+    # The retry clock, and the single source of truth for whether a FAILED row is
+    # done (#2894). The invariant is one line: **null means no further attempt
+    # will be made.** A transient failure sets it to now + backoff and the drain
+    # re-queues the row once that time passes; a failure nothing can fix — the
+    # sprint was cancelled, or is in a state that is not closable — leaves it
+    # null, and so does exhausting ``attempt_count``. Before this existed a
+    # FAILED row was terminal unconditionally: the task marked FAILED without
+    # re-raising (so the decorator's ``max_retries`` never fired), the task
+    # short-circuits on re-entry into a FAILED row, and the drain recovers only
+    # IN_FLIGHT — leaving the sprint ACTIVE forever with no path back but manual
+    # DB surgery.
+    next_attempt_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the drain may retry a FAILED row. Null means terminal — either "
+            "the failure is unfixable or the attempt budget is spent."
+        ),
+    )
 
     class Meta:
         db_table = "projects_sprintcloserequest"
@@ -4897,6 +4942,12 @@ class SprintCloseRequest(models.Model):
             models.Index(
                 fields=["status", "requested_at"],
                 name="sprint_close_status_idx",
+            ),
+            # Serves the drain's retry sweep, which is a partial scan over FAILED
+            # rows ordered by when they became eligible again.
+            models.Index(
+                fields=["status", "next_attempt_at"],
+                name="sprint_close_retry_idx",
             ),
         ]
 

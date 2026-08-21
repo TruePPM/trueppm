@@ -218,3 +218,36 @@ describe('VelocityForecastLine (#607)', () => {
     expect(screen.getByRole('status', { name: /loading forecast/i })).toBeInTheDocument();
   });
 });
+
+describe('suppressed vs warm-up — two different nulls (#2966)', () => {
+  it('does not show the warm-up nudge to a reader the velocity gate suppressed', () => {
+    // The ADR-0104 gate nulls the band AND the basis. Showing "Sprint N of 3
+    // toward your first forecast" here would tell a reader the team has no
+    // forecast — false, possibly after twenty closed sprints — and deep-link
+    // them to "fix" inputs that are not broken.
+    mockForecast(
+      forecast({
+        remaining_committed_points: null,
+        sprints_to_complete_low: null,
+        sprints_to_complete_high: null,
+      }),
+    );
+    renderLine();
+    expect(screen.getByText(/private to this team/i)).toBeInTheDocument();
+    expect(screen.queryByText(/toward your first/i)).not.toBeInTheDocument();
+  });
+
+  it('still shows warm-up when the band is genuinely not ready', () => {
+    // Warm-up leaves the basis intact — that is the discriminator between the
+    // two nulls.
+    mockForecast(
+      forecast({
+        remaining_committed_points: 42,
+        sprints_to_complete_low: null,
+        sprints_to_complete_high: null,
+      }),
+    );
+    renderLine();
+    expect(screen.queryByText(/private to this team/i)).not.toBeInTheDocument();
+  });
+});

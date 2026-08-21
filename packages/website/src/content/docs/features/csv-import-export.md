@@ -264,16 +264,49 @@ one is the decimal mark (`1.234,56` and `1,234.56` are both 1234.56).
 **Dates** are read as `YYYY-MM-DD` unambiguously. For slash dates the importer
 scans the **whole file** before deciding: if any row is unambiguously
 day-first (`13/04/2026` cannot be a month), every slash date is read day-first.
-With no evidence either way it assumes month/day/year and **tells you which
-convention it used** in the import warnings — a silently-guessed date order is
-a data-integrity bug, not a formatting detail.
 
-There is currently **no way to override that guess**, in the wizard or on the
-endpoint. If your file's slash dates are all ambiguous (every day ≤ 12) and they
-are day-first, they will import as month-first: write the dates as `YYYY-MM-DD`
-before uploading, which is never ambiguous. A `date_format` parameter and a
-matching control are tracked as
-[#2926](https://gitlab.com/trueppm/trueppm/-/issues/2926).
+The wizard's map step has a **Date order** control, and it states the evidence
+for whatever it chose — naming the row, the column and the value that settled
+it, so you can check the claim against your own file:
+
+> **Auto read this file as D/M/Y (day first).** Row 14 is “13/04/2026” — there
+> is no 13th month, so the file can only be day-first. All 486 values in Start
+> and Finish fit that reading.
+
+Four settings are offered:
+
+| Setting | What it does |
+| --- | --- |
+| **Auto** (default) | Scan the file and settle the order from the first self-identifying value |
+| **M/D/Y** | Read every slash date month-first |
+| **D/M/Y** | Read every slash date day-first |
+| **ISO** | Accept only `YYYY-MM-DD`; a slash date is reported as unreadable rather than guessed at |
+
+### When the file identifies nothing
+
+`Design,03/04/2026,05/04/2026` is a valid date pair under **both** conventions,
+and the difference is a three-day task or a sixty-two-day one. Auto cannot
+resolve that, and says so rather than quietly picking: the block shows both
+readings with the duration each produces, and the button reads **Confirm M/D/Y
+and continue** so the convention being accepted is named before you press it.
+
+Nothing is blocked — a genuinely ambiguous file still imports — but the choice
+is explicit, and the convention the import ran under is recorded on the import
+request.
+
+### Scripting against the endpoint
+
+Both `POST …/import/csv/preview/` and `POST …/import/csv/` accept a
+`date_order` field: `auto` (the default), `mdy`, `dmy`, or `iso`. An unknown
+value is rejected with a `400` rather than silently falling back to `auto` — a
+misspelled parameter that quietly reverted would import March dates while the
+caller believed they had asserted day-first.
+
+The preview response reports what it resolved and why: `date_order_resolved`,
+`date_order_ambiguous`, `date_order_evidence` (`{row, column, value, reason}`),
+`values_matched` / `values_failed`, and — for an ambiguous file —
+`date_order_readings`, both conventions with the dates and duration each
+produces for one sample row.
 
 ## The wizard
 

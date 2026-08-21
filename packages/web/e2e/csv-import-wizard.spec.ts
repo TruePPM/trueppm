@@ -535,3 +535,192 @@ test.describe('CSV/Excel import wizard (#746)', () => {
     ).toBeHidden();
   });
 });
+
+/**
+ * #2926 — the date-order override on the map step.
+ *
+ * The preview route here is **stateful in the request**: it reads `date_order`
+ * off the multipart body and answers with that reading. A stateless mock that
+ * always returned the same dates would let the spec pass while the control sent
+ * nothing at all, which is the exact defect the ticket describes — a form field
+ * that persists and is echoed while nothing reads it.
+ */
+const AMBIGUOUS_COLUMNS = [
+  { index: 0, header: 'Task', field: 'name', confidence: 'exact' },
+  { index: 1, header: 'Start', field: 'planned_start', confidence: 'exact' },
+  { index: 2, header: 'Finish', field: 'planned_finish', confidence: 'exact' },
+];
+
+/** The issue's own example: valid under both conventions, 3 days or 62. */
+function ambiguousPreview(order: string) {
+  const dmy = order === 'dmy';
+  return {
+    ...PREVIEW_BODY,
+    headers: ['Task', 'Start', 'Finish'],
+    columns: AMBIGUOUS_COLUMNS,
+    sample_rows: [['Design', '03/04/2026', '05/04/2026']],
+    row_count: 1,
+    task_count: 1,
+    row_errors: [],
+    error_count: 0,
+    warning_count: 0,
+    available_fields: [
+      { field: 'name', label: 'Task name', required: true, multi: false },
+      { field: 'planned_start', label: 'Start date', required: false, multi: false },
+      { field: 'planned_finish', label: 'Finish date', required: false, multi: false },
+    ],
+    date_order: order,
+    date_order_resolved: dmy ? 'dmy' : 'mdy',
+    date_order_auto: 'mdy',
+    date_order_ambiguous: order === 'auto',
+    date_order_evidence: null,
+    date_order_has_columns: true,
+    date_order_readings:
+      order === 'auto'
+        ? [
+            {
+              order: 'mdy',
+              sample_row: 2,
+              sample_name: 'Design',
+              sample_raw_start: '03/04/2026',
+              start: '2026-03-04',
+              finish: '2026-05-04',
+              duration_days: 62,
+              values_matched: 2,
+              values_failed: 0,
+              rows_unparseable: 0,
+            },
+            {
+              order: 'dmy',
+              sample_row: 2,
+              sample_name: 'Design',
+              sample_raw_start: '03/04/2026',
+              start: '2026-04-03',
+              finish: '2026-04-05',
+              duration_days: 3,
+              values_matched: 2,
+              values_failed: 0,
+              rows_unparseable: 0,
+            },
+          ]
+        : [],
+    values_matched: 2,
+    values_failed: 0,
+    date_preview: [
+      {
+        row: 2,
+        name: 'Design',
+        raw_start: '03/04/2026',
+        raw_finish: '05/04/2026',
+        start: dmy ? '2026-04-03' : '2026-03-04',
+        finish: dmy ? '2026-04-05' : '2026-05-04',
+        duration_days: dmy ? 3 : 62,
+        unreadable: false,
+      },
+    ],
+  };
+}
+
+/** Captures what each preview asked for, so the spec can assert the wire too. */
+async function routeAmbiguousPreview(page: Page, sent: string[]) {
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/import/csv/preview/`, async (r) => {
+    // Read the multipart body directly: `postDataJSON()` cannot parse a
+    // FormData upload, and the point of this route is to prove the control's
+    // value reached the wire rather than to trust the component's own state.
+    const body = r.request().postData() ?? '';
+    const order = /name="date_order"\r?\n\r?\n([a-z]+)/.exec(body)?.[1] ?? 'auto';
+    sent.push(order);
+    await r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(ambiguousPreview(order)),
+    });
+  });
+}
+
+test.describe('CSV import — date order (#2926)', () => {
+  test('an ambiguous file states both readings and the override changes the preview', async ({
+    page,
+  }) => {
+    await gotoSchedule(page);
+    const sent: string[] = [];
+    await routeAmbiguousPreview(page, sent);
+    await openWizard(page);
+
+    const dialog = page.getByRole('dialog', { name: 'Import from a spreadsheet' });
+    await page.locator('input[type="file"]').setInputFiles({
+      name: 'eu-programme.csv',
+      mimeType: 'text/csv',
+      buffer: Buffer.from('Task,Start,Finish\nDesign,03/04/2026,05/04/2026\n'),
+    });
+    await dialog.getByRole('button', { name: 'Next' }).click();
+
+    // The block announces the coin flip in words, not colour.
+    await expect(dialog.getByText('Needs a decision')).toBeVisible();
+    await expect(dialog.getByText(/Auto cannot tell/)).toBeVisible();
+
+    // Both readings, with the 59-day difference that makes the choice decidable.
+    const readings = dialog.getByRole('table', { name: /read under each convention/i });
+    await expect(readings.getByText('62 days')).toBeVisible();
+    await expect(readings.getByText('3 days')).toBeVisible();
+
+    // The primary action names the convention it would accept.
+    await expect(
+      dialog.getByRole('button', { name: 'Confirm M/D/Y and continue' }),
+    ).toBeVisible();
+
+    // Scoped to the preview table: the readings table above it carries the same
+    // numbers, and an unscoped match is a strict-mode collision between the two.
+    const rows = dialog.getByRole('table', { name: /How the first rows/i });
+    // Under auto the preview shows the wrong-but-plausible 62-day reading.
+    await expect(rows.getByRole('cell', { name: '62 d', exact: true })).toBeVisible();
+
+    // Choose D/M/Y — this is the act the whole ticket adds.
+    await dialog.getByRole('radio', { name: 'D/M/Y' }).click();
+
+    await expect(rows.getByRole('cell', { name: '2026-04-03' })).toBeVisible();
+    await expect(rows.getByRole('cell', { name: '3 d', exact: true })).toBeVisible();
+    await expect(dialog.getByText(/Set by you: D\/M\/Y \(day first\)/)).toBeVisible();
+    // The decision is gone from the footer once it has been made.
+    await expect(dialog.getByRole('button', { name: 'Next' })).toBeVisible();
+
+    // And the request actually carried it — a field nothing reads is the bug.
+    expect(sent).toEqual(['auto', 'dmy']);
+  });
+
+  test('a file that identifies itself quotes the value that settled it', async ({ page }) => {
+    await gotoSchedule(page);
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/import/csv/preview/`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...ambiguousPreview('auto'),
+          date_order_resolved: 'dmy',
+          date_order_auto: 'dmy',
+          date_order_ambiguous: false,
+          date_order_readings: [],
+          date_order_evidence: {
+            row: 14,
+            column: 'Start',
+            value: '13/04/2026',
+            reason: 'no_thirteenth_month',
+          },
+        }),
+      }),
+    );
+    await openWizard(page);
+    await pickFile(page);
+    await page
+      .getByRole('dialog', { name: 'Import from a spreadsheet' })
+      .getByRole('button', { name: 'Next' })
+      .click();
+
+    const dialog = page.getByRole('dialog', { name: 'Import from a spreadsheet' });
+    // Checkable against the file — the whole difference from the notice it replaces.
+    await expect(dialog.getByText(/Row 14 is “13\/04\/2026”/)).toBeVisible();
+    await expect(dialog.getByText(/there is no 13th month/)).toBeVisible();
+    // No decision is demanded of an operator whose file answered the question.
+    await expect(dialog.getByText('Needs a decision')).toBeHidden();
+  });
+});
