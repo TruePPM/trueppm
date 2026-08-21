@@ -463,6 +463,13 @@ urlpatterns = [
         SprintViewSet.as_view({"post": "close"}),
         name="sprints-close",
     ),
+    # #2894: the read side of the 202 above — `close` hands back a request_id and
+    # tells the client to poll, which addressed nothing until this route existed.
+    path(
+        "sprints/<pk>/close-request/",
+        SprintViewSet.as_view({"get": "close_request"}),
+        name="sprints-close-request",
+    ),
     path(
         "sprints/<pk>/cancel/",
         SprintViewSet.as_view({"post": "cancel"}),
