@@ -51814,6 +51814,12 @@
                         ],
                         "description": "Unit this task's duration is entered and displayed in. Presentation only — `duration` is always working days.\n\n* `days` - Days\n* `hours` - Hours"
                     },
+                    "amend_reason": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "description": "Why this change was made. Recorded in plan history and sent to the people assigned to the task when the project is committed. Ignored on a draft — authoring a plan nobody has agreed to yet carries no reason.",
+                        "maxLength": 500
+                    },
                     "structure_role": {
                         "allOf": [
                             {
@@ -61119,6 +61125,12 @@
                             }
                         ],
                         "description": "Unit this task's duration is entered and displayed in. Presentation only — `duration` is always working days.\n\n* `days` - Days\n* `hours` - Hours"
+                    },
+                    "amend_reason": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "description": "Why this change was made. Recorded in plan history and sent to the people assigned to the task when the project is committed. Ignored on a draft — authoring a plan nobody has agreed to yet carries no reason.",
+                        "maxLength": 500
                     },
                     "structure_role": {
                         "allOf": [

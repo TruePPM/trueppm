@@ -4897,6 +4897,22 @@ class TaskViewSet(
 
         before = _snapshot_task_before_update(serializer.instance)
 
+        # Amend (#2964). `amend_reason` is a declared write-only field, so it is
+        # already validated and is popped here rather than reaching Task.save().
+        #
+        # Set BEFORE save: `_change_reason` has to be on the instance when
+        # simple_history writes its row, or the reason lands nowhere. Only on a
+        # committed plan — a draft is still a draft, and making authoring carry a
+        # reason would make the commit moment something people avoid.
+        from trueppm_api.apps.projects.amend import is_amendable, notify_amend, record_amend_reason
+
+        amend_reason = serializer.validated_data.pop("amend_reason", None)
+        # perform_update always has an instance — this is the update path, not create.
+        existing = serializer.instance
+        amending = existing is not None and is_amendable(existing.project)
+        if amending and existing is not None:
+            record_amend_reason(existing, amend_reason)
+
         instance = serializer.save()
         project_id = str(instance.project_id)
         task_id = str(instance.pk)
@@ -4922,6 +4938,12 @@ class TaskViewSet(
         # emitter self-guards (no-op PATCH / non-active sprint) and defers a
         # best-effort dispatch, so it can never fail or revert the task update.
         notify_sprint_membership_change(instance, before.sprint_id, instance.sprint_id, actor)
+
+        # #2964 — tell the people whose committed work just moved. Never a block:
+        # the edit is already saved, and the emitter defers a best-effort dispatch
+        # so a notification failure cannot turn Amend into a gate.
+        if amending:
+            notify_amend(instance, actor=actor, reason=amend_reason)
 
         changed_fields = set(getattr(serializer, "validated_data", {}).keys())
         _defer_task_update_broadcasts(instance, changed_fields, actor_id)

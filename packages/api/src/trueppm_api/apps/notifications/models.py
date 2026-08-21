@@ -133,6 +133,13 @@ class NotificationEventType(models.TextChoices):
     # prior snapshot. Reaches the PM/Owner cohort (role >= ADMIN), same targeting
     # as MILESTONE_FORECAST_SHIFTED (#861) — see notify_project_end_date_shift.
     PROJECT_END_DATE_SHIFTED = "project.end_date_shifted", "Project end date shifted"
+    # Amend on a committed plan (#2964). Fires when a structural edit lands on a
+    # project that has been committed (lifecycle=active, ADR-0845 baseline taken).
+    # Reaches the people whose work is affected — NEVER a block: the design is
+    # explicit that Amend records and tells, it does not gate. In-app ON so the
+    # change is visible where decisions get argued about; email opt-in OFF, the
+    # same un-opted-email floor every contributor signal keeps.
+    PLAN_AMENDED = "plan.amended", "A committed plan I work on was changed"
     # Scheduled digests (ADR-0663, #2407) — the first CLOCK-driven events in this
     # enum. Every other member fires from a domain event; these two fire from Beat
     # on the recipient's own weekly slot (UserNotificationSettings.digest_*), which
@@ -487,6 +494,10 @@ DEFAULT_PREFERENCES: list[tuple[str, str, bool]] = [
     # (Priya's un-opted-email hard-NO), matching every other contributor signal.
     (NotificationEventType.SPRINT_MEMBERSHIP_CHANGED, NotificationChannel.IN_APP, True),
     (NotificationEventType.SPRINT_MEMBERSHIP_CHANGED, NotificationChannel.EMAIL, False),
+    # #2964 — an amend to committed work. In-app ON so the people whose plan
+    # changed see it; email opt-in OFF, matching every other contributor signal.
+    (NotificationEventType.PLAN_AMENDED, NotificationChannel.IN_APP, True),
+    (NotificationEventType.PLAN_AMENDED, NotificationChannel.EMAIL, False),
     # #1911 — project end-date shift. In-app ON so the PM/Owner cohort sees the
     # slip in their inbox; email opt-in OFF (Priya's un-opted-email hard-NO),
     # matching every other schedule-drift signal in this table.
