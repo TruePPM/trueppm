@@ -124,6 +124,21 @@ _ROLLUP_UNSET: Any = object()
 _IMMUTABLE_AFTER_CREATE = "cannot be changed after creation."
 
 
+class CommitProjectResultSerializer(serializers.Serializer[dict[str, Any]]):
+    """What committing a plan returns (#2963)."""
+
+    baseline_id = serializers.CharField(help_text="The baseline captured by this commit.")
+    baseline_name = serializers.CharField(help_text="Always `Baseline v1` for the first commit.")
+    task_count = serializers.IntegerField(help_text="Rows captured into the baseline.")
+    notified_resource_count = serializers.IntegerField(
+        help_text=(
+            "People with a resource assignment in the plan, who are told what was "
+            "committed. Counted from TaskResource, never Task.assignee — a bare "
+            "assignee carries no load and may not reach the person at all."
+        )
+    )
+
+
 class BoardLaneSerializer(serializers.Serializer[dict[str, Any]]):
     """One board swimlane (#2953)."""
 

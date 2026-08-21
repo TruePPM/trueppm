@@ -16485,6 +16485,76 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/commit/": {
+            "post": {
+                "operationId": "v1_projects_commit_create",
+                "description": "Takes the project from `draft` to `active` and captures **baseline v1** automatically (#2963).\n\nThis is not a lock. Authoring continues afterwards; what changes is that the plan starts having a past, and a structural edit to committed work carries a reason from here on.\n\nThe baseline **freezes the working calendar** it was computed against (ADR-0845), so a later calendar edit changes variance rather than silently moving the thing variance is measured from.\n\nReturns `409` if the project is already active — a second commit would capture a second 'v1' and move the anchor.",
+                "summary": "Commit the plan",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CommitProjectResult"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Already active. The plan has been committed once already."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/decisions/": {
             "get": {
                 "operationId": "v1_projects_decisions_list",
@@ -45637,6 +45707,34 @@
                 },
                 "required": [
                     "points"
+                ]
+            },
+            "CommitProjectResult": {
+                "type": "object",
+                "description": "What committing a plan returns (#2963).",
+                "properties": {
+                    "baseline_id": {
+                        "type": "string",
+                        "description": "The baseline captured by this commit."
+                    },
+                    "baseline_name": {
+                        "type": "string",
+                        "description": "Always `Baseline v1` for the first commit."
+                    },
+                    "task_count": {
+                        "type": "integer",
+                        "description": "Rows captured into the baseline."
+                    },
+                    "notified_resource_count": {
+                        "type": "integer",
+                        "description": "People with a resource assignment in the plan, who are told what was committed. Counted from TaskResource, never Task.assignee — a bare assignee carries no load and may not reach the person at all."
+                    }
+                },
+                "required": [
+                    "baseline_id",
+                    "baseline_name",
+                    "notified_resource_count",
+                    "task_count"
                 ]
             },
             "ContentKindEnum": {

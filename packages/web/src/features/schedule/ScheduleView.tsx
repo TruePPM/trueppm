@@ -37,6 +37,9 @@ import {
 import { formatToggleAnnouncement } from './wbsAnnouncement';
 import { TaskListPanel, type TaskDepChips } from './TaskListPanel';
 import { CanvasScheduleTimeline } from './CanvasScheduleTimeline';
+import { timelineRowIndexAt } from './timelineRowHitTest';
+import { useBuildMode } from './buildMode/BuildModeContext';
+import { BuildModeRowMenu, type RowMenuItem } from './buildMode';
 import { ZoomControl } from './ZoomControl';
 import { QuarterModeControl } from './QuarterModeControl';
 import { ScheduleViewModeToggle } from './ScheduleViewModeToggle';
@@ -3846,7 +3849,73 @@ interface ScheduleMainAreaProps {
   onClassifyRequest?: (taskId: string) => void;
 }
 
+/**
+ * Row-menu items for a Timeline right-click (#2978).
+ *
+ * Deliberately a SHORTER menu than the Grid's. The Grid builder needs a context
+ * object assembled from a dozen row-local values (editing state, dep chips,
+ * sprint membership, classification) that simply do not exist in Timeline, where
+ * there is no DOM row. Rather than fabricate that context, this offers the
+ * structural operations `BuildModeApi` exposes directly — which are the ones a
+ * right-click on a bar is actually reaching for.
+ *
+ * Anything absent here is still reachable from the Grid. A short menu that works
+ * beats a long one assembled from placeholder state.
+ */
+function timelineRowMenuItems(buildMode: BuildModeApi, taskId: string): RowMenuItem[] {
+  return [
+    {
+      key: 'indent',
+      label: 'Indent',
+      onSelect: () => buildMode.indent(taskId),
+    },
+    {
+      key: 'outdent',
+      label: 'Outdent',
+      onSelect: () => buildMode.outdent(taskId),
+    },
+    {
+      key: 'insert-below',
+      label: 'Insert item below',
+      onSelect: () => buildMode.insertBelow(taskId),
+    },
+    {
+      key: 'milestone',
+      label: 'Make a milestone',
+      onSelect: () => buildMode.convertToMilestone(taskId),
+    },
+    {
+      key: 'duplicate',
+      label: 'Duplicate',
+      onSelect: () => buildMode.duplicateSubtree(taskId),
+    },
+    {
+      key: 'delete',
+      label: 'Delete',
+      destructive: true,
+      onSelect: () => buildMode.deleteTask(taskId),
+    },
+  ];
+}
+
 function ScheduleMainArea(props: ScheduleMainAreaProps) {
+  // Timeline right-click (#2978). In Timeline mode there is NO DOM row — the
+  // canvas is full-width and the task-list panel is not rendered (#1221) — so a
+  // right-click landed on the <canvas> and produced the browser's "Save Image
+  // As…" menu. The row is resolved from the pointer's y instead.
+  //
+  // Deliberately NOT by re-enabling pointer events on ScheduleAriaOverlay: that
+  // `pointerEvents: 'none'` is load-bearing (the canvas beneath needs the
+  // pointer for drag-to-reschedule and drag-to-link), and the overlay's rows sit
+  // at the BAR, so they could never cover the left-hand name gutter — which is
+  // exactly where the names render under "Aligned left", and the spot that most
+  // looks like the Grid outline.
+  const timelineBuildMode = useBuildMode();
+  const [timelineMenu, setTimelineMenu] = useState<{
+    anchor: { x: number; y: number };
+    taskId: string;
+  } | null>(null);
+
   const {
     isMobile,
     allTasks,
@@ -3994,6 +4063,24 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
             data-testid="schedule-canvas-scroll"
             className="flex-1 min-w-0 overflow-auto relative z-0"
             onScroll={handleCanvasScroll}
+            onContextMenu={(e) => {
+              if (!timelineBuildMode) return;
+              const box = e.currentTarget.getBoundingClientRect();
+              const index = timelineRowIndexAt(
+                e.clientY - box.top,
+                e.currentTarget.scrollTop,
+                visibleTasks.length,
+              );
+              if (index === null) return;
+              const task = visibleTasks[index];
+              if (!task) return;
+              // Only now: leaving preventDefault to the miss case would suppress
+              // the browser menu over the ruler and empty space too, where there
+              // is nothing of ours to offer instead.
+              e.preventDefault();
+              timelineBuildMode.focus.focusRow(task.id);
+              setTimelineMenu({ anchor: { x: e.clientX, y: e.clientY }, taskId: task.id });
+            }}
           >
             {/* Scrollable content area sized to the full canvas width.
                 minWidth:'100%' ensures the timeline fills the viewport even when
@@ -4038,6 +4125,17 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Timeline row menu (#2978) — the same portal the Grid opens, reached by
+            hit-testing the pointer's row rather than by a DOM row that does not
+            exist in this view. */}
+        {timelineMenu && timelineBuildMode && (
+          <BuildModeRowMenu
+            anchor={timelineMenu.anchor}
+            items={timelineRowMenuItems(timelineBuildMode, timelineMenu.taskId)}
+            onClose={() => setTimelineMenu(null)}
+          />
         )}
 
         {/* Floating legend overlay (#474, ADR-0064) — anchored to the bottom-left of

@@ -3658,6 +3658,22 @@ class Baseline(VersionedModel):
     is_active = models.BooleanField(default=False, db_index=True)
     # True when every snapshotted task had a non-null early_start at creation time.
     has_cpm_dates = models.BooleanField(default=False)
+    # The working calendar this baseline's dates were computed against, frozen
+    # (ADR-0845). A calendar id alone would not do it: calendars are editable, so
+    # a reference gives exactly the silent drift the ADR rejects — the anchor
+    # would quietly agree with whatever the calendar last became.
+    #
+    # Nullable because every baseline captured before ADR-0845 has no snapshot,
+    # and inventing one from today's calendar would be a fabrication.
+    calendar_working_days = models.SmallIntegerField(null=True, blank=True)
+    calendar_hours_per_day = models.FloatField(null=True, blank=True)
+    calendar_id_at_capture = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Which calendar produced these dates. Recorded for provenance, not read for arithmetic."
+        ),
+    )
 
     class Meta:
         db_table = "projects_baseline"

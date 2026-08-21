@@ -85,6 +85,7 @@ from trueppm_api.apps.projects.views import (
     ProjectApiTokenViewSet,
     ProjectAttentionView,
     ProjectBurnView,
+    ProjectCommitView,
     ProjectCustomFieldViewSet,
     ProjectForecastView,
     ProjectMilestonesView,
@@ -211,6 +212,11 @@ urlpatterns = [
         "projects/<project_pk>/baselines/<baseline_pk>/activate/",
         BaselineActivateView.as_view(),
         name="project-baselines-activate",
+    ),
+    path(
+        "projects/<pk>/commit/",
+        ProjectCommitView.as_view(),
+        name="project-commit",
     ),
     path(
         "projects/<pk>/board/lanes/",
