@@ -1107,3 +1107,28 @@ class TestDateOrderEndpoint:
         )
         assert r.status_code == 400
         assert not CsvImportRequest.objects.filter(project=project).exists()
+
+    def test_the_status_endpoint_reports_the_convention_the_import_ran_under(
+        self, project: Project
+    ) -> None:
+        """A persisted field with no reader does not exist for a headless client.
+
+        `date_order_confirmed` was written by the commit and read by nothing —
+        the dead-control shape, on a field whose whole stated purpose ("who chose
+        M/D/Y on this 62-day task") requires it to be legible after the fact.
+        """
+        client = self._client(project, "d9")
+        commit = client.post(
+            f"/api/v1/projects/{project.pk}/import/csv/",
+            {
+                "file": SimpleUploadedFile("plan.csv", self.AMBIGUOUS, content_type="text/csv"),
+                "date_order": "dmy",
+                "date_order_confirmed": "true",
+            },
+            format="multipart",
+        )
+        req_id = commit.data["import_request_id"]
+
+        status_resp = client.get(f"/api/v1/projects/{project.pk}/import/csv/{req_id}/")
+        assert status_resp.data["date_order"] == "dmy"
+        assert status_resp.data["date_order_confirmed"] is True

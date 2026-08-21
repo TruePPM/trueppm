@@ -23072,7 +23072,7 @@
                                 }
                             }
                         },
-                        "description": "{\"status\", \"filename\", \"summary\", \"requested_at\"}."
+                        "description": "{\"status\", \"filename\", \"summary\", \"requested_at\", \"date_order\", \"date_order_confirmed\"}."
                     },
                     "403": {
                         "description": "Caller lacks the Scheduler role on the project."

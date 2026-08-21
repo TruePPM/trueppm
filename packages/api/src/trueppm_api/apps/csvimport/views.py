@@ -410,7 +410,10 @@ class CsvImportStatusView(APIView):
         responses={
             200: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
-                description='{"status", "filename", "summary", "requested_at"}.',
+                description=(
+                    '{"status", "filename", "summary", "requested_at", '
+                    '"date_order", "date_order_confirmed"}.'
+                ),
             ),
             403: OpenApiResponse(description="Caller lacks the Scheduler role on the project."),
             404: OpenApiResponse(description="No such import for this project."),
@@ -434,6 +437,14 @@ class CsvImportStatusView(APIView):
                 "filename": req.filename,
                 "summary": req.result_summary,
                 "requested_at": req.requested_at,
+                # The convention this import actually ran under, and whether a
+                # human accepted it (#2926). Read back here rather than only
+                # persisted: "why does this task say 62 days" is answerable only
+                # if the convention is legible after the fact, and a field
+                # nothing can read is a field that does not exist for a headless
+                # client. `date_order_confirmed` had no reader at all until this.
+                "date_order": req.date_order,
+                "date_order_confirmed": req.date_order_confirmed,
             },
             status=status.HTTP_200_OK,
         )
