@@ -140,6 +140,7 @@ import {
 } from '@/hooks/useScheduleDisplayOptions';
 import { ScheduleCoachBar } from './buildMode/ScheduleCoachBar';
 import { ConversionNotice } from './buildMode/ConversionNotice';
+import { ReforecastPanel } from './reforecast/ReforecastPanel';
 import { ineligiblePredecessorIds } from './deps/cycleSafety';
 import {
   useIndentTask,
@@ -699,6 +700,9 @@ export function ScheduleView() {
   useScheduleReconciliation(projectId, allTasks);
   const reviewFilterActive = useReconcileStore((s) => s.reviewFilterActive);
   const reconcileEntries = useReconcileStore((s) => s.entries);
+  // Dismissal is per-recompute: a new divergence re-opens the panel rather than
+  // staying hidden because the planner closed the last one (#2965).
+  const [reforecastDismissed, setReforecastDismissed] = useState(false);
   const setWorkingDaysMask = useReconcileStore((s) => s.setWorkingDaysMask);
   const reviewTaskIds = useMemo(() => reviewableTaskIds(reconcileEntries), [reconcileEntries]);
 
@@ -2804,6 +2808,19 @@ export function ScheduleView() {
           (#2951). The parked estimate is real (ADR-0844) but invisible without
           this. */}
       {hasEditRights && <ConversionNotice tasks={allTasks} />}
+
+      {/* What moved and why (#2965) — the question a planner has after the
+          per-row markers (#2725) tell them THAT something changed. */}
+      {!reforecastDismissed && (
+        <ReforecastPanel
+          entries={reconcileEntries}
+          links={allLinks}
+          tasks={allTasks}
+          cpmFinish={cpmFinish}
+          p80={mcResult?.p80 ?? null}
+          onDismiss={() => setReforecastDismissed(true)}
+        />
+      )}
 
       {buildModeActive && hasEditRights && displayOptions.coach && (
         <ScheduleCoachBar
