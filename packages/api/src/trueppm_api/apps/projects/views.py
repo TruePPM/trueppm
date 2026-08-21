@@ -9973,7 +9973,7 @@ class BoardLanesView(McpReadableViewMixin, APIView):
         ),
     },
 )
-class ProjectCommitView(APIView):
+class ProjectCommitView(IdempotencyMixin, APIView):
     """POST /projects/{pk}/commit/ — draft → active with baseline v1."""
 
     def get_permissions(self) -> list[BasePermission]:
