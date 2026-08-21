@@ -274,6 +274,8 @@ type SprintOutcome =
  */
 interface BuildKeyDownCtx {
   buildMode: BuildMode | null;
+  /** `buildMode` when the reader may author, else `null` (rule 302, #2961). */
+  authoring: BuildMode | null;
   anyCellInEdit: boolean;
   siblingIds: string[] | undefined;
   task: Task;
@@ -477,10 +479,13 @@ function tryBuildModeFocusMove(e: React.KeyboardEvent, ctx: BuildKeyDownCtx): bo
  * shortcuts, so this function's preventDefault contract is load-bearing.
  */
 function handleBuildModeKeyDown(e: React.KeyboardEvent, ctx: BuildKeyDownCtx): void {
-  const { buildMode, anyCellInEdit, task } = ctx;
+  const { buildMode, authoring, anyCellInEdit, task } = ctx;
   if (!buildMode || anyCellInEdit) return;
-  if (tryBuildModeReorder(e, ctx)) return;
-  if (tryBuildModeIndent(e, ctx)) return;
+  // Reorder and indent/outdent restructure the plan; selection and focus
+  // traversal read it. A viewer keeps the second set and loses the first
+  // (web rule 302, #2961) — silently, since nothing on the row advertised them.
+  if (authoring && tryBuildModeReorder(e, ctx)) return;
+  if (authoring && tryBuildModeIndent(e, ctx)) return;
   if (tryBuildModeSelectAll(e, ctx)) return;
   if (tryBuildModeSelectExtend(e, ctx)) return;
   if (tryBuildModeFocusMove(e, ctx)) return;
@@ -490,24 +495,31 @@ function handleBuildModeKeyDown(e: React.KeyboardEvent, ctx: BuildKeyDownCtx): v
   // Letter key (single printable, not modified) opens Name cell-edit
   // pre-filled with the typed letter — but we keep it simple in v1 and
   // just enter cell-edit; the user re-types if they want to overwrite.
-  if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey && /[a-zA-Z0-9]/.test(e.key)) {
+  if (
+    authoring &&
+    e.key.length === 1 &&
+    !e.metaKey &&
+    !e.ctrlKey &&
+    !e.altKey &&
+    /[a-zA-Z0-9]/.test(e.key)
+  ) {
     e.preventDefault();
-    buildMode.focus.enterCellEdit(task.id, 'name');
+    authoring.focus.enterCellEdit(task.id, 'name');
     return;
   }
   // Delete (Backspace/Delete) on focused row — destructive, no confirm, to
   // keep the build path fast. The safety net is the "Deleted — Undo" toast
   // wired into buildMode.deleteTask (ScheduleView, #1762): Undo recreates the
   // task from a pre-delete snapshot. The same path backs the ⋮ menu's Delete.
-  if (e.key === 'Delete' || e.key === 'Backspace') {
+  if (authoring && (e.key === 'Delete' || e.key === 'Backspace')) {
     e.preventDefault();
     // Structural keys apply to every selected row when a multi-row selection
     // is active (#2727, ADR-0776 §1).
-    const selectedIds = buildMode.focus.state.selectedIds;
+    const selectedIds = authoring.focus.state.selectedIds;
     if (selectedIds && selectedIds.size > 1) {
-      selectedIds.forEach((id) => buildMode.deleteTask(id));
+      selectedIds.forEach((id) => authoring.deleteTask(id));
     } else {
-      buildMode.deleteTask(task.id);
+      authoring.deleteTask(task.id);
     }
     return;
   }
@@ -527,6 +539,10 @@ function handleBuildModeKeyDown(e: React.KeyboardEvent, ctx: BuildKeyDownCtx): v
 interface RowKeyDownCtx {
   sprintOutcome: unknown;
   buildMode: BuildMode | null;
+  /** `buildMode` when the reader may author, else `null` (rule 302, #2961). */
+  authoring: BuildMode | null;
+  /** Whether this reader may mutate — true on the flag-off path too (#2961). */
+  canEdit: boolean;
   runBuildKeyDown: (e: React.KeyboardEvent) => void;
   isEditing: boolean;
   anyCellInEdit: boolean;
@@ -577,7 +593,7 @@ function handleRowEnter(
   e: Pick<React.KeyboardEvent, 'shiftKey' | 'metaKey' | 'ctrlKey'>,
   ctx: RowKeyDownCtx,
 ): void {
-  const { buildMode, task, isSelected, setSelectedTaskId } = ctx;
+  const { authoring: buildMode, task, isSelected, setSelectedTaskId } = ctx;
   if (buildMode) {
     // Shift+Enter = sibling above, ⌘/Ctrl+Enter = child, plain Enter = sibling
     // below (#2727).
@@ -594,7 +610,7 @@ function handleRowEnter(
  * inline rename otherwise. Split from handleRowKeyDown (#2245); semantics verbatim.
  */
 function handleRowF2(ctx: RowKeyDownCtx): void {
-  const { buildMode, task, startEdit } = ctx;
+  const { authoring: buildMode, task, startEdit } = ctx;
   if (buildMode) {
     buildMode.focus.enterCellEdit(task.id, 'name');
   } else {
@@ -609,8 +625,24 @@ function handleRowF2(ctx: RowKeyDownCtx): void {
  * preserved verbatim from handleRowKeyDown (#2245, originally #2081).
  */
 function handleRowShortcuts(e: React.KeyboardEvent, ctx: RowKeyDownCtx): void {
-  const { handleToggleComplete, handleDuplicate } = ctx;
+  const { handleToggleComplete, handleDuplicate, canEdit } = ctx;
   if (tryRowArrowSelect(e, ctx)) return;
+  // Everything past this point writes — mark-complete, duplicate, insert,
+  // rename. Without edit rights the row offers none of them, so the keys do
+  // nothing rather than explaining a refusal nobody invited (rule 302, #2961).
+  // Enter is the exception below: for a viewer it still selects the row, which
+  // is what it does on the flag-off path and is navigation, not mutation.
+  //
+  // Gated on `canEdit`, not on `authoring`: the latter is also null for an
+  // editor who is simply not in build mode, and this reducer IS that editor's
+  // only path to Space / ⌘D / F2.
+  if (!canEdit) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      ctx.setSelectedTaskId(ctx.isSelected ? null : ctx.task.id);
+    }
+    return;
+  }
   // Space rebinds to Mark complete on the focused row (ADR-0066 Q5).
   // Today both Enter and Space were redundant ("open drawer"); Enter
   // keeps that meaning, Space gets the new high-frequency action.
@@ -1480,7 +1512,21 @@ function RowPropertiesButton({
 interface RowSurfaceCtx {
   isEditing: boolean;
   anyCellInEdit: boolean;
+  /** The outline's navigation model — row focus, selection. Present for a viewer. */
   buildMode: BuildMode | null;
+  /**
+   * The outline's authoring API — the same object, or `null` without edit
+   * rights (web rule 302, #2961). Every mutation site reads this; every
+   * navigation site reads `buildMode`.
+   */
+  authoring: BuildMode | null;
+  /**
+   * Whether this reader may mutate at all. Distinct from `authoring`, which is
+   * also null on the flag-off (non-build-mode) path — conflating the two takes
+   * the classic inline rename away from an editor who simply is not in build
+   * mode (#2961).
+   */
+  canEdit: boolean;
   task: Task;
   isSelected: boolean;
   setSelectedTaskId: (id: string | null) => void;
@@ -1499,24 +1545,30 @@ function handleRowClick(ctx: RowSurfaceCtx): void {
 }
 
 function handleRowDoubleClick(ctx: RowSurfaceCtx): void {
-  if (ctx.buildMode) {
+  // Silent, per web rule 302: without edit rights nothing on this row offers a
+  // rename, so there is no gesture left to explain (#2961).
+  if (!ctx.canEdit) return;
+  if (ctx.authoring) {
     // Build-mode double-click → enter Name cell (consistent across all editable cells).
-    ctx.buildMode.focus.focusRow(ctx.task.id);
-    ctx.buildMode.focus.enterCellEdit(ctx.task.id, 'name');
+    ctx.authoring.focus.focusRow(ctx.task.id);
+    ctx.authoring.focus.enterCellEdit(ctx.task.id, 'name');
   } else {
     ctx.startEdit();
   }
 }
 
 function handleRowContextMenu(e: React.MouseEvent, ctx: RowSurfaceCtx): void {
-  if (!ctx.buildMode) return;
+  // `authoring`, not `buildMode`: every item in this menu mutates, so without
+  // edit rights the menu has nothing to show and the native menu is better than
+  // an empty one (#2961).
+  if (!ctx.authoring) return;
   // #806: suppress right-click while a structural mutation (indent/outdent/
   // delete) is in flight for this row. Opening the menu mid-delete strands
   // the BuildModeRowMenu portal when the row unmounts on cache invalidation,
   // which then blocks subsequent right-clicks on other rows until refresh.
-  if (ctx.buildMode.isMutationPending(ctx.task.id)) return;
+  if (ctx.authoring.isMutationPending(ctx.task.id)) return;
   e.preventDefault();
-  ctx.buildMode.focus.focusRow(ctx.task.id);
+  ctx.authoring.focus.focusRow(ctx.task.id);
   ctx.setMenuAnchor({ x: e.clientX, y: e.clientY });
 }
 
@@ -1599,11 +1651,23 @@ function TaskListRowInner({
   const setScheduleActionToast = useScheduleStore((s) => s.setScheduleActionToast);
   const isSelected = selectedTaskId === task.id;
   const updateTask = useUpdateTask();
-  const { role: currentRole } = useCurrentUserRole(projectId || undefined);
+  const { role: currentRole, isLoading: roleLoading } = useCurrentUserRole(projectId || undefined);
   // Same UX gate the drawer sections use — server capability first, role
-  // fallback (`task.canEdit ?? canEditTask(role)`). Gates the remediation
-  // actions in the "no committed start" chip popover (web-rules 156/272).
-  const canEdit = task.canEdit ?? canEditTask(currentRole);
+  // fallback. Gates the remediation actions in the "no committed start" chip
+  // popover (web-rules 156/272) and, since #2961, the row's whole authoring
+  // apparatus.
+  //
+  // Presence follows the *settled* entitlement. While the role query is still
+  // resolving we assume rights, and that direction is deliberate: the server is
+  // the enforcement point (rule 302), so briefly offering a control to someone
+  // who turns out to be a viewer costs at worst one silent refusal — whereas
+  // briefly hiding it from an editor is a layout shift on every schedule load
+  // and a row that grows controls a second after it appeared. An unresolved
+  // role is not "no rights"; treating unknown as denial *is* the flicker.
+  //
+  // `task.canEdit` still wins outright when the server sent it, because that is
+  // a settled answer and does not depend on the role query at all.
+  const canEdit = task.canEdit ?? (roleLoading ? true : canEditTask(currentRole));
 
   // #2639: confirmation gate for the progress=100 auto-status side effect
   // (REVIEW for contributors, COMPLETE for Admin+ — Option E, #381 follow-up),
@@ -1635,6 +1699,18 @@ function TaskListRowInner({
   // behavior above remains exactly unchanged).
   // ──────────────────────────────────────────────────────────────────────
   const buildMode = useBuildMode();
+  // Web rule 302 applied to the row (#2961). `buildMode` is two things wearing
+  // one name: the outline's NAVIGATION model (row focus, arrow traversal,
+  // selection, the roving tab stop) and its AUTHORING API (insert, indent,
+  // reorder, delete, cell edit). A reader with no edit rights keeps the first
+  // and must not be offered the second — so every mutation site below reads
+  // `authoring` and every navigation site keeps reading `buildMode`.
+  //
+  // Nulling `buildMode` wholesale would have been one line, and wrong: it takes
+  // the arrow keys, ⌘A, Shift+↑/↓ and the roving tab stop with it, leaving a
+  // viewer a grid they cannot move around in. Absence is meant to remove what
+  // authors the plan, not what reads it.
+  const authoring: BuildMode | null = canEdit ? buildMode : null;
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null);
 
   // #347: sibling reorder via Option/Alt+↑/↓ and ⋮⋮ handle
@@ -1681,6 +1757,7 @@ function TaskListRowInner({
   const handleBuildKeyDown = (e: React.KeyboardEvent) =>
     handleBuildModeKeyDown(e, {
       buildMode,
+      authoring,
       anyCellInEdit,
       siblingIds,
       visibleTaskIds,
@@ -1691,12 +1768,17 @@ function TaskListRowInner({
       focusRowDom,
     });
 
-  const reorderHandlers = useRowReorderHandle({ buildMode, siblingIds, task, reorderTasks });
+  const reorderHandlers = useRowReorderHandle({
+    buildMode: authoring,
+    siblingIds,
+    task,
+    reorderTasks,
+  });
 
   const { handleToggleComplete, handleDuplicate } = useRowActions({
     projectId,
     task,
-    buildMode,
+    buildMode: authoring,
     toggleComplete,
     duplicateTask,
     updateTask,
@@ -1707,7 +1789,9 @@ function TaskListRowInner({
   });
 
   const isComplete = task.status === 'COMPLETE';
-  const menuItems: RowMenuItem[] = buildRowMenuItemsFor(buildMode, {
+  // Every item in this menu mutates, so a viewer gets an empty list and
+  // `handleRowContextMenu` never opens it (#2961).
+  const menuItems: RowMenuItem[] = buildRowMenuItemsFor(authoring, {
     task,
     level,
     isComplete,
@@ -1754,6 +1838,8 @@ function TaskListRowInner({
     isEditing,
     anyCellInEdit,
     buildMode,
+    authoring,
+    canEdit,
     task,
     isSelected,
     setSelectedTaskId,
@@ -1812,6 +1898,8 @@ function TaskListRowInner({
         handleRowKeyDown(e, {
           sprintOutcome,
           buildMode,
+          authoring,
+          canEdit,
           runBuildKeyDown: handleBuildKeyDown,
           isEditing,
           anyCellInEdit,
@@ -1835,7 +1923,8 @@ function TaskListRowInner({
       <ModeGutter mode={rowMode} />
 
       {/* ── ⋮⋮ reorder handle — build mode only, visible on row hover (#347) ── */}
-      {buildMode && siblingIds && <RowReorderHandle handlers={reorderHandlers} />}
+      {/* Grip absent, not disabled, without edit rights — web rule 302 (#2961). */}
+      {authoring && siblingIds && <RowReorderHandle handlers={reorderHandlers} />}
 
       {/* ── WBS column (#248) ───────────────────────────────────────────────── */}
       {/* Insert-below affordance (#2957). On the row's BOTTOM EDGE, because that
@@ -1849,13 +1938,13 @@ function TaskListRowInner({
           the cheatsheet teach — so this is a pointer affordance for an operation
           the keyboard already has, not a pointer-only capability. It still
           carries `focus:opacity-100` so programmatic focus reveals it. */}
-      {canEdit && buildMode && (
+      {authoring && (
         <button
           type="button"
           tabIndex={-1}
           onClick={(e) => {
             e.stopPropagation();
-            buildMode.insertBelow(task.id);
+            authoring.insertBelow(task.id);
           }}
           aria-label={`Insert an item below ${task.name || 'this row'}, at the same level`}
           title="Insert an item here"
@@ -1880,8 +1969,8 @@ function TaskListRowInner({
           taskName={task.name}
           canOutdent={level > 1}
           // Absent, not disabled, without edit rights — web rule 302 (#2949).
-          onIndent={canEdit && buildMode ? () => buildMode.indent(task.id) : undefined}
-          onOutdent={canEdit && buildMode ? () => buildMode.outdent(task.id) : undefined}
+          onIndent={authoring ? () => authoring.indent(task.id) : undefined}
+          onOutdent={authoring ? () => authoring.outdent(task.id) : undefined}
         />
       )}
 
@@ -1930,7 +2019,9 @@ function TaskListRowInner({
             Build-mode uses the EditableCell primitive (Tab traverses to next
             cell). Flag-off path keeps the existing simple input (legacy behavior). */}
         <TaskNameContent
-          buildMode={buildMode}
+          // `authoring`: the cell primitives branch on this to decide field vs
+          // text, so a viewer reads a plan rather than a form someone locked.
+          buildMode={authoring}
           editingColumnName={editingColumnName}
           task={task}
           projectId={projectId}
@@ -1981,7 +2072,7 @@ function TaskListRowInner({
         isEditing={isEditing}
         visible={visible}
         widths={widths}
-        buildMode={buildMode}
+        buildMode={authoring}
         task={task}
         editingColumnDuration={editingColumnDuration}
         editingColumnProgress={editingColumnProgress}
@@ -2003,7 +2094,7 @@ function TaskListRowInner({
           (ADR-0101), the prompt is replaced by the corresponding outcome panel
           anchored to the same position rather than closing silently. */}
       <SprintAssignmentRegion
-        buildMode={buildMode}
+        buildMode={authoring}
         showSprintPrompt={showSprintPrompt}
         sprintOutcome={sprintOutcome}
         setSprintOutcome={setSprintOutcome}
