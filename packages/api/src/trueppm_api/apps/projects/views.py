@@ -12786,6 +12786,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         omitted previews the to-be-created milestone. Any project member.
         """
         from trueppm_api.apps.projects.services import MilestoneNotFound, reforecast_preview
+        from trueppm_api.apps.projects.signal_privacy_services import can_read_signal
 
         if pk is None:  # pragma: no cover - pk from URL route
             return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
@@ -12801,6 +12802,30 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
                 {"milestone_id": "Milestone not found in this project."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        # ADR-0104 §2.1 at a ninth sink (#2982). ``velocity_low``/``velocity_high``
+        # here are ``velocity_summary``'s ``forecast_range_low``/``_high`` passed
+        # through verbatim — the same two fields ``suppress_velocity_summary``
+        # nulls — so without this a reader suppressed on /velocity/, /forecast/,
+        # /sprint-forecast/ and /me/active-sprints/ reads the identical band with
+        # one GET against any sprint in the project, and #981's fix buys nothing.
+        #
+        # The gate must live here rather than in the service: ``reforecast_preview``
+        # takes no ``request``, so it cannot know the reader and could not gate even
+        # in principle. The caller owns it.
+        #
+        # ``cpm_finish``/``p50``/``p80``/``p95`` deliberately stay. That is the
+        # ruling ADR-0106 §3 already made for the persisted twin of this payload —
+        # see ProjectForecastView, which nulls a snapshot's band and leaves its
+        # date artifacts intact. Being exact about the residue rather than claiming
+        # none: ``p95 - cpm_finish`` is ``round(remaining x sprint_days x
+        # (1/velocity_low - 1/avg))``, so a reader who separately knows
+        # ``remaining`` and ``sprint_days`` gets one equation in two unknowns. That
+        # constrains the band; it does not recover it, and it is the same residue
+        # the persisted path has always carried. Nulling the dates instead would
+        # delete the preview's entire purpose for the reader.
+        if not can_read_signal(request, sprint.project_id, "velocity"):
+            payload["velocity_low"] = None
+            payload["velocity_high"] = None
         return Response(ReforecastPreviewSerializer(payload).data, status=status.HTTP_200_OK)
 
     def _bulk_scope_change(self, request: Request, pk: str | None, *, accept: bool) -> Response:
