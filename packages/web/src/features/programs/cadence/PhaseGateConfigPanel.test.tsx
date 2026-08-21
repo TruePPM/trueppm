@@ -111,6 +111,26 @@ describe('PhaseGateConfigPanel — query states', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
+  it('claims neither auto-scheduling nor variable substitution (#2896)', async () => {
+    // Two claims, one class. The header said the template was "auto-scheduled",
+    // and the helper text below the textarea offered "Available variables" —
+    // which asserts that something substitutes them. Nothing does: the
+    // serializer docstring calls substitution "a downstream calendar-integration
+    // follow-up", and invite_template has no readers at all.
+    //
+    // A vocabulary list is a capability claim, which is why it is asserted here
+    // rather than left to the eye — the list looked like documentation and read
+    // as a promise. Delete when #2983 ships.
+    renderPanel();
+    await awaitLoaded();
+
+    expect(screen.getByText(/stored here for you to copy/i)).toBeInTheDocument();
+    expect(screen.getByText(/does not replace them/i)).toBeInTheDocument();
+    for (const claim of [/auto-scheduled/i, /automatically scheduled/i, /available variables/i]) {
+      expect(screen.queryByText(claim)).not.toBeInTheDocument();
+    }
+  });
+
   it('leaves the form at its defaults when the config comes back disabled and blank', async () => {
     getMock.mockResolvedValue({
       data: { ...BASE_CONFIG, enabled: false, invite_template: '' },

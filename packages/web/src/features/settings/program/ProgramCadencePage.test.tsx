@@ -319,6 +319,33 @@ describe('ProgramCadencePage — ceremony actions menu keyboard access', () => {
     expect(screen.getByTestId('phase-gate-panel')).toBeInTheDocument();
   });
 
+  it('claims no automatic scheduling anywhere on the page (#2896)', () => {
+    // Nothing dispatches, and nothing creates ceremony instances either:
+    // PhaseGateConfig and CeremonyTemplate are both config-only and say so in
+    // their own docstrings ("does NOT generate calendar invite instances or
+    // notifications today"), and invite_template has no readers anywhere in the
+    // API tree. The page asserted the opposite in flat present tense in TWO
+    // places — the section paragraph and the page subtitle.
+    //
+    // This assertion is deliberately phrased against the *claim*, not against
+    // the retired wording. A guard matching only /automatically scheduled/ is
+    // what let the subtitle survive the first pass of this fix: it worded the
+    // same lie differently. The limit that makes these false is the model
+    // docstring, so this test dies when that docstring does — i.e. when #2983
+    // ships the dispatch — not when someone rephrases a sentence.
+    render(<ProgramCadencePage />);
+    for (const claim of [
+      /automatically scheduled/i,
+      /auto-scheduled/i,
+      /instances are created/i,
+      /linked to milestones/i,
+    ]) {
+      expect(screen.queryByText(claim)).not.toBeInTheDocument();
+    }
+    expect(screen.getByText(/does not send it/i)).toBeInTheDocument();
+    expect(screen.getByText(/does not create the meetings/i)).toBeInTheDocument();
+  });
+
   it('renders a disabled, unowned ceremony with an "Enable" toggle and an em-dash owner', () => {
     mockCeremonies({ data: [CEREMONY, RETRO] });
     render(<ProgramCadencePage />);
