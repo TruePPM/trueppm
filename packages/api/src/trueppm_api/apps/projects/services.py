@@ -1181,7 +1181,9 @@ def snapshot_sprint_task_outcomes(sprint: Any, *, carry_over_to: str) -> None:
     against the ``(sprint, task)`` unique constraint, so an outbox re-drain is a
     no-op. The caller does NOT wrap this in try/except — capturing the audit is
     part of the close's definition of done, so a failure must roll the close back
-    and let the drain retry.
+    and let the drain re-queue the request, which it does for a bounded number of
+    attempts before abandoning it (#2894: the retry this sentence promised did
+    not exist until then — the request was marked FAILED and never picked up).
     """
     from trueppm_api.apps.projects.models import (
         SprintTaskDisposition,

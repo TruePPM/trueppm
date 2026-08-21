@@ -124,6 +124,7 @@ from trueppm_api.apps.projects.models import (
     RiskComment,
     RiskStatus,
     Sprint,
+    SprintCloseRequest,
     SprintScopeChange,
     SprintState,
     SprintTaskOutcome,
@@ -199,6 +200,7 @@ from trueppm_api.apps.projects.serializers import (
     SignedDownloadUrlSerializer,
     SprintBurnSnapshotSerializer,
     SprintCloseRequestSerializer,
+    SprintCloseRequestStateSerializer,
     SprintDailyDeltaSerializer,
     SprintDurationChangeEventSerializer,
     SprintForecastSerializer,
@@ -12231,6 +12233,11 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             # ADR-0151 (issue 1254): the per-sprint duration-change audit is a
             # team-readable Viewer+ read, exactly mirroring scope_changes above.
             "duration_events",
+            # #2894: the outcome of one's own close attempt. Viewer+ deliberately
+            # — closing needs write, but *seeing that a close failed* is a plain
+            # team read, and gating it at write would hide the failure from the
+            # people most likely to notice the sprint never closed.
+            "close_request",
         ):
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         # ADR-0106 §E1.1/§E1.4 (#928): the reforecast preview is a read-only dry
@@ -12598,6 +12605,60 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         if advisory is not None:
             payload["scope_pending_on_close"] = advisory
         return Response(payload, status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        summary="Read the outcome of this sprint's most recent close attempt",
+        responses={
+            200: SprintCloseRequestStateSerializer,
+            404: OpenApiResponse(description="No close has ever been requested for this sprint."),
+        },
+    )
+    @action(detail=True, methods=["get"], url_path="close-request")
+    def close_request(self, request: Request, pk: str | None = None) -> Response:
+        """Latest ``SprintCloseRequest`` for this sprint — what the 202 promised (#2894).
+
+        ``close`` returns 202 with a ``request_id`` and its docstring says the
+        frontend polls to observe completion, but no read route existed: the id
+        addressed nothing, so a close that failed showed the user a sprint that
+        never closed and an error message nowhere.
+
+        Returns the most recent attempt rather than requiring the caller to have
+        kept the id, because the question being asked is "what happened to my
+        close?" and the answer must be reachable after a page reload. Clients
+        holding a ``request_id`` can confirm identity against ``id``.
+
+        Branch on ``terminal``, not on ``status``: a FAILED row may still be
+        re-queued by the drain, so FAILED alone does not mean the close is dead.
+        """
+        # Resolved through ``get_queryset()`` rather than the bare manager that
+        # every sibling action here uses. Two consequences, both wanted:
+        #
+        #  * ADR-0678: this viewset is ``McpScope.QUERYSET``, so the team's agent
+        #    opt-out is enforced *row-level in the queryset* —
+        #    ``McpProjectEnabled`` returns True for non-PATH scopes, and a bare
+        #    manager lookup would therefore let an ``mcp:read`` token read a
+        #    project that had opted out of agent reads.
+        #  * The membership filter runs first, so a non-member gets a flat 404
+        #    instead of a 403 that confirms the sprint exists.
+        sprint = get_object_or_404(self.get_queryset(), pk=pk, is_deleted=False)
+        self.check_object_permissions(request, sprint)
+        req = (
+            SprintCloseRequest.objects.filter(sprint_id=sprint.pk)
+            # The serializer resolves the caller's role off sprint.project_id to
+            # decide whether the raw failure text is theirs to see.
+            .select_related("sprint")
+            .order_by("-requested_at")
+            .first()
+        )
+        if req is None:
+            return Response(
+                {"detail": "No close has been requested for this sprint."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(
+            SprintCloseRequestStateSerializer(req, context={"request": request}).data,
+            status=status.HTTP_200_OK,
+        )
 
     @extend_schema(
         summary="Cancel a planned sprint",
