@@ -28,6 +28,7 @@ import { ProjectVisibilityPage } from './project/ProjectVisibilityPage';
 import { ProjectSharingPage } from './project/ProjectSharingPage';
 import { ProjectAgentsPage } from './project/ProjectAgentsPage';
 import { ProjectArchivePage } from './project/ProjectArchivePage';
+import { ProjectTemplatesPage } from './project/ProjectTemplatesPage';
 import {
   ResourcesIcon,
   SprintIcon,
@@ -45,6 +46,7 @@ import {
   PlugIcon,
   BellIcon,
   AgentIcon,
+  CopyIcon,
 } from '@/components/Icons';
 
 function NavIcon({ children }: { children: ReactNode }) {
@@ -125,6 +127,16 @@ export function buildProjectSettingsNav({
           icon: (
             <NavIcon>
               <SprintIcon aria-hidden="true" />
+            </NavIcon>
+          ),
+        },
+        {
+          id: 'templates',
+          label: 'Templates',
+          keywords: 'template publish reuse shape skeleton starter',
+          icon: (
+            <NavIcon>
+              <CopyIcon aria-hidden="true" />
             </NavIcon>
           ),
         },
@@ -349,6 +361,13 @@ export function ProjectSettingsPage() {
       </SettingsSection>
       <SettingsSection id="methodology">
         <ProjectMethodologyPage />
+      </SettingsSection>
+
+      {/* Beside Methodology on purpose: a template *is* a methodology decision
+          made concrete, and the publish act belongs where the evidence is —
+          in the project whose shape is being claimed as reusable (#2909). */}
+      <SettingsSection id="templates">
+        <ProjectTemplatesPage />
       </SettingsSection>
       {showTeamTab && (
         <SettingsSection id="team">
