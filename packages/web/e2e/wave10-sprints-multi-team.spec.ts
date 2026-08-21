@@ -76,7 +76,12 @@ const ME_ACTIVE_TWO = [
     },
     capacity_ratio: 0.95,
     capacity_label: 'at_risk' as const,
-    velocity: { rolling_avg_points: 38, forecast_range_low: 32, forecast_range_high: 45 },
+    velocity: {
+      rolling_avg_points: 38,
+      forecast_range_low: 32,
+      forecast_range_high: 45,
+      velocity_suppressed: false,
+    },
   },
   {
     project_id: 'other-project',
@@ -95,7 +100,12 @@ const ME_ACTIVE_TWO = [
     },
     capacity_ratio: 0.6,
     capacity_label: 'on_track' as const,
-    velocity: { rolling_avg_points: 28, forecast_range_low: 24, forecast_range_high: 32 },
+    velocity: {
+      rolling_avg_points: 28,
+      forecast_range_low: 24,
+      forecast_range_high: 32,
+      velocity_suppressed: false,
+    },
   },
 ];
 
@@ -271,5 +281,32 @@ test.describe('Wave 10 — Multi-team Sprints lens', () => {
       'href',
       '/projects/other-project/sprints?sprint=sp-other',
     );
+  });
+
+  test('a gated card reads team-private, not "no velocity yet" (#2895)', async ({ page }) => {
+    // ADR-0104 §2.1: the caller is the PM of the second team, so that project's
+    // band arrives nulled with velocity_suppressed=true. The first card is an
+    // ordinary in-audience read and must be untouched — the gate is per project.
+    const meActive = JSON.parse(JSON.stringify(ME_ACTIVE_TWO)) as typeof ME_ACTIVE_TWO;
+    meActive[1].velocity = {
+      rolling_avg_points: null as unknown as number,
+      forecast_range_low: null as unknown as number,
+      forecast_range_high: null as unknown as number,
+      velocity_suppressed: true,
+    };
+    await setupCommon(page, meActive);
+    await page.goto(BASE_URL);
+
+    await page.getByRole('radio', { name: /My Teams \(2\)/i }).click();
+    const lens = page.getByRole('region', { name: /My Teams/i });
+    await expect(lens).toBeVisible();
+
+    const gated = lens.getByRole('link', { name: /Other Team Project/i });
+    await expect(gated.getByTestId('lens-velocity-suppressed')).toBeVisible();
+    await expect(gated.getByText(/no velocity yet/i)).toHaveCount(0);
+
+    // The in-audience card still prints its band.
+    const open = lens.getByRole('link', { name: /Lens Project/i });
+    await expect(open.getByText(/32–45/)).toBeVisible();
   });
 });

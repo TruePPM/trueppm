@@ -8486,11 +8486,23 @@ class _ActiveSprintCardSprintSerializer(serializers.Serializer[Any]):
 
 
 class _ActiveSprintCardVelocitySerializer(serializers.Serializer[Any]):
-    """Rolling-velocity forecast block nested in each ``/me/active-sprints/`` card."""
+    """Rolling-velocity forecast block nested in each ``/me/active-sprints/`` card.
+
+    The three point figures are nulled — not withheld — when the caller is below
+    the project's velocity audience (ADR-0104 §2.1, #2895); ``velocity_suppressed``
+    is what distinguishes that from a team with no closed sprints yet.
+    """
 
     rolling_avg_points = serializers.FloatField(allow_null=True)
     forecast_range_low = serializers.FloatField(allow_null=True)
     forecast_range_high = serializers.FloatField(allow_null=True)
+    velocity_suppressed = serializers.BooleanField(
+        help_text=(
+            "True when the ADR-0104 velocity gate stripped this project's point "
+            "figures for the caller. False when the nulls mean 'no velocity data "
+            "yet' instead."
+        ),
+    )
 
 
 class MeActiveSprintCardSerializer(serializers.Serializer[Any]):

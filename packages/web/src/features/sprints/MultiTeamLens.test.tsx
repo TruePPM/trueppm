@@ -27,6 +27,7 @@ function entry(overrides: Partial<MyActiveSprintEntry> = {}): MyActiveSprintEntr
       rolling_avg_points: 38,
       forecast_range_low: 32,
       forecast_range_high: 45,
+      velocity_suppressed: false,
     },
   };
 }
@@ -115,11 +116,55 @@ describe('MultiTeamLens', () => {
               rolling_avg_points: null,
               forecast_range_low: null,
               forecast_range_high: null,
+              velocity_suppressed: false,
             },
           }),
         ]}
       />,
     );
     expect(screen.getByText(/no velocity yet/i)).toBeInTheDocument();
+  });
+
+  it('renders the team-private state, not "no velocity yet", when the band is gated', () => {
+    // #2895: a gated band and an absent one are both three nulls on the wire, so
+    // the flag is the only thing that separates them. Reporting "no velocity yet"
+    // to a suppressed PM would misdescribe the team as having no history.
+    renderWithRouter(
+      <MultiTeamLens
+        entries={[
+          entry({
+            velocity: {
+              rolling_avg_points: null,
+              forecast_range_low: null,
+              forecast_range_high: null,
+              velocity_suppressed: true,
+            },
+          }),
+        ]}
+      />,
+    );
+    expect(screen.getByTestId('lens-velocity-suppressed')).toBeInTheDocument();
+    expect(screen.queryByText(/no velocity yet/i)).not.toBeInTheDocument();
+  });
+
+  it('never renders a forecast range when the band is suppressed', () => {
+    // Belt-and-braces on the leak itself: even if the server ever regressed and
+    // sent bounds alongside the flag, the card must not print them.
+    renderWithRouter(
+      <MultiTeamLens
+        entries={[
+          entry({
+            velocity: {
+              rolling_avg_points: 38,
+              forecast_range_low: 32,
+              forecast_range_high: 45,
+              velocity_suppressed: true,
+            },
+          }),
+        ]}
+      />,
+    );
+    expect(screen.getByTestId('lens-velocity-suppressed')).toBeInTheDocument();
+    expect(screen.queryByText(/32–45/)).not.toBeInTheDocument();
   });
 });

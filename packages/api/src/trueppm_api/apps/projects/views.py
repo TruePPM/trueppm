@@ -14339,9 +14339,22 @@ class MeActiveSprintsView(APIView):
 
     Each entry includes enough data to render a card without follow-up
     requests: sprint name + window + day-N-of-M, points remaining, capacity
-    ratio + label, and the rolling-velocity forecast range. The user's
-    project membership is implicit — if they are assigned to a task they
-    are at minimum a Member.
+    ratio + label, and the rolling-velocity forecast range.
+
+    Membership is **checked, never inferred** (#2895). An assignment is not a
+    membership: ``ProjectMembership`` is soft-deleted, so a revoked member keeps
+    their stale ``Task.assignee`` rows and would otherwise keep reading the
+    project through this lens long after every other endpoint denied them. The
+    queryset below therefore joins live membership explicitly, and the velocity
+    block runs the ADR-0104 gate per project — this is a sink for
+    ``velocity_summary`` exactly like ``/velocity/`` and ``/forecast/``, and the
+    gate has to fire at *every* sink or the lens is a side-channel back to the
+    band those two suppress.
+
+    That sink set is **not** closed as of this writing: ``reforecast-preview``
+    still returns ``forecast_range_low``/``_high`` ungated (#2982). Do not read
+    the paragraph above as a guarantee that every sibling is gated — it is the
+    rule, not a statement that the rule currently holds everywhere.
     """
 
     permission_classes = [IsAuthenticated]
@@ -14351,29 +14364,53 @@ class MeActiveSprintsView(APIView):
             capacity_summaries_for_sprints,
             velocity_summary,
         )
+        from trueppm_api.apps.projects.signal_privacy_services import (
+            can_read_signal,
+            suppress_velocity_summary,
+        )
+
+        # ``IsAuthenticated`` has already resolved the caller, but django-stubs
+        # types ``User.pk`` as ``int | None`` and the membership lookup below
+        # rejects None. Narrow once here rather than at each use.
+        user_pk = cast("int", request.user.pk)
 
         # Find every (project, sprint) pair where the user owns a non-complete
-        # task in the currently-ACTIVE sprint.
+        # task in the currently-ACTIVE sprint *and still holds live membership of
+        # that project* — see the class docstring: the assignment alone is not a
+        # membership once ProjectMembership has been soft-deleted.
         active_pairs = (
             Task.objects.filter(
-                assignee_id=request.user.pk,
+                assignee_id=user_pk,
                 is_deleted=False,
                 sprint__state=SprintState.ACTIVE,
                 sprint__is_deleted=False,
+                project__is_deleted=False,
+                project__memberships__user_id=user_pk,
+                project__memberships__is_deleted=False,
             )
             .exclude(status=TaskStatus.COMPLETE)
             .values("project_id", "sprint_id")
             .distinct()
         )
 
-        sprint_ids = {row["sprint_id"] for row in active_pairs}
+        pairs = list(active_pairs)
+        sprint_ids = {row["sprint_id"] for row in pairs}
         if not sprint_ids:
             return Response([], status=status.HTTP_200_OK)
+        # Membership above was verified against ``task.project``, but every field
+        # below is read from ``sprint.project``. Re-scope the sprint set to the
+        # projects that actually passed the check so the two can never diverge: a
+        # sprint mis-parented to another project would otherwise render that
+        # project's name, window, points and capacity to someone whose membership
+        # of it was never tested. Unreachable today — the serializer and the
+        # service write paths both reject a cross-project sprint — and free, since
+        # the ids are already in hand.
+        project_ids = {row["project_id"] for row in pairs}
 
         from trueppm_api.apps.projects.models import SprintBurnSnapshot
 
         sprints = list(
-            Sprint.objects.filter(pk__in=sprint_ids, is_deleted=False)
+            Sprint.objects.filter(pk__in=sprint_ids, project_id__in=project_ids, is_deleted=False)
             .select_related("project", "project__calendar", "target_milestone")
             # Prefetch the most-recent burn snapshot per sprint so the loop
             # below can read `sprint._latest_snapshot` without one extra query
@@ -14410,7 +14447,15 @@ class MeActiveSprintsView(APIView):
             cap = capacities[sprint.pk]
             project_id = str(sprint.project_id)
             if project_id not in velocity_cache:
-                velocity_cache[project_id] = velocity_summary(sprint.project_id)
+                summary = velocity_summary(sprint.project_id)
+                # ADR-0104 §2.1, per project: this lens spans teams, so the gate
+                # is resolved once per project rather than once per request — the
+                # caller can be an ordinary member of one team and the PM of the
+                # next, and each project's own audience decides. Cached alongside
+                # the summary so the membership read is not repeated per sprint.
+                if not can_read_signal(request, sprint.project_id, "velocity"):
+                    summary = suppress_velocity_summary(summary)
+                velocity_cache[project_id] = summary
             vel = velocity_cache[project_id]
 
             results.append(
@@ -14436,10 +14481,23 @@ class MeActiveSprintsView(APIView):
                     },
                     "capacity_ratio": cap["totals"]["ratio"],
                     "capacity_label": cap["totals"]["label"],
+                    # Suppress, don't 403 (ADR-0104 §2.1): the card still renders,
+                    # and ``velocity_suppressed`` is what lets the client tell a
+                    # gated band from a team with no closed sprints yet — both of
+                    # which are three nulls on the wire.
+                    #
+                    # All four reads are ``.get()`` deliberately. ADR-0104 §2.1
+                    # describes suppression as fields being *omitted*, while
+                    # suppress_velocity_summary currently nulls them; if it ever
+                    # moves to real omission, indexing three of these would 500 on
+                    # exactly the gated path this endpoint exists to protect.
+                    # Degrading to nulls is the safe direction — the values are
+                    # withheld either way.
                     "velocity": {
-                        "rolling_avg_points": vel["rolling_avg_points"],
-                        "forecast_range_low": vel["forecast_range_low"],
-                        "forecast_range_high": vel["forecast_range_high"],
+                        "rolling_avg_points": vel.get("rolling_avg_points"),
+                        "forecast_range_low": vel.get("forecast_range_low"),
+                        "forecast_range_high": vel.get("forecast_range_high"),
+                        "velocity_suppressed": bool(vel.get("velocity_suppressed", False)),
                     },
                 }
             )
