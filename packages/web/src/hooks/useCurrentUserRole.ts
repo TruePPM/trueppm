@@ -23,6 +23,18 @@ export interface UseCurrentUserRoleResult {
    */
   roleLabel?: string | null;
   isLoading: boolean;
+  /**
+   * The membership read failed, as distinct from "no membership".
+   *
+   * Both surface as `role: null`, and conflating them is a real defect rather
+   * than a lint technicality: a caller that renders "you need Admin" on
+   * `role == null` tells an Admin they lack permission whenever the request
+   * blips. `retry: false` makes that a single failure away (rule 246, #2909).
+   *
+   * Optional in the type — not at runtime — so the existing mocks that supply
+   * only `role` stay valid; narrow to `isError ?? false`.
+   */
+  isError?: boolean;
 }
 
 /**
@@ -58,12 +70,13 @@ export function useCurrentUserRole(
   });
 
   if (!projectId || query.isPending) {
-    return { role: null, roleLabel: null, isLoading: true };
+    return { role: null, roleLabel: null, isLoading: true, isError: false };
   }
 
   return {
     role: query.data?.role ?? null,
     roleLabel: query.data?.role_label ?? null,
     isLoading: false,
+    isError: query.isError,
   };
 }

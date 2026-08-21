@@ -106,7 +106,7 @@ export function PublishTemplateSheet({
         role="dialog"
         aria-modal="true"
         aria-label={step === 'done' ? 'Template published' : `Publish ${projectName} as a template`}
-        className="mt-10 w-full max-w-2xl rounded-card border border-neutral-border bg-neutral-surface p-5 shadow-lg"
+        className="mt-10 w-full max-w-2xl rounded-card border border-neutral-border bg-neutral-surface p-5"
       >
         {step === 'form' && (
           <>

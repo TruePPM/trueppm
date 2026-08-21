@@ -56,7 +56,7 @@ function VersionRow({ template }: { template: ProjectTemplate }) {
 export function ProjectTemplatesPage() {
   const projectId = useProjectId();
   const { data: project } = useProject(projectId);
-  const { role, isLoading: roleLoading } = useCurrentUserRole(projectId);
+  const { role, isLoading: roleLoading, isError: roleError } = useCurrentUserRole(projectId);
   const [sheetOpen, setSheetOpen] = useState(false);
 
   const canPublish = role != null && role >= ROLE_ADMIN;
@@ -79,7 +79,16 @@ export function ProjectTemplatesPage() {
         created from an earlier version.
       </p>
 
-      {roleLoading ? null : canPublish ? (
+      {roleError ? (
+        // Distinct from "you are not an Admin". A failed membership read also
+        // yields role === null, and reporting that as a permission verdict
+        // tells an Admin they lack a role they hold (rule 246).
+        <p role="alert" className="text-sm text-semantic-critical">
+          Couldn&rsquo;t check your role on this project, so publishing is
+          unavailable right now. This is a failed request, not a permission
+          decision — reload to try again.
+        </p>
+      ) : roleLoading ? null : canPublish ? (
         <>
           <div className="rounded-card border border-neutral-border p-4">
             <div className="text-xs font-medium uppercase tracking-wide text-neutral-text-secondary">
