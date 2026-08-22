@@ -58769,7 +58769,7 @@
                         "type": "integer",
                         "maximum": 52,
                         "minimum": 1,
-                        "description": "How many iterations to lay out (1 to 52) Required unless `sprints` is given."
+                        "description": "How many iterations to lay out (1 to 52). Required unless `sprints` is given."
                     },
                     "start_date": {
                         "type": "string",
