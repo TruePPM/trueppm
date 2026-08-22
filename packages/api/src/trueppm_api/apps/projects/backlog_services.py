@@ -127,6 +127,16 @@ def pull_to_project_backlog(
             # description field; the Board/drawer render notes as the body.
             notes=item.description,
             story_points=item.story_points,
+            # The PO's intake ordering is the whole point of ranking a program
+            # backlog, and it is not reconstructable after the crossing — there is
+            # no un-pull endpoint, so a lost rank cannot be recovered by undoing.
+            # Both fields are nullable PositiveIntegerFields meaning "lower = higher
+            # priority", so the raw value carries: it preserves relative order among
+            # items pulled from the same pool. Ranks are not unique and ties already
+            # break on a secondary sort, so colliding with an existing project task's
+            # rank is harmless — whereas leaving it null sorts the pulled item last
+            # (the 9999 client sentinel), which is the defect (#2906).
+            priority_rank=item.priority_rank,
             status=TaskStatus.BACKLOG,
             sprint=None,
             # ADR-0105: carry the intake item's type into the project work-item
