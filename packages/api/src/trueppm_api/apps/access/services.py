@@ -459,6 +459,16 @@ def revoke_all_refresh_tokens(user: Any) -> int:
     via ``django.contrib.sessions`` (that framework backs only the admin site and
     the DRF browsable API), so there is no app session to clear there.
 
+    Completeness depends on every live token having an ``OutstandingToken`` row.
+    simplejwt writes one only in ``RefreshToken.for_user`` (login); rotation mints a
+    new jti and records nothing, so before #2999 this function walked a set of
+    already-blacklisted rows and left the *live* session usable while returning a
+    plausible non-zero count. ``core.auth_views._record_outstanding`` now upserts the
+    row on both login and rotation, which is what makes this function's contract
+    true. **Tokens minted before that fix shipped still have no row and remain
+    unrevokable** — an operator needing a hard cut across those must rotate
+    ``JWT_SIGNING_KEY``.
+
     Idempotent: ``get_or_create`` means re-running blacklists nothing twice, and a
     row already blacklisted by rotation stays blacklisted. Safe to call inside the
     reset transaction.
