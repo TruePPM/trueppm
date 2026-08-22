@@ -439,3 +439,198 @@ def test_login_openapi_schema_omits_phantom_refresh_field() -> None:
     # The phantom simplejwt TokenObtainPair schema (which still declares a
     # required refresh) must no longer be emitted at all.
     assert "TokenObtainPair" not in schema["components"]["schemas"]
+
+
+# ---------------------------------------------------------------------------
+# Server-side session revocation (#2999). Two defects composed: a rotated token
+# had no OutstandingToken row (so nothing could revoke it), and the cookie was
+# Path-scoped so tightly that the browser never sent it to logout.
+#
+# Note on what the test client can and cannot see: Django's test client sends
+# every cookie in ``client.cookies`` regardless of ``Path``, which a browser does
+# not do. That is why the pre-existing logout-replay test passed against a logout
+# endpoint the cookie could never actually reach — the path defect is only
+# observable by asserting on the cookie attribute itself, never by driving the
+# flow. ``test_refresh_cookie_path_reaches_the_logout_endpoint`` is that
+# assertion; do not "simplify" it into a client round-trip.
+# ---------------------------------------------------------------------------
+
+
+def _outstanding_jtis(user_obj) -> set[str]:
+    from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
+
+    return set(OutstandingToken.objects.filter(user=user_obj).values_list("jti", flat=True))
+
+
+def _jti(token_value: str) -> str:
+    """Read a token's jti without verifying it.
+
+    ``RefreshToken(value)`` verifies on construction, which raises for exactly the
+    tokens these tests care about (a rotated token is blacklisted). ``verify=False``
+    decodes the claims only.
+    """
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    return str(RefreshToken(token_value, verify=False).payload["jti"])
+
+
+@pytest.mark.django_db
+def test_rotation_records_an_outstanding_token_row(user) -> None:
+    """The rotated jti is recorded, not just the login jti.
+
+    simplejwt writes an ``OutstandingToken`` only in ``for_user``; without the
+    upsert in ``_record_outstanding`` the live post-rotation token is the one token
+    with no row, and therefore the one token no revocation path can reach.
+    """
+    client = APIClient()
+    login_token = _login(client)
+
+    rotated = client.post(_REFRESH_URL, {}, format="json")
+    assert rotated.status_code == 200
+    rotated_token = rotated.cookies[_COOKIE].value
+
+    jtis = _outstanding_jtis(user)
+    assert _jti(login_token) in jtis, "login jti should be recorded (simplejwt for_user)"
+    assert _jti(rotated_token) in jtis, "rotated jti must be recorded so it can be revoked"
+
+
+@pytest.mark.django_db
+def test_revoke_all_refresh_tokens_kills_a_rotated_session(user) -> None:
+    """The regression that mattered: revocation after rotation must end the session.
+
+    Before #2999 this returned a non-zero count (it blacklisted the already-dead
+    login row) while the live rotated token kept working — so a password reset did
+    not evict an attacker holding a stolen refresh cookie.
+    """
+    from trueppm_api.apps.access.services import revoke_all_refresh_tokens
+
+    client = APIClient()
+    _login(client)
+
+    # Rotate, so the live credential is one simplejwt never recorded.
+    assert client.post(_REFRESH_URL, {}, format="json").status_code == 200
+
+    revoke_all_refresh_tokens(user)
+
+    replay = client.post(_REFRESH_URL, {}, format="json")
+    assert replay.status_code == 401, "the live rotated token survived revocation"
+
+
+@pytest.mark.django_db
+def test_revoke_all_refresh_tokens_kills_a_session_rotated_several_times(user) -> None:
+    """Each rotation must record its own row — not just the first one."""
+    from trueppm_api.apps.access.services import revoke_all_refresh_tokens
+
+    client = APIClient()
+    _login(client)
+    for _ in range(3):
+        assert client.post(_REFRESH_URL, {}, format="json").status_code == 200
+
+    revoke_all_refresh_tokens(user)
+
+    assert client.post(_REFRESH_URL, {}, format="json").status_code == 401
+
+
+@pytest.mark.django_db
+def test_password_reset_ends_a_rotated_session(user) -> None:
+    """The end-to-end control: reset the password, and the stolen session dies.
+
+    This is the user-facing promise of ADR-0209 and the reason the defect was
+    CRITICAL — the reset is exactly what a compromised user is told to do.
+    """
+    from trueppm_api.apps.access.services import revoke_all_refresh_tokens
+
+    attacker = APIClient()
+    _login(attacker)
+    assert attacker.post(_REFRESH_URL, {}, format="json").status_code == 200
+
+    user.set_password("a-brand-new-passphrase")
+    user.save(update_fields=["password"])
+    revoke_all_refresh_tokens(user)
+
+    assert attacker.post(_REFRESH_URL, {}, format="json").status_code == 401
+
+
+@pytest.mark.django_db
+def test_deactivated_user_cannot_refresh(user) -> None:
+    """Off-boarding must stop token minting immediately, not at the refresh TTL.
+
+    Independent of blacklisting: the refresh view is unauthenticated by design, so
+    without this check it never consults the account's live state at all.
+    """
+    client = APIClient()
+    _login(client)
+
+    user.is_active = False
+    user.save(update_fields=["is_active"])
+
+    resp = client.post(_REFRESH_URL, {}, format="json")
+    assert resp.status_code == 401
+
+
+@pytest.mark.django_db
+def test_deactivated_and_deleted_accounts_are_indistinguishable(user) -> None:
+    """Refusal must not reveal whether the account still exists.
+
+    The enumeration vector on this endpoint is "is this subject disabled, or gone?"
+    — an attacker holding a stolen token learns something either way if the two
+    answers differ. They must be byte-identical.
+
+    Deliberately *not* asserted: equality with a malformed-token response.
+    simplejwt already varies that message by cause ("Token is invalid" /
+    "Token is blacklisted"), so requiring a match would pin this test to a library
+    string rather than to the property that matters.
+    """
+    disabled_client = APIClient()
+    _login(disabled_client)
+    user.is_active = False
+    user.save(update_fields=["is_active"])
+    disabled = disabled_client.post(_REFRESH_URL, {}, format="json")
+
+    other = User.objects.create_user(username="gone_user", password="correct-horse-battery")
+    deleted_client = APIClient()
+    resp = deleted_client.post(
+        _LOGIN_URL,
+        {"username": "gone_user", "password": "correct-horse-battery"},
+        format="json",
+    )
+    assert resp.status_code == 200
+    other.delete()
+    deleted = deleted_client.post(_REFRESH_URL, {}, format="json")
+
+    assert disabled.status_code == deleted.status_code == 401
+    assert disabled.json() == deleted.json()
+
+    body = str(disabled.json()).lower()
+    for leak in ("account", "disabled", "inactive", "deactivat", "exist", "user"):
+        assert leak not in body, f"refusal names account state: {leak!r} in {body!r}"
+
+
+@pytest.mark.django_db
+def test_deleted_user_cannot_refresh(user) -> None:
+    """A token whose subject no longer exists is rejected rather than 500-ing."""
+    client = APIClient()
+    _login(client)
+    user.delete()
+
+    assert client.post(_REFRESH_URL, {}, format="json").status_code == 401
+
+
+def test_refresh_cookie_path_reaches_the_logout_endpoint() -> None:
+    """The cookie must be scoped so a *browser* sends it to logout (RFC 6265 §5.1.4).
+
+    Not expressible as a client round-trip: Django's test client ignores ``Path``,
+    so the flow passes either way. Asserting the attribute is the only way to hold
+    the invariant, and the pre-#2999 default ``/api/v1/auth/token/refresh/`` fails
+    it while every endpoint that must read the cookie still lives under the prefix.
+    """
+    cookie_path = settings.AUTH_REFRESH_COOKIE_PATH
+
+    assert _LOGOUT_URL.startswith(cookie_path), (
+        f"cookie Path={cookie_path!r} is not sent to {_LOGOUT_URL!r}; "
+        "logout would read no token and revoke nothing"
+    )
+    assert _REFRESH_URL.startswith(cookie_path)
+    # Still narrow enough that ordinary API calls never carry the credential.
+    assert cookie_path.startswith("/api/v1/auth/")
+    assert not "/api/v1/projects/".startswith(cookie_path)
