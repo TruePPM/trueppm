@@ -595,6 +595,32 @@ class BoardColumnConfigResponseSerializer(serializers.Serializer[Any]):
     columns = serializers.ListField(child=serializers.DictField())
 
 
+class TemplateDivergenceSerializer(serializers.Serializer[Any]):
+    """The template-divergence digest (#2971) — declared so the schema matches the body.
+
+    Read-only and response-only: nothing here is ever accepted from a caller. Written
+    as a named serializer rather than an ``OpenApiTypes.OBJECT`` blob because this is
+    a shape a PMO integration will read, and "the endpoint returns an object" is not a
+    contract anyone can build against.
+    """
+
+    project = serializers.CharField()
+    adopted = serializers.BooleanField()
+    application = serializers.CharField(allow_null=True)
+    application_count = serializers.IntegerField()
+    template = serializers.CharField(allow_null=True)
+    template_name = serializers.CharField(allow_blank=True)
+    template_version = serializers.IntegerField()
+    template_available = serializers.BooleanField()
+    applied_at = serializers.DateTimeField(allow_null=True)
+    applied_by_name = serializers.CharField(allow_blank=True)
+    seeded_row_count = serializers.IntegerField()
+    unchanged = serializers.IntegerField()
+    adapted = serializers.IntegerField()
+    removed = serializers.IntegerField()
+    added = serializers.IntegerField()
+
+
 #: Refusal shipped when a calendar is still applied somewhere. Every FK into
 #: ``Calendar`` is ``on_delete=PROTECT`` — ``Project.calendar``, ``Program.calendar``
 #: and ``Workspace.calendar`` (ADR-0441), ``ProjectCalendarLayer.calendar``
@@ -1029,11 +1055,21 @@ class ProjectViewSet(
             # Admin+ or the Product Owner facet. The board queue's promote/demote rides the
             # same gate as the product-backlog drag so the capability is declared once.
             return [IsAuthenticated(), IsProjectBacklogManager(), IsProjectNotArchived()]
-        # Recording a last-visited ping is any-member (Viewer+) and intentionally
-        # skips IsProjectNotArchived: a user opening an archived project is still a
-        # real visit (ADR-0150 D4). The resolver separately filters archived
-        # projects out of the landing result, so recording one is harmless.
-        if self.action == "visit":
+        # Two any-member (Viewer+) actions that deliberately skip IsProjectNotArchived.
+        #
+        # `visit` — a user opening an archived project is still a real visit
+        # (ADR-0150 D4); the resolver separately filters archived projects out of the
+        # landing result, so recording one is harmless.
+        #
+        # `template_divergence` (#2971, epic #2743) — **any member, deliberately and
+        # permanently**. This is the endpoint that reports a team's own decisions about
+        # their own project, and a read gate above Viewer would recreate exactly the
+        # asymmetry the issue exists to forbid: the PMO reading a report about a team
+        # that the team cannot open. Archived is not a reason to withhold it either —
+        # what was reported about a project does not stop being the team's to read once
+        # the project is closed. Named here rather than left to the default clause so
+        # narrowing it is a deliberate edit to a line that says why.
+        if self.action in ("visit", "template_divergence"):
             return [IsAuthenticated(), IsProjectMember()]
         # Decisions list (ADR-0167, #748): any project member reaches the endpoint; the
         # finer team-vs-oversight read gate is enforced in the action body via
@@ -3267,6 +3303,44 @@ class ProjectViewSet(
             )
 
         return Response(sections, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Get this project's template-divergence digest",
+        description=(
+            "How this project has diverged from the template it was created from "
+            "(#2971). One body for every reader — there is no audience parameter and "
+            "no second, narrower version of this report. A signal, never a block: "
+            "nothing here approves, rejects, queues, or scores. Readable by any "
+            "member of the project, including Viewer."
+        ),
+        responses={
+            200: TemplateDivergenceSerializer,
+            404: OpenApiResponse(description="Caller is not a member of this project."),
+        },
+    )
+    @action(detail=True, methods=["get"], url_path="template-divergence")
+    def template_divergence(self, request: Request, pk: str | None = None) -> Response:
+        """The team's own copy of what is reported about their project (#2971).
+
+        The symmetry requirement in epic #2743 is an ordering constraint on shipping
+        ("the team-side row ships with or before the PMO's"), and the cheapest way to
+        satisfy it forever is to make the two halves the *same* route rather than two
+        routes kept in agreement by discipline. A PMO reading one project's divergence
+        and the delivery lead reading their own are the same request, so there is no
+        drift to police and no gate to accidentally widen on one side only.
+
+        ``self.get_object()`` rather than a direct ``Project.objects`` lookup: it
+        resolves through the membership-scoped queryset *and* through
+        ``McpReadableViewMixin``'s ADR-0678 filter, so an agent token reading a project
+        whose team opted out of agent reads 404s here for free. A bypass on this
+        endpoint would be the #3001 class — a read that is correct for humans and
+        invisible to the opt-out.
+        """
+        from trueppm_api.apps.projects.template_divergence import compute_template_divergence
+
+        project = self.get_object()
+        self.check_object_permissions(request, project)
+        return Response(compute_template_divergence(project), status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="List unresolved retro carryover action items",

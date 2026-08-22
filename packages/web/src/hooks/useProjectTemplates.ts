@@ -275,6 +275,64 @@ export function usePublishTemplate() {
   });
 }
 
+/**
+ * How this project has diverged from the template it was created from (#2971).
+ *
+ * Every field is server-computed. Nothing here is derived client-side, and that is
+ * the point rather than a convention: the whole feature is a report about a team's
+ * own decisions, and a browser that re-counted the rows would be a second definition
+ * of "untouched" competing with the one the server deletes rows by (ADR-0786 §3).
+ */
+export interface TemplateDivergence {
+  project: string;
+  /** False when this project was not created from a template — an answer, not an error. */
+  adopted: boolean;
+  application: string | null;
+  /** Adoptions that seeded rows here, excluding undone ones. Usually 1. */
+  application_count: number;
+  /** Null once the template row itself is deleted; `template_name` survives it. */
+  template: string | null;
+  template_name: string;
+  template_version: number;
+  /** False means the template is gone, not that the adoption is in doubt. */
+  template_available: boolean;
+  applied_at: string | null;
+  /** '' once the adopter's account is deleted — never a fabricated placeholder. */
+  applied_by_name: string;
+  seeded_row_count: number;
+  /** Seeded, still here, nobody has touched it. */
+  unchanged: number;
+  /** Seeded and since edited. The number this whole feature exists to keep neutral. */
+  adapted: number;
+  /** Seeded and no longer live. */
+  removed: number;
+  /** Live rows no adoption wrote — including any that predate the template. */
+  added: number;
+}
+
+/**
+ * `GET /projects/{id}/template-divergence/` — the digest, for anyone on the project.
+ *
+ * There is no audience parameter and no second endpoint. A PMO reading one project's
+ * divergence and that project's team reading their own fire the identical request and
+ * receive the identical body, which is how the symmetry requirement in epic #2743 is
+ * kept true by construction rather than by two surfaces agreeing to stay in step.
+ */
+export function useTemplateDivergence(
+  projectId: string | null,
+): UseQueryResult<TemplateDivergence> {
+  return useQuery({
+    queryKey: ['template-divergence', projectId],
+    enabled: Boolean(projectId),
+    queryFn: async () => {
+      const res = await apiClient.get<TemplateDivergence>(
+        `/projects/${projectId}/template-divergence/`,
+      );
+      return res.data;
+    },
+  });
+}
+
 /** Templates published from one project — the Settings page's version list. */
 export function useTemplatesFromProject(projectId: string | null): UseQueryResult<ProjectTemplate[]> {
   return useQuery({

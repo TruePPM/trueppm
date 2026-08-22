@@ -29,6 +29,7 @@ import { ProjectSharingPage } from './project/ProjectSharingPage';
 import { ProjectAgentsPage } from './project/ProjectAgentsPage';
 import { ProjectArchivePage } from './project/ProjectArchivePage';
 import { ProjectTemplatesPage } from './project/ProjectTemplatesPage';
+import { ProjectTemplateDivergencePage } from './project/ProjectTemplateDivergencePage';
 import {
   ResourcesIcon,
   SprintIcon,
@@ -47,6 +48,7 @@ import {
   BellIcon,
   AgentIcon,
   CopyIcon,
+  SeededUntouchedIcon,
 } from '@/components/Icons';
 
 function NavIcon({ children }: { children: ReactNode }) {
@@ -137,6 +139,20 @@ export function buildProjectSettingsNav({
           icon: (
             <NavIcon>
               <CopyIcon aria-hidden="true" />
+            </NavIcon>
+          ),
+        },
+        {
+          // Its own row rather than a block folded into Templates (#2971). The
+          // requirement is that the team can *find* what is reported about them;
+          // a rail row with its own keywords and its own `#template-divergence`
+          // anchor is findable, and a paragraph below a publish form is not.
+          id: 'template-divergence',
+          label: 'Template divergence',
+          keywords: 'divergence digest template drift adapted unchanged reported governance',
+          icon: (
+            <NavIcon>
+              <SeededUntouchedIcon aria-hidden="true" />
             </NavIcon>
           ),
         },
@@ -368,6 +384,14 @@ export function ProjectSettingsPage() {
           in the project whose shape is being claimed as reusable (#2909). */}
       <SettingsSection id="templates">
         <ProjectTemplatesPage />
+      </SettingsSection>
+
+      {/* Immediately after Templates, and unconditional — no role gate, no
+          methodology gate. This is the section a team reads to see what is said
+          about them, so anything that could hide it from a Viewer would recreate
+          the asymmetry #2971 exists to forbid. */}
+      <SettingsSection id="template-divergence">
+        <ProjectTemplateDivergencePage />
       </SettingsSection>
       {showTeamTab && (
         <SettingsSection id="team">
