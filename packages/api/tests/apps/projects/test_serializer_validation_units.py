@@ -116,6 +116,8 @@ class TestBoardColumnConfigValidation:
             "color": "#94A3B8",
             "wip_limit": 3,
             "age_threshold_days": 7,
+            # A column that names no lanes normalizes to one implicit lane (#2967).
+            "lanes": [],
         }
         assert len(cleaned) == 5
 

@@ -29,6 +29,13 @@ export interface CardStatusVars {
   status: TaskStatus;
   parentId?: string | null;
   sprintId?: string | null;
+  /**
+   * Named lane within the destination status column (#2967). `''` clears the
+   * lane. Omitted entirely on an unladen column, so a board with no configured
+   * lanes sends the exact PATCH body it always did — including every already
+   * queued offline op, which predates the field and stays replayable.
+   */
+  boardLane?: string;
 }
 
 /** A queued, not-yet-flushed card-status move persisted in IndexedDB. */
@@ -164,6 +171,7 @@ export function optimisticStatusPatch(vars: CardStatusVars): Partial<Task> {
   // 'root' is the board's sentinel for "no parent"; map it to null like the API body.
   if (vars.parentId !== undefined) patch.parentId = vars.parentId === 'root' ? null : vars.parentId;
   if (vars.sprintId !== undefined) patch.sprintId = vars.sprintId;
+  if (vars.boardLane !== undefined) patch.boardLane = vars.boardLane;
   return patch;
 }
 
@@ -172,5 +180,6 @@ export function buildStatusPatchBody(op: QueuedCardStatusOp): Record<string, unk
   const body: Record<string, unknown> = { status: op.status };
   if (op.parentId !== undefined) body['parent_id'] = op.parentId === 'root' ? null : op.parentId;
   if (op.sprintId !== undefined) body['sprint_id'] = op.sprintId;
+  if (op.boardLane !== undefined) body['board_lane'] = op.boardLane;
   return body;
 }

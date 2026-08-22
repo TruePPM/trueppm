@@ -9,6 +9,23 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { TaskStatus } from '@/types';
 
+/**
+ * One named lane inside a status column (#2967).
+ *
+ * `key` is the value stored on `Task.boardLane`; the server keeps it unique
+ * project-wide so it names exactly one (status, lane) pair.
+ */
+export interface BoardLaneDef {
+  key: string;
+  label: string;
+  /** Per-lane WIP limit. Null = no limit; independent of the column's. */
+  wipLimit: number | null;
+  /** Live card count in this lane — server-derived, read only. */
+  currentCount?: number;
+  /** Server WIP verdict for this lane: 'ok' | 'at' | 'over', or null/absent. */
+  breach?: 'ok' | 'at' | 'over' | null;
+}
+
 export interface BoardColumnDef {
   status: TaskStatus;
   label: string;
@@ -36,10 +53,31 @@ export interface BoardColumnDef {
    * only, never edited directly.
    */
   slaDays?: number;
+  /**
+   * Named lanes subdividing this column (#2967), in board order. Empty (the
+   * default, and every project that has never opened the lane editor) means one
+   * implicit lane — the board exactly as it rendered before lanes existed.
+   *
+   * Lanes hang off the column rather than sitting beside one because the API
+   * rejects a repeated status key, and that rejection is what keeps
+   * `Task.status` canonical for burndown, rollup, export and integrations.
+   *
+   * Optional so a payload from a server that predates #2967 — and every fixture
+   * written before it — reads as an unladen column rather than a type error.
+   */
+  lanes?: BoardLaneDef[];
 }
 
 // API wire format — snake_case. slaDays is derived (not persisted); ageThresholdDays
 // round-trips as age_threshold_days.
+interface ApiLane {
+  key: string;
+  label: string;
+  wip_limit: number | null;
+  current_count?: number;
+  breach?: 'ok' | 'at' | 'over' | null;
+}
+
 interface ApiColumn {
   status: TaskStatus;
   label: string;
@@ -47,6 +85,7 @@ interface ApiColumn {
   wip_limit: number | null;
   color: string | null;
   age_threshold_days?: number | null;
+  lanes?: ApiLane[];
 }
 
 interface BoardConfigResponse {
@@ -67,11 +106,11 @@ export const COLUMN_SLA_DEFAULTS: Partial<Record<TaskStatus, number>> = {
 // ON_HOLD is hidden but kept in the type union for migration compatibility — tasks
 // that are ON_HOLD in the API will not appear on the board until they are migrated.
 const DEFAULT_COLUMNS: BoardColumnDef[] = [
-  { status: 'BACKLOG', label: 'Backlog', visible: true, wipLimit: null, color: '#94A3B8', ageThresholdDays: null, slaDays: 14 },
-  { status: 'NOT_STARTED', label: 'To Do', visible: true, wipLimit: null, color: '#64748B', ageThresholdDays: null, slaDays: 7 },
-  { status: 'IN_PROGRESS', label: 'In Progress', visible: true, wipLimit: 5, color: '#3B82F6', ageThresholdDays: null, slaDays: 10 },
-  { status: 'REVIEW', label: 'Review', visible: true, wipLimit: 3, color: '#A855F7', ageThresholdDays: null, slaDays: 4 },
-  { status: 'COMPLETE', label: 'Done', visible: true, wipLimit: null, color: '#22C55E', ageThresholdDays: null },
+  { status: 'BACKLOG', label: 'Backlog', visible: true, wipLimit: null, color: '#94A3B8', ageThresholdDays: null, slaDays: 14, lanes: [] },
+  { status: 'NOT_STARTED', label: 'To Do', visible: true, wipLimit: null, color: '#64748B', ageThresholdDays: null, slaDays: 7, lanes: [] },
+  { status: 'IN_PROGRESS', label: 'In Progress', visible: true, wipLimit: 5, color: '#3B82F6', ageThresholdDays: null, slaDays: 10, lanes: [] },
+  { status: 'REVIEW', label: 'Review', visible: true, wipLimit: 3, color: '#A855F7', ageThresholdDays: null, slaDays: 4, lanes: [] },
+  { status: 'COMPLETE', label: 'Done', visible: true, wipLimit: null, color: '#22C55E', ageThresholdDays: null, lanes: [] },
 ];
 
 function fromApi(col: ApiColumn): BoardColumnDef {
@@ -87,6 +126,15 @@ function fromApi(col: ApiColumn): BoardColumnDef {
     color: col.color,
     ageThresholdDays: override,
     slaDays: effectiveSla,
+    // Absent on a payload from a server that predates #2967 — an unladen column,
+    // which is also what an empty list means, so one branch covers both.
+    lanes: (col.lanes ?? []).map((l) => ({
+      key: l.key,
+      label: l.label,
+      wipLimit: l.wip_limit,
+      currentCount: l.current_count,
+      breach: l.breach,
+    })),
   };
 }
 
@@ -98,6 +146,13 @@ function toApi(col: BoardColumnDef): ApiColumn {
     wip_limit: col.wipLimit,
     color: col.color,
     age_threshold_days: col.ageThresholdDays ?? null,
+    // current_count / breach are server-derived and deliberately not echoed back:
+    // the PUT is the desired configuration, not a snapshot of the board's state.
+    lanes: (col.lanes ?? []).map((l) => ({
+      key: l.key,
+      label: l.label,
+      wip_limit: l.wipLimit,
+    })),
   };
 }
 

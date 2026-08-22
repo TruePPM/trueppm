@@ -5138,44 +5138,95 @@ def annotate_wip_breach(
     - ``breach``: ``"ok"`` | ``"at"`` | ``"over"`` when the column has a ``wip_limit``,
       else ``None`` (no limit set).
 
-    Counts come from **one** grouped query (``values("status").annotate(Count)``) — no
-    per-column query (perf-check gate). The verdict is **passive**: it is current board
-    state, not a historical performance signal, so it is visible to all project members
-    and the API still does not reject breaching mutations (ADR-0039 / ADR-0130 D2).
+    Each configured lane (#2967) gains the same two keys, scoped to the lane. A
+    card whose ``board_lane`` no longer names a configured lane counts toward the
+    column's **first** lane — the same resolution the board renders, so the badge
+    and the cards under it can never disagree.
+
+    Counts come from **one** grouped query (``values("status", "board_lane")``) — no
+    per-column and no per-lane query (perf-check gate). The verdict is **passive**: it
+    is current board state, not a historical performance signal, so it is visible to all
+    project members and the API still does not reject breaching mutations (ADR-0039 /
+    ADR-0130 D2).
     """
     from django.db.models import Count
 
     from trueppm_api.apps.projects.models import Task
 
-    raw_counts = dict(
+    raw_counts = (
         Task.objects.filter(project_id=project_id, is_deleted=False)
-        .values_list("status")
+        .values_list("status", "board_lane")
         .annotate(n=Count("id"))
-        .values_list("status", "n")
+        .values_list("status", "board_lane", "n")
     )
     # Fold every status into its canonical column bucket (ON_HOLD → BACKLOG) so a
     # legacy row still counts toward the right column.
     folded_counts: dict[str, int] = dict.fromkeys(FLOW_CANONICAL_STATUSES, 0)
-    for raw_status, n in raw_counts.items():
+    lane_counts: dict[tuple[str, str], int] = {}
+    for raw_status, raw_lane, n in raw_counts:
         bucket = _fold_status(raw_status)
-        if bucket is not None:
-            folded_counts[bucket] += n
+        if bucket is None:
+            continue
+        folded_counts[bucket] += n
+        lane_counts[(bucket, raw_lane or "")] = lane_counts.get((bucket, raw_lane or ""), 0) + n
 
     annotated: list[dict[str, Any]] = []
     for col in columns:
         status_key = str(col.get("status") or "")
         count = folded_counts.get(status_key, 0)
-        limit = col.get("wip_limit")
-        if limit is None:
-            breach: str | None = None
-        elif count > limit:
-            breach = "over"
-        elif count == limit:
-            breach = "at"
-        else:
-            breach = "ok"
-        annotated.append({**col, "current_count": count, "breach": breach})
+        annotated.append(
+            {
+                **col,
+                "current_count": count,
+                "breach": _wip_breach(count, col.get("wip_limit")),
+                "lanes": _annotate_lane_breach(status_key, col.get("lanes") or [], lane_counts),
+            }
+        )
     return annotated
+
+
+def _wip_breach(count: int, limit: Any) -> str | None:
+    """Three-band WIP verdict, or None when the column/lane sets no limit."""
+    if limit is None:
+        return None
+    if count > limit:
+        return "over"
+    if count == limit:
+        return "at"
+    return "ok"
+
+
+def _annotate_lane_breach(
+    status_key: str,
+    lanes: list[dict[str, Any]],
+    lane_counts: dict[tuple[str, str], int],
+) -> list[dict[str, Any]]:
+    """Attach a live count + WIP verdict to each configured lane of one column.
+
+    Everything the column holds that does not name a *currently configured* lane —
+    the empty default, and any key left behind by a deleted lane — lands on the
+    first lane. Resolving here rather than rewriting task rows is deliberate: a
+    bulk ``UPDATE`` on lane deletion would bypass the ``server_version`` bump that
+    every synced write depends on, and the orphan is harmless as long as exactly
+    one reader owns where it goes.
+    """
+    if not lanes:
+        return []
+    configured = {lane.get("key") for lane in lanes}
+    unassigned = sum(
+        n
+        for (status, lane_key), n in lane_counts.items()
+        if status == status_key and lane_key not in configured
+    )
+    out: list[dict[str, Any]] = []
+    for index, lane in enumerate(lanes):
+        count = lane_counts.get((status_key, str(lane.get("key") or "")), 0)
+        if index == 0:
+            count += unassigned
+        out.append(
+            {**lane, "current_count": count, "breach": _wip_breach(count, lane.get("wip_limit"))}
+        )
+    return out
 
 
 def _fold_status(raw: str | None) -> str | None:

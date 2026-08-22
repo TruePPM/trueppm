@@ -25,10 +25,31 @@ interface ColumnContext {
  * when the column has no configured label.
  */
 function deriveColumnContext(columns: BoardCardColumn[], task: Task): ColumnContext {
-  const own = columns.find((c) => c.status === task.status);
+  const sameStatus = columns.filter((c) => c.status === task.status);
+  // With named lanes (#2967) a status maps to several tracks, so "the card's
+  // column" is the track it renders in — not the first one that shares its
+  // status, which would announce every QA card as sitting in Peer review. An
+  // unset or deleted lane key falls to the first track, exactly as
+  // `resolveTrackKey` places the card.
+  const own =
+    sameStatus.find((c) => (c.laneKey ?? null) === (task.boardLane || null)) ?? sameStatus[0];
+  // "Move to…" is a STATUS menu, and stays one under named lanes (#2967): the
+  // list it is built from now carries one entry per rendered track, so a column
+  // with three lanes would otherwise offer the same status three times.
+  // `onMenuMove` takes a status, so the extra entries would be indistinguishable
+  // duplicates rather than lane targets — deduplicate to the first per status.
+  const seen = new Set<Task['status']>([task.status]);
+  const otherColumns = columns.filter((c) => {
+    if (seen.has(c.status)) return false;
+    seen.add(c.status);
+    return true;
+  });
+  // A lane label alone ("QA") is not a location; prefix the column so the card's
+  // accessible name still says which status it is in.
+  const label = own?.columnLabel && own.laneKey ? `${own.columnLabel} · ${own.label}` : own?.label;
   return {
-    otherColumns: columns.filter((c) => c.status !== task.status),
-    columnLabel: own?.label ?? task.status,
+    otherColumns,
+    columnLabel: label ?? task.status,
     slaDays: own?.slaDays,
   };
 }

@@ -10,6 +10,20 @@ export interface HeaderColumn {
   status: TaskStatus;
   label: string;
   wipLimit: number | null;
+  /**
+   * Grid identity (#2967): the status itself on an unladen column,
+   * `status#laneKey` on a named lane. Defaults to `status`, so a caller that
+   * predates lanes is unchanged — including its persisted column widths and
+   * every `data-testid` derived from it.
+   */
+  key?: string;
+  /** The owning column's label; set only when this track is a named lane. */
+  columnLabel?: string;
+}
+
+/** A track's grid identity — the status unless a lane key overrides it. */
+function keyOf(col: HeaderColumn): string {
+  return col.key ?? col.status;
 }
 
 /**
@@ -28,7 +42,21 @@ function headerTintClass(state: WipState): string {
  * name must carry it too so a screen reader hears "at/over limit" on the column
  * itself (#1033).
  */
-function headerAriaLabel(label: string, count: number, breach: WipState, grouped: boolean): string {
+function headerAriaLabel(
+  label: string,
+  count: number,
+  breach: WipState,
+  grouped: boolean,
+  columnLabel?: string,
+): string {
+  // A named lane's own label ("QA") does not say which status column it belongs
+  // to, and the two can read as peers to a screen reader running the header row
+  // in isolation. Prefixing the column restores that (#2967).
+  const named = columnLabel && columnLabel !== label ? `${columnLabel}, ${label}` : label;
+  return laneAriaLabel(named, count, breach, grouped);
+}
+
+function laneAriaLabel(label: string, count: number, breach: WipState, grouped: boolean): string {
   // The count is board-wide. With swimlanes on, the header sits directly above
   // lanes that each hold a share of it, so a bare "8 tasks" above a lane showing
   // none reads as a lane count that disagrees with the lane (#2427). Naming the
@@ -87,7 +115,7 @@ function ColumnHeaderCell({
       />
       <h2
         className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
-        aria-label={headerAriaLabel(col.label, count, breach, grouped)}
+        aria-label={headerAriaLabel(col.label, count, breach, grouped, col.columnLabel)}
       >
         {col.label}
       </h2>
@@ -113,6 +141,7 @@ function ColumnHeaderCell({
           title={`Collapse ${col.label}`}
           aria-label={`Collapse ${col.label} column`}
           data-testid={`collapse-column-${col.status}`}
+          data-track={keyOf(col)}
           className="relative flex-shrink-0 w-[18px] h-[18px] flex items-center justify-center rounded-control
                               text-neutral-text-disabled hover:text-brand-primary hover:bg-brand-primary/10
                               focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
@@ -144,6 +173,9 @@ interface BoardColumnHeaderRowProps {
   collapsedColumns: Set<TaskStatus>;
   columnWidths: Record<string, number>;
   totalByStatus: Record<TaskStatus, number>;
+  /** Live card count per track key (#2967). Falls back to the status total for
+   *  an unladen column, which is the only entry it ever has today. */
+  totalByTrack?: Record<string, number>;
   myCountByStatus: Record<TaskStatus, number>;
   /**
    * Number of swimlanes below. Above 1 the board-wide counts in this row sit
@@ -153,7 +185,8 @@ interface BoardColumnHeaderRowProps {
   showWip: boolean;
   trendSeriesByStatus: Partial<Record<TaskStatus, number[]>>;
   onToggleColumn: (status: TaskStatus) => void;
-  onResizeColumn: (status: TaskStatus, px: number) => void;
+  /** Resize is per-TRACK: a named lane owns its own width. */
+  onResizeColumn: (trackKey: string, px: number) => void;
 }
 
 /**
@@ -170,6 +203,7 @@ export function BoardColumnHeaderRow({
   collapsedColumns,
   columnWidths,
   totalByStatus,
+  totalByTrack,
   myCountByStatus,
   laneCount = 1,
   showWip,
@@ -187,7 +221,8 @@ export function BoardColumnHeaderRow({
         Phase
       </div>
       {columns.map((col) => {
-        const count = totalByStatus[col.status];
+        const key = keyOf(col);
+        const count = totalByTrack?.[key] ?? totalByStatus[col.status];
         // Folded column (issue 1459) — the narrow stub stands in for the full
         // header cell. Its breach band is computed unconditionally so a WIP
         // breach stays visible regardless of the "Show WIP limits" toggle,
@@ -195,7 +230,7 @@ export function BoardColumnHeaderRow({
         if (collapsedColumns.has(col.status)) {
           return (
             <ColumnStub
-              key={col.status}
+              key={key}
               label={col.label}
               status={col.status}
               count={count}
@@ -209,14 +244,14 @@ export function BoardColumnHeaderRow({
         }
         return (
           <ColumnHeaderCell
-            key={col.status}
+            key={key}
             col={col}
             count={count}
             grouped={grouped}
             showWip={showWip}
             trendSeries={trendSeriesByStatus[col.status] ?? []}
             onCollapse={() => onToggleColumn(col.status)}
-            onResize={(px) => onResizeColumn(col.status, px)}
+            onResize={(px) => onResizeColumn(key, px)}
           />
         );
       })}

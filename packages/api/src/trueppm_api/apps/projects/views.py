@@ -314,7 +314,12 @@ _VALID_SOURCE = re.compile(r"[a-z_]{1,64}")
 # status_date and no actuals.) So a PATCH writing only ``percent_complete``
 # must always recalc, on every project — nobody reads it from the API only to
 # have the schedule silently drift stale.
-_NON_SCHEDULE_TASK_FIELDS = frozenset({"notes", "name"})
+# Fields whose edit cannot move a single date, so a PATCH touching only these skips
+# the CPM recalculate enqueue below. ``board_lane`` (#2967) belongs here by
+# construction: it is the board's presentation axis over ``status`` and nothing in
+# the engine, the rollup or any export reads it — a card dragged from Review into
+# QA must not cost the project a full reschedule.
+_NON_SCHEDULE_TASK_FIELDS = frozenset({"notes", "name", "board_lane"})
 
 # Root-task discriminator — wbs_path matches a single integer with no dot. The
 # Workflow settings (phases) surface edits these and nothing else.

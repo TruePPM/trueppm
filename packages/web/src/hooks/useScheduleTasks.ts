@@ -49,6 +49,9 @@ export interface ApiTask {
   percent_complete: number;
   is_critical: boolean;
   status: TaskStatus;
+  /** Named board lane within `status` (#2967). Absent on payloads/WS deltas that
+   *  predate the field, which reads the same as the unassigned default. */
+  board_lane?: string;
   is_milestone: boolean;
   is_summary: boolean;
   /** Declared identity + parked values (#2950, ADR-0844). Optional: a row
@@ -354,6 +357,7 @@ export function mapTask(t: ApiTask): Task {
     ownEstimate: t.own_estimate,
     autoContainer: t.auto_container,
     status: t.status,
+    boardLane: t.board_lane,
     // Server-derived edit capabilities (ADR-0133). Preserve `undefined` when the
     // payload omits them (pre-field synced rows) so the drawer's
     // `canEdit ?? canEditTask(role)` fallback engages instead of forcing read-only.

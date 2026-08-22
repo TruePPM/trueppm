@@ -35,13 +35,17 @@ export function useUpdateTaskStatus(): UpdateTaskStatusHandle {
   const queryClient = useQueryClient();
 
   const netMutation = useMutation({
-    mutationFn: async ({ taskId, status, parentId, sprintId }: UpdateTaskStatusVars) => {
+    mutationFn: async ({ taskId, status, parentId, sprintId, boardLane }: UpdateTaskStatusVars) => {
       const body: Record<string, unknown> = { status };
       if (parentId !== undefined) body['parent_id'] = parentId === 'root' ? null : parentId;
       // #429: sprintId is set when a card is dragged into a phase under a sprint
       // view, to assign it to that sprint. The backend flags sprint_pending for an
       // ACTIVE sprint (ADR-0102). Omitted for Project view.
       if (sprintId !== undefined) body['sprint_id'] = sprintId;
+      // Named board lane (#2967) — sent only when the destination column has
+      // lanes configured, so an unladen board's PATCH body is byte-identical to
+      // what it has always been.
+      if (boardLane !== undefined) body['board_lane'] = boardLane;
       const res = await apiClient.patch<{ id: string; status: TaskStatus }>(
         `/tasks/${taskId}/`,
         body,

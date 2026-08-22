@@ -105,6 +105,22 @@ The **Workflow & fields** page configures how the board behaves for this project
 - **Custom fields** — define task custom fields (add, edit, remove) that appear on
   cards and task detail.
 
+:::note[Ships in 0.4]
+Named lanes land in **0.4**. On `0.3.0-alpha.3` the **Statuses** list has exactly the
+five canonical columns and no **Lanes** control.
+:::
+
+Each status row carries a **Lanes** expander. Adding a lane splits that one column into
+named tracks on the board — Review into *Peer review* and *QA*, say — up to six per
+column. Requires the **Resource Manager** role or above, the same gate as the rest of
+the board column configuration.
+
+A lane is a board-presentation split, not a sixth status: a card in the QA lane still
+carries `status = REVIEW`, so burndown, throughput rollups, MS Project export and every
+API integration are unaffected. Lane names must be unique across the whole project.
+Removing a lane never deletes or hides a card — anything left in it reappears in the
+column's first lane.
+
 ## Labels
 
 The **Labels** page manages the project's colored labels. A label categorizes tasks

@@ -28,6 +28,14 @@ export interface BoardCardColumn {
   status: TaskStatus;
   label: string;
   slaDays?: number;
+  /**
+   * Named lane this track represents (#2967), or null/absent when the track is
+   * the whole status column. Present so a card in a laned column can name the
+   * lane it actually sits in rather than the column's first one.
+   */
+  laneKey?: string | null;
+  /** The owning column's label — the lane label alone is not a location. */
+  columnLabel?: string;
 }
 
 export interface BoardCardProps {

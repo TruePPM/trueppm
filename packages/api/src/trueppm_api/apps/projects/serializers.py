@@ -43,6 +43,7 @@ from trueppm_api.apps.projects.models import (
     BacklogItemStatus,
     Baseline,
     BaselineTask,
+    BoardColumnConfig,
     BoardSavedView,
     Calendar,
     CalendarException,
@@ -3253,6 +3254,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "assignee",
             "wbs_path",
             "status",
+            # Named board lane within the status column (#2967). Writable, and
+            # deliberately NOT part of `status` — see Task.board_lane.
+            "board_lane",
             "duration",
             "duration_unit",
             "amend_reason",
@@ -3609,9 +3613,68 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         self._validate_three_point_order(attrs)
         self._validate_estimate_write_permitted(attrs)
         self._validate_product_backlog(attrs)
+        self._validate_board_lane(attrs)
         self._resolve_owners(attrs)
 
         return attrs
+
+    def _validate_board_lane(self, attrs: dict[str, Any]) -> None:
+        """Bind ``board_lane`` to a lane configured for the card's *effective* status (#2967).
+
+        Two rules, both about keeping the second axis honest:
+
+        1. A lane key must exist in the project's ``BoardColumnConfig`` under the
+           status this write leaves the task in. Rejecting an unknown key at the
+           write boundary is what stops the board accumulating orphan lanes that
+           only ever render as "somewhere in the first lane".
+        2. A status change **clears** the lane unless the payload names a new one.
+           Lane keys are project-unique but each belongs to exactly one column, so
+           a card carried into another column has no lane there — leaving the old
+           key would resurrect it if the card ever moved back.
+
+        The config read is skipped entirely unless one of those two situations
+        applies, so an ordinary task PATCH costs no extra query.
+        """
+        lane_sent = "board_lane" in attrs
+        new_status = attrs.get("status")
+        status_changed = (
+            new_status is not None
+            and self.instance is not None
+            and new_status != self.instance.status
+        )
+        if not lane_sent and not status_changed:
+            return
+
+        if status_changed and not lane_sent:
+            # Only worth a write when there is something to clear.
+            if self.instance is not None and self.instance.board_lane:
+                attrs["board_lane"] = ""
+            return
+
+        lane = (attrs.get("board_lane") or "").strip()
+        attrs["board_lane"] = lane
+        if not lane:
+            return
+
+        effective_status = new_status or (self.instance.status if self.instance else None)
+        project = attrs.get("project") or (self.instance.project if self.instance else None)
+        if project is None or effective_status is None:
+            raise serializers.ValidationError(
+                {"board_lane": "Cannot resolve a board lane without a project and status."}
+            )
+
+        config = BoardColumnConfig.objects.filter(project=project).values_list("columns", flat=True)
+        columns = next(iter(config), None) or _DEFAULT_COLUMNS
+        allowed = board_lane_keys_by_status(columns).get(str(effective_status), [])
+        if lane not in allowed:
+            raise serializers.ValidationError(
+                {
+                    "board_lane": (
+                        f"{lane!r} is not a configured lane of the "
+                        f"{effective_status} column on this project."
+                    )
+                }
+            )
 
     def _request_user(self) -> Any:
         """The acting user for the inline-owner audit row, or None outside a request."""
@@ -6735,6 +6798,8 @@ class TaskRelationSerializer(serializers.ModelSerializer[TaskRelation]):
 # keys so new projects render the brand semantic palette without a settings round-trip.
 # `age_threshold_days` defaults to None (= "use the client's per-status default"), so an
 # unconfigured board keeps the existing aging behavior (#192) until a team tunes it (#410).
+# `lanes` defaults to [] (#2967): no named sub-lanes, i.e. one implicit lane per column,
+# which is the board every project already has.
 _DEFAULT_COLUMNS = [  # codeql[py/unused-global-variable] -- imported by projects.views
     {
         "status": "BACKLOG",
@@ -6743,6 +6808,7 @@ _DEFAULT_COLUMNS = [  # codeql[py/unused-global-variable] -- imported by project
         "color": "#94A3B8",
         "wip_limit": None,
         "age_threshold_days": None,
+        "lanes": [],
     },
     {
         "status": "NOT_STARTED",
@@ -6751,6 +6817,7 @@ _DEFAULT_COLUMNS = [  # codeql[py/unused-global-variable] -- imported by project
         "color": "#64748B",
         "wip_limit": None,
         "age_threshold_days": None,
+        "lanes": [],
     },
     {
         "status": "IN_PROGRESS",
@@ -6759,6 +6826,7 @@ _DEFAULT_COLUMNS = [  # codeql[py/unused-global-variable] -- imported by project
         "color": "#3B82F6",
         "wip_limit": 5,
         "age_threshold_days": None,
+        "lanes": [],
     },
     {
         "status": "REVIEW",
@@ -6767,6 +6835,7 @@ _DEFAULT_COLUMNS = [  # codeql[py/unused-global-variable] -- imported by project
         "color": "#A855F7",
         "wip_limit": 3,
         "age_threshold_days": None,
+        "lanes": [],
     },
     {
         "status": "COMPLETE",
@@ -6775,6 +6844,7 @@ _DEFAULT_COLUMNS = [  # codeql[py/unused-global-variable] -- imported by project
         "color": "#22C55E",
         "wip_limit": None,
         "age_threshold_days": None,
+        "lanes": [],
     },
 ]
 
@@ -6784,6 +6854,16 @@ _DEFAULT_COLUMNS = [  # codeql[py/unused-global-variable] -- imported by project
 _CANONICAL_STATUSES = frozenset({"BACKLOG", "NOT_STARTED", "IN_PROGRESS", "REVIEW", "COMPLETE"})
 
 _HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+# Board lane keys (#2967). Lowercase slug so the key is safe as a droppable id, a
+# query-string value and a dict key in the counts payload without escaping.
+_LANE_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+
+#: Ceiling on named lanes per canonical status column (#2967). The board grid
+#: renders one track per lane, so an unbounded list is a horizontal-scroll DoS on
+#: the client and an unbounded fan-out in ``annotate_wip_breach``. Six is the
+#: widest configuration the design's case 10 wireframes cover.
+MAX_LANES_PER_COLUMN = 6
 
 
 def _require_positive_int_or_none(value: Any, field: str) -> None:
@@ -6798,13 +6878,59 @@ def _require_positive_int_or_none(value: Any, field: str) -> None:
         raise serializers.ValidationError(f"{field} must be a positive integer or null")
 
 
-def _validate_board_column(entry: dict[str, Any], seen: set[str]) -> dict[str, Any]:
+def _validate_board_lanes(value: Any, seen_keys: set[str]) -> list[dict[str, Any]]:
+    """Validate one column's named lanes and return them normalized (#2967).
+
+    Lanes are a **second axis over** the five canonical statuses, never a
+    replacement for them: a column still appears exactly once in ``columns``, so
+    this shape is valid by construction against the duplicate-status guard in
+    :func:`_validate_board_column` — there is no way to express a lane by
+    repeating a status key, which is precisely why the lane list hangs off the
+    column rather than sitting beside it.
+
+    ``seen_keys`` is mutated and shared across every column, so lane keys are
+    unique **project-wide**, not merely within their column. That is what lets
+    ``Task.board_lane`` store the bare key: a key resolves to exactly one
+    (status, lane) pair, so a status move can never silently alias a task into a
+    different column's lane of the same name.
+    """
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise serializers.ValidationError("lanes must be a list")
+    if len(value) > MAX_LANES_PER_COLUMN:
+        raise serializers.ValidationError(f"at most {MAX_LANES_PER_COLUMN} lanes per column")
+    normalized: list[dict[str, Any]] = []
+    for lane in value:
+        if not isinstance(lane, dict):
+            raise serializers.ValidationError("each lane must be an object")
+        key = lane.get("key")
+        label = lane.get("label")
+        wip_limit = lane.get("wip_limit")
+        if not isinstance(key, str) or not _LANE_KEY_RE.fullmatch(key):
+            raise serializers.ValidationError(
+                "lane key must be 1-32 chars of lowercase letters, digits, '-' or '_'"
+            )
+        if key in seen_keys:
+            raise serializers.ValidationError(f"Duplicate lane key: {key!r}")
+        seen_keys.add(key)
+        if not isinstance(label, str) or not 1 <= len(label) <= 24:
+            raise serializers.ValidationError("lane label must be a string of 1-24 chars")
+        _require_positive_int_or_none(wip_limit, "lane wip_limit")
+        normalized.append({"key": key, "label": label, "wip_limit": wip_limit})
+    return normalized
+
+
+def _validate_board_column(
+    entry: dict[str, Any], seen: set[str], seen_lane_keys: set[str]
+) -> dict[str, Any]:
     """Validate one column entry and return it normalized to the known keys.
 
     ``seen`` is mutated with each accepted status so duplicate detection stays in
     its original position in the guard order — callers rely on which error a
     malformed entry reports first, so the sequence of checks here is significant
-    and must not be reordered.
+    and must not be reordered. ``seen_lane_keys`` carries lane-key uniqueness
+    across the whole config (see :func:`_validate_board_lanes`).
     """
     status = entry.get("status")
     label = entry.get("label")
@@ -6832,7 +6958,25 @@ def _validate_board_column(entry: dict[str, Any], seen: set[str]) -> dict[str, A
         "color": color,
         "wip_limit": wip_limit,
         "age_threshold_days": age_threshold_days,
+        "lanes": _validate_board_lanes(entry.get("lanes"), seen_lane_keys),
     }
+
+
+def board_lane_keys_by_status(columns: list[dict[str, Any]]) -> dict[str, list[str]]:
+    """Map each canonical status to its configured lane keys, in board order.
+
+    A status with no configured lanes maps to ``[]`` — one implicit, unnamed lane
+    holding every card of that status, which is the pre-#2967 board and stays the
+    default for every project that never opens the lane editor.
+    """
+    out: dict[str, list[str]] = {}
+    for col in columns:
+        status = col.get("status")
+        if not isinstance(status, str):
+            continue
+        lanes = col.get("lanes") or []
+        out[status] = [lane["key"] for lane in lanes if isinstance(lane, dict) and "key" in lane]
+    return out
 
 
 class BoardColumnConfigSerializer(serializers.Serializer[dict[str, Any]]):
@@ -6847,6 +6991,18 @@ class BoardColumnConfigSerializer(serializers.Serializer[dict[str, Any]]):
         wip_limit:          positive integer or null
         age_threshold_days: positive integer or null (null = use the client's
                             per-status default; #410 board-aging tuning)
+        lanes:              ordered list of named lanes *within* this column
+                            (#2967) — ``[{key, label, wip_limit}]``, at most
+                            ``MAX_LANES_PER_COLUMN``, keys unique project-wide.
+                            Empty (the default) = one implicit lane, i.e. the
+                            board as it renders today.
+
+    Why lanes hang off a column rather than sitting beside one: the validator
+    below rejects a repeated status, and that rejection is load-bearing —
+    ``Task.status`` must stay one of the five canonical values so burndown,
+    throughput rollup, MS Project export, saved views and every integration keep
+    reading it unchanged. Nesting the lanes makes a duplicate status
+    *unexpressible*, so the lane model cannot regress that guard by accident.
 
     Unknown keys are dropped silently — the validated payload only contains
     the recognized keys, preventing forward-compat key smuggling.
@@ -6856,7 +7012,8 @@ class BoardColumnConfigSerializer(serializers.Serializer[dict[str, Any]]):
 
     def validate_columns(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         seen: set[str] = set()
-        normalized = [_validate_board_column(entry, seen) for entry in value]
+        seen_lane_keys: set[str] = set()
+        normalized = [_validate_board_column(entry, seen, seen_lane_keys) for entry in value]
         missing = _CANONICAL_STATUSES - seen
         if missing:
             raise serializers.ValidationError(f"Missing statuses: {missing}")
