@@ -8,29 +8,51 @@ import {
   type BoardTaskFilters,
 } from './boardFilters';
 
+/** The unladen resolver: every card's track is its own status. */
+function statusTrackKey(task: Task): string {
+  return task.status;
+}
+
+/** Hoisted so the default keeps a stable identity across renders. */
+const EMPTY_LANE_KEYS: readonly string[] = [];
+
 /** Minimal shape of a swimlane the task maps need — id plus its cards. */
 interface LaneLike {
   id: string;
   tasks: Task[];
 }
 
-/** Per-phase, per-status task groupings with the active sort applied. */
+/**
+ * Per-phase, per-**track** task groupings with the active sort applied.
+ *
+ * A track is a status column, or one named lane of it (#2967) — see
+ * `features/board/statusLanes.ts`. `trackKeyOf` resolves a card to its track;
+ * with no lanes configured it returns the bare status, so the map is exactly the
+ * per-status map this function has always produced.
+ *
+ * Lane buckets are seeded from `laneKeys` rather than discovered from the cards,
+ * so a configured-but-empty lane still renders its (empty) cell instead of
+ * silently vanishing from the grid.
+ */
 function buildPhaseTaskMap(
   phases: LaneLike[],
   filters: BoardTaskFilters,
   sortCell: (tasks: Task[]) => Task[],
-): Map<string, Record<TaskStatus, Task[]>> {
+  trackKeyOf: (task: Task) => string,
+  laneKeys: readonly string[],
+): Map<string, Record<string, Task[]>> {
   const today = startOfToday();
-  const result = new Map<string, Record<TaskStatus, Task[]>>();
+  const result = new Map<string, Record<string, Task[]>>();
   for (const phase of phases) {
-    const byStatus = emptyStatusBuckets();
+    const byTrack: Record<string, Task[]> = emptyStatusBuckets();
+    for (const key of laneKeys) byTrack[key] = [];
     for (const task of phase.tasks) {
-      if (passesBoardFilters(task, filters, today)) byStatus[task.status]?.push(task);
+      if (passesBoardFilters(task, filters, today)) byTrack[trackKeyOf(task)]?.push(task);
     }
-    for (const s of Object.keys(byStatus) as TaskStatus[]) {
-      byStatus[s] = sortCell(byStatus[s]);
+    for (const key of Object.keys(byTrack)) {
+      byTrack[key] = sortCell(byTrack[key]);
     }
-    result.set(phase.id, byStatus);
+    result.set(phase.id, byTrack);
   }
   return result;
 }
@@ -42,16 +64,19 @@ function buildPhaseTaskMap(
  * task-level filters and sort carry through; only the phase grouping drops.
  * The sort is re-applied across the merged list so cross-phase order is
  * coherent (per-cell sort alone leaves phase-boundary jumps).
+ *
+ * Named lanes (#2967) are a desktop-grid subdivision and collapse here with the
+ * phase axis: the mobile board keeps its five status lists, so a card is read
+ * off its own `status` rather than off the track bucket it landed in.
  */
 function flattenByStatus(
-  phaseTaskMap: Map<string, Record<TaskStatus, Task[]>>,
+  phaseTaskMap: Map<string, Record<string, Task[]>>,
   sortCell: (tasks: Task[]) => Task[],
 ): Record<TaskStatus, Task[]> {
   const out = emptyStatusBuckets();
-  for (const byStatus of phaseTaskMap.values()) {
-    for (const s of Object.keys(out) as TaskStatus[]) {
-      const cell = byStatus[s];
-      if (cell?.length) out[s].push(...cell);
+  for (const byTrack of phaseTaskMap.values()) {
+    for (const cell of Object.values(byTrack)) {
+      for (const task of cell) out[task.status]?.push(task);
     }
   }
   for (const s of Object.keys(out) as TaskStatus[]) {
@@ -95,8 +120,9 @@ function countMineByStatus(
 }
 
 export interface BoardTaskMaps {
-  /** phaseId → status → sorted cards. */
-  phaseTaskMap: Map<string, Record<TaskStatus, Task[]>>;
+  /** phaseId → track key → sorted cards. Track key is the status on an unladen
+   *  column, `status#laneKey` on a named lane (#2967). */
+  phaseTaskMap: Map<string, Record<string, Task[]>>;
   /** Flat per-status lists for the mobile snap board. */
   mobileTasksByStatus: Record<TaskStatus, Task[]>;
   /** Flat filtered list for the queue layout. */
@@ -121,8 +147,14 @@ export function useBoardTaskMaps(opts: {
   allTasks: Task[] | undefined;
   filters: BoardTaskFilters;
   sortCell: (tasks: Task[]) => Task[];
+  /** Resolve a card to its board track. Omit on a board with no named lanes. */
+  trackKeyOf?: (task: Task) => string;
+  /** Every configured lane track key, so an empty lane still gets a cell. */
+  laneKeys?: readonly string[];
 }): BoardTaskMaps {
   const { phases, allTasks, filters, sortCell } = opts;
+  const trackKeyOf = opts.trackKeyOf ?? statusTrackKey;
+  const laneKeys = opts.laneKeys ?? EMPTY_LANE_KEYS;
   const { cpOnly, dueSoonDays, mineActive, myResourceId, debtOnly, riskLinkedOnly } = filters;
 
   const gridFilters = useMemo<BoardTaskFilters>(
@@ -131,8 +163,8 @@ export function useBoardTaskMaps(opts: {
   );
 
   const phaseTaskMap = useMemo(
-    () => buildPhaseTaskMap(phases, gridFilters, sortCell),
-    [phases, gridFilters, sortCell],
+    () => buildPhaseTaskMap(phases, gridFilters, sortCell, trackKeyOf, laneKeys),
+    [phases, gridFilters, sortCell, trackKeyOf, laneKeys],
   );
 
   const mobileTasksByStatus = useMemo(

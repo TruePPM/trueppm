@@ -2552,6 +2552,28 @@ class Task(VersionedModel):
         default=TaskStatus.NOT_STARTED,
         db_index=True,
     )
+    # Named board lane WITHIN the card's status column (#2967). Deliberately a
+    # separate axis from ``status`` above, not an extension of it: a team gets
+    # Review / QA / Blocked as distinct board stages while ``status`` keeps one of
+    # the five canonical values, so burndown, throughput rollup, MS Project
+    # export, saved views and every external integration read it unchanged.
+    #
+    # Stores the bare lane key from ``BoardColumnConfig.columns[].lanes[].key``,
+    # which the config validator keeps unique project-wide — so a key names
+    # exactly one (status, lane) pair and can never alias into another column's
+    # lane. Empty string = the column's first lane, which is also what a key that
+    # no longer exists in the config resolves to (the board resolves lanes on
+    # read rather than rewriting task rows when a lane is deleted; a bulk UPDATE
+    # would bypass the ``server_version`` bump every synced write depends on).
+    board_lane = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text=(
+            "Named lane within this task's status column. Empty = the column's "
+            "first lane. Presentation only — never affects scheduling or rollup."
+        ),
+    )
     # Bounded to [0, 100] (#1720). bulk_create (used by the MS Project / Jira
     # importers) bypasses these validators, but they backstop every full_clean
     # write path and document the invariant the rest of the code relies on
@@ -4101,6 +4123,16 @@ class BoardColumnConfig(models.Model):
         wip_limit: per-column work-in-progress ceiling as a positive int, or null
                    for no limit (#232). Drives the column-header WIP badge's
                    under/at/over three-band state on the board.
+        lanes:     ordered list of named lanes *inside* this column (#2967):
+                   ``[{key, label, wip_limit}]``. Empty (the default) means one
+                   implicit lane — the board as it rendered before lanes existed.
+
+    Lanes are nested under a column on purpose. The serializer rejects a repeated
+    status key, and that rejection is load-bearing: it is what keeps
+    ``Task.status`` one of the five canonical values for every downstream reader.
+    Hanging the lane list off the column makes a duplicate status *unexpressible*
+    by the lane model, so a team can add Review / QA / Blocked as distinct board
+    stages without a single consumer of ``status`` having to change.
     """
 
     project = models.OneToOneField(

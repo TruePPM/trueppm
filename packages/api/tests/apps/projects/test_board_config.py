@@ -62,8 +62,19 @@ DEFAULT_COLUMNS = [
 
 
 def _bare(columns: list[dict]) -> list[dict]:
-    """Return columns with only the legacy 3-key shape (drop color/wip_limit/age)."""
+    """Return columns with only the legacy 3-key shape (drop color/wip_limit/age/lanes)."""
     return [{"status": c["status"], "label": c["label"], "visible": c["visible"]} for c in columns]
+
+
+def _normalized(columns: list[dict]) -> list[dict]:
+    """The shape a PUT echoes back: every optional key present and defaulted.
+
+    ``lanes`` (#2967) is the newest of these — a payload that omits it normalizes
+    to ``[]``, i.e. one implicit lane, which is the board every project already
+    has. Written as a helper rather than added to each literal so the next
+    optional key lands in one place.
+    """
+    return [{**c, "lanes": c.get("lanes", [])} for c in columns]
 
 
 def _with_breach(columns: list[dict]) -> list[dict]:
@@ -75,7 +86,7 @@ def _with_breach(columns: list[dict]) -> list[dict]:
     out = []
     for c in columns:
         breach = "ok" if c.get("wip_limit") is not None else None
-        out.append({**c, "current_count": 0, "breach": breach})
+        out.append({**c, "lanes": c.get("lanes", []), "current_count": 0, "breach": breach})
     return out
 
 
@@ -175,7 +186,7 @@ def test_put_saves_config_with_color_and_wip_limit(scheduler_client, project):
         format="json",
     )
     assert put_resp.status_code == 200
-    assert put_resp.data["columns"] == new_columns
+    assert put_resp.data["columns"] == _normalized(new_columns)
 
     get_resp = scheduler_client.get(f"/api/v1/projects/{project.pk}/board-config/")
     # GET reflects the saved config plus the computed WIP-breach annotation (D2).
@@ -384,4 +395,4 @@ def test_put_broadcasts_board_config_updated(
     project_id, event_type, payload = args
     assert project_id == str(project.pk)
     assert event_type == "board_config_updated"
-    assert payload["columns"] == DEFAULT_COLUMNS
+    assert payload["columns"] == _normalized(DEFAULT_COLUMNS)
