@@ -145,6 +145,25 @@ def test_the_event_has_default_preferences_on_both_channels() -> None:
     assert rows[(NotificationEventType.PROJECT_CONFIG_CHANGED, NotificationChannel.EMAIL)] is False
 
 
+def test_every_event_type_has_a_default_on_every_channel() -> None:
+    """The universal form of the assertion above.
+
+    Pinning only this branch's own member would leave the *next* one to rediscover
+    the same silence — an event with no ``DEFAULT_PREFERENCES`` row dispatches
+    nothing, and nothing anywhere else in the suite notices. ``_EVENT_TYPE_CATEGORY``
+    already has a loop like this (``test_snooze_category``); the defaults table did
+    not.
+    """
+    rows = {(et, ch) for et, ch, _ in DEFAULT_PREFERENCES}
+    missing = [
+        (event_type, channel)
+        for event_type in NotificationEventType.values
+        for channel in NotificationChannel.values
+        if (event_type, channel) not in rows
+    ]
+    assert missing == [], f"event types with no DEFAULT_PREFERENCES row: {missing}"
+
+
 @pytest.mark.django_db
 def test_the_event_is_categorized_as_a_project_event() -> None:
     from trueppm_api.apps.notifications.categories import CATEGORY_PROJECT, category_for
@@ -346,6 +365,194 @@ def test_a_change_that_moves_no_work_notifies_nobody(
 
 
 @pytest.mark.django_db
+def test_two_lanes_removed_from_different_columns_name_each_destination(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """Each removed lane sends its cards to ITS OWN column's first lane.
+
+    Borrowing one destination for the whole notice is worse than saying nothing:
+    the recipient goes to the named lane, does not find their work, and stops
+    believing the next notice. Both destinations must appear, each attached to
+    the lane it belongs to.
+    """
+    actor = member(project, Role.SCHEDULER, "sched")
+    priya = member(project, Role.MEMBER, "priya")
+    task_for_assignee(project, priya, name="A", status="IN_PROGRESS", board_lane="spike")
+    task_for_assignee(project, priya, name="B", status="REVIEW", board_lane="qa")
+
+    BoardColumnConfig.objects.create(
+        project=project,
+        columns=columns(
+            lanes_by_status={
+                "IN_PROGRESS": [lane("dev", "Dev"), lane("spike", "Spike")],
+                "REVIEW": [lane("signoff", "Sign-off"), lane("qa", "QA")],
+            }
+        ),
+    )
+    with django_capture_on_commit_callbacks(execute=True):
+        client_for(actor).put(
+            config_url(project),
+            data={
+                "columns": columns(
+                    lanes_by_status={
+                        "IN_PROGRESS": [lane("dev", "Dev")],
+                        "REVIEW": [lane("signoff", "Sign-off")],
+                    }
+                )
+            },
+            format="json",
+        )
+
+    body = only(priya).body
+    # Each lane names ITS OWN destination — the Spike cards land in Dev, the QA
+    # cards in Sign-off, and neither destination is borrowed for the other.
+    assert "“Spike” from In Progress (cards move to “Dev”)" in body
+    assert "“QA” from Review (cards move to “Sign-off”)" in body
+    assert "2 of those items are yours." in body
+    # The single-lane phrasing must not leak into the multi-lane case: it would
+    # attribute every moved item to one destination, which is the defect.
+    assert "the first lane of that column" not in body
+
+
+@pytest.mark.django_db
+def test_a_single_item_reads_as_one_item(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """Verb agreement on a count of one.
+
+    ``_plural`` inflects the noun; the surrounding clause has to agree with it, or
+    a feature whose entire premise is copy quality ships "Your 1 item ... now show".
+    """
+    actor = member(project, Role.SCHEDULER, "sched")
+    priya = member(project, Role.MEMBER, "priya")
+    task_for_assignee(project, priya, name="P0", status="REVIEW", board_lane="qa")
+
+    BoardColumnConfig.objects.create(
+        project=project,
+        columns=columns(lanes_by_status={"REVIEW": [lane("review", "Review"), lane("qa", "QA")]}),
+    )
+    with django_capture_on_commit_callbacks(execute=True):
+        client_for(actor).put(
+            config_url(project),
+            data={"columns": columns(lanes_by_status={"REVIEW": [lane("review", "Review")]})},
+            format="json",
+        )
+
+    assert "Your 1 item in there now shows in “Review”" in only(priya).body
+
+
+@pytest.mark.django_db
+def test_a_lane_and_a_column_changing_together_get_one_combined_notice(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    actor = member(project, Role.SCHEDULER, "sched")
+    priya = member(project, Role.MEMBER, "priya")
+    task_for_assignee(project, priya, name="A", status="REVIEW", board_lane="qa")
+    task_for_assignee(project, priya, name="B", status="NOT_STARTED")
+
+    BoardColumnConfig.objects.create(
+        project=project,
+        columns=columns(lanes_by_status={"REVIEW": [lane("review", "Review"), lane("qa", "QA")]}),
+    )
+    with django_capture_on_commit_callbacks(execute=True):
+        client_for(actor).put(
+            config_url(project),
+            data={
+                "columns": columns(
+                    lanes_by_status={"REVIEW": [lane("review", "Review")]},
+                    hidden={"NOT_STARTED"},
+                )
+            },
+            format="json",
+        )
+
+    row = only(priya)
+    assert row.subject == "Your board was reconfigured — 2 items affected"
+    assert "removed the “QA” lane" in row.body
+    assert "hid the “Not Started” column" in row.body
+
+
+@pytest.mark.django_db
+def test_a_first_ever_board_config_diffs_against_the_shipped_defaults(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """No ``BoardColumnConfig`` row exists until someone saves one.
+
+    The PUT then diffs against ``_DEFAULT_COLUMNS`` — all five columns visible,
+    no lanes — so a first-ever save that hides a column is a real change and
+    notifies, while a first-ever save that only renames does not.
+    """
+    actor = member(project, Role.SCHEDULER, "sched")
+    priya = member(project, Role.MEMBER, "priya")
+    task_for_assignee(project, priya, name="P0", status="REVIEW")
+    assert not BoardColumnConfig.objects.filter(project=project).exists()
+
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = client_for(actor).put(
+            config_url(project), data={"columns": columns(hidden={"REVIEW"})}, format="json"
+        )
+    assert resp.status_code == 200
+    assert "hid the “Review” column" in only(priya).body
+
+
+@pytest.mark.django_db
+def test_a_project_with_no_assignees_notifies_nobody_and_does_not_raise(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """The short-circuit before the membership query. A brand-new project has a
+    board to configure and nobody holding work on it yet."""
+    actor = member(project, Role.SCHEDULER, "sched")
+    bystander = member(project, Role.MEMBER, "bystander")
+    assert Task.objects.filter(project=project).count() == 0
+
+    BoardColumnConfig.objects.create(
+        project=project, columns=columns(lanes_by_status={"REVIEW": [lane("qa", "QA")]})
+    )
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = client_for(actor).put(
+            config_url(project), data={"columns": columns()}, format="json"
+        )
+    assert resp.status_code == 200
+    assert inbox(bystander) == []
+    assert Notification.objects.filter(event_type=EVENT).count() == 0
+
+
+@pytest.mark.django_db
+def test_a_failing_emit_never_reverts_the_config_write(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """The stated contract: a notification failure must not undo an accepted write.
+
+    Both emitters swallow and log, which means a future signature drift fails
+    silently in production with only a log line — so the swallow itself is worth
+    an assertion rather than an assumption.
+    """
+    actor = member(project, Role.SCHEDULER, "sched")
+    priya = member(project, Role.MEMBER, "priya")
+    task_for_assignee(project, priya, name="P0", status="REVIEW", board_lane="qa")
+
+    BoardColumnConfig.objects.create(
+        project=project, columns=columns(lanes_by_status={"REVIEW": [lane("qa", "QA")]})
+    )
+    with (
+        patch(
+            "trueppm_api.apps.notifications.services.create_event_notifications_batch",
+            side_effect=RuntimeError("boom"),
+        ),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        resp = client_for(actor).put(
+            config_url(project), data={"columns": columns()}, format="json"
+        )
+
+    assert resp.status_code == 200
+    # The config write survived, and no half-written notice was left behind.
+    saved = BoardColumnConfig.objects.get(project=project)
+    assert all(not col["lanes"] for col in saved.columns)
+    assert inbox(priya) == []
+
+
+@pytest.mark.django_db
 def test_hiding_a_column_says_the_work_is_still_there(
     project: Project, django_capture_on_commit_callbacks: Any
 ) -> None:
@@ -422,6 +629,79 @@ def test_hiding_a_view_names_the_view_and_leaves_the_work_alone(
     # naming the actor on each one would credit them with a choice they never made.
     assert "pm hid Time tracking in this project." in row.body
     assert row.subject == "The views in this project changed"
+
+
+@pytest.mark.django_db
+def test_the_reverse_preset_switch_says_which_views_went_away(
+    calendar: Calendar, django_capture_on_commit_callbacks: Any
+) -> None:
+    """WATERFALL → AGILE is the alarming direction — Baselines and Monte Carlo
+    disappear — and it is the branch the forward-direction test never renders."""
+    waterfall = Project.objects.create(
+        name="Waterfall",
+        start_date=date(2026, 1, 1),
+        calendar=calendar,
+        methodology=Methodology.WATERFALL,
+    )
+    actor = member(waterfall, Role.ADMIN, "pm")
+    priya = member(waterfall, Role.MEMBER, "priya")
+    task_for_assignee(waterfall, priya, name="P0")
+
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = client_for(actor).patch(
+            f"/api/v1/projects/{waterfall.pk}/",
+            data={"methodology": Methodology.AGILE},
+            format="json",
+        )
+    assert resp.status_code == 200
+
+    row = only(priya)
+    assert "from Waterfall to Agile" in row.body
+    assert "Baselines and Monte Carlo are no longer shown here." in row.body
+    assert "Your 1 item keeps its status, dates and assignments" in row.body
+
+
+@pytest.mark.django_db
+def test_turning_a_view_back_on_is_also_worth_saying(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """A restored view moves the surface too, and the notice names who did it."""
+    project.show_baselines = False
+    project.save(update_fields=["show_baselines"])
+    actor = member(project, Role.ADMIN, "pm")
+    priya = member(project, Role.MEMBER, "priya")
+    task_for_assignee(project, priya, name="P0")
+
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = client_for(actor).patch(
+            f"/api/v1/projects/{project.pk}/", data={"show_baselines": True}, format="json"
+        )
+    assert resp.status_code == 200
+    assert "pm turned Baselines back on in this project." in only(priya).body
+
+
+@pytest.mark.django_db
+def test_a_recipient_with_nothing_of_their_own_is_told_plainly(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """A member who holds work elsewhere in the project but owns none of it right
+    now still gets the notice — the views moved for them too — with an honest
+    "nothing you own moved" rather than a silently omitted clause."""
+    actor = member(project, Role.ADMIN, "pm")
+    sam = member(project, Role.MEMBER, "sam")
+    task_for_assignee(project, sam, name="S0")
+    # Someone else's item makes sam a recipient candidate while owning nothing.
+    other = member(project, Role.MEMBER, "other")
+    task_for_assignee(project, other, name="O0")
+    Task.objects.filter(name="S0").update(assignee=None)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        client_for(actor).patch(
+            f"/api/v1/projects/{project.pk}/", data={"show_time_tracking": False}, format="json"
+        )
+
+    assert inbox(sam) == []
+    assert "Nothing you own moved." not in only(other).body
 
 
 @pytest.mark.django_db

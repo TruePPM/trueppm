@@ -1326,6 +1326,7 @@ class ProjectViewSet(
             notify_project_surface_change,
         )
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
+        from trueppm_api.apps.workspace.models import Workspace
 
         # Field-level conflict gate (ADR-0217, #322): raises 409 on an overlapping
         # stale write; returns the concurrently-changed fields for the response header.
@@ -1345,8 +1346,17 @@ class ProjectViewSet(
         # afterwards. Switching the preset or hiding a view changes the surface every
         # assignee works on, and #2972 makes that reach them rather than only the
         # person who clicked.
+        #
+        # The workspace singleton is loaded ONCE and threaded through both the before
+        # and after snapshots. `Workspace.load()` is a get_or_create, so letting each
+        # snapshot resolve its own would put two unconditional SELECTs on every project
+        # PATCH — including the name and date edits that notify nobody. This endpoint is
+        # hot enough that a diagnostic nobody reads must not cost a query.
+        workspace = Workspace.load()
         surface_before = (
-            capture_project_surface(serializer.instance) if serializer.instance else None
+            capture_project_surface(serializer.instance, workspace=workspace)
+            if serializer.instance
+            else None
         )
 
         instance = serializer.save()
@@ -1358,7 +1368,12 @@ class ProjectViewSet(
         if surface_before is not None:
             # No-op unless the preset changed or a surface's EFFECTIVE visibility
             # flipped — a name, color or date edit notifies nobody.
-            notify_project_surface_change(instance, before=surface_before, actor=self.request.user)
+            notify_project_surface_change(
+                instance,
+                before=surface_before,
+                actor=self.request.user,
+                workspace=workspace,
+            )
 
         if instance.calendar_id != old_calendar_id:
             transaction.on_commit(

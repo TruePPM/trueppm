@@ -479,6 +479,20 @@ class LoadSampleResponseSerializer(serializers.Serializer[Any]):
     sample_key = serializers.CharField()
 
 
+def _broadcast_projects_updated(project_ids: list[str]) -> None:
+    """Fan ``project_updated`` out to each project's own channel group.
+
+    One deferred callback for a whole bulk apply. The sends themselves stay
+    per-project because each is a distinct channel group — there is no group to
+    collapse them into — but the callback registration, and any future batching of
+    the replay-buffer write, has a single place to live.
+    """
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    for project_id in project_ids:
+        broadcast_board_event(project_id, "project_updated", {"id": project_id})
+
+
 class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewSet[Program]):
     """CRUD for programs.
 
@@ -2545,7 +2559,6 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             collect_project_surface_change,
             notify_surface_changes,
         )
-        from trueppm_api.apps.sync.broadcast import broadcast_board_event
         from trueppm_api.apps.workspace.models import Workspace
 
         program = self.get_object()
@@ -2588,21 +2601,18 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                 if change is None:
                     continue
                 changes.append(change)
-                # This path has never broadcast, which was survivable while it was
-                # only a settings write. It is not survivable now: the notice tells
-                # the team their views moved, so an open client that never hears
-                # `project_updated` keeps rendering the old surface and makes the
-                # notice look wrong (#2972). Only projects whose surface actually
-                # moved are broadcast — a pure `iteration_label` edit stays silent.
-                project_id = change.project_id
-                transaction.on_commit(
-                    partial(
-                        broadcast_board_event,
-                        project_id,
-                        "project_updated",
-                        {"id": project_id},
-                    )
-                )
-            # ONE deferred emit for the whole batch, not one per project.
+            # This path has never broadcast, which was survivable while it was only
+            # a settings write. It is not survivable now: the notice tells the team
+            # their views moved, so an open client that never hears `project_updated`
+            # keeps rendering the old surface and makes the notice look wrong
+            # (#2972). Only projects whose surface actually moved are broadcast — a
+            # pure `iteration_label` edit stays silent on both channels.
+            #
+            # ONE callback for the whole batch, on both channels. Registering a
+            # callback per project would put up to MAX_BULK_TARGETS separate
+            # entries on the on-commit queue for one request.
+            broadcast_ids = [change.project_id for change in changes]
+            if broadcast_ids:
+                transaction.on_commit(partial(_broadcast_projects_updated, broadcast_ids))
             notify_surface_changes(changes, actor=request.user)
         return Response(build_bulk_response(rows, envelope.validated_data["fields"]))

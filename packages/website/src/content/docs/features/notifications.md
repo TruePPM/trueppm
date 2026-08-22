@@ -207,7 +207,7 @@ of what actually arrives:
   column."
 - *A board column was hidden — 2 items no longer on the board* — "Dana hid the
   “Review” column. Your 2 items with that status keep their status and dates,
-  but the board no longer shows them — reach them from My Work or search."
+  but the board no longer shows them — find them in the task list or search."
 - *This project now runs as Waterfall* — "Dana switched this project's planning
   preset from Agile to Waterfall. Baselines and Monte Carlo are now shown. Your
   7 items keep their status, dates and assignments — what changed is where you

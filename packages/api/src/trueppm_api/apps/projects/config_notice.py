@@ -87,14 +87,18 @@ def assigned_recipient_ids(project_id: Any, *, exclude_user_id: Any = None) -> l
 
     from .models import Task
 
+    # `.distinct()` matters here: without it Postgres streams one row per TASK to
+    # build a set of maybe thirty user ids, so a 10k-task project pulls 10k UUIDs
+    # over the wire twice. The de-dupe belongs in the database.
     tasks = Task.objects.filter(project_id=project_id, is_deleted=False)
     candidates: set[Any] = set(
-        tasks.exclude(assignee_id=None).values_list("assignee_id", flat=True)
+        tasks.exclude(assignee_id=None).values_list("assignee_id", flat=True).distinct()
     )
     candidates |= set(
         TaskResource.objects.filter(task__project_id=project_id, task__is_deleted=False)
         .exclude(resource__user__isnull=True)
         .values_list("resource__user_id", flat=True)
+        .distinct()
     )
     candidates.discard(None)
     if exclude_user_id is not None:
@@ -122,8 +126,10 @@ def _counts_by_user(project_id: Any, task_filter: Any) -> Counter[Any]:
     A task the same user both owns and is booked on must count **once**, which is
     what the ``F("task__assignee_id")`` exclusion does: the assignee side counts
     every owned task, and the resource side counts only the ones the counter does
-    not already own. ``distinct=True`` covers a user booked twice on one task
-    through two resource rows.
+    not already own. ``distinct=True`` belongs on the **resource** arm only, where
+    a user booked twice on one task through two resource rows would otherwise
+    count twice; the assignee arm groups by ``assignee_id`` over a join-free
+    queryset, so its ``id`` is already unique per group.
     """
     from django.db.models import Count, F
 
@@ -136,7 +142,7 @@ def _counts_by_user(project_id: Any, task_filter: Any) -> Counter[Any]:
     for uid, n in (
         affected.exclude(assignee_id=None)
         .values("assignee_id")
-        .annotate(n=Count("id", distinct=True))
+        .annotate(n=Count("id"))
         .values_list("assignee_id", "n")
     ):
         counts[uid] += n
@@ -261,37 +267,68 @@ def _board_body(
     lane_count: int,
     column_count: int,
 ) -> str:
-    """One recipient's copy of the board notice."""
+    """One recipient's copy of the board notice.
+
+    Every destination is named against the lane it belongs to. Removing two lanes
+    from two different columns sends their cards to two *different* first lanes,
+    so a single destination borrowed from ``removed[0]`` would send most of the
+    recipient to the wrong place — which is worse than saying nothing, because
+    they will look there, not find their work, and stop trusting the next notice.
+    """
     parts: list[str] = []
     if removed:
-        names = ", ".join(f"“{lane.label}”" for lane in removed)
-        where = removed[0].column_label
-        destination = removed[0].destination
-        lead = (
-            f"{actor_name} removed the {names} lane from {where}."
-            if len(removed) == 1
-            else f"{actor_name} removed the {names} lanes from the board."
-        )
-        if lane_count:
-            parts.append(
-                f"{lead} Your {_plural(lane_count)} in there now show in "
-                f"“{destination}” — the first lane of that column."
+        if len(removed) == 1:
+            lane = removed[0]
+            lead = f"{actor_name} removed the “{lane.label}” lane from {lane.column_label}."
+            tail = (
+                f"Your {_plural(lane_count)} in there now "
+                f"{'shows' if lane_count == 1 else 'show'} in “{lane.destination}” — "
+                f"the first lane of that column."
+                if lane_count
+                else "None of your items were in it."
             )
         else:
-            parts.append(f"{lead} None of your items were in it.")
+            moves = _join_phrases(
+                [
+                    f"“{lane.label}” from {lane.column_label} (cards move to “{lane.destination}”)"
+                    for lane in removed
+                ]
+            )
+            lead = f"{actor_name} removed {len(removed)} lanes: {moves}."
+            tail = (
+                f"{lane_count} of those items {'is' if lane_count == 1 else 'are'} yours."
+                if lane_count
+                else "None of your items were in them."
+            )
+        parts.append(f"{lead} {tail}")
     if hidden:
-        names = ", ".join(f"“{col.label}”" for col in hidden)
+        names = _join_phrases([f"“{col.label}”" for col in hidden])
         noun = "column" if len(hidden) == 1 else "columns"
         lead = f"{actor_name} hid the {names} {noun}."
         if column_count:
+            # NOT "reach them from My Work": `/me/work/` filters on `assignee` alone
+            # and excludes BACKLOG, so that instruction is false for anyone counted
+            # through a TaskResource booking, and false for everyone when the hidden
+            # column is Backlog. A notice that sends the reader somewhere their work
+            # is not is the failure this whole module is written to avoid — so it
+            # names the two surfaces that show every status and both assignment kinds.
+            it_them = "it" if column_count == 1 else "them"
             parts.append(
-                f"{lead} Your {_plural(column_count)} with that status keep their "
-                f"status and dates, but the board no longer shows them — reach "
-                f"them from My Work or search."
+                f"{lead} Your {_plural(column_count)} with that status "
+                f"{'keeps its' if column_count == 1 else 'keep their'} status and dates, "
+                f"but the board no longer shows {it_them} — find {it_them} in the "
+                f"task list or search."
             )
         else:
             parts.append(f"{lead} None of your items have that status.")
     return " ".join(parts)
+
+
+def _join_phrases(phrases: list[str]) -> str:
+    """``a``, ``a and b``, ``a, b and c`` — an Oxford-comma-free serial list."""
+    if len(phrases) == 1:
+        return phrases[0]
+    return f"{', '.join(phrases[:-1])} and {phrases[-1]}"
 
 
 def _board_subject(removed: list[_RemovedLane], hidden: list[_HiddenColumn], affected: int) -> str:
@@ -308,16 +345,18 @@ def _board_subject(removed: list[_RemovedLane], hidden: list[_HiddenColumn], aff
             else "Your board was reconfigured"
         )
     if removed:
-        return (
-            f"A board lane was removed — {_plural(affected)} moved"
-            if affected
-            else "A board lane was removed"
+        what = (
+            "A board lane was removed"
+            if len(removed) == 1
+            else f"{len(removed)} board lanes were removed"
         )
-    return (
-        f"A board column was hidden — {_plural(affected)} no longer on the board"
-        if affected
-        else "A board column was hidden"
+        return f"{what} — {_plural(affected)} moved" if affected else what
+    what = (
+        "A board column was hidden"
+        if len(hidden) == 1
+        else f"{len(hidden)} board columns were hidden"
     )
+    return f"{what} — {_plural(affected)} no longer on the board" if affected else what
 
 
 def notify_board_config_change(
@@ -474,9 +513,11 @@ def _surface_body(
             parts.append(f"{actor_name} turned {_join_labels(shown)} back on in this project.")
 
     if item_count:
+        keeps = "keeps its" if item_count == 1 else "keep their"
         parts.append(
-            f"Your {_plural(item_count)} keep their status, dates and assignments — "
-            f"what changed is where you find them."
+            f"Your {_plural(item_count)} {keeps} status, dates and assignments — "
+            f"what changed is where you find "
+            f"{'it' if item_count == 1 else 'them'}."
         )
     else:
         parts.append("Nothing you own moved.")
@@ -484,10 +525,7 @@ def _surface_body(
 
 
 def _join_labels(keys: list[str]) -> str:
-    labels = [SURFACE_LABELS.get(k, k) for k in keys]
-    if len(labels) == 1:
-        return labels[0]
-    return f"{', '.join(labels[:-1])} and {labels[-1]}"
+    return _join_phrases([SURFACE_LABELS.get(k, k) for k in keys])
 
 
 def _surface_subject(before: ProjectSurfaceSnapshot, after: ProjectSurfaceSnapshot) -> str:
