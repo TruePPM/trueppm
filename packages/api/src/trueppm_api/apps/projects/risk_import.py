@@ -19,6 +19,7 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 from trueppm_api.apps.projects.models import RiskCategory, RiskResponse, RiskStatus
+from trueppm_api.core.text_decode import TextDecodeError, decode_uploaded_text
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -163,13 +164,24 @@ def _parse_pi(raw: str, label: str, row_num: int, plan: ImportPlan) -> int | Non
 
 
 def _decode(raw: bytes) -> str:
-    """Decode the upload, stripping a spreadsheet-written BOM."""
+    """Decode the upload, refusing a decode that went wrong.
+
+    Thin translation over :func:`trueppm_api.core.text_decode.decode_uploaded_text`.
+
+    This used to be a strict ``raw.decode("utf-8-sig")``, which reads as fail-closed
+    and is — for a *BOM'd* UTF-16 file. But NUL is a valid UTF-8 code point, so a
+    BOM-*less* UTF-16 stream decoded without raising and imported risks with titles
+    like ``D\x00a\x00t\x00a\x00 \x00l\x00o\x00s\x00s\x00`` (#2937). Sharing the
+    decoder rather than re-copying its guard is the actual fix: this was the same
+    defect #2892 had already fixed once, in another app.
+
+    Raises:
+        RiskImportError: No codec produced usable spreadsheet text.
+    """
     try:
-        return raw.decode("utf-8-sig")
-    except UnicodeDecodeError as exc:
-        raise RiskImportError(
-            "File is not valid UTF-8 text. Export it as CSV (UTF-8) and try again."
-        ) from exc
+        return decode_uploaded_text(raw)
+    except TextDecodeError as exc:
+        raise RiskImportError(str(exc)) from exc
 
 
 def _read_header(reader: Iterator[list[str]]) -> dict[int, str]:
