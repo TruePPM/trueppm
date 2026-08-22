@@ -172,6 +172,13 @@ destroy the comparability templates exist for.
 The methodology also decides where an adopting project lands: an **Agile**
 template opens on a seeded Product Backlog, not on a Schedule of dateless bars.
 
+Below the inventory sits **the card itself** — the same card a delivery lead will
+meet in the gallery, rendered live from what you have typed. The choice your
+template actually faces is a side-by-side one against every other shape on the
+list, and a name that reads fine in a text field can still be the one nobody
+picks. The description is the only line that argues for it, which is why the
+field asks who the template is *for* rather than what it contains.
+
 ### Republishing writes a new version
 
 A name that is already taken comes back as a conflict, not a silent overwrite,

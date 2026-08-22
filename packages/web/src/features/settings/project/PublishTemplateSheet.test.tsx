@@ -135,3 +135,62 @@ describe('PublishTemplateSheet — step 2', () => {
     );
   });
 });
+
+describe('PublishTemplateSheet — the gallery card preview (#2970)', () => {
+  it('shows the card as a delivery lead will meet it, seeded from the project name', () => {
+    open();
+    const card = screen.getByTestId('template-card-preview');
+    expect(card).toHaveTextContent('Vega Platform delivery shape');
+    expect(card).toHaveTextContent('Yours');
+    expect(card).toHaveTextContent('AGILE');
+    expect(card).toHaveTextContent('82 rows');
+    expect(card).toHaveTextContent('carries 6 phases · 4 gates · 14 deps');
+  });
+
+  it('tracks the name as it is typed — the card is the thing being named', async () => {
+    const user = userEvent.setup();
+    open();
+    const nameInput = screen.getByLabelText(/Template name/);
+    await user.clear(nameInput);
+    await user.type(nameInput, 'House scrum shape');
+    expect(screen.getByTestId('template-card-preview')).toHaveTextContent('House scrum shape');
+  });
+
+  it('tracks the methodology, which predicts the landing surface', async () => {
+    const user = userEvent.setup();
+    open();
+    await user.selectOptions(screen.getByLabelText('Methodology'), 'WATERFALL');
+    expect(screen.getByTestId('template-card-preview')).toHaveTextContent('WATERFALL');
+  });
+
+  it('shows the description once written — it is the only line that argues for it', async () => {
+    const user = userEvent.setup();
+    open();
+    const card = screen.getByTestId('template-card-preview');
+    // Falls back to the row count so the card is never a blank line.
+    expect(card).toHaveTextContent('82 rows');
+    await user.type(screen.getByLabelText(/Description/), 'For a feature team of six');
+    expect(screen.getByTestId('template-card-preview')).toHaveTextContent(
+      'For a feature team of six',
+    );
+  });
+
+  it('never shows an empty name — a cleared field previews a placeholder, not nothing', async () => {
+    const user = userEvent.setup();
+    open();
+    await user.clear(screen.getByLabelText(/Template name/));
+    expect(screen.getByTestId('template-card-preview')).toHaveTextContent('Untitled template');
+  });
+
+  it('offers no choice: the preview is inert and not a focus stop', () => {
+    open();
+    const card = screen.getByTestId('template-card-preview');
+    expect(card.querySelectorAll('button, a, input, [tabindex]')).toHaveLength(0);
+    expect(card).not.toHaveAttribute('role', 'radio');
+  });
+
+  it('previews the version the publish will actually write', () => {
+    open({ next_version: 3 });
+    expect(screen.getByTestId('template-card-preview')).toHaveTextContent('v3');
+  });
+});
