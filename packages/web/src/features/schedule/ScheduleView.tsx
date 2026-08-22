@@ -1366,7 +1366,11 @@ export function ScheduleView() {
   const breakpoint = useBreakpoint();
 
   // Role gate for milestone insert (#340) — VIEWER cannot author.
-  const { role: currentRole, isLoading: roleLoading } = useCurrentUserRole(projectIdUndef);
+  const {
+    role: currentRole,
+    isLoading: roleLoading,
+    isError: roleError,
+  } = useCurrentUserRole(projectIdUndef);
   // Pessimistic while the role loads (#2145): `canEditTask(null)` is false, so
   // every create control (+ Task / + Milestone / + Phase) stays disabled until
   // the role resolves — matching the pessimistic `canImport`/`canShare`/
@@ -2213,11 +2217,16 @@ export function ScheduleView() {
     if (authorParamConsumedRef.current) return;
     const intent: AuthorIntent | null = parseAuthorIntent(searchParams.get(AUTHOR_PARAM));
     if (!intent) return;
-    // Gate on `isLoading`, NOT on `currentRole === null`. The two are different
-    // questions and only one of them means "wait": a NON-MEMBER also has a null
-    // role, forever, so gating on the value would leave `?author=` in their URL
-    // permanently, re-arming on every navigation. Same distinction as #2961.
-    if (roleLoading) return; // still resolving — decide, don't guess
+    // Gate on `isLoading`/`isError`, NOT on `currentRole === null`. The two are
+    // different questions and only one of them means "wait": a NON-MEMBER also
+    // has a null role, forever, so gating on the value would leave `?author=`
+    // in their URL permanently, re-arming on every navigation. A failed role
+    // read is not a permission verdict either (#2909, #2961) — `retry: false`
+    // means an editor's blipped request would otherwise settle to `isLoading:
+    // false` and get read as "resolved: read-only", silently spending the
+    // param and creating nothing. Leaving it unconsumed on error costs one
+    // fresh attempt on the next mount instead of losing the link outright.
+    if (roleLoading || roleError) return; // unsettled — decide, don't guess
     authorParamConsumedRef.current = true;
     // Spend the param either way — including when the answer is "you may not
     // author here". A link that resolved to a refusal must not sit in the URL
@@ -2235,6 +2244,7 @@ export function ScheduleView() {
   }, [
     searchParams,
     roleLoading,
+    roleError,
     readOnly,
     createNewTask,
     inferredParentId,
