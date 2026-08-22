@@ -1035,7 +1035,7 @@ function MethodologyMismatchBanner({
       </p>
       <button
         type="button"
-        onClick={() => projectId && void navigate(`/projects/${projectId}/settings#methodology`)}
+        onClick={() => projectId && void navigate(`/projects/${projectId}/settings#how-this-team-works`)}
         className="shrink-0 text-xs font-semibold underline hover:no-underline
       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-at-risk focus-visible:ring-offset-1 rounded"
       >

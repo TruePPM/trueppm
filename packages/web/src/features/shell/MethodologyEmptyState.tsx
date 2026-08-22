@@ -24,7 +24,8 @@ export interface MethodologyEmptyStateProps {
  * actively invited the deviation the methodology preset exists to discourage —
  * with copy that names the mismatch and a primary action pointed at the view this
  * project's methodology actually surfaces. "Use it anyway" is demoted to a
- * secondary action that routes through Settings → Methodology (`#methodology`,
+ * secondary action that routes through Settings → How this team works
+ * (`#how-this-team-works`, the section that absorbed Methodology in #2969 —
  * mirroring `ProjectOverviewPage`'s settings deep-links), so enabling the hidden
  * surface is a deliberate configuration decision, never an incidental click.
  */
@@ -52,7 +53,7 @@ export function MethodologyEmptyState({
           <Button
             variant="secondary"
             onClick={() =>
-              projectId && void navigate(`/projects/${projectId}/settings#methodology`)
+              projectId && void navigate(`/projects/${projectId}/settings#how-this-team-works`)
             }
           >
             Change methodology

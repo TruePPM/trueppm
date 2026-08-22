@@ -1,16 +1,19 @@
 import { render, screen, fireEvent, act, within, createEvent } from '@testing-library/react';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { MemoryRouter, Routes, Route } from 'react-router';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
 import {
   SettingsShell,
   SettingsSection,
   SettingsPageTitle,
+  SettingsBlock,
+  SettingsSubHeading,
   SettingsCard,
   FieldRow,
   type SettingsNavGroup,
   type SettingsScopeLink,
 } from './SettingsShell';
 import { useSettingsSaveStore, DEFAULT_SECTION_KEY } from './hooks/useSettingsSaveStore';
+import { useSettingsSectionId } from './SettingsSectionContext';
 
 // jsdom has no matchMedia, so the real useBreakpoint always reports 'lg'. Mock it
 // with a mutable tier so most tests exercise the desktop rail and the mobile
@@ -1575,6 +1578,269 @@ describe('<SettingsPageTitle>', () => {
     expect(heading).toHaveAttribute('id', 'settings-heading-general');
     // …and the region really is named by it, not by the raw slug.
     expect(screen.getByRole('region', { name: 'General' })).toBeInTheDocument();
+  });
+});
+
+describe('settings blocks inside a merged section (#2969)', () => {
+  function renderBlocks() {
+    return render(
+      <SettingsSection id="how-this-team-works">
+        <SettingsPageTitle title="How this team works" />
+        <SettingsBlock anchor="methodology">
+          <SettingsPageTitle embedded title="Methodology" />
+          <SettingsSubHeading id="method-heading">Methodology for this project</SettingsSubHeading>
+        </SettingsBlock>
+        <SettingsBlock anchor="workflow">
+          <SettingsPageTitle embedded title="Workflow & fields" />
+          <SettingsSubHeading id="statuses-heading">Statuses</SettingsSubHeading>
+        </SettingsBlock>
+      </SettingsSection>,
+    );
+  }
+
+  it('nests the heading levels — section h2, block h3, everything inside h4', () => {
+    // axe cannot see this: `heading-order` only flags skips UPWARD, so a block h3
+    // whose own sub-headings are h2 passes every a11y run while announcing
+    // "Statuses" as a SIBLING of the section that contains it (WCAG 1.3.1).
+    renderBlocks();
+    const levels = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).map((h) => [
+      h.tagName,
+      h.textContent,
+    ]);
+    expect(levels).toEqual([
+      ['H2', 'How this team works'],
+      ['H3', 'Methodology'],
+      ['H4', 'Methodology for this project'],
+      ['H3', 'Workflow & fields'],
+      ['H4', 'Statuses'],
+    ]);
+  });
+
+  it('keeps sub-headings at h2 outside a block, so a standalone page is unchanged', () => {
+    render(
+      <SettingsSection id="labels">
+        <SettingsPageTitle title="Labels" />
+        <SettingsSubHeading id="x">Colors</SettingsSubHeading>
+      </SettingsSection>,
+    );
+    expect(screen.getByRole('heading', { level: 2, name: 'Colors' })).toBeInTheDocument();
+  });
+
+  it('preserves the ids every aria-labelledby points at', () => {
+    renderBlocks();
+    expect(document.getElementById('method-heading')).not.toBeNull();
+    expect(document.getElementById('statuses-heading')).not.toBeNull();
+  });
+
+  it('leaves exactly one heading id and one scroll-spy target for the section', () => {
+    // The duplicate-id failure this locks out: `settingsHeadingId()` is minted from
+    // the SECTION id, so a second unqualified title strip stamps the same id twice
+    // and the region's aria-labelledby resolves to whichever the parser met first.
+    renderBlocks();
+    const section = screen.getByRole('heading', { level: 2, name: 'How this team works' });
+    expect(section).toHaveAttribute('id', 'settings-heading-how-this-team-works');
+    expect(document.querySelectorAll('#settings-heading-how-this-team-works')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-settings-section-heading]')).toHaveLength(1);
+    // …and one focusable sub-anchor target per block, which is a DIFFERENT hook.
+    expect(document.querySelectorAll('[data-settings-block-heading]')).toHaveLength(2);
+    for (const h of screen.getAllByRole('heading', { level: 3 })) {
+      expect(h).not.toHaveAttribute('id');
+    }
+  });
+
+  it('gives each block a distinct save-store key, so two dirty forms cannot collide', () => {
+    // `useDirtyForm` registers under the section id from context and `register` is
+    // a keyed map. Today only one block registers — which is exactly the shape in
+    // which the collision arrives later as a mystery.
+    const seen: string[] = [];
+    function Probe() {
+      seen.push(useSettingsSectionId());
+      return null;
+    }
+    render(
+      <SettingsSection id="how-this-team-works">
+        <SettingsBlock anchor="methodology">
+          <Probe />
+        </SettingsBlock>
+        <SettingsBlock anchor="guardrails">
+          <Probe />
+        </SettingsBlock>
+      </SettingsSection>,
+    );
+    expect(seen).toEqual(['how-this-team-works::methodology', 'how-this-team-works::guardrails']);
+  });
+
+  it('suppresses the section docs link on a block, even with a live scope on context', () => {
+    // The regression: three blocks under one section printing the same
+    // "Learn more" three times. Asserted inside a real shell so `useSettingsScope`
+    // resolves and `SettingsSection` really does put a slug on context — outside
+    // one, the assertion passes against the OLD code too.
+    render(
+      <MemoryRouter initialEntries={['/projects/p1/settings']}>
+        <Routes>
+          <Route
+            path="/projects/p1/settings"
+            element={
+              <SettingsShell
+                scope="project"
+                scopeLinks={SCOPE_LINKS}
+                contextName="Project Atlas"
+                navGroups={[
+                  {
+                    label: 'Setup',
+                    items: [{ id: 'general', label: 'General', icon: <span /> }],
+                  },
+                ]}
+                exitTo="/projects/p1/overview"
+                exitLabel="Overview"
+              >
+                <SettingsSection id="general">
+                  <SettingsPageTitle title="General" />
+                  <SettingsBlock anchor="inner">
+                    <SettingsPageTitle embedded title="Inner block" />
+                  </SettingsBlock>
+                </SettingsSection>
+              </SettingsShell>
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+    // The section keeps its context-resolved link; the block gets none.
+    const links = screen.getAllByRole('link', { name: /^Learn more about/ });
+    expect(links.map((a) => a.getAttribute('aria-label'))).toEqual([
+      'Learn more about General (opens in a new tab)',
+    ]);
+  });
+});
+
+describe('<SettingsShell> retired anchor aliases (#2969)', () => {
+  beforeEach(() => {
+    useSettingsSaveStore.getState().reset();
+    mockBreakpoint = 'lg';
+  });
+
+  function HashProbe() {
+    const { hash } = useLocation();
+    return <div data-testid="probe-hash">{hash}</div>;
+  }
+
+  function renderAliased(
+    entry: string,
+    opts: { aliases?: Record<string, string>; subAnchor?: boolean } = {},
+  ) {
+    return render(
+      <MemoryRouter initialEntries={[entry]}>
+        <Routes>
+          <Route
+            path="/projects/p1/settings"
+            element={
+              <SettingsShell
+                scope="project"
+                scopeLinks={SCOPE_LINKS}
+                contextName="Project Atlas"
+                navGroups={NAV_GROUPS}
+                anchorAliases={opts.aliases ?? { methodology: 'general', workflow: 'general' }}
+                exitTo="/projects/p1/overview"
+                exitLabel="Overview"
+              >
+                <HashProbe />
+                <SettingsSection id="general">
+                  <SettingsPageTitle title="General" />
+                  {opts.subAnchor && (
+                    <SettingsBlock anchor="workflow">
+                      <SettingsPageTitle embedded title="Workflow & fields" />
+                    </SettingsBlock>
+                  )}
+                </SettingsSection>
+                <SettingsSection id="access">
+                  <SettingsPageTitle title="Access" />
+                </SettingsSection>
+              </SettingsShell>
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  const settle = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+  it('rewrites a retired hash to the section that absorbed it', async () => {
+    renderAliased('/projects/p1/settings#methodology');
+    await settle();
+    expect(screen.getByTestId('probe-hash')).toHaveTextContent('#general');
+  });
+
+  it('actually lands the user in that section, not merely in the URL', async () => {
+    // The URL is the cheap half. What the retired link promised is arrival — and
+    // because every section is mounted at once (ADR-0146), "the heading is
+    // visible" is true whether or not the scroll ever fired. Focus is the
+    // observable that is not.
+    renderAliased('/projects/p1/settings#methodology');
+    await settle();
+    expect(document.activeElement).toBe(
+      screen.getByRole('heading', { level: 2, name: 'General' }),
+    );
+  });
+
+  it('refines onto the block that owned the anchor when the section declares one', async () => {
+    // Landing at the top of a section several viewports tall is technically not a
+    // 404 and practically a lost link.
+    renderAliased('/projects/p1/settings#workflow', { subAnchor: true });
+    await settle();
+    expect(document.activeElement).toBe(
+      screen.getByRole('heading', { level: 3, name: 'Workflow & fields' }),
+    );
+    expect(screen.getByTestId('probe-hash')).toHaveTextContent('#general');
+  });
+
+  it('leaves a live hash alone', async () => {
+    renderAliased('/projects/p1/settings#access');
+    await settle();
+    expect(screen.getByTestId('probe-hash')).toHaveTextContent('#access');
+  });
+
+  it('leaves an unmapped unknown hash alone rather than guessing a destination', async () => {
+    // A hash nobody declared is not the same as a retired one. Sending it
+    // somewhere plausible would make a typo look like a working deep link.
+    renderAliased('/projects/p1/settings#not-a-section');
+    await settle();
+    expect(screen.getByTestId('probe-hash')).toHaveTextContent('#not-a-section');
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('declines an alias whose target this rail does not mount', async () => {
+    // The member rail is the real case: every alias points at a section it does
+    // not render. Rewriting the URL to an anchor that resolves to nothing would
+    // replace one dead link with a different dead link.
+    renderAliased('/projects/p1/settings#methodology', {
+      aliases: { methodology: 'not-mounted' },
+    });
+    await settle();
+    expect(screen.getByTestId('probe-hash')).toHaveTextContent('#methodology');
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('rewrites once per hash, not once per render', async () => {
+    // `scrollTo` is a fresh identity every render, so this effect re-runs on every
+    // render. An unguarded navigate() therefore fired repeatedly until the URL
+    // changed, each replace aborting the one before it — and under load the
+    // rewrite could be dropped entirely and never retried, because the hash it
+    // keyed on never changed. That produced a hash deep link that worked on an
+    // idle machine and silently did nothing on a busy one.
+    const { container } = renderAliased('/projects/p1/settings#methodology');
+    await settle();
+    const entries: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      entries.push(container.querySelector('[data-testid="probe-hash"]')!.textContent ?? '');
+      await settle();
+    }
+    // Stable — no ping-pong between the retired hash and the live one.
+    expect(new Set(entries)).toEqual(new Set(['#general']));
   });
 });
 

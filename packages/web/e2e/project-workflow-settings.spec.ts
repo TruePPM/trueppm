@@ -294,7 +294,9 @@ test.describe('Project Settings → Workflow (#521)', () => {
     // Workflow section: the consolidated page (ADR-0146) mounts every section,
     // and unmocked sibling sections render their own stub banners.
     await expect(
-      page.locator('[data-settings-section="workflow"]').getByTestId('stub-page-banner'),
+      page
+        .locator('[data-settings-section="how-this-team-works"]')
+        .getByTestId('stub-page-banner'),
     ).toHaveCount(0);
   });
 

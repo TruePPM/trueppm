@@ -12,6 +12,8 @@ import {
   useSettingsSectionId,
   useSettingsScope,
   useSettingsSectionDocs,
+  SettingsHeadingLevelContext,
+  useSettingsHeadingLevel,
 } from './SettingsSectionContext';
 import { SettingsSectionErrorBoundary } from './SettingsSectionErrorBoundary';
 import { settingsDocsSlug } from './settingsDocs';
@@ -104,6 +106,22 @@ interface SettingsShellProps {
   /** Mobile-only: short destination label, rendered as "Back to {exitLabel}". */
   exitLabel: string;
   /**
+   * Retired anchor → live section id (#2969).
+   *
+   * When sections merge, the addresses they used to answer on do not disappear:
+   * `/…/settings#methodology` is in runbooks, bookmarks and links people mailed
+   * each other. The router's `SectionRedirect` only covers the *route* half
+   * (`/…/settings/methodology`); a hash is not part of the matched path, so no
+   * route can see it. The shell is the only layer that can, because it is the one
+   * that resolves a hash against the sections actually mounted.
+   *
+   * An unknown hash is otherwise silent — `inlineIds` does not contain it, the
+   * scroll never happens, and the user lands at the top of the page with no
+   * indication their link went stale. Rewriting it (replace, so Back still leaves
+   * settings) turns that into a working deep link.
+   */
+  anchorAliases?: Record<string, string>;
+  /**
    * The consolidated page body — all `<SettingsSection>` regions for this entity,
    * rendered at once on one mounted page (ADR-0146). The shell stays mounted;
    * the left rail scroll-spies across these sections.
@@ -126,6 +144,100 @@ const SCOPE_HEADING: Record<'workspace' | 'project' | 'program', string> = {
   project: 'Project settings',
   program: 'Program settings',
 };
+
+/**
+ * Scroll to a block *inside* a settings section, and put focus on its heading.
+ *
+ * A section that absorbed other sections (#2969) declares each absorbed block as
+ * a sub-anchor — `<SettingsBlock anchor="guardrails">` — so a retired deep link
+ * and the section's own jump strip can reach the block rather than the top of a
+ * section several viewports tall. Sub-anchors are deliberately NOT scroll-spy
+ * sections: the rail keeps one row for the merged section, which is the point of
+ * merging it.
+ *
+ * A plain function rather than a hook or a context: both callers already have the
+ * DOM, and neither needs to re-render when the target moves.
+ *
+ * @returns whether a matching sub-anchor was found.
+ */
+export function scrollToSettingsSubAnchor(anchor: string, container?: HTMLElement | null): boolean {
+  const root: ParentNode = container ?? document;
+  const el = root.querySelector<HTMLElement>(`[data-settings-anchor="${anchor}"]`);
+  if (!el) return false;
+  const reduceMotion =
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  el.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+  el.querySelector<HTMLElement>('[data-settings-block-heading]')?.focus({ preventScroll: true });
+  return true;
+}
+
+/**
+ * One block inside a settings section — a former section that a merge absorbed
+ * (#2969).
+ *
+ * Two things it provides that a bare `<div>` cannot:
+ *   - `data-settings-anchor`, the target {@link scrollToSettingsSubAnchor} finds,
+ *     so the retired address still lands on the block rather than the section top;
+ *   - a heading level of 3, so the block's own title strip renders `<h3>` under
+ *     the section's `<h2>` and every heading *inside* the block drops to `<h4>`
+ *     via {@link SettingsSubHeading}. Without that the block's sub-headings stay
+ *     `<h2>` and announce as siblings of the section that contains them — a
+ *     WCAG 1.3.1 failure axe cannot see, because `heading-order` only flags
+ *     skips *upward*.
+ */
+export function SettingsBlock({ anchor, children }: { anchor: string; children: ReactNode }) {
+  const sectionId = useSettingsSectionId();
+  // A composite save-store key. `useDirtyForm` registers under the section id
+  // from this context, and `register` is a keyed map — so three blocks under one
+  // `<SettingsSection>` would share one entry and the second block to adopt a
+  // dirty form would silently overwrite the first one's save handler. Today only
+  // Methodology registers, which is exactly the kind of "no collision yet" that
+  // makes the collision arrive as a mystery. The key is opaque to the store and
+  // matched against nothing, so a composite is free; the section's heading id and
+  // docs slug are not read from here for a block (see `SettingsPageTitle`).
+  const blockKey = `${sectionId}::${anchor}`;
+  return (
+    <div data-settings-anchor={anchor}>
+      {/* Its own boundary, so a throw in one block does not take its siblings
+          down with it — merging three sections must not merge their blast
+          radius. */}
+      <SettingsSectionErrorBoundary sectionId={blockKey}>
+        <SettingsSectionContext.Provider value={blockKey}>
+          <SettingsHeadingLevelContext.Provider value={3}>
+            {children}
+          </SettingsHeadingLevelContext.Provider>
+        </SettingsSectionContext.Provider>
+      </SettingsSectionErrorBoundary>
+    </div>
+  );
+}
+
+/**
+ * A heading *within* a settings section or block — the "Statuses", "Phases",
+ * "Board cadence" strips inside a page body, not the page's own title.
+ *
+ * Renders `<h2>` on a standalone section (matching what these were before any
+ * merge) and `<h4>` inside a `SettingsBlock`, whose own title is the `<h3>`.
+ * The element is the only thing that varies; ids, classes and every
+ * `aria-labelledby` pointed at them are untouched.
+ */
+export function SettingsSubHeading({
+  id,
+  className,
+  children,
+}: {
+  id?: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  const Tag = useSettingsHeadingLevel() === 3 ? 'h4' : 'h2';
+  return (
+    <Tag id={id} className={className}>
+      {children}
+    </Tag>
+  );
+}
 
 /**
  * Shared settings layout: scroll-spy left rail + one scrolling page + save bar
@@ -152,6 +264,7 @@ export function SettingsShell({
   navGroups,
   exitTo,
   exitLabel,
+  anchorAliases,
   children,
 }: SettingsShellProps) {
   const navigate = useNavigate();
@@ -217,22 +330,62 @@ export function SettingsShell({
     [navGroups, activeRouteTo],
   );
 
-  // Deep link: on first mount, if the URL carries `#<section>` scroll to it.
-  // Runs once per hash change so an in-app hash update from a nav click (which
-  // already scrolled) doesn't double-scroll.
+  // Deep link: if the URL carries `#<section>`, scroll to it. Runs once per hash
+  // change so an in-app hash update from a nav click (which already scrolled)
+  // doesn't double-scroll.
   const lastHandledHashRef = useRef<string | null>(null);
+  // The retired anchor a rewrite came from (#2969), carried across the commit the
+  // rewrite causes. By the time the effect sees the live hash the original id is
+  // gone from the URL, and it is the only thing that knows WHICH block to land on.
+  const pendingSubAnchorRef = useRef<string | null>(null);
   useEffect(() => {
-    const id = hash.replace(/^#/, '');
-    if (!id || !inlineIds.includes(id)) return;
+    const raw = hash.replace(/^#/, '');
+    if (!raw) return;
+    // A retired anchor (#2969) resolves to the section that absorbed it. An id
+    // that is neither live nor aliased is left completely alone — guessing a
+    // destination for it would make a typo look like a working deep link.
+    const id = inlineIds.includes(raw) ? raw : (anchorAliases?.[raw] ?? raw);
+    if (!inlineIds.includes(id)) return;
+    // The once-guard covers the alias path too. `scrollTo` is a fresh identity on
+    // every render (it closes over `inlineIds`, a new array each time), so this
+    // effect re-runs on every render — and an unguarded `navigate()` here fired
+    // once per render until the URL changed. Each replace aborts the one before
+    // it, so under load the rewrite could be dropped entirely and, because the
+    // hash never changed, never retried: a hash deep link that silently did
+    // nothing on a busy machine and worked on an idle one.
     if (lastHandledHashRef.current === hash) return;
     lastHandledHashRef.current = hash;
+    if (raw !== id) {
+      // Rewrite synchronously — NOT inside the deferred frame below, which a
+      // re-render can cancel — and let the effect re-run against the live id so
+      // the scroll path is identical for a retired link and a current one.
+      // `replace` keeps Back leaving settings rather than bouncing between the
+      // two hashes.
+      pendingSubAnchorRef.current = raw;
+      void navigate({ hash: `#${id}` }, { replace: true });
+      return;
+    }
+    const subAnchor = pendingSubAnchorRef.current;
+    pendingSubAnchorRef.current = null;
     // Defer so the section markup is laid out before we measure/scroll.
-    const raf = requestAnimationFrame(() => scrollTo(id));
-    return () => cancelAnimationFrame(raf);
+    //
+    // Deliberately NOT cancelled on cleanup. This effect re-runs on every render
+    // (see above), so a cleanup that cancels the frame combined with a guard that
+    // returns early on the re-run means the scroll is cancelled and never
+    // rescheduled — a deep link that silently does nothing whenever anything else
+    // re-renders in the same tick. Both callees no-op once the container is gone,
+    // so an un-cancelled frame after unmount is harmless.
+    requestAnimationFrame(() => {
+      scrollTo(id);
+      // Refine onto the block that used to own this anchor, when the section
+      // declared one. Landing at the top of a section three viewports tall is
+      // technically "not a 404" and practically a lost link.
+      if (subAnchor) scrollToSettingsSubAnchor(subAnchor, scrollRef.current);
+    });
     // inlineIds is derived from navGroups each render; depend on its join to
     // avoid re-running on every identity change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hash, inlineIds.join(','), scrollTo]);
+  }, [hash, inlineIds.join(','), scrollTo, anchorAliases, navigate]);
 
   // Ticker drives the "Saved [time]" footer re-render so "just now" → "1m ago".
   const [, setSavedTick] = useState(0);
@@ -1049,6 +1202,22 @@ interface SettingsPageTitleProps {
    * read. An explicit value wins over context.
    */
   docsHref?: string;
+  /**
+   * This title strip is a *block inside* another section, not the section's own
+   * title (#2969).
+   *
+   * When several former sections are mounted under one `<SettingsSection>`, only
+   * one of them may own the region's heading: `settingsHeadingId()` is minted from
+   * the section id, so a second unqualified title strip would stamp a duplicate
+   * DOM id and `aria-labelledby` would resolve to whichever came first. An
+   * embedded strip therefore renders an `<h3>` (correct level under the section's
+   * `<h2>`) and carries no heading id at all.
+   *
+   * It also does NOT inherit the section's docs slug — three blocks under one
+   * section would otherwise print the same "Learn more" three times. Pass each
+   * block's own `docsHref`.
+   */
+  embedded?: boolean;
 }
 
 /**
@@ -1065,7 +1234,7 @@ const DOCS_LINK_BASE =
  * it (#1749). `inline-flex` is correct only for the standalone card-level link,
  * which owns its own line.
  */
-const DOCS_LINK_INLINE = `inline ${DOCS_LINK_BASE}`;
+export const DOCS_LINK_INLINE = `inline ${DOCS_LINK_BASE}`;
 const DOCS_LINK_BLOCK = `inline-flex items-center gap-1 text-[12px] ${DOCS_LINK_BASE}`;
 
 /**
@@ -1156,6 +1325,22 @@ function SectionDocsLink({ href, sectionTitle }: { href: string; sectionTitle: s
   );
 }
 
+/**
+ * Props a section component takes so it can also be mounted as a block inside
+ * another section (#2969).
+ *
+ * A component that may be *either* a section or a block cannot decide its own
+ * heading level or docs link — both depend on where it is mounted, and only the
+ * mount site knows. So it takes both and forwards them straight to its
+ * `SettingsPageTitle`, rather than reading the section context and guessing.
+ */
+export interface SettingsBlockProps {
+  /** Render the title strip as an in-section `<h3>` block rather than the section's `<h2>`. */
+  embedded?: boolean;
+  /** This block's own docs slug — required when `embedded`, which suppresses the section's. */
+  docsHref?: string;
+}
+
 /** Standardised section title strip with optional count and action button. */
 export function SettingsPageTitle({
   title,
@@ -1163,14 +1348,30 @@ export function SettingsPageTitle({
   count,
   action,
   docsHref,
+  embedded = false,
 }: SettingsPageTitleProps) {
   // Each section renders one of these on the consolidated page, so it must be an
   // <h2> under the shell's single page <h1> (WCAG 1.3.1 / 2.4.6). When mounted
   // inside a <SettingsSection>, stamp the id its region's aria-labelledby targets
   // so the region is named by this real title, not the slug; outside a section
   // (standalone tool pages) the context is the default key and we omit the id.
+  //
+  // An `embedded` strip is a block *within* a section (#2969): it drops to <h3>
+  // and claims neither the heading id nor the section's docs slug, both of which
+  // belong to the one strip that titles the region.
   const sectionId = useSettingsSectionId();
-  const headingId = sectionId !== DEFAULT_SECTION_KEY ? settingsHeadingId(sectionId) : undefined;
+  // `embedded` is the caller's intent; the context is where it is actually
+  // mounted. Either alone is enough, and they agree in practice — a `SettingsBlock`
+  // provides level 3 and its child passes `embedded` — but honoring both means a
+  // block that forgets the prop on one of its return branches still renders the
+  // right tag rather than stamping a duplicate section heading id.
+  // Read the hook unconditionally — `embedded || useSettingsHeadingLevel() === 3`
+  // short-circuits the hook and breaks the rules of hooks.
+  const contextLevel = useSettingsHeadingLevel();
+  const isBlock = embedded || contextLevel === 3;
+  const Heading = isBlock ? 'h3' : 'h2';
+  const headingId =
+    !isBlock && sectionId !== DEFAULT_SECTION_KEY ? settingsHeadingId(sectionId) : undefined;
   // Section help trails the subtitle rather than sitting in the `action` slot: 16
   // of the 67 call sites already put a primary control there ("Add member", "New
   // label"), and secondary help at equal weight beside a primary action inverts
@@ -1180,23 +1381,39 @@ export function SettingsPageTitle({
   // Read the context unconditionally — `docsHref ?? useSettingsSectionDocs()`
   // would short-circuit the hook and break the rules of hooks.
   const contextDocsHref = useSettingsSectionDocs();
-  const resolvedDocsHref = docsHref ?? contextDocsHref;
+  const resolvedDocsHref = docsHref ?? (isBlock ? undefined : contextDocsHref);
   return (
-    <div className="px-6 pt-5 pb-3.5 flex items-end gap-3.5 border-b border-neutral-border/55">
+    <div
+      className={
+        isBlock
+          ? // Inset from the section's content column and rule-marked on the left, so
+            // a reader arriving mid-scroll can see this strip is INSIDE something
+            // rather than reading it with the same grammar as "Labels" or "Calendars".
+            'ml-6 pl-4 pr-6 pt-6 pb-3 flex items-end gap-3.5 border-l-2 border-neutral-border/70 border-b border-neutral-border/40'
+          : 'px-6 pt-5 pb-3.5 flex items-end gap-3.5 border-b border-neutral-border/55'
+      }
+    >
       <div className="flex-1 min-w-0">
-        <h2
+        <Heading
           id={headingId}
           // Focus target for scroll-spy keyboard nav (ADR-0146): activating a rail
-          // item moves focus here so keyboard / SR users land in the section.
-          data-settings-section-heading
+          // item moves focus here so keyboard / SR users land in the section. A
+          // block strip is not a scroll-spy target — it claims the separate
+          // sub-anchor target instead, which `scrollToSettingsSubAnchor` focuses.
+          data-settings-section-heading={isBlock ? undefined : true}
+          data-settings-block-heading={isBlock ? true : undefined}
           tabIndex={-1}
-          className="text-[22px] font-bold tracking-tight text-neutral-text-primary leading-none flex items-center gap-2.5 focus-visible:outline-none"
+          className={
+            isBlock
+              ? 'text-[16px] font-semibold tracking-tight text-neutral-text-primary leading-none flex items-center gap-2.5 focus-visible:outline-none'
+              : 'text-[22px] font-bold tracking-tight text-neutral-text-primary leading-none flex items-center gap-2.5 focus-visible:outline-none'
+          }
         >
           {title}
           {count != null && (
             <span className="text-[13px] font-medium text-neutral-text-secondary">{count}</span>
           )}
-        </h2>
+        </Heading>
         {/* The link trails the subtitle inside the same paragraph so it reads as
             an extension of that sentence. With no subtitle it takes the subtitle's
             own slot, keeping its vertical position identical across sections. */}

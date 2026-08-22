@@ -29,7 +29,7 @@ vi.mock('@/hooks/useProjectGuardrailPolicy', async () => {
   };
 });
 
-function renderPage() {
+function renderPage(props: { embedded?: boolean; docsHref?: string } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
@@ -37,7 +37,7 @@ function renderPage() {
         <Routes>
           <Route
             path="/projects/:projectId/settings/guardrails"
-            element={<ProjectGuardrailsPage />}
+            element={<ProjectGuardrailsPage {...props} />}
           />
         </Routes>
       </MemoryRouter>
@@ -162,5 +162,71 @@ describe('ProjectGuardrailsPage', () => {
     expect(screen.getByText(/inert until the team acknowledges/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /^Acknowledge$/ }));
     expect(mutate).toHaveBeenCalledWith({ acknowledgedByTeam: true });
+  });
+});
+
+describe('ProjectGuardrailsPage — mounted as a block (#2969)', () => {
+  beforeEach(() => {
+    useProjectId.mockReturnValue('p-1');
+    useCurrentUserRole.mockReturnValue({ role: ROLE_OWNER });
+  });
+
+  // All THREE return paths, because `embedded` is threaded onto each title strip
+  // separately. Dropping it from the loading or error branch stamps a stray
+  // `<h2 id="settings-heading-how-this-team-works">` — a duplicate DOM id and a
+  // second scroll-spy focus target, the exact regression web-rule 317(c) names —
+  // and the loaded branch, which every other test drives, stays green.
+  const BRANCHES: Array<[string, () => void]> = [
+    [
+      'loading',
+      () =>
+        useProjectGuardrailPolicy.mockReturnValue({
+          policy: null,
+          isLoading: true,
+          error: null,
+          update: { mutate: vi.fn() },
+        }),
+    ],
+    [
+      'failed read',
+      () =>
+        useProjectGuardrailPolicy.mockReturnValue({
+          policy: null,
+          isLoading: false,
+          error: new Error('nope'),
+          update: { mutate: vi.fn() },
+        }),
+    ],
+    [
+      'loaded',
+      () =>
+        useProjectGuardrailPolicy.mockReturnValue({
+          policy: ALL_WARN,
+          isLoading: false,
+          error: null,
+          update: { mutate: vi.fn() },
+        }),
+    ],
+  ];
+
+  it.each(BRANCHES)('titles the %s branch as an h3 when embedded', (_name, seed) => {
+    seed();
+    renderPage({ embedded: true, docsHref: 'administration/project-settings/#sprint-guardrails' });
+    expect(screen.getByRole('heading', { level: 3, name: 'Sprint guardrails' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2, name: 'Sprint guardrails' })).toBeNull();
+  });
+
+  it.each(BRANCHES)('keeps the %s branch an h2 when mounted standalone', (_name, seed) => {
+    seed();
+    renderPage();
+    expect(screen.getByRole('heading', { level: 2, name: 'Sprint guardrails' })).toBeInTheDocument();
+  });
+
+  it('carries its own docs link rather than the section it sits in', () => {
+    BRANCHES[2][1]();
+    renderPage({ embedded: true, docsHref: 'administration/project-settings/#sprint-guardrails' });
+    expect(
+      screen.getByRole('link', { name: /Learn more about Sprint guardrails/ }),
+    ).toHaveAttribute('href', expect.stringContaining('project-settings/#sprint-guardrails'));
   });
 });

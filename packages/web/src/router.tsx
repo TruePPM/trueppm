@@ -722,10 +722,19 @@ export const routes: RouteObject[] = [
                       <SectionRedirect base="/projects/:projectId/settings" anchor="access" />
                     ),
                   },
+                  // Methodology, Workflow & fields and Sprint guardrails merged into
+                  // "How this team works" (#2969). The three routes keep answering —
+                  // a settings URL in a runbook or a bookmark must not 404 to make a
+                  // nav change tidy. The hash form of the same three addresses is
+                  // rewritten by the shell (`PROJECT_SETTINGS_ANCHOR_ALIASES`), which
+                  // is a separate mechanism because a route cannot match on a hash.
                   {
                     path: 'settings/methodology',
                     element: (
-                      <SectionRedirect base="/projects/:projectId/settings" anchor="methodology" />
+                      <SectionRedirect
+                        base="/projects/:projectId/settings"
+                        anchor="how-this-team-works"
+                      />
                     ),
                   },
                   {
@@ -744,7 +753,10 @@ export const routes: RouteObject[] = [
                   {
                     path: 'settings/workflow',
                     element: (
-                      <SectionRedirect base="/projects/:projectId/settings" anchor="workflow" />
+                      <SectionRedirect
+                        base="/projects/:projectId/settings"
+                        anchor="how-this-team-works"
+                      />
                     ),
                   },
                   {
@@ -756,7 +768,10 @@ export const routes: RouteObject[] = [
                   {
                     path: 'settings/guardrails',
                     element: (
-                      <SectionRedirect base="/projects/:projectId/settings" anchor="guardrails" />
+                      <SectionRedirect
+                        base="/projects/:projectId/settings"
+                        anchor="how-this-team-works"
+                      />
                     ),
                   },
                   {

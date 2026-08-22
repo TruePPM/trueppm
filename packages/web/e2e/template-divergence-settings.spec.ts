@@ -220,7 +220,9 @@ test.describe('Project Settings → Template divergence', () => {
     await expect(nav.getByText('Template divergence')).toBeVisible();
     // Admin controls stay off a non-admin's page: admitting them to the route is
     // not the same as handing them a shell full of things the server will refuse.
-    await expect(nav.getByText('Workflow & fields')).toHaveCount(0);
+    // Retitled by #2969 — 'Workflow & fields' is no longer a rail row for ANYONE,
+    // so asserting its absence stopped saying anything about the member view.
+    await expect(nav.getByText('How this team works')).toHaveCount(0);
     await expect(nav.getByText('Access', { exact: true })).toHaveCount(0);
   });
 

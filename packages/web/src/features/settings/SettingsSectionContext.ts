@@ -49,3 +49,21 @@ export const SettingsSectionDocsContext = createContext<string | undefined>(unde
 export function useSettingsSectionDocs(): string | undefined {
   return useContext(SettingsSectionDocsContext);
 }
+
+/**
+ * The heading level a settings *block title* renders at (#2969).
+ *
+ * `2` on a standalone section — the section's title strip is the `<h2>` under the
+ * shell's one `<h1>`. `3` inside a `SettingsBlock`, where a merged section owns
+ * the `<h2>` and each absorbed block titles itself beneath it.
+ *
+ * Consumed by `SettingsPageTitle` (which picks its own tag) and by
+ * `SettingsSubHeading` (which renders one level below that), so a page body does
+ * not have to know whether it was mounted standalone or embedded.
+ */
+export const SettingsHeadingLevelContext = createContext<2 | 3>(2);
+
+/** The heading level a block title renders at in the current subtree. */
+export function useSettingsHeadingLevel(): 2 | 3 {
+  return useContext(SettingsHeadingLevelContext);
+}

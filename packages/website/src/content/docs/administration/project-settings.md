@@ -76,9 +76,79 @@ added without one chosen, overridable per person at any time — and the project
 **mention groups**, custom `@groups` that notify a curated set of project members from a
 comment. See [Project members](/features/settings/project-members/).
 
+## How this team works
+
+**Methodology**, **Workflow & fields** and **Sprint guardrails** are one section in
+the settings rail — *How this team works* — not three. They are one decision: the
+planning model a team uses, the stages its work moves through, and the rules it
+holds itself to. Splitting them across the rail meant a delivery lead standing a
+team up had to find all three before they could see the shape of what they had
+configured.
+
+:::note[Ships in 0.4]
+The consolidation ships in **TruePPM 0.4**, the first beta. On `v0.3.0-alpha.3`,
+the latest release, these are three separate rail rows — **Methodology** and
+**Workflow & fields** under Setup and Configuration respectively, and **Sprint
+guardrails** below them.
+:::
+
+The section opens with a plain restatement of the preset — what this team runs, and
+how its work is paced — followed by a jump strip to the three blocks below, in
+order:
+
+| Block | What it sets | Detail |
+| --- | --- | --- |
+| Methodology | The planning model, and which surfaces lead | [Methodology](#methodology) |
+| Workflow & fields | Board cadence, phases, statuses and their lanes and WIP limits, custom fields | [Workflow & fields](#workflow--fields) |
+| Sprint guardrails | Which composition mistakes warn and which the Owner blocks | [Sprint guardrails](#sprint-guardrails) |
+
+Board columns appear here as the **Statuses** list, with each column's WIP limit and
+its lane expander — the same editor described under
+[Workflow & fields](#workflow--fields). There is no second column editor.
+
+**The preset communicates; it does not enforce.** It decides which planning
+surfaces a project *leads with* — the ones it leaves out are hidden, not
+withdrawn, and changing the preset brings them straight back. Note that
+[Surfaces](#surfaces) is a different control: it toggles the four optional
+surfaces (Reports, Time tracking, Baselines, the Monte-Carlo forecast), not Board
+/ Schedule / Sprints.
+
+Two things on this page *can* stop an action, and neither is the preset:
+
+- **[Sprint guardrails](#sprint-guardrails)** — a project Owner may escalate a
+  composition rule from **Warn** to **Block**, and a Block has no override. That
+  is a deliberate, Owner-only, per-rule decision, which is the opposite of a
+  preset silently deciding for a team.
+- **A phase committed to a sprint** is rejected unconditionally by the API — a
+  data-integrity rule, not a preset consequence. See
+  [Sprint guardrails](#sprint-guardrails).
+
+Everything else here configures what a team *does*, not what it may do.
+
+### Old settings links keep working
+
+The three addresses these sections used to answer on still resolve, in both forms:
+
+| Old address | Now resolves to |
+| --- | --- |
+| `/projects/:id/settings/methodology` | `/projects/:id/settings#how-this-team-works` |
+| `/projects/:id/settings/workflow` | `/projects/:id/settings#how-this-team-works` |
+| `/projects/:id/settings/guardrails` | `/projects/:id/settings#how-this-team-works` |
+| `/projects/:id/settings#methodology` | `/projects/:id/settings#how-this-team-works` |
+| `/projects/:id/settings#workflow` | `/projects/:id/settings#how-this-team-works` |
+| `/projects/:id/settings#guardrails` | `/projects/:id/settings#how-this-team-works` |
+
+The address in the bar becomes the section's, but the page scrolls to the **block**
+the old link named — `…#guardrails` still lands on the guardrail matrix, not on the
+top of a section three blocks tall. A settings URL in a runbook, a bookmark, or a
+link someone mailed a colleague does not break, and does not land short, because
+the navigation was tidied.
+
 ## Methodology
 
-The **Methodology** page picks the project's planning methodology (its delivery model).
+A block within [How this team works](#how-this-team-works).
+
+The **Methodology** block picks the project's planning methodology (its delivery model).
 The choice drives which planning surfaces appear — Board, Schedule, Sprints — so a
 predictive project does not carry sprint chrome it never uses, and an agile one does not
 lead with a Gantt. See [Methodology preset](/features/methodology-preset/).
@@ -99,7 +169,9 @@ predictive project does not show it.
 
 ## Workflow & fields
 
-The **Workflow & fields** page configures how the board behaves for this project:
+A block within [How this team works](#how-this-team-works).
+
+The **Workflow & fields** block configures how the board behaves for this project:
 
 - **Board columns** — the column configuration the board renders.
 - **Custom fields** — define task custom fields (add, edit, remove) that appear on
@@ -188,7 +260,9 @@ The **Lifecycle** page handles a project's end-of-life:
 
 ## Sprint guardrails
 
-The **Sprint guardrails** page configures the per-project guardrail policy as a
+A block within [How this team works](#how-this-team-works).
+
+The **Sprint guardrails** block configures the per-project guardrail policy as a
 rule-by-rule matrix: each sprint/phase composition rule is either **Warn**
 (default — the team sees a warning and may override) or **Block** (no override).
 Only the project **Owner** may escalate a composition rule to Block — sprint

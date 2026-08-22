@@ -172,7 +172,7 @@ test.describe('Settings stub banner (#538)', () => {
     // Methodology is now an API-wired cascade form, not a stub. The consolidated
     // page (#1248) mounts every section at once, so scope the banner assertion to
     // the methodology section.
-    const methodology = page.locator('[data-settings-section="methodology"]');
+    const methodology = page.locator('[data-settings-section="how-this-team-works"]');
     await expect(
       methodology.getByRole('heading', { name: 'Methodology', exact: true }),
     ).toBeVisible();

@@ -10,7 +10,11 @@ import {
   type GuardrailRule,
   type GuardrailLevel,
 } from '@/hooks/useProjectGuardrailPolicy';
-import { SettingsPageTitle } from '../SettingsShell';
+import {
+  SettingsPageTitle,
+  SettingsSubHeading,
+  type SettingsBlockProps,
+} from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 
@@ -36,7 +40,7 @@ const GUARDRAILS_DOC = 'administration/project-settings/#sprint-guardrails';
  * acknowledgement. The team-ack gate is enforced in OSS code so a custom
  * high-ordinal Enterprise role can't bypass sprint sovereignty.
  */
-export function ProjectGuardrailsPage() {
+export function ProjectGuardrailsPage({ embedded, docsHref }: SettingsBlockProps = {}) {
   const projectId = useProjectId();
   const itl = useIterationLabel(projectId);
   const { role } = useCurrentUserRole(projectId ?? undefined);
@@ -57,6 +61,8 @@ export function ProjectGuardrailsPage() {
     return (
       <div>
         <SettingsPageTitle
+          embedded={embedded}
+          docsHref={docsHref}
           title={`${itl.singular} guardrails`}
           subtitle={`Decide which ${itl.lower}/phase mistakes warn the team and which the team's Owner blocks outright.`}
         />
@@ -69,6 +75,8 @@ export function ProjectGuardrailsPage() {
     return (
       <div>
         <SettingsPageTitle
+          embedded={embedded}
+          docsHref={docsHref}
           title={`${itl.singular} guardrails`}
           subtitle={`Decide which ${itl.lower}/phase mistakes warn the team and which the team's Owner blocks outright.`}
         />
@@ -89,6 +97,8 @@ export function ProjectGuardrailsPage() {
   return (
     <div>
       <SettingsPageTitle
+        embedded={embedded}
+        docsHref={docsHref}
         title={`${itl.singular} guardrails`}
         subtitle={`Decide which ${itl.lower}/phase mistakes warn the team and which the team's Owner blocks outright. Subtask-split warnings are always advisory.`}
       />
@@ -109,9 +119,9 @@ export function ProjectGuardrailsPage() {
           >
             <div className="flex-1">
               <div className="flex items-center gap-1.5">
-                <h2 className="text-[13px] font-semibold text-neutral-text-primary">
+                <SettingsSubHeading className="text-[13px] font-semibold text-neutral-text-primary">
                   Policy set by {policy.sourceLabel || 'an external administrator'}
-                </h2>
+                </SettingsSubHeading>
                 <FieldHelp
                   label="External policy"
                   body="This guardrail policy was supplied by an external administrator (a TruePPM Enterprise resolver), not set on this project. Any rule configured as Block stays inert — warning only — until this team acknowledges the policy. Acknowledging activates those blocks; you can withdraw acknowledgement at any time. Warnings always fire regardless."

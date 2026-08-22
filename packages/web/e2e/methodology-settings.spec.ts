@@ -181,7 +181,10 @@ test.describe('Project methodology', () => {
 
     await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
 
-    const methodology = page.locator('[data-settings-section="methodology"]');
+    // #2969 folded Methodology into the consolidated 'How this team works'
+    // section — the project rail has one row for the three, so the section
+    // scope moved with it. The WORKSPACE methodology page is untouched.
+    const methodology = page.locator('[data-settings-section="how-this-team-works"]');
     // Seeded from the project's own method, with the inherited default surfaced.
     await expect(methodology.getByRole('radio', { name: /Agile/i, checked: true })).toBeVisible();
     await expect(methodology.getByText(/Inherited from the workspace default/i)).toBeVisible();
@@ -210,7 +213,10 @@ test.describe('Project methodology', () => {
 
     await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
 
-    const methodology = page.locator('[data-settings-section="methodology"]');
+    // #2969 folded Methodology into the consolidated 'How this team works'
+    // section — the project rail has one row for the three, so the section
+    // scope moved with it. The WORKSPACE methodology page is untouched.
+    const methodology = page.locator('[data-settings-section="how-this-team-works"]');
     const estimation = methodology.getByRole('combobox', { name: 'Estimate governance' });
     await expect(estimation).toHaveValue('open');
 
@@ -240,7 +246,10 @@ test.describe('Project methodology', () => {
     });
 
     await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
-    const methodology = page.locator('[data-settings-section="methodology"]');
+    // #2969 folded Methodology into the consolidated 'How this team works'
+    // section — the project rail has one row for the three, so the section
+    // scope moved with it. The WORKSPACE methodology page is untouched.
+    const methodology = page.locator('[data-settings-section="how-this-team-works"]');
 
     // Methodology is locked read-only by workspace policy (ADR-0133): no disabled
     // radios — effective value (Waterfall) + provenance instead. Scoped to the
@@ -273,7 +282,10 @@ test.describe('Project methodology', () => {
 
     await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
 
-    const methodology = page.locator('[data-settings-section="methodology"]');
+    // #2969 folded Methodology into the consolidated 'How this team works'
+    // section — the project rail has one row for the three, so the section
+    // scope moved with it. The WORKSPACE methodology page is untouched.
+    const methodology = page.locator('[data-settings-section="how-this-team-works"]');
     // The lock context message is shown.
     await expect(
       methodology.getByText(/requires every project to use its default methodology/i),

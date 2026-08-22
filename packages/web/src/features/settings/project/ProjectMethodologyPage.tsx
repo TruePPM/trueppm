@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { SettingsPageTitle } from '../SettingsShell';
+import {
+  SettingsPageTitle,
+  SettingsSubHeading,
+  type SettingsBlockProps,
+} from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
 import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
 import { InheritableSelectField } from '../components/InheritableSelectField';
@@ -98,7 +102,7 @@ const METHOD_LABEL: Record<Methodology, string> = {
   HYBRID: 'Hybrid',
 };
 
-export function ProjectMethodologyPage() {
+export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProps = {}) {
   const projectId = useProjectId();
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const updateProject = useUpdateProject(projectId);
@@ -233,6 +237,8 @@ export function ProjectMethodologyPage() {
   return (
     <div>
       <SettingsPageTitle
+        embedded={embedded}
+        docsHref={docsHref}
         title="Methodology"
         subtitle="The planning methodology (delivery model) for this project. It drives which planning surfaces — Board, Schedule, Sprints — appear."
       />
@@ -263,12 +269,12 @@ export function ProjectMethodologyPage() {
               clickable for every role — purely informational, never a disabled-fieldset
               dead affordance (web-rule 122). */}
           <div className="mb-3 flex items-center gap-1.5">
-            <h2
+            <SettingsSubHeading
               id="method-heading"
               className="text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
             >
               {lockedByPolicy ? 'Workspace methodology' : 'Methodology for this project'}
-            </h2>
+            </SettingsSubHeading>
             <FieldHelp
               label="Methodology"
               body="The planning model that drives which surfaces this project shows. Waterfall gives you phases, gates, baselines, and the critical path. Agile gives you sprints, story points, and velocity. Hybrid nests sprints inside phase gates. It inherits the workspace default until you choose one here — unless the workspace requires its default, in which case this picker is read-only."
@@ -379,12 +385,12 @@ export function ProjectMethodologyPage() {
             methodology picker; #2057 migrates both to the ADR-0133 read-only pattern. */}
         <section aria-labelledby="estimation-heading">
           <div className="mb-3 flex items-center gap-1.5">
-            <h2
+            <SettingsSubHeading
               id="estimation-heading"
               className="text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
             >
               Estimate governance
-            </h2>
+            </SettingsSubHeading>
             <FieldHelp
               label="Estimate governance"
               body="Who may write task estimates, and whether they need approval. Open lets any member write estimates directly. Suggest & Approve lets members propose estimates that a Scheduler approves. PM Only limits writing estimates to Schedulers. This is independent of the methodology lock — Scheduler+ can always change it."
@@ -427,12 +433,12 @@ export function ProjectMethodologyPage() {
             point picker/labels, never the stored story_points integer. */}
         <section aria-labelledby="estimation-scale-heading">
           <div className="mb-3 flex items-center gap-1.5">
-            <h2
+            <SettingsSubHeading
               id="estimation-scale-heading"
               className="text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
             >
               Estimation scale
-            </h2>
+            </SettingsSubHeading>
             <FieldHelp
               label="Estimation scale"
               body="The scale this project sizes backlog items in — Fibonacci points, a linear 1–10 scale, or T-shirt sizes. It governs the point picker and labels only; T-shirt sizes map to points behind the scenes, so velocity and rollups are unaffected. Inherits the program or workspace default unless you override it here."
