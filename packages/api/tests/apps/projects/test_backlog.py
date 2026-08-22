@@ -833,3 +833,138 @@ def test_pull_broadcasts_label_created_for_new_labels(
 
     label = Label.objects.get(project=project, name="auth")
     assert ("label_created", {"id": str(label.pk)}) in events
+
+
+# ---------------------------------------------------------------------------
+# #2906 — field parity across the pull
+# ---------------------------------------------------------------------------
+#
+# Four fields have now been dropped at this crossing and filed one at a time:
+# story points (#1991), tags (#1992), type (#1995) and priority_rank (#2906).
+# A fifth point fix is not the lesson. The classification below covers *every*
+# concrete BacklogItem field, so adding a field to the model fails
+# ``test_every_backlog_item_field_is_classified_for_the_pull`` until someone
+# decides whether the pull should carry it — which is the decision that was
+# silently skipped four times.
+
+# Content fields: describe the work item, so a pull must carry them. Value is a
+# human-readable note on where the value lands on the Task.
+_PULL_CARRIES = {
+    "title": "Task.name",
+    "description": "Task.notes (Task has no description field)",
+    "item_type": "Task.type via _ITEM_TYPE_TO_TASK_TYPE",
+    "tags": "project Labels via _apply_tags_as_labels",
+    "priority_rank": "Task.priority_rank",
+    "story_points": "Task.story_points",
+}
+
+# Everything else, each with the reason it is deliberately not carried. These are
+# sync plumbing, the scope the item is leaving, or provenance of the pull itself.
+_PULL_DOES_NOT_CARRY = {
+    "id": "the Task is a new row with its own pk",
+    "server_version": "VersionedModel sync plumbing, per-row",
+    "sync_seq": "VersionedModel sync plumbing, per-row",
+    "is_deleted": "soft-delete state of the item, not of the work",
+    "deleted_version": "soft-delete plumbing",
+    "program": "the scope the item is leaving; the Task is project-scoped",
+    "status": "BacklogItem lifecycle (PROPOSED->PULLED); the Task starts at BACKLOG",
+    "pulled_task": "provenance of the pull, written by the pull itself",
+    "pulled_at": "provenance of the pull",
+    "pulled_by": "provenance of the pull",
+    "created_by": "row provenance; the Task records its own creator",
+    "created_at": "row provenance; the Task gets its own timestamp",
+    "updated_at": "row provenance; the Task gets its own timestamp",
+}
+
+
+def test_every_backlog_item_field_is_classified_for_the_pull() -> None:
+    """A new BacklogItem field must be explicitly carried or explicitly excluded."""
+    concrete = {f.name for f in BacklogItem._meta.get_fields() if getattr(f, "concrete", False)}
+    classified = set(_PULL_CARRIES) | set(_PULL_DOES_NOT_CARRY)
+
+    assert concrete - classified == set(), (
+        "BacklogItem grew a field that the pull neither carries nor documents as "
+        "excluded. Decide which, and add it to _PULL_CARRIES or "
+        f"_PULL_DOES_NOT_CARRY: {sorted(concrete - classified)}"
+    )
+    assert classified - concrete == set(), (
+        "These names are classified but are no longer BacklogItem fields; the "
+        f"classification has gone stale: {sorted(classified - concrete)}"
+    )
+    # The overlap would make a field both carried and excluded, silently passing.
+    assert set(_PULL_CARRIES) & set(_PULL_DOES_NOT_CARRY) == set()
+
+
+@pytest.mark.django_db
+def test_pull_carries_every_content_field(
+    member: object, program: Program, project: Project
+) -> None:
+    """The positive control behind the classification: each carried field lands."""
+    item = _item(
+        program,
+        title="Rank-carrying story",
+        description="Body text that must land in notes",
+        item_type=BacklogItemType.BUG,
+        tags=["payments", "urgent"],
+        priority_rank=30,
+        story_points=8,
+    )
+    resp = _client(member).post(
+        f"/api/v1/programs/{program.pk}/backlog-items/{item.pk}/pull/",
+        {"project_id": str(project.pk)},
+        format="json",
+    )
+    assert resp.status_code == 201
+
+    task = Task.objects.get(pk=resp.data["task"]["id"])
+    assert task.name == "Rank-carrying story"
+    assert task.notes == "Body text that must land in notes"
+    assert task.type == TaskType.BUG
+    assert task.priority_rank == 30
+    assert task.story_points == 8
+    assert {label.name for label in Label.objects.filter(tasklabel__task=task)} == {
+        "payments",
+        "urgent",
+    }
+
+
+@pytest.mark.django_db
+def test_pull_preserves_relative_intake_order(
+    member: object, program: Program, project: Project
+) -> None:
+    """The property a PO actually loses: order among items pulled from one pool.
+
+    Asserting on ordering rather than the literal integer is what makes this a
+    test of the intent (#2906) instead of a restatement of the assignment.
+    """
+    third = _item(program, title="Third", priority_rank=30)
+    first = _item(program, title="First", priority_rank=10)
+    second = _item(program, title="Second", priority_rank=20)
+
+    for item in (third, first, second):  # pull order deliberately not rank order
+        resp = _client(member).post(
+            f"/api/v1/programs/{program.pk}/backlog-items/{item.pk}/pull/",
+            {"project_id": str(project.pk)},
+            format="json",
+        )
+        assert resp.status_code == 201
+
+    ranked = Task.objects.filter(project=project, priority_rank__isnull=False).order_by(
+        "priority_rank"
+    )
+    assert [t.name for t in ranked] == ["First", "Second", "Third"]
+
+
+@pytest.mark.django_db
+def test_pull_of_an_unranked_item_leaves_the_rank_null(
+    member: object, program: Program, project: Project
+) -> None:
+    """An unranked pool is valid; carrying must not invent a rank."""
+    item = _item(program, title="Unranked")
+    resp = _client(member).post(
+        f"/api/v1/programs/{program.pk}/backlog-items/{item.pk}/pull/",
+        {"project_id": str(project.pk)},
+        format="json",
+    )
+    assert resp.status_code == 201
+    assert Task.objects.get(pk=resp.data["task"]["id"]).priority_rank is None
