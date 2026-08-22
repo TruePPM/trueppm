@@ -590,7 +590,8 @@ def test_sprint_duration_events_forbidden_for_outsider(
     client.force_authenticate(user=outsider)
 
     r = client.get(f"/api/v1/sprints/{sprint.pk}/duration-events/")
-    assert r.status_code == 403
+    # 404 since #2995 — membership filtering happens in the queryset.
+    assert r.status_code == 404
 
 
 # ---------------------------------------------------------------------------

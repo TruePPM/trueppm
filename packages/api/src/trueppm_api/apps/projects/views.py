@@ -12284,14 +12284,70 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
 
+    def _sprint_or_404(self, pk: str | None) -> Sprint:
+        """Resolve a sprint for a detail action, through the filtered queryset.
+
+        **Use this instead of a bare-manager lookup in every action on this
+        viewset that does not need a row lock** (#2995). The bare manager skips
+        two filters that are not optional:
+
+        * **ADR-0678 agent opt-out.** ``mcp_scope`` here is ``McpScope.QUERYSET``,
+          which means ``McpProjectEnabled.has_permission`` returns ``True``
+          unconditionally and the *queryset* is the only enforcement point. A
+          bare-manager lookup therefore lets an ``mcp:read`` token read a project
+          whose team explicitly opted out of agent reads — consent bypass, not
+          merely an access-control slip. ``check_object_permissions`` cannot save
+          it: ``McpProjectEnabled`` defines no ``has_object_permission``.
+        * **Membership.** Resolving through the membership-scoped queryset makes a
+          non-member's 404 flat, instead of a 403-for-real-ids /
+          404-for-invented-ids pair that answers "does this sprint exist?" to
+          someone with no access to it.
+
+        The caller still runs ``check_object_permissions`` for the role gate —
+        this narrows *which rows are reachable*, which is a different question
+        from *what this member may do with one*.
+
+        **Four write actions deliberately do not use this**: ``activate``,
+        ``cancel``, ``promote_to_milestone`` and ``unbind_milestone`` take
+        ``select_for_update()`` on the row, which this queryset's aggregate
+        annotations and prefetch cannot carry. They are not part of the bypass —
+        ``TokenReadOnlyMethods`` refuses an agent token on any non-safe method
+        before the body runs, so no token reaches them. They do keep the
+        403-vs-404 existence tell for a non-member, which is a consistency wart
+        rather than an exposure; closing it means restructuring the locking read,
+        which is out of scope here.
+        """
+        try:
+            return get_object_or_404(self.get_queryset(), pk=pk, is_deleted=False)
+        except Http404:
+            # Normalize the body to the project's ``"Not found."``. Django's own
+            # message is ``"No Sprint matches the given query."``, which names the
+            # model — a small thing, but the wrong thing from a lookup whose
+            # entire purpose is to stop confirming what exists. It also split the
+            # contract: the four write actions answer ``"Not found."`` from their
+            # own guards, so without this the same viewset returns two different
+            # 404 bodies depending on which route you hit.
+            #
+            # ``get_object_or_404`` is kept underneath rather than a bare
+            # ``.first()`` because it also turns a malformed pk — this route is
+            # ``<pk>``, not ``<uuid:pk>`` — into a 404 instead of a 500.
+            raise NotFound(_NOT_FOUND_DETAIL) from None
+
     def get_queryset(self) -> QuerySet[Sprint]:
         qs = super().get_queryset()
         project_pk = self.kwargs.get("project_pk")
         if project_pk:
             qs = qs.filter(project_id=project_pk)
-        state_filter = self.request.query_params.get("state")
-        if state_filter:
-            qs = qs.filter(state=state_filter)
+        # ``?state=`` is a *collection* filter. Detail routes resolve through this
+        # same queryset (see _sprint_or_404), where a state filter can do nothing
+        # useful and one harmful thing: narrow away the very row the URL names,
+        # turning `GET /sprints/<active-id>/burndown/?state=planned` into a 404
+        # for a sprint that plainly exists. Scoped to list so the queryset is
+        # safe to resolve a known pk through.
+        if self.action == "list":
+            state_filter = self.request.query_params.get("state")
+            if state_filter:
+                qs = qs.filter(state=state_filter)
         # ADR-0102 §5/§8: annotate pending_count so SprintSerializer reads it
         # without an N+1 COUNT per row (the serializer falls back to a single
         # COUNT only for actions that build a sprint outside this queryset).
@@ -12524,6 +12580,12 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             403: OpenApiResponse(
                 description="Rejecting pending scope changes is team-owned (Admin or SM/PO facet)."
             ),
+            404: OpenApiResponse(
+                description=(
+                    "No such sprint, or the caller is not a member of its project — the "
+                    "two are deliberately indistinguishable (#2995)."
+                )
+            ),
         },
     )
     @action(detail=True, methods=["post"])
@@ -12540,7 +12602,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             pending_scope_advisory,
         )
 
-        sprint = get_object_or_404(Sprint, pk=pk, is_deleted=False)
+        sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
         if sprint.state != SprintState.ACTIVE:
             return Response(
@@ -12630,17 +12692,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         Branch on ``terminal``, not on ``status``: a FAILED row may still be
         re-queued by the drain, so FAILED alone does not mean the close is dead.
         """
-        # Resolved through ``get_queryset()`` rather than the bare manager that
-        # every sibling action here uses. Two consequences, both wanted:
-        #
-        #  * ADR-0678: this viewset is ``McpScope.QUERYSET``, so the team's agent
-        #    opt-out is enforced *row-level in the queryset* —
-        #    ``McpProjectEnabled`` returns True for non-PATH scopes, and a bare
-        #    manager lookup would therefore let an ``mcp:read`` token read a
-        #    project that had opted out of agent reads.
-        #  * The membership filter runs first, so a non-member gets a flat 404
-        #    instead of a 403 that confirms the sprint exists.
-        sprint = get_object_or_404(self.get_queryset(), pk=pk, is_deleted=False)
+        sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
         req = (
             SprintCloseRequest.objects.filter(sprint_id=sprint.pk)
@@ -12851,9 +12903,14 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
         if pk is None:  # pragma: no cover - pk from URL route
             return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
-        sprint = Sprint.objects.select_related("project").filter(pk=pk, is_deleted=False).first()
-        if sprint is None:  # pragma: no cover - sprint resolved by permission gate
-            return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
+        # This was `Sprint.objects.filter(pk=pk).first()` under a comment claiming
+        # "sprint resolved by permission gate" — nothing resolved it. On this flat
+        # route IsProjectMember.has_permission returns True (no project_pk kwarg)
+        # and defers entirely to the object check, so the bare lookup was the only
+        # thing standing between an mcp:read token and an opted-out project's
+        # forecast band. It is the shape that hid it: a `.filter().first()` reads
+        # nothing like its `get_object_or_404` siblings (#2995).
+        sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
         milestone_id = request.query_params.get("milestone_id") or None
         try:
@@ -12910,7 +12967,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             sprint_pending_count,
         )
 
-        sprint = get_object_or_404(Sprint, pk=pk, is_deleted=False)
+        sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
         body = ScopeChangeBulkSerializer(data=request.data)
         body.is_valid(raise_exception=True)
@@ -12975,6 +13032,12 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             403: OpenApiResponse(
                 description="Accepting scope changes is team-owned (Admin or SM/PO facet)."
             ),
+            404: OpenApiResponse(
+                description=(
+                    "No such sprint, or the caller is not a member of its project — the "
+                    "two are deliberately indistinguishable (#2995)."
+                )
+            ),
         },
     )
     @action(detail=True, methods=["post"], url_path="scope-changes/accept")
@@ -12995,6 +13058,12 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             ),
             403: OpenApiResponse(
                 description="Rejecting scope changes is team-owned (Admin or SM/PO facet)."
+            ),
+            404: OpenApiResponse(
+                description=(
+                    "No such sprint, or the caller is not a member of its project — the "
+                    "two are deliberately indistinguishable (#2995)."
+                )
             ),
         },
     )
@@ -13031,11 +13100,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         """
         from trueppm_api.apps.projects.services import sprint_scope_change_payload
 
-        sprint = get_object_or_404(
-            Sprint.objects.select_related("project"),
-            pk=pk,
-            is_deleted=False,
-        )
+        sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
         return Response(sprint_scope_change_payload(sprint), status=status.HTTP_200_OK)
 
@@ -13065,11 +13130,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         """
         from trueppm_api.apps.projects.services import sprint_duration_change_payload
 
-        sprint = get_object_or_404(
-            Sprint.objects.select_related("project"),
-            pk=pk,
-            is_deleted=False,
-        )
+        sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
         return Response(sprint_duration_change_payload(sprint), status=status.HTTP_200_OK)
 
@@ -13089,11 +13150,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         the pace verdict from REST instead of re-deriving it client-side."""
         from trueppm_api.apps.projects.services import compute_sprint_burn_status
 
-        sprint = get_object_or_404(
-            Sprint.objects.select_related("project", "created_by"),
-            pk=pk,
-            is_deleted=False,
-        )
+        sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
         snapshot_list = list(sprint.burn_snapshots.all().order_by("snapshot_date"))
         burn = compute_sprint_burn_status(sprint, snapshot_list)
@@ -13119,13 +13176,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         """
         from trueppm_api.apps.projects.services import sprint_outcome_payload
 
-        sprint = get_object_or_404(
-            # target_milestone is select_related so the #1098 realized-slip lookup
-            # doesn't add a query for the bound milestone.
-            Sprint.objects.select_related("project", "created_by", "target_milestone"),
-            pk=pk,
-            is_deleted=False,
-        )
+        sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
         payload = sprint_outcome_payload(sprint, request)
         return Response(payload, status=status.HTTP_200_OK)
@@ -13150,9 +13201,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
         from trueppm_api.apps.projects.services import sprint_daily_delta
 
-        sprint = get_object_or_404(
-            Sprint.objects.select_related("project"), pk=pk, is_deleted=False
-        )
+        sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
 
         raw = request.query_params.get("since")
@@ -13215,9 +13264,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             sprint_blocked_rollup,
         )
 
-        sprint = get_object_or_404(
-            Sprint.objects.select_related("project"), pk=pk, is_deleted=False
-        )
+        sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
         filters = parse_blocked_filters(request.query_params)
         return Response(sprint_blocked_rollup(sprint, **filters), status=status.HTTP_200_OK)
@@ -13244,9 +13291,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             reorder_demo_list,
         )
 
-        sprint = get_object_or_404(
-            Sprint.objects.select_related("project"), pk=pk, is_deleted=False
-        )
+        sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
 
         ids = request.data.get("outcome_ids")
@@ -13321,9 +13366,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             reorder_sprint,
         )
 
-        sprint = get_object_or_404(
-            Sprint.objects.select_related("project"), pk=pk, is_deleted=False
-        )
+        sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
 
         # sprint_rank is the *live* execution order — seeded on activate, cleared on close.
@@ -13395,11 +13438,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         """
         from trueppm_api.apps.projects.services import capacity_summary
 
-        sprint = get_object_or_404(
-            Sprint.objects.select_related("project"),
-            pk=pk,
-            is_deleted=False,
-        )
+        sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
         return Response(capacity_summary(sprint), status=status.HTTP_200_OK)
 
@@ -13429,11 +13468,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             incoming_carryover as compute_incoming_carryover,
         )
 
-        sprint = get_object_or_404(
-            Sprint.objects.select_related("project"),
-            pk=pk,
-            is_deleted=False,
-        )
+        sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
         return Response(compute_incoming_carryover(sprint), status=status.HTTP_200_OK)
 
@@ -13475,11 +13510,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
         from trueppm_api.apps.access.models import ProjectMembership
 
-        sprint = get_object_or_404(
-            Sprint.objects.select_related("project"),
-            pk=pk,
-            is_deleted=False,
-        )
+        sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
 
         caller = cast(_User, request.user)
@@ -13534,9 +13565,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         from trueppm_api.apps.projects.retro_board_services import create_board_item
         from trueppm_api.apps.projects.serializers import RetroBoardItemSerializer
 
-        sprint = get_object_or_404(
-            Sprint.objects.select_related("project"), pk=pk, is_deleted=False
-        )
+        sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
 
         columns = [{"key": value, "label": label} for value, label in RetroColumn.choices]
@@ -13591,9 +13620,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         )
         from trueppm_api.apps.projects.serializers import PulseResponseSerializer
 
-        sprint = get_object_or_404(
-            Sprint.objects.select_related("project"), pk=pk, is_deleted=False
-        )
+        sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
         user = cast(User, request.user)
 
@@ -13635,9 +13662,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         """
         from trueppm_api.apps.projects.retro_board_services import pulse_trend
 
-        sprint = get_object_or_404(
-            Sprint.objects.select_related("project"), pk=pk, is_deleted=False
-        )
+        sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
         return Response(pulse_trend(request, sprint), status=status.HTTP_200_OK)
 
@@ -13677,11 +13702,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             SprintRetroSummarySerializer,
         )
 
-        sprint = get_object_or_404(
-            Sprint.objects.select_related("project"),
-            pk=pk,
-            is_deleted=False,
-        )
+        sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
 
         # Find the most-recent prior COMPLETED sprint with a retro.
@@ -13783,11 +13804,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
         if pk is None or item_pk is None:  # pragma: no cover - pk from URL route
             return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
-        sprint = get_object_or_404(
-            Sprint.objects.select_related("project"),
-            pk=pk,
-            is_deleted=False,
-        )
+        sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
 
         action_item = (
@@ -13858,11 +13875,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
         if pk is None or item_pk is None:  # pragma: no cover - pk from URL route
             return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
-        sprint = get_object_or_404(
-            Sprint.objects.select_related("project"),
-            pk=pk,
-            is_deleted=False,
-        )
+        sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
 
         action_item = (

@@ -136,7 +136,10 @@ def test_viewer_can_read_board_but_not_create(project: Project, viewer: Any) -> 
 
 def test_stranger_denied_board(project: Project, stranger: Any) -> None:
     s = _sprint(project)
-    assert _client(stranger).get(f"/api/v1/sprints/{s.pk}/retro-board/").status_code == 403
+    # 404, not 403, since #2995: detail actions resolve through the
+    # membership-scoped queryset, so a non-member cannot use the status code
+    # to learn whether the sprint id is real.
+    assert _client(stranger).get(f"/api/v1/sprints/{s.pk}/retro-board/").status_code == 404
 
 
 def test_edit_and_move_sticky(project: Project, member: Any) -> None:
@@ -354,7 +357,8 @@ def test_pm_band_pulse_trend_is_gated_with_no_data(project: Project, member: Any
 def test_non_member_denied_pulse_trend(project: Project, member: Any, stranger: Any) -> None:
     s = _sprint(project)
     _seed_pulse(s, [member])
-    assert _client(stranger).get(f"/api/v1/sprints/{s.pk}/pulse-trend/").status_code == 403
+    # 404 since #2995 — see the retro-board case above.
+    assert _client(stranger).get(f"/api/v1/sprints/{s.pk}/pulse-trend/").status_code == 404
 
 
 def test_pm_reads_pulse_only_after_team_shares_up(project: Project, member: Any, pm: Any) -> None:

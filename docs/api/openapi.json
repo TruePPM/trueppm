@@ -35073,6 +35073,9 @@
                     "403": {
                         "description": "Rejecting pending scope changes is team-owned (Admin or SM/PO facet)."
                     },
+                    "404": {
+                        "description": "No such sprint, or the caller is not a member of its project — the two are deliberately indistinguishable (#2995)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -36750,6 +36753,9 @@
                     "403": {
                         "description": "Accepting scope changes is team-owned (Admin or SM/PO facet)."
                     },
+                    "404": {
+                        "description": "No such sprint, or the caller is not a member of its project — the two are deliberately indistinguishable (#2995)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -36834,6 +36840,9 @@
                     },
                     "403": {
                         "description": "Rejecting scope changes is team-owned (Admin or SM/PO facet)."
+                    },
+                    "404": {
+                        "description": "No such sprint, or the caller is not a member of its project — the two are deliberately indistinguishable (#2995)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",

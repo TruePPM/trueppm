@@ -595,3 +595,84 @@ def test_serializer_exposes_effective_and_inherited(project: Project, owner: Any
     assert resp.data["mcp_enabled"] is None
     assert resp.data["effective_mcp_enabled"] is True
     assert resp.data["inherited_mcp_enabled"] is True
+
+
+# ---------------------------------------------------------------------------
+# #2995 — @action detail reads on a QUERYSET-scoped viewset
+# ---------------------------------------------------------------------------
+#
+# ADR-0678 T3 records that the conformance test cannot see `@action` routes and
+# calls this "a grep + review obligation". Eleven actions on SprintViewSet drifted
+# under that obligation: each resolved its object with `get_object_or_404(Sprint,
+# ...)` — the bare manager — which never touches `get_queryset()`. Because
+# `mcp_scope` is QUERYSET, `McpProjectEnabled.has_permission` returns True
+# unconditionally and the queryset is the ONLY enforcement point, so every one of
+# them served an opted-out project to an `mcp:read` token.
+#
+# Parametrized rather than written per endpoint on purpose: a per-endpoint test is
+# exactly what eleven sites drifted past.
+
+_SPRINT_ACTION_READS = [
+    "burndown/",
+    "outcome/",
+    "capacity/",
+    "daily-delta/",
+    "scope-changes/",
+    "incoming_carryover/",
+    "close-request/",
+    # reforecast-preview was the one GET this fix originally MISSED — its
+    # `.filter(pk=pk).first()` shape reads nothing like its get_object_or_404
+    # siblings, so a regex sweep passed straight over it. Listed first among the
+    # late additions for that reason.
+    "reforecast-preview/",
+    "duration-events/",
+    "blocked/",
+    "retro/",
+    "retro-board/",
+    "pulse/",
+    "pulse-trend/",
+    "retrospective/prior/",
+]
+
+
+@pytest.fixture
+def _sprint(project: Project) -> Any:
+    from datetime import date as _date
+
+    from trueppm_api.apps.projects.models import Sprint, SprintState
+
+    return Sprint.objects.create(
+        project=project,
+        name="S1",
+        start_date=_date(2026, 4, 1),
+        finish_date=_date(2026, 4, 14),
+        state=SprintState.ACTIVE,
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("suffix", _SPRINT_ACTION_READS)
+def test_sprint_action_reads_respect_the_opt_out(
+    project: Project, owner: Any, _sprint: Any, suffix: str
+) -> None:
+    """An agent token gets nothing from a project that opted out of agent reads."""
+    _opt_out(project)
+    resp = _agent(owner).get(f"/api/v1/sprints/{_sprint.pk}/{suffix}")
+    assert resp.status_code == 404, f"{suffix} leaked an opted-out project: {resp.status_code}"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("suffix", _SPRINT_ACTION_READS)
+def test_sprint_action_reads_unaffected_for_humans(
+    project: Project, owner: Any, _sprint: Any, suffix: str
+) -> None:
+    """The opt-out governs *agents*. The same routes stay open to the human who
+    owns the token — otherwise this fix would be an outage, not a control.
+
+    404 is tolerated per-endpoint here (some of these need data the fixture does
+    not create); what must never appear is 403, which would mean the human was
+    denied by the agent gate.
+    """
+    _opt_out(project)
+    resp = _human(owner).get(f"/api/v1/sprints/{_sprint.pk}/{suffix}")
+    assert resp.status_code != 403, f"{suffix} denied a human via the agent opt-out"
