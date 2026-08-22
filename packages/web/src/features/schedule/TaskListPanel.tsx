@@ -7,6 +7,7 @@ import { useScheduleStore } from '@/stores/scheduleStore';
 import { TaskListHeader } from './TaskListHeader';
 import { TaskListRow } from './TaskListRow';
 import { BlankOutlineDraftRow } from './buildMode/BlankOutlineDraftRow';
+import { ScheduleAppendTaskFooter } from './ScheduleAppendTaskFooter';
 import type { PhasePlannedBadge } from './plannedByPhase';
 import type { RowMode } from './deliveryModePresentation';
 import { OutlineDropIndicator } from './OutlineDropIndicator';
@@ -246,6 +247,21 @@ interface Props {
    * reader who is not looking at it.
    */
   onAnnounce?: (sentence: string) => void;
+  /**
+   * Append a task at the end of the outline, at the TOP level (#2957).
+   *
+   * Omitted for a reader with no edit rights, which removes the footer row
+   * entirely — absence, not a disabled control (web rule 302). An editor who
+   * chose Read keeps the row and gets `appendAtEndReadOnly`, because one key
+   * gets them back.
+   *
+   * It is deliberately NOT the same callback as the toolbar's or the row-edge
+   * `+`'s: each of the three affordances lands where its own position implies,
+   * and collapsing them into one handler is the bug #2957 exists to undo.
+   */
+  onAppendTaskAtEnd?: () => void;
+  /** Read mode (#2949): the footer stays present and inert. */
+  appendAtEndReadOnly?: boolean;
 }
 
 export function TaskListPanel({
@@ -278,6 +294,8 @@ export function TaskListPanel({
   onMoveRow,
   onMoveToRequest,
   onAnnounce,
+  onAppendTaskAtEnd,
+  appendAtEndReadOnly = false,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollToTaskId = useScheduleStore((s) => s.scrollToTaskId);
@@ -423,6 +441,12 @@ export function TaskListPanel({
 
   const items = virtualizer.getVirtualItems();
 
+  // The append-at-the-end footer (#2957) is a real treegrid row, so it counts
+  // toward `aria-rowcount`. Suppressed on a blank project: `BlankOutlineDraftRow`
+  // already holds the caret there (#2733), and a second "add something" control
+  // under a list of one live row is clutter rather than a second place to act.
+  const showAppendFooter = onAppendTaskAtEnd !== undefined && tasks.length > 0;
+
   return (
     <div
       style={{ width: totalWidth }}
@@ -434,7 +458,7 @@ export function TaskListPanel({
       aria-label="Task list"
       // Header row (row 1) + one row per task, so the count and the 1-based
       // aria-rowindex on each data row (which starts at 2) stay consistent (#2204).
-      aria-rowcount={tasks.length + 1}
+      aria-rowcount={tasks.length + 1 + (showAppendFooter ? 1 : 0)}
     >
       <TaskListHeader widths={widths} visible={visible} setWidth={setWidth} />
 
@@ -549,6 +573,18 @@ export function TaskListPanel({
               <PendingTaskRow key={id} name={name} />
             ))}
           </div>
+        )}
+
+        {/* Append-at-the-end (#2957). Inside the scroller and after every other
+            row on purpose: the control sits at the end of the plan because that
+            is where its row lands. It is the last thing you reach by scrolling
+            down, which is the same gesture as "put one more at the bottom". */}
+        {showAppendFooter && onAppendTaskAtEnd && (
+          <ScheduleAppendTaskFooter
+            onAppend={onAppendTaskAtEnd}
+            readOnly={appendAtEndReadOnly}
+            ariaRowIndex={tasks.length + 2}
+          />
         )}
       </div>
     </div>

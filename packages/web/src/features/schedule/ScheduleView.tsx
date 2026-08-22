@@ -55,6 +55,8 @@ import { ScheduleSummaryChip } from './ScheduleSummaryChip';
 import { ScheduleAddMilestoneButton } from './ScheduleAddMilestoneButton';
 import { ScheduleAddPhaseButton } from './ScheduleAddPhaseButton';
 import { ScheduleViewOnlyBadge } from './ScheduleViewOnlyBadge';
+import { ScheduleInsertTargetStatement } from './ScheduleInsertTargetStatement';
+import { deriveInsertTarget, type InsertTarget } from './buildMode/insertTarget';
 import { MilestonePulseOverlay } from './MilestonePulseOverlay';
 import { ScheduleLegend } from './ScheduleLegend';
 import { useScheduleKeyboard } from './useScheduleKeyboard';
@@ -2163,6 +2165,71 @@ export function ScheduleView() {
       inferredParentId ? (allTasks.find((t) => t.id === inferredParentId)?.name ?? null) : null,
     [inferredParentId, allTasks],
   );
+
+  // ── The three insert affordances (#2957) ────────────────────────────────
+  //
+  // Each lands where its OWN position implies, and none of them shares a
+  // handler with another — that sharing is the bug this issue exists to undo.
+  // The row-edge `+` (in `TaskListRow`) inserts below that row at that row's
+  // depth. The toolbar does the cursor's bidding and SAYS SO. The footer sits
+  // at the end of the plan and appends at the end, at the top level.
+  //
+  // `insertTarget` is derived from the focus state, and the toolbar both
+  // renders its sentence and activates it — one derivation, so the statement
+  // cannot drift away from the mutation it describes.
+  const insertTarget = useMemo(
+    () =>
+      deriveInsertTarget(
+        buildModeActive ? focus.state.rowId : null,
+        // `allTasks`, not `visibleTasks`: where a create lands is a property of
+        // the tree, and `insertBelow` resolves the parent against `allTasks`
+        // too. Deriving the sentence from the filtered list would let a Display
+        // filter change what the toolbar claims without changing what it does.
+        allTasks,
+        (taskId) => taskId === pristineNewRowId,
+      ),
+    [buildModeActive, focus.state.rowId, allTasks, pristineNewRowId],
+  );
+
+  /**
+   * The toolbar's `+ Task`. Three outcomes, each matching what the toolbar
+   * states beside the button:
+   *
+   * - a named row is focused → a sibling directly after it, same depth. This is
+   *   the pointer twin of `⏎`, which is what the sentence names.
+   * - the focused row has no name yet → `⏎` would *save*, not insert
+   *   (`EditableCell`'s `emptyIsNoop`), so the button puts the caret back in the
+   *   Name cell rather than stacking a second blank row behind the first.
+   * - nothing focused → there is no row to land after, so the create form opens
+   *   and the parent gets chosen explicitly. Appending at the end here would
+   *   duplicate the footer, which is precisely the collapse being undone.
+   */
+  const handleToolbarAddTask = useCallback(() => {
+    if (readOnly) return;
+    if (insertTarget.kind === 'after') {
+      buildModeApi.insertBelow(insertTarget.taskId);
+      return;
+    }
+    if (insertTarget.kind === 'unnamed') {
+      focus.focusRow(insertTarget.taskId);
+      focus.enterCellEdit(insertTarget.taskId, 'name');
+      return;
+    }
+    setShowAddForm((v) => !v);
+  }, [readOnly, insertTarget, buildModeApi, focus]);
+
+  /**
+   * The footer's "Add a task at the end". `parent_id: null` unconditionally —
+   * top level, regardless of what is selected — because the end of the plan is
+   * not inside anything, and the server appends a new root task after the last
+   * one. Deliberately ignores `inferredParentId`: honoring the cursor from a
+   * control at the foot of the list is the exact behavior #2957 removes.
+   */
+  const handleAppendTaskAtEnd = useCallback(() => {
+    if (!projectId || readOnly) return;
+    createNewTask(null, undefined);
+  }, [projectId, readOnly, createNewTask]);
+
   // Open the milestone-create dialog. The dialog handles the actual POST and
   // calls handleMilestoneCreated via TaskFormModal's onCreated callback once
   // the milestone is in the cache, which is when the pulse/announce should
@@ -2945,7 +3012,8 @@ export function ScheduleView() {
         projectId={projectId}
         readOnly={readOnly}
         showAddForm={showAddForm}
-        setShowAddForm={setShowAddForm}
+        insertTarget={insertTarget}
+        onAddTask={handleToolbarAddTask}
         handleAddMilestone={handleAddMilestone}
         handleAddPhase={handleAddPhase}
         createPending={createTaskMut.isPending}
@@ -3101,6 +3169,11 @@ export function ScheduleView() {
           if (ariaLiveRef.current) ariaLiveRef.current.textContent = sentence;
         }}
         onScheduleMany={readOnly ? undefined : handleScheduleMany}
+        // Absent for a viewer, present-and-inert for an editor in Read (#2949,
+        // web rule 302) — the two states the `readOnly ? undefined` idiom above
+        // deliberately collapses, and which this affordance must keep apart.
+        onAppendTaskAtEnd={hasEditRights ? handleAppendTaskAtEnd : undefined}
+        appendAtEndReadOnly={readOnly}
       />
 
       {/* Contextual hint strip (#1250, web rule 194): render only while the user
@@ -3836,7 +3909,10 @@ interface ScheduleToolbarProps {
   projectId: string | null;
   readOnly: boolean;
   showAddForm: boolean;
-  setShowAddForm: Dispatch<SetStateAction<boolean>>;
+  /** Where this toolbar's insert will land (#2957) — stated, then performed. */
+  insertTarget: InsertTarget;
+  /** Performs `insertTarget`. Owned by ScheduleView so the two cannot diverge. */
+  onAddTask: () => void;
   handleAddMilestone: () => void;
   handleAddPhase: () => void;
   createPending: boolean;
@@ -3893,7 +3969,8 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
     onToggleDisplayOption,
     hasEditRights,
     showAddForm,
-    setShowAddForm,
+    insertTarget,
+    onAddTask,
     handleAddMilestone,
     handleAddPhase,
     createPending,
@@ -3953,14 +4030,19 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
       {/* "+ Task" button — shown when a project is selected AND the user may
           author. A viewer never sees it (#2949); an editor who chose Read sees
           it disabled, on the same `readOnly` gate as its "+ Milestone" /
-          "+ Phase" peers (#2145). */}
+          "+ Phase" peers (#2145).
+
+          Since #2957 it performs whatever `insertTarget` names, and the
+          statement beside it says which — so the toolbar's insert is the
+          cursor's bidding *declared* rather than guessed at. `aria-expanded`
+          is only meaningful on the branch that still opens the create form. */}
       {projectId && hasEditRights && (
         <button
           type="button"
-          onClick={() => setShowAddForm((v) => !v)}
+          onClick={onAddTask}
           disabled={readOnly}
           aria-label="Add task"
-          aria-expanded={showAddForm}
+          aria-expanded={insertTarget.kind === 'none' ? showAddForm : undefined}
           title={readOnly ? 'Read-only access' : undefined}
           className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium flex-shrink-0
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
@@ -3988,6 +4070,13 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           pending={createPending}
         />
       )}
+      {/* Where the button above will land its row (#2957). Sits beside that
+          button, not in `BuildModeHintStrip`, because it states what THIS
+          control does — the strip teaches the keyboard mode, and a sentence
+          about a specific button's outcome parked at the other end of the
+          screen is exactly the position-implies-one-thing mismatch this issue
+          is about. It renders nothing without edit rights (web rule 302). */}
+      <ScheduleInsertTargetStatement target={insertTarget} hasEditRights={hasEditRights} />
       {buildModeActive && hasEditRights && (
         <BuildModePill onShowCheatsheet={() => setCheatsheetOpen(true)} />
       )}
@@ -4204,6 +4293,10 @@ interface ScheduleMainAreaProps {
   /** Selects the tray's rows in the outline and opens the bulk-edit sheet
    *  (#2987); omitted when read-only, so the button is absent not disabled. */
   onScheduleMany?: (taskIds: string[]) => void;
+  /** Footer append-at-the-end (#2957) — undefined for a reader with no rights. */
+  onAppendTaskAtEnd?: () => void;
+  /** Read mode: the footer stays present and inert. */
+  appendAtEndReadOnly?: boolean;
 }
 
 /**
@@ -4328,6 +4421,8 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
     onMoveToRequest,
     onAnnounce,
     onScheduleMany,
+    onAppendTaskAtEnd,
+    appendAtEndReadOnly,
   } = props;
 
   const itl = useIterationLabel(projectId ?? undefined);
@@ -4388,6 +4483,8 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
               onMoveRow={onMoveRow}
               onMoveToRequest={onMoveToRequest}
               onAnnounce={onAnnounce}
+              onAppendTaskAtEnd={onAppendTaskAtEnd}
+              appendAtEndReadOnly={appendAtEndReadOnly}
             />
             {/* Panel splitter — drag to resize task list width */}
             <PanelSplitter currentTaskWidth={widths.task} setWidth={setWidth} />

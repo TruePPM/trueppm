@@ -573,3 +573,58 @@ describe('TaskListPanel — the outline drag session', () => {
     expect(screen.getByTestId('row-a')).toHaveAttribute('data-has-move-to', 'true');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Append at the end (#2957) — the third of the three insert affordances. The
+// panel's job here is purely positional: the row lives at the end of the list,
+// counts as a treegrid row, and disappears entirely without edit rights.
+// ---------------------------------------------------------------------------
+
+describe('TaskListPanel — append-at-the-end footer (#2957)', () => {
+  it('renders the footer after every task row and counts it in aria-rowcount', () => {
+    renderPanel({
+      tasks: [task({ id: 'a', name: 'Alpha' }), task({ id: 'b', wbs: '2', name: 'Beta' })],
+      onAppendTaskAtEnd: vi.fn(),
+    });
+    const footer = screen.getByTestId('schedule-append-task-footer');
+    expect(footer).toBeInTheDocument();
+    // Header (1) + two tasks (2,3) + footer (4).
+    expect(screen.getByRole('treegrid', { name: 'Task list' })).toHaveAttribute(
+      'aria-rowcount',
+      '4',
+    );
+    expect(footer).toHaveAttribute('aria-rowindex', '4');
+    // Positionally last: every task row precedes it in document order.
+    expect(
+      screen.getByTestId('row-b').compareDocumentPosition(footer) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('appends at the top level, whichever row is the roving stop', async () => {
+    const onAppendTaskAtEnd = vi.fn();
+    renderPanel({
+      tasks: [task({ id: 'a', name: 'Alpha' }), task({ id: 'b', wbs: '1.1', name: 'Nested' })],
+      onAppendTaskAtEnd,
+    });
+    // The footer takes no task id at all — there is nothing for a cursor to
+    // change about where it lands, which is the point (#2957).
+    await userEvent.click(screen.getByRole('button', { name: 'Add a task at the end' }));
+    expect(onAppendTaskAtEnd).toHaveBeenCalledExactlyOnceWith();
+    expect(screen.getByTestId('schedule-append-task-footer')).toHaveAttribute('aria-level', '1');
+  });
+
+  it('is absent without a handler — no dimmed control for a reader with no rights', () => {
+    renderPanel({ tasks: [task({ id: 'a', name: 'Alpha' })] });
+    expect(screen.queryByTestId('schedule-append-task-footer')).toBeNull();
+    expect(screen.getByRole('treegrid', { name: 'Task list' })).toHaveAttribute(
+      'aria-rowcount',
+      '2',
+    );
+  });
+
+  it('stays out of a blank project, where the draft row already holds the caret', () => {
+    renderPanel({ tasks: [], onAppendTaskAtEnd: vi.fn(), onCommitDraftRow: vi.fn() });
+    expect(screen.queryByTestId('schedule-append-task-footer')).toBeNull();
+  });
+});
