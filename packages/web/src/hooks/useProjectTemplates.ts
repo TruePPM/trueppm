@@ -40,6 +40,45 @@ export interface ProjectTemplate {
   version: number;
   program: string | null;
   published_at: string;
+  /**
+   * Counts off the frozen structure document (#2909) — server-side because the
+   * publish inventory and the gallery's carries summary are both screens whose
+   * credibility rests on a number, and a client-side walk of a filtered tree
+   * would produce a different one. Absent on a row read before #2909.
+   */
+  counts?: TemplateCounts;
+  /**
+   * Projects created from this template, excluding undone applications. The
+   * PMO's only evidence that a shape is actually the house standard rather than
+   * somebody's experiment.
+   */
+  usage_count?: number;
+  published_by_name?: string;
+  source_project?: string | null;
+  /** '' once the source project is deleted — the provenance line drops, the template works. */
+  source_project_name?: string;
+  supersedes?: string | null;
+  /** A later version replaced this. It stays selectable: projects already
+   *  created from it are why it must remain legible. */
+  is_superseded?: boolean;
+}
+
+/** What publishing this shape would carry. */
+export interface TemplateCounts {
+  task_count: number;
+  phase_count: number;
+  gate_count: number;
+  milestone_count: number;
+  dependency_count: number;
+  methodology: ProgramMethodology | null;
+  carries: string[];
+}
+
+/** The publish dry run, plus whether the proposed name is already taken. */
+export interface PublishPreview extends TemplateCounts {
+  name_taken: boolean;
+  next_version: number;
+  existing_template: string | null;
 }
 
 export interface TemplateApplication {
@@ -169,6 +208,88 @@ export function useDeleteUntouchedSeededTasks() {
         project: projectId,
       });
       return res.data;
+    },
+  });
+}
+
+
+/**
+ * `GET /project-templates/publish-preview/` — the six counts, before the form.
+ *
+ * Runs the same extraction `publish` runs, so the numbers on the confirm screen
+ * are the numbers that will be written. Passing `name` also reports whether it
+ * is taken, so the form can offer "publish as v3 instead" up front rather than
+ * after a 409.
+ */
+export function usePublishPreview(
+  projectId: string | null,
+  name?: string,
+): UseQueryResult<PublishPreview> {
+  return useQuery({
+    queryKey: ['template-publish-preview', projectId, name ?? ''],
+    enabled: Boolean(projectId),
+    queryFn: async () => {
+      const res = await apiClient.get<PublishPreview>('/project-templates/publish-preview/', {
+        params: { project: projectId, ...(name ? { name } : {}) },
+      });
+      return res.data;
+    },
+  });
+}
+
+/** A 409 from publish: the name exists, and this is the version that would replace it. */
+export interface TemplateNameTaken {
+  code: 'name_taken';
+  detail: string;
+  template: string;
+  version: number;
+  next_version: number;
+}
+
+/**
+ * `POST /project-templates/publish/` — freeze a project's shape.
+ *
+ * A taken name comes back as a **409**, not a silent overwrite: republishing
+ * writes a new row and leaves the old one selectable, because the projects
+ * already created from v1 are the only audit trail a PMO has for why they look
+ * the way they do. Pass `newVersion` to take that branch deliberately.
+ */
+export function usePublishTemplate() {
+  return useMutation({
+    mutationFn: async (vars: {
+      projectId: string;
+      name: string;
+      description?: string;
+      sourceKind?: ProjectTemplate['source_kind'];
+      newVersion?: boolean;
+    }) => {
+      const res = await apiClient.post<ProjectTemplate>('/project-templates/publish/', {
+        project: vars.projectId,
+        name: vars.name,
+        description: vars.description ?? '',
+        ...(vars.sourceKind ? { source_kind: vars.sourceKind } : {}),
+        ...(vars.newVersion ? { new_version: true } : {}),
+      });
+      return res.data;
+    },
+  });
+}
+
+/** Templates published from one project — the Settings page's version list. */
+export function useTemplatesFromProject(projectId: string | null): UseQueryResult<ProjectTemplate[]> {
+  return useQuery({
+    queryKey: ['project-templates-from', projectId],
+    enabled: Boolean(projectId),
+    queryFn: async () => {
+      const res = await apiClient.get<PaginatedResponse<ProjectTemplate> | ProjectTemplate[]>(
+        '/project-templates/',
+      );
+      const data = res.data;
+      const rows = Array.isArray(data) ? data : data.results;
+      // Filtered client-side: the gallery endpoint has no source-project filter,
+      // and adding one for a list this small would be a wider API change than
+      // the screen needs.
+      return rows.filter((t) => t.source_project === projectId);
     },
   });
 }

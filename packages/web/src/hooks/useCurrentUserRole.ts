@@ -24,20 +24,23 @@ export interface UseCurrentUserRoleResult {
   roleLabel?: string | null;
   isLoading: boolean;
   /**
-   * The membership lookup failed. Distinct from `role: null` with
-   * `isLoading: false`, which means "settled: this user is not a member"
-   * (#2961).
+   * The membership read failed, as distinct from "no membership".
    *
-   * The two used to be indistinguishable, and that was a live defect for any
-   * caller deciding *presence* rather than just hiding something
-   * pessimistically: a failed request read as a definitive "no role", so a
-   * transient network error silently stripped an editor's controls with no
-   * error state anywhere. Treat it as **unsettled**, not as denial — the
-   * server is the enforcement point, so assuming rights on an unknown costs at
-   * worst one refusal, while assuming denial removes a working control.
+   * Both surface as `role: null`, and conflating them is a real defect rather
+   * than a lint technicality: a caller that renders "you need Admin" on
+   * `role == null` tells an Admin they lack permission whenever the request
+   * blips. `retry: false` makes that a single failure away (rule 246, #2909).
    *
-   * Optional in the type so the existing role mocks across the suite keep
-   * type-checking; `undefined` is not a third state, read it as `false`.
+   * The same distinction decides *presence*, not just pessimistic hiding: a
+   * failed read taken as a definitive "no role" silently strips an editor's
+   * controls on a transient network error, with no error state anywhere. Treat
+   * it as **unsettled**, never as denial — the server is the enforcement point,
+   * so assuming rights on an unknown costs at worst one silent refusal, while
+   * assuming denial removes a working control (#2961).
+   *
+   * Optional in the type — not at runtime — so the existing mocks that supply
+   * only `role` stay valid; `undefined` is not a third state, narrow to
+   * `isError ?? false`.
    */
   isError?: boolean;
 }

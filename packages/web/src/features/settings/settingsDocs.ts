@@ -82,6 +82,7 @@ const PROJECT_DOCS: Record<string, string> = {
   access: 'features/settings/project-members/',
   agents: 'administration/mcp-server/#team-level-opt-out',
   methodology: 'features/methodology-preset/',
+  templates: 'features/project-templates/#publishing-a-template',
   team: 'features/settings/project-team/',
   workflow: 'administration/project-settings/#workflow--fields',
   labels: 'features/labels/',

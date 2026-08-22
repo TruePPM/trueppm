@@ -749,6 +749,12 @@ class AuditEventType(models.TextChoices):
     PROJECT_CREATED = "project_created", "Project created"
     PROJECT_DELETED = "project_deleted", "Project deleted"
     PROJECT_RESTORED = "project_restored", "Project restored"
+    # #2909. Publishing takes one project's shape — task names included — and
+    # makes it readable by everyone in the workspace, which is a wider audience
+    # than the source project's own members. Republishing additionally changes
+    # what the house template resolves to for every future adopter. Both are
+    # Admin-gated; neither was legible afterwards.
+    TEMPLATE_PUBLISHED = "template_published", "Template published"
     SETTINGS_CHANGED = "workspace_settings_changed", "Workspace settings changed"
     EXPORT_TRIGGERED = "workspace_export_triggered", "Workspace export triggered"
 

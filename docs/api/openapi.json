@@ -14888,6 +14888,51 @@
                 "summary": "Publish project templates"
             }
         },
+        "/api/v1/project-templates/publish-preview/": {
+            "get": {
+                "operationId": "v1_project_templates_publish_preview_retrieve",
+                "description": "Counts for the publish form, computed from the same extraction publish itself runs.",
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Dry run: what publishing this project would carry — {task_count, phase_count, gate_count, milestone_count, dependency_count, methodology, carries, name_taken, next_version}. Writes nothing."
+                    },
+                    "403": {
+                        "description": "Caller is not Admin+ on the project."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve publish preview"
+            }
+        },
         "/api/v1/projects/": {
             "get": {
                 "operationId": "v1_projects_list",
@@ -55996,18 +56041,62 @@
                         "type": "integer",
                         "readOnly": true,
                         "nullable": true
+                    },
+                    "published_by_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "source_project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "source_project_name": {
+                        "type": "string",
+                        "description": "Name of the project this was frozen from, or '' once it is gone.\n\nEmpty rather than absent when the FK has been nulled by a project\ndeletion: the provenance line simply drops, and the template still works.",
+                        "readOnly": true
+                    },
+                    "supersedes": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "is_superseded": {
+                        "type": "boolean",
+                        "description": "A later version replaced this one. It stays selectable on purpose —\nprojects already created from it are why it must remain legible.",
+                        "readOnly": true
+                    },
+                    "counts": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "description": "Tasks, phases, gates and dependencies, off the frozen document (#2909).\n\nServer-side because the publish inventory and the gallery's carries\nsummary are both screens whose credibility rests on a number, and a\nclient-side walk of a filtered tree would produce a different one.",
+                        "readOnly": true
+                    },
+                    "usage_count": {
+                        "type": "integer",
+                        "description": "Projects created from this template — the PMO's only house-standard signal.\n\nAnnotated on the queryset where one is available; falls back to a count so\na serializer used outside the gallery (the publish response) still answers.\nUndone applications are excluded: a template whose seeding was reversed\nwas not adopted, and counting it would overstate the standard.",
+                        "readOnly": true
                     }
                 },
                 "required": [
                     "carries",
+                    "counts",
                     "id",
+                    "is_superseded",
                     "methodology",
                     "name",
                     "provenance",
                     "published_at",
                     "published_by",
+                    "published_by_name",
                     "source_kind",
+                    "source_project",
+                    "source_project_name",
+                    "supersedes",
                     "task_count",
+                    "usage_count",
                     "version"
                 ]
             },

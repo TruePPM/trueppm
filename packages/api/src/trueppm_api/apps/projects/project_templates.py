@@ -170,6 +170,44 @@ def extract_structure(project: Project) -> dict[str, Any]:
     }
 
 
+def summarize_structure(structure: dict[str, Any]) -> dict[str, Any]:
+    """The counts a publisher is shown before, and inside, the publish form (#2909).
+
+    Derived from the frozen document rather than re-queried from the project, for
+    the same reason ``task_count`` is: the document is what ``apply`` will
+    actually write, so a number read off it can never disagree with the outcome.
+    Computing these in the client would let a collapsed or filtered Grid report a
+    wrong count in the one place people trust it.
+
+    A *phase* is a node with at least one structural descendant, mirroring
+    ``task_is_phase`` — read here off ``wbs_path`` prefixes, since the document
+    carries paths and not parent links. A *gate* is a gated milestone: the
+    hold points a PMO is actually counting.
+    """
+    tasks = [t for t in structure.get("tasks", []) if isinstance(t, dict)]
+    paths = [str(t.get("wbs_path") or "") for t in tasks]
+
+    phases = 0
+    for node in tasks:
+        path = str(node.get("wbs_path") or "")
+        if not path or node.get("is_subtask"):
+            continue
+        if any(other != path and other.startswith(f"{path}.") for other in paths):
+            phases += 1
+
+    return {
+        "task_count": len(tasks),
+        "phase_count": phases,
+        "gate_count": sum(
+            1 for t in tasks if t.get("is_milestone") and t.get("governance_class") == "gated"
+        ),
+        "milestone_count": sum(1 for t in tasks if t.get("is_milestone")),
+        "dependency_count": len(structure.get("dependencies") or []),
+        "methodology": structure.get("methodology"),
+        "carries": list(structure.get("carries") or []),
+    }
+
+
 def _validate_structure_envelope(structure: Any) -> tuple[dict[str, Any], list[Any]]:
     """Check the document wrapper; return the narrowed document and its task list."""
     if not isinstance(structure, dict):

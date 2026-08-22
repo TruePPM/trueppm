@@ -133,15 +133,66 @@ many it kept. Undoing a template five minutes after a teammate started filling i
 one of its rows must not take their work with it: leaving a row behind is
 disappointing, deleting a sentence somebody wrote is not recoverable.
 
-## Publishing
+## What ships with the install
 
-Publish from a project that already has the shape you want to reuse. TruePPM reads
-its task tree and dependency edges, strips everything in the right-hand column
-above, and freezes the result.
+Three starters ship with TruePPM, one per methodology, so the **Template** way in
+is never empty on a fresh install:
+
+| Starter | Methodology | Shape |
+| --- | --- | --- |
+| **Scrum product team** | Agile | Discovery, then two sprints that build a walking skeleton before a real slice |
+| **Stage-gate delivery** | Waterfall | Five gated phases with a hold point at each |
+| **Regulated release** | Hybrid | A gated validation branch beside a sprint-driven build branch |
+
+They carry a **Bundled** provenance chip and sort last in the gallery: on a
+workspace that has published its own shapes, those are the ones worth reading
+first.
+
+They are deliberately small. A starter is a shape to argue with, not a plan —
+enough structure that the phases and the dependency spine are visible, few enough
+rows that deleting the half that does not apply is a minute's work.
+
+## Publishing a template
+
+**Project → Settings → Templates.** The page opens on six counts — tasks, phases,
+gates, dependencies, milestones and methodology — computed by the server from the
+same extraction the publish itself runs, so the number you approve is the number
+that gets written.
+
+Publishing needs **Project Manager** role on the source project. Everything a
+template would carry is already visible to any member in the Schedule; publishing
+is the only act that is gated.
+
+The form asks for a name, a description and a methodology, then states — read
+only — what will and will not be carried. That inventory is not a set of toggles
+on purpose: per-publish "carries" switches produce templates that differ in
+invisible ways, and two templates with the same name that bring different things
+destroy the comparability templates exist for.
+
+The methodology also decides where an adopting project lands: an **Agile**
+template opens on a seeded Product Backlog, not on a Schedule of dateless bars.
+
+### Republishing writes a new version
+
+A name that is already taken comes back as a conflict, not a silent overwrite,
+and offers to publish the next version instead. The earlier version stays
+published and selectable, marked **superseded**.
+
+That is deliberate. Projects already created from v1 are the only record of why
+they look the way they do, and a version edited underneath them turns that record
+into a lie.
+
+Nobody is notified when you publish. A template is an option that appears, not an
+announcement — if the PMs should know, that is a message you send.
+
+### Frozen at publish
 
 Frozen is the operative word: the template does **not** stay linked to the project
 it came from. Editing, archiving or deleting that project afterwards leaves every
 published template untouched — otherwise a skeleton two teams had already adopted
 could change under them, or vanish.
+
+Deleting the source project clears the provenance line and leaves the template
+working.
 
 A project can carry at most 2,000 rows into a template.
