@@ -230,6 +230,36 @@ def test_callback_unknown_state_fails_closed(provider_ctx: Any) -> None:
     assert "error=invalid_state" in resp["Location"]
 
 
+# The guard above existed but was narrower than the class it names: it only ever
+# saw an ASCII state, and ``compare_digest`` raises TypeError on a non-ASCII str,
+# which DRF does not convert — so the callback 500'd on caller-controlled input
+# (#2929, the #2881 defect on a second AllowAny endpoint). Both sides of that
+# compare come from the request, so each is parametrized independently.
+#
+# The cookie side stops at U+00FF on purpose, not for brevity: cookie headers
+# are Latin-1 on the wire, and Django's WSGI handler raises UnicodeEncodeError
+# before the view is ever entered for anything above it. The query-parameter
+# side is URL-decoded as UTF-8, so an astral code point does reach the compare.
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("cookie_state", "query_state"),
+    [
+        pytest.param("issued-state", "nev\u00e9r-issued", id="latin1-state-param"),
+        pytest.param("issued-state", "state-\U0001f4a5", id="astral-state-param"),
+        pytest.param("nev\u00e9r-issued", "never-issued", id="latin1-state-cookie"),
+        pytest.param("nev\u00e9r-a", "nev\u00e9r-b", id="non-ascii-both-sides"),
+    ],
+)
+def test_callback_non_ascii_state_fails_closed_without_500(
+    provider_ctx: Any, cookie_state: str, query_state: str
+) -> None:
+    client = api_client()
+    client.cookies[_STATE_COOKIE_NAME] = cookie_state
+    resp = client.get(CALLBACK, {"code": "c", "state": query_state})
+    assert resp.status_code == 302
+    assert "error=invalid_state" in resp["Location"]
+
+
 @pytest.mark.django_db
 def test_callback_without_matching_state_cookie_fails_closed(
     provider_ctx: Any, fake_discovery: None
