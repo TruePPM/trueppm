@@ -35,7 +35,7 @@ Three rules follow, and they are not optional:
    banner exists for the reader who is *not* in this conversation — the person reading
    the issue it generated six weeks from now.
 2. **Real signal supersedes the panel.** Before convening it, check whether real
-   evidence already exists on the question (Step 0). Where it does, it decides, and the
+   evidence already exists on the question (Step 0a). Where it does, it decides, and the
    panel's role shrinks to the residue it does not cover. Never run the panel *against*
    a real report to argue the report away.
 3. **The panel never authorizes a shipping decision.** It routes attention and surfaces
@@ -72,10 +72,18 @@ skill **delegates each persona to a parallel Sonnet sub-agent** and aggregates t
 verdicts in the main context. Same total cost as serial inline evaluation, ~8× faster
 wall-time, and the main conversation context stays clean.
 
-### Step 0 — Check for real signal first
+### Step 0 — Ground the panel before convening it
 
-Before spawning a single persona, spend one search establishing whether anyone real has
-already spoken on this question. Modeled opinion is the fallback, not the default.
+Two grounding checks run before a single sub-agent is spawned. Both exist to change the
+panel's **inputs**; neither is a caveat to be written up afterwards. A panel reasoning
+from an unexamined guess about the data produces a confident recommendation about a world
+that does not exist, and the write-up cannot repair that — by then the recommendation is
+already made.
+
+#### Step 0a — Check for real signal first
+
+Spend one search establishing whether anyone real has already spoken on this question.
+Modeled opinion is the fallback, not the default.
 
 ```bash
 # Real reports and requests touching this surface
@@ -102,6 +110,44 @@ Record the result as one of:
 - **No real signal** — run the full panel, and say so explicitly in the banner. This is
   the normal pre-beta case and it is fine; it just has to be stated.
 
+#### Step 0b — Name the empirical unknowns, then answer the cheap ones
+
+A panel does not know the shape of the data it is reasoning about unless somebody tells
+it. Before spawning, write down the **empirical unknowns** — the facts that, if known,
+would change a recommendation — and answer the ones that are cheap.
+
+1. **List the unknowns.** For each, state in one line what recommendation it would move.
+   The test is exactly that: *would knowing this change a recommendation?* If the answer
+   is no, it does not go on the list. This step is a short grounding pass, not a research
+   project, and a panel that turns into one has failed a different way.
+2. **Mark each as cheaply answerable or not**, and from which source: the running
+   database (one SQL or ORM query), the codebase (a grep, a serializer, a `models.py`),
+   telemetry and CI artifacts, or the issue tracker. "Cheap" means minutes, not hours.
+3. **Answer the cheap ones and put the answers in front of the panel** — in the same
+   brief as the feature, above the persona definitions, as established fact. Facts
+   delivered to the panel constrain it; facts discovered after it merely annotate it.
+4. **Read `.claude/house-data-profile.md`** — the factual appendix of observed project
+   shapes and distributions (row counts, dependency density, status mixes, how much of
+   the tree CPM actually touches). It is required pre-reading when it exists. Two
+   conditions on using it, both enforced by its own header, which you must read before
+   quoting a single number from it: it is a point-in-time measurement and may be stale,
+   and it labels which of its facts follow from how the code works — and therefore
+   transfer to a real instance — versus which are artifacts of our own demo authoring or
+   test debris. Hand the panel only what the file says transfers, and hand it the label
+   with the number. If the file is absent, or silent or stale on the question in hand,
+   run the query yourself and say which of the three it was — never read its silence as
+   a "no".
+5. **If a question was answerable and you did not answer it, say so in the write-up** —
+   name the question and the query that would have answered it. That is a defect in the
+   run, not a caveat on it, and it is reported separately from the things a panel is
+   structurally unable to see (Step 2).
+
+Why this is Step 0 and not a closing section: a panel on #2987 produced a clean
+"what this panel could not see" list whose top item — the composition of the unscheduled
+tasks — was one query and about two minutes away. The answer (95% of unscheduled rows
+carry no dependency edges; 82% are CPM-excluded `BACKLOG`) overturned the panel's own
+leading recommendation. The list was correct and arrived after it could change anything.
+
 ### Step 1 — Spawn 8 parallel Sonnet sub-agents
 
 Using the `Agent` tool, in a **single message** with **8 tool calls in parallel**, spawn
@@ -110,13 +156,23 @@ one sub-agent per persona. Each sub-agent receives:
 - The full persona definition (the relevant section from `.claude/personas.md`)
 - The shared rubric and severity tags (the "VoC Scoring Rubric" section)
 - The feature or design under review (the user's `$ARGUMENTS`)
+- The **established facts** from Step 0 — the real signal and the answered empirical
+  unknowns — presented as given, not as background reading
 - A directive to return its verdict in the exact output format below
 
 Sub-agent prompt template (substitute `<PERSONA_NAME>` and `<FEATURE>`):
 
 ```
 You are simulating <PERSONA_NAME> reviewing a TruePPM feature. Use ONLY this persona's
-goals, pain points, evaluation criteria, and hard NOs. Do not mix personas.
+own section — its goals, pain points, evaluation criteria, hard NOs, N/A criteria,
+**Frequency & time budget**, **Routine load** (where present), and **10/10 anchor**. Do not mix personas.
+
+Weigh the time budget as heavily as the criteria. It is the only field describing what
+this persona actually *does* all day, and reasoning purely from their stated values
+predicts the wrong thing: a persona who spends 30-60 minutes a day maintaining a plan
+cares about the cost of that hour even when every criterion they articulate is about
+the artifact they hand upward. If your answer would change depending on whether this
+persona touches the product for 20 seconds or an hour a day, the budget decides it.
 
 Persona definition:
 <paste the persona's full section from .claude/personas.md>
@@ -126,6 +182,11 @@ Scoring rubric (use exactly this scale, do not invent ad-hoc criteria):
 
 Feature under review:
 <FEATURE>
+
+Established facts (checked before this panel convened — treat these as given; do not
+reason against them or restate them as open questions):
+<paste the Step 0 findings: the real signal, and each answered empirical unknown with
+its answer. Write "none established" if Step 0 found nothing worth answering.>
 
 You are modeling a composite persona, not reporting what a real person said. Your score
 is a predicted adoption likelihood derived from this persona's documented criteria — not
@@ -142,9 +203,13 @@ Return your response in this exact format and nothing else:
 
 Top concerns: <bullet list of any hard-NOs triggered or evaluation criteria missed>
 
-Falsification: <for each 🔴 you raised, one line naming the real-world observation that
-would confirm or refute it — a report, a demo conversation, a usage metric. If you
-cannot name one, downgrade the 🔴 to 🟡 and say why.>
+Falsification: <for each 🔴 and each 🟡 you raised, one line naming the real-world
+observation that would confirm or refute it — a report, a demo conversation, a usage
+metric. Tag each line with the finding it belongs to, because these lines travel out of
+this panel and into the issue that gets filed. A line that names a code check ("falsified
+if the serializer already exposes the field") is NOT a falsification line — it predicts
+nothing about a user. If you cannot name one for a 🔴, downgrade it to 🟡 and say why; if
+you cannot name one for a 🟡, mark it `unscoreable` and say why.>
 
 Blind spot: <one line — what could a real person in this role tell us that you,
 reasoning only from the persona definition above, structurally cannot?>
@@ -166,8 +231,11 @@ delegate aggregation — synthesizing across personas is the value-add of this s
 > interviewed, surveyed, or observed. All personas are currently grounding tier T0
 > (modeled, no real-user contact). Scores are predicted adoption likelihood against
 > documented criteria, not measured sentiment.
-> **Real signal:** <none found | summarize what Step 0 found and note that it supersedes
+> **Real signal:** <none found | summarize what Step 0a found and note that it supersedes
 > the panel wherever they disagree>
+> **Grounding:** <each empirical unknown Step 0b answered, with its answer and its
+> source, as put in front of the panel — or "no unknown identified would have changed a
+> recommendation">
 
 ### Panel Verdict
 | Persona | Score | Verdict |
@@ -194,17 +262,51 @@ constraint and surface any violation as a 🔴 in "Key constraints surfaced".
 **Average**: X.X/10 | **OSS/Enterprise signal**: [who loves it most → which P3M layer]
 
 **Key constraints surfaced**:
-- 🔴 <any hard-NO triggered> — *would be refuted by:* <the falsification line>
-- 🟡 <any concern that lowers the score>
+- 🔴 <any hard-NO triggered> — *raised by:* <persona> — *would be refuted by:* <the
+  falsification line, copied verbatim from that sub-agent>
+- 🟡 <any concern that lowers the score> — *raised by:* <persona> — *would be refuted
+  by:* <line, or `unscoreable` and why>
 - <cross-persona tensions that the feature ignores or resolves cleanly>
 
 **What this panel could not see**: <synthesize the sub-agents' blind-spot lines into 1–3
 open questions that only a real user can answer. Carry these into the architect handoff
-as named unknowns, not as solved points.>
+as named unknowns, not as solved points. These are the *structurally* unanswerable ones —
+if a question here could have been answered by a query, it belongs in the line below and
+Step 0b failed.>
+
+**Answerable and unanswered** (Step 0b): <any empirical unknown that was cheap to answer
+and was not answered, each with the query that would have answered it — or "none". This
+is a defect in the run and is reported as one.>
 
 **Suggested next step**: proceed / scope down / re-examine assumptions — with a
 one-sentence justification. This is a recommendation to a human, not a decision.
 ```
+
+### Step 3 — Carry the falsification lines out of the panel
+
+The falsification line is produced here and consumed a release later, by
+`/voc-audit --calibrate`, which can only score a finding that carried one. A line left in
+the transcript is a finding that will be graded `unscoreable` — counting *against* the
+panel — no matter how right it turned out to be. So the line travels with the finding
+wherever the finding goes:
+
+- **To the architect handoff**: each 🔴, with its raising persona and its falsification
+  line. Not the score, not the average, not the table.
+- **To any issue filed off this panel**: use the `VoC-Finding` issue template
+  (`.gitlab/issue_templates/VoC-Finding.md`), which has a required field for the line and
+  for the persona that raised it. Filing a panel finding through `Bug.md` or `Feature.md`
+  drops both.
+- **Nowhere else.** The provenance rules above are unchanged: the finding is filed on its
+  own merits, plainly labeled as surfaced by a simulated panel, and the average never
+  leaves this context.
+
+**Code verification is not falsification.** "I verified this against `main` at `<sha>`"
+proves the defect exists; it does not predict what a user would say, which is the only
+thing calibration can score. Both belong in the issue, in separate fields, and they must
+never be conflated: verification grounds the finding in the code, while the falsification
+line stakes a claim about the world that a later real report can confirm or refute. A
+finding whose "falsification line" restates a code check is `unscoreable` — it counts
+against the panel, not for it.
 
 ### Panel-average heuristics (from personas.md, kept here for the synthesis step)
 
@@ -257,4 +359,10 @@ constraint (personas.md) — it is checked, not scored.
 - It does not weight persona scores by market size or revenue — those are GTM decisions, not product decisions
 - **It does not produce user research, and its output may never be represented as such** — not in an issue, an MR, an ADR, a roadmap entry, or any public document
 - **It does not overrule a real user report.** Where real signal exists, the panel is scoped to what the report does not cover, or skipped entirely
+- **It does not convene on unexamined data.** An empirical unknown that is cheap to
+  answer and would move a recommendation gets answered *before* the panel, not listed
+  after it (Step 0b)
+- **It does not let a falsification line die in the transcript.** Every finding that
+  leaves this panel carries its line and the persona that raised it; a finding filed
+  without them is `unscoreable` at calibration and counts against the panel
 - **It does not validate itself.** Whether these personas predict anything is measured by `/voc-audit` against real reports and recorded in `.claude/persona-calibration.md`. A panel's own confidence is not evidence about the panel

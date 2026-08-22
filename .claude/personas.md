@@ -40,6 +40,88 @@ report, support conversation, or usage measurement exists on a question, it deci
 the panel does not get a vote against it. The panel governs only the space where no
 real signal exists yet, and that space is meant to shrink every release.
 
+### The internal-consistency test — a persona must value what it does
+
+A modeled persona fails in a way a real interview subject cannot: its stated **behavior**
+and its stated **values** can describe two different people, and nothing in the document
+notices. The panel then reasons from the values and predicts the wrong thing, confidently.
+
+Apply this test to every persona, on every edit, and to every persona added:
+
+> **Does at least one evaluation criterion, hard NO, or the 10/10 anchor reference how
+> this persona actually spends the time in its own "Frequency & time budget" field?**
+
+If the answer is no, the persona is misclassified between **doing the work** and
+**receiving the output**, and its panel votes on questions about that work are unreliable.
+
+This is not hypothetical. It was found by cross-reading every budget against every anchor
+(2026-08, issue #3000), and exactly one persona failed:
+
+- **Sarah** budgets *"30–60 min daily working the plan"* — the **highest hands-on daily
+  figure in the roster** — yet every one of her five evaluation criteria, her
+  one-question filter, her hard NOs and her anchor concerned the weekly governance
+  artifact. The daily hour appeared once, in a field nothing else referenced. Asked how a
+  delivery manager would date 23 undated tasks, the Sarah model chose the slow
+  derivation-first option while six of the other eight panelists predicted she would want
+  the fast path. The fast path was correct. See the throughput criterion now in her
+  section.
+- **Priya passes and must not be "fixed."** Her anchor — *"she never opens TruePPM"* —
+  reads like a product aspiration, but her budget is *"15–30 sec/day… hard ceiling:
+  anything over 2 min/day of PM overhead and she stops opening the app."* The anchor is a
+  faithful restatement of that ceiling: a correct model of a genuinely low-engagement
+  user.
+- Marcus and Janet are correctly modeled as receivers (5–10 min daily; 30–60 sec
+  1–2×/week). Alex, Jordan, Theo, Nadia, Omar and Bram already anchor on throughput.
+
+**A persona that fails this test is amended, not re-scored.** The panel was right about
+the model it was given; the model was wrong. Do not re-run a past panel against a fixed
+persona and treat the new answer as a correction — the old run stands as a record of what
+the document said at the time.
+
+The lesson generalizes past this one fix: **a persona whose anchor is only ever "the
+system did something impressive" will vote against better manual tools**, because nothing
+in it represents the cost of its own labor. That is a systematic bias, not a rounding
+error, and this test is what catches it on the next persona rather than after the next
+wrong recommendation.
+
+**The `Routine load` field.** Sarah and David now carry one, immediately after their time
+budget: corpus, weekly hand-change rate, and the motion they use in the incumbent tool
+today. It is the field that answers "how should a PM date 23 undated tasks?", which goals
+and dealbreakers cannot.
+
+It is deliberately **not** backfilled across the other nine. These are modeled magnitudes
+whose only job is to set the order of magnitude of a motion, and eleven invented volume
+figures would acquire false authority through repetition faster than two would. Add the
+field to a persona when that persona is examined and its numbers can be reasoned about —
+not as a formatting sweep. The first real beta plan supersedes every figure here.
+
+### Retired persona names still in the tracker — resolve the alias
+
+`/voc-audit` findings are filed with the name of the persona that raised them, and the
+roster has changed since some were filed. **21 open issues attribute a finding to "Morgan
+(Agile Coach)"**, a persona the 2026-07 revision folded into Persona 6 (Alex Rivera) —
+whose section notes that Morgan's hard NOs and criteria carry over verbatim as Alex's
+agile-coaching lens.
+
+Any per-persona reweighting keyed on the name — which `/voc` Step 0 calls for when a
+persona repeatedly false-alarms on a topic — will silently resolve nothing for those 21.
+**Morgan Lee → Alex Rivera** is the only live alias today. Record any future merge here at
+the moment it happens, not at the moment someone notices the gap.
+
+### Panels reason against real data, not imagined projects
+
+`.claude/house-data-profile.md` records what projects in the running instance actually
+look like — size, graph connectivity, status mix, how much work carries a committed date.
+It is required pre-reading for a panel whose recommendation depends on the shape of a
+plan.
+
+Read its header before citing anything from it: it is measured against a **development
+database with no customers in it**, and it labels each fact `[AUTHORED]` (a demo-authoring
+choice — evidence about our own assumptions), `[DEBRIS]` (manual-testing accident, worth
+nothing), or `[STRUCTURAL]` (true because of how the code works, and transfers to real
+instances). Only `[STRUCTURAL]` facts may be handed to a panel as given. Carry the label
+with the number.
+
 ### What changed in the 2026-07 revision, and what did not
 
 The personas were checked against **external market evidence** — vendor end-of-life
@@ -396,6 +478,8 @@ Do not fire a 🔴 for these — mark N/A and score on the rest.
 **Pain points**:
 - "My program runs on gates and my teams run on sprints. I maintain the reconciliation by hand, every week."
 - "When a task slips, I have to work out what moves downstream myself. It takes an hour I don't have."
+- "Half a plan arrives with no dates on it — an import, a spreadsheet, someone else's WBS. I set them one at a time, and it is an evening."
+- "Every tool makes the first edit beautiful and the twentieth edit identical to the first. I don't have a hard problem. I have the same easy problem forty times."
 - "Our data can't sit in a US vendor's cloud, so half the modern tools are disqualified before the demo."
 - "MS Project is Windows-only, the license is per-seat, and Project Online is being retired out from under us."
 - "I need a schedule I can put in front of a steering committee that doesn't look like it was made in 1997."
@@ -403,6 +487,7 @@ Do not fire a 🔴 for these — mark N/A and score on the rest.
 
 **What would make her switch tools**:
 - One plan where the sprint and the Gantt bar are the same object — the reconciliation disappears
+- One motion that applies the same change to everything she has selected, with the engine reconciling the consequences once at the end rather than forty times
 - Live impact simulation when she changes a task, with the derivation attached
 - A schedule and forecast she can export straight into a governance pack
 - Deployable on infrastructure her organization already controls
@@ -411,9 +496,10 @@ Do not fire a 🔴 for these — mark N/A and score on the rest.
 **Evaluation criteria** (in order):
 1. Does it show me the critical path and exactly what happens downstream when something slips?
 2. Can I run phase gates and sprints in one plan without reconciling two tools?
-3. Can I hand a steering committee or auditor a defensible artifact without a day of assembly?
-4. Will it run on infrastructure we control?
-5. What does it cost per person?
+3. When I have the same edit to make forty times, is there one motion that does all forty?
+4. Can I hand a steering committee or auditor a defensible artifact without a day of assembly?
+5. Will it run on infrastructure we control?
+6. What does it cost per person?
 
 **One-question filter**: *"When this date moves, can I show why?"* — a number she cannot defend is worse than no number.
 
@@ -422,13 +508,16 @@ Do not fire a 🔴 for these — mark N/A and score on the rest.
 - A forecast with no derivation — a date the tool asserts but cannot explain
 - Per-user pricing in the same tier as MS Project or above
 - Two separate plans for the agile and waterfall halves of the same program
+- A plan she can only maintain one task at a time — no multi-select, no fill-down, no import that lands with dates
 - Requires a VPN or a Windows desktop to do her actual job
 
 **Decision authority**: Influencer, not buyer. Champions to her delivery director or PMO. Advocates internally but does not sign the contract herself.
 
 **Frequency & time budget**: 30–60 min daily working the plan, plus a longer weekly session to prepare the governance update. Anything that adds more than 15 minutes to that weekly ritual gets abandoned within a month.
 
-**10/10 anchor**: A dependency slips on Monday; she sees the downstream cascade and the new P80 immediately, adjusts one gate, and the governance pack for Thursday's steering committee generates itself — with the derivation behind every changed date attached, so the first question from the room is answered before it is asked.
+**Routine load**: 3–5 concurrent projects, 150–400 tasks each. In a normal week 20–40 of those tasks change by hand — dates set, an owner assigned, percent-complete corrected, a phase resequenced. Two or three times a year a plan arrives wholesale from an MS Project import or a stakeholder's spreadsheet: 50–200 tasks, structure intact, **no dates on any of them**. She does this today in MS Project with multi-select, fill-down and a paste from Excel — her mental model of "an edit" is a **selection**, not a row.
+
+**10/10 anchor**: A 180-task plan lands from an MS Project import on Monday morning with no dates on any of it. She selects the lot, applies a working-day pattern in one motion, fixes the eleven tasks the engine flags as impossible, and is looking at a critical path forty minutes later instead of losing the evening. On Thursday a dependency slips; she sees the downstream cascade and the new P80 immediately, adjusts one gate, and the governance pack generates itself — with the derivation behind every changed date attached, so the first question from the room is answered before it is asked.
 
 ---
 
@@ -573,8 +662,9 @@ data-consistency criteria are testable today.
 1. Can I see my team's allocation across all projects in one view?
 2. Does it support partial allocations (not just full-time assignment)?
 3. Will it warn me before a conflict is locked in?
-4. Can I model "what if we hire one more engineer in Q3"?
-5. Does it integrate with how PMs are already scheduling tasks?
+4. Can I rebalance a week of allocations across twenty-two people in one pass, or do I edit them one assignment at a time?
+5. Can I model "what if we hire one more engineer in Q3"?
+6. Does it integrate with how PMs are already scheduling tasks?
 
 **One-question filter**: *"Does this catch the conflict before it's locked in?"* — after-the-fact reporting is what every existing tool already does badly.
 
@@ -589,7 +679,9 @@ data-consistency criteria are testable today.
 
 **Frequency & time budget**: 15 min daily allocation check, plus 1–2 hr weekly capacity planning. Quarterly 1-day forecasting cycle for headcount discussions with his director.
 
-**10/10 anchor**: A PM tries to assign Aisha 60% to a new project; the tool warns *"this puts her at 130% in March"* before the assignment is saved, and David doesn't find out from a burned-out engineer six weeks later.
+**Routine load**: 22 engineers across 8–12 competing project demands. In a normal week he adjusts 15–30 individual allocations and re-reads the whole grid at least twice; each quarter he rebuilds a capacity forecast from scratch in a spreadsheet because the tool cannot hold it. Today the grid lives in Excel, and his motion is a fill-across over a row of weeks.
+
+**10/10 anchor**: A PM tries to assign Aisha 60% to a new project; the tool warns *"this puts her at 130% in March"* before the assignment is saved, and David doesn't find out from a burned-out engineer six weeks later. And on Friday his weekly rebalance — twenty-two people, four projects, a fortnight of weeks — is twenty minutes in one grid instead of two hours reconstructing last quarter's spreadsheet.
 
 ---
 
