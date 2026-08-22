@@ -333,13 +333,27 @@ def aggregate_utilization_weekly(
     # Client-side re-sort: server provides canonical order but supports group_by
     # as a sort hint so the client can resort without a round-trip.
     if group_by == "role":
+        applied = "role"
         resources_out.sort(key=lambda r: (r["job_role"].lower(), r["name"].lower()))
     else:
-        # "project" grouping requires cross-project data not available here (Enterprise).
-        # Fall back to alphabetical for both "project" and "none".
+        # "project" grouping needs cross-project data this endpoint does not have — it is
+        # scoped to one project, so grouping its rows by project is a single group by
+        # construction. The cross-portfolio heat map is Enterprise. So "project" falls
+        # back to alphabetical, identically to "none".
+        #
+        # ``group_by`` in the response names the grouping that was ACTUALLY applied,
+        # which is the whole point (#2907): the parameter is validated and accepted, so
+        # without this a caller asking for "project" gets a 200 and reads an
+        # alphabetical payload as project-grouped, with nothing anywhere to contradict
+        # them. The 400 that would have told them is the one thing we cannot send —
+        # "project" is a documented enum value in the published schema, and removing an
+        # enum value is a Breaking change under the API stability contract. Echoing what
+        # was applied is additive, so it closes the silence without breaking the
+        # contract; the value is deprecated in the schema for removal after its window.
+        applied = "none"
         resources_out.sort(key=lambda r: r["name"].lower())
 
-    return {"weeks": week_labels, "resources": resources_out}
+    return {"weeks": week_labels, "resources": resources_out, "group_by": applied}
 
 
 def _sum_week_hours(days: dict[str, Any], wstart: datetime.date, wend: datetime.date) -> float:
