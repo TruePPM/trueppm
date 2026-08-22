@@ -41,7 +41,13 @@ const mocks = vi.hoisted(() => ({
   // #2639: the auto-status confirmation dialog names the target status from
   // the acting user's role. Defaults to null (unresolved) like the real hook
   // returns synchronously before its query settles; individual tests set it.
-  currentRole: null as number | null,
+  // Member by default: every case in this file exercises AUTHORING, and since
+  // #2961 the row's apparatus is absent without edit rights (web rule 302). A
+  // null role here means "not a member", which is a different fixture — the
+  // cases that want it set it explicitly.
+  // 100 is ROLE_MEMBER, written as a literal because this is a `vi.hoisted`
+  // block and cannot reference an import.
+  currentRole: 100 as number | null,
 }));
 
 vi.mock('@/hooks/useCurrentUserRole', () => ({
@@ -205,7 +211,7 @@ function renderBuild(props: Omit<HarnessProps, 'focusRef'> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.currentRole = null;
+  mocks.currentRole = ROLE_MEMBER;
   useScheduleStore.setState({
     selectedTaskId: null,
     scheduleError: null,

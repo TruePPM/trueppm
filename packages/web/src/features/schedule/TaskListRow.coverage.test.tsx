@@ -33,6 +33,15 @@ const mocks = vi.hoisted(() => ({
   warm: vi.fn(),
 }));
 
+// Member (100). Every case in this file exercises the row's AUTHORING
+// apparatus, and since #2961 that apparatus is absent without edit rights (web
+// rule 302). Without this the real hook resolves to "no role" mid-test, so a
+// synchronous `fireEvent` case passes while its `await user.click` twin fails —
+// which reads as a flake rather than as a missing fixture.
+vi.mock('@/hooks/useCurrentUserRole', () => ({
+  useCurrentUserRole: () => ({ role: 100, roleLabel: null, isLoading: false }),
+}));
+
 vi.mock('@/hooks/useTaskMutations', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/hooks/useTaskMutations')>();
   return {

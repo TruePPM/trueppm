@@ -26,7 +26,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/hooks/useCurrentUserRole', () => ({
-  useCurrentUserRole: () => ({ role: null, roleLabel: null, isLoading: false }),
+  // Member: this file commits names, owners and allocations, and since #2961
+  // the row renders text rather than fields without edit rights (rule 302).
+  useCurrentUserRole: () => ({ role: 100, roleLabel: null, isLoading: false }),
 }));
 
 vi.mock('@/hooks/useTaskMutations', async (importOriginal) => {

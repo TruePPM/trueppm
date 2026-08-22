@@ -31,8 +31,16 @@ export interface UseCurrentUserRoleResult {
    * `role == null` tells an Admin they lack permission whenever the request
    * blips. `retry: false` makes that a single failure away (rule 246, #2909).
    *
+   * The same distinction decides *presence*, not just pessimistic hiding: a
+   * failed read taken as a definitive "no role" silently strips an editor's
+   * controls on a transient network error, with no error state anywhere. Treat
+   * it as **unsettled**, never as denial — the server is the enforcement point,
+   * so assuming rights on an unknown costs at worst one silent refusal, while
+   * assuming denial removes a working control (#2961).
+   *
    * Optional in the type — not at runtime — so the existing mocks that supply
-   * only `role` stay valid; narrow to `isError ?? false`.
+   * only `role` stay valid; `undefined` is not a third state, narrow to
+   * `isError ?? false`.
    */
   isError?: boolean;
 }
@@ -77,6 +85,9 @@ export function useCurrentUserRole(
     role: query.data?.role ?? null,
     roleLabel: query.data?.role_label ?? null,
     isLoading: false,
+    // `retry: false` above means one failed request is terminal, so this is the
+    // only signal a caller gets that the null role is "unknown" rather than
+    // "not a member" (#2961).
     isError: query.isError,
   };
 }
