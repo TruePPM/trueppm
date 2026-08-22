@@ -83,8 +83,11 @@ points figure — the average of the team's recent completed points, using the s
 eligible set as the [velocity panel](/features/velocity/) (so a sprint marked
 *Exclude from velocity* is excluded here too).
 
-It is **off by default**, it is offered for the **first sprint only**, and it is
-never written unless you tick it on. That is deliberate. A number the tool
+It is **off by default**, it is offered for the **first sprint of the run only**,
+and it is never written unless you tick it on. (If that first sprint already
+exists — you're re-running the generator to fill a gap — the number applies to a
+sprint this run isn't creating, so nothing receives it rather than it landing on
+some mid-series sprint you didn't point at.) That is deliberate. A number the tool
 generates and stamps across a year of iterations stops being a planning aid and
 starts being the tool telling a team what it may commit to — which is exactly
 what sprint commitment belongs to the team, not to a generator. Forecasting a
@@ -94,8 +97,10 @@ Generated sprints land in `PLANNED` state with no goal, no capacity, and no
 tasks. Activate, name a goal, and pull work in exactly as you would for a sprint
 you created by hand.
 
-Available to Resource Manager and above from the Sprints header, the same gate as
-the other lifecycle actions there.
+The **Generate sprints** button appears for Resource Manager and above, the same
+gate as the other lifecycle actions in that header. The endpoint behind it is
+open to Team Member and above, so a script or integration at that role can still
+generate a cadence — see the [API reference](/api/reference/).
 
 ## Planning a sprint — the unified planning surface (added in 0.3)
 

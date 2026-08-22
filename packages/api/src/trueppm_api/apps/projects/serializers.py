@@ -104,6 +104,7 @@ from trueppm_api.apps.projects.sprint_cadence import (
     MAX_FIRST_INDEX,
     MAX_GENERATED_SPRINTS,
     MAX_SPRINT_LENGTH_DAYS,
+    MAX_SPRINT_SPAN_DAYS,
     MIN_SPRINT_LENGTH_DAYS,
     NAME_TOKEN,
     render_sprint_name,
@@ -7622,8 +7623,8 @@ class SprintCadenceRowSerializer(serializers.Serializer[dict[str, Any]]):
 
     ``status`` is the idempotency verdict: ``created`` (written by this call),
     ``exists`` (a live sprint already carries this name and was left untouched),
-    or ``new`` (a preview row that would be created on commit). ``id`` is present
-    only on a ``created`` row.
+    or ``new`` (a preview row that would be created on commit). ``id`` is always
+    present and is ``null`` unless this call created the row.
     """
 
     name = serializers.CharField(read_only=True)
@@ -7671,6 +7672,17 @@ class SprintCadenceEditSerializer(serializers.Serializer[dict[str, Any]]):
             raise serializers.ValidationError(
                 {"finish_date": "finish_date must be after start_date."}
             )
+        # The generated path bounds a window through `length_days`; an edited row
+        # carries the operator's own dates and needs its own ceiling, or the
+        # row-count bound holds while the row-*length* bound does not.
+        if (attrs["finish_date"] - attrs["start_date"]).days + 1 > MAX_SPRINT_SPAN_DAYS:
+            raise serializers.ValidationError(
+                {
+                    "finish_date": (
+                        f"An iteration may not span more than {MAX_SPRINT_SPAN_DAYS} days."
+                    )
+                }
+            )
         return attrs
 
 
@@ -7692,11 +7704,17 @@ class SprintGenerateSerializer(serializers.Serializer[dict[str, Any]]):
         required=False,
         min_value=1,
         max_value=MAX_GENERATED_SPRINTS,
-        help_text=f"How many iterations to lay out (1 to {MAX_GENERATED_SPRINTS}).",
+        help_text=(
+            f"How many iterations to lay out (1 to {MAX_GENERATED_SPRINTS}). "
+            "Required unless `sprints` is given."
+        ),
     )
     start_date = serializers.DateField(
         required=False,
-        help_text="Requested start of the first iteration; snapped forward to a working day.",
+        help_text=(
+            "Requested start of the first iteration; snapped forward to a working day. "
+            "Required unless `sprints` is given."
+        ),
     )
     length_days = serializers.IntegerField(
         required=False,
@@ -7734,9 +7752,11 @@ class SprintGenerateSerializer(serializers.Serializer[dict[str, Any]]):
         allow_null=True,
         min_value=0,
         help_text=(
-            "Optional points target stored on the FIRST generated iteration only. "
-            "Omitted by default — generation never sets a capacity on its own. "
-            "SCHEDULER+ only, matching the field-level gate on Sprint.capacity_points."
+            "Optional points target stored on the first row of the cadence, and "
+            "only when that row is one this call creates — a re-run that skips an "
+            "existing first iteration stores it nowhere. Omitted by default: "
+            "generation never sets a capacity on its own. SCHEDULER+ only, "
+            "matching the field-level gate on Sprint.capacity_points."
         ),
     )
     sprints = SprintCadenceEditSerializer(many=True, required=False)

@@ -12183,10 +12183,20 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
     ``generate`` (#2968) sits at the same gate as ``create`` on purpose: every
     row it writes is exactly what ``create`` writes, so escalating the bulk route
-    would buy no containment and would only mean a team member can stand up a
-    cadence by hand but not with the tool built for it. Its one higher-gated
-    input, ``first_sprint_capacity_points``, is re-checked at SCHEDULER+ in the
-    request serializer.
+    above the single-create route would buy no containment — a Member who can
+    POST twelve sprints in a loop is not contained by refusing them one call that
+    does the same thing. Its one higher-gated input,
+    ``first_sprint_capacity_points``, is re-checked at SCHEDULER+ in the request
+    serializer, because ``capacity_points`` *does* carry a higher gate on the
+    single-create path and the bulk route must not be a way around it.
+
+    Note the web UI is deliberately **stricter** than this: the Sprints header
+    renders the Generate trigger only for SCHEDULER+, alongside Plan-next and
+    Close, which have carried that render gate since #2146 and front a Member+
+    endpoint for the same reason. So a Team Member reaches this endpoint through
+    the API or a PAT, not through that button. The mismatch is a UI-consistency
+    choice, not the authorization line; if the header's lifecycle gate is ever
+    lowered, lower it for the whole cluster rather than this one control.
     """
 
     # ADR-0678 (#2482): Sprint.project FK.
@@ -12508,8 +12518,11 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         asdict = dataclasses.asdict
-        # `compose_project_calendar` requires these prefetches, or the fold
-        # issues one query per applied calendar and per exception set.
+        # `compose_project_calendar` requires these prefetches, or the fold issues
+        # one query per applied calendar and per exception set. This covers the
+        # project/program tiers; the workspace-default tier that
+        # `resolve_effective_base_calendar` falls back to when neither is set has
+        # no prefetch path and costs a fixed handful of extra queries.
         project = get_object_or_404(
             Project.objects.select_related("calendar", "program__calendar").prefetch_related(
                 "calendar__exceptions",
@@ -12546,7 +12559,14 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
                     taken_names=taken,
                 )
         except CadenceError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            # A `code` as well as `detail` (errors.md shape 2): "your calendar has
+            # no usable working day" is the one failure here a client should handle
+            # rather than merely report — it can deep-link the user to calendar
+            # settings instead of showing them prose they cannot act on.
+            return Response(
+                {"detail": str(exc), "code": "calendar_has_no_working_day"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         hint = capacity_hint(project)
 
@@ -12577,8 +12597,11 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         # existing consumer already invalidates its sprint list on it, and adding
         # a WS type churns FROZEN_WS_EVENT_TYPES, the published taxonomy, and the
         # reachability gate for no client-visible gain (the ADR-0158 precedent).
-        # The fan-out is bounded by MAX_GENERATED_SPRINTS and captured by value so
-        # the on_commit callback does no DB work.
+        # The fan-out is bounded by MAX_GENERATED_SPRINTS and the ids are captured
+        # by value so the callback needs no query to rebuild them — note it is NOT
+        # DB-free: broadcast_board_event persists a BoardEvent row per call, so
+        # this is N inserts post-commit. `tasks_bulk_mutated` shows the batched
+        # alternative if that ever matters at this row count.
         created_ids = [str(sprint.pk) for sprint in created]
 
         def _announce_created() -> None:

@@ -27,8 +27,11 @@ serialize rather than racing past each other's absence check.
 **Capacity is a planning aid, never a cap.** :func:`capacity_hint` returns a
 suggestion derived from the team's own closed sprints, and generation *never*
 writes it to ``Sprint.capacity_points`` on its own. A capacity is only stored when
-the caller explicitly passes one, and then only onto the first sprint — a
-throughput figure projected onto sprint twelve is fiction. Sprint commitment
+the caller explicitly passes one, and then only onto the **first row of the
+cadence** and only when that row is one this call is creating — a throughput
+figure projected onto sprint twelve is fiction, and a re-run must not divert the
+operator's number onto whichever mid-series sprint happened to be missing. Sprint
+commitment
 belongs to the team (ADR-0073 / ADR-0113); a generator that stamps a ceiling onto
 a year of iterations is a cadence tool dictating what a team commits to.
 """
@@ -45,10 +48,14 @@ from django.db import transaction
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from trueppm_api.apps.projects.models import Project, Sprint
 
-# Bulk-size bound (#2968). The endpoint is reachable by an MCP/agent caller, so
-# "how many rows can one call create" is a containment question, not a UX one.
-# 52 is a year of weekly iterations — past that a caller wants a second call and
-# a look at the preview, not a bigger number.
+# Bulk-size bound (#2968) — write amplification per call, not agent containment.
+# A read-only MCP token is refused this POST outright by `TokenReadOnlyMethods`,
+# so do NOT read this bound as the thing that holds agents back; what it holds
+# back is one authenticated human or PAT turning a single request into an
+# unbounded write and an unbounded calendar walk. 52 is a year of weekly
+# iterations — past that a caller wants a second call and a look at the preview,
+# not a bigger number. Aggregate rate limiting across calls is a separate,
+# cross-cutting concern (#2749); nothing here provides it.
 MAX_GENERATED_SPRINTS = 52
 # A single iteration longer than six working weeks is not a sprint; the bound
 # exists so `count * length` cannot be used to walk the calendar scan out to the
@@ -64,6 +71,13 @@ MIN_SPRINT_LENGTH_DAYS = 2
 # would make a two-week default land as a two-and-a-half-week sprint.
 DEFAULT_SPRINT_LENGTH_DAYS = 10
 MAX_FIRST_INDEX = 999
+# Calendar-day ceiling on a single window, applied to the *edited* rows a client
+# posts back. The generated path is bounded in working days, but an edited row
+# carries the operator's own dates and would otherwise accept any span the scan
+# guard tolerates — 52 five-year "iterations" in one call. 120 calendar days is
+# generous headroom for a 30-working-day sprint stretched by a long shutdown, and
+# refuses anything that is plainly not an iteration.
+MAX_SPRINT_SPAN_DAYS = 120
 NAME_TOKEN = "{n}"
 
 # Guard against a degenerate composed calendar. `compose_project_calendar`
@@ -357,15 +371,31 @@ def commit_cadence(
       so the second caller's existence re-read sees the first caller's inserts
       and skips them. Two browser tabs submitting at once therefore produce one
       cadence.
+
+      Be honest about the blast radius: under ``ATOMIC_REQUESTS`` this
+      ``atomic`` is a savepoint, so the lock is held until the *request*
+      transaction commits — through response serialization, not just the loop —
+      and every synced write in the project takes that same row's lock via
+      ``_next_seq``. So this briefly blocks all writes in the project, not only
+      rival generate calls. That is why the loop below is kept as short as it
+      is (one cursor allocation, ``force_insert``) and why the row count is
+      bounded.
     - **``save()`` in a loop, not ``bulk_create``.** ``Sprint.save()`` allocates
       the per-project ``short_id`` from the shared object sequence, and
       ``VersionedModel`` bumps ``server_version`` for the sync delta;
       ``bulk_create`` bypasses both and would emit sprints that offline clients
       never pull and that collide on short id. The loop is bounded by
       :data:`MAX_GENERATED_SPRINTS`.
+
+    ``first_sprint_capacity_points`` is **caller-gated**, not gated here:
+    ``capacity_points`` is a SCHEDULER+ field (ADR-0073) and the check lives in
+    ``SprintGenerateSerializer``. Any future non-view caller of this function
+    must re-apply that check — the #2781 shape, where a service with no policy
+    gate of its own let a later caller reintroduce a hole the view had closed.
     """
     from trueppm_api.apps.projects.models import Project as ProjectModel
     from trueppm_api.apps.projects.models import Sprint, SprintState
+    from trueppm_api.apps.sync.sequence import coalesce_sync_seq
 
     # Serializes concurrent generate calls for this project (see docstring).
     ProjectModel.objects.select_for_update().get(pk=project.pk)
@@ -373,34 +403,51 @@ def commit_cadence(
 
     created: list[Sprint] = []
     final_rows: list[CadenceRow] = []
-    for row in rows:
-        if row.name in taken:
-            final_rows.append(
-                CadenceRow(
-                    name=row.name,
-                    start_date=row.start_date,
-                    finish_date=row.finish_date,
-                    working_days=row.working_days,
-                    non_working_days_skipped=row.non_working_days_skipped,
-                    exists=True,
+    # One sync cursor for the whole batch (#1527). Without this every save()
+    # issues its own `UPDATE projects_project SET last_sync_version = …` — 52
+    # updates to the row this block already holds a lock on. Rows written
+    # together may share a `sync_seq`: the delta is `> since` and the checkpoint
+    # is the maximum, so a batch is wholly before or wholly after any client
+    # checkpoint and no offline client can see half a cadence.
+    with coalesce_sync_seq():
+        for index, row in enumerate(rows):
+            if row.name in taken:
+                final_rows.append(
+                    CadenceRow(
+                        name=row.name,
+                        start_date=row.start_date,
+                        finish_date=row.finish_date,
+                        working_days=row.working_days,
+                        non_working_days_skipped=row.non_working_days_skipped,
+                        exists=True,
+                    )
                 )
+                continue
+            sprint = Sprint(
+                project=project,
+                name=row.name,
+                start_date=row.start_date,
+                finish_date=row.finish_date,
+                state=SprintState.PLANNED,
+                created_by=created_by,
             )
-            continue
-        sprint = Sprint(
-            project=project,
-            name=row.name,
-            start_date=row.start_date,
-            finish_date=row.finish_date,
-            state=SprintState.PLANNED,
-            created_by=created_by,
-        )
-        # Only the first iteration ever receives a stored capacity, and only when
-        # the caller passed one explicitly. Projecting today's throughput onto
-        # iteration twelve would be fiction dressed as a plan.
-        if not created and first_sprint_capacity_points is not None:
-            sprint.capacity_points = first_sprint_capacity_points
-        sprint.save()
-        taken.add(row.name)
-        created.append(sprint)
-        final_rows.append(row)
+            # Keyed on the row's position in the cadence — NOT on "the first row we
+            # happened to create". On a re-run where iterations 1-4 already exist,
+            # `not created` would be true at iteration 5 and would stamp a ceiling
+            # onto a mid-series sprint the operator never pointed at. Position 0 or
+            # nothing: if the operator's first iteration already exists, the capacity
+            # they typed refers to a sprint this call is not writing, and the right
+            # answer is to leave every sprint alone.
+            if index == 0 and first_sprint_capacity_points is not None:
+                sprint.capacity_points = first_sprint_capacity_points
+            # Marks the 52 history rows as one generator call rather than 52
+            # indistinguishable hand creations (the `amend`/`inbound_sync` idiom).
+            sprint._change_reason = "generated cadence"  # type: ignore[attr-defined]
+            # `force_insert`: this is unambiguously an INSERT (fresh instance,
+            # UUID default pk), and it lets `VersionedModel.save` skip the
+            # `filter(pk=…).exists()` probe it would otherwise run per row.
+            sprint.save(force_insert=True)
+            taken.add(row.name)
+            created.append(sprint)
+            final_rows.append(row)
     return created, final_rows

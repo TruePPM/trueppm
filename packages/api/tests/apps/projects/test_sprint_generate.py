@@ -596,6 +596,58 @@ def test_explicit_capacity_lands_on_the_first_iteration_only(
     assert stored[2].capacity_points is None
 
 
+@pytest.mark.django_db
+def test_capacity_is_not_diverted_onto_a_mid_series_sprint_on_a_rerun(
+    client: APIClient, project: Project
+) -> None:
+    """A re-run must not stamp the operator's number onto whichever row was missing.
+
+    `Sprint 1` already exists, so the first row of the cadence is skipped. The
+    capacity refers to that first iteration — a sprint this call is not writing —
+    so nothing receives it. Keying on "the first row we happened to create"
+    would have put a ceiling on `Sprint 2`.
+    """
+    Sprint.objects.create(
+        project=project,
+        name="Sprint 1",
+        start_date=date(2026, 1, 5),
+        finish_date=date(2026, 1, 16),
+    )
+
+    res = client.post(url(project), body(count=3, first_sprint_capacity_points=26), format="json")
+
+    assert res.status_code == 201, res.data
+    assert res.data["created_count"] == 2
+    assert not Sprint.objects.filter(project=project, capacity_points__isnull=False).exists()
+
+
+@pytest.mark.django_db
+def test_generated_sprints_carry_a_change_reason(client: APIClient, project: Project) -> None:
+    """A generated cadence is distinguishable from N hand creations in history."""
+    res = client.post(url(project), body(count=2), format="json")
+
+    assert res.status_code == 201, res.data
+    reasons = {
+        record.history_change_reason
+        for sprint in Sprint.objects.filter(project=project)
+        for record in sprint.history.all()
+    }
+    assert reasons == {"generated cadence"}
+
+
+@pytest.mark.django_db
+def test_an_edited_row_may_not_span_an_absurd_window(client: APIClient, project: Project) -> None:
+    """The row-count bound must not be evadable by making each row five years long."""
+    res = client.post(
+        url(project),
+        {"sprints": [{"name": "Forever", "start_date": "2026-04-06", "finish_date": "2031-04-06"}]},
+        format="json",
+    )
+
+    assert res.status_code == 400
+    assert Sprint.objects.filter(project=project).count() == 0
+
+
 # ---------------------------------------------------------------------------
 # Permissions — all five roles
 # ---------------------------------------------------------------------------

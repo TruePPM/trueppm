@@ -875,8 +875,8 @@ Manager+, matching the field-level gate on `capacity_points`.
 | `name_pattern` | string | Name template; must contain `{n}` (default `Sprint {n}`) |
 | `first_index` | integer | Value substituted for `{n}` in the first iteration (default 1) |
 | `dry_run` | boolean | Compute and return the cadence without writing anything (default `false`) |
-| `first_sprint_capacity_points` | integer / null | Stored on the **first** generated sprint only, and only when supplied. Resource Manager+ |
-| `sprints` | array | `{name, start_date, finish_date}` rows — the edited preview posted back. Wins over `count`/`start_date` |
+| `first_sprint_capacity_points` | integer / null | Stored on the **first row of the cadence**, and only when supplied and that row is one this call creates. Resource Manager+ |
+| `sprints` | array | `{name, start_date, finish_date}` rows — the edited preview posted back. Wins over `count`/`start_date`. Each row must span 120 days or fewer |
 
 **Response** — the same shape for a preview (`200`) and a commit (`201`):
 
@@ -913,18 +913,24 @@ Four properties are guaranteed:
   window pushes the finish date out rather than shrinking the iteration, and
   `non_working_days_skipped` reports every non-working day the window spans.
 - **Preview writes nothing.** `dry_run: true` returns the identical payload with
-  `status: "new"` on every row and no `id`, so a client can render and edit it
-  before committing.
+  `id: null` on every row and `status: "new"` on the rows that would be created
+  (already-taken names still come back as `"exists"` — that is the point of the
+  preview), so a client can render and edit it before committing.
 - **Idempotent on name.** A candidate whose name already belongs to a live sprint
   in the project comes back as `status: "exists"` and is never re-created or
   overwritten. Submitting twice yields one cadence.
-- **Bounded.** At most 52 iterations per call; a larger `count` or `sprints` list
-  is a `400`.
+- **Bounded.** At most 52 iterations per call, each holding at most 30 working
+  days (or, on the edited-row path, spanning at most 120 calendar days); a larger
+  `count` or `sprints` list is a `400`. There is no endpoint-specific rate limit
+  beyond the account-wide default — aggregate bulk-write governance is tracked
+  with the token-scope work.
 
 `capacity_hint` is a suggestion, never a ceiling: generation does not write it
 anywhere by itself, and `note` is server-owned copy that clients render alongside
 the number. A `400` with a `detail` message is returned when the project's
-calendar has no usable working day in range.
+calendar has no usable working day in range; that case carries
+`code: "calendar_has_no_working_day"` so a client can route the user to calendar
+settings rather than surfacing prose.
 
 ### Sprint–milestone binding
 
