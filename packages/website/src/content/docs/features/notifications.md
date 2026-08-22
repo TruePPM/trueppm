@@ -212,6 +212,15 @@ of what actually arrives:
   preset from Agile to Waterfall. Baselines and Monte Carlo are now shown. Your
   7 items keep their status, dates and assignments — what changed is where you
   find them."
+- *The views in this project changed* — "Dana hid Time tracking in this project.
+  Your 7 items keep their status, dates and assignments — what changed is where
+  you find them."
+
+Who gets named is deliberate. A preset switch is the act, and the views that
+appear or disappear are its consequence — so the preset clause is attributed and
+the views are simply stated. Hiding a view directly *is* the act, so that clause
+carries the name instead. Neither wording credits anyone with a decision they did
+not make.
 
 Three things this deliberately does **not** do:
 

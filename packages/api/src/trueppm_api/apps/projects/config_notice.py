@@ -443,25 +443,35 @@ def _surface_body(
     does not claim anything about which chrome the web client chooses to render
     for a preset — a notice that over-claims is worse than a terse one, because
     the recipient checks it once and stops believing the next one.
+
+    The actor is named exactly once, and which clause names them is load-bearing.
+    A preset switch is the deliberate act and the surface changes fall out of it,
+    so the preset clause is attributed and the surfaces are stated as consequence
+    — writing "Dana hid Baselines" for a flip Dana never made surface-by-surface
+    would attribute a decision to them that they did not take. When there is no
+    preset change the override IS the deliberate act, so it takes the attribution.
     """
     parts: list[str] = []
+    hidden = [k for k, v in after.visibility.items() if before.visibility.get(k) and not v]
+    shown = [k for k, v in after.visibility.items() if v and not before.visibility.get(k, False)]
+
     if before.methodology != after.methodology:
         old_label = METHODOLOGY_LABELS.get(before.methodology, before.methodology or "none")
         new_label = METHODOLOGY_LABELS.get(after.methodology, after.methodology)
         parts.append(
             f"{actor_name} switched this project's planning preset from {old_label} to {new_label}."
         )
-
-    hidden = [k for k, v in after.visibility.items() if before.visibility.get(k) and not v]
-    shown = [k for k, v in after.visibility.items() if v and not before.visibility.get(k, False)]
-    if hidden:
-        names = _join_labels(hidden)
-        verb = "is" if len(hidden) == 1 else "are"
-        parts.append(f"{names} {verb} no longer shown here.")
-    if shown:
-        names = _join_labels(shown)
-        verb = "is" if len(shown) == 1 else "are"
-        parts.append(f"{names} {verb} now shown.")
+        if hidden:
+            verb = "is" if len(hidden) == 1 else "are"
+            parts.append(f"{_join_labels(hidden)} {verb} no longer shown here.")
+        if shown:
+            verb = "is" if len(shown) == 1 else "are"
+            parts.append(f"{_join_labels(shown)} {verb} now shown.")
+    else:
+        if hidden:
+            parts.append(f"{actor_name} hid {_join_labels(hidden)} in this project.")
+        if shown:
+            parts.append(f"{actor_name} turned {_join_labels(shown)} back on in this project.")
 
     if item_count:
         parts.append(

@@ -417,7 +417,10 @@ def test_hiding_a_view_names_the_view_and_leaves_the_work_alone(
     assert resp.status_code == 200
 
     row = only(priya)
-    assert "Time tracking is no longer shown here." in row.body
+    # The override IS the deliberate act here, so it carries the attribution —
+    # unlike the preset case, where the surfaces fall out of the preset and
+    # naming the actor on each one would credit them with a choice they never made.
+    assert "pm hid Time tracking in this project." in row.body
     assert row.subject == "The views in this project changed"
 
 
