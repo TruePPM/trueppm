@@ -24,6 +24,7 @@ const virt = vi.hoisted(() => {
     scrollElements: [] as (Element | null)[],
     estimatedSizes: [] as number[],
     scrollToIndex: vi.fn<(index: number, opts?: { align?: string }) => void>(),
+    measure: vi.fn(),
   };
   state.scrollToIndex.mockImplementation((index) => {
     if (state.widenOnScroll) state.windowSize = Math.max(state.windowSize, index + 1);
@@ -49,6 +50,10 @@ vi.mock('@tanstack/react-virtual', () => ({
           start: index * ROW_HEIGHT,
         })),
       scrollToIndex: virt.scrollToIndex,
+      // #2997: the panel re-measures when the pointer class flips the row
+      // height. A mock without it throws on mount rather than failing an
+      // assertion, which is the stale-mock class the project CLAUDE.md warns of.
+      measure: virt.measure,
     };
   },
 }));

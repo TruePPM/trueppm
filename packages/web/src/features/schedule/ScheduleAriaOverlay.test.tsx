@@ -12,6 +12,8 @@
  * fallbacks, scroll-into-view on far jumps, and the live-region announcement.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { ROW_HEIGHT_FINE, ROW_HEIGHT_COARSE } from './scheduleConstants';
+import { stubCoarsePointer, restoreCoarsePointer } from '@/test/coarsePointer';
 import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
 import type { RefObject } from 'react';
 import type { GanttEngine, GanttEngineEventMap, GanttScaleData } from './engine';
@@ -35,7 +37,9 @@ vi.stubGlobal(
 // Fixtures
 // ---------------------------------------------------------------------------
 
-const ROW_HEIGHT = 28;
+// The fine-pointer height, named as such (#2997): the row model is a runtime
+// value now, and jsdom's missing `matchMedia` is what resolves it to 28 here.
+const ROW_HEIGHT = ROW_HEIGHT_FINE;
 const HEADER_HEIGHT = 28;
 
 function makeTask(id: string, name: string, overrides: Partial<Task> = {}): Task {
@@ -623,5 +627,49 @@ describe('ScheduleAriaOverlay far-jump scroll-into-view', () => {
     fireEvent.keyDown(screen.getByRole('option', { name: /Task 0,/ }), { key: 'ArrowDown' });
     expect(host.scrollTop).toBe(0);
     expect(screen.getByRole('option', { name: /Task 1,/ })).toHaveFocus();
+  });
+});
+
+
+/**
+ * #2997 — the overlay derives its own virtualization window and its own row
+ * rects. Both must resolve to the same pitch the canvas beneath is painting, or
+ * the focus ring frames empty space and an AT reads a row set the user is not
+ * looking at.
+ */
+describe('ScheduleAriaOverlay at the coarse row height (#2997)', () => {
+  const MANY = Array.from({ length: 40 }, (_, i) => makeTask(`t${i}`, `Task ${i}`));
+
+  afterEach(restoreCoarsePointer);
+
+  it('narrows the virtualization window as rows get taller', () => {
+    stubCoarsePointer(true);
+    mount({ tasks: MANY, clientHeight: 300 });
+    // Same viewport, taller rows → fewer rows fit. A window still computed at
+    // 28 would mount rows the canvas has already scrolled past.
+    const overscan = 5 * ROW_HEIGHT_COARSE;
+    const lastRow = Math.min(39, Math.ceil((300 - 28 + overscan) / ROW_HEIGHT_COARSE));
+    expect(screen.getAllByRole('option')).toHaveLength(lastRow + 1);
+  });
+
+  it('scrolls a far-jump target into view using the coarse pitch', () => {
+    stubCoarsePointer(true);
+    const { host } = mount({ tasks: MANY, clientHeight: 300 });
+    fireEvent.keyDown(screen.getByRole('option', { name: /Task 0,/ }), { key: 'End' });
+    expect(host.scrollTop).toBe(39 * ROW_HEIGHT_COARSE + ROW_HEIGHT_COARSE - (300 - 28));
+  });
+
+  it('places each row rect on the coarse pitch and centers its bar in it', () => {
+    stubCoarsePointer(true);
+    mount({ tasks: MANY.slice(0, 3), clientHeight: 300 });
+    const rowWrapper = (n: number) =>
+      screen.getByRole('option', { name: new RegExp(`Task ${n},`) })
+        .parentElement as HTMLElement;
+    expect(rowWrapper(0).style.top).toBe(`${28}px`);
+    expect(rowWrapper(1).style.top).toBe(`${28 + ROW_HEIGHT_COARSE}px`);
+    expect(rowWrapper(0).style.height).toBe(`${ROW_HEIGHT_COARSE}px`);
+    // The bar's inset is derived, so it re-centers instead of hugging the top.
+    const bar = screen.getByRole('option', { name: /Task 0,/ });
+    expect(bar.style.top).toBe('13px');
   });
 });

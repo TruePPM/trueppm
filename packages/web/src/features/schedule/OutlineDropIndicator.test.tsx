@@ -124,3 +124,64 @@ describe('OutlineDropIndicator — it is decoration over a live list', () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+
+/**
+ * #2997 — the insertion line's origin must move with the grip's lane.
+ *
+ * `geometry.indent` is measured from the row's *content* origin. On a coarse
+ * pointer the columns start 44px in, behind the grip's reserved lane. Without
+ * `leftInset` the line still reports the right `data-indent`, so the DOM
+ * contract looks correct while the mark is drawn one lane left of the level it
+ * claims — the drop model's whole promise (rule 311(a): "beside" and "inside"
+ * are told apart by position) is read off that x.
+ */
+describe('OutlineDropIndicator — the grip lane offset (#2997)', () => {
+  const intent = {
+    kind: 'sibling',
+    referenceId: 'gate',
+    position: 'before',
+    newParentId: null,
+    level: 1,
+  } as Parameters<typeof OutlineDropIndicator>[0]['intent'];
+
+  function lineLeft(leftInset?: number): string {
+    const { unmount } = render(
+      <OutlineDropIndicator
+        intent={intent}
+        rows={ROWS}
+        draggedId="gate"
+        rowHeight={ROW_H}
+        {...(leftInset == null ? {} : { leftInset })}
+      />,
+    );
+    const left = screen.getByTestId("outline-drop-line").style.left;
+    unmount();
+    return left;
+  }
+
+  it('is byte-identical to today when the prop is omitted', () => {
+    expect(lineLeft()).toBe(lineLeft(0));
+  });
+
+  it('shifts the line by the lane, and by exactly the lane', () => {
+    const base = Number.parseFloat(lineLeft(0));
+    expect(Number.parseFloat(lineLeft(44)) - base).toBe(44);
+  });
+
+  it('leaves data-indent alone — the level did not change, only the origin', () => {
+    render(
+      <OutlineDropIndicator
+        intent={intent}
+        rows={ROWS}
+        draggedId="gate"
+        rowHeight={ROW_H}
+        leftInset={44}
+      />,
+    );
+    expect(screen.getByTestId('outline-drop-line')).toHaveAttribute(
+      'data-indent',
+      String(outlineGuideX(1)),
+    );
+  });
+});

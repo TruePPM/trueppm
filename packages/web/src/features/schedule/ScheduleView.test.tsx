@@ -94,6 +94,9 @@ const fakeEngine = {
   scrollToDate: vi.fn(),
   fitToProject: vi.fn(),
   updateTask: vi.fn(),
+  // #2997: the view tells the engine when the pointer class moves the row
+  // pitch, so the hit index and the paint are re-derived off the new height.
+  rowMetricsChanged: vi.fn(),
   scales: null,
   scrollLeft: 0,
 };

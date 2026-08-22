@@ -15,6 +15,7 @@ import type { GanttEngine, GanttEngineEventMap, GanttScaleData } from '@/feature
 import type { DragPreviewResult, Task } from '@/types';
 import { HEADER_HEIGHT } from './scheduleConstants';
 import { BAR_TOP_OFFSET, ROW_HEIGHT } from './engine/GanttHitIndex';
+import { stubCoarsePointer, restoreCoarsePointer } from '@/test/coarsePointer';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -439,5 +440,48 @@ describe('PreviewOverlay', () => {
       expect(chip.textContent).toMatch(PINNED);
       expect(chip.className).toContain('border-semantic-at-risk');
     });
+  });
+});
+
+
+/**
+ * #2997 — the ghost bar reads the same live bindings the renderer paints real
+ * bars with, so it lands *on* the bar it previews rather than near it.
+ *
+ * The component's only change is a bare `useRowHeight()` whose return value is
+ * discarded — an obvious candidate for a future "remove the unused call" edit.
+ * Without it the overlay does not re-render on a pointer flip and the ghosts sit
+ * at the old pitch over rows drawn at the new one, mid-drag.
+ */
+describe('PreviewOverlay at the coarse row height (#2997)', () => {
+  afterEach(restoreCoarsePointer);
+
+  it('places ghost bars on the 44px pitch with the derived inset', () => {
+    stubCoarsePointer(true);
+    useDragStore.getState().startDrag('t1');
+    useDragStore.getState().updatePreview([CRITICAL_RESULT], null, 0); // t2 = row 1
+    const overlay = renderOverlay().container.firstChild as HTMLElement;
+    const bar = overlay.querySelector<HTMLElement>('div.overflow-hidden > div');
+    // 1 * 44 + (44 - 18) / 2 — a ghost still using the old 5px inset would sit
+    // 8px above the bar it claims to preview.
+    expect(bar?.style.top).toBe(`${44 + 13}px`);
+  });
+
+  it('follows a flip mid-session rather than keeping the pre-flip pitch', () => {
+    const mq = stubCoarsePointer(false);
+    useDragStore.getState().startDrag('t1');
+    useDragStore.getState().updatePreview([CRITICAL_RESULT], null, 0);
+    const overlay = renderOverlay().container.firstChild as HTMLElement;
+    expect(overlay.querySelector<HTMLElement>('div.overflow-hidden > div')?.style.top).toBe(
+      `${28 + 5}px`,
+    );
+
+    act(() => mq.flip(true));
+
+    // The component's only use of the hook is a bare subscription call. Delete
+    // it and this assertion is the one thing that notices.
+    expect(overlay.querySelector<HTMLElement>('div.overflow-hidden > div')?.style.top).toBe(
+      `${44 + 13}px`,
+    );
   });
 });

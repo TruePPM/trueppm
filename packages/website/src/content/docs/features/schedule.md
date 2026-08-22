@@ -374,6 +374,7 @@ Three ways to zoom:
 - **Toolbar stepper** — the **−**, current-level, and **+** controls, plus a **Fit to project** button that frames the whole project in the viewport.
 - **Wheel / pinch** — hold **Ctrl/Cmd** and scroll the mouse wheel, or pinch on a trackpad, while pointing at the timeline. The zoom centers on the cursor: the date under your pointer stays put while everything else scales around it.
 - **Touch (tablet)** — on the timeline canvas, **pinch with two fingers** to zoom; the point between your fingers stays put as the scale changes.
+- **Row height follows the pointer** — schedule rows are 28px with a mouse or trackpad and **44px on a touch device**, so the row and its controls meet the touch-target minimum. The taller row applies to the timeline canvas as well as the outline: a bar is itself a drag target, so it gets the same room. It is keyed on the pointer rather than the window width, so a tablet with a keyboard attached keeps the compact rows and re-flows if you detach it.
 - **Keyboard** — `⌘/Ctrl` + `=` zooms in, `-` zooms out, and `0` fits the project to the viewport.
 
 ## Interaction

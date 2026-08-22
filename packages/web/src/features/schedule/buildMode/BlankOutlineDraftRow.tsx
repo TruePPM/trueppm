@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { ROW_HEIGHT } from '../scheduleConstants';
+import { useRowHeight } from '@/hooks/useRowHeight';
 
 export interface BlankOutlineDraftRowProps {
   /**
@@ -11,6 +11,12 @@ export interface BlankOutlineDraftRowProps {
   onCommit?: (name: string) => void;
   /** Column width for the name cell, so the draft lines up with real rows. */
   nameWidth: number;
+  /**
+   * Width of the ⋮⋮ grip's lane (#2997), from `TaskListPanel`. Defaults to 0 so
+   * the *empty* variant — the "No tasks yet." line a viewer sees — reserves
+   * nothing, matching the rows a viewer gets.
+   */
+  gripReserve?: number;
 }
 
 /**
@@ -27,7 +33,12 @@ export interface BlankOutlineDraftRowProps {
  * backed out of, and would put a row into other people's live views before its
  * author had typed anything. Nothing is persisted until there is a name to persist.
  */
-export function BlankOutlineDraftRow({ onCommit, nameWidth }: BlankOutlineDraftRowProps) {
+export function BlankOutlineDraftRow({
+  onCommit,
+  nameWidth,
+  gripReserve = 0,
+}: BlankOutlineDraftRowProps) {
+  const rowHeight = useRowHeight();
   const inputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState('');
   // Guards the blur handler against double-committing what Enter just sent:
@@ -68,7 +79,7 @@ export function BlankOutlineDraftRow({ onCommit, nameWidth }: BlankOutlineDraftR
       <div
         role="row"
         aria-rowindex={2}
-        style={{ height: ROW_HEIGHT }}
+        style={{ height: rowHeight }}
         className="flex items-center px-2 text-xs text-neutral-text-secondary"
       >
         <span role="gridcell">No tasks yet.</span>
@@ -80,9 +91,12 @@ export function BlankOutlineDraftRow({ onCommit, nameWidth }: BlankOutlineDraftR
     <div
       role="row"
       aria-rowindex={2}
-      style={{ height: ROW_HEIGHT }}
+      style={{ height: rowHeight }}
       className="flex items-center border-b border-neutral-border/60"
     >
+      {gripReserve > 0 && (
+        <span aria-hidden="true" className="shrink-0" style={{ width: gripReserve }} />
+      )}
       <div role="gridcell" style={{ width: nameWidth }} className="px-2">
         <input
           ref={inputRef}

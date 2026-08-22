@@ -6,6 +6,7 @@ import { ProgramSchedulePage } from './ProgramSchedulePage';
 import { transformProgramSchedule } from './transformProgramSchedule';
 import { HEADER_HEIGHT, ROW_HEIGHT } from '@/features/schedule/scheduleConstants';
 import { GanttEngineStub } from '@/features/schedule/engine';
+import { stubCoarsePointer, restoreCoarsePointer } from '@/test/coarsePointer';
 import type { GanttEngine, GanttEngineEventMap, GanttScaleData } from '@/features/schedule/engine';
 import type { ProgramSchedule, ProgramScheduleExternalTask } from '../hooks/useProgramSchedule';
 
@@ -46,6 +47,13 @@ class TestEngine extends GanttEngineStub {
   override readonly scales: GanttScaleData | null = SCALES;
 
   fitCalls = 0;
+
+  /** #2997 — how many times the page told the canvas its row pitch moved. */
+  rowMetricsCalls = 0;
+
+  override rowMetricsChanged(): void {
+    this.rowMetricsCalls += 1;
+  }
 
   private readonly handlers = new Map<string, (payload: never) => void>();
 
@@ -483,6 +491,57 @@ describe('ProgramSchedulePage', () => {
     // Both engine subscriptions are torn down with the page.
     expect(engine.hasSubscriber('scales-change')).toBe(false);
     expect(engine.hasSubscriber('task-hover')).toBe(false);
+  });
+
+  /**
+   * #2997 — the canvas is imperative, so a pointer-class flip is not a render
+   * for it.
+   *
+   * React re-renders the outline and the scroll spacer from the new row height
+   * on its own. The engine repaints from an rAF loop that only re-arms when a
+   * mutator marks it dirty, and its hit index bakes every row's `rowTop` at
+   * build time — so without this call the canvas stays painted AND hit-tested at
+   * the old pitch until some unrelated repaint lands. The symptom is not a
+   * visual glitch; it is a tap opening the row above the one under the finger.
+   */
+  it('tells the engine when the pointer class moves the row pitch (#2997)', async () => {
+    const engine = new TestEngine();
+    activeEngine = engine;
+    useProgramSchedule.mockReturnValue(queryResult({ data: GOLDEN }));
+
+    const mq = stubCoarsePointer(false);
+    try {
+      renderPage();
+      await waitFor(() => expect(engine.rowMetricsCalls).toBe(1)); // once on ready
+
+      act(() => mq.flip(true));
+
+      await waitFor(() => expect(engine.rowMetricsCalls).toBe(2));
+      // And the DOM half moved with it, from the same value.
+      const spacer = screen.getByTestId('program-schedule-canvas-scroll')
+        .firstElementChild as HTMLElement;
+      const rowCount = transformProgramSchedule(GOLDEN).tasks.length;
+      expect(spacer.style.height).toBe(`${HEADER_HEIGHT + rowCount * 44}px`);
+    } finally {
+      restoreCoarsePointer();
+    }
+  });
+
+  it('sizes the scroll spacer from the coarse row height (#2997)', () => {
+    const mq = stubCoarsePointer(true);
+    try {
+      useProgramSchedule.mockReturnValue(queryResult({ data: GOLDEN }));
+      renderPage();
+      const spacer = screen.getByTestId('program-schedule-canvas-scroll')
+        .firstElementChild as HTMLElement;
+      const rowCount = transformProgramSchedule(GOLDEN).tasks.length;
+      // The spacer is the only thing making a long program's last rows
+      // reachable — sized at 28 while rows paint at 44 truncates the plan.
+      expect(spacer.style.height).toBe(`${HEADER_HEIGHT + rowCount * 44}px`);
+    } finally {
+      restoreCoarsePointer();
+    }
+    void mq;
   });
 
   it('re-frames the program when the Fit control is used', async () => {

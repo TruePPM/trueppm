@@ -14,16 +14,24 @@
 import type { Task } from '@/types';
 import type { GanttScaleData } from './GanttScaleData';
 import { dateToLeft, dateToRight } from './GanttScaleData';
-import { HEADER_HEIGHT } from '../scheduleConstants';
+import { HEADER_HEIGHT, ROW_HEIGHT, BAR_TOP_OFFSET, BAR_HEIGHT } from '../scheduleConstants';
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-export const ROW_HEIGHT = 28;
-export const BAR_TOP_OFFSET = 5;
-export const BAR_HEIGHT = 18;
+/**
+ * Re-exported, not redeclared (#2997). `ROW_HEIGHT` and `BAR_TOP_OFFSET` are
+ * pointer-dependent **live bindings** owned by `scheduleConstants`; a second
+ * `= 28` here would put the hit index out of step with what the renderer paints,
+ * and a hit index that disagrees with the paint does not look broken — taps just
+ * land on the wrong task. Re-exporting keeps every existing importer of these
+ * names working while leaving exactly one place the number is chosen.
+ */
+export { ROW_HEIGHT, BAR_TOP_OFFSET, BAR_HEIGHT };
 
+/** Web rule 5 / WCAG 2.5.5 touch-target floor, in logical px. */
+const TOUCH_TARGET_MIN = 44;
 /** Width of the resize handle in logical px (non-touch). */
 const RESIZE_HANDLE_WIDTH = 16;
 /** How many px the resize zone extends past the right edge. */
@@ -118,9 +126,12 @@ class HitIndexImpl implements HitIndex {
   }
 
   query(canvasX: number, canvasY: number, isTouch: boolean): HitZone | null {
+    // Hoisted once per query rather than read per row: ROW_HEIGHT is a live
+    // binding (#2997) and this loop runs on every pointer event.
+    const rowH = ROW_HEIGHT;
     for (const row of this._rows) {
       // Fast vertical bounds check using full row height
-      if (canvasY < row.rowTop || canvasY >= row.rowTop + ROW_HEIGHT) continue;
+      if (canvasY < row.rowTop || canvasY >= row.rowTop + rowH) continue;
       const zone = hitZoneInRow(row, canvasX, canvasY, isTouch);
       if (zone) return zone;
     }
@@ -171,9 +182,17 @@ function hitZoneInRow(
   // --- Link-dot zone: [barRight + 4, barRight + 16] x full row ---
   const linkDotLeft = barRight + RESIZE_RIGHT_OVERHANG;
   const linkDotRight = barRight + LINK_DOT_RIGHT;
-  // Expand to 44px tall on touch (centered on bar)
-  const linkDotTop = isTouch ? row.rowTop + (ROW_HEIGHT - 44) / 2 : barTop;
-  const linkDotBottom = isTouch ? linkDotTop + 44 : barBottom;
+  // Expand to the 44px touch floor on touch, centered in the row.
+  //
+  // It never actually reached 44 before #2997, and the reason is not in this
+  // expression: `query()`'s outer bounds check clips every zone to its own row
+  // band, so a 44px zone centered in a 28px row is silently trimmed back to 28
+  // — 8px off each end — and a finger got a 28px target while the code read as
+  // if it got 44. At the coarse row height the arithmetic yields an inset of
+  // exactly 0, so the zone IS the row band and the clip takes nothing. That is
+  // the floor being met, rather than declared.
+  const linkDotTop = isTouch ? row.rowTop + (ROW_HEIGHT - TOUCH_TARGET_MIN) / 2 : barTop;
+  const linkDotBottom = isTouch ? linkDotTop + TOUCH_TARGET_MIN : barBottom;
   if (within(canvasX, linkDotLeft, linkDotRight) && within(canvasY, linkDotTop, linkDotBottom)) {
     return { ...base, type: 'link-dot' };
   }
@@ -221,6 +240,11 @@ function hitZoneInRow(
 export function buildHitIndex(tasks: Task[], scales: GanttScaleData): HitIndex {
   const rows: RowEntry[] = [];
 
+  // Hoisted live bindings (#2997) — the index is rebuilt on every data or zoom
+  // change, so this loop is O(n) over the whole plan.
+  const rowH = ROW_HEIGHT;
+  const barTopOffset = BAR_TOP_OFFSET;
+
   for (let i = 0; i < tasks.length; i++) {
     const task = tasks[i];
     // Skip unscheduled tasks — no valid bar position
@@ -229,9 +253,9 @@ export function buildHitIndex(tasks: Task[], scales: GanttScaleData): HitIndex {
     // finish is inclusive — hit zones must track the true (exclusive) edge so the
     // resize handle and link-dot sit on the visible bar edge, not a day early (#950).
     const barRight = dateToRight(task.finish, scales);
-    const barTop = i * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
+    const barTop = i * rowH + HEADER_HEIGHT + barTopOffset;
     const barBottom = barTop + BAR_HEIGHT;
-    const rowTop = i * ROW_HEIGHT + HEADER_HEIGHT;
+    const rowTop = i * rowH + HEADER_HEIGHT;
 
     rows.push({
       taskId: task.id,

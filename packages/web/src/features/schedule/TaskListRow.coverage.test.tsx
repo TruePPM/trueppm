@@ -13,7 +13,7 @@
 import { useMemo, type ReactElement } from 'react';
 import { screen, render, fireEvent, act } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { describe, expect, it, beforeEach, beforeAll, vi } from 'vitest';
+import { describe, expect, it, afterEach, beforeEach, beforeAll, vi } from 'vitest';
 import { MemoryRouter, Routes, Route } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderWithRouter } from '@/test/utils';
@@ -23,6 +23,7 @@ import { BuildModeProvider } from './buildMode/BuildModeContext';
 import { useScheduleFocus, type BuildModeApi } from './buildMode';
 import type { Task } from '@/types';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
+import { stubCoarsePointer, restoreCoarsePointer } from '@/test/coarsePointer';
 
 const mocks = vi.hoisted(() => ({
   toggleMutate: vi.fn(),
@@ -601,6 +602,11 @@ function renderBuild(props: Parameters<typeof BuildHarness>[0] = {}) {
 }
 
 describe('TaskListRow — the ⋮⋮ grip names the keyboard twins (#347, #2954)', () => {
+  // Also puts the module row-height binding back on 28 — it is real global
+  // state within this file, and a leaked 44 would silently change every later
+  // row render here.
+  afterEach(restoreCoarsePointer);
+
   beforeAll(() => {
     Element.prototype.setPointerCapture = vi.fn();
     Element.prototype.releasePointerCapture = vi.fn();
@@ -629,6 +635,35 @@ describe('TaskListRow — the ⋮⋮ grip names the keyboard twins (#347, #2954)
     fireEvent.pointerDown(handle, { clientY: 0, pointerId: 1 });
     fireEvent.pointerUp(handle, { clientY: 60, pointerId: 1 });
     expect(mocks.reorderMutate).not.toHaveBeenCalled();
+  });
+
+  /**
+   * #2997 — the grip's size follows the POINTER CLASS, not the viewport.
+   *
+   * jsdom has no layout, so these assert the inline style the browser will lay
+   * out from; `e2e/schedule-coarse-row-height.spec.ts` is what proves the
+   * resulting box actually measures 44x44. What this pair catches cheaply is the
+   * regression that matters most: somebody reintroducing a literal, or
+   * re-keying the size on a `md:` breakpoint (which is how a 1024px tablet ended
+   * up with the 14px mouse grip in the first place).
+   */
+  it('is 44x44 on a coarse pointer', () => {
+    stubCoarsePointer(true);
+    renderBuild({ siblingIds: ['t1', 't2', 't3'] });
+    const handle = screen.getByTestId('row-reorder-grip');
+    expect(handle.style.width).toBe('44px');
+    expect(handle.style.height).toBe('44px');
+    // No breakpoint-keyed width may survive alongside the pointer-keyed one —
+    // two sources for one size is the class this whole change exists to remove.
+    expect(handle.className).not.toMatch(/w-\[26px\]|md:w-/);
+  });
+
+  it('stays narrow on a fine pointer — a mouse gives up no row width', () => {
+    stubCoarsePointer(false);
+    renderBuild({ siblingIds: ['t1', 't2', 't3'] });
+    const handle = screen.getByTestId('row-reorder-grip');
+    expect(handle.style.width).toBe('14px');
+    expect(handle.style.height).toBe('28px');
   });
 });
 

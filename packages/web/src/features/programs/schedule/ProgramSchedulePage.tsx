@@ -8,7 +8,8 @@ import { useScheduleStore } from '@/stores/scheduleStore';
 import { fmtUtcLong } from '@/lib/formatUtcDate';
 import { CanvasScheduleTimeline } from '@/features/schedule/CanvasScheduleTimeline';
 import { ZoomControl } from '@/features/schedule/ZoomControl';
-import { HEADER_HEIGHT, ROW_HEIGHT } from '@/features/schedule/scheduleConstants';
+import { HEADER_HEIGHT } from '@/features/schedule/scheduleConstants';
+import { useRowHeight } from '@/hooks/useRowHeight';
 import type { GanttEngine, GanttScaleData } from '@/features/schedule/engine';
 import { useProgramId } from '@/hooks/useProgramId';
 import { useProgram } from '@/hooks/useProgram';
@@ -39,6 +40,10 @@ interface HoveredExternal {
  * runs no CPM. Live updates come from each member project's WebSocket channel.
  */
 export function ProgramSchedulePage() {
+  // 28px on a mouse, 44px on a coarse pointer (#2997). The scroll spacer below
+  // must be sized from the same value the canvas engine paints rows with, or
+  // the last rows of a long program become unreachable.
+  const rowHeight = useRowHeight();
   const programId = useProgramId();
   const navigate = useNavigate();
   const breakpoint = useBreakpoint();
@@ -77,6 +82,17 @@ export function ProgramSchedulePage() {
   // Reactive scales — keep totalCanvasWidth current as setTasks rebuilds the
   // scale (fit-to-project, live refetch). Drives the scroll spacer's width so
   // the canvas is horizontally scrollable when zoomed in (mirrors ScheduleView).
+  // #2997: the pointer class changed the row pitch. React has already
+  // re-rendered the outline, the overlay and the scroll spacer from the same
+  // value — the canvas has not, because it paints from an imperative rAF loop
+  // that only re-arms when a mutator marks it dirty, and its hit index bakes
+  // each row's `rowTop` at build time. Until this fires, a tap resolves against
+  // the OLD pitch while the DOM shows the new one, which opens the wrong task
+  // and looks like nothing is wrong.
+  useEffect(() => {
+    engine?.rowMetricsChanged();
+  }, [engine, rowHeight]);
+
   const [scheduleScales, setScheduleScales] = useState<GanttScaleData | null>(null);
   useEffect(() => {
     if (!engine) return;
@@ -208,7 +224,7 @@ export function ProgramSchedulePage() {
           style={{
             width: totalCanvasWidth > 0 ? totalCanvasWidth : '100%',
             minWidth: '100%',
-            height: HEADER_HEIGHT + tasks.length * ROW_HEIGHT,
+            height: HEADER_HEIGHT + tasks.length * rowHeight,
             position: 'relative',
           }}
         >

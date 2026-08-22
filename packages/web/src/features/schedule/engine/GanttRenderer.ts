@@ -32,15 +32,20 @@ import {
   parseUTCDate,
 } from './GanttScaleData';
 import { todayISO } from '@/features/resource/resourceUtils';
-import { HEADER_HEIGHT } from '../scheduleConstants';
+import { HEADER_HEIGHT, ROW_HEIGHT, BAR_TOP_OFFSET, BAR_HEIGHT } from '../scheduleConstants';
 
 // ---------------------------------------------------------------------------
 // Constants (exported — used by GanttEngineImpl and GanttHitIndex)
 // ---------------------------------------------------------------------------
 
-export const ROW_HEIGHT = 28;
-export const BAR_TOP_OFFSET = 5;
-export const BAR_HEIGHT = 18;
+/**
+ * Re-exported, not redeclared (#2997) — see the note in `GanttHitIndex.ts`.
+ * `ROW_HEIGHT`/`BAR_TOP_OFFSET` are live bindings that change with the pointer
+ * class, so read them **inside** the drawing function. Hoisting into a local
+ * `const` at the top of a per-row loop is the right thing and is what the hot
+ * loops below do; hoisting to module scope would freeze the fine-pointer value.
+ */
+export { ROW_HEIGHT, BAR_TOP_OFFSET, BAR_HEIGHT };
 export const SUMMARY_BAR_HEIGHT = 8;
 // Minimum bar width (px) below which a selection ring will NOT nest inside a red
 // critical frame — the two concentric rings would collide (#1699). Below this the
@@ -482,15 +487,14 @@ export function drawRowBands(
   scrollTop: number,
   canvasWidth: number,
 ): void {
+  // Hoisted: ROW_HEIGHT is a live binding (#2997) and this runs per visible row
+  // on every frame — read it once rather than through the module namespace on
+  // each iteration.
+  const rowH = ROW_HEIGHT;
   for (let i = firstRow; i <= lastRow; i++) {
     if (i % 2 !== 0) {
       ctx.fillStyle = _palette.rowBandAlt;
-      ctx.fillRect(
-        0,
-        i * ROW_HEIGHT + HEADER_HEIGHT - scrollTop,
-        canvasWidth + scrollLeft,
-        ROW_HEIGHT,
-      );
+      ctx.fillRect(0, i * rowH + HEADER_HEIGHT - scrollTop, canvasWidth + scrollLeft, rowH);
     }
   }
 }
@@ -621,8 +625,9 @@ export function drawGridLines(
   // Horizontal row separators
   ctx.beginPath();
   ctx.strokeStyle = _palette.gridLine;
+  const rowH = ROW_HEIGHT; // hoisted live binding — see drawRowBands (#2997)
   for (let i = firstRow; i <= lastRow + 1; i++) {
-    const y = i * ROW_HEIGHT + HEADER_HEIGHT - scrollTop + 0.5;
+    const y = i * rowH + HEADER_HEIGHT - scrollTop + 0.5;
     ctx.moveTo(0, y);
     ctx.lineTo(ctx.canvas.width / (window.devicePixelRatio || 1), y);
   }
@@ -673,10 +678,12 @@ const SPRINT_BAND_HATCH_PITCH = 10;
 /**
  * Height of the band's name pill, in logical px.
  *
- * Sized so the 12px name sits entirely inside the 10px gutter BETWEEN two rows'
- * bars (`ROW_HEIGHT` 28 − `BAR_HEIGHT` 18): only the pill's rounded 3px caps
- * reach into a bar box, and the label is drawn before the bars so a bar wins
- * that sliver — the critical-path frame lives in the first and last 2px of the
+ * Sized against the FINE-pointer gutter between two rows' bars — 10px, i.e.
+ * `ROW_HEIGHT_FINE` 28 − `BAR_HEIGHT` 18. The 12px name sits entirely inside it,
+ * only the pill's rounded 3px caps reach into a bar box, and the label is drawn
+ * before the bars so a bar wins that sliver. On a coarse pointer the gutter is
+ * 26px, so the pill has room to spare and this stays the binding constraint
+ * (#2997) — the critical-path frame lives in the first and last 2px of the
  * bar box and must never be occluded by a decorative label (rule 235/295).
  */
 const SPRINT_BAND_PILL_HEIGHT = 16;
@@ -1779,7 +1786,7 @@ export function drawFilterMatchMarker(
   ctx: CanvasRenderingContext2D,
   rowIndex: number,
 ): void {
-  const top = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + (ROW_HEIGHT - BAR_HEIGHT) / 2;
+  const top = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
   ctx.save();
   // Full opacity regardless of any ambient alpha: the marker is the signal that
   // survives when everything around it is de-emphasized.
@@ -1925,11 +1932,12 @@ export function drawTimelineNameGutter(
   ctx.textBaseline = 'middle';
   const maxTextWidth = NAME_GUTTER_WIDTH - GUTTER_TEXT_PAD * 2;
 
+  const rowH = ROW_HEIGHT; // hoisted live binding — see drawRowBands (#2997)
   for (let i = firstRow; i <= lastRow; i++) {
     const task = tasks[i];
     if (!task) continue;
-    const rowTop = i * ROW_HEIGHT + HEADER_HEIGHT - scrollTop;
-    const centerY = rowTop + ROW_HEIGHT / 2;
+    const rowTop = i * rowH + HEADER_HEIGHT - scrollTop;
+    const centerY = rowTop + rowH / 2;
     // Summary rows read as structural headers; everything else is secondary text.
     ctx.fillStyle = task.isSummary ? _palette.text : _palette.textSecondary;
     ctx.fillText(truncateToWidth(ctx, task.name, maxTextWidth), GUTTER_TEXT_PAD, centerY);
@@ -2829,6 +2837,7 @@ function buildObstacleRows(
   milestoneHalfDiag: number,
 ): Array<(RoutingBox & { id: string }) | undefined> {
   const barByRow = new Array<(RoutingBox & { id: string }) | undefined>(tasks.length);
+  const rowH = ROW_HEIGHT; // hoisted live binding — see drawRowBands (#2997)
   for (let i = 0; i < tasks.length; i++) {
     const t = tasks[i];
     if (!t.start || !t.finish) continue;
@@ -2836,7 +2845,7 @@ function buildObstacleRows(
     const rectLeft = t.isMilestone ? cx - milestoneHalfDiag : cx;
     // Non-milestone finish is inclusive — obstacle box ends at the true edge (#950).
     const rectRight = t.isMilestone ? cx + milestoneHalfDiag : dateToRight(t.finish, scales);
-    const rowCenterY = i * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2;
+    const rowCenterY = i * rowH + HEADER_HEIGHT + rowH / 2;
 
     let boxLeft: number, boxRight: number, halfH: number;
     if (t.isMilestone) {

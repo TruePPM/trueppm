@@ -278,8 +278,19 @@ own subtree**. Press `Esc` at any point during the drag to abandon it; nothing i
 until you release.
 
 On a touch screen, **press and hold** the grip to lift the row — a swipe that starts on
-the grip still scrolls the list, so the outline never becomes unscrollable. The grip
-itself grows to a finger-sized target below the desktop breakpoint.
+the grip still scrolls the list, so the outline never becomes unscrollable.
+
+Touch also changes the outline's proportions. On a **touchscreen tablet or laptop** —
+the devices that get this surface at all; phones use the full-width timeline described in
+[Schedule view](/features/schedule/) and do not show the outline — **every row grows from
+28px to 44px**, and the grip grows with it to a full 44 x 44 target with a lane of its
+own, so it never sits on top of another control. The ⊕ insert affordance, which a mouse
+reveals on hover, stays visible for the same reason.
+
+This follows the *pointer*, not the window width: a tablet with a keyboard and trackpad
+attached keeps the compact mouse-sized rows, and a large touchscreen gets the finger-sized
+ones — and the outline re-flows if you attach or detach a keyboard mid-session. Task bars
+stay centered in the taller row, and nothing changes on a mouse or trackpad.
 
 Everything the drag does has a non-drag equivalent, and none of them changes any dates:
 
