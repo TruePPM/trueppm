@@ -38,6 +38,9 @@ from datetime import timedelta
 from typing import Any, cast
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.utils import timezone
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status
 from rest_framework.exceptions import AuthenticationFailed
@@ -103,9 +106,10 @@ def _set_refresh_cookie(
 
     Cookie attributes are driven by settings so a non-HTTPS local dev server can
     still complete the flow (``AUTH_REFRESH_COOKIE_SECURE=False``) while
-    production defaults to ``Secure``. The cookie is ``Path``-scoped to the
-    refresh endpoint so it is never sent on ordinary API calls — only the
-    refresh request carries it.
+    production defaults to ``Secure``. The cookie is ``Path``-scoped to
+    ``/api/v1/auth/`` so it is never sent on ordinary API calls — only the auth
+    endpoints that must read it (refresh and logout) receive it. Scoping it to the
+    refresh endpoint alone silently broke logout revocation (#2999).
 
     ``persistent_seconds`` controls browser *persistence* (#2246): an int sets a
     ``Max-Age`` so the cookie survives browser close ("remember me"); ``None``
@@ -132,21 +136,33 @@ def _cookie_seconds(remember: bool) -> int | None:
     return None
 
 
-def _sync_outstanding_expiry(refresh: RefreshToken) -> None:
-    """Keep the token's ``OutstandingToken`` bookkeeping row in sync with its ``exp``.
+def _record_outstanding(refresh: RefreshToken) -> None:
+    """Upsert the ``OutstandingToken`` bookkeeping row for ``refresh``.
 
-    ``RefreshToken.for_user`` records an ``OutstandingToken`` whose ``expires_at``
-    is copied from the token's ``exp`` *at creation* — i.e. the 7-day class default,
-    before :func:`_apply_remember` overrides it. ``expires_at`` drives the nightly
-    ``flushexpiredtokens`` cleanup, and ``BlacklistedToken`` cascades on the
-    ``OutstandingToken``. If left at 7 days for a 30-day token, a token blacklisted
-    on day 2 would have its revocation row flushed on day 7 while the JWT stays
-    valid to day 30 → **replayable between day 7 and day 30**. Re-point
-    ``expires_at`` at the real ``exp`` to close that window.
+    This row is what makes a refresh token *revocable*. ``revoke_all_refresh_tokens``
+    (the "sign out every device" primitive behind password reset and off-boarding)
+    iterates ``OutstandingToken`` and blacklists each row, so a live token with no
+    row cannot be revoked by any server-side action.
 
-    No-op when the blacklist app is absent (lean deploy) or no row exists for this
-    jti yet (a rotated token's new jti has no row until it is itself blacklisted,
-    at which point ``blacklist()`` records the row with the correct ``exp``).
+    Two distinct cases, which is why this is an upsert rather than an update (#2999):
+
+    * **Login** — ``RefreshToken.for_user`` already wrote a row, but its
+      ``expires_at`` was copied from the token's ``exp`` *at creation*: the 7-day
+      class default, before :func:`_apply_remember` overrides it. ``expires_at``
+      drives the nightly ``flushexpiredtokens`` cleanup and ``BlacklistedToken``
+      cascades on the ``OutstandingToken``, so a row left at 7 days for a 30-day
+      token would have its revocation record flushed on day 7 while the JWT stayed
+      valid to day 30 → **replayable between day 7 and day 30**.
+    * **Rotation** — ``refresh.set_jti()`` mints a new jti and simplejwt records
+      nothing for it (``outstand()`` is called nowhere in simplejwt's rotation
+      path). Before #2999 the row was therefore missing for precisely the token
+      that was live, so ``revoke_all_refresh_tokens`` walked a set of
+      already-blacklisted rows, returned a plausible non-zero count, and left the
+      real session usable. A password reset did not evict an attacker.
+
+    ``created_at`` is only written on insert, so a re-issued row keeps its original
+    mint time. No-op when the blacklist app is absent (lean deploy degrades to
+    TTL-only expiry) or when the token carries no jti/user claim.
     """
     if "rest_framework_simplejwt.token_blacklist" not in settings.INSTALLED_APPS:
         return
@@ -154,9 +170,55 @@ def _sync_outstanding_expiry(refresh: RefreshToken) -> None:
     from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
     from rest_framework_simplejwt.utils import datetime_from_epoch
 
-    OutstandingToken.objects.filter(jti=refresh[api_settings.JTI_CLAIM]).update(
-        expires_at=datetime_from_epoch(refresh["exp"]),
+    jti = refresh.payload.get(api_settings.JTI_CLAIM)
+    user_id = refresh.payload.get(api_settings.USER_ID_CLAIM)
+    if jti is None or user_id is None:
+        return
+
+    OutstandingToken.objects.update_or_create(
+        jti=jti,
+        create_defaults={
+            "user_id": user_id,
+            "token": str(refresh),
+            "created_at": timezone.now(),
+            "expires_at": datetime_from_epoch(refresh["exp"]),
+        },
+        defaults={
+            "user_id": user_id,
+            "token": str(refresh),
+            "expires_at": datetime_from_epoch(refresh["exp"]),
+        },
     )
+
+
+def _token_subject_is_active(refresh: RefreshToken) -> bool:
+    """Whether the account a refresh token was minted for is still usable.
+
+    Returns ``False`` for a missing claim, an account that no longer exists, and a
+    deactivated one. The wording of the caller's rejection is deliberately the same
+    "invalid or expired" string simplejwt uses for a bad token: a distinct message
+    would tell an attacker holding a stolen token that the account exists and was
+    disabled, which is an enumeration signal on the one endpoint that is reachable
+    without authentication.
+    """
+    from rest_framework_simplejwt.settings import api_settings
+
+    user_id = refresh.payload.get(api_settings.USER_ID_CLAIM)
+    if user_id is None:
+        return False
+
+    user_model = get_user_model()
+    try:
+        return user_model.objects.filter(
+            **{api_settings.USER_ID_FIELD: user_id, "is_active": True}
+        ).exists()
+    except (DjangoValidationError, ValueError, TypeError):
+        # A claim of the wrong type for the pk column (a string where an int is
+        # expected) makes Django raise at query build. DRF does not convert
+        # Django's ValidationError, so letting it escape turns a bad token into a
+        # 500 on an unauthenticated endpoint. Treat an unusable claim as "not a
+        # valid subject" — the same answer as a claim that matches nothing.
+        return False
 
 
 def _apply_remember(refresh: RefreshToken, *, remember: bool) -> None:
@@ -175,7 +237,6 @@ def _apply_remember(refresh: RefreshToken, *, remember: bool) -> None:
     )
     refresh["remember"] = remember
     refresh.set_exp(lifetime=lifetime)
-    _sync_outstanding_expiry(refresh)
 
 
 def _clear_refresh_cookie(response: Response) -> None:
@@ -303,6 +364,7 @@ class CookieTokenObtainPairView(TokenObtainPairView):
             # row) rather than issuing a second one, then stamp the remember lifetime.
             refresh = RefreshToken(refresh_token)
             _apply_remember(refresh, remember=remember)
+            _record_outstanding(refresh)
             _set_refresh_cookie(
                 response, str(refresh), persistent_seconds=_cookie_seconds(remember)
             )
@@ -362,6 +424,19 @@ class CookieTokenRefreshView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
+        # Defense in depth (#2999): blacklisting is the primary revocation channel,
+        # but it only reaches tokens we have a row for. A deactivated account must
+        # not be able to mint access tokens regardless — off-boarding sets
+        # ``is_active=False`` and every credential derived from the account has to
+        # stop working at that moment, not at the refresh token's TTL. The view is
+        # deliberately unauthenticated (the access token may already have expired),
+        # so this is the only place the account's live state is consulted.
+        if not _token_subject_is_active(refresh):
+            return Response(
+                {"detail": "Token is invalid or expired."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
         access_token = str(refresh.access_token)
 
         rotate = settings.SIMPLE_JWT.get("ROTATE_REFRESH_TOKENS", False)
@@ -393,6 +468,11 @@ class CookieTokenRefreshView(APIView):
                 _apply_remember(refresh, remember=remember)
                 persistent_seconds = _cookie_seconds(remember)
             refresh.set_iat()
+            # Record the rotated jti so the new token is revocable (#2999). simplejwt
+            # writes an OutstandingToken only in ``for_user`` (login); without this the
+            # live token is the one row-less token, and every server-side revocation
+            # path silently misses it.
+            _record_outstanding(refresh)
             _set_refresh_cookie(response, str(refresh), persistent_seconds=persistent_seconds)
 
         return response

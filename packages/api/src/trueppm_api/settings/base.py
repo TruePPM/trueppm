@@ -787,9 +787,15 @@ AUTH_REFRESH_COOKIE_NAME = env(
     "TRUEPPM_AUTH_REFRESH_COOKIE_NAME",
     default=env("AUTH_REFRESH_COOKIE_NAME", default="trueppm_refresh"),
 )
+# Path-scoped so the cookie is never sent on ordinary API calls. It must cover
+# *every* endpoint that needs to read it, which is both the refresh endpoint and
+# ``/api/v1/auth/logout/`` — scoping it to the refresh endpoint alone (the
+# pre-#2999 default) meant the browser never sent it to logout, so
+# ``CookieTokenLogoutView`` read ``None`` and revoked nothing (RFC 6265 §5.1.4).
+# ``/api/v1/auth/`` is the narrowest prefix covering both.
 AUTH_REFRESH_COOKIE_PATH = env(
     "TRUEPPM_AUTH_REFRESH_COOKIE_PATH",
-    default=env("AUTH_REFRESH_COOKIE_PATH", default="/api/v1/auth/token/refresh/"),
+    default=env("AUTH_REFRESH_COOKIE_PATH", default="/api/v1/auth/"),
 )
 AUTH_REFRESH_COOKIE_SAMESITE = env(
     "TRUEPPM_AUTH_REFRESH_COOKIE_SAMESITE",
