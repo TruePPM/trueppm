@@ -20168,6 +20168,85 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/tasks/group/": {
+            "post": {
+                "operationId": "v1_projects_tasks_group_create",
+                "description": "Wrap a selection of tasks in a new phase, in one transaction (#2955).\n\nPOST /api/v1/projects/{pk}/tasks/group/\n\nBody::\n\n    { \"task_ids\": [\"<uuid>\", ...], \"name\": \"Discovery\" }\n\nIndent requires the phase to already exist, so a flat list can only become\nstructured from the top down. This is the missing primitive: the planner types the\nwork, looks at it, selects it, and *then* wraps it — naming the phase last.\n\n**Two selection rules, both reported back.** Any row whose own ancestor is also\nselected is dropped (you cannot wrap a phase together with the work inside it), and\nthe phase is created on the parent shared by most of the remainder. Rows left alone\nfor either reason come back in ``left_alone`` with a machine-readable ``reason``,\nbecause a group that quietly wrapped four of your six rows reads as a bug.\n\n**One request, not N+1.** Composing this client-side out of ``tasks/{id}/reparent/``\nis the defect filed as #2914 — a partial failure leaves a half-made phase. Here the\ncontainer create, every reparent, and the level renumber share one transaction, and\nthe ADR-0259 graph guard runs over the resulting tree before it commits.\n\nReturns:\n    200 with the new phase, the wrapped ids, and every changed WBS path.\n    400 on an unusable selection or a restructure that would make the graph cyclic.\n    403 when the caller cannot restructure one of the selected rows.\n    404 when an id does not name a live task in this project.",
+                "summary": "Wrap a selection of tasks in a new phase",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskGroupRequestRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskGroupRequestRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskGroupRequestRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskGroupResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/tasks/reorder/": {
             "post": {
                 "operationId": "v1_projects_tasks_reorder_create",
@@ -20223,6 +20302,85 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/TaskReorderResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/tasks/ungroup/": {
+            "post": {
+                "operationId": "v1_projects_tasks_ungroup_create",
+                "description": "Dissolve a phase and lift its rows one level, in one transaction (#2955).\n\nPOST /api/v1/projects/{pk}/tasks/ungroup/\n\nBody::\n\n    { \"task_id\": \"<uuid>\" }\n\nOutdenting *one* row moves that row; dissolving a phase is a different act, which is\nwhy it is a different endpoint rather than N outdents. Only the wrapper goes — the\nlifted rows keep their ids, dependency edges, resource assignments and estimates,\nbecause nothing about them is rewritten except ``wbs_path``.\n\nThe wrapper's *own* dependency edges go with it, as they do for any deleted task.\nThey are listed in ``removed_dependency_ids`` so the client can say so rather than\nletting the links disappear silently.\n\nReturns:\n    200 with the dissolved phase's id, the lifted ids, and every changed WBS path.\n    400 when the row is not dissolvable (a subtask, or a phase carrying subtasks\n        that dissolving would delete), or when the lift would make the graph cyclic.\n    403 when the caller cannot restructure one of the lifted rows or delete the phase.\n    404 when the id does not name a live task in this project.",
+                "summary": "Dissolve a phase, lifting its rows one level",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskUngroupRequestRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskUngroupRequestRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskUngroupRequestRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskUngroupResponse"
                                 }
                             }
                         },
@@ -56419,6 +56577,14 @@
                     "status"
                 ]
             },
+            "ReasonEnum": {
+                "enum": [
+                    "ancestor_selected",
+                    "different_parent"
+                ],
+                "type": "string",
+                "description": "* `ancestor_selected` - ancestor_selected\n* `different_parent` - different_parent"
+            },
             "RecentProject": {
                 "type": "object",
                 "description": "One recently-visited project for the ⌘K \"Recent\" group (ADR-0508, #1557).\n\nSerializes a :class:`~trueppm_api.apps.profiles.models.ProjectVisit` row into\nthe flat shape the palette renders: the project identity plus its program\nbreadcrumb (for cross-program disambiguation — two projects can share a name\nacross programs) and the ``visited_at`` recency hint. Read-only; the program\nfields are method-computed so a project with no program (``program`` is\n``SET_NULL``) serializes cleanly to ``null`` rather than raising.",
@@ -61119,6 +61285,131 @@
                 "type": "string",
                 "description": "* `keep` - Keep percent-complete\n* `prorate` - Prorate percent-complete\n* `confirm` - Confirm percent-complete (client prompt)"
             },
+            "TaskGroupContainer": {
+                "type": "object",
+                "description": "The phase a group request created.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "wbs_path": {
+                        "type": "string"
+                    },
+                    "structure_role": {
+                        "type": "string",
+                        "description": "Always `container` — a grouped phase is declared, never inferred (#2950)."
+                    },
+                    "parent_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true,
+                        "description": "The level the phase was inserted into; null at root."
+                    }
+                },
+                "required": [
+                    "id",
+                    "name",
+                    "parent_id",
+                    "structure_role",
+                    "wbs_path"
+                ]
+            },
+            "TaskGroupLeftAloneEntry": {
+                "type": "object",
+                "description": "One selected row the group deliberately did not wrap.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "reason": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ReasonEnum"
+                            }
+                        ],
+                        "description": "`ancestor_selected` — the row sits inside another selected row, so it is already inside the phase being wrapped. `different_parent` — the row's parent was not the parent shared by most of the selection.\n\n* `ancestor_selected` - ancestor_selected\n* `different_parent` - different_parent"
+                    },
+                    "ancestor_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true,
+                        "description": "The selected ancestor that covered this row; null for `different_parent`."
+                    }
+                },
+                "required": [
+                    "ancestor_id",
+                    "id",
+                    "reason"
+                ]
+            },
+            "TaskGroupRequestRequest": {
+                "type": "object",
+                "properties": {
+                    "task_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "The rows to wrap, in selection order. Order is load-bearing only for the tie-break when the selection spans levels."
+                    },
+                    "name": {
+                        "type": "string",
+                        "nullable": true,
+                        "minLength": 1,
+                        "description": "Phase name. Omit or send null to get the placeholder name."
+                    }
+                },
+                "required": [
+                    "task_ids"
+                ]
+            },
+            "TaskGroupResponse": {
+                "type": "object",
+                "description": "Response for `tasks/group/` — the new phase, what went in, and what did not.",
+                "properties": {
+                    "container": {
+                        "$ref": "#/components/schemas/TaskGroupContainer"
+                    },
+                    "grouped_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "The wrapped rows, in the order they now appear inside the phase."
+                    },
+                    "left_alone": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskGroupLeftAloneEntry"
+                        },
+                        "description": "Selected rows that were not wrapped. Never silently empty-by-omission — the client is expected to tell the user which rows it left alone."
+                    },
+                    "updated": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/WbsPathEntry"
+                        }
+                    },
+                    "warning": {
+                        "type": "string",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "container",
+                    "grouped_ids",
+                    "left_alone",
+                    "updated",
+                    "warning"
+                ]
+            },
             "TaskLabelAttachRequestRequest": {
                 "type": "object",
                 "properties": {
@@ -62359,6 +62650,63 @@
                 ],
                 "type": "string",
                 "description": "* `epic` - Epic\n* `story` - Story\n* `task` - Task\n* `bug` - Bug\n* `spike` - Spike\n* `tech_debt` - Tech Debt"
+            },
+            "TaskUngroupRequestRequest": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "The phase to dissolve."
+                    }
+                },
+                "required": [
+                    "task_id"
+                ]
+            },
+            "TaskUngroupResponse": {
+                "type": "object",
+                "description": "Response for `tasks/ungroup/` — the dissolved wrapper and the rows it held.",
+                "properties": {
+                    "container_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "The phase that was dissolved."
+                    },
+                    "lifted_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "The rows lifted one level, in the order they now appear."
+                    },
+                    "removed_dependency_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Dependency edges that pointed at the wrapper itself and went with it. The children's own links are untouched."
+                    },
+                    "updated": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/WbsPathEntry"
+                        }
+                    },
+                    "warning": {
+                        "type": "string",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "container_id",
+                    "lifted_ids",
+                    "removed_dependency_ids",
+                    "updated",
+                    "warning"
+                ]
             },
             "Team": {
                 "type": "object",

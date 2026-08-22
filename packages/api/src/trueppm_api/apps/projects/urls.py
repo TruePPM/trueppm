@@ -108,6 +108,7 @@ from trueppm_api.apps.projects.views import (
     TaskClassificationView,
     TaskCommentViewSet,
     TaskCustomFieldValueView,
+    TaskGroupView,
     TaskHistoryView,
     TaskIndentView,
     TaskLabelView,
@@ -118,6 +119,7 @@ from trueppm_api.apps.projects.views import (
     TaskReorderView,
     TaskReparentView,
     TaskSyncView,
+    TaskUngroupView,
     TaskViewSet,
 )
 
@@ -181,6 +183,19 @@ urlpatterns = [
         "projects/<pk>/tasks/classification/",
         TaskClassificationView.as_view(),
         name="project-tasks-classification",
+    ),
+    # Group / ungroup (#2955). Project-scoped rather than task-scoped: group has no
+    # single subject task, and ungroup is its mirror, so both take their subject in
+    # the body and sit alongside bulk/ and reorder/.
+    path(
+        "projects/<pk>/tasks/group/",
+        TaskGroupView.as_view(),
+        name="project-tasks-group",
+    ),
+    path(
+        "projects/<pk>/tasks/ungroup/",
+        TaskUngroupView.as_view(),
+        name="project-tasks-ungroup",
     ),
     path(
         "projects/<pk>/tasks/<task_id>/indent/",
