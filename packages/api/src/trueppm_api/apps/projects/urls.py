@@ -441,6 +441,16 @@ urlpatterns = [
         SprintViewSet.as_view({"get": "list", "post": "create"}),
         name="project-sprints-list",
     ),
+    # Cadence generator (#2968). Declared BEFORE the detail route below for
+    # readability only — `path()` matches exact segments, so `sprints/generate/`
+    # under `projects/<project_pk>/` can never be swallowed by `sprints/<pk>/`.
+    # `project_pk`, not `pk`: `_project_pk_from_view` reads only `project_pk`, so
+    # a `<pk>`-named route would silently no-op the class-level RBAC gate.
+    path(
+        "projects/<project_pk>/sprints/generate/",
+        SprintViewSet.as_view({"post": "generate"}),
+        name="project-sprints-generate",
+    ),
     path(
         "sprints/<pk>/",
         SprintViewSet.as_view(

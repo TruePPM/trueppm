@@ -196,6 +196,7 @@ api/v1/projects/<project_pk>/signal-privacy/ceiling-proposals/<proposal_pk>/with
 api/v1/projects/<project_pk>/signal-privacy/raise-ceiling/
 api/v1/projects/<project_pk>/signal-privacy/ratchet-down/
 api/v1/projects/<project_pk>/sprints/
+api/v1/projects/<project_pk>/sprints/generate/
 api/v1/projects/<project_pk>/task-runs/<pk>/cancel/
 api/v1/projects/<project_pk>/tasks/<task_pk>/attachments/
 api/v1/projects/<project_pk>/tasks/<task_pk>/attachments/<pk>/

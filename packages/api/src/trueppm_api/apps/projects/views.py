@@ -204,6 +204,8 @@ from trueppm_api.apps.projects.serializers import (
     SprintDailyDeltaSerializer,
     SprintDurationChangeEventSerializer,
     SprintForecastSerializer,
+    SprintGenerateResponseSerializer,
+    SprintGenerateSerializer,
     SprintOutcomeSerializer,
     SprintSerializer,
     StructureRoleConflictSerializer,
@@ -12176,8 +12178,25 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
     Permission matrix:
       list / retrieve / burndown      — Viewer+ (IsProjectMember)
       create / update / activate /
-      close / cancel                  — Team Member+ (IsProjectMemberWrite)
+      close / cancel / generate       — Team Member+ (IsProjectMemberWrite)
       destroy (PLANNED only)          — Project Manager+ (IsProjectAdmin)
+
+    ``generate`` (#2968) sits at the same gate as ``create`` on purpose: every
+    row it writes is exactly what ``create`` writes, so escalating the bulk route
+    above the single-create route would buy no containment — a Member who can
+    POST twelve sprints in a loop is not contained by refusing them one call that
+    does the same thing. Its one higher-gated input,
+    ``first_sprint_capacity_points``, is re-checked at SCHEDULER+ in the request
+    serializer, because ``capacity_points`` *does* carry a higher gate on the
+    single-create path and the bulk route must not be a way around it.
+
+    Note the web UI is deliberately **stricter** than this: the Sprints header
+    renders the Generate trigger only for SCHEDULER+, alongside Plan-next and
+    Close, which have carried that render gate since #2146 and front a Member+
+    endpoint for the same reason. So a Team Member reaches this endpoint through
+    the API or a PAT, not through that button. The mismatch is a UI-consistency
+    choice, not the authorization line; if the header's lifecycle gate is ever
+    lowered, lower it for the whole cluster rather than this one control.
     """
 
     # ADR-0678 (#2482): Sprint.project FK.
@@ -12458,6 +12477,158 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         # ADR-0074: a deleted sprint stops contributing to the rollup.
         if target_milestone_id is not None:
             recompute_milestone_rollup(target_milestone_id)
+
+    @extend_schema(
+        summary="Generate a sprint cadence",
+        request=SprintGenerateSerializer,
+        responses={
+            200: SprintGenerateResponseSerializer,
+            201: SprintGenerateResponseSerializer,
+            400: OpenApiResponse(
+                description="Invalid cadence request, or a calendar with no usable working days."
+            ),
+        },
+    )
+    @action(detail=False, methods=["post"], url_path="generate")
+    def generate(self, request: Request, project_pk: str | None = None) -> Response:
+        """Lay out a whole iteration cadence in one call (#2968).
+
+        ``dry_run: true`` returns the computed cadence and writes nothing — the
+        editable preview the client renders before the operator commits. The
+        committing call returns the identical payload shape, so what the preview
+        showed is checkable against what was written rather than merely asserted.
+
+        Generation is **idempotent on name**: a candidate whose name already
+        belongs to a live sprint in this project comes back as ``exists`` and is
+        never re-created, so a double submit produces one cadence, not two.
+
+        Gated at Member+ — the same gate as ``POST /sprints/``, because every row
+        this writes is exactly what that endpoint writes. ``first_sprint_capacity_points``
+        carries the higher SCHEDULER+ field gate from ADR-0073, re-checked in the
+        serializer so the bulk route is not a way around it.
+        """
+        from trueppm_api.apps.projects.sprint_cadence import (
+            CadenceError,
+            annotate_edited_rows,
+            build_cadence,
+            capacity_hint,
+            commit_cadence,
+            existing_sprint_names,
+        )
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        asdict = dataclasses.asdict
+        # `compose_project_calendar` requires these prefetches, or the fold issues
+        # one query per applied calendar and per exception set. This covers the
+        # project/program tiers; the workspace-default tier that
+        # `resolve_effective_base_calendar` falls back to when neither is set has
+        # no prefetch path and costs a fixed handful of extra queries.
+        project = get_object_or_404(
+            Project.objects.select_related("calendar", "program__calendar").prefetch_related(
+                "calendar__exceptions",
+                "calendar_layers__calendar__exceptions",
+                "program__calendar__exceptions",
+            ),
+            pk=project_pk,
+            is_deleted=False,
+        )
+        # `IsProjectMemberWrite.has_permission` resolves the project from the
+        # `project_pk` kwarg, so the class-level gate does fire here — this
+        # object-level call is the belt-and-braces the create path also makes,
+        # and it is what keeps the gate honest if the route is ever renamed.
+        self.check_object_permissions(request, project)
+
+        serializer = SprintGenerateSerializer(
+            data=request.data, context=self.get_serializer_context()
+        )
+        serializer.is_valid(raise_exception=True)
+        params = serializer.validated_data
+
+        taken = existing_sprint_names(project)
+        try:
+            if params.get("sprints"):
+                rows = annotate_edited_rows(project, params["sprints"], taken_names=taken)
+            else:
+                rows = build_cadence(
+                    project,
+                    count=params["count"],
+                    start_date=params["start_date"],
+                    length_days=params["length_days"],
+                    name_pattern=params["name_pattern"],
+                    first_index=params["first_index"],
+                    taken_names=taken,
+                )
+        except CadenceError as exc:
+            # A `code` as well as `detail` (errors.md shape 2): "your calendar has
+            # no usable working day" is the one failure here a client should handle
+            # rather than merely report — it can deep-link the user to calendar
+            # settings instead of showing them prose they cannot act on.
+            return Response(
+                {"detail": str(exc), "code": "calendar_has_no_working_day"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        hint = capacity_hint(project)
+
+        if params["dry_run"]:
+            payload = {
+                "dry_run": True,
+                "sprints": [
+                    {**asdict(row), "status": "exists" if row.exists else "new", "id": None}
+                    for row in rows
+                ],
+                "created_count": sum(1 for row in rows if not row.exists),
+                "skipped_count": sum(1 for row in rows if row.exists),
+                "capacity_hint": hint,
+            }
+            return Response(
+                SprintGenerateResponseSerializer(payload).data, status=status.HTTP_200_OK
+            )
+
+        created, final_rows = commit_cadence(
+            project,
+            rows,
+            created_by=request.user,
+            first_sprint_capacity_points=params["first_sprint_capacity_points"],
+        )
+        created_by_name = {sprint.name: sprint for sprint in created}
+        project_id_str = str(project.pk)
+        # One `sprint_created` per row rather than a new bulk event type: every
+        # existing consumer already invalidates its sprint list on it, and adding
+        # a WS type churns FROZEN_WS_EVENT_TYPES, the published taxonomy, and the
+        # reachability gate for no client-visible gain (the ADR-0158 precedent).
+        # The fan-out is bounded by MAX_GENERATED_SPRINTS and the ids are captured
+        # by value so the callback needs no query to rebuild them — note it is NOT
+        # DB-free: broadcast_board_event persists a BoardEvent row per call, so
+        # this is N inserts post-commit. `tasks_bulk_mutated` shows the batched
+        # alternative if that ever matters at this row count.
+        created_ids = [str(sprint.pk) for sprint in created]
+
+        def _announce_created() -> None:
+            for sprint_id in created_ids:
+                broadcast_board_event(project_id_str, "sprint_created", {"id": sprint_id})
+
+        if created_ids:
+            transaction.on_commit(_announce_created)
+        payload = {
+            "dry_run": False,
+            "sprints": [
+                {
+                    **asdict(row),
+                    "status": "exists" if row.exists else "created",
+                    "id": (
+                        None if row.exists else getattr(created_by_name.get(row.name), "pk", None)
+                    ),
+                }
+                for row in final_rows
+            ],
+            "created_count": len(created),
+            "skipped_count": sum(1 for row in final_rows if row.exists),
+            "capacity_hint": hint,
+        }
+        return Response(
+            SprintGenerateResponseSerializer(payload).data, status=status.HTTP_201_CREATED
+        )
 
     @extend_schema(
         summary="Activate a sprint",

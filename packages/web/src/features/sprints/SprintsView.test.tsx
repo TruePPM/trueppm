@@ -104,6 +104,17 @@ vi.mock('@/hooks/useSprints', () => ({
   useAcceptSuggestion: () => ({ mutate: vi.fn(), isPending: false }),
   useDeclineSuggestion: () => ({ mutate: vi.fn(), isPending: false }),
   useRevokeSuggestion: () => ({ mutate: vi.fn(), isPending: false }),
+  // #2968 — GenerateCadenceModal reads both of these. It only mounts when the
+  // wizard is opened, so a missing entry here does not fail today; the first
+  // test that clicks "Generate sprints" would get a bare "No export is defined
+  // on the mock" instead of a useful failure.
+  useGenerateSprints: () => ({
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    isPending: false,
+    isError: false,
+  }),
+  MAX_GENERATED_SPRINTS: 52,
 }));
 
 const useMyActiveSprintsMock = vi.fn(() => ({

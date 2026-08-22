@@ -7,10 +7,13 @@ documentedFor: "0.4"
 The Sprints workspace is the agile-side surface — Maya the Scrum Master and Tom the engineer live here. It composes five panels (header, goal, milestone link, timeline, backlog) into a single route at `/projects/:id/sprints`.
 
 :::note[Ships in 0.4]
-One item on this page is not in the latest release: the
+Two items on this page are not in the latest release. The
 `GET /api/v1/sprints/{id}/close-request/` endpoint, and the retry behavior it
-reports, land in **TruePPM 0.4**. Before 0.4 a close that fails is not retried
-and reports nothing — the sprint simply stays open. Everything else on this page
+reports, land in **TruePPM 0.4** — before 0.4 a close that fails is not retried
+and reports nothing, and the sprint simply stays open. The **cadence generator**
+described under [Standing up a run of sprints](#standing-up-a-run-of-sprints-ships-in-04)
+also lands in 0.4; on the latest release you create sprints one at a time from
+the [Plan Sprint dialog](/features/plan-sprint/). Everything else on this page
 has shipped.
 :::
 
@@ -37,6 +40,67 @@ Step 5 ([Sprint planning](/the-story/#5-sprint-planning--the-team-pulls-work)) a
 - **Daily standup — "what changed since yesterday"** *(added in 0.3, ADR-0121 / ADR-0124)* — the active sprint shows a team-facing delta for the Daily Scrum: moved cards (status changes), **new blockers** — detected from the explicit blocked flag (not a status move) and split into **impediment** (a blocker type was recorded, so the Scrum Master can route it) vs **paused** (flagged with no type), each shown with its type and age but **never the private reason text** — scope added since yesterday, the burndown swing, and a per-person at-a-glance of what each teammate touched. It is **pull, not push** — you open it at standup; there are no notifications — and it is **team-private by membership**: a portfolio/PMO viewer who is not a project member cannot reach it, and it shows only status-level changes, never hours or keystroke-level detail. The window defaults to the last 24 hours. Computed live from existing history — no new tracking. (Distinct from the PM milestone-confidence digest, which is the close-time bridge surface.)
 - **WIP limit** *(optional)* — set a per-sprint ceiling on in-flight work (tasks in *In progress* or *Review*) and the Board's [sprint panel](/features/board/) header shows a `WIP {count} / {limit}` chip that turns amber once the count exceeds the limit. Editable by Scheduler+ on planned and active sprints; locked once completed or canceled. Distinct from per-column board WIP limits.
 - **Exclude from velocity** *(optional)* — a Scheduler+ toggle that holds a setup or ramp-up sprint (a "Sprint 0") out of the team's velocity average, forecast band, and milestone forecast, so its low throughput doesn't skew the numbers. Unlike the WIP limit it stays editable **after the sprint closes** (teams often realize the skew in hindsight). The sprint stays visible in your history, marked rather than dropped. See [Setup work & Sprint 0](/features/velocity/#setup-work--sprint-0).
+
+## Standing up a run of sprints (ships in 0.4)
+
+:::note[Ships in 0.4]
+The cadence generator below lands in **TruePPM 0.4**. On the latest release,
+sprints are created one at a time from the [Plan Sprint dialog](/features/plan-sprint/).
+:::
+
+Creating a year of iterations one dialog at a time is data entry, not planning.
+**Generate sprints** in the Sprints workspace header opens a two-step wizard that
+lays out a whole cadence at once.
+
+**Step 1 — describe the cadence.** How many sprints, how long each one is in
+*working days*, when the first one starts, and a name pattern containing `{n}`
+(`Sprint {n}` by default, and `{n}` can start from any number — useful when
+you're extending an existing series).
+
+**Step 2 — check it, edit it, then generate.** The server computes the whole run
+and hands it back as an editable table; **nothing is written until you press
+Generate**. Every row shows its start, its finish, the working days it holds, and
+how many non-working days the window spans. Change any name or date and the run
+is saved exactly as you left it.
+
+Three things the generator does on your behalf:
+
+- **It reads the project calendar.** Lengths are counted in working days against
+  the same calendar the schedule uses — weekends, holidays, and any overlay
+  calendars applied to the project. A company shutdown inside a window pushes the
+  finish date out instead of quietly costing the team two days; a run that would
+  start on a Saturday starts on the following working day instead.
+- **It never creates a duplicate.** A proposed sprint whose name already exists is
+  shown greyed out and left completely alone — its dates are not touched. Running
+  the generator twice with the same settings creates the missing sprints and
+  nothing else, so a double submit or a re-run after a partial failure is safe.
+- **It never guesses at what you'll commit to.** See below.
+
+### The suggested capacity is a starting point, not a ceiling
+
+When the team has closed sprints to draw on, the preview offers a suggested
+points figure — the average of the team's recent completed points, using the same
+eligible set as the [velocity panel](/features/velocity/) (so a sprint marked
+*Exclude from velocity* is excluded here too).
+
+It is **off by default**, it is offered for the **first sprint of the run only**,
+and it is never written unless you tick it on. (If that first sprint already
+exists — you're re-running the generator to fill a gap — the number applies to a
+sprint this run isn't creating, so nothing receives it rather than it landing on
+some mid-series sprint you didn't point at.) That is deliberate. A number the tool
+generates and stamps across a year of iterations stops being a planning aid and
+starts being the tool telling a team what it may commit to — which is exactly
+what sprint commitment belongs to the team, not to a generator. Forecasting a
+capacity for sprint twelve from today's throughput would be fiction either way.
+
+Generated sprints land in `PLANNED` state with no goal, no capacity, and no
+tasks. Activate, name a goal, and pull work in exactly as you would for a sprint
+you created by hand.
+
+The **Generate sprints** button appears for Resource Manager and above, the same
+gate as the other lifecycle actions in that header. The endpoint behind it is
+open to Team Member and above, so a script or integration at that role can still
+generate a cadence — see the [API reference](/api/reference/).
 
 ## Planning a sprint — the unified planning surface (added in 0.3)
 

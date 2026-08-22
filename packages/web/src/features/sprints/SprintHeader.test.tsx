@@ -20,6 +20,7 @@ function renderHeader(props: Partial<ComponentProps<typeof SprintHeader>> = {}) 
       sprintNumber={1}
       hasPlannedSprint={false}
       onPlanNext={noop}
+      onGenerateCadence={noop}
       onCloseSprint={noop}
       onFilter={noop}
       canManageLifecycle
@@ -55,6 +56,7 @@ describe('SprintHeader', () => {
         sprintNumber={1}
         hasPlannedSprint={false}
         onPlanNext={noop}
+        onGenerateCadence={noop}
         onCloseSprint={noop}
         onFilter={noop}
         canManageLifecycle
@@ -103,17 +105,33 @@ describe('SprintHeader', () => {
   // #2146 — lifecycle write controls are SCHEDULER+; a Viewer/Member below that
   // sees no Plan/Close chrome at all (consistent with the gated empty-state CTA),
   // but Filter stays available to every role.
-  it('hides Plan next and Close sprint when canManageLifecycle is false', () => {
+  it('hides Plan next, Generate and Close sprint when canManageLifecycle is false', () => {
     renderHeader({ canManageLifecycle: false });
     expect(screen.queryByRole('button', { name: /Plan next sprint/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Close active sprint/i })).not.toBeInTheDocument();
+    // #2968 — the cadence generator joins the same gated cluster. Pinned
+    // explicitly because its API gate is deliberately looser (Member+) than this
+    // render gate, so the two could drift apart without anything noticing.
+    expect(
+      screen.queryByRole('button', { name: /Generate a run of sprints/i }),
+    ).not.toBeInTheDocument();
     // Filter is available to viewers.
     expect(screen.getByRole('button', { name: /^Filter$/i })).toBeInTheDocument();
   });
 
-  it('shows Plan next and Close sprint when canManageLifecycle is true', () => {
+  it('shows Plan next, Generate and Close sprint when canManageLifecycle is true', () => {
     renderHeader({ canManageLifecycle: true });
     expect(screen.getByRole('button', { name: /Plan next sprint/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Close active sprint/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Generate a run of sprints/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('Generate sprints calls its handler', async () => {
+    const onGenerateCadence = vi.fn();
+    renderHeader({ onGenerateCadence });
+    await userEvent.click(screen.getByRole('button', { name: /Generate a run of sprints/i }));
+    expect(onGenerateCadence).toHaveBeenCalledTimes(1);
   });
 });

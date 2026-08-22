@@ -10,6 +10,13 @@ interface Props {
   /** True when at least one sprint is already in PLANNED state. */
   hasPlannedSprint: boolean;
   onPlanNext: () => void;
+  /**
+   * Open the cadence generator (#2968). Rendered beside Plan-next and under the
+   * same `canManageLifecycle` gate as the rest of the lifecycle chrome — the API
+   * itself sits at Member+, so a headless caller below Scheduler is not blocked;
+   * this is UI consistency with the adjacent control, not the authorization line.
+   */
+  onGenerateCadence: () => void;
   onCloseSprint: () => void;
   onFilter: () => void;
   /** Optional ref forwarded to the Filter button — anchor for the popover (#299). */
@@ -51,6 +58,7 @@ export function SprintHeader({
   sprintNumber,
   hasPlannedSprint,
   onPlanNext,
+  onGenerateCadence,
   onCloseSprint,
   onFilter,
   filterButtonRef,
@@ -103,6 +111,18 @@ export function SprintHeader({
               focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
           >
             Plan next {itl.lower}
+          </button>
+        )}
+        {canManageLifecycle && (
+          <button
+            type="button"
+            onClick={onGenerateCadence}
+            aria-label={`Generate a run of ${itl.lowerPlural}`}
+            className="min-h-[44px] inline-flex items-center px-3 rounded text-xs font-medium border border-neutral-border
+              text-neutral-text-secondary hover:text-neutral-text-primary
+              focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+          >
+            Generate {itl.lowerPlural}
           </button>
         )}
         {canManageLifecycle && (

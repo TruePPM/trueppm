@@ -99,6 +99,16 @@ from trueppm_api.apps.projects.schema_migrations import (
     SURFACE_BOARD_SAVED_VIEW,
     migrate_payload,
 )
+from trueppm_api.apps.projects.sprint_cadence import (
+    DEFAULT_SPRINT_LENGTH_DAYS,
+    MAX_FIRST_INDEX,
+    MAX_GENERATED_SPRINTS,
+    MAX_SPRINT_LENGTH_DAYS,
+    MAX_SPRINT_SPAN_DAYS,
+    MIN_SPRINT_LENGTH_DAYS,
+    NAME_TOKEN,
+    render_sprint_name,
+)
 from trueppm_api.apps.projects.task_bulk import (
     TASK_BULK_MAX_DEPENDENCIES,
     TASK_BULK_MAX_OPERATIONS,
@@ -7606,6 +7616,247 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             "created_at",
             "updated_at",
         ]
+
+
+class SprintCadenceRowSerializer(serializers.Serializer[dict[str, Any]]):
+    """One proposed iteration in a generated cadence (#2968), preview or committed.
+
+    ``status`` is the idempotency verdict: ``created`` (written by this call),
+    ``exists`` (a live sprint already carries this name and was left untouched),
+    or ``new`` (a preview row that would be created on commit). ``id`` is always
+    present and is ``null`` unless this call created the row.
+    """
+
+    name = serializers.CharField(read_only=True)
+    start_date = serializers.DateField(read_only=True)
+    finish_date = serializers.DateField(read_only=True)
+    working_days = serializers.IntegerField(read_only=True)
+    non_working_days_skipped = serializers.IntegerField(read_only=True)
+    status = serializers.ChoiceField(choices=["new", "exists", "created"], read_only=True)
+    id = serializers.UUIDField(read_only=True, allow_null=True, required=False)
+
+
+class SprintCapacityHintSerializer(serializers.Serializer[dict[str, Any]]):
+    """The suggested first-iteration points figure — a planning aid, never a cap.
+
+    ``note`` is not decoration: it travels with the number so no client can
+    render the suggestion without the sentence that bounds it. ``points`` is
+    ``null`` when the team has no closed iteration to draw from — a made-up
+    default would be a ceiling invented by the tool (ADR-0073 / ADR-0113).
+    """
+
+    points = serializers.IntegerField(read_only=True, allow_null=True)
+    basis = serializers.ChoiceField(choices=["velocity_average", "no_history"], read_only=True)
+    sprints_sampled = serializers.IntegerField(read_only=True)
+    note = serializers.CharField(read_only=True)
+
+
+class SprintCadenceEditSerializer(serializers.Serializer[dict[str, Any]]):
+    """An operator-edited preview row handed back for commit (#2968).
+
+    The editable-preview half of the contract: once the operator has adjusted a
+    name or a boundary, those values are authoritative and the generator's rules
+    are not re-applied over them. The calendar read-out and the idempotency
+    verdict stay server-computed.
+    """
+
+    name = serializers.CharField(max_length=255, allow_blank=False, trim_whitespace=True)
+    start_date = serializers.DateField()
+    finish_date = serializers.DateField()
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # Strictly after: Sprint.Meta's CheckConstraint is `finish_date > start_date`,
+        # so an equal pair would reach the database and raise IntegrityError (500)
+        # instead of being refused here as a 400.
+        if attrs["finish_date"] <= attrs["start_date"]:
+            raise serializers.ValidationError(
+                {"finish_date": "finish_date must be after start_date."}
+            )
+        # The generated path bounds a window through `length_days`; an edited row
+        # carries the operator's own dates and needs its own ceiling, or the
+        # row-count bound holds while the row-*length* bound does not.
+        if (attrs["finish_date"] - attrs["start_date"]).days + 1 > MAX_SPRINT_SPAN_DAYS:
+            raise serializers.ValidationError(
+                {
+                    "finish_date": (
+                        f"An iteration may not span more than {MAX_SPRINT_SPAN_DAYS} days."
+                    )
+                }
+            )
+        return attrs
+
+
+class SprintGenerateSerializer(serializers.Serializer[dict[str, Any]]):
+    """Request body for ``POST /projects/{id}/sprints/generate/`` (#2968).
+
+    Two mutually exclusive ways to describe the cadence:
+
+    - **generated** — ``count`` + ``start_date`` (+ ``length_days``,
+      ``name_pattern``, ``first_index``), laid out against the project calendar;
+    - **edited** — an explicit ``sprints`` list, which is what the client posts
+      back after the operator has adjusted the preview.
+
+    ``dry_run`` returns the same payload shape while writing nothing, so the
+    preview and the commit can never disagree about what will happen.
+    """
+
+    count = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=MAX_GENERATED_SPRINTS,
+        help_text=(
+            f"How many iterations to lay out (1 to {MAX_GENERATED_SPRINTS}). "
+            "Required unless `sprints` is given."
+        ),
+    )
+    start_date = serializers.DateField(
+        required=False,
+        help_text=(
+            "Requested start of the first iteration; snapped forward to a working day. "
+            "Required unless `sprints` is given."
+        ),
+    )
+    length_days = serializers.IntegerField(
+        required=False,
+        default=DEFAULT_SPRINT_LENGTH_DAYS,
+        min_value=MIN_SPRINT_LENGTH_DAYS,
+        max_value=MAX_SPRINT_LENGTH_DAYS,
+        help_text=(
+            "Working days per iteration, counted against the project calendar — "
+            "not calendar days. A holiday lengthens the window rather than "
+            "shrinking the iteration."
+        ),
+    )
+    name_pattern = serializers.CharField(
+        required=False,
+        default="Sprint {n}",
+        max_length=200,
+        trim_whitespace=True,
+        help_text="Name template. Must contain {n}, replaced by the iteration number.",
+    )
+    first_index = serializers.IntegerField(
+        required=False,
+        default=1,
+        min_value=1,
+        max_value=MAX_FIRST_INDEX,
+        help_text="Value substituted for {n} in the first iteration.",
+    )
+    dry_run = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Compute and return the cadence without writing anything.",
+    )
+    first_sprint_capacity_points = serializers.IntegerField(
+        required=False,
+        default=None,
+        allow_null=True,
+        min_value=0,
+        help_text=(
+            "Optional points target stored on the first row of the cadence, and "
+            "only when that row is one this call creates — a re-run that skips an "
+            "existing first iteration stores it nowhere. Omitted by default: "
+            "generation never sets a capacity on its own. SCHEDULER+ only, "
+            "matching the field-level gate on Sprint.capacity_points."
+        ),
+    )
+    sprints = SprintCadenceEditSerializer(many=True, required=False)
+
+    def validate_name_pattern(self, value: str) -> str:
+        if NAME_TOKEN not in value:
+            raise serializers.ValidationError(
+                f"name_pattern must contain {NAME_TOKEN} so each iteration gets a distinct name."
+            )
+        return value
+
+    def validate_sprints(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not value:
+            raise serializers.ValidationError("sprints must not be empty when provided.")
+        if len(value) > MAX_GENERATED_SPRINTS:
+            raise serializers.ValidationError(
+                f"At most {MAX_GENERATED_SPRINTS} iterations may be generated in one call."
+            )
+        names = [row["name"] for row in value]
+        if len(set(names)) != len(names):
+            # Duplicates inside one payload would defeat the name-based
+            # idempotency guarantee: the first insert makes the second a
+            # collision the caller never asked for.
+            raise serializers.ValidationError("Each iteration in sprints must have a unique name.")
+        return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        self._validate_shape(attrs)
+        self._validate_generated_names(attrs)
+        self._validate_capacity_field_permission(attrs)
+        return attrs
+
+    def _validate_shape(self, attrs: dict[str, Any]) -> None:
+        """Require either an explicit ``sprints`` list or ``count`` + ``start_date``."""
+        if attrs.get("sprints"):
+            return
+        missing = {
+            field: "This field is required unless `sprints` is provided."
+            for field in ("count", "start_date")
+            if attrs.get(field) is None
+        }
+        if missing:
+            raise serializers.ValidationError(missing)
+
+    def _validate_generated_names(self, attrs: dict[str, Any]) -> None:
+        """Reject a pattern whose rendered names would exceed the model's 255 chars."""
+        if attrs.get("sprints"):
+            return
+        last = render_sprint_name(attrs["name_pattern"], attrs["first_index"] + attrs["count"] - 1)
+        if len(last) > 255:
+            raise serializers.ValidationError(
+                {"name_pattern": "Rendered iteration names must be 255 characters or fewer."}
+            )
+
+    def _validate_capacity_field_permission(self, attrs: dict[str, Any]) -> None:
+        """Field-level SCHEDULER+ gate on ``first_sprint_capacity_points`` (ADR-0073).
+
+        The endpoint itself sits at Member+ — every row it writes is exactly what
+        ``POST /sprints/`` writes, so escalating the whole call would only mean a
+        team member can build a cadence by hand but not with the tool built for
+        it. ``capacity_points`` is the one field that carries a *higher* gate on
+        the single-create path (``SprintSerializer._validate_scheduler_field_permissions``),
+        and re-checking it here is what stops the bulk route from becoming a way
+        around it.
+        """
+        if attrs.get("first_sprint_capacity_points") is None:
+            return
+        from trueppm_api.apps.access.models import ProjectMembership, Role
+
+        request = self.context.get("request")
+        user = getattr(request, "user", None) if request else None
+        view = self.context.get("view")
+        project_id = getattr(view, "kwargs", {}).get("project_pk") if view else None
+        if user is None or not getattr(user, "is_authenticated", False) or project_id is None:
+            # Fails closed, exactly as the single-create gate does.
+            raise serializers.ValidationError(
+                {"first_sprint_capacity_points": "Authentication required."}
+            )
+        membership = ProjectMembership.objects.filter(
+            project_id=project_id, user=user, is_deleted=False
+        ).first()
+        if membership is None or membership.role < Role.SCHEDULER:
+            raise serializers.ValidationError(
+                {"first_sprint_capacity_points": ("Only Scheduler+ may set this sprint field.")}
+            )
+
+
+class SprintGenerateResponseSerializer(serializers.Serializer[dict[str, Any]]):
+    """Response for ``POST /projects/{id}/sprints/generate/`` (#2968).
+
+    Identical in shape whether ``dry_run`` was true or false — the preview is the
+    commit's own output with nothing written, which is what makes "what you saw
+    is what you got" checkable rather than asserted.
+    """
+
+    dry_run = serializers.BooleanField(read_only=True)
+    sprints = SprintCadenceRowSerializer(many=True, read_only=True)
+    created_count = serializers.IntegerField(read_only=True)
+    skipped_count = serializers.IntegerField(read_only=True)
+    capacity_hint = SprintCapacityHintSerializer(read_only=True)
 
 
 class SprintBurnSnapshotSerializer(serializers.ModelSerializer[SprintBurnSnapshot]):
