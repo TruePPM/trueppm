@@ -23,7 +23,6 @@ completion route, which then calls the existing ``/auth/token/refresh/``.
 from __future__ import annotations
 
 import logging
-import secrets
 from typing import Any
 
 from django.conf import settings
@@ -50,6 +49,7 @@ from trueppm_api.apps.sso.serializers import (
 from trueppm_api.apps.workspace.models import Workspace
 from trueppm_api.apps.workspace.permissions import IsWorkspaceAdminStrict
 from trueppm_api.core.auth_views import _apply_remember, _cookie_seconds, _set_refresh_cookie
+from trueppm_api.core.constant_time import constant_time_equal
 
 logger = logging.getLogger("trueppm.sso")
 
@@ -241,9 +241,12 @@ class OIDCCallbackView(APIView):
         # Browser-binding check: the state query param must match the cookie set at
         # /login for this browser. consume_state proves we issued the state; the
         # cookie proves the same browser began the flow (login-CSRF defense).
-        # Constant-time compare avoids leaking a match via timing.
+        # Constant-time compare avoids leaking a match via timing. Both sides are
+        # caller-controlled here — a query parameter and a cookie — so the compare
+        # goes through core.constant_time, which compares bytes and therefore
+        # cannot raise on non-ASCII the way compare_digest does on str (#2929).
         cookie_state = request.COOKIES.get(_STATE_COOKIE_NAME) or ""
-        if not cookie_state or not secrets.compare_digest(cookie_state, state):
+        if not cookie_state or not constant_time_equal(cookie_state, state):
             return self._redirect(error="invalid_state")
 
         try:

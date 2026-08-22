@@ -116,7 +116,8 @@ class BoardAutomation(models.Model):
   > longer accurate, and one of them was the defect. (1) The comparison is **not** done
   > on `str` — `hmac.compare_digest` raises `TypeError` on a non-ASCII `str`, so one
   > Latin-1 byte in either header was an unhandled 500; both arms now encode to bytes
-  > first (`_constant_time_equal`). (2) There is **no 401**. The
+  > first (`core.constant_time.constant_time_equal`, lifted out of this app by #2929
+  > when the SSO callback turned out to have the same defect). (2) There is **no 401**. The
   > "enumeration-safe 401/404 posture" this ADR reasoned from is not enumeration-safe
   > here: given a project UUID — which every project Viewer reads out of the SPA URL —
   > a 401 meant *automation is enabled and a secret is set*, which is exactly the fact
