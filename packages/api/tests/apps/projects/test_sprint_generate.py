@@ -119,6 +119,36 @@ def test_generates_contiguous_two_week_iterations(client: APIClient, project: Pr
 
 
 @pytest.mark.django_db
+def test_response_shape_matches_the_declared_schema(client: APIClient, project: Project) -> None:
+    """No undeclared keys leak — the view builds rows from `asdict(CadenceRow)`,
+    which carries an internal `exists` flag the serializer must not emit."""
+    res = client.post(url(project), body(count=1), format="json")
+
+    assert set(res.data) == {
+        "dry_run",
+        "sprints",
+        "created_count",
+        "skipped_count",
+        "capacity_hint",
+    }
+    assert set(res.data["sprints"][0]) == {
+        "name",
+        "start_date",
+        "finish_date",
+        "working_days",
+        "non_working_days_skipped",
+        "status",
+        "id",
+    }
+    assert set(res.data["capacity_hint"]) == {
+        "points",
+        "basis",
+        "sprints_sampled",
+        "note",
+    }
+
+
+@pytest.mark.django_db
 def test_start_date_snaps_forward_off_a_weekend(client: APIClient, project: Project) -> None:
     # 2026-04-04 is a Saturday.
     res = client.post(url(project), body(count=1, start_date="2026-04-04"), format="json")
