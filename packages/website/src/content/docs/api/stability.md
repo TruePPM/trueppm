@@ -62,11 +62,11 @@ to break on an additive change that this policy considers backward-compatible.
 
 ## Deprecation window & notice
 
-No stable element has been deprecated yet — this section states the policy
-TruePPM intends to follow the first time one is, not a mechanism already
-exercised in production. When a **breaking** change to a stable element
-becomes necessary, the intent is for it to go through a deprecation window
-rather than being removed outright:
+One stable element is scheduled for deprecation — see
+[Current deprecations](#current-deprecations) below; the window mechanism itself
+has not yet been exercised through to a removal. When a **breaking** change to a
+stable element becomes necessary, the intent is for it to go through a
+deprecation window rather than being removed outright:
 
 1. **Announcement.** The deprecation will be called out in the
    [changelog](https://gitlab.com/trueppm/trueppm-suite/-/blob/main/CHANGELOG.md)
@@ -95,6 +95,32 @@ rather than being removed outright:
    that endpoint must treat `404` as the same condition.
 4. **Removal.** The element would be removed only after the window elapses, in
    a minor release before GA or in the next major version at and after GA.
+
+## Current deprecations
+
+### `group_by=project` on the resource heatmap
+
+`GET /api/v1/projects/{id}/resources/heatmap/` accepts `group_by` values of
+`role`, `project`, and `none`. **`project` will be deprecated in 0.4 and has
+never had any effect.** The endpoint is scoped to a single project, so grouping
+its rows by project is a single group by construction; the cross-project heat map
+is an Enterprise feature. A request using it is served exactly as `none`.
+
+Because `project` is a documented enum value in the published schema, removing it
+outright is a **Breaking** change by the table above, so it stays accepted for the
+window rather than starting to answer `400`.
+
+What changes in 0.4 is that the silence ends: the response gains a **`group_by`
+field naming the grouping actually applied**, so a caller asking for `project`
+reads back `"group_by": "none"` instead of having no way to tell. That field is an
+additive change and is safe for every existing client.
+
+| | |
+|---|---|
+| Announced | 0.4 |
+| Behavior during the window | accepted, served as `none`, echoed as `none` |
+| Earliest removal | 0.6 |
+| Migration | send `none`; read the response's `group_by` field rather than assuming the request value was honored |
 
 ## Versioning approach
 

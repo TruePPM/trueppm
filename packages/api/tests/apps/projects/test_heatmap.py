@@ -253,3 +253,67 @@ def test_members_self_filter_does_not_expose_other_members(project: Project) -> 
     assert resp.status_code == 200
     assert len(resp.data) == 1
     assert resp.data[0]["role"] == Role.SCHEDULER
+
+
+# ---------------------------------------------------------------------------
+# #2907 — group_by must not be accepted-then-silently-ignored
+# ---------------------------------------------------------------------------
+#
+# The endpoint validates group_by against {role, project, none} and then implements
+# only "role". "project" was accepted with a 200 and had no effect, so a consumer
+# asking for it read an alphabetical payload as project-grouped with nothing to
+# contradict them — the 400 it would have received was the only signal there was.
+#
+# "project" cannot simply be rejected: it is a documented enum value in the published
+# OpenAPI schema, and removing an enum value is a Breaking change under
+# api/stability.md, requiring a deprecation window. So the response now names the
+# grouping it actually applied, which is additive and closes the silence.
+
+
+@pytest.mark.django_db
+class TestHeatmapGroupByEcho:
+    def _heatmap(self, project: Project, **params: str) -> object:
+        r = Resource.objects.create(name="Zoe", email="zoe@example.com", max_units=1.0)
+        _assign(_make_task(project, date(2026, 6, 1), 5), r, 1.0)
+        return _auth_client(Role.SCHEDULER, project).get(_heatmap_url(project), params)
+
+    def test_default_reports_none(self, project: Project) -> None:
+        resp = self._heatmap(project)
+        assert resp.status_code == 200  # type: ignore[attr-defined]
+        assert resp.data["group_by"] == "none"  # type: ignore[attr-defined]
+
+    def test_role_reports_role(self, project: Project) -> None:
+        resp = self._heatmap(project, group_by="role")
+        assert resp.status_code == 200  # type: ignore[attr-defined]
+        assert resp.data["group_by"] == "role"  # type: ignore[attr-defined]
+
+    def test_project_is_still_accepted(self, project: Project) -> None:
+        """The deprecation window: it must keep working, not start 400ing."""
+        resp = self._heatmap(project, group_by="project")
+        assert resp.status_code == 200  # type: ignore[attr-defined]
+
+    def test_project_reports_none_not_project(self, project: Project) -> None:
+        """The defect, stated directly: the caller can now see it was not applied."""
+        resp = self._heatmap(project, group_by="project")
+        assert resp.data["group_by"] == "none"  # type: ignore[attr-defined]
+        assert resp.data["group_by"] != "project"  # type: ignore[attr-defined]
+
+    def test_project_and_none_are_byte_identical(self, project: Project) -> None:
+        """'project' is served as 'none' — pin that, so a future impl must be deliberate.
+
+        One client and one dataset: ``_auth_client`` mints a fixed username, so
+        building the fixture twice in a single test collides on the unique index.
+        """
+        r = Resource.objects.create(name="Zoe", email="zoe@example.com", max_units=1.0)
+        _assign(_make_task(project, date(2026, 6, 1), 5), r, 1.0)
+        client = _auth_client(Role.SCHEDULER, project)
+
+        as_project = client.get(_heatmap_url(project), {"group_by": "project"})
+        as_none = client.get(_heatmap_url(project), {"group_by": "none"})
+        assert as_project.status_code == 200
+        assert as_project.data == as_none.data
+
+    def test_an_unsupported_value_is_still_rejected(self, project: Project) -> None:
+        """The 400 path stays intact for values that were never in the enum."""
+        resp = self._heatmap(project, group_by="team")
+        assert resp.status_code == 400  # type: ignore[attr-defined]

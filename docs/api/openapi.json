@@ -18886,7 +18886,7 @@
         "/api/v1/projects/{id}/resources/heatmap/": {
             "get": {
                 "operationId": "v1_projects_resources_heatmap_retrieve",
-                "description": "Week × person utilization heatmap (issue #217, ADR-0042).\n\nQuery parameters:\n  weeks    (4|8|12|16, default 8)  — rolling window width\n  start    (YYYY-MM-DD, optional)  — Monday of first week; defaults to\n                                     Monday of the current ISO week\n  group_by (role|project|none, default none) — row sort hint; sorting\n                                     is done server-side so clients that\n                                     don't implement re-sort still work,\n                                     but clients MAY re-sort from the\n                                     returned job_role field without a\n                                     second request.\n\nReturns 409 when no CPM dates exist on any task.",
+                "description": "Week × person utilization heatmap (issue #217, ADR-0042).\n\nQuery parameters:\n  weeks    (4|8|12|16, default 8)  — rolling window width\n  start    (YYYY-MM-DD, optional)  — Monday of first week; defaults to\n                                     Monday of the current ISO week\n  group_by (role|project|none, default none) — row sort hint; sorting\n                                     is done server-side so clients that\n                                     don't implement re-sort still work,\n                                     but clients MAY re-sort from the\n                                     returned job_role field without a\n                                     second request.\n\nThe response carries a ``group_by`` field naming the grouping actually\napplied. ``project`` is accepted but deprecated and has no effect — it is\nserved as ``none`` (see ``aggregate_utilization_weekly``), and the echo is\nwhat lets a caller detect that rather than misreading the payload (#2907).\n\nReturns 409 when no CPM dates exist on any task.",
                 "parameters": [
                     {
                         "in": "query",
@@ -18899,7 +18899,7 @@
                                 "role"
                             ]
                         },
-                        "description": "Row sort hint; one of role, project, none. Defaults to none."
+                        "description": "Row sort hint; one of role, project, none. Defaults to none. The response echoes the grouping actually applied in its `group_by` field. **`project` is deprecated and has no effect** — this endpoint is scoped to a single project, so grouping its rows by project is a single group by construction; the cross-project heat map is an Enterprise feature. Requests using it are served as `none` and the response says so. It is retained only for the deprecation window required by the API stability contract and will be removed; use `none`."
                     },
                     {
                         "in": "path",

@@ -15,6 +15,10 @@ export interface HeatmapResource {
 export interface HeatmapResponse {
   weeks: string[]; // ISO week labels e.g. "2026-W18"
   resources: HeatmapResource[];
+  // The grouping the server ACTUALLY applied, which is not always the one asked
+  // for: `project` is a deprecated no-op that is served as `none` (#2907). Optional
+  // because a client may be talking to an older server that does not send it.
+  group_by?: 'role' | 'none';
 }
 
 export type HeatmapStatus = 'idle' | 'loading' | 'success' | 'schedule-not-run' | 'error';

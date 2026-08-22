@@ -2729,7 +2729,17 @@ class ProjectViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 enum=["role", "project", "none"],
-                description="Row sort hint; one of role, project, none. Defaults to none.",
+                description=(
+                    "Row sort hint; one of role, project, none. Defaults to none. "
+                    "The response echoes the grouping actually applied in its "
+                    "`group_by` field. **`project` is deprecated and has no effect** "
+                    "— this endpoint is scoped to a single project, so grouping its "
+                    "rows by project is a single group by construction; the "
+                    "cross-project heat map is an Enterprise feature. Requests using "
+                    "it are served as `none` and the response says so. It is retained "
+                    "only for the deprecation window required by the API stability "
+                    "contract and will be removed; use `none`."
+                ),
             ),
         ],
         responses={
@@ -2757,6 +2767,11 @@ class ProjectViewSet(
                                              but clients MAY re-sort from the
                                              returned job_role field without a
                                              second request.
+
+        The response carries a ``group_by`` field naming the grouping actually
+        applied. ``project`` is accepted but deprecated and has no effect — it is
+        served as ``none`` (see ``aggregate_utilization_weekly``), and the echo is
+        what lets a caller detect that rather than misreading the payload (#2907).
 
         Returns 409 when no CPM dates exist on any task.
         """
