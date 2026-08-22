@@ -40,6 +40,7 @@ let mockLinks: TaskLink[] = FIXTURE_LINKS;
 let mockIsLoading = false;
 let mockError: Error | null = null;
 let mockRole: number | null = ROLE_MEMBER;
+let mockRoleError = false;
 let mockSurfaces = { monte_carlo: true, baselines: true };
 let mockBreakpoint: 'sm' | 'md' | 'lg' = 'lg';
 let mockIsExporting = false;
@@ -142,7 +143,7 @@ vi.mock('@/hooks/useCurrentUser', () => ({
   }),
 }));
 vi.mock('@/hooks/useCurrentUserRole', () => ({
-  useCurrentUserRole: () => ({ role: mockRole, isLoading: false }),
+  useCurrentUserRole: () => ({ role: mockRole, isLoading: false, isError: mockRoleError }),
 }));
 vi.mock('@/hooks/useSurfaceVisibility', () => ({
   useSurfaceVisibility: () => mockSurfaces,
@@ -510,6 +511,7 @@ beforeEach(() => {
   mockIsLoading = false;
   mockError = null;
   mockRole = ROLE_MEMBER;
+  mockRoleError = false;
   mockSurfaces = { monte_carlo: true, baselines: true };
   mockBreakpoint = 'lg';
   mockMobile = false;
@@ -730,6 +732,47 @@ describe('ScheduleView — read-only vs authoring gates', () => {
     renderSchedule();
     expect(screen.getByRole('button', { name: '+ Milestone' })).toBeEnabled();
     expect(screen.getByRole('button', { name: '+ Phase' })).toBeEnabled();
+  });
+});
+
+describe('ScheduleView — ?author= deep link (#2952)', () => {
+  it('creates a task from ?author=task for an editor', () => {
+    mockRole = ROLE_MEMBER;
+    renderSchedule(['/?author=task']);
+    expect(createTaskMutate).toHaveBeenCalledWith(expect.anything(), expect.anything());
+  });
+
+  it('spends ?author=task without creating anything for a viewer', () => {
+    mockRole = ROLE_VIEWER;
+    renderSchedule(['/?author=task']);
+    expect(createTaskMutate).not.toHaveBeenCalled();
+  });
+
+  // The regression rule 246 (query-error-unhandled) caught: `useCurrentUserRole`
+  // sets `isLoading: false` once a `retry: false` read fails, so gating only on
+  // `isLoading` reads a blipped request as "resolved: read-only" — the link
+  // gets marked spent and consumed forever, identically to the #2909/#2961
+  // defect this same hook exists to prevent elsewhere in ScheduleView.
+  it('does not spend ?author=task on a failed role read — the link survives to the next resolved render (#2909, #2961)', () => {
+    mockRole = null;
+    mockRoleError = true;
+    const { rerender } = renderSchedule(['/?author=task']);
+
+    expect(createTaskMutate).not.toHaveBeenCalled();
+
+    // The blip clears (e.g. a fresh mount re-queries). Because the failed read
+    // was never treated as a verdict, the link is still live.
+    mockRole = ROLE_MEMBER;
+    mockRoleError = false;
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter initialEntries={['/?author=task']}>
+          <ScheduleView />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(createTaskMutate).toHaveBeenCalled();
   });
 });
 

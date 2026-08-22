@@ -377,3 +377,46 @@ test.describe('context-bar status cluster overflow (#2533)', () => {
     await expect(page.getByTestId('health-cluster')).toBeInViewport();
   });
 });
+
+test.describe('the "+ New task" demotion (#2952, design case 18)', () => {
+  test('"+ New task" lands in the Designer with a row in edit, not in a modal', async ({
+    page,
+  }) => {
+    // The whole point of case 18: the shell's create affordance survives as an
+    // entry point and loses its form. Asserting the URL AND the absence of a
+    // dialog is deliberate — a regression here looks like "the button still
+    // works", because it does; it just opens the wrong thing.
+    await setupFullCluster(page);
+
+    let created: Record<string, unknown> | null = null;
+    await page.route('**/api/v1/tasks/', async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      created = route.request().postDataJSON() as Record<string, unknown>;
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: 'new-task-1',
+          name: created.name,
+          project: PROJECT_ID,
+          duration: 1,
+          percent_complete: 0,
+          status: 'NOT_STARTED',
+          is_summary: false,
+          is_milestone: false,
+          parent: null,
+          wbs_path: '1',
+        }),
+      });
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/board`);
+    await page.getByRole('button', { name: 'New task' }).click();
+
+    await expect(page).toHaveURL(/\/schedule/);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    // The param is consumed and stripped, so a refresh cannot author a second row.
+    await expect(page).not.toHaveURL(/author=/);
+    expect(created).not.toBeNull();
+  });
+});
