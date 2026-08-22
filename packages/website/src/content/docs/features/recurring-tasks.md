@@ -1,6 +1,7 @@
 ---
 title: Recurring tasks
 description: Repeat a task on a calendar cadence — standups, weekly walks, monthly reviews — without it ever touching the critical path.
+documentedFor: "0.4"
 ---
 
 
@@ -33,8 +34,16 @@ Click **Save recurrence** to attach the rule. The task immediately leaves the CP
 
 Per-occurrence inheritance is controlled by toggles on the rule:
 
-- **Inherit assignees** — each occurrence is assigned to the same person as the template.
+- **Inherit assignees** — each occurrence is assigned to the same person as the template, and carries the template's **resource allocation** (each assigned resource, at the same units). Because allocation is what capacity, utilization and the heat map are computed from, this is what makes recurring work show up as real load rather than as an unstaffed row. Turning the toggle off clears both — an occurrence is never allocated to someone it does not show as assigned.
 - **Inherit attachments** — the template's attachments are copied onto each occurrence (referencing the same stored file, not a duplicated upload).
+
+:::note[Ships in 0.4]
+Carrying the template's **resource allocation** ships in 0.4. Through 0.3, an
+occurrence inherits only the assignee shown on the row: it looks staffed on the
+board but contributes **zero** to capacity, utilization and the heat map, every
+interval, indefinitely. The rest of this page describes 0.2 behavior and is
+unaffected.
+:::
 - **Inherit subtasks** and **Notify assignees the morning of** are shown but **labeled "Not active yet"** — they are stored on the rule for a future release and have no effect today.
 
 ## How occurrences are generated

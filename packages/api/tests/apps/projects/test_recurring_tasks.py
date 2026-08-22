@@ -14,6 +14,7 @@ Layers covered:
 from __future__ import annotations
 
 from datetime import date, datetime, time
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -34,6 +35,7 @@ from trueppm_api.apps.projects.models import (
 )
 from trueppm_api.apps.projects.services import _generate_due_occurrences
 from trueppm_api.apps.projects.tasks import generate_recurring_occurrences
+from trueppm_api.apps.resources.models import Resource, TaskResource
 
 User = get_user_model()
 
@@ -606,3 +608,119 @@ def test_no_new_occurrences_does_not_broadcast(
         mock_redis_module.client.return_value = mock_redis
         generate_recurring_occurrences.run()
     mock_bcast.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# #2902 — the occurrence must carry the template's TaskResource rows
+# ---------------------------------------------------------------------------
+#
+# The two inherit_assignee tests above are the guard that existed, and they were
+# narrower than the class they name: they assert on Task.assignee, which no
+# allocation view reads. Capacity, utilization and the heat map all sum
+# TaskResource.units, so an occurrence with a bare assignee is staffed-looking and
+# zero-load — once per interval, forever, with nothing to notice it.
+
+
+@pytest.fixture
+def resource(db: object) -> Resource:
+    return Resource.objects.create(name="Dana", email="dana@example.com", max_units=1.0)
+
+
+@pytest.fixture
+def staffed_template(template: Task, user: object, resource: Resource) -> Task:
+    """A template staffed the way a correctly-authored one is: assignee AND units."""
+    template.assignee = user  # type: ignore[assignment]
+    template.save(update_fields=["assignee"])
+    TaskResource.objects.create(task=template, resource=resource, units=Decimal("0.50"))
+    return template
+
+
+@pytest.mark.django_db
+def test_occurrence_carries_the_templates_assignment_rows(
+    staffed_template: Task, resource: Resource
+) -> None:
+    rule = _make_rule(staffed_template, inherit_assignee=True)
+    created = _generate_due_occurrences(rule, horizon_days=2, now=NOON)
+
+    assert created
+    for occurrence in created:
+        rows = TaskResource.objects.filter(task=occurrence)
+        assert [(r.resource_id, r.units) for r in rows] == [(resource.pk, Decimal("0.50"))]
+
+
+@pytest.mark.django_db
+def test_occurrence_load_is_not_zero(staffed_template: Task) -> None:
+    """The property the defect actually broke, stated as load rather than as rows."""
+    rule = _make_rule(staffed_template, inherit_assignee=True)
+    created = _generate_due_occurrences(rule, horizon_days=2, now=NOON)
+
+    assert created
+    total = sum(tr.units for tr in TaskResource.objects.filter(task__in=[o.pk for o in created]))
+    assert total == Decimal("0.50") * len(created)
+
+
+@pytest.mark.django_db
+def test_multiple_owners_all_carry_with_their_own_units(template: Task, resource: Resource) -> None:
+    second = Resource.objects.create(name="Sam", email="sam@example.com", max_units=1.0)
+    TaskResource.objects.create(task=template, resource=resource, units=Decimal("0.25"))
+    TaskResource.objects.create(task=template, resource=second, units=Decimal("1.00"))
+
+    rule = _make_rule(template, inherit_assignee=True)
+    created = _generate_due_occurrences(rule, horizon_days=1, now=NOON)
+
+    assert created
+    rows = TaskResource.objects.filter(task=created[0])
+    assert {(r.resource_id, r.units) for r in rows} == {
+        (resource.pk, Decimal("0.25")),
+        (second.pk, Decimal("1.00")),
+    }
+
+
+@pytest.mark.django_db
+def test_inherit_assignee_false_copies_no_assignment_rows(
+    staffed_template: Task,
+) -> None:
+    """Opting out must clear the real assignment too, not just the display one.
+
+    Carrying units while leaving assignee null would be worse than the bug: an
+    occurrence that reads as unassigned everywhere in the UI while silently
+    consuming capacity.
+    """
+    rule = _make_rule(staffed_template, inherit_assignee=False)
+    created = _generate_due_occurrences(rule, horizon_days=2, now=NOON)
+
+    assert created
+    assert all(o.assignee_id is None for o in created)
+    assert not TaskResource.objects.filter(task__in=[o.pk for o in created]).exists()
+
+
+@pytest.mark.django_db
+def test_an_unstaffed_template_creates_no_assignment_rows(template: Task) -> None:
+    """Copying must not invent an assignment for a template that has none."""
+    rule = _make_rule(template, inherit_assignee=True)
+    created = _generate_due_occurrences(rule, horizon_days=2, now=NOON)
+
+    assert created
+    assert not TaskResource.objects.filter(task__in=[o.pk for o in created]).exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_generation_emits_no_per_assignment_events(staffed_template: Task) -> None:
+    """The sweep keeps its one-bulk-event-per-project contract (#1008).
+
+    ``apply_task_owners`` broadcasts ``assignment_*`` per row by default. The spawn
+    passes ``broadcast=False`` because the Beat task already emits one
+    ``tasks_bulk_mutated`` per project, and on the client both land on the same
+    ``scheduleInvalidate('tasks')`` — so per-row events here would be duplicate load
+    inside a task that runs in autocommit, where every ``on_commit`` fires at once.
+
+    Driven through ``_generate_due_occurrences`` rather than the Beat task so the
+    assertion does not depend on the Redis lock ``@idempotent_task`` takes.
+    """
+    rule = _make_rule(staffed_template, inherit_assignee=True)
+    with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast:
+        created = _generate_due_occurrences(rule, horizon_days=2, now=NOON)
+
+    assert created
+    emitted = [call.args[1] for call in mock_broadcast.call_args_list if len(call.args) > 1]
+    assert emitted == [], f"generation should emit no board events itself, got {emitted}"
