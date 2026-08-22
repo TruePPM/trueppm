@@ -59,6 +59,12 @@ import {
 } from '@/components/Icons';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { canEditTask } from '@/lib/roles';
+import {
+  DepthGuides,
+  PhaseBandEdge,
+  PHASE_BAND_NAME_CLASS,
+  PHASE_BAND_ROW_CLASS,
+} from './RowContainmentChrome';
 import { MissingCommittedStartChip } from './MissingCommittedStartChip';
 import { isMissingCommittedStart } from './missingCommittedStart';
 import { LINK_STATUS_TEXT_CLASS } from '@/lib/linkStatus';
@@ -851,6 +857,7 @@ function getRowClassName(s: {
   isHovered: boolean;
   dimmed: boolean;
   isStructuralPending: boolean;
+  isPhaseRow: boolean;
 }): string {
   const editingCell = s.isEditing || s.anyCellInEdit;
   const selected = s.buildMode ? s.isBuildSelected : s.isSelected;
@@ -865,6 +872,10 @@ function getRowClassName(s: {
         : 'hover:bg-chrome-row-hover';
   return [
     'relative group flex items-stretch text-xs border-b border-neutral-border/20',
+    // The phase band's wash. Listed BEFORE selectionClass so hover and
+    // selection still win on top of it — a selected phase must read as
+    // selected first (#2956).
+    s.isPhaseRow ? PHASE_BAND_ROW_CLASS : '',
     // motion-safe transition so the hover-chain dim/un-dim (#475) doesn't
     // snap when the cursor sweeps across many rows — without this the rapid
     // chain recomputes show as flicker.
@@ -1597,13 +1608,33 @@ function buildRowMenuItemsFor(
  * Critical-path and summary emphasis for the task-name cell. Split out of
  * TaskListRowInner (#2081); both class strings are verbatim.
  */
-function taskNameStyles(task: Task): { isCriticalStyle: string; isSummaryStyle: string } {
+function taskNameStyles(
+  task: Task,
+  isPhaseRow: boolean,
+): { isCriticalStyle: string; isSummaryStyle: string } {
   return {
     isCriticalStyle: task.isCritical
       ? 'font-semibold text-semantic-critical'
       : 'text-neutral-text-primary',
-    isSummaryStyle: task.isSummary ? 'font-medium' : '',
+    // A phase gets the display face (#2956); a leaf-with-subtasks is `isSummary`
+    // but NOT a phase (ADR-0293) and keeps the plain weight it always had.
+    isSummaryStyle: isPhaseRow ? PHASE_BAND_NAME_CLASS : task.isSummary ? 'font-medium' : '',
   };
+}
+
+/**
+ * Is this row a phase — a container of structural work (ADR-0293)?
+ *
+ * Mirrors `isPhaseTask()` without needing the whole task list: prefer the
+ * server's verdict, and fall back to "has a structural child" using the tree
+ * flags the row already receives. `isSummary` is deliberately not enough — it
+ * is also true for a leaf whose only children are drawer subtasks, and banding
+ * those would say "container" about a row that contains no work.
+ */
+function isPhaseRowOf(task: Task, hasChildren: boolean): boolean {
+  if (typeof task.isPhase === 'boolean') return task.isPhase;
+  if (task.isSubtask) return false;
+  return hasChildren;
 }
 
 function TaskListRowInner({
@@ -1811,7 +1842,8 @@ function TaskListRowInner({
     onClassifyRequest,
   });
 
-  const { isCriticalStyle, isSummaryStyle } = taskNameStyles(task);
+  const isPhaseRow = isPhaseRowOf(task, hasChildren);
+  const { isCriticalStyle, isSummaryStyle } = taskNameStyles(task, isPhaseRow);
 
   // Data-integrity warning (issue #317): a task that has reached IN_PROGRESS /
   // REVIEW / COMPLETE without a PM-committed `planned_start` is a data error,
@@ -1882,6 +1914,7 @@ function TaskListRowInner({
         isHovered,
         dimmed,
         isStructuralPending,
+        isPhaseRow,
       })}
       onClick={() => handleRowClick(surface)}
       onDoubleClick={() => handleRowDoubleClick(surface)}
@@ -1994,6 +2027,15 @@ function TaskListRowInner({
         className="relative flex items-center shrink-0 border-r border-neutral-border/20"
         style={{ width: widths.task, paddingLeft: (level - 1) * WBS_INDENT + 8 }}
       >
+        {/* Containment chrome (#2956) — one vertical rule per ancestor level,
+            and, on a phase, its own sage edge at the indent origin those rules
+            run on. Both are aria-hidden redundant encodings of what
+            `aria-level`, the WBS number and the fold caret's `N inside` count
+            already say; both are siblings of the cell content and
+            pointer-events-none, never wrappers (the #2782 class). */}
+        <DepthGuides level={level} />
+        {isPhaseRow && <PhaseBandEdge level={level} />}
+
         {/* Collapse/expand chevron for summary tasks */}
         <RowExpandChevron
           hasChildren={hasChildren}

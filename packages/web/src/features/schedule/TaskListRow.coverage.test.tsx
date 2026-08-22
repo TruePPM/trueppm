@@ -658,3 +658,89 @@ describe('TaskListRow — milestone start-cell date popover (#345)', () => {
     expect(screen.getByRole('dialog', { name: 'Pick milestone date' })).toBeInTheDocument();
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// Containment chrome on a real row (#2956). The unit tests in
+// RowContainmentChrome.test.tsx pin the geometry; these pin the wiring — which
+// rows get a band, and that the marks reach the DOM at all.
+// ───────────────────────────────────────────────────────────────────────────
+describe('TaskListRow — phase bands and depth guides (#2956)', () => {
+  it('bands a phase row and gives it the edge at its indent origin', () => {
+    renderRouted(
+      <TaskListRow
+        task={{ ...base, isPhase: true }}
+        level={2}
+        widths={widths}
+        visible={visible}
+        hasChildren
+        childCount={3}
+      />,
+    );
+    expect(screen.getByTestId('phase-band-edge')).toBeInTheDocument();
+  });
+
+  it('does NOT band a leaf that only has drawer subtasks', () => {
+    // `isSummary` is true for any task with a child, including a leaf whose only
+    // children are drawer subtasks (ADR-0060). Banding those would say
+    // "container" about a row that contains no structural work — which is the
+    // exact confusion this issue exists to remove.
+    renderRouted(
+      <TaskListRow
+        task={{ ...base, isSummary: true, isPhase: false }}
+        level={2}
+        widths={widths}
+        visible={visible}
+        hasChildren
+        childCount={2}
+      />,
+    );
+    expect(screen.queryByTestId('phase-band-edge')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the structural-child test when the server omits isPhase', () => {
+    // A deployment that has not shipped #1753 sends no `isPhase`; the row must
+    // still band rather than silently losing the whole signal.
+    renderRouted(
+      <TaskListRow
+        task={base}
+        level={2}
+        widths={widths}
+        visible={visible}
+        hasChildren
+        childCount={2}
+      />,
+    );
+    expect(screen.getByTestId('phase-band-edge')).toBeInTheDocument();
+  });
+
+  it('gives a nested row one depth guide per ancestor level', () => {
+    const { container } = renderRouted(
+      <TaskListRow task={base} level={3} widths={widths} visible={visible} />,
+    );
+    expect(container.querySelectorAll('[data-depth]')).toHaveLength(2);
+  });
+
+  it('gives a root row no guides', () => {
+    const { container } = renderRouted(
+      <TaskListRow task={base} level={1} widths={widths} visible={visible} />,
+    );
+    expect(container.querySelectorAll('[data-depth]')).toHaveLength(0);
+  });
+
+  it('leaves the row clickable under the chrome (the #2782 class)', () => {
+    renderRouted(
+      <TaskListRow
+        task={{ ...base, isPhase: true }}
+        level={3}
+        widths={widths}
+        visible={visible}
+        hasChildren
+        childCount={1}
+      />,
+    );
+    const row = screen.getByRole('row');
+    row.focus();
+    fireEvent.keyDown(row, { key: ' ' });
+    expect(mocks.toggleMutate).toHaveBeenCalledTimes(1);
+  });
+});

@@ -14,6 +14,12 @@ import {
 import { useLocation, useSearchParams } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { setSearchParam } from '@/hooks/useUrlSelectedId';
+import {
+  AUTHOR_PARAM,
+  AUTHOR_PARENT_PARAM,
+  parseAuthorIntent,
+  type AuthorIntent,
+} from './authorParam';
 import { findUndatedRow } from './buildMode/undatedNav';
 import { ancestorIdsOf } from './unscheduledSelection';
 import type { GanttEngine, GanttScaleData } from './engine';
@@ -1360,7 +1366,11 @@ export function ScheduleView() {
   const breakpoint = useBreakpoint();
 
   // Role gate for milestone insert (#340) — VIEWER cannot author.
-  const { role: currentRole } = useCurrentUserRole(projectIdUndef);
+  const {
+    role: currentRole,
+    isLoading: roleLoading,
+    isError: roleError,
+  } = useCurrentUserRole(projectIdUndef);
   // Pessimistic while the role loads (#2145): `canEditTask(null)` is false, so
   // every create control (+ Task / + Milestone / + Phase) stays disabled until
   // the role resolves — matching the pessimistic `canImport`/`canShare`/
@@ -2186,6 +2196,85 @@ export function ScheduleView() {
     },
     [projectId, createTaskMut, focus, buildModeActive],
   );
+
+  // `?author=task|milestone` deep link (#2952, design case 18). The demotion of
+  // the seven creation surfaces: each stays an entry point and each lands HERE,
+  // with the caret in a new row, instead of owning its own modal form.
+  //
+  // One-shot via a ref for the same reason `?import=csv` and
+  // `?templateApplication=` are: without it, a refresh — or a back-navigation
+  // after the user has already named the row — creates a SECOND row. That is
+  // worse than the reopened-dialog case those two guard against, because this
+  // param's effect is a write.
+  //
+  // Waits for `readOnly` to be decided rather than guessing. `readOnly` is
+  // derived from a role query that has not resolved on first paint, so acting
+  // immediately would create nothing for an editor and silently swallow the
+  // link. Deciding late is correct; deciding wrong is not.
+  const authorParamConsumedRef = useRef(false);
+  const [authorParamSpent, setAuthorParamSpent] = useState(false);
+  useEffect(() => {
+    if (authorParamConsumedRef.current) return;
+    const intent: AuthorIntent | null = parseAuthorIntent(searchParams.get(AUTHOR_PARAM));
+    if (!intent) return;
+    // Gate on `isLoading`/`isError`, NOT on `currentRole === null`. The two are
+    // different questions and only one of them means "wait": a NON-MEMBER also
+    // has a null role, forever, so gating on the value would leave `?author=`
+    // in their URL permanently, re-arming on every navigation. A failed role
+    // read is not a permission verdict either (#2909, #2961) — `retry: false`
+    // means an editor's blipped request would otherwise settle to `isLoading:
+    // false` and get read as "resolved: read-only", silently spending the
+    // param and creating nothing. Leaving it unconsumed on error costs one
+    // fresh attempt on the next mount instead of losing the link outright.
+    if (roleLoading || roleError) return; // unsettled — decide, don't guess
+    authorParamConsumedRef.current = true;
+    // Spend the param either way — including when the answer is "you may not
+    // author here". A link that resolved to a refusal must not sit in the URL
+    // looking like it might still work.
+    setAuthorParamSpent(true);
+    if (readOnly) return;
+    if (intent === 'milestone') {
+      setShowAddMilestone(true);
+      return;
+    }
+    // `under` when the caller named a container, otherwise the outline's own
+    // insertion point — the shell's context-free "+ New task" states intent, it
+    // does not override where a row belongs.
+    createNewTask(searchParams.get(AUTHOR_PARENT_PARAM) ?? inferredParentId, undefined);
+  }, [
+    searchParams,
+    roleLoading,
+    roleError,
+    readOnly,
+    createNewTask,
+    inferredParentId,
+    setShowAddMilestone,
+  ]);
+
+  // Strip in a LATER commit, and both keys in ONE updater. Two traps, both live:
+  //
+  //  * A `setSearchParams` issued from the same commit that consumed the param
+  //    is silently lost. The display-filter mirror effect above writes
+  //    focus/cp/crit/ms on the mount pass, and react-router resolves each
+  //    updater's `prev` from the live location rather than from a queue — so
+  //    within one commit the later write wins outright and restores the
+  //    pre-strip params, `author` included. This is the #2031 class, and
+  //    `setSearchParam`'s "functional updaters compose" only holds across
+  //    commits, not within one.
+  //  * For the same reason, two `setSearchParam` calls for two keys in one
+  //    commit lose the first. Hence one updater deleting both.
+  useEffect(() => {
+    if (!authorParamSpent) return;
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete(AUTHOR_PARAM);
+        next.delete(AUTHOR_PARENT_PARAM);
+        return next;
+      },
+      { replace: true },
+    );
+  }, [authorParamSpent, setSearchParams]);
 
   // Deep-link scroll + pulse (issue 734). The sprint→schedule bridge link
   // (AdvancingToMilestoneCard) navigates to `/projects/:id/schedule#task-{id}`.
