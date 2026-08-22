@@ -56,8 +56,15 @@ import { ScheduleSummaryChip } from './ScheduleSummaryChip';
 import { ScheduleAddMilestoneButton } from './ScheduleAddMilestoneButton';
 import { ScheduleAddPhaseButton } from './ScheduleAddPhaseButton';
 import { ScheduleViewOnlyBadge } from './ScheduleViewOnlyBadge';
-import { ScheduleInsertTargetStatement } from './ScheduleInsertTargetStatement';
-import { deriveInsertTarget, type InsertTarget } from './buildMode/insertTarget';
+import {
+  ScheduleInsertTargetStatement,
+  INSERT_TARGET_STATEMENT_ID,
+} from './ScheduleInsertTargetStatement';
+import {
+  deriveInsertTarget,
+  describeInsertTarget,
+  type InsertTarget,
+} from './buildMode/insertTarget';
 import { MilestonePulseOverlay } from './MilestonePulseOverlay';
 import { ScheduleLegend } from './ScheduleLegend';
 import { useScheduleKeyboard } from './useScheduleKeyboard';
@@ -2214,9 +2221,10 @@ export function ScheduleView() {
    *
    * - a named row is focused → a sibling directly after it, same depth. This is
    *   the pointer twin of `⏎`, which is what the sentence names.
-   * - the focused row has no name yet → `⏎` would *save*, not insert
-   *   (`EditableCell`'s `emptyIsNoop`), so the button puts the caret back in the
-   *   Name cell rather than stacking a second blank row behind the first.
+   * - the focused row has no name yet → the button is disabled, because `⏎`
+   *   there *saves* rather than inserts (`EditableCell`'s `emptyIsNoop`) and a
+   *   button that claimed otherwise would stack a second blank row behind the
+   *   first. The statement beside it says so.
    * - nothing focused → there is no row to land after, so the create form opens
    *   and the parent gets chosen explicitly. Appending at the end here would
    *   duplicate the footer, which is precisely the collapse being undone.
@@ -2227,13 +2235,13 @@ export function ScheduleView() {
       buildModeApi.insertBelow(insertTarget.taskId);
       return;
     }
-    if (insertTarget.kind === 'unnamed') {
-      focus.focusRow(insertTarget.taskId);
-      focus.enterCellEdit(insertTarget.taskId, 'name');
-      return;
-    }
+    // `unnamed` never reaches here — the button is disabled in that state, and
+    // an early return rather than a fallthrough is what keeps a future caller
+    // from quietly getting the `none` behavior for a state that means the
+    // opposite.
+    if (insertTarget.kind === 'unnamed') return;
     setShowAddForm((v) => !v);
-  }, [readOnly, insertTarget, buildModeApi, focus]);
+  }, [readOnly, insertTarget, buildModeApi]);
 
   /**
    * The footer's "Add a task at the end". `parent_id: null` unconditionally —
@@ -4057,10 +4065,26 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
         <button
           type="button"
           onClick={onAddTask}
-          disabled={readOnly}
+          // Inert while the focused row is still unnamed. `⏎` there SAVES —
+          // `EditableCell`'s `emptyIsNoop` makes a second Enter on a blank row a
+          // calm no-op — so a button that claims to add one would be lying, and
+          // an enabled button that blurred the cell and then did nothing
+          // observable would be worse. The user has rights here, so this is
+          // present-and-inert with a refusal that explains itself, which is what
+          // web rule 302 asks for on that side of the split.
+          disabled={readOnly || insertTarget.kind === 'unnamed'}
           aria-label="Add task"
+          // The accessible NAME stays stable across all three branches — a
+          // control renaming itself as the cursor moves is disorienting. The
+          // qualification rides on `aria-describedby`, which is announced on
+          // focus rather than on every row move (web rule 194's concern).
+          aria-describedby={
+            hasEditRights && describeInsertTarget(insertTarget) !== null
+              ? INSERT_TARGET_STATEMENT_ID
+              : undefined
+          }
           aria-expanded={insertTarget.kind === 'none' ? showAddForm : undefined}
-          title={readOnly ? 'Read-only access' : undefined}
+          title={readOnly ? 'Read-only access' : (describeInsertTarget(insertTarget) ?? undefined)}
           className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium flex-shrink-0
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
               hover:border-brand-primary hover:text-brand-primary
@@ -4069,6 +4093,14 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           + Task
         </button>
       )}
+      {/* Where that button will land its row (#2957). Adjacent to `+ Task`
+          rather than after the `+ Milestone` / `+ Phase` peers, because it
+          states what THIS control does and a sentence sitting flush against a
+          different button reads as annotating that one — the same
+          position-implies-the-wrong-thing defect this issue is about, one level
+          up. Not in `BuildModeHintStrip` either: the strip teaches the keyboard
+          mode, not one control's outcome. Absent without edit rights. */}
+      <ScheduleInsertTargetStatement target={insertTarget} hasEditRights={hasEditRights} />
       {/* "+ Milestone" peer button (#340). Absent without edit rights (#2949),
           disabled for an editor who chose Read — the two are different states. */}
       {projectId && hasEditRights && (
@@ -4087,13 +4119,6 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           pending={createPending}
         />
       )}
-      {/* Where the button above will land its row (#2957). Sits beside that
-          button, not in `BuildModeHintStrip`, because it states what THIS
-          control does — the strip teaches the keyboard mode, and a sentence
-          about a specific button's outcome parked at the other end of the
-          screen is exactly the position-implies-one-thing mismatch this issue
-          is about. It renders nothing without edit rights (web rule 302). */}
-      <ScheduleInsertTargetStatement target={insertTarget} hasEditRights={hasEditRights} />
       {buildModeActive && hasEditRights && (
         <BuildModePill onShowCheatsheet={() => setCheatsheetOpen(true)} />
       )}

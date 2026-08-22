@@ -86,27 +86,44 @@ test.describe('Schedule — each insert affordance lands where its position impl
     // appends within the parent — so the sentence names 1.2, which is where the
     // row actually goes. Naming 1.1 would be the more flattering claim and a
     // false one.
+    // `toBeVisible`, not just `toHaveText`: a `truncate` span in the
+    // `flex-nowrap` toolbar can collapse to zero width and still carry its full
+    // text, so a text-only assertion passes on a sentence nobody can read
+    // (web rule 316(c)).
+    await expect(statement).toBeVisible();
     await expect(statement).toHaveText('⏎ adds a row after 1.2 · same level');
     await expect(statement).toHaveAttribute('data-target-kind', 'after');
+    // The button describes itself with that same sentence, so a screen-reader
+    // user hears it on focus rather than never.
+    const addTask = page.getByRole('button', { name: 'Add task' });
+    await expect(addTask).toHaveAttribute(
+      'aria-describedby',
+      'schedule-insert-target-statement',
+    );
 
-    await page.getByRole('button', { name: 'Add task' }).click();
+    await addTask.click();
 
     // Where it ended up: inside the phase, as a third child — not at the root,
-    // and not under the row that merely happened to be selected.
-    await expect.poll(() => store.creates.length).toBeGreaterThan(0);
+    // and not under the row that merely happened to be selected. Exactly one —
+    // a double-insert is the same class of defect as landing in the wrong place.
+    await expect.poll(() => store.creates.length).toBe(1);
     expect(store.creates[0]).toMatchObject({ parent_id: 'ph' });
     await expect
       .poll(() => store.rows().find((r) => r.id === 'created-1')?.wbs_path)
       .toBe('1.3');
   });
 
-  test('the toolbar says ⏎ saves, not inserts, while the new row is unnamed', async ({ page }) => {
-    await setupTaskStore(page, { tasks: FIXTURE_TASKS });
+  test('the toolbar says ⏎ saves, not inserts, while the new row is unnamed — and refuses to add a second', async ({
+    page,
+  }) => {
+    const store = await setupTaskStore(page, { tasks: FIXTURE_TASKS });
     await page.goto(BASE_URL);
     await expect(page.getByText('Clear access road')).toBeVisible();
 
     await page.getByText('Clear access road').click();
-    await page.getByRole('button', { name: 'Add task' }).click();
+    const addTask = page.getByRole('button', { name: 'Add task' });
+    await addTask.click();
+    await expect.poll(() => store.creates.length).toBe(1);
 
     // The row that just appeared has no name yet: `⏎` there commits the name,
     // and a second `⏎` on a blank one is a deliberate no-op. The toolbar has to
@@ -115,6 +132,32 @@ test.describe('Schedule — each insert affordance lands where its position impl
     await expect(statement).toHaveAttribute('data-target-kind', 'unnamed');
     await expect(statement).toContainText('name it to add the next');
     await expect(statement).not.toContainText('adds a row');
+
+    // And the button agrees with the sentence: inert, not a click that blurs
+    // the cell and produces nothing observable.
+    await expect(addTask).toBeDisabled();
+    await expect.poll(() => store.creates.length).toBe(1);
+  });
+
+  test('the sentence stays readable to a screen reader at a width too narrow to draw it', async ({
+    page,
+  }) => {
+    // 900px: the desktop toolbar still renders (it goes down to 768) but has no
+    // room for a sentence. `sr-only`, not `hidden` — the button's own
+    // description must not vanish with the pixels, and the button still
+    // branches three ways on focus state at this width.
+    await page.setViewportSize({ width: 900, height: 800 });
+    await setupTaskStore(page, { tasks: FIXTURE_TASKS });
+    await page.goto(BASE_URL);
+    await expect(page.getByText('Survey the site')).toBeVisible();
+
+    await page.getByText('Survey the site').click();
+    const statement = page.getByTestId('schedule-insert-target');
+    await expect(statement).toHaveText('⏎ adds a row after 1.2 · same level');
+    await expect(page.getByRole('button', { name: 'Add task' })).toHaveAttribute(
+      'aria-describedby',
+      'schedule-insert-target-statement',
+    );
   });
 
   test('the footer appends at the end, at the top level, with a child row selected', async ({
@@ -133,7 +176,7 @@ test.describe('Schedule — each insert affordance lands where its position impl
     await footer.scrollIntoViewIfNeeded();
     await footer.getByRole('button', { name: 'Add a task at the end' }).click();
 
-    await expect.poll(() => store.creates.length).toBeGreaterThan(0);
+    await expect.poll(() => store.creates.length).toBe(1);
     // `?? null`, not `toMatchObject({ parent_id: null })`: the client drops a
     // null from the payload, so "root" reaches the wire as an ABSENT key. The
     // landing position below is the assertion that actually holds either way.

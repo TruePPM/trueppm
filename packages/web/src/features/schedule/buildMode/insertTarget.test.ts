@@ -76,6 +76,35 @@ describe('deriveInsertTarget', () => {
     });
   });
 
+  it('handles a ROOT-level focused row, where parentId is null on both sides', () => {
+    // The root case is the one where the toolbar and the footer land in the
+    // same place — they must still be derived independently, and the
+    // `?? null` normalization has to survive a task whose parentId is
+    // `undefined` rather than `null`.
+    const roots = [
+      task({ id: 'r1', wbs: '1', name: 'Mobilization' }),
+      // `undefined` rather than `null` on purpose — the `?? null` normalization
+      // in `deriveInsertTarget` is what makes the two comparable, and a Task
+      // arriving without the key at all is what it guards.
+      { ...task({ id: 'r2', wbs: '2', name: 'Documentation' }), parentId: undefined } as unknown as Task,
+    ];
+    expect(deriveInsertTarget('r1', roots)).toEqual({
+      kind: 'after',
+      taskId: 'r1',
+      wbs: '1',
+      landsAfterWbs: '2',
+    });
+  });
+
+  it('falls back to the focused row when a sibling WBS has no numeric tail', () => {
+    const odd = [
+      task({ id: 'a', wbs: '2.3', name: 'Named', parentId: 't-2' }),
+      task({ id: 'b', wbs: '', name: 'Pathless', parentId: 't-2' }),
+    ];
+    const target = deriveInsertTarget('a', odd);
+    expect(target.kind === 'after' && target.landsAfterWbs).toBe('2.3');
+  });
+
   it('is "none" with no focused row, and with a focused id no longer in the list', () => {
     expect(deriveInsertTarget(null, TASKS)).toEqual({ kind: 'none' });
     // A row can be deleted out from under the focus state between renders.

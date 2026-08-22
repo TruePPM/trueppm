@@ -116,7 +116,13 @@ export async function setupTaskStore(
     // that a request fired proves nothing here — a request firing is exactly
     // what the three affordances already had in common while landing in the
     // wrong place.
-    if (method === 'POST' && id === undefined) {
+    // The LIST path only. `id === undefined` would also be true for every
+    // nested action (`tasks/{id}/restore/`, `/indent/`, `/comments/`, …),
+    // because `DETAIL_PATH` matches the detail path and nothing deeper — so a
+    // looser guard would fulfil a fabricated 201 task row where those calls
+    // used to `route.fallback()` to their own mock, and the spec would present
+    // as "a nonsense row appeared" rather than "a mock is missing".
+    if (method === 'POST' && new URL(request.url()).pathname.endsWith('/api/v1/tasks/')) {
       const body = (request.postDataJSON() ?? {}) as Record<string, unknown>;
       creates.push(body);
       const parentId = (body.parent_id ?? null) as string | null;

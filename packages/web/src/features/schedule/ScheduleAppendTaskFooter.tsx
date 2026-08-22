@@ -43,7 +43,7 @@ export function ScheduleAppendTaskFooter({
       className="flex items-center border-t border-dashed border-neutral-border"
       style={{ height: ROW_HEIGHT }}
     >
-      <div role="gridcell" className="flex-1 min-w-0 flex items-center px-2">
+      <div role="gridcell" className="flex-1 min-w-0 h-full flex items-center px-1">
         <button
           type="button"
           // Wrapped rather than passed straight through: `onAppend` takes no
@@ -52,10 +52,15 @@ export function ScheduleAppendTaskFooter({
           onClick={() => onAppend()}
           disabled={readOnly}
           title={readOnly ? 'Read-only access' : undefined}
-          className="inline-flex items-center gap-1.5 h-6 px-2 rounded-control
-            text-xs text-neutral-text-secondary
+          // Full width and full row height: `ROW_HEIGHT` is 28px, so the 44px
+          // touch floor (rule 5) is unreachable inside an outline row — taking
+          // the whole row is the largest target the surface can offer, and it
+          // matches how the rest of the outline treats a row as one target.
+          className="flex items-center gap-1.5 w-full h-full px-2 rounded-control
+            text-xs text-left text-neutral-text-secondary
             hover:text-brand-primary hover:bg-neutral-surface-sunken
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+            focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface
             disabled:text-neutral-text-disabled disabled:hover:bg-transparent
             disabled:cursor-not-allowed"
         >

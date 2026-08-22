@@ -264,16 +264,19 @@ That is the whole rule; you should never have to remember which control does wha
 | **`+ Task`** in the toolbar (and its keyboard twin, `⏎`) | Beside the row you have selected — same parent, same level |
 | **Add a task at the end**, at the foot of the list | At the end of the plan, at the top level |
 
-The toolbar states where its insert will go, next to the button: *"⏎ adds a row after 2.4
-· same level"*. The number is the row the new one will follow, which is the last row at
-that level — a new sibling is appended within its phase rather than wedged in mid-list, so
-the sentence names where it actually lands rather than where the cursor happens to be.
+The toolbar states where its insert will go, immediately beside `+ Task`: *"⏎ adds a row
+after 2.4 · same level"*. The number is the row the new one will follow, which is the last
+row at that level — a new sibling is appended within its phase rather than wedged in
+mid-list, so the sentence names where it actually lands rather than where the cursor
+happens to be. On a narrow window there is no room to draw it, but it is still read out as
+the button's description by a screen reader.
 
 While the row you are on has no name yet, the same place reads *"⏎ saves 2.5 · name it to
-add the next"*. Pressing `⏎` on a blank row saves it rather than stacking another blank
-row behind it, and the toolbar says so instead of promising a row you will not get. With
-nothing selected there is no row to land after, so the toolbar says nothing and `+ Task`
-opens the task form, where you choose the parent yourself.
+add the next"*, and `+ Task` is inert until you name it. Pressing `⏎` on a blank row saves
+it rather than stacking another blank row behind it, and the toolbar says so instead of
+offering a row you will not get. With nothing selected there is no row to land after, so
+the toolbar says nothing and `+ Task` opens the task form, where you choose the parent
+yourself.
 
 The footer is the one that ignores your cursor entirely. It sits at the end of the plan
 because that is where its row goes — put the caret three levels deep inside a phase and

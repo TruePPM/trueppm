@@ -793,6 +793,18 @@ describe('ScheduleView — three insert affordances (#2957)', () => {
     );
   });
 
+  it('refuses the append in Read mode even if the control is reached', async () => {
+    // The stub button is not disabled, so the click reaches the handler — which
+    // is the point: the guard, not the styling, is what stops the write.
+    const user = userEvent.setup();
+    mockRole = ROLE_MEMBER;
+    renderSchedule();
+    await user.click(screen.getByTestId('author-mode-pill'));
+    createTaskMutate.mockClear();
+    await user.click(screen.getByRole('button', { name: 'append-at-end' }));
+    expect(createTaskMutate).not.toHaveBeenCalled();
+  });
+
   it('states nothing and opens the create form when nothing is focused', async () => {
     // No focused row means no row to land after — the toolbar says so by saying
     // nothing, rather than borrowing the footer's append-at-the-end behavior.

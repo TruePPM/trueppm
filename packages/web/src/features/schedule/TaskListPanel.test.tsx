@@ -685,6 +685,17 @@ describe('TaskListPanel — append-at-the-end footer (#2957)', () => {
     expect(screen.getByTestId('schedule-append-task-footer')).toHaveAttribute('aria-level', '1');
   });
 
+  it('passes Read mode through to the footer — present, inert, explained', () => {
+    renderPanel({
+      tasks: [task({ id: 'a', name: 'Alpha' })],
+      onAppendTaskAtEnd: vi.fn(),
+      appendAtEndReadOnly: true,
+    });
+    const btn = screen.getByRole('button', { name: 'Add a task at the end' });
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveAttribute('title', 'Read-only access');
+  });
+
   it('is absent without a handler — no dimmed control for a reader with no rights', () => {
     renderPanel({ tasks: [task({ id: 'a', name: 'Alpha' })] });
     expect(screen.queryByTestId('schedule-append-task-footer')).toBeNull();
