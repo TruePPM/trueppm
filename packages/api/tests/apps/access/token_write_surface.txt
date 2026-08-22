@@ -164,7 +164,9 @@ api/v1/projects/<pk>/tasks/<task_id>/outdent/
 api/v1/projects/<pk>/tasks/<task_id>/reparent/
 api/v1/projects/<pk>/tasks/bulk/
 api/v1/projects/<pk>/tasks/classification/
+api/v1/projects/<pk>/tasks/group/
 api/v1/projects/<pk>/tasks/reorder/
+api/v1/projects/<pk>/tasks/ungroup/
 api/v1/projects/<pk>/workshop/end/
 api/v1/projects/<pk>/workshop/force-end/
 api/v1/projects/<pk>/workshop/start/

@@ -299,7 +299,10 @@ COMPENSATING_ROUTES: frozenset[str] = frozenset(
         "api/v1/projects/<pk>/tasks/<task_id>/reparent/",
         "api/v1/projects/<pk>/tasks/bulk/",
         "api/v1/projects/<pk>/tasks/classification/",
+        # The #2955 group/ungroup primitives, same in-body gate for the same reason.
+        "api/v1/projects/<pk>/tasks/group/",
         "api/v1/projects/<pk>/tasks/reorder/",
+        "api/v1/projects/<pk>/tasks/ungroup/",
         "api/v1/projects/<pk>/velocity/",
         "api/v1/projects/<pk>/workshop/current/",
         "api/v1/projects/<pk>/workshop/end/",

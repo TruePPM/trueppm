@@ -488,6 +488,76 @@ class TaskRestructureResponseSerializer(serializers.Serializer[Any]):
     )
 
 
+class TaskGroupContainerSerializer(serializers.Serializer[Any]):
+    """The phase a group request created."""
+
+    id = serializers.UUIDField()
+    name = serializers.CharField()
+    wbs_path = serializers.CharField()
+    structure_role = serializers.CharField(
+        help_text="Always `container` — a grouped phase is declared, never inferred (#2950)."
+    )
+    parent_id = serializers.UUIDField(
+        allow_null=True, help_text="The level the phase was inserted into; null at root."
+    )
+
+
+class TaskGroupLeftAloneEntrySerializer(serializers.Serializer[Any]):
+    """One selected row the group deliberately did not wrap."""
+
+    id = serializers.UUIDField()
+    reason = serializers.ChoiceField(
+        choices=("ancestor_selected", "different_parent"),
+        help_text=(
+            "`ancestor_selected` — the row sits inside another selected row, so it is "
+            "already inside the phase being wrapped. `different_parent` — the row's "
+            "parent was not the parent shared by most of the selection."
+        ),
+    )
+    ancestor_id = serializers.UUIDField(
+        allow_null=True,
+        help_text="The selected ancestor that covered this row; null for `different_parent`.",
+    )
+
+
+class TaskGroupResponseSerializer(serializers.Serializer[Any]):
+    """Response for `tasks/group/` — the new phase, what went in, and what did not."""
+
+    container = TaskGroupContainerSerializer()
+    grouped_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="The wrapped rows, in the order they now appear inside the phase.",
+    )
+    left_alone = TaskGroupLeftAloneEntrySerializer(
+        many=True,
+        help_text=(
+            "Selected rows that were not wrapped. Never silently empty-by-omission — "
+            "the client is expected to tell the user which rows it left alone."
+        ),
+    )
+    updated = WbsPathEntrySerializer(many=True)
+    warning = serializers.CharField(allow_null=True)
+
+
+class TaskUngroupResponseSerializer(serializers.Serializer[Any]):
+    """Response for `tasks/ungroup/` — the dissolved wrapper and the rows it held."""
+
+    container_id = serializers.UUIDField(help_text="The phase that was dissolved.")
+    lifted_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="The rows lifted one level, in the order they now appear.",
+    )
+    removed_dependency_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text=(
+            "Dependency edges that pointed at the wrapper itself and went with it. The "
+            "children's own links are untouched."
+        ),
+    )
+    updated = WbsPathEntrySerializer(many=True)
+    warning = serializers.CharField(allow_null=True)
+
+
 class TaskBulkAppliedEntrySerializer(serializers.Serializer[Any]):
     """One row the batch applied."""
 
@@ -7953,6 +8023,177 @@ class TaskReparentView(IdempotencyMixin, APIView):
             {"updated": all_updated, "warning": warning},
             status=status.HTTP_200_OK,
         )
+
+
+class _TaskGroupingViewBase(IdempotencyMixin, APIView):
+    """Shared plumbing for the two transactional restructure primitives (#2955).
+
+    Both endpoints share a permission set, a transaction shape, and a post-commit hook
+    set; only the service call in the middle differs. Kept as a base class rather than
+    two copies because the part that must not drift between them is precisely the part
+    that is easy to get subtly different — which of the two writes happens inside the
+    ``atomic()`` block, and whether a rejection can escape it having committed.
+    """
+
+    permission_classes = [
+        IsAuthenticated,
+        IsProjectMemberWrite,
+        # ADR-0773, matching tasks/bulk: the resource-management band is excluded from
+        # plan authoring outright, rather than being allowed to restructure a plan it
+        # then cannot edit a single row of.
+        IsProjectPlanAuthor,
+        IsProjectNotArchived,
+    ]
+
+    def _apply(self, request: Request, project: Project, operation: str) -> Response:
+        from trueppm_api.apps.projects.task_grouping import (
+            GroupingRejected,
+            perform_group,
+            perform_ungroup,
+        )
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        if not isinstance(request.data, dict):
+            # A list or scalar body has no `.get`, and reaching for one is a 500 rather
+            # than a 400 (#2795). Guarded before any field is read.
+            return Response(
+                {"code": "invalid_body", "detail": "Request body must be a JSON object."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        project_id = str(project.pk)
+        try:
+            # The whole point of the endpoint: one transaction. Every guard inside
+            # `perform_*` raises rather than returning, so a rejection reached after
+            # rows have already moved unwinds them — there is no partial phase to
+            # reconcile and nothing for the client to compensate (#2914).
+            with transaction.atomic():
+                if operation == "group":
+                    body = perform_group(
+                        project, request, request.data.get("task_ids"), request.data.get("name")
+                    )
+                else:
+                    body = perform_ungroup(project, request, request.data.get("task_id"))
+
+                transaction.on_commit(lambda: _enqueue_recalculate(project_id))
+                transaction.on_commit(
+                    lambda: broadcast_board_event(project_id, "tasks_restructured", {})
+                )
+        except GroupingRejected as rejected:
+            return Response(rejected.body, status=rejected.status_code)
+
+        return Response(body, status=status.HTTP_200_OK)
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Wrap a selection of tasks in a new phase",
+        request=inline_serializer(
+            name="TaskGroupRequest",
+            fields={
+                "task_ids": serializers.ListField(
+                    child=serializers.UUIDField(),
+                    help_text=(
+                        "The rows to wrap, in selection order. Order is load-bearing "
+                        "only for the tie-break when the selection spans levels."
+                    ),
+                ),
+                "name": serializers.CharField(
+                    required=False,
+                    allow_null=True,
+                    help_text="Phase name. Omit or send null to get the placeholder name.",
+                ),
+            },
+        ),
+        responses={200: TaskGroupResponseSerializer},
+    )
+)
+class TaskGroupView(_TaskGroupingViewBase):
+    """Wrap a selection of tasks in a new phase, in one transaction (#2955).
+
+    POST /api/v1/projects/{pk}/tasks/group/
+
+    Body::
+
+        { "task_ids": ["<uuid>", ...], "name": "Discovery" }
+
+    Indent requires the phase to already exist, so a flat list can only become
+    structured from the top down. This is the missing primitive: the planner types the
+    work, looks at it, selects it, and *then* wraps it — naming the phase last.
+
+    **Two selection rules, both reported back.** Any row whose own ancestor is also
+    selected is dropped (you cannot wrap a phase together with the work inside it), and
+    the phase is created on the parent shared by most of the remainder. Rows left alone
+    for either reason come back in ``left_alone`` with a machine-readable ``reason``,
+    because a group that quietly wrapped four of your six rows reads as a bug.
+
+    **One request, not N+1.** Composing this client-side out of ``tasks/{id}/reparent/``
+    is the defect filed as #2914 — a partial failure leaves a half-made phase. Here the
+    container create, every reparent, and the level renumber share one transaction, and
+    the ADR-0259 graph guard runs over the resulting tree before it commits.
+
+    Returns:
+        200 with the new phase, the wrapped ids, and every changed WBS path.
+        400 on an unusable selection or a restructure that would make the graph cyclic.
+        403 when the caller cannot restructure one of the selected rows.
+        404 when an id does not name a live task in this project.
+    """
+
+    def post(self, request: Request, pk: str) -> Response:
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        # The load-bearing role check on this route, for the #2745 reason: both
+        # permission classes no-op in has_permission on a `projects/<pk>/...` APIView
+        # because _project_pk_from_view reads only `project_pk`. Kept inline in each
+        # concrete view rather than hoisted into the base — the invariant test reads
+        # this class's own source, and a check a reader has to follow a `super()` call
+        # to find is exactly the one a refactor deletes.
+        self.check_object_permissions(request, project)
+        return self._apply(request, project, "group")
+
+
+@extend_schema_view(
+    post=extend_schema(
+        summary="Dissolve a phase, lifting its rows one level",
+        request=inline_serializer(
+            name="TaskUngroupRequest",
+            fields={
+                "task_id": serializers.UUIDField(help_text="The phase to dissolve."),
+            },
+        ),
+        responses={200: TaskUngroupResponseSerializer},
+    )
+)
+class TaskUngroupView(_TaskGroupingViewBase):
+    """Dissolve a phase and lift its rows one level, in one transaction (#2955).
+
+    POST /api/v1/projects/{pk}/tasks/ungroup/
+
+    Body::
+
+        { "task_id": "<uuid>" }
+
+    Outdenting *one* row moves that row; dissolving a phase is a different act, which is
+    why it is a different endpoint rather than N outdents. Only the wrapper goes — the
+    lifted rows keep their ids, dependency edges, resource assignments and estimates,
+    because nothing about them is rewritten except ``wbs_path``.
+
+    The wrapper's *own* dependency edges go with it, as they do for any deleted task.
+    They are listed in ``removed_dependency_ids`` so the client can say so rather than
+    letting the links disappear silently.
+
+    Returns:
+        200 with the dissolved phase's id, the lifted ids, and every changed WBS path.
+        400 when the row is not dissolvable (a subtask, or a phase carrying subtasks
+            that dissolving would delete), or when the lift would make the graph cyclic.
+        403 when the caller cannot restructure one of the lifted rows or delete the phase.
+        404 when the id does not name a live task in this project.
+    """
+
+    def post(self, request: Request, pk: str) -> Response:
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        # See TaskGroupView.post — the same in-body check, inline for the same reason.
+        self.check_object_permissions(request, project)
+        return self._apply(request, project, "ungroup")
 
 
 def _register_bulk_commit_hooks(

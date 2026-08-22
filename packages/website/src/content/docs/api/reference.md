@@ -475,6 +475,8 @@ implementation is not yet available.
 | DELETE | `/api/v1/tasks/{id}/` | Soft-delete (cascades to edges) |
 | POST | `/api/v1/projects/{id}/tasks/bulk/` | Apply many task writes, and optionally dependency edges, in one request — returns `207`, see [Batch task writes](#batch-task-writes) |
 | PATCH | `/api/v1/projects/{id}/tasks/classification/` | Classify a subtree on the governance and delivery axes — see [Subtree classification](#subtree-classification) |
+| POST | `/api/v1/projects/{id}/tasks/group/` | Wrap a selection of rows in a new phase, in one transaction — see [Grouping and ungrouping](#grouping-and-ungrouping) |
+| POST | `/api/v1/projects/{id}/tasks/ungroup/` | Dissolve a phase and lift its rows one level — see [Grouping and ungrouping](#grouping-and-ungrouping) |
 | POST | `/api/v1/tasks/delete-untouched-seeded/` | Bulk soft-delete every untouched-seeded row in a project — see [Seed provenance](#seed-provenance) |
 
 CPM fields (`early_start`, `early_finish`, `late_start`, `late_finish`, `total_float`, `is_critical`) are read-only — set by the auto-scheduler. `early_start`/`early_finish` name the **remaining-work window** for an in-progress task, not its span — a 4-day task at 83% carries a one-day `early_start`..`early_finish` (ADR-0132). `scheduled_start` (paired with `early_finish` as `scheduled_finish` for symmetry — not a separate stored field, always identical to `early_finish`) and `remaining_duration` (also read-only) instead name the task's **span** and the working days of work left on it, so a consumer never has to branch on task state to know which quantity a date field means (ADR-0752). Any client that assumes `finish − start ≈ duration` should read `scheduled_start`/`scheduled_finish`, not `early_start`/`early_finish`.
@@ -590,6 +592,53 @@ succeeds.
 
 Phase → phase dependencies, baselines, and Monte Carlo are **not** restricted —
 those are derived/aggregate, not direct writes of leaf-owned values.
+
+#### Grouping and ungrouping
+
+:::note[Ships in 0.4]
+`tasks/group/` and `tasks/ungroup/` ship in **TruePPM 0.4**. In `v0.3.0-alpha.3` (the
+latest release) neither route exists; structure a flat list top-down with
+`tasks/{id}/indent/` and `tasks/{id}/reparent/` instead, one row at a time.
+:::
+
+Indent requires the phase to already exist, so a flat list can only become structured
+from the top down. These two endpoints are the missing primitive: they let a planner
+type the work, look at it, select it, and *then* wrap it.
+
+`POST /api/v1/projects/{id}/tasks/group/` takes `{ "task_ids": [...], "name": "..." }`
+and creates a phase at the position of the first selected row, moving the selection —
+and everything beneath it — inside. `name` is optional; omit it and the phase gets a
+placeholder, because the design names the phase last.
+
+**The server may wrap fewer rows than you sent, and says so.** Two rules apply, in
+order: any row whose own *ancestor* is also in the selection is skipped (you cannot
+wrap a phase together with the work inside it), and the phase is then created on the
+parent shared by *most* of what remains. Every skipped row comes back in `left_alone`
+with a `reason` of `ancestor_selected` (plus the `ancestor_id` that covered it) or
+`different_parent`. Clients are expected to surface this — a group that silently
+wrapped four of your six rows reads as a defect.
+
+`POST /api/v1/projects/{id}/tasks/ungroup/` takes `{ "task_id": "..." }` and does the
+reverse: the phase's rows move up one level into its position, and the wrapper is
+soft-deleted. **Only the wrapper goes** — the lifted rows keep their ids, dependency
+edges, resource assignments and estimates, because nothing about them changes except
+their WBS path. Dependency edges attached to the *wrapper itself* go with it, as they
+do for any deleted task, and are listed in `removed_dependency_ids` rather than
+disappearing silently. A phase carrying drawer subtasks is refused with
+`container_has_subtasks` instead, since dissolving it would delete them.
+
+**Each endpoint is one transaction, and that is the reason it exists.** Composing
+either from repeated `tasks/{id}/reparent/` calls is N+1 un-transacted requests whose
+partial failure strands a half-made phase with some rows moved and some not. Here a
+rejection at any point — including the dependency-graph check that runs over the
+resulting tree — leaves the plan exactly as it was. That also makes the pair mutually
+reversible: ungrouping a phase you just created restores the previous layout in one
+request. The reverse is not lossless, because ungroup deletes the wrapper row.
+
+Both require plan-authoring authority on the project, and per-row edit authority on
+every row that moves — so a Team Member may wrap their own assigned rows but not a
+colleague's, and one row they cannot touch refuses the whole operation rather than
+applying part of it.
 
 #### Batch task writes
 
