@@ -25,6 +25,11 @@ import {
   type TemplateNameTaken,
 } from '@/hooks/useProjectTemplates';
 import type { ProgramMethodology } from '@/api/types';
+import {
+  TEMPLATE_CARD_CLASS,
+  TemplateCardBody,
+  carriesLine,
+} from '@/features/shell/TemplateCard';
 
 /** The 409 body, when the failure is a taken name rather than anything else. */
 function nameTaken(err: unknown): TemplateNameTaken | null {
@@ -170,24 +175,37 @@ export function PublishTemplateSheet({
               />
             </label>
 
-            <label className="mt-3 block">
-              <span className="text-xs font-medium text-neutral-text-secondary">Methodology</span>
-              <select
-                value={methodology}
-                onChange={(e) => setMethodology(e.target.value as ProgramMethodology)}
-                className="mt-1 h-11 w-full rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm
-                           focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+            <div className="mt-3">
+              <label className="block">
+                <span className="text-xs font-medium text-neutral-text-secondary">
+                  Methodology
+                </span>
+                <select
+                  value={methodology}
+                  onChange={(e) => setMethodology(e.target.value as ProgramMethodology)}
+                  aria-describedby="publish-methodology-help"
+                  className="mt-1 h-11 w-full rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm
+                             focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+                >
+                  <option value="AGILE">Agile</option>
+                  <option value="WATERFALL">Waterfall</option>
+                  <option value="HYBRID">Hybrid</option>
+                </select>
+              </label>
+              {/* Outside the <label> on purpose: accname concatenates every text
+                  node a label contains, so nesting this paragraph made the select
+                  announce as "Methodology From this project, and changeable. It
+                  also decides where an adopting project lands: an Agile template
+                  opens on…". Described, not named. */}
+              <p
+                id="publish-methodology-help"
+                className="mt-1 text-xs text-neutral-text-secondary"
               >
-                <option value="AGILE">Agile</option>
-                <option value="WATERFALL">Waterfall</option>
-                <option value="HYBRID">Hybrid</option>
-              </select>
-              <span className="mt-1 block text-xs text-neutral-text-secondary">
                 From this project, and changeable. It also decides where an adopting project
                 lands: an <strong>Agile</strong> template opens on a seeded Product Backlog, not
                 on a Schedule of dateless bars.
-              </span>
-            </label>
+              </p>
+            </div>
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <div className="rounded-card border border-neutral-border p-3">
@@ -219,6 +237,41 @@ export function PublishTemplateSheet({
               This list is not editable, and that is deliberate — what a template carries is a
               property of the model, not a per-publish preference.
             </p>
+
+            {/* The card as a delivery lead will meet it, rendered from the same
+                component the gallery uses (#2970). The choice this template will
+                actually face is a side-by-side one against four other cards, and
+                a name that reads fine in a text input can be the one nobody picks.
+                Not a focus stop and not selectable: it advertises no choice here. */}
+            <section aria-labelledby="publish-card-preview" className="mt-4">
+              <h3
+                id="publish-card-preview"
+                className="text-xs font-medium uppercase tracking-wide text-neutral-text-secondary"
+              >
+                How a team choosing a template will see it
+              </h3>
+              <div
+                data-testid="template-card-preview"
+                className={`${TEMPLATE_CARD_CLASS} mt-2 border-neutral-border bg-neutral-surface-raised`}
+              >
+                <TemplateCardBody
+                  label={name.trim() || 'Untitled template'}
+                  detail={
+                    description.trim() ||
+                    `${preview.task_count} row${preview.task_count === 1 ? '' : 's'}`
+                  }
+                  chip="Yours"
+                  methodology={methodology}
+                  taskCount={preview.task_count}
+                  carries={preview.carries}
+                  carriesLine={carriesLine(preview)}
+                  usageLine={`v${preview.next_version}`}
+                />
+              </div>
+              <p className="mt-1 text-xs text-neutral-text-secondary">
+                The description is the only line that argues for it — say who it is for.
+              </p>
+            </section>
 
             <footer className="mt-5 flex justify-end gap-2">
               <button

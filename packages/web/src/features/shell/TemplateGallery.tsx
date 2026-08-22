@@ -1,24 +1,16 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useProjectTemplates, type ProjectTemplate } from '@/hooks/useProjectTemplates';
+import {
+  TEMPLATE_CARD_CLASS,
+  TemplateCardBody,
+  templateCardFields,
+  type TemplateCardFields,
+} from './TemplateCard';
 import type { ProgramMethodology } from '@/api/types';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useRovingTabIndex } from '@/hooks/useRovingTabIndex';
 
-/**
- * Tint per provenance tier (ADR-0789 §2).
- *
- * The chip is not decoration: who published a skeleton is the first thing a
- * delivery lead judges it by, and the design requires it to be legible *before*
- * adoption rather than discovered afterwards. Color is paired with the label text
- * — never the only carrier of the distinction — so the tiers stay distinguishable
- * to a colorblind reader and in a screenshot.
- */
-const CHIP_CLASS: Record<string, string> = {
-  Workspace: 'bg-brand-primary/10 text-brand-primary border-brand-primary/30',
-  Community: 'bg-neutral-surface-raised text-neutral-text-secondary border-neutral-border',
-  Yours: 'bg-semantic-on-track-bg text-semantic-on-track border-semantic-on-track/30',
-};
 
 /**
  * How much apparatus surrounds the list, by count (#2909, handoff case 04).
@@ -46,33 +38,6 @@ function matches(template: ProjectTemplate, query: string): boolean {
     template.name.toLowerCase().includes(q) ||
     (template.description ?? '').toLowerCase().includes(q)
   );
-}
-
-/**
- * The one-line "what this brings" summary under a template's description.
- *
- * Derived from the server's own counts rather than a hard-coded list of classes.
- * The handoff's inventory copy names six carried classes; hard-coding those here
- * would be a second definition of what a template carries, free to drift from
- * the one in `extract_structure` that actually decides it.
- */
-function carriesSummary(template: ProjectTemplate): string {
-  const c = template.counts;
-  if (!c) return '';
-  const parts = [
-    c.phase_count > 0 && `${c.phase_count} phase${c.phase_count === 1 ? '' : 's'}`,
-    c.gate_count > 0 && `${c.gate_count} gate${c.gate_count === 1 ? '' : 's'}`,
-    c.dependency_count > 0 && `${c.dependency_count} dep${c.dependency_count === 1 ? '' : 's'}`,
-  ].filter(Boolean) as string[];
-  return parts.length > 0 ? `carries ${parts.join(' · ')}` : '';
-}
-
-/** Version and adoption, the PMO's house-standard signal. '' when neither applies. */
-function usageSummary(template: ProjectTemplate): string {
-  const used = template.usage_count ?? 0;
-  const version = `v${template.version}`;
-  if (used === 0) return template.source_kind === 'community' ? `bundled ${version}` : version;
-  return `${version} · ${used} project${used === 1 ? '' : 's'}`;
 }
 
 export interface TemplateGalleryProps {
@@ -315,18 +280,7 @@ export function TemplateGallery({
                     itemRefs.current[i] = el;
                   }}
                   tabIndex={i === focusIdx ? 0 : -1}
-                  label={template.name}
-                  detail={
-                    template.description ||
-                    `${template.task_count} row${template.task_count === 1 ? '' : 's'}`
-                  }
-                  chip={template.provenance}
-                  methodology={template.methodology}
-                  taskCount={template.task_count}
-                  carries={template.carries}
-                  carriesLine={carriesSummary(template)}
-                  usageLine={usageSummary(template)}
-                  superseded={Boolean(template.is_superseded)}
+                  {...templateCardFields(template)}
                   selected={selectedId === template.id}
                   onSelect={() => onSelect(template)}
                 />
@@ -351,32 +305,12 @@ export function TemplateGallery({
 
 function TemplateOption({
   ref,
-  label,
-  detail,
-  chip,
-  methodology,
-  taskCount,
-  carries,
-  carriesLine,
-  usageLine,
-  superseded,
-  selected,
   tabIndex,
+  selected,
   onSelect,
-}: {
+  ...fields
+}: TemplateCardFields & {
   ref: (el: HTMLButtonElement | null) => void;
-  label: string;
-  detail: string;
-  chip?: string;
-  /** Groups the list, and predicts where an adopting project will land. */
-  methodology?: string;
-  taskCount?: number;
-  carries?: string[];
-  /** "carries 6 phases · 4 gates · 14 deps", from the server's own counts. */
-  carriesLine?: string;
-  /** "v2 · 9 projects" — the PMO's house-standard signal. */
-  usageLine?: string;
-  superseded?: boolean;
   selected: boolean;
   tabIndex: 0 | -1;
   onSelect: () => void;
@@ -389,7 +323,7 @@ function TemplateOption({
       aria-checked={selected}
       tabIndex={tabIndex}
       onClick={onSelect}
-      className={`flex flex-col gap-1 rounded-card border p-3 text-left transition
+      className={`${TEMPLATE_CARD_CLASS} transition
         focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
         ${
           selected
@@ -397,48 +331,7 @@ function TemplateOption({
             : 'border-neutral-border hover:border-brand-primary/50'
         }`}
     >
-      <span className="flex items-center gap-2">
-        <span className="text-sm font-medium text-neutral-text-primary">{label}</span>
-        {chip && (
-          <span
-            className={`inline-flex items-center rounded-chip border px-1.5 py-0.5 text-xs font-medium ${
-              CHIP_CLASS[chip] ?? CHIP_CLASS.Community
-            }`}
-          >
-            {chip}
-          </span>
-        )}
-        {methodology && (
-          // The methodology chip does double duty: it groups the list, and it
-          // predicts the landing surface (an AGILE template opens on a seeded
-          // Product Backlog, not an empty Schedule).
-          <span className="inline-flex items-center rounded-chip border border-neutral-border px-1.5 py-0.5 text-xs font-medium text-neutral-text-secondary">
-            {methodology}
-          </span>
-        )}
-        {superseded && (
-          // Still selectable on purpose — projects already created from it are
-          // why it has to stay legible.
-          <span className="text-xs text-neutral-text-secondary">superseded</span>
-        )}
-        {typeof taskCount === 'number' && (
-          <span className="ml-auto text-xs text-neutral-text-secondary">
-            {taskCount} row{taskCount === 1 ? '' : 's'}
-            {usageLine ? ` · ${usageLine}` : ''}
-          </span>
-        )}
-      </span>
-      <span className="text-xs text-neutral-text-secondary">{detail}</span>
-      {(carriesLine || (carries && carries.length > 0)) && (
-        // What the template carries, stated before adoption. The complement is the
-        // part that actually reassures: a template never brings owners, dates, or
-        // anyone else's progress, so adopting one cannot import somebody else's
-        // moment into your plan.
-        <span className="text-xs text-neutral-text-secondary">
-          {carriesLine || `Carries ${(carries ?? []).join(', ')}`} — never owners, dates, or
-          progress.
-        </span>
-      )}
+      <TemplateCardBody {...fields} />
     </button>
   );
 }
