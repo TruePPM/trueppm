@@ -165,10 +165,12 @@ would be rejected when you submit.
   grooming. Each item moves through a lifecycle: **proposed → pulled →
   archived**. Pulling an item creates a linked project task in the chosen project
   and marks the backlog item as pulled; the task carries over the item's title,
-  description, story points, tags (as project labels), and type (each type maps
-  to its Task equivalent — `chore` becomes tech debt, `feature` becomes a plain
-  task). Requires at least Team Member role on both the program and the target
-  project.
+  description, story points, tags (as project labels), priority rank, and type
+  (each type maps to its Task equivalent — `chore` becomes tech debt, `feature`
+  becomes a plain task). Because the rank carries, items pulled from the same
+  pool keep their relative intake order in the project; an unranked item stays
+  unranked and sorts last. Requires at least Team Member role on both the
+  program and the target project.
 - **Projects** — the projects currently in this program. Click a project name
   to navigate to it. The `Remove` action detaches the project (it becomes
   standalone, untouched). When the program has a **target date** set, it shows at
