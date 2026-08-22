@@ -9,6 +9,9 @@ import { TaskListRow } from './TaskListRow';
 import { BlankOutlineDraftRow } from './buildMode/BlankOutlineDraftRow';
 import type { PhasePlannedBadge } from './plannedByPhase';
 import type { RowMode } from './deliveryModePresentation';
+import { OutlineDropIndicator } from './OutlineDropIndicator';
+import { useOutlineDrag } from './useOutlineDrag';
+import type { OutlineDragRow, OutlineMovePlan } from './outlineDrag';
 
 /** Derive WBS nesting level from the dot-separated wbs string (e.g. '1.2.3' → level 3) */
 function wbsLevel(wbs: string): number {
@@ -225,6 +228,24 @@ interface Props {
    * mode / for read-only roles, which removes the row-menu entry entirely.
    */
   onClassifyRequest?: (taskId: string) => void;
+  /**
+   * Commit a pointer-drag rearrangement (#2954). Owned by `ScheduleView`,
+   * because the plan names a *position anchor* and only the view holds every
+   * task — the rows this panel renders are the visible ones, and the reorder
+   * endpoint rejects a partial sibling list.
+   *
+   * Absent disables the gesture entirely, which is what keeps this panel
+   * renderable without a query client.
+   */
+  onMoveRow?: (plan: OutlineMovePlan) => void;
+  /** Open the "Move to…" destination picker — the drag's no-drag twin (#2954). */
+  onMoveToRequest?: (taskId: string) => void;
+  /**
+   * Polite live-region sink for what the drop would do, spoken as the pointer
+   * moves. The visual chip rides the target row; this is the same claim for a
+   * reader who is not looking at it.
+   */
+  onAnnounce?: (sentence: string) => void;
 }
 
 export function TaskListPanel({
@@ -254,6 +275,9 @@ export function TaskListPanel({
   onCommitDraftRow,
   rowModes,
   onClassifyRequest,
+  onMoveRow,
+  onMoveToRequest,
+  onAnnounce,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollToTaskId = useScheduleStore((s) => s.scrollToTaskId);
@@ -305,6 +329,42 @@ export function TaskListPanel({
     }
     return map;
   }, [tasks]);
+
+  /**
+   * The rows the drop model reasons over (#2954) — the *visible* ones, in
+   * outline order, which is exactly the set a pointer can land on. Collapsed
+   * and filtered-out rows are correctly invisible to the drag: you cannot drop
+   * between two rows you cannot see.
+   */
+  const dragRows = useMemo<OutlineDragRow[]>(
+    () =>
+      tasks.map((t) => ({
+        id: t.id,
+        name: t.name,
+        wbs: t.wbs,
+        parentId: t.parentId ?? null,
+        isMilestone: t.isMilestone,
+        // The band rule (web rule 309(c)): prefer the server's verdict, fall
+        // back to the structural-child test. `isSummary` alone is true for a
+        // leaf whose only children are drawer subtasks, and "becomes a phase"
+        // must not be suppressed for one of those.
+        hasChildren: t.isPhase ?? summaryIds.has(t.id),
+      })),
+    [tasks, summaryIds],
+  );
+
+  const { session: dragSession, startDrag } = useOutlineDrag({
+    rows: dragRows,
+    rowHeight: ROW_HEIGHT,
+    // Re-read per move: the list scrolls under the pointer, so a cached top is
+    // wrong the moment an autoscroll or a wheel event lands.
+    getRowsTop: useCallback(
+      () => containerRef.current?.getBoundingClientRect().top ?? null,
+      [],
+    ),
+    onMove: onMoveRow,
+    announce: onAnnounce,
+  });
 
   const virtualizer = useVirtualizer({
     count: tasks.length,
@@ -460,10 +520,26 @@ export function TaskListPanel({
                   plannedBadge={plannedByPhase?.get(task.id)}
                   rowMode={rowModes?.get(task.id)}
                   onClassifyRequest={onClassifyRequest}
+                  onOutlineDragStart={onMoveRow ? startDrag : undefined}
+                  isDragSource={dragSession?.draggedId === task.id}
+                  onMoveToRequest={onMoveToRequest}
                 />
               </div>
             );
           })}
+
+          {/* What the drag promises before release (#2954). Inside the sizer so
+              its offsets are the same coordinate space the virtual rows use, and
+              so it scrolls with them; pointer-events-none and aria-hidden, with
+              the claim spoken through the schedule's polite region instead. */}
+          {dragSession?.active && (
+            <OutlineDropIndicator
+              intent={dragSession.intent}
+              rows={dragRows}
+              draggedId={dragSession.draggedId}
+              rowHeight={ROW_HEIGHT}
+            />
+          )}
         </div>
 
         {/* Pending rows — non-virtualised; appear below scheduled tasks until CPM runs */}

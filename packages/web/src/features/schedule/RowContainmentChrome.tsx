@@ -1,4 +1,4 @@
-import { WBS_INDENT } from './scheduleConstants';
+import { outlineGuideX } from './outlineDrag';
 
 /**
  * The two visual halves of "what is inside what" on the Schedule outline
@@ -16,13 +16,17 @@ import { WBS_INDENT } from './scheduleConstants';
  * information on their own).
  */
 
-/** Left offset, in px, of the vertical rule for depth `d` (1-based). */
-function guideX(depth: number): number {
-  // Matches the task cell's own `paddingLeft: (level - 1) * WBS_INDENT + 8`,
-  // so a guide lands exactly on the indent origin of the level it belongs to
-  // rather than near it.
-  return (depth - 1) * WBS_INDENT + 8;
-}
+/**
+ * Left offset, in px, of the vertical rule for depth `d` (1-based).
+ *
+ * The one shared helper web rule 309(a) requires — it lives in `outlineDrag`
+ * because the drag's drop indicator derives its x from the same ladder, and two
+ * copies of the formula would let the indicator drift off the guides without
+ * anything rendering wrong enough to notice. Matches the task cell's own
+ * `paddingLeft: (level - 1) * WBS_INDENT + 8`, so a guide lands exactly on the
+ * indent origin of the level it belongs to rather than near it.
+ */
+const guideX = outlineGuideX;
 
 /**
  * One vertical rule per ancestor level, drawn inside the task-name cell.

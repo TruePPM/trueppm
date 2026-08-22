@@ -120,6 +120,9 @@ test.describe('Schedule build-mode — default on desktop (#2682)', () => {
     await expect(menu.getByRole('menuitem', { name: /Mark complete/ })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: /Indent/ })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: /Outdent/ })).toBeVisible();
+    // Added in #2954 — the drag's twin: ⌥→/⌥← only step one level, drag can
+    // move a row under any phase, so the menu carries the same reach.
+    await expect(menu.getByRole('menuitem', { name: /Move to/ })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: /Add predecessor/ })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: /Add successor/ })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: /Duplicate/ })).toBeVisible();

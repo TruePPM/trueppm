@@ -600,32 +600,34 @@ function renderBuild(props: Parameters<typeof BuildHarness>[0] = {}) {
   );
 }
 
-describe('TaskListRow — ⋮⋮ pointer-drag reorder (#347)', () => {
+describe('TaskListRow — the ⋮⋮ grip names the keyboard twins (#347, #2954)', () => {
   beforeAll(() => {
-    // jsdom lacks pointer-capture; the drag handle calls setPointerCapture.
     Element.prototype.setPointerCapture = vi.fn();
     Element.prototype.releasePointerCapture = vi.fn();
     Element.prototype.hasPointerCapture = vi.fn(() => false);
   });
 
-  it('reorders the row by the rounded number of rows dragged', () => {
+  it('advertises both what it does and how to do it without a pointer', () => {
+    // The grip is aria-hidden on purpose — a tab stop per row would cost a
+    // 40-row outline forty of them — so the title is the only place the
+    // equivalence is stated to a pointer user who cannot drag comfortably.
     renderBuild({ siblingIds: ['t1', 't2', 't3'] });
-    const handle = screen.getByTitle(/Drag to reorder/);
-    fireEvent.pointerDown(handle, { clientY: 0, pointerId: 1 });
-    fireEvent.pointerMove(handle, { clientY: 40, pointerId: 1 });
-    // 60px ≈ 2 rows at ROW_HEIGHT 28 → move t1 down two slots.
-    fireEvent.pointerUp(handle, { clientY: 60, pointerId: 1 });
-    expect(mocks.reorderMutate).toHaveBeenCalledWith({
-      parent_path: '1',
-      ordered_ids: ['t2', 't3', 't1'],
-    });
+    const title = screen.getByTestId('row-reorder-grip').getAttribute('title') ?? '';
+    expect(title).toMatch(/reorder or reparent/i);
+    expect(title).toMatch(/↑\/↓/);
+    expect(title).toMatch(/←\/→/);
   });
 
-  it('is a no-op when the drag stays within the same row slot', () => {
+  it('is aria-hidden — the gesture it starts is announced, the grip is not', () => {
     renderBuild({ siblingIds: ['t1', 't2', 't3'] });
-    const handle = screen.getByTitle(/Drag to reorder/);
-    fireEvent.pointerDown(handle, { clientY: 10, pointerId: 1 });
-    fireEvent.pointerUp(handle, { clientY: 12, pointerId: 1 });
+    expect(screen.getByTestId('row-reorder-grip')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('does not commit anything by itself', () => {
+    renderBuild({ siblingIds: ['t1', 't2', 't3'] });
+    const handle = screen.getByTestId('row-reorder-grip');
+    fireEvent.pointerDown(handle, { clientY: 0, pointerId: 1 });
+    fireEvent.pointerUp(handle, { clientY: 60, pointerId: 1 });
     expect(mocks.reorderMutate).not.toHaveBeenCalled();
   });
 });
