@@ -83,6 +83,7 @@ const PROJECT_DOCS: Record<string, string> = {
   agents: 'administration/mcp-server/#team-level-opt-out',
   methodology: 'features/methodology-preset/',
   templates: 'features/project-templates/#publishing-a-template',
+  'template-divergence': 'features/project-templates/#template-divergence',
   team: 'features/settings/project-team/',
   workflow: 'administration/project-settings/#workflow--fields',
   labels: 'features/labels/',

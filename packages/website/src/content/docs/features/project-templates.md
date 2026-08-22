@@ -203,3 +203,48 @@ Deleting the source project clears the provenance line and leaves the template
 working.
 
 A project can carry at most 2,000 rows into a template.
+
+## Template divergence
+
+Once a template has been applied, **Project → Settings → Template divergence**
+states how the project has moved away from it. Four counts, over the rows the
+template wrote:
+
+| Count | What it means |
+| --- | --- |
+| **Unchanged** | Still exactly as the template wrote them — nobody has touched the row. |
+| **Adapted** | Someone on the project edited the row after it was seeded. |
+| **Removed** | The row was deleted after the template wrote it. (A row deleted long enough ago to have been purged by the tombstone sweep is no longer counted — there is nothing left to count.) |
+| **Added** | Rows in the project that no template wrote, including any that predate the adoption. |
+
+Above the counts is the provenance line — which template, which version, who
+applied it and when. That line survives the template being deleted: the name and
+version are recorded on the project's adoption record, so "this came from Delivery
+Skeleton v3" outlives v3.
+
+A project that was never created from a template says so, and reports nothing else.
+
+### The digest is symmetric — the team reads it first
+
+The page is readable by **every member of the project, Viewer included**, and it
+is the same page for everyone. Project settings used to be admin-only end to end,
+so a Viewer or Team Member who opened it was redirected away; they now reach the
+page and see the sections that concern them, which today is this one. Everything
+else on the page stays admin-only, and the server still refuses their writes. There is no fuller version for a PMO, no second
+endpoint, and no audience parameter — a program manager looking at one project's
+divergence and that project's own team are reading the identical report.
+
+That is not a courtesy. A report about a team's decisions that the team cannot
+read is surveillance with better typography, so the team-side page ships first and
+the API has exactly one route for it.
+
+### It is a signal, never a gate
+
+Nothing on this page approves, rejects, queues, or scores anything. There is no
+compliance percentage, no health band, and no action that submits the project for
+review. Divergence is information, and adapting a template is the expected
+outcome — the parts a team changed are the parts that did not fit, which says as
+much about the template as about the project.
+
+Templates are authorable centrally and adoptable locally. Hard enforcement is
+deliberately not here.

@@ -686,13 +686,23 @@ export const routes: RouteObject[] = [
                   {
                     // Consolidated single scrolling page (ADR-0146, #1248). The shell
                     // renders every section inline on one mounted page (no Outlet).
+                    //
+                    // Deliberately NOT wrapped in `RequireAdminSettings` (#2971) —
+                    // the program scope below still is. That guard is org-wide
+                    // (`can_access_admin_settings` = Admin+ in ANY project), so it
+                    // bounced every Viewer, Member and Scheduler off their own
+                    // project's settings. Correct while every section was an admin
+                    // control; wrong the moment one of them became a *report about
+                    // them*. `ProjectSettingsPage` now decides instead, rendering a
+                    // reduced member rail (`buildProjectSettingsMemberNav`) with the
+                    // sections a non-admin may read, so a team is not redirected off
+                    // the page that says how their project diverged from its
+                    // template. The server remains the thing that refuses writes.
                     path: 'settings',
                     element: (
-                      <RequireAdminSettings>
-                        <Suspense fallback={<RouteLoadingFallback />}>
-                          <ProjectSettingsPage />
-                        </Suspense>
-                      </RequireAdminSettings>
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProjectSettingsPage />
+                      </Suspense>
                     ),
                     handle: { title: 'Project Settings' } satisfies RouteHandle,
                   },

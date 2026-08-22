@@ -22,7 +22,7 @@ import { dirname, resolve } from 'node:path';
 import { SETTINGS_DOCS, settingsDocsSlug, type SettingsScope } from './settingsDocs';
 import { buildWorkspaceNavGroups } from './workspace/workspaceNav';
 import { buildProgramSettingsNav } from './ProgramSettingsPage';
-import { buildProjectSettingsNav } from './ProjectSettingsPage';
+import { buildProjectSettingsNav, buildProjectSettingsMemberNav } from './ProjectSettingsPage';
 import type { SettingsNavGroup } from './SettingsShell';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -74,9 +74,13 @@ const SCOPES: SettingsScope[] = ['workspace', 'program', 'project'];
 const NAV_BY_SCOPE: Record<SettingsScope, string[]> = {
   workspace: navSectionIds(buildWorkspaceNavGroups({ linked: false })),
   program: navSectionIds(buildProgramSettingsNav()),
-  project: navSectionIds(
-    buildProjectSettingsNav({ showTeamTab: true, iterationSingular: 'Sprint' }),
-  ),
+  // Union of the admin rail and the reduced member rail (#2971): a section a
+  // non-admin can reach still needs a help entry, and the orphan check below must
+  // not read the member rail's ids as leftovers.
+  project: [
+    ...navSectionIds(buildProjectSettingsNav({ showTeamTab: true, iterationSingular: 'Sprint' })),
+    ...navSectionIds(buildProjectSettingsMemberNav()),
+  ],
 };
 
 describe('slugifyHeading', () => {
@@ -117,8 +121,8 @@ describe('SETTINGS_DOCS resolution', () => {
     Object.entries(SETTINGS_DOCS[scope]).map(([id, slug]) => ({ scope, id, slug })),
   );
 
-  it('covers all 47 sections', () => {
-    expect(entries).toHaveLength(47);
+  it('covers all 48 sections', () => {
+    expect(entries).toHaveLength(48);
   });
 
   it.each(entries)('$scope/$id → $slug resolves to a real docs page', ({ slug }) => {

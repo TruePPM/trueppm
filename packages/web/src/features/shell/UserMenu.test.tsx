@@ -287,7 +287,7 @@ describe('UserMenu', () => {
     expect(items[0].getAttribute('href')).toBe('/projects/proj-1/settings/members');
   });
 
-  it('project in context + non-admin → no "Project settings" row (RequireAdminSettings would bounce them, #2147)', () => {
+  it('project in context + non-admin → "Project settings" row lands on the section they can read (#2971)', () => {
     mockUseProjectId.mockReturnValue('proj-1');
     mockUserResult.value = {
       user: {
@@ -302,7 +302,16 @@ describe('UserMenu', () => {
     };
     renderWithRouter(<UserMenu />);
     openMenu();
-    expect(screen.queryByRole('link', { name: /project settings/i })).toBeNull();
+    // The row used to be hidden entirely (#2147), because RequireAdminSettings
+    // would have bounced a non-admin to personal notification prefs. Since #2971
+    // the project settings route admits them and renders a reduced member rail, so
+    // hiding the row would now be hiding a page they can use. The destination
+    // differs, though — #members is an admin section, and sending them to an anchor
+    // that is not on their page would land them at the top of a one-row rail with
+    // no explanation.
+    const items = screen.getAllByRole('link', { name: /project settings/i });
+    expect(items.length).toBeGreaterThan(0);
+    expect(items[0].getAttribute('href')).toBe('/projects/proj-1/settings#template-divergence');
   });
 
   it('groups personal settings under a "Personal" header (design §10, #1804)', () => {

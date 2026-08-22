@@ -1330,10 +1330,18 @@ function ProjectViewsTier({
   const project = useProject(projectId);
   const { data: programs } = usePrograms();
   const { user } = useCurrentUser();
-  // The Settings row targets `/projects/:id/settings`, which `RequireAdminSettings`
-  // bounces to personal notification prefs for a non-admin (#2147). Gate the row on
-  // the same predicate the guard uses (strict `!== false`, so it stays visible while
-  // the role signal loads and never flash-hides for an admin — mirrors #2033).
+  // The Settings row targets `/projects/:id/settings`. It used to be hidden from a
+  // non-admin because `RequireAdminSettings` would bounce them to personal
+  // notification prefs (#2147); since #2971 that route admits them and renders a
+  // reduced member rail, so the redirect justification no longer holds.
+  //
+  // The row stays gated anyway, on a different and narrower reason: this is
+  // persistent chrome, and the member rail is currently ONE row. Promoting a
+  // permanent nav entry for a single section would overstate it. A member reaches
+  // that section through the account menu, which points them straight at its anchor.
+  // When the member rail grows past a row or two, un-gate this and delete the note.
+  // Strict `!== false` so it stays visible while the role signal loads and never
+  // flash-hides for an admin (mirrors #2033).
   const canAccessProjectSettings = user?.can_access_admin_settings !== false;
 
   const name = project.data?.name ?? 'Project';
@@ -1454,7 +1462,8 @@ function ProjectViewsTier({
             `PROGRAM_VIEWS` Settings row (#2045). Without it the two Tier-2 siblings
             diverge and desktop project settings (members/access, working calendars —
             a getting-started step) is reachable only via the UserMenu. Hidden for
-            non-admins so it never dumps them on the guard's redirect target (#2147). */}
+            non-admins — see `canAccessProjectSettings` above for why that outlived
+            the #2147 redirect it was originally written for (#2971). */}
         {canAccessProjectSettings &&
           (() => {
             const SettingsIcon = VIEW_TAB_META[standaloneTrailing].Icon;

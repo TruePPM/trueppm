@@ -70,11 +70,12 @@ export function BottomNav() {
   const hidden = new Set([...(user?.hidden_views ?? []), ...surfaceHidden]);
   const grouped = groupedVisibleViewsForUser(methodology, hidden).flatMap((g) => g.visibleViews);
   const canSeeTeam = role !== null && role >= ROLE_SCHEDULER;
-  // `/projects/:id/settings` is guarded by RequireAdminSettings, which bounces a
-  // user who is admin nowhere to their personal notification prefs. Drop the row
-  // for them so the mobile overflow never leads to that silent redirect — the
-  // same predicate (strict `!== false`, visible while the signal loads) the
-  // desktop rail and account menu use (#2147).
+  // `/projects/:id/settings` no longer bounces a non-admin (#2971) — it renders a
+  // reduced member rail instead. The row stays dropped for them on the narrower
+  // reason the desktop rail records: this is persistent chrome and the member rail
+  // is one section, which a permanent mobile nav slot would overstate. The account
+  // menu is their way in, and it links straight to the section's anchor. Strict
+  // `!== false` so the row is visible while the signal loads (#2147).
   const canAccessSettings = user?.can_access_admin_settings !== false;
   const reachable = [
     'overview',
