@@ -83,9 +83,9 @@ const PROJECT: ProjectFixture = {
   visibility: 'WORKSPACE',
   timezone: '',
   methodology: 'HYBRID',
-  // The consolidated settings page mounts every section, incl. Methodology, which
-  // reads these + workspace settings; without them it stays in its loading skeleton
-  // (whose absent heading dangles the section's aria-labelledby → aria-prohibited-attr).
+  // The consolidated settings page mounts every section, incl. the Methodology
+  // block inside "How this team works", which reads these + workspace settings;
+  // without them it stays in its loading skeleton and renders no title strip.
   effective_methodology: 'HYBRID',
   inherited_methodology: 'HYBRID',
   estimation_mode: 'OPEN',
@@ -191,14 +191,17 @@ async function setupShell(page: import('@playwright/test').Page): Promise<void> 
     }),
   );
   // Workspace settings (object) — read by `useWorkspaceSettings` on the
-  // consolidated Project Settings page. The Methodology section (which mounts
-  // alongside General, ADR-0146) skeletons until BOTH the project AND workspace
-  // settings resolve, and its skeleton renders no `SettingsPageTitle` — so the
-  // section's `aria-labelledby` (→ `#settings-heading-methodology`, stamped only
-  // by the title) dangles and axe flags a serious `aria-prohibited-attr` on the
-  // now-unnamed `<section>`. The 404-catch-all left `ws` undefined → permanent
-  // skeleton → the failure. Object endpoint, so mock its REAL shape (never the
-  // list-shaped catch-all). Shape mirrors WorkspaceSettingsRaw.
+  // consolidated Project Settings page. The Methodology block skeletons until BOTH
+  // the project AND workspace settings resolve, and its skeleton renders no title
+  // strip at all. Before #2969 Methodology was its own section, so that skeleton
+  // dangled the section's `aria-labelledby` (→ `#settings-heading-methodology`,
+  // stamped only by the title) and axe flagged a serious `aria-prohibited-attr` on
+  // the now-unnamed `<section>`. It is now a block inside "How this team works",
+  // whose own title always renders, so the dangle is structurally gone — but the
+  // mock stays: an unmocked object endpoint still leaves the block a permanent
+  // skeleton, and that is worth not shipping to an a11y baseline. Object endpoint,
+  // so mock its REAL shape (never the list-shaped catch-all). Shape mirrors
+  // WorkspaceSettingsRaw.
   await page.route('**/api/v1/workspace/', (route) =>
     route.fulfill({
       status: 200,

@@ -81,6 +81,13 @@ const PROJECT_DOCS: Record<string, string> = {
   general: 'administration/project-settings/#general',
   access: 'features/settings/project-members/',
   agents: 'administration/mcp-server/#team-level-opt-out',
+  // The consolidated "How this team works" section (#2969) and, beneath it, the
+  // three former sections it absorbed. The sub-entries are NOT nav rows any more —
+  // they are the per-block "Learn more" links the consolidated page passes down.
+  // They stay in this map rather than being inlined as literals in the block
+  // components so the resolution suite keeps checking them against the real docs
+  // tree; a literal `docsHref` in a component is checked by nothing.
+  'how-this-team-works': 'administration/project-settings/#how-this-team-works',
   methodology: 'features/methodology-preset/',
   templates: 'features/project-templates/#publishing-a-template',
   'template-divergence': 'features/project-templates/#template-divergence',

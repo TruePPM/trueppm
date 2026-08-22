@@ -104,6 +104,22 @@ interface SettingsShellProps {
   /** Mobile-only: short destination label, rendered as "Back to {exitLabel}". */
   exitLabel: string;
   /**
+   * Retired anchor → live section id (#2969).
+   *
+   * When sections merge, the addresses they used to answer on do not disappear:
+   * `/…/settings#methodology` is in runbooks, bookmarks and links people mailed
+   * each other. The router's `SectionRedirect` only covers the *route* half
+   * (`/…/settings/methodology`); a hash is not part of the matched path, so no
+   * route can see it. The shell is the only layer that can, because it is the one
+   * that resolves a hash against the sections actually mounted.
+   *
+   * An unknown hash is otherwise silent — `inlineIds` does not contain it, the
+   * scroll never happens, and the user lands at the top of the page with no
+   * indication their link went stale. Rewriting it (replace, so Back still leaves
+   * settings) turns that into a working deep link.
+   */
+  anchorAliases?: Record<string, string>;
+  /**
    * The consolidated page body — all `<SettingsSection>` regions for this entity,
    * rendered at once on one mounted page (ADR-0146). The shell stays mounted;
    * the left rail scroll-spies across these sections.
@@ -152,6 +168,7 @@ export function SettingsShell({
   navGroups,
   exitTo,
   exitLabel,
+  anchorAliases,
   children,
 }: SettingsShellProps) {
   const navigate = useNavigate();
@@ -223,7 +240,16 @@ export function SettingsShell({
   const lastHandledHashRef = useRef<string | null>(null);
   useEffect(() => {
     const id = hash.replace(/^#/, '');
-    if (!id || !inlineIds.includes(id)) return;
+    if (!id) return;
+    if (!inlineIds.includes(id)) {
+      // A retired anchor (#2969). Rewrite it to the section that absorbed it and
+      // let the effect re-run against the live id, so a stale deep link scrolls
+      // exactly like a current one. `replace` keeps Back leaving settings rather
+      // than bouncing between the two hashes.
+      const alias = anchorAliases?.[id];
+      if (alias && inlineIds.includes(alias)) void navigate({ hash: `#${alias}` }, { replace: true });
+      return;
+    }
     if (lastHandledHashRef.current === hash) return;
     lastHandledHashRef.current = hash;
     // Defer so the section markup is laid out before we measure/scroll.
@@ -232,7 +258,7 @@ export function SettingsShell({
     // inlineIds is derived from navGroups each render; depend on its join to
     // avoid re-running on every identity change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hash, inlineIds.join(','), scrollTo]);
+  }, [hash, inlineIds.join(','), scrollTo, anchorAliases, navigate]);
 
   // Ticker drives the "Saved [time]" footer re-render so "just now" → "1m ago".
   const [, setSavedTick] = useState(0);
@@ -1049,6 +1075,22 @@ interface SettingsPageTitleProps {
    * read. An explicit value wins over context.
    */
   docsHref?: string;
+  /**
+   * This title strip is a *block inside* another section, not the section's own
+   * title (#2969).
+   *
+   * When several former sections are mounted under one `<SettingsSection>`, only
+   * one of them may own the region's heading: `settingsHeadingId()` is minted from
+   * the section id, so a second unqualified title strip would stamp a duplicate
+   * DOM id and `aria-labelledby` would resolve to whichever came first. An
+   * embedded strip therefore renders an `<h3>` (correct level under the section's
+   * `<h2>`) and carries no heading id at all.
+   *
+   * It also does NOT inherit the section's docs slug — three blocks under one
+   * section would otherwise print the same "Learn more" three times. Pass each
+   * block's own `docsHref`.
+   */
+  embedded?: boolean;
 }
 
 /**
@@ -1156,6 +1198,22 @@ function SectionDocsLink({ href, sectionTitle }: { href: string; sectionTitle: s
   );
 }
 
+/**
+ * Props a section component takes so it can also be mounted as a block inside
+ * another section (#2969).
+ *
+ * A component that may be *either* a section or a block cannot decide its own
+ * heading level or docs link — both depend on where it is mounted, and only the
+ * mount site knows. So it takes both and forwards them straight to its
+ * `SettingsPageTitle`, rather than reading the section context and guessing.
+ */
+export interface SettingsBlockProps {
+  /** Render the title strip as an in-section `<h3>` block rather than the section's `<h2>`. */
+  embedded?: boolean;
+  /** This block's own docs slug — required when `embedded`, which suppresses the section's. */
+  docsHref?: string;
+}
+
 /** Standardised section title strip with optional count and action button. */
 export function SettingsPageTitle({
   title,
@@ -1163,14 +1221,21 @@ export function SettingsPageTitle({
   count,
   action,
   docsHref,
+  embedded = false,
 }: SettingsPageTitleProps) {
   // Each section renders one of these on the consolidated page, so it must be an
   // <h2> under the shell's single page <h1> (WCAG 1.3.1 / 2.4.6). When mounted
   // inside a <SettingsSection>, stamp the id its region's aria-labelledby targets
   // so the region is named by this real title, not the slug; outside a section
   // (standalone tool pages) the context is the default key and we omit the id.
+  //
+  // An `embedded` strip is a block *within* a section (#2969): it drops to <h3>
+  // and claims neither the heading id nor the section's docs slug, both of which
+  // belong to the one strip that titles the region.
   const sectionId = useSettingsSectionId();
-  const headingId = sectionId !== DEFAULT_SECTION_KEY ? settingsHeadingId(sectionId) : undefined;
+  const Heading = embedded ? 'h3' : 'h2';
+  const headingId =
+    !embedded && sectionId !== DEFAULT_SECTION_KEY ? settingsHeadingId(sectionId) : undefined;
   // Section help trails the subtitle rather than sitting in the `action` slot: 16
   // of the 67 call sites already put a primary control there ("Add member", "New
   // label"), and secondary help at equal weight beside a primary action inverts
@@ -1180,23 +1245,34 @@ export function SettingsPageTitle({
   // Read the context unconditionally — `docsHref ?? useSettingsSectionDocs()`
   // would short-circuit the hook and break the rules of hooks.
   const contextDocsHref = useSettingsSectionDocs();
-  const resolvedDocsHref = docsHref ?? contextDocsHref;
+  const resolvedDocsHref = docsHref ?? (embedded ? undefined : contextDocsHref);
   return (
-    <div className="px-6 pt-5 pb-3.5 flex items-end gap-3.5 border-b border-neutral-border/55">
+    <div
+      className={
+        embedded
+          ? 'px-6 pt-6 pb-3 flex items-end gap-3.5 border-b border-neutral-border/40'
+          : 'px-6 pt-5 pb-3.5 flex items-end gap-3.5 border-b border-neutral-border/55'
+      }
+    >
       <div className="flex-1 min-w-0">
-        <h2
+        <Heading
           id={headingId}
           // Focus target for scroll-spy keyboard nav (ADR-0146): activating a rail
-          // item moves focus here so keyboard / SR users land in the section.
-          data-settings-section-heading
-          tabIndex={-1}
-          className="text-[22px] font-bold tracking-tight text-neutral-text-primary leading-none flex items-center gap-2.5 focus-visible:outline-none"
+          // item moves focus here so keyboard / SR users land in the section. An
+          // embedded strip is not a scroll-spy target, so it does not claim it.
+          data-settings-section-heading={embedded ? undefined : true}
+          tabIndex={embedded ? undefined : -1}
+          className={
+            embedded
+              ? 'text-[16px] font-semibold tracking-tight text-neutral-text-primary leading-none flex items-center gap-2.5'
+              : 'text-[22px] font-bold tracking-tight text-neutral-text-primary leading-none flex items-center gap-2.5 focus-visible:outline-none'
+          }
         >
           {title}
           {count != null && (
             <span className="text-[13px] font-medium text-neutral-text-secondary">{count}</span>
           )}
-        </h2>
+        </Heading>
         {/* The link trails the subtitle inside the same paragraph so it reads as
             an extension of that sentence. With no subtitle it takes the subtitle's
             own slot, keeping its vertical position identical across sections. */}

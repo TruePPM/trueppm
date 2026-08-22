@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { SettingsPageTitle } from '../SettingsShell';
+import { SettingsPageTitle, type SettingsBlockProps } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
 import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
 import { InheritableSelectField } from '../components/InheritableSelectField';
@@ -98,7 +98,7 @@ const METHOD_LABEL: Record<Methodology, string> = {
   HYBRID: 'Hybrid',
 };
 
-export function ProjectMethodologyPage() {
+export function ProjectMethodologyPage({ embedded, docsHref }: SettingsBlockProps = {}) {
   const projectId = useProjectId();
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const updateProject = useUpdateProject(projectId);
@@ -233,6 +233,8 @@ export function ProjectMethodologyPage() {
   return (
     <div>
       <SettingsPageTitle
+        embedded={embedded}
+        docsHref={docsHref}
         title="Methodology"
         subtitle="The planning methodology (delivery model) for this project. It drives which planning surfaces — Board, Schedule, Sprints — appear."
       />

@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, act, within, createEvent } from '@testing-library/react';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { MemoryRouter, Routes, Route } from 'react-router';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
 import {
   SettingsShell,
   SettingsSection,
@@ -1575,6 +1575,92 @@ describe('<SettingsPageTitle>', () => {
     expect(heading).toHaveAttribute('id', 'settings-heading-general');
     // …and the region really is named by it, not by the raw slug.
     expect(screen.getByRole('region', { name: 'General' })).toBeInTheDocument();
+  });
+});
+
+describe('<SettingsPageTitle> embedded blocks (#2969)', () => {
+  it('drops to an h3 and claims neither the region heading id nor its docs slug', () => {
+    // The failure this locks out is a duplicate DOM id, which nothing else sees:
+    // `settingsHeadingId()` is minted from the SECTION id, so a second unqualified
+    // title strip under one section stamps the same id twice and the region's
+    // aria-labelledby silently resolves to whichever the parser met first.
+    render(
+      <SettingsSection id="how-this-team-works">
+        <SettingsPageTitle title="How this team works" />
+        <SettingsPageTitle embedded title="Methodology" />
+        <SettingsPageTitle embedded title="Workflow & fields" />
+      </SettingsSection>,
+    );
+
+    const section = screen.getByRole('heading', { level: 2, name: 'How this team works' });
+    expect(section).toHaveAttribute('id', 'settings-heading-how-this-team-works');
+
+    const blocks = screen.getAllByRole('heading', { level: 3 });
+    expect(blocks.map((h) => h.textContent)).toEqual(['Methodology', 'Workflow & fields']);
+    for (const h of blocks) expect(h).not.toHaveAttribute('id');
+
+    // Exactly one node carries the id, so the region is unambiguously named.
+    expect(
+      document.querySelectorAll('#settings-heading-how-this-team-works'),
+    ).toHaveLength(1);
+    // And exactly one scroll-spy focus target, or keyboard rail nav lands on a
+    // block instead of the section it activated.
+    expect(document.querySelectorAll('[data-settings-section-heading]')).toHaveLength(1);
+  });
+});
+
+describe('<SettingsShell> retired anchor aliases (#2969)', () => {
+  function HashProbe() {
+    const { hash } = useLocation();
+    return <div data-testid="probe-hash">{hash}</div>;
+  }
+
+  function renderAliased(entry: string) {
+    return render(
+      <MemoryRouter initialEntries={[entry]}>
+        <Routes>
+          <Route
+            path="/projects/p1/settings"
+            element={
+              <SettingsShell
+                scope="project"
+                scopeLinks={SCOPE_LINKS}
+                contextName="Project Atlas"
+                navGroups={NAV_GROUPS}
+                anchorAliases={{ methodology: 'general', workflow: 'general' }}
+                exitTo="/projects/p1/overview"
+                exitLabel="Overview"
+              >
+                <HashProbe />
+                <SettingsSection id="general">
+                  <SettingsPageTitle title="General" />
+                </SettingsSection>
+                <SettingsSection id="access">
+                  <SettingsPageTitle title="Access" />
+                </SettingsSection>
+              </SettingsShell>
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  it('rewrites a retired hash to the section that absorbed it', () => {
+    renderAliased('/projects/p1/settings#methodology');
+    expect(screen.getByTestId('probe-hash')).toHaveTextContent('#general');
+  });
+
+  it('leaves a live hash alone', () => {
+    renderAliased('/projects/p1/settings#access');
+    expect(screen.getByTestId('probe-hash')).toHaveTextContent('#access');
+  });
+
+  it('leaves an unmapped unknown hash alone rather than guessing a destination', () => {
+    // A hash nobody declared is not the same as a retired one. Sending it
+    // somewhere plausible would make a typo look like a working deep link.
+    renderAliased('/projects/p1/settings#not-a-section');
+    expect(screen.getByTestId('probe-hash')).toHaveTextContent('#not-a-section');
   });
 });
 

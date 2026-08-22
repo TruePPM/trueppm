@@ -22,7 +22,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { SettingsPageTitle } from '../SettingsShell';
+import { SettingsPageTitle, type SettingsBlockProps } from '../SettingsShell';
 import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
 import { Toggle } from '../components/Toggle';
 import { FieldHelp, type FieldHelpOption } from '@/components/FieldHelp';
@@ -107,7 +107,7 @@ const CUSTOM_FIELD_TYPE_HELP: FieldHelpOption[] = [
 ];
 
 /** Project > Workflow & fields settings page (#521). */
-export function ProjectWorkflowPage() {
+export function ProjectWorkflowPage({ embedded, docsHref }: SettingsBlockProps = {}) {
   const projectId = useProjectId();
   const { role } = useCurrentUserRole(projectId);
   const canEditPhases = role !== null && role >= ROLE_ADMIN;
@@ -116,6 +116,8 @@ export function ProjectWorkflowPage() {
   return (
     <div>
       <SettingsPageTitle
+        embedded={embedded}
+        docsHref={docsHref}
         title="Workflow & fields"
         subtitle="Phases, statuses, and custom fields. These shape every Board, Schedule, and Table view in this project."
       />

@@ -144,7 +144,10 @@ test.describe('Settings rail filter (#2320)', () => {
     await filter.fill('methodolog');
     await filter.press('Enter');
     // Scroll-spy hash reflects the jumped section; same page (no route change).
-    await expect(page).toHaveURL(/#methodology/);
+    // 'methodolog' now matches the consolidated row's keywords (#2969) — the
+    // vocabulary of all three retired rows moved onto it, so the filter still
+    // finds it and jumps somewhere real.
+    await expect(page).toHaveURL(/#how-this-team-works/);
     // Filter cleared, rail restored.
     await expect(filter).toHaveValue('');
     await expect(page.getByRole('button', { name: 'General', exact: true })).toBeVisible();

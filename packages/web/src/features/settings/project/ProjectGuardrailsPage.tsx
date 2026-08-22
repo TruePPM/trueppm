@@ -10,7 +10,7 @@ import {
   type GuardrailRule,
   type GuardrailLevel,
 } from '@/hooks/useProjectGuardrailPolicy';
-import { SettingsPageTitle } from '../SettingsShell';
+import { SettingsPageTitle, type SettingsBlockProps } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 
@@ -36,7 +36,7 @@ const GUARDRAILS_DOC = 'administration/project-settings/#sprint-guardrails';
  * acknowledgement. The team-ack gate is enforced in OSS code so a custom
  * high-ordinal Enterprise role can't bypass sprint sovereignty.
  */
-export function ProjectGuardrailsPage() {
+export function ProjectGuardrailsPage({ embedded, docsHref }: SettingsBlockProps = {}) {
   const projectId = useProjectId();
   const itl = useIterationLabel(projectId);
   const { role } = useCurrentUserRole(projectId ?? undefined);
@@ -57,6 +57,8 @@ export function ProjectGuardrailsPage() {
     return (
       <div>
         <SettingsPageTitle
+          embedded={embedded}
+          docsHref={docsHref}
           title={`${itl.singular} guardrails`}
           subtitle={`Decide which ${itl.lower}/phase mistakes warn the team and which the team's Owner blocks outright.`}
         />
@@ -69,6 +71,8 @@ export function ProjectGuardrailsPage() {
     return (
       <div>
         <SettingsPageTitle
+          embedded={embedded}
+          docsHref={docsHref}
           title={`${itl.singular} guardrails`}
           subtitle={`Decide which ${itl.lower}/phase mistakes warn the team and which the team's Owner blocks outright.`}
         />
@@ -89,6 +93,8 @@ export function ProjectGuardrailsPage() {
   return (
     <div>
       <SettingsPageTitle
+        embedded={embedded}
+        docsHref={docsHref}
         title={`${itl.singular} guardrails`}
         subtitle={`Decide which ${itl.lower}/phase mistakes warn the team and which the team's Owner blocks outright. Subtask-split warnings are always advisory.`}
       />

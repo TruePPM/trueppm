@@ -243,11 +243,17 @@ test.describe('A methodology-hidden view reached by direct URL (#2619)', () => {
     await expect(page.getByRole('heading', { level: 1, name: /Active sprint/ })).toBeVisible();
   });
 
-  test('"Change methodology" routes to Settings → Methodology', async ({ page }) => {
+  test('"Change methodology" routes to Settings → How this team works', async ({ page }) => {
+    // The Methodology anchor was absorbed by the consolidated section in #2969.
+    // The in-app deep link points at the live id directly rather than leaning on
+    // the alias rewrite — an alias is a promise to old links, not a destination
+    // the product should keep minting.
     await setupCommon(page, []);
     await page.goto(BASE_URL);
 
     await page.getByRole('button', { name: 'Change methodology' }).click();
-    await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/settings#methodology$`));
+    await expect(page).toHaveURL(
+      new RegExp(`/projects/${PROJECT_ID}/settings#how-this-team-works$`),
+    );
   });
 });

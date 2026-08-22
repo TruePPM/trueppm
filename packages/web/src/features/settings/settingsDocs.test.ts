@@ -23,6 +23,7 @@ import { SETTINGS_DOCS, settingsDocsSlug, type SettingsScope } from './settingsD
 import { buildWorkspaceNavGroups } from './workspace/workspaceNav';
 import { buildProgramSettingsNav } from './ProgramSettingsPage';
 import { buildProjectSettingsNav, buildProjectSettingsMemberNav } from './ProjectSettingsPage';
+import { TEAM_WORKFLOW_SUBSECTION_IDS } from './project/ProjectTeamWorkflowPage';
 import type { SettingsNavGroup } from './SettingsShell';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -80,6 +81,12 @@ const NAV_BY_SCOPE: Record<SettingsScope, string[]> = {
   project: [
     ...navSectionIds(buildProjectSettingsNav({ showTeamTab: true, iterationSingular: 'Sprint' })),
     ...navSectionIds(buildProjectSettingsMemberNav()),
+    // Not nav rows: the three former sections "How this team works" absorbed
+    // (#2969). Each is still a rendered "Learn more" link on that page, so it is
+    // still a help surface that can rot — it just isn't reachable from the rail.
+    // Listing them here keeps the resolution suite covering them and stops the
+    // orphan check reading them as leftovers from a rename.
+    ...TEAM_WORKFLOW_SUBSECTION_IDS,
   ],
 };
 
@@ -121,8 +128,8 @@ describe('SETTINGS_DOCS resolution', () => {
     Object.entries(SETTINGS_DOCS[scope]).map(([id, slug]) => ({ scope, id, slug })),
   );
 
-  it('covers all 48 sections', () => {
-    expect(entries).toHaveLength(48);
+  it('covers all 49 sections', () => {
+    expect(entries).toHaveLength(49);
   });
 
   it.each(entries)('$scope/$id → $slug resolves to a real docs page', ({ slug }) => {

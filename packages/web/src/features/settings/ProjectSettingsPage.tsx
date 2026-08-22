@@ -15,12 +15,14 @@ import {
 } from './SettingsShell';
 import { ProjectGeneralPage } from './project/ProjectGeneralPage';
 import { ProjectAccessPage } from './project/ProjectAccessPage';
-import { ProjectMethodologyPage } from './project/ProjectMethodologyPage';
 import { ProjectCalendarsPage } from './project/ProjectCalendarsPage';
 import { ProjectTeamPage } from './team/ProjectTeamPage';
 import { ProjectSignalPrivacyPage } from './signalPrivacy/ProjectSignalPrivacyPage';
-import { ProjectWorkflowPage } from './project/ProjectWorkflowPage';
-import { ProjectGuardrailsPage } from './project/ProjectGuardrailsPage';
+import {
+  ProjectTeamWorkflowPage,
+  TEAM_WORKFLOW_SECTION_ID,
+  TEAM_WORKFLOW_SUBSECTION_IDS,
+} from './project/ProjectTeamWorkflowPage';
 import { ProjectIntegrationsPage } from './project/ProjectIntegrationsPage';
 import { ProjectNotificationsPage } from './project/ProjectNotificationsPage';
 import { ProjectAttachmentsPage } from './project/ProjectAttachmentsPage';
@@ -34,13 +36,11 @@ import { ProjectTemplateDivergencePage } from './project/ProjectTemplateDivergen
 import {
   ResourcesIcon,
   SprintIcon,
-  WbsIcon,
   SettingsIcon,
   WarningIcon,
   CalendarIcon,
   LockIcon,
   TagIcon,
-  SlidersIcon,
   EyeOffIcon,
   PaperclipIcon,
   LayoutIcon,
@@ -108,6 +108,22 @@ function projectHealthDot(health?: HealthState): 'onTrack' | 'atRisk' | 'critica
  * rail so the set is a **declared allow-list**: a section becomes member-visible by
  * being named here, never by a predicate somewhere else changing shape.
  */
+/**
+ * Retired project-settings anchors → the section that absorbed them (#2969).
+ *
+ * Handed to `SettingsShell`, which rewrites a stale `…/settings#<slug>` hash to
+ * the live one. The route half of the same promise lives in `router.tsx` as
+ * `SectionRedirect` entries; both halves are needed because a hash is not part of
+ * the path a route matches, so no router config can see one.
+ *
+ * Entries are never removed. The cost of keeping one is a map row; the cost of
+ * dropping one is somebody's bookmark landing at the top of a long page with no
+ * indication why.
+ */
+export const PROJECT_SETTINGS_ANCHOR_ALIASES: Record<string, string> = Object.fromEntries(
+  TEAM_WORKFLOW_SUBSECTION_IDS.map((id) => [id, TEAM_WORKFLOW_SECTION_ID]),
+);
+
 export function buildProjectSettingsMemberNav(): SettingsNavGroup[] {
   return [
     {
@@ -160,9 +176,13 @@ export function buildProjectSettingsNav({
           ),
         },
         {
-          id: 'methodology',
-          label: 'Methodology',
-          keywords: 'agile scrum kanban waterfall hybrid',
+          // The three agile-configuration anchors collapsed into one row (#2969).
+          // `keywords` carries every term the retired rows answered to — a rail
+          // search for "guardrails", "statuses" or "waterfall" must still land
+          // somewhere, and this row is now the only place any of them lives.
+          id: TEAM_WORKFLOW_SECTION_ID,
+          label: 'How this team works',
+          keywords: `methodology agile scrum kanban waterfall hybrid workflow fields phases statuses board columns lanes wip limits custom fields cadence ${iterationSingular} guardrails policy`,
           icon: (
             <NavIcon>
               <SprintIcon aria-hidden="true" />
@@ -213,16 +233,6 @@ export function buildProjectSettingsNav({
       label: 'Configuration',
       items: [
         {
-          id: 'workflow',
-          label: 'Workflow & fields',
-          keywords: 'statuses columns custom fields board states',
-          icon: (
-            <NavIcon>
-              <WbsIcon aria-hidden="true" />
-            </NavIcon>
-          ),
-        },
-        {
           id: 'labels',
           label: 'Labels',
           keywords: 'tags colors chips categorize',
@@ -239,16 +249,6 @@ export function buildProjectSettingsNav({
           icon: (
             <NavIcon>
               <CalendarIcon aria-hidden="true" />
-            </NavIcon>
-          ),
-        },
-        {
-          id: 'guardrails',
-          label: `${iterationSingular} guardrails`,
-          keywords: 'sprint iteration wip limits capacity policy',
-          icon: (
-            <NavIcon>
-              <SlidersIcon aria-hidden="true" />
             </NavIcon>
           ),
         },
@@ -414,6 +414,7 @@ export function ProjectSettingsPage() {
         contextOptions={contextOptions}
         contextActiveId={projectId}
         navGroups={navGroups}
+        anchorAliases={PROJECT_SETTINGS_ANCHOR_ALIASES}
         exitTo={`/projects/${projectId}/overview`}
         exitLabel="Overview"
       >
@@ -447,6 +448,7 @@ export function ProjectSettingsPage() {
       contextOptions={contextOptions}
       contextActiveId={projectId}
       navGroups={navGroups}
+      anchorAliases={PROJECT_SETTINGS_ANCHOR_ALIASES}
       exitTo={`/projects/${projectId}/overview`}
       exitLabel="Overview"
     >
@@ -456,8 +458,8 @@ export function ProjectSettingsPage() {
       <SettingsSection id="access">
         <ProjectAccessPage />
       </SettingsSection>
-      <SettingsSection id="methodology">
-        <ProjectMethodologyPage />
+      <SettingsSection id={TEAM_WORKFLOW_SECTION_ID}>
+        <ProjectTeamWorkflowPage />
       </SettingsSection>
 
       {/* Beside Methodology on purpose: a template *is* a methodology decision
@@ -479,17 +481,11 @@ export function ProjectSettingsPage() {
           <ProjectTeamPage />
         </SettingsSection>
       )}
-      <SettingsSection id="workflow">
-        <ProjectWorkflowPage />
-      </SettingsSection>
       <SettingsSection id="labels">
         <ProjectLabelsPage />
       </SettingsSection>
       <SettingsSection id="calendars">
         <ProjectCalendarsPage />
-      </SettingsSection>
-      <SettingsSection id="guardrails">
-        <ProjectGuardrailsPage />
       </SettingsSection>
       {showTeamTab && (
         <SettingsSection id="signal-privacy">
