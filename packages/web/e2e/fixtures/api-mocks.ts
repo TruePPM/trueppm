@@ -37,6 +37,8 @@ export interface BoardColumnConfig {
   visible: boolean;
   wip_limit: number | null;
   color: string;
+  /** Named lanes inside this column (#2967). Absent = one implicit lane. */
+  lanes?: { key: string; label: string; wip_limit: number | null }[];
 }
 
 export interface UserFixture {

@@ -279,6 +279,36 @@ shares the same state — the steady state of any project past planning is "ever
 every card. The chip returns the moment two states are in play. The left accent bar still
 carries readiness either way, and the state is always in the card's detail view.
 
+## Named lanes inside a column
+
+:::note[Ships in 0.4]
+Named lanes land in **0.4**. On `0.3.0-alpha.3` a project has exactly five columns —
+renameable, recolorable, hideable, with WIP limits, but not addable or removable.
+:::
+
+A team that works Review, QA and Blocked as distinct stages can split a single column
+into up to **six named lanes**. Open **Project settings → Workflow → Statuses**, expand
+**Lanes** on the column you want to split, and add a lane. Each lane gets its own
+column track on the board, its own card count, and optionally its own WIP limit.
+
+**What this does not change is the point of it.** A card in the QA lane still has
+`status = REVIEW`. Burndown, throughput and cycle-time rollups, MS Project export,
+saved views, the sprint report and every API integration read the same five canonical
+statuses they always have — nothing downstream has to learn about your lanes. The five
+statuses are still fixed: lanes divide a column, they never add one.
+
+Practical notes:
+
+- **A lane belongs to one column.** Lane names are unique across the whole project, so
+  a lane names exactly one place on the board. Moving a card to another column clears
+  its lane — the destination's lanes are different lanes.
+- **Deleting a lane never loses a card.** Anything left in a deleted lane appears in
+  the column's first lane, and the header count agrees.
+- **A card with no lane set** sits in the column's first lane.
+- **Collapsing a column** folds all of its lanes into one stub, and the stub's WIP
+  band reads against the *column* limit, not any one lane's.
+- **On a phone** the board still pages by status — lanes are a desktop grid feature.
+
 ## WIP overload
 
 When a column exceeds its configured WIP limit, the column header turns amber and a warning badge appears. See [WIP Overload](/features/wip-overload/) for details.

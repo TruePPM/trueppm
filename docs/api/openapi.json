@@ -45153,7 +45153,7 @@
             },
             "BoardColumnConfigRequest": {
                 "type": "object",
-                "description": "Read/write serializer for BoardColumnConfig.\n\nValidates each column entry: status must be one of the five canonical\nstatuses, label ≤ 32 chars, visible is a bool. All five canonical statuses\nmust appear exactly once (no duplicates, no missing values).\n\nOptional per-column metadata (ADR-0039, ADR-0164):\n    color:              \"#RRGGBB\" hex string or null\n    wip_limit:          positive integer or null\n    age_threshold_days: positive integer or null (null = use the client's\n                        per-status default; #410 board-aging tuning)\n\nUnknown keys are dropped silently — the validated payload only contains\nthe recognized keys, preventing forward-compat key smuggling.",
+                "description": "Read/write serializer for BoardColumnConfig.\n\nValidates each column entry: status must be one of the five canonical\nstatuses, label ≤ 32 chars, visible is a bool. All five canonical statuses\nmust appear exactly once (no duplicates, no missing values).\n\nOptional per-column metadata (ADR-0039, ADR-0164):\n    color:              \"#RRGGBB\" hex string or null\n    wip_limit:          positive integer or null\n    age_threshold_days: positive integer or null (null = use the client's\n                        per-status default; #410 board-aging tuning)\n    lanes:              ordered list of named lanes *within* this column\n                        (#2967) — ``[{key, label, wip_limit}]``, at most\n                        ``MAX_LANES_PER_COLUMN``, keys unique project-wide.\n                        Empty (the default) = one implicit lane, i.e. the\n                        board as it renders today.\n\nWhy lanes hang off a column rather than sitting beside one: the validator\nbelow rejects a repeated status, and that rejection is load-bearing —\n``Task.status`` must stay one of the five canonical values so burndown,\nthroughput rollup, MS Project export, saved views and every integration keep\nreading it unchanged. Nesting the lanes makes a duplicate status\n*unexpressible*, so the lane model cannot regress that guard by accident.\n\nUnknown keys are dropped silently — the validated payload only contains\nthe recognized keys, preventing forward-compat key smuggling.",
                 "properties": {
                     "columns": {
                         "type": "array",
@@ -52125,6 +52125,11 @@
                     },
                     "status": {
                         "$ref": "#/components/schemas/TaskStatusEnum"
+                    },
+                    "board_lane": {
+                        "type": "string",
+                        "description": "Named lane within this task's status column. Empty = the column's first lane. Presentation only — never affects scheduling or rollup.",
+                        "maxLength": 32
                     },
                     "duration": {
                         "type": "integer",
@@ -59729,6 +59734,11 @@
                     "status": {
                         "$ref": "#/components/schemas/TaskStatusEnum"
                     },
+                    "board_lane": {
+                        "type": "string",
+                        "description": "Named lane within this task's status column. Empty = the column's first lane. Presentation only — never affects scheduling or rollup.",
+                        "maxLength": 32
+                    },
                     "duration": {
                         "type": "integer",
                         "maximum": 36525,
@@ -61773,6 +61783,11 @@
                     },
                     "status": {
                         "$ref": "#/components/schemas/TaskStatusEnum"
+                    },
+                    "board_lane": {
+                        "type": "string",
+                        "description": "Named lane within this task's status column. Empty = the column's first lane. Presentation only — never affects scheduling or rollup.",
+                        "maxLength": 32
                     },
                     "duration": {
                         "type": "integer",

@@ -115,6 +115,58 @@ def test_notes_only_patch_does_not_recalc(
 
 
 @pytest.mark.django_db
+def test_board_lane_only_patch_does_not_recalc(
+    client: APIClient,
+    project: Project,
+    task: Task,
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    """A lane move is presentation only, so it must not cost a full reschedule (#2967).
+
+    ``board_lane`` is the board's second axis over ``status`` and nothing in the
+    CPM engine, the rollup or any export reads it. Dragging a card from Review
+    into QA touches no date, so a project-wide recalculate on every such drag
+    would be pure waste — and on a busy board, a lot of it.
+    """
+    from trueppm_api.apps.projects.models import BoardColumnConfig
+
+    BoardColumnConfig.objects.create(
+        project=project,
+        columns=[
+            {
+                "status": s,
+                "label": s.title(),
+                "visible": True,
+                "color": None,
+                "wip_limit": None,
+                "age_threshold_days": None,
+                "lanes": [{"key": "qa", "label": "QA", "wip_limit": None}]
+                if s == "NOT_STARTED"
+                else [],
+            }
+            for s in ("BACKLOG", "NOT_STARTED", "IN_PROGRESS", "REVIEW", "COMPLETE")
+        ],
+    )
+    status, calls = _patch_task(
+        client, task, {"board_lane": "qa"}, django_capture_on_commit_callbacks
+    )
+    assert status == 200
+    assert calls == 0
+
+
+@pytest.mark.django_db
+def test_status_and_board_lane_patch_still_recalcs(
+    client: APIClient, task: Task, django_capture_on_commit_callbacks: object
+) -> None:
+    """The exemption is for the lane alone — a status move still moves dates."""
+    status, calls = _patch_task(
+        client, task, {"status": "COMPLETE"}, django_capture_on_commit_callbacks
+    )
+    assert status == 200
+    assert calls == 1
+
+
+@pytest.mark.django_db
 def test_name_only_patch_does_not_recalc(
     client: APIClient, task: Task, django_capture_on_commit_callbacks: object
 ) -> None:

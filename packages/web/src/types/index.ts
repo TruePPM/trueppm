@@ -205,6 +205,13 @@ export interface Task {
   isExternal?: boolean;
   status: TaskStatus;
   /**
+   * Named board lane *within* {@link status} (#2967) — a second axis, never a
+   * sixth status. Empty string (or a key no longer configured) resolves to the
+   * column's first lane; see `features/board/statusLanes.ts`. Presentation only:
+   * nothing in scheduling, rollup, export or burndown reads it.
+   */
+  boardLane?: string;
+  /**
    * Server-derived edit/delete capability for the requesting user (ADR-0133, 1144).
    * The drawer gates its write controls off these instead of re-deriving a client
    * rule that drifts from the server (Scheduler / Member-own / PO-facet cases).

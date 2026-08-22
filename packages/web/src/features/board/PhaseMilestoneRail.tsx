@@ -5,7 +5,9 @@ import { boardGridTemplate } from './boardGrid';
 
 interface PhaseMilestoneRailProps {
   milestones: Task[];
-  columns: { status: TaskStatus; label: string }[];
+  /** Board tracks in display order. `key` is the track identity (#2967) — the
+   *  status on an unladen column, `status#laneKey` on a named lane. */
+  columns: { status: TaskStatus; label: string; key?: string }[];
   /**
    * Columns folded to stubs board-wide (issue 1459). A collapsed column renders as
    * a narrow empty track here so the rail stays pixel-aligned with the stubbed
@@ -139,6 +141,11 @@ export function PhaseMilestoneRail({
 
   if (milestones.length === 0) return null;
 
+  // Statuses whose diamonds have already been drawn in this rail — see the
+  // per-track branch below. Local to the render pass on purpose: it is
+  // positional state within one map(), not state that outlives the render.
+  const drawnColumns = new Set<TaskStatus>();
+
   return (
     <div
       role="list"
@@ -157,16 +164,25 @@ export function PhaseMilestoneRail({
       </div>
 
       {columns.map((col) => {
+        const trackKey = col.key ?? col.status;
         if (collapsed.has(col.status)) {
           // Folded column — render an empty aligned track, no diamonds.
-          return <div key={col.status} aria-hidden="true" />;
+          return <div key={trackKey} aria-hidden="true" />;
         }
+        // A milestone belongs to a STATUS, not to a lane inside it (#2967), so
+        // the diamonds render once — in the column's first track — and every
+        // further lane of that column gets an empty aligned filler. Repeating
+        // them per lane would multiply one date into N, which reads as N dates.
+        if (drawnColumns.has(col.status)) {
+          return <div key={trackKey} aria-hidden="true" />;
+        }
+        drawnColumns.add(col.status);
         const all = byColumn.get(col.status) ?? [];
         const visible = all.slice(0, MAX_VISIBLE_PER_COLUMN);
         const overflow = all.length - visible.length;
         return (
           <div
-            key={col.status}
+            key={trackKey}
             className="flex items-center justify-center gap-1.5 min-h-[20px]"
             role="listitem"
           >

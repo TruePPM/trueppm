@@ -20,6 +20,15 @@
  */
 import { selectVisibleCards, DEFAULT_CELL_CAP } from './cellCap';
 import { buildLaneIndex, collectLaneHeads, ROOT_LANE_ID } from './laneAssignment';
+import {
+  buildLaneKeyIndex,
+  collapseTracks,
+  expandColumnTracks,
+  hasNamedLanes,
+  parseTrackKey,
+  resolveTrackKey,
+  type BoardTrack,
+} from './statusLanes';
 import { LaneCrumbProvider } from './LaneCrumbContext';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import {
@@ -390,6 +399,14 @@ function PhaseSummaryChips({ phase }: { phase: Phase }) {
 interface BoardCellProps {
   phaseId: string;
   status: TaskStatus;
+  /**
+   * Grid identity of this cell's track (#2967) — the status on an unladen
+   * column, `status#laneKey` when the column is split into named lanes. It is
+   * the droppable id and the keyboard-focus key; `status` stays the *semantic*
+   * value the move mutation sends, and the two are equal on every board that
+   * configures no lanes.
+   */
+  trackKey: string;
   tasks: Task[];
   isOver: boolean;
   showWip: boolean;
@@ -408,7 +425,7 @@ interface BoardCellProps {
    */
   facetMatchIds: Set<string> | null;
   overallocByResourcePerTask: Map<string, Map<string, number>>;
-  onCardFocus: (taskId: string, status: TaskStatus, phaseId: string) => void;
+  onCardFocus: (taskId: string, trackKey: string, phaseId: string) => void;
   onShowDeps: (task: Task) => void;
   onShowRisks: (task: Task) => void;
   onChainHover: (taskId: string | null) => void;
@@ -640,6 +657,7 @@ function CellOverflowToggle({
 function BoardCellImpl({
   phaseId,
   status,
+  trackKey,
   tasks,
   isOver,
   showWip,
@@ -667,7 +685,7 @@ function BoardCellImpl({
   cellCap,
   myResourceId,
 }: BoardCellProps) {
-  const droppableId = `${phaseId}:${status}`;
+  const droppableId = `${phaseId}:${trackKey}`;
   const { setNodeRef } = useDroppable({ id: droppableId });
   const over = isOver && isDragActive;
   // Route through the shared wipState() helper so the *at-limit* band (count
@@ -710,7 +728,7 @@ function BoardCellImpl({
       <div
         ref={setNodeRef}
         data-empty-cell="true"
-        data-testid={`board-cell-${phaseId}-${status}`}
+        data-testid={`board-cell-${phaseId}-${trackKey}`}
         // `self-start` is load-bearing (#2427). A grid cell stretches to its row
         // by default, so in a lane made tall by one full column the empty
         // siblings became full-height blank tracks with a lonely tick floating
@@ -731,7 +749,7 @@ function BoardCellImpl({
   return (
     <div
       ref={setNodeRef}
-      data-testid={`board-cell-${phaseId}-${status}`}
+      data-testid={`board-cell-${phaseId}-${trackKey}`}
       className={[
         'rounded-card p-2 min-h-[120px] flex flex-col gap-[var(--board-card-gap,0.375rem)] transition-colors duration-100',
         over
@@ -747,8 +765,8 @@ function BoardCellImpl({
             // Cards revealed by opening the overflow animate in; the same cards
             // shown because a drag is hovering the cell must not (rule 70).
             className={revealAnimated(task.id) ? 'motion-safe:animate-empty-state-in' : undefined}
-            onPointerDown={() => onCardFocus(task.id, status, phaseId)}
-            onFocusCapture={() => onCardFocus(task.id, status, phaseId)}
+            onPointerDown={() => onCardFocus(task.id, trackKey, phaseId)}
+            onFocusCapture={() => onCardFocus(task.id, trackKey, phaseId)}
           >
             <BoardCard
               task={task}
@@ -801,14 +819,11 @@ const BoardCell = memo(BoardCellImpl);
 
 interface PhaseLaneProps {
   phase: Phase;
-  columns: {
-    status: TaskStatus;
-    label: string;
-    wipLimit: number | null;
-    color: string | null;
-    slaDays?: number;
-  }[];
-  tasksByStatus: Record<TaskStatus, Task[]>;
+  /** Board tracks in display order — one per status column, or one per named
+   *  lane of it (#2967). See `features/board/statusLanes.ts`. */
+  columns: BoardTrack[];
+  /** Track key → this lane's cards for that cell. */
+  tasksByTrack: Record<string, Task[]>;
   milestones: Task[];
   /**
    * The drag-over column *within this lane* (or null). Pre-computed by the parent
@@ -817,7 +832,7 @@ interface PhaseLaneProps {
    * the re-render (issue 1520). Passing the raw global `overCell` here would
    * re-render every lane on every drag-over tick.
    */
-  overStatus: TaskStatus | null;
+  overTrackKey: string | null;
   isDragActive: boolean;
   showWip: boolean;
   showColTints: boolean;
@@ -845,7 +860,7 @@ interface PhaseLaneProps {
   /** Facet-filter match set (issue 1091) — null when no facet active. */
   facetMatchIds: Set<string> | null;
   overallocByResourcePerTask: Map<string, Map<string, number>>;
-  onCardFocus: (taskId: string, status: TaskStatus, phaseId: string) => void;
+  onCardFocus: (taskId: string, trackKey: string, phaseId: string) => void;
   onShowDeps: (task: Task) => void;
   onShowRisks: (task: Task) => void;
   onChainHover: (taskId: string | null) => void;
@@ -1035,21 +1050,22 @@ function LaneColumnStubTrack({
  */
 function CollapsedLaneCell({
   phaseId,
-  status,
+  trackKey,
   count,
   isOver,
 }: {
   phaseId: string;
-  status: TaskStatus;
+  /** Track identity (#2967) — equals the status unless the column has named lanes. */
+  trackKey: string;
   count: number;
   isOver: boolean;
 }) {
-  const droppableId = `${phaseId}:${status}`;
+  const droppableId = `${phaseId}:${trackKey}`;
   const { setNodeRef } = useDroppable({ id: droppableId });
   return (
     <div
       ref={setNodeRef}
-      data-testid={`board-cell-${phaseId}-${status}`}
+      data-testid={`board-cell-${phaseId}-${trackKey}`}
       className={[
         'p-2 min-h-[56px] flex items-center justify-center transition-colors duration-100',
         isOver
@@ -1079,9 +1095,9 @@ function CollapsedLaneCell({
 function PhaseLaneImpl({
   phase,
   columns,
-  tasksByStatus,
+  tasksByTrack,
   milestones,
-  overStatus,
+  overTrackKey,
   isDragActive,
   showWip,
   showColTints,
@@ -1237,12 +1253,12 @@ function PhaseLaneImpl({
             narrow empty stub track in every lane so the lane stays aligned
             with the stubbed header; clicking the header stub expands it. */}
         {columns.map((col) => {
-          const cellCount = tasksByStatus[col.status]?.length ?? 0;
-          const colIsOver = isDragActive && overStatus === col.status;
+          const cellCount = tasksByTrack[col.key]?.length ?? 0;
+          const colIsOver = isDragActive && overTrackKey === col.key;
           if (collapsedColumns.has(col.status)) {
             return (
               <LaneColumnStubTrack
-                key={col.status}
+                key={col.key}
                 phaseId={phase.id}
                 col={col}
                 count={cellCount}
@@ -1254,9 +1270,9 @@ function PhaseLaneImpl({
           if (collapsed) {
             return (
               <CollapsedLaneCell
-                key={col.status}
+                key={col.key}
                 phaseId={phase.id}
-                status={col.status}
+                trackKey={col.key}
                 count={cellCount}
                 isOver={colIsOver}
               />
@@ -1264,11 +1280,12 @@ function PhaseLaneImpl({
           }
           return (
             <BoardCell
-              key={col.status}
+              key={col.key}
               phaseId={phase.id}
               status={col.status}
-              tasks={tasksByStatus[col.status] ?? EMPTY_TASKS}
-              isOver={overStatus === col.status}
+              trackKey={col.key}
+              tasks={tasksByTrack[col.key] ?? EMPTY_TASKS}
+              isOver={overTrackKey === col.key}
               isDragActive={isDragActive}
               showWip={showWip}
               showColTints={showColTints}
@@ -1571,6 +1588,26 @@ export function BoardView() {
     [rawColumns],
   );
 
+  // Named board lanes (#2967) — the SECOND axis, over the five canonical
+  // statuses. `TRACKS` is what the grid draws: one track per column when that
+  // column configures no lanes (which is every board today, and makes the track
+  // key identical to the status), one track per lane when it does. `COLUMNS`
+  // stays the status-level list every status-level control reads — the
+  // collapsed-columns banner, the card's "Move to…" menu, the export.
+  const laneKeyIndex = useMemo(() => buildLaneKeyIndex(COLUMNS), [COLUMNS]);
+  const laned = useMemo(() => hasNamedLanes(COLUMNS), [COLUMNS]);
+  const trackKeyOf = useCallback(
+    (task: Task) => resolveTrackKey(task, laneKeyIndex),
+    [laneKeyIndex],
+  );
+  const laneTrackKeys = useMemo(
+    () =>
+      expandColumnTracks(COLUMNS)
+        .filter((t) => t.laneKey !== null)
+        .map((t) => t.key),
+    [COLUMNS],
+  );
+
   // Board resize (issue 285). Per-column widths (keyed by status) override the
   // zoom-driven --board-col-w track; per-phase heights (keyed by phase id) set a
   // lane min-height. Both persist to localStorage and clamp on write.
@@ -1652,7 +1689,10 @@ export function BoardView() {
   const [activeViewId, setActiveViewId] = useState<string | null>(() => searchParams.get('view'));
   // Keyboard focus (issue #195) — focused card + last-focused column for L/H traversal.
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
-  const [focusedColumn, setFocusedColumn] = useState<TaskStatus | null>(null);
+  // The focused board TRACK (#2967) — a status on an unladen column,
+  // `status#laneKey` on a named lane. Keyboard column traversal walks tracks, so
+  // L/H steps into each lane rather than skipping a column's inner structure.
+  const [focusedColumn, setFocusedColumn] = useState<string | null>(null);
   const [focusedPhaseId, setFocusedPhaseId] = useState<string | null>(null);
   // Overlay state — only one is open at a time.
   const [showCheatsheet, setShowCheatsheet] = useState(false);
@@ -1913,6 +1953,14 @@ export function BoardView() {
   } = useBoardCollapsedLanes(projectId);
   const { collapsedColumns, toggleColumn, expandColumn, expandAllColumns } =
     useBoardCollapsedColumns(projectId);
+  // The tracks the grid actually draws. Collapse is status-level — folding
+  // "Review" folds every lane inside it — so the fold happens here, once, and
+  // the header row, the milestone rail and every phase lane build their grid
+  // from this identical list. That shared list is what holds them aligned.
+  const TRACKS = useMemo(
+    () => collapseTracks(expandColumnTracks(COLUMNS), collapsedColumns),
+    [COLUMNS, collapsedColumns],
+  );
   const { density, setDensity, isMobile } = useBoardDensity();
   const toolbarPrefs = useBoardToolbarPrefs();
 
@@ -2316,7 +2364,29 @@ export function BoardView() {
     [cpOnly, dueSoonDays, mineActive, myResourceId, debtOnly, riskLinkedOnly],
   );
   const { phaseTaskMap, mobileTasksByStatus, queueTasks, totalByStatus, myCountByStatus } =
-    useBoardTaskMaps({ phases, allTasks: tasks, filters: boardFilters, sortCell });
+    useBoardTaskMaps({
+      phases,
+      allTasks: tasks,
+      filters: boardFilters,
+      sortCell,
+      trackKeyOf,
+      laneKeys: laneTrackKeys,
+    });
+
+  // Board-wide count per TRACK (#2967), for the header badge above a named lane.
+  // Only computed when lanes exist: on an unladen board the header falls back to
+  // `totalByStatus`, which is the same number by construction.
+  const totalByTrack = useMemo(() => {
+    if (!laned) return undefined;
+    const counts: Record<string, number> = {};
+    for (const phase of phases) {
+      for (const task of phase.tasks) {
+        const key = trackKeyOf(task);
+        counts[key] = (counts[key] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }, [laned, phases, trackKeyOf]);
 
   const handleAddPhase = useCallback(() => {
     const name = `Phase ${phases.filter((p) => p.id !== 'root').length + 1}`;
@@ -2459,22 +2529,25 @@ export function BoardView() {
         setOverCell(null);
         return;
       }
-      const cellId = String(overId); // `${phaseId}:${status}` or BACKLOG_BAND_DROPPABLE_ID
+      const cellId = String(overId); // `${phaseId}:${trackKey}` or BACKLOG_BAND_DROPPABLE_ID
       // Backlog band: highlight unless the dragged card is already in backlog.
       if (cellId === BACKLOG_BAND_DROPPABLE_ID) {
         if (activeTask?.status === 'BACKLOG') setOverCell(null);
         else setOverCell(cellId);
         return;
       }
-      const [, newStatus] = cellId.split(':');
-      // Don't highlight source cell (rule 103)
-      if (newStatus === activeTask?.status) {
+      const [, newTrackKey] = cellId.split(':');
+      // Don't highlight source cell (rule 103). Compared on the TRACK, not the
+      // status: with named lanes on (#2967) a drag from Review→QA never leaves
+      // the status, and a status-level compare would suppress the only feedback
+      // telling the user the drop will land somewhere new.
+      if (activeTask && newTrackKey === trackKeyOf(activeTask)) {
         setOverCell(null);
       } else {
         setOverCell(cellId);
       }
     },
-    [activeTask?.status],
+    [activeTask, trackKeyOf],
   );
 
   // Phase reorder (workshop mode) — the dragged id is prefixed with 'phase:'.
@@ -2539,8 +2612,12 @@ export function BoardView() {
       // not fire the status PATCH for a Viewer or on a closed sprint, even
       // though `BacklogCard`'s drag is already disabled at the source.
       if (readOnly) return;
-      const [newPhaseId, newStatus] = cellId.split(':');
-      if (!newStatus) return;
+      const [newPhaseId, newTrackKey] = cellId.split(':');
+      if (!newTrackKey) return;
+      // A cell id names a TRACK (#2967): the status, plus the named lane inside
+      // it when the column has one. Splitting them here is what keeps `status`
+      // canonical on the wire — the lane rides alongside it, never inside it.
+      const { status: newStatus, laneKey: newLaneKey } = parseTrackKey(newTrackKey);
       // #2681: re-parenting used to be gated on workshopMode, so a cross-phase
       // drop outside Workshop mode moved the status but left parentId alone —
       // the card snapped back into its original lane on the next render. That
@@ -2567,7 +2644,11 @@ export function BoardView() {
       const reassignDeferred =
         (groupMode === 'assignee' && newPhaseId !== primaryAssigneeLaneId(task)) ||
         (groupMode === 'epic' && newPhaseId !== epicLaneId(task));
-      if (newStatus === task.status && !phaseChanged) {
+      // A same-status, same-phase drop is still a real move when it crosses into
+      // a different named lane (#2967) — that is the whole point of the second
+      // axis, so the no-op guard has to be evaluated on the track.
+      const trackChanged = trackKeyOf(task) !== newTrackKey;
+      if (newStatus === task.status && !phaseChanged && !trackChanged) {
         if (reassignDeferred) {
           const noun = groupMode === 'epic' ? 'epic' : 'assignee';
           announce(
@@ -2589,11 +2670,23 @@ export function BoardView() {
         updateStatus.mutate({
           projectId,
           taskId: task.id,
-          status: newStatus as TaskStatus,
+          status: newStatus,
           ...(phaseChanged ? { parentId: newPhaseId } : {}),
           ...(assignSprintId ? { sprintId: assignSprintId } : {}),
+          // Sent only on a laned board, so an unladen one PATCHes exactly the
+          // body it always has. `''` is meaningful: it clears the lane when a
+          // card lands in a column that has none.
+          ...(laned ? { boardLane: newLaneKey ?? '' } : {}),
         });
-        const colLabel = COLUMNS.find((c) => c.status === newStatus)?.label ?? newStatus;
+        const column = COLUMNS.find((c) => c.status === newStatus);
+        // Name the LANE when the drop lands in one — "moved to Review" is not an
+        // honest announcement of a Review → QA move (#2967).
+        const laneLabel = newLaneKey
+          ? (column?.lanes?.find((l) => l.key === newLaneKey)?.label ?? null)
+          : null;
+        const colLabel = laneLabel
+          ? `${column?.label ?? newStatus} · ${laneLabel}`
+          : (column?.label ?? newStatus);
         const intoSprint = assignSprintId ? ` and added to ${selectedSprint?.name}` : '';
         const reassignNote = reassignDeferred ? ' — reassign from the card' : '';
         announce(`${task.name} moved to ${colLabel}${intoSprint}${reassignNote}`);
@@ -2608,11 +2701,13 @@ export function BoardView() {
           });
         }
       };
-      guardWipThenMove(task.status, newStatus as TaskStatus, task.name, performMove);
+      guardWipThenMove(task.status, newStatus, task.name, performMove);
     },
     [
       announce,
       COLUMNS,
+      laned,
+      trackKeyOf,
       groupMode,
       guardWipThenMove,
       iterationLabel,
@@ -2732,9 +2827,9 @@ export function BoardView() {
     [updateTask, projectId],
   );
 
-  const handleCardFocus = useCallback((taskId: string, status: TaskStatus, phaseId: string) => {
+  const handleCardFocus = useCallback((taskId: string, trackKey: string, phaseId: string) => {
     setFocusedCardId(taskId);
-    setFocusedColumn(status);
+    setFocusedColumn(trackKey);
     setFocusedPhaseId(phaseId);
   }, []);
 
@@ -2742,9 +2837,9 @@ export function BoardView() {
   // a fresh `(t) => …` closure per lane, which would defeat the PhaseLane memo.
   const handleOpenMilestone = useCallback(
     (t: Task) => {
-      handleCardFocus(t.id, t.status, t.parentId ?? 'root');
+      handleCardFocus(t.id, trackKeyOf(t), t.parentId ?? 'root');
     },
-    [handleCardFocus],
+    [handleCardFocus, trackKeyOf],
   );
 
   const handleShowDeps = useCallback(
@@ -2752,9 +2847,9 @@ export function BoardView() {
       setRiskTask(null);
       setShowCheatsheet(false);
       setDepTask(task);
-      handleCardFocus(task.id, task.status, task.parentId ?? 'root');
+      handleCardFocus(task.id, trackKeyOf(task), task.parentId ?? 'root');
     },
-    [handleCardFocus],
+    [handleCardFocus, trackKeyOf],
   );
 
   const handleShowRisks = useCallback(
@@ -2762,9 +2857,9 @@ export function BoardView() {
       setDepTask(null);
       setShowCheatsheet(false);
       setRiskTask(task);
-      handleCardFocus(task.id, task.status, task.parentId ?? 'root');
+      handleCardFocus(task.id, trackKeyOf(task), task.parentId ?? 'root');
     },
-    [handleCardFocus],
+    [handleCardFocus, trackKeyOf],
   );
 
   const handleChainHover = useCallback((taskId: string | null) => {
@@ -2781,9 +2876,9 @@ export function BoardView() {
       setShowCheatsheet(false);
       setPopoverTask(task);
       setPopoverAnchor(anchor);
-      handleCardFocus(task.id, task.status, task.parentId ?? 'root');
+      handleCardFocus(task.id, trackKeyOf(task), task.parentId ?? 'root');
     },
-    [handleCardFocus],
+    [handleCardFocus, trackKeyOf],
   );
 
   const closeCardPopover = useCallback(() => {
@@ -2830,9 +2925,10 @@ export function BoardView() {
   const moveFocusInPhase = useCallback(
     (direction: 'left' | 'right') => {
       // Skip columns folded to stubs (issue 1459) — keyboard traversal should only
-      // land on columns the user can actually see cards in.
-      const visibleColumns = COLUMNS.map((c) => c.status).filter(
-        (status) => !collapsedColumns.has(status),
+      // land on columns the user can actually see cards in. Walks TRACKS, so a
+      // column split into named lanes is traversed lane by lane (#2967).
+      const visibleColumns = TRACKS.filter((t) => !collapsedColumns.has(t.status)).map(
+        (t) => t.key,
       );
       if (visibleColumns.length === 0) return;
       const activePhaseId = focusedPhaseId ?? phases[0]?.id;
@@ -2856,7 +2952,7 @@ export function BoardView() {
       }
       // No non-empty column in this phase — leave focus untouched.
     },
-    [COLUMNS, collapsedColumns, focusedColumn, focusedPhaseId, phases, phaseTaskMap],
+    [TRACKS, collapsedColumns, focusedColumn, focusedPhaseId, phases, phaseTaskMap],
   );
 
   const openCheatsheet = useCallback(() => setShowCheatsheet(true), []);
@@ -2886,16 +2982,16 @@ export function BoardView() {
   // component that owns them (issue 1520).
   const laneProps = (phase: Phase) => ({
     phase,
-    columns: COLUMNS,
-    tasksByStatus: phaseTaskMap.get(phase.id) ?? EMPTY_TASKS_BY_STATUS,
+    columns: TRACKS,
+    tasksByTrack: phaseTaskMap.get(phase.id) ?? EMPTY_TASKS_BY_STATUS,
     milestones: milestonesByPhase.get(phase.id) ?? EMPTY_MILESTONES,
-    // Pre-compute this lane's drag-over column so only the lane under
+    // Pre-compute this lane's drag-over track so only the lane under
     // the pointer sees a changed prop; every other lane stays null and
     // its memo skips the drag-over re-render (issue 1520). overCell is
-    // `${phaseId}:${status}`; phase ids carry no ':'.
-    overStatus:
+    // `${phaseId}:${trackKey}`; phase ids carry no ':'.
+    overTrackKey:
       overCell && overCell.startsWith(`${phase.id}:`)
-        ? (overCell.slice(phase.id.length + 1) as TaskStatus)
+        ? overCell.slice(phase.id.length + 1)
         : null,
     isDragActive: activeId !== null,
     showWip,
@@ -3171,7 +3267,7 @@ export function BoardView() {
             facetZeroMatch={facetZeroMatch}
             effectiveLayout={effectiveLayout}
             isMobile={isMobile}
-            columns={COLUMNS}
+            columns={TRACKS}
             methodology={methodology}
             boardCadence={boardCadence}
             queueTasks={queueTasks}
@@ -3213,6 +3309,7 @@ export function BoardView() {
             collapsedColumns={collapsedColumns}
             columnWidths={columnWidths}
             totalByStatus={totalByStatus}
+            totalByTrack={totalByTrack}
             myCountByStatus={myCountByStatus}
             showWip={showWip}
             wipTrendSeriesByStatus={wipTrendSeriesByStatus}
@@ -3328,7 +3425,7 @@ export function BoardView() {
         onCloseDeps={() => setDepTask(null)}
         onJumpToTask={(taskId) => {
           const target = taskIndex.get(taskId);
-          if (target) handleCardFocus(taskId, target.status, target.parentId ?? 'root');
+          if (target) handleCardFocus(taskId, trackKeyOf(target), target.parentId ?? 'root');
           setDepTask(null);
         }}
         riskTask={riskTask}

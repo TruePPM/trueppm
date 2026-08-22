@@ -33,7 +33,13 @@ import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useProject } from '@/hooks/useProject';
 import { useUpdateProject } from '@/hooks/useProjectMutations';
 import { useActiveSprint } from '@/hooks/useSprints';
-import { useBoardConfig, COLUMN_SLA_DEFAULTS, type BoardColumnDef } from '@/hooks/useBoardConfig';
+import {
+  useBoardConfig,
+  COLUMN_SLA_DEFAULTS,
+  type BoardColumnDef,
+  type BoardLaneDef,
+} from '@/hooks/useBoardConfig';
+import { MAX_LANES_PER_COLUMN, uniqueLaneKey } from '@/features/board/statusLanes';
 import { useProjectPhases, type ProjectPhase } from '@/hooks/useProjectPhases';
 import type { BoardCadence } from '@/types';
 import {
@@ -903,6 +909,8 @@ function StatusesSection({
                   onRecolor={(color) => updateColumn(col.status, { color })}
                   onToggleVisible={() => updateColumn(col.status, { visible: !col.visible })}
                   onSetAgeThreshold={(days) => updateColumn(col.status, { ageThresholdDays: days })}
+                  onSetLanes={(lanes) => updateColumn(col.status, { lanes })}
+                  nextLaneKey={(label) => uniqueLaneKey(label, effective)}
                 />
               ))}
             </ul>
@@ -920,6 +928,8 @@ function StatusRow({
   onRecolor,
   onToggleVisible,
   onSetAgeThreshold,
+  onSetLanes,
+  nextLaneKey,
 }: {
   column: BoardColumnDef;
   canEdit: boolean;
@@ -927,7 +937,11 @@ function StatusRow({
   onRecolor: (color: string | null) => void;
   onToggleVisible: () => void;
   onSetAgeThreshold: (days: number | null) => void;
+  onSetLanes: (lanes: BoardLaneDef[]) => void;
+  /** Mint a key unique across the WHOLE config — the server's uniqueness scope. */
+  nextLaneKey: (label: string) => string;
 }) {
+  const [showLanes, setShowLanes] = useState(false);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: column.status,
     disabled: !canEdit,
@@ -1027,7 +1041,122 @@ function StatusRow({
           }}
         />
       )}
+
+      <LaneEditor
+        column={column}
+        canEdit={canEdit}
+        expanded={showLanes}
+        onToggleExpanded={() => setShowLanes((v) => !v)}
+        onSetLanes={onSetLanes}
+        nextLaneKey={nextLaneKey}
+      />
     </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Named board lanes within one status column (#2967)
+// ---------------------------------------------------------------------------
+
+/**
+ * Add / rename / remove the named lanes inside one status column.
+ *
+ * The whole point of the shape is what it does NOT touch: a lane is a second
+ * axis over the five canonical statuses, so a team gets Review / QA / Blocked as
+ * distinct board stages while `Task.status` stays canonical for burndown,
+ * throughput rollup, MS Project export and every integration. That is why lanes
+ * are edited *inside* a status row rather than as a sixth row — the row is the
+ * status, and the status list is fixed.
+ *
+ * Deleting a lane never touches a card: anything left pointing at it resolves to
+ * the column's first lane, on the client and in the server's counts alike.
+ */
+function LaneEditor({
+  column,
+  canEdit,
+  expanded,
+  onToggleExpanded,
+  onSetLanes,
+  nextLaneKey,
+}: {
+  column: BoardColumnDef;
+  canEdit: boolean;
+  expanded: boolean;
+  onToggleExpanded: () => void;
+  onSetLanes: (lanes: BoardLaneDef[]) => void;
+  nextLaneKey: (label: string) => string;
+}) {
+  const lanes = column.lanes ?? [];
+  const atCap = lanes.length >= MAX_LANES_PER_COLUMN;
+
+  const addLane = () => {
+    const label = `Lane ${lanes.length + 1}`;
+    onSetLanes([...lanes, { key: nextLaneKey(label), label, wipLimit: null }]);
+  };
+  const renameLane = (key: string, label: string) =>
+    onSetLanes(lanes.map((l) => (l.key === key ? { ...l, label } : l)));
+  const removeLane = (key: string) => onSetLanes(lanes.filter((l) => l.key !== key));
+
+  return (
+    <div className="mt-1.5 pl-[60px]">
+      <button
+        type="button"
+        onClick={onToggleExpanded}
+        aria-expanded={expanded}
+        data-testid={`lanes-toggle-${column.status}`}
+        // rule 214: a standalone aria-expanded trigger uses focus:, not
+        // focus-visible: — Firefox/Safari/Chromium do not match :focus-visible on
+        // a pointer-initiated button focus, so the ring would never show.
+        className="text-[11px] text-neutral-text-secondary hover:text-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 rounded-control px-1"
+      >
+        {expanded ? '▾' : '▸'} Lanes{lanes.length > 0 ? ` (${lanes.length})` : ''}
+      </button>
+      {expanded && (
+        <div className="mt-1.5 border-l border-neutral-border/55 pl-3 py-1">
+          <p className="text-[11px] text-neutral-text-disabled mb-1.5">
+            Split {column.label} into named lanes on the board. Cards keep the {column.status}{' '}
+            status, so reports and exports are unaffected.
+          </p>
+          <ul className="flex flex-col gap-1">
+            {lanes.map((lane) => (
+              <li key={lane.key} className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={lane.label}
+                  disabled={!canEdit}
+                  maxLength={24}
+                  aria-label={`Rename lane ${lane.label} in ${column.label}`}
+                  onChange={(e) => renameLane(lane.key, e.target.value)}
+                  className="text-[12px] w-40 border border-neutral-border/55 rounded-control px-1.5 py-0.5 bg-neutral-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-60"
+                />
+                <span className="tppm-mono text-[10px] text-neutral-text-disabled">{lane.key}</span>
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => removeLane(lane.key)}
+                    aria-label={`Remove lane ${lane.label} from ${column.label}`}
+                    className="text-[11px] text-neutral-text-secondary hover:text-semantic-critical focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control px-1"
+                  >
+                    Remove
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={addLane}
+              disabled={atCap}
+              data-testid={`add-lane-${column.status}`}
+              className="mt-1.5 text-[11px] text-brand-primary disabled:text-neutral-text-disabled hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control px-1"
+            >
+              {atCap ? `Limit is ${MAX_LANES_PER_COLUMN} lanes` : '+ Add lane'}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

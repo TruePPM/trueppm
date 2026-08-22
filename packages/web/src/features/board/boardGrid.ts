@@ -29,20 +29,24 @@ export const BOARD_STUB_W = 34;
  * zoom-driven `--board-col-w` default for that one column; unset columns keep
  * the default. A collapsed column always wins with its narrow stub track.
  *
- * @param columns The visible board columns, in display order.
- * @param collapsedColumns Statuses currently folded to stubs.
- * @param columnWidths Optional per-status explicit widths (px), keyed by status.
+ * @param columns The visible board tracks, in display order. `key` is the track
+ *   identity — the status itself on an unladen column, `status#laneKey` on a
+ *   named lane (#2967). It defaults to `status`, so a caller that predates lanes
+ *   keeps its exact previous geometry and its persisted widths.
+ * @param collapsedColumns Statuses currently folded to stubs. Collapse is a
+ *   status-level control: folding a column folds every lane inside it.
+ * @param columnWidths Optional per-track explicit widths (px), keyed by track key.
  * @returns A `grid-template-columns` string.
  */
 export function boardGridTemplate(
-  columns: { status: TaskStatus }[],
+  columns: { status: TaskStatus; key?: string }[],
   collapsedColumns: Set<TaskStatus>,
   columnWidths?: Record<string, number>,
 ): string {
   const tracks = columns
     .map((c) => {
       if (collapsedColumns.has(c.status)) return `${BOARD_STUB_W}px`;
-      const w = columnWidths?.[c.status];
+      const w = columnWidths?.[c.key ?? c.status];
       return typeof w === 'number' ? `${w}px` : 'var(--board-col-w,272px)';
     })
     .join(' ');

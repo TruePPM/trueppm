@@ -11,6 +11,20 @@ import { MobileBoard } from './MobileBoard';
 import { SprintPanel } from '../SprintPanel';
 import { FlowAnalyticsPanel } from '../FlowAnalyticsPanel';
 import { BoardColumnHeaderRow, type HeaderColumn } from './BoardColumnHeaderRow';
+
+/**
+ * Reduce a track list back to one entry per status, keeping the first track of
+ * each (#2967). Surfaces that are status-level by nature — the mobile snap
+ * board, the card's "Move to…" menu — must not see one entry per named lane.
+ */
+function statusColumns<T extends { status: TaskStatus }>(tracks: T[]): T[] {
+  const seen = new Set<TaskStatus>();
+  return tracks.filter((t) => {
+    if (seen.has(t.status)) return false;
+    seen.add(t.status);
+    return true;
+  });
+}
 import { BoardPhaseLanes, type LaneShape } from './BoardPhaseLanes';
 
 interface BoardBodyProps {
@@ -19,7 +33,10 @@ interface BoardBodyProps {
   facetZeroMatch: boolean;
   effectiveLayout: BoardLayoutVariant;
   isMobile: boolean;
-  columns: (HeaderColumn & { color: string | null; slaDays?: number })[];
+  /** Board tracks in display order (#2967) — one per status column, or one per
+   *  named lane of it. Status-level surfaces (the mobile snap board, the
+   *  card menu) reduce this back to statuses themselves. */
+  columns: (HeaderColumn & { color: string | null; slaDays?: number; laneKey?: string | null })[];
   methodology: 'WATERFALL' | 'AGILE' | 'HYBRID' | undefined;
   boardCadence: BoardCadence | undefined;
 
@@ -49,7 +66,7 @@ interface BoardBodyProps {
   density: BoardDensity;
   onMenuMove: (task: Task, newStatus: TaskStatus) => void;
   focusedCardId: string | null;
-  onCardFocus: (taskId: string, status: TaskStatus, phaseId: string) => void;
+  onCardFocus: (taskId: string, trackKey: string, phaseId: string) => void;
   onShowDeps: (task: Task) => void;
   onShowRisks: (task: Task) => void;
   onCardClick: (task: Task, anchor: HTMLElement) => void;
@@ -72,11 +89,13 @@ interface BoardBodyProps {
   collapsedColumns: Set<TaskStatus>;
   columnWidths: Record<string, number>;
   totalByStatus: Record<TaskStatus, number>;
+  /** Board-wide count per track key; undefined on an unladen board (#2967). */
+  totalByTrack?: Record<string, number>;
   myCountByStatus: Record<TaskStatus, number>;
   showWip: boolean;
   wipTrendSeriesByStatus: Partial<Record<TaskStatus, number[]>>;
   onToggleColumn: (status: TaskStatus) => void;
-  onResizeColumn: (status: TaskStatus, px: number) => void;
+  onResizeColumn: (trackKey: string, px: number) => void;
 
   // Lanes
   lanes: LaneShape[];
@@ -143,6 +162,7 @@ export function BoardBody(props: BoardBodyProps) {
     collapsedColumns,
     columnWidths,
     totalByStatus,
+    totalByTrack,
     myCountByStatus,
     showWip,
     wipTrendSeriesByStatus,
@@ -206,7 +226,10 @@ export function BoardBody(props: BoardBodyProps) {
           its own (already mobile-friendly) flat list above. */}
       {!facetZeroMatch && effectiveLayout !== 'queue' && isMobile && (
         <MobileBoard
-          columns={COLUMNS}
+          // The phone board is a per-STATUS snap page; named lanes (#2967) are a
+          // desktop-grid subdivision, so the track list collapses back to one
+          // entry per status here rather than paging through lanes.
+          columns={statusColumns(COLUMNS)}
           tasksByStatus={mobileTasksByStatus}
           density={density}
           onMenuMove={onMenuMove}
@@ -256,6 +279,7 @@ export function BoardBody(props: BoardBodyProps) {
           collapsedColumns={collapsedColumns}
           columnWidths={columnWidths}
           totalByStatus={totalByStatus}
+          totalByTrack={totalByTrack}
           myCountByStatus={myCountByStatus}
           showWip={showWip}
           wipTrendSeriesByStatus={wipTrendSeriesByStatus}
@@ -334,6 +358,7 @@ function BoardDesktopGrid({
   collapsedColumns,
   columnWidths,
   totalByStatus,
+  totalByTrack,
   myCountByStatus,
   showWip,
   wipTrendSeriesByStatus,
@@ -419,6 +444,7 @@ function BoardDesktopGrid({
             collapsedColumns={collapsedColumns}
             columnWidths={columnWidths}
             totalByStatus={totalByStatus}
+            totalByTrack={totalByTrack}
             myCountByStatus={myCountByStatus}
             laneCount={lanes.length}
             showWip={showWip}
