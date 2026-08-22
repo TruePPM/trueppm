@@ -115,6 +115,18 @@ describe('dateToLeft', () => {
     expect(left).toBeCloseTo(0, 5);
   });
 
+  it('returns NaN rather than throwing on an unparseable date (#2380)', () => {
+    // Two call sites in ScheduleView guarded this with `try/catch` under the
+    // comment "dateToLeft can throw on out-of-range dates". It does not throw —
+    // it is `parseUTCDate(iso).getTime() - start.getTime()` times a scalar, and
+    // an unparseable date yields Invalid Date whose getTime() is NaN. So both
+    // catches were dead and NaN flowed through to a CSS `left`, where CSSOM
+    // drops the declaration and the pulse paints at the container origin.
+    // Callers must guard the value; this pins the premise they guard on.
+    expect(Number.isNaN(dateToLeft('not-a-date', scales))).toBe(true);
+    expect(() => dateToLeft('not-a-date', scales)).not.toThrow();
+  });
+
   it('returns a positive value for a date after start', () => {
     const left = dateToLeft('2026-04-15', scales);
     expect(left).toBeGreaterThan(0);

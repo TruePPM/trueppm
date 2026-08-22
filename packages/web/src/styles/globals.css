@@ -410,7 +410,8 @@
 
   /* Milestone diamond pulse (#340) — two concentric SVG circles fade outward
      from the diamond at insert time. Honors prefers-reduced-motion at the
-     React layer (component does not mount), so no @media guard needed here. */
+     React layer (the rings do not mount; the component's test latch still
+     does), so no @media guard needed here. */
   @keyframes milestone-pulse {
     0%   { r: 0;  opacity: 0.7; }
     100% { r: 24; opacity: 0;   }

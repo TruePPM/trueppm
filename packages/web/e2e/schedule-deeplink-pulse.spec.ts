@@ -79,16 +79,32 @@ test.describe('Schedule deep-link pulse (#734)', () => {
 
   test('firing on a #task-{id} deep link pulses the target milestone', async ({ page }) => {
     await page.goto(`/projects/${PROJECT_ID}/schedule#task-task-m1`);
-    // The pulse fires once the canvas engine + scales are ready and the target
-    // row is in the tree. It self-clears after 1.5s, so poll with a generous
-    // ceiling for canvas init — Playwright catches the transient window.
-    await expect(page.getByTestId('milestone-pulse-overlay')).toBeVisible({ timeout: 10_000 });
+    // Asserts the *latch*, not the animation. The overlay node self-clears after
+    // 1.5 s, so `toBeVisible` on it is a window-of-existence race that no timeout
+    // can fix: on a loaded runner the poll can straddle the closed window
+    // entirely, and once it has closed the node is gone permanently (#2380).
+    // data-pulsed-task-id records that the pulse was requested and never clears,
+    // so this both cannot flake and checks something stronger — that the deep
+    // link resolved to the *right* milestone rather than merely to some pulse.
+    await expect(page.getByTestId('milestone-pulse-latch')).toHaveAttribute(
+      'data-pulsed-task-id',
+      'task-m1',
+      { timeout: 10_000 },
+    );
   });
 
   test('a plain navigation (no hash) does not pulse', async ({ page }) => {
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
     // Gate on the schedule actually rendering before asserting the absence.
     await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    // The latch is present but empty — which is a stronger negative than the
+    // old count check: an absent overlay is also what a schedule that failed to
+    // render looks like, whereas an empty latch proves the component mounted
+    // and simply had nothing to pulse.
+    await expect(page.getByTestId('milestone-pulse-latch')).toHaveAttribute(
+      'data-pulsed-task-id',
+      '',
+    );
     await expect(page.getByTestId('milestone-pulse-overlay')).toHaveCount(0);
   });
 });

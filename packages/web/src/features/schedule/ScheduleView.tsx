@@ -545,13 +545,17 @@ function runTaskHashDeepLink(ctx: {
   // (the overlay subtracts scrollLeft at render time, rule §57).
   if (dateIso) {
     ctx.engine.scrollToDate(dateIso, 'instant');
-    try {
-      const x = dateToLeft(dateIso, ctx.scheduleScales);
-      const y = HEADER_HEIGHT + rowIdx * ROW_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
+    const x = dateToLeft(dateIso, ctx.scheduleScales);
+    const y = HEADER_HEIGHT + rowIdx * ROW_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
+    // Guard on the value, not on an exception. This was a try/catch commented
+    // "dateToLeft can throw on out-of-range dates" — it cannot: it is
+    // `parseUTCDate(iso).getTime() - start.getTime()` times a scalar, and an
+    // unparseable date yields `Invalid Date` whose `getTime()` is NaN. So the
+    // catch never fired and the case it claimed to handle fell straight
+    // through, positioning the pulse at NaN (#2380).
+    if (Number.isFinite(x)) {
       ctx.setPulsingMilestoneAt({ x, y });
       ctx.setPulsingMilestoneId(taskId);
-    } catch {
-      // dateToLeft can throw on out-of-range dates — skip the pulse.
     }
   }
 }
@@ -2055,14 +2059,19 @@ export function ScheduleView() {
         ariaLiveRef.current.textContent = `Milestone ${created?.name || 'untitled'} inserted at ${dateIso}`;
       }
       if (scheduleScales) {
-        try {
-          const x = dateToLeft(dateIso, scheduleScales);
-          const rowIdx = visibleTasks.findIndex((t) => t.id === taskId);
-          const idx = rowIdx >= 0 ? rowIdx : visibleTasks.length;
-          const y = HEADER_HEIGHT + idx * ROW_HEIGHT + ROW_HEIGHT / 2;
+        const x = dateToLeft(dateIso, scheduleScales);
+        const rowIdx = visibleTasks.findIndex((t) => t.id === taskId);
+        const idx = rowIdx >= 0 ? rowIdx : visibleTasks.length;
+        const y = HEADER_HEIGHT + idx * ROW_HEIGHT + ROW_HEIGHT / 2;
+        // The second of the two identical dead guards (see runTaskHashDeepLink).
+        // `dateToLeft` cannot throw — it is arithmetic, and an unparseable date
+        // yields NaN — so the catch never fired and NaN reached the style prop,
+        // where CSSOM drops the declaration and the rings paint at the container
+        // origin rather than on the diamond. Guarding the value skips the move
+        // instead; the pulse still fires (setPulsingMilestoneId is outside this
+        // block, unchanged), just at the last known-good position.
+        if (Number.isFinite(x)) {
           setPulsingMilestoneAt({ x, y });
-        } catch {
-          // dateToLeft can throw on out-of-range dates — silently skip pulse.
         }
       }
       setPulsingMilestoneId(taskId);
