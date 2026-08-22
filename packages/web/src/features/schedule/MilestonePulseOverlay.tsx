@@ -21,22 +21,51 @@ function prefersReducedMotion(): boolean {
  * SVG overlay sibling to the canvas (#340). Two concentric circles fade outward
  * from the milestone diamond's location. Self-clears after 1.5 s.
  *
- * Does not mount at all under prefers-reduced-motion — the live-region
- * announcement carries the alternative feedback.
+ * Under prefers-reduced-motion the rings do not mount — the live-region
+ * announcement carries the alternative feedback — but the latch below still
+ * records the pulse, because reduced motion suppresses the animation, not the
+ * targeting.
  */
 export function MilestonePulseOverlay({ x, y, triggerId }: MilestonePulseOverlayProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
+  // Latched: records that a pulse was *requested* for this task and is never
+  // cleared. The animating node below lives for 1.5 s, which makes it unusable
+  // as a test signal — an assertion has to catch a window that has already
+  // closed on a loaded runner (#2380). This outlives the animation, so a spec
+  // can assert the outcome instead of racing it
+  // (`feedback_e2e_assert_outcomes_not_transient_state`).
+  const [pulsedId, setPulsedId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!triggerId) return;
+    // Latched before the reduced-motion bail: the deep link resolved and named
+    // this milestone either way. Reduced motion suppresses the *animation*, not
+    // the targeting, and a spec asking "did the deep link find the right
+    // milestone" must not depend on whether the user animates.
+    setPulsedId(triggerId);
     if (prefersReducedMotion()) return;
     setActiveId(triggerId);
     const t = setTimeout(() => setActiveId(null), DURATION_MS);
     return () => clearTimeout(t);
   }, [triggerId]);
 
-  if (!activeId) return null;
+  return (
+    <>
+      {/* Zero-footprint marker: `hidden` keeps it out of layout and the a11y
+          tree. Empty string rather than absent when nothing has pulsed, so a
+          spec can distinguish "no pulse yet" from "attribute missing". */}
+      <span
+        data-testid="milestone-pulse-latch"
+        data-pulsed-task-id={pulsedId ?? ''}
+        hidden
+      />
+      {activeId ? <PulseRings x={x} y={y} /> : null}
+    </>
+  );
+}
 
+/** The transient animation itself — mounted only while a pulse is playing. */
+function PulseRings({ x, y }: { x: number; y: number }) {
   return (
     <svg
       data-testid="milestone-pulse-overlay"
