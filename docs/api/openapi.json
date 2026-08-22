@@ -27281,7 +27281,7 @@
             },
             "post": {
                 "operationId": "v1_projects_sprints_create",
-                "description": "CRUD plus state-transition actions for sprints (ADR-0037).\n\nRoutes are nested under projects for list/create\n(``/projects/<project_pk>/sprints/``) and exposed at top level for detail\nand actions (``/sprints/<id>/``, ``.../activate/``, ``.../close/``,\n``.../cancel/``, ``.../burndown/``).\n\nPermission matrix:\n  list / retrieve / burndown      — Viewer+ (IsProjectMember)\n  create / update / activate /\n  close / cancel                  — Team Member+ (IsProjectMemberWrite)\n  destroy (PLANNED only)          — Project Manager+ (IsProjectAdmin)",
+                "description": "CRUD plus state-transition actions for sprints (ADR-0037).\n\nRoutes are nested under projects for list/create\n(``/projects/<project_pk>/sprints/``) and exposed at top level for detail\nand actions (``/sprints/<id>/``, ``.../activate/``, ``.../close/``,\n``.../cancel/``, ``.../burndown/``).\n\nPermission matrix:\n  list / retrieve / burndown      — Viewer+ (IsProjectMember)\n  create / update / activate /\n  close / cancel / generate       — Team Member+ (IsProjectMemberWrite)\n  destroy (PLANNED only)          — Project Manager+ (IsProjectAdmin)\n\n``generate`` (#2968) sits at the same gate as ``create`` on purpose: every\nrow it writes is exactly what ``create`` writes, so escalating the bulk route\nwould buy no containment and would only mean a team member can stand up a\ncadence by hand but not with the tool built for it. Its one higher-gated\ninput, ``first_sprint_capacity_points``, is re-checked at SCHEDULER+ in the\nrequest serializer.",
                 "parameters": [
                     {
                         "in": "path",
@@ -27356,6 +27356,98 @@
                     }
                 },
                 "summary": "Sprints project"
+            }
+        },
+        "/api/v1/projects/{project_pk}/sprints/generate/": {
+            "post": {
+                "operationId": "v1_projects_sprints_generate_create",
+                "description": "Lay out a whole iteration cadence in one call (#2968).\n\n``dry_run: true`` returns the computed cadence and writes nothing — the\neditable preview the client renders before the operator commits. The\ncommitting call returns the identical payload shape, so what the preview\nshowed is checkable against what was written rather than merely asserted.\n\nGeneration is **idempotent on name**: a candidate whose name already\nbelongs to a live sprint in this project comes back as ``exists`` and is\nnever re-created, so a double submit produces one cadence, not two.\n\nGated at Member+ — the same gate as ``POST /sprints/``, because every row\nthis writes is exactly what that endpoint writes. ``first_sprint_capacity_points``\ncarries the higher SCHEDULER+ field gate from ADR-0073, re-checked in the\nserializer so the bulk route is not a way around it.",
+                "summary": "Generate a sprint cadence",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sprints"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintGenerateRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintGenerateRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintGenerateRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SprintGenerateResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SprintGenerateResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "description": "Invalid cadence request, or a calendar with no usable working days."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         "/api/v1/projects/{project_pk}/standup/": {
@@ -34360,7 +34452,7 @@
         "/api/v1/sprints/{id}/": {
             "get": {
                 "operationId": "v1_sprints_retrieve",
-                "description": "CRUD plus state-transition actions for sprints (ADR-0037).\n\nRoutes are nested under projects for list/create\n(``/projects/<project_pk>/sprints/``) and exposed at top level for detail\nand actions (``/sprints/<id>/``, ``.../activate/``, ``.../close/``,\n``.../cancel/``, ``.../burndown/``).\n\nPermission matrix:\n  list / retrieve / burndown      — Viewer+ (IsProjectMember)\n  create / update / activate /\n  close / cancel                  — Team Member+ (IsProjectMemberWrite)\n  destroy (PLANNED only)          — Project Manager+ (IsProjectAdmin)",
+                "description": "CRUD plus state-transition actions for sprints (ADR-0037).\n\nRoutes are nested under projects for list/create\n(``/projects/<project_pk>/sprints/``) and exposed at top level for detail\nand actions (``/sprints/<id>/``, ``.../activate/``, ``.../close/``,\n``.../cancel/``, ``.../burndown/``).\n\nPermission matrix:\n  list / retrieve / burndown      — Viewer+ (IsProjectMember)\n  create / update / activate /\n  close / cancel / generate       — Team Member+ (IsProjectMemberWrite)\n  destroy (PLANNED only)          — Project Manager+ (IsProjectAdmin)\n\n``generate`` (#2968) sits at the same gate as ``create`` on purpose: every\nrow it writes is exactly what ``create`` writes, so escalating the bulk route\nwould buy no containment and would only mean a team member can stand up a\ncadence by hand but not with the tool built for it. Its one higher-gated\ninput, ``first_sprint_capacity_points``, is re-checked at SCHEDULER+ in the\nrequest serializer.",
                 "parameters": [
                     {
                         "in": "path",
@@ -34422,7 +34514,7 @@
             },
             "put": {
                 "operationId": "v1_sprints_update",
-                "description": "CRUD plus state-transition actions for sprints (ADR-0037).\n\nRoutes are nested under projects for list/create\n(``/projects/<project_pk>/sprints/``) and exposed at top level for detail\nand actions (``/sprints/<id>/``, ``.../activate/``, ``.../close/``,\n``.../cancel/``, ``.../burndown/``).\n\nPermission matrix:\n  list / retrieve / burndown      — Viewer+ (IsProjectMember)\n  create / update / activate /\n  close / cancel                  — Team Member+ (IsProjectMemberWrite)\n  destroy (PLANNED only)          — Project Manager+ (IsProjectAdmin)",
+                "description": "CRUD plus state-transition actions for sprints (ADR-0037).\n\nRoutes are nested under projects for list/create\n(``/projects/<project_pk>/sprints/``) and exposed at top level for detail\nand actions (``/sprints/<id>/``, ``.../activate/``, ``.../close/``,\n``.../cancel/``, ``.../burndown/``).\n\nPermission matrix:\n  list / retrieve / burndown      — Viewer+ (IsProjectMember)\n  create / update / activate /\n  close / cancel / generate       — Team Member+ (IsProjectMemberWrite)\n  destroy (PLANNED only)          — Project Manager+ (IsProjectAdmin)\n\n``generate`` (#2968) sits at the same gate as ``create`` on purpose: every\nrow it writes is exactly what ``create`` writes, so escalating the bulk route\nwould buy no containment and would only mean a team member can stand up a\ncadence by hand but not with the tool built for it. Its one higher-gated\ninput, ``first_sprint_capacity_points``, is re-checked at SCHEDULER+ in the\nrequest serializer.",
                 "parameters": [
                     {
                         "in": "path",
@@ -34501,7 +34593,7 @@
             },
             "patch": {
                 "operationId": "v1_sprints_partial_update",
-                "description": "CRUD plus state-transition actions for sprints (ADR-0037).\n\nRoutes are nested under projects for list/create\n(``/projects/<project_pk>/sprints/``) and exposed at top level for detail\nand actions (``/sprints/<id>/``, ``.../activate/``, ``.../close/``,\n``.../cancel/``, ``.../burndown/``).\n\nPermission matrix:\n  list / retrieve / burndown      — Viewer+ (IsProjectMember)\n  create / update / activate /\n  close / cancel                  — Team Member+ (IsProjectMemberWrite)\n  destroy (PLANNED only)          — Project Manager+ (IsProjectAdmin)",
+                "description": "CRUD plus state-transition actions for sprints (ADR-0037).\n\nRoutes are nested under projects for list/create\n(``/projects/<project_pk>/sprints/``) and exposed at top level for detail\nand actions (``/sprints/<id>/``, ``.../activate/``, ``.../close/``,\n``.../cancel/``, ``.../burndown/``).\n\nPermission matrix:\n  list / retrieve / burndown      — Viewer+ (IsProjectMember)\n  create / update / activate /\n  close / cancel / generate       — Team Member+ (IsProjectMemberWrite)\n  destroy (PLANNED only)          — Project Manager+ (IsProjectAdmin)\n\n``generate`` (#2968) sits at the same gate as ``create`` on purpose: every\nrow it writes is exactly what ``create`` writes, so escalating the bulk route\nwould buy no containment and would only mean a team member can stand up a\ncadence by hand but not with the tool built for it. Its one higher-gated\ninput, ``first_sprint_capacity_points``, is re-checked at SCHEDULER+ in the\nrequest serializer.",
                 "parameters": [
                     {
                         "in": "path",
@@ -34579,7 +34671,7 @@
             },
             "delete": {
                 "operationId": "v1_sprints_destroy",
-                "description": "CRUD plus state-transition actions for sprints (ADR-0037).\n\nRoutes are nested under projects for list/create\n(``/projects/<project_pk>/sprints/``) and exposed at top level for detail\nand actions (``/sprints/<id>/``, ``.../activate/``, ``.../close/``,\n``.../cancel/``, ``.../burndown/``).\n\nPermission matrix:\n  list / retrieve / burndown      — Viewer+ (IsProjectMember)\n  create / update / activate /\n  close / cancel                  — Team Member+ (IsProjectMemberWrite)\n  destroy (PLANNED only)          — Project Manager+ (IsProjectAdmin)",
+                "description": "CRUD plus state-transition actions for sprints (ADR-0037).\n\nRoutes are nested under projects for list/create\n(``/projects/<project_pk>/sprints/``) and exposed at top level for detail\nand actions (``/sprints/<id>/``, ``.../activate/``, ``.../close/``,\n``.../cancel/``, ``.../burndown/``).\n\nPermission matrix:\n  list / retrieve / burndown      — Viewer+ (IsProjectMember)\n  create / update / activate /\n  close / cancel / generate       — Team Member+ (IsProjectMemberWrite)\n  destroy (PLANNED only)          — Project Manager+ (IsProjectAdmin)\n\n``generate`` (#2968) sits at the same gate as ``create`` on purpose: every\nrow it writes is exactly what ``create`` writes, so escalating the bulk route\nwould buy no containment and would only mean a team member can stand up a\ncadence by hand but not with the tool built for it. Its one higher-gated\ninput, ``first_sprint_capacity_points``, is re-checked at SCHEDULER+ in the\nrequest serializer.",
                 "parameters": [
                     {
                         "in": "path",
@@ -58236,6 +58328,131 @@
                     "wip_count"
                 ]
             },
+            "SprintCadenceEditRequest": {
+                "type": "object",
+                "description": "An operator-edited preview row handed back for commit (#2968).\n\nThe editable-preview half of the contract: once the operator has adjusted a\nname or a boundary, those values are authoritative and the generator's rules\nare not re-applied over them. The calendar read-out and the idempotency\nverdict stay server-computed.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 255
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "finish_date": {
+                        "type": "string",
+                        "format": "date"
+                    }
+                },
+                "required": [
+                    "finish_date",
+                    "name",
+                    "start_date"
+                ]
+            },
+            "SprintCadenceRow": {
+                "type": "object",
+                "description": "One proposed iteration in a generated cadence (#2968), preview or committed.\n\n``status`` is the idempotency verdict: ``created`` (written by this call),\n``exists`` (a live sprint already carries this name and was left untouched),\nor ``new`` (a preview row that would be created on commit). ``id`` is present\nonly on a ``created`` row.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "finish_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "working_days": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "non_working_days_skipped": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SprintCadenceRowStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "finish_date",
+                    "id",
+                    "name",
+                    "non_working_days_skipped",
+                    "start_date",
+                    "status",
+                    "working_days"
+                ]
+            },
+            "SprintCadenceRowStatusEnum": {
+                "enum": [
+                    "new",
+                    "exists",
+                    "created"
+                ],
+                "type": "string",
+                "description": "* `new` - new\n* `exists` - exists\n* `created` - created"
+            },
+            "SprintCapacityHint": {
+                "type": "object",
+                "description": "The suggested first-iteration points figure — a planning aid, never a cap.\n\n``note`` is not decoration: it travels with the number so no client can\nrender the suggestion without the sentence that bounds it. ``points`` is\n``null`` when the team has no closed iteration to draw from — a made-up\ndefault would be a ceiling invented by the tool (ADR-0073 / ADR-0113).",
+                "properties": {
+                    "points": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "basis": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SprintCapacityHintBasisEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "sprints_sampled": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "note": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "basis",
+                    "note",
+                    "points",
+                    "sprints_sampled"
+                ]
+            },
+            "SprintCapacityHintBasisEnum": {
+                "enum": [
+                    "velocity_average",
+                    "no_history"
+                ],
+                "type": "string",
+                "description": "* `velocity_average` - velocity_average\n* `no_history` - no_history"
+            },
             "SprintCloseRequestState": {
                 "type": "object",
                 "description": "Read shape for ``GET /api/v1/sprints/{id}/close-request/`` (#2894).\n\n``POST /sprints/{id}/close/`` returns 202 with a ``request_id`` and its\ndocstring told the frontend to poll — but there was no read route, so the id\nreferred to nothing and a failed close surfaced nowhere: the user saw a\nsprint that never closed and no error.\n\n``terminal`` is the field a client should branch on rather than re-deriving\nthe rule: a FAILED row may still be retried by the drain, so FAILED alone\ndoes not mean \"give up\". Null ``next_attempt_at`` on a FAILED row is what\nmarks it abandoned, and ``terminal`` is exactly that condition named.\n\n``error_message`` is **role-gated**. The stored value is a raw\n``str(exc)[:1000]`` off an arbitrary exception — the same shape carried by\n``ImportJob``/``ExportJob``'s ``error_detail`` — and a database or broker\nfailure puts internal hostnames, container IPs, DB usernames, constraint and\ncolumn names, or SQL fragments in it. Django's production 500 handler exists\nto suppress exactly that. The sibling surface for this pattern\n(``ProjectViewSet.export_jobs``) is gated at ``IsProjectAdmin``, so serving\nthe raw text to Viewer+ here would widen the audience for it rather than\nfollow the house pattern. Below Admin the field carries a fixed summary\ninstead: everyone still learns the close failed and whether it will be\nretried, which is the whole point of the endpoint, without the operational\ndetail riding along.",
@@ -58543,6 +58760,101 @@
                 ],
                 "type": "string",
                 "description": "* `ready` - ready\n* `warming_up` - warming_up\n* `insufficient_flow_history` - insufficient_flow_history"
+            },
+            "SprintGenerateRequest": {
+                "type": "object",
+                "description": "Request body for ``POST /projects/{id}/sprints/generate/`` (#2968).\n\nTwo mutually exclusive ways to describe the cadence:\n\n- **generated** — ``count`` + ``start_date`` (+ ``length_days``,\n  ``name_pattern``, ``first_index``), laid out against the project calendar;\n- **edited** — an explicit ``sprints`` list, which is what the client posts\n  back after the operator has adjusted the preview.\n\n``dry_run`` returns the same payload shape while writing nothing, so the\npreview and the commit can never disagree about what will happen.",
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "maximum": 52,
+                        "minimum": 1,
+                        "description": "How many iterations to lay out (1 to 52)."
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "format": "date",
+                        "description": "Requested start of the first iteration; snapped forward to a working day."
+                    },
+                    "length_days": {
+                        "type": "integer",
+                        "maximum": 30,
+                        "minimum": 2,
+                        "default": 10,
+                        "description": "Working days per iteration, counted against the project calendar — not calendar days. A holiday lengthens the window rather than shrinking the iteration."
+                    },
+                    "name_pattern": {
+                        "type": "string",
+                        "minLength": 1,
+                        "default": "Sprint {n}",
+                        "description": "Name template. Must contain {n}, replaced by the iteration number.",
+                        "maxLength": 200
+                    },
+                    "first_index": {
+                        "type": "integer",
+                        "maximum": 999,
+                        "minimum": 1,
+                        "default": 1,
+                        "description": "Value substituted for {n} in the first iteration."
+                    },
+                    "dry_run": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Compute and return the cadence without writing anything."
+                    },
+                    "first_sprint_capacity_points": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "nullable": true,
+                        "description": "Optional points target stored on the FIRST generated iteration only. Omitted by default — generation never sets a capacity on its own. SCHEDULER+ only, matching the field-level gate on Sprint.capacity_points."
+                    },
+                    "sprints": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SprintCadenceEditRequest"
+                        }
+                    }
+                }
+            },
+            "SprintGenerateResponse": {
+                "type": "object",
+                "description": "Response for ``POST /projects/{id}/sprints/generate/`` (#2968).\n\nIdentical in shape whether ``dry_run`` was true or false — the preview is the\ncommit's own output with nothing written, which is what makes \"what you saw\nis what you got\" checkable rather than asserted.",
+                "properties": {
+                    "dry_run": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "sprints": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SprintCadenceRow"
+                        },
+                        "readOnly": true
+                    },
+                    "created_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "skipped_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "capacity_hint": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SprintCapacityHint"
+                            }
+                        ],
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "capacity_hint",
+                    "created_count",
+                    "dry_run",
+                    "skipped_count",
+                    "sprints"
+                ]
             },
             "SprintGoalOutcomeEnum": {
                 "enum": [
