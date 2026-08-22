@@ -47,6 +47,7 @@ import { GuardrailHealthBadges } from './GuardrailHealthBadges';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { MultiTeamLens } from './MultiTeamLens';
 import { PlanSprintModal } from './PlanSprintModal';
+import { GenerateCadenceModal } from './GenerateCadenceModal';
 import { StoryPickerModal } from './StoryPickerModal';
 import {
   SprintFilterPopover,
@@ -547,6 +548,9 @@ export function SprintsView() {
   const showLensToggle = myTeamsCount >= 2;
   const [scope, setScope] = useState<SprintScope>('project');
   const [planOpen, setPlanOpen] = useState(false);
+  // Cadence generator (#2968) — stand up a run of iterations in one pass instead
+  // of opening PlanSprintModal a dozen times.
+  const [generateOpen, setGenerateOpen] = useState(false);
   // Story picker (issue #2670) — multi-select existing backlog stories into the
   // PLANNED sprint without leaving this page. Opened from the planned surface's
   // "Pull from backlog" button; SprintModals renders the modal itself so its
@@ -664,6 +668,7 @@ export function SprintsView() {
             sprintNumber={activeSprint ? (sprintNumberByID.get(activeSprint.id) ?? 1) : 0}
             hasPlannedSprint={hasPlannedSprint}
             onPlanNext={handlePlanNext}
+            onGenerateCadence={() => setGenerateOpen(true)}
             onCloseSprint={handleCloseSprint}
             onFilter={handleFilter}
             filterButtonRef={filterAnchorRef}
@@ -802,6 +807,8 @@ export function SprintsView() {
         activeSprint={activeSprint}
         planOpen={planOpen}
         onClosePlan={() => setPlanOpen(false)}
+        generateOpen={generateOpen}
+        onCloseGenerate={() => setGenerateOpen(false)}
         editingSprint={editingSprint}
         onCloseEdit={() => setEditSprintId(null)}
         closeDialogOpen={closeDialogOpen}
@@ -1560,6 +1567,8 @@ function SprintModals({
   activeSprint,
   planOpen,
   onClosePlan,
+  generateOpen,
+  onCloseGenerate,
   editingSprint,
   onCloseEdit,
   closeDialogOpen,
@@ -1588,6 +1597,9 @@ function SprintModals({
   activeSprint: ApiSprint | null;
   planOpen: boolean;
   onClosePlan: () => void;
+  /** Cadence generator (#2968). */
+  generateOpen: boolean;
+  onCloseGenerate: () => void;
   editingSprint: ApiSprint | undefined;
   onCloseEdit: () => void;
   closeDialogOpen: boolean;
@@ -1621,6 +1633,16 @@ function SprintModals({
             buckets.planned[buckets.planned.length - 1]?.finish_date ?? activeSprint?.finish_date
           }
           onClose={onClosePlan}
+        />
+      )}
+
+      {generateOpen && projectId && (
+        <GenerateCadenceModal
+          projectId={projectId}
+          defaultStart={
+            buckets.planned[buckets.planned.length - 1]?.finish_date ?? activeSprint?.finish_date
+          }
+          onClose={onCloseGenerate}
         />
       )}
 

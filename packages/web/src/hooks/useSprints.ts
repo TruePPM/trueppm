@@ -276,6 +276,111 @@ export function useSprintMutations(projectId: string | null | undefined) {
 }
 
 // ---------------------------------------------------------------------------
+// Cadence generator (#2968)
+// ---------------------------------------------------------------------------
+
+/** Upper bound the API enforces on one generate call — mirrored for client-side validation. */
+export const MAX_GENERATED_SPRINTS = 52;
+
+/** One row the operator may edit before committing a generated cadence. */
+export interface SprintCadenceEdit {
+  name: string;
+  start_date: string;
+  finish_date: string;
+}
+
+export interface GenerateSprintsPayload {
+  /** Required unless `sprints` is supplied. */
+  count?: number;
+  /** Required unless `sprints` is supplied. Snapped forward to a working day. */
+  start_date?: string;
+  /** Working days per iteration (min 2), counted against the project calendar. */
+  length_days?: number;
+  /** Must contain `{n}`. */
+  name_pattern?: string;
+  first_index?: number;
+  /** Compute and return the cadence without writing anything. */
+  dry_run?: boolean;
+  /**
+   * Stored on the FIRST generated iteration only, and only when supplied —
+   * generation never sets a capacity on its own. SCHEDULER+ only; the API
+   * rejects it below that role.
+   */
+  first_sprint_capacity_points?: number | null;
+  /** The operator's edited preview rows. Wins over count/start_date when present. */
+  sprints?: SprintCadenceEdit[];
+}
+
+export interface SprintCadenceRow {
+  name: string;
+  start_date: string;
+  finish_date: string;
+  working_days: number;
+  /** Every non-working day the window spans — weekends included, not holidays only. */
+  non_working_days_skipped: number;
+  /** `new` in a preview, `created`/`exists` after a commit. */
+  status: 'new' | 'exists' | 'created';
+  id: string | null;
+}
+
+/**
+ * A suggested first-iteration points figure — a planning aid, never a cap.
+ *
+ * `note` is server-owned copy that must be rendered alongside `points`: the
+ * whole point of the suggestion is that it does not become a ceiling the tool
+ * imposes on the team (ADR-0073 sovereignty rule). `points` is null when the
+ * team has no closed iteration to average.
+ */
+export interface SprintCapacityHint {
+  points: number | null;
+  basis: 'velocity_average' | 'no_history';
+  sprints_sampled: number;
+  note: string;
+}
+
+export interface GenerateSprintsResponse {
+  dry_run: boolean;
+  sprints: SprintCadenceRow[];
+  created_count: number;
+  skipped_count: number;
+  capacity_hint: SprintCapacityHint;
+}
+
+/**
+ * Generate a whole sprint cadence in one call (#2968).
+ *
+ * The same mutation serves preview and commit: pass `dry_run: true` for the
+ * editable preview (writes nothing, identical response shape) and omit it to
+ * commit. Only the committing call invalidates the caches — a preview has
+ * nothing to invalidate, and refetching on it would flicker the page behind the
+ * wizard for no reason.
+ *
+ * Generation is idempotent on name server-side, so a double submit produces one
+ * cadence; rows that already existed come back with `status: 'exists'`.
+ */
+export function useGenerateSprints(projectId: string | null | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: GenerateSprintsPayload) => {
+      const res = await apiClient.post<GenerateSprintsResponse>(
+        `/projects/${projectId}/sprints/generate/`,
+        payload,
+      );
+      return res.data;
+    },
+    onSuccess: (data) => {
+      if (data.dry_run) return;
+      void queryClient.invalidateQueries({ queryKey: ['sprints', projectId] });
+      // A new cadence changes the forecast horizon and the sprint-count basis
+      // both cards read from, so neither may be left showing the old series.
+      void queryClient.invalidateQueries({ queryKey: ['project', projectId, 'velocity'] });
+      void queryClient.invalidateQueries({ queryKey: ['project', projectId, 'forecast'] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Burndown / capacity / velocity reads (issue #228)
 // ---------------------------------------------------------------------------
 

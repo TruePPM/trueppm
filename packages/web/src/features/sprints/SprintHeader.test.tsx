@@ -20,6 +20,7 @@ function renderHeader(props: Partial<ComponentProps<typeof SprintHeader>> = {}) 
       sprintNumber={1}
       hasPlannedSprint={false}
       onPlanNext={noop}
+      onGenerateCadence={noop}
       onCloseSprint={noop}
       onFilter={noop}
       canManageLifecycle
@@ -55,6 +56,7 @@ describe('SprintHeader', () => {
         sprintNumber={1}
         hasPlannedSprint={false}
         onPlanNext={noop}
+        onGenerateCadence={noop}
         onCloseSprint={noop}
         onFilter={noop}
         canManageLifecycle
