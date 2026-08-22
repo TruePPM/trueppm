@@ -18,8 +18,12 @@ vi.mock('@/api/client', () => ({
 }));
 
 function wrapper(client: QueryClient) {
-  return ({ children }: { children: ReactNode }) =>
-    createElement(QueryClientProvider, { client }, children);
+  // Named rather than an arrow so eslint's react/display-name is satisfied —
+  // matches makeWrapper in useTaskMutations.test.ts.
+  function Wrapper({ children }: { children: ReactNode }) {
+    return createElement(QueryClientProvider, { client }, children);
+  }
+  return Wrapper;
 }
 
 const groupResponse = {
