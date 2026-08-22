@@ -47,13 +47,20 @@ vi.mock('./ProjectGuardrailsPage', () => ({
 const state = vi.hoisted(() => ({
   project: undefined as Record<string, unknown> | undefined,
   isLoading: false,
+  isError: false,
+  refetch: vi.fn(),
   /** The project's own word for an iteration — relabelled in the ADR-0111 tests. */
   label: { singular: 'Sprint', plural: 'Sprints', lower: 'sprint' },
 }));
 
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'p1' }));
 vi.mock('@/hooks/useProject', () => ({
-  useProject: () => ({ data: state.project, isLoading: state.isLoading }),
+  useProject: () => ({
+    data: state.project,
+    isLoading: state.isLoading,
+    isError: state.isError,
+    refetch: state.refetch,
+  }),
 }));
 vi.mock('@/hooks/useIterationLabel', () => ({ useIterationLabel: () => state.label }));
 
@@ -81,6 +88,8 @@ describe('<ProjectTeamWorkflowPage>', () => {
   beforeEach(() => {
     seed();
     state.isLoading = false;
+    state.isError = false;
+    state.refetch = vi.fn();
     state.label = { singular: 'Sprint', plural: 'Sprints', lower: 'sprint' };
   });
 
@@ -132,6 +141,8 @@ describe('<ProjectTeamWorkflowPage> preset restatement', () => {
   beforeEach(() => {
     seed();
     state.isLoading = false;
+    state.isError = false;
+    state.refetch = vi.fn();
     state.label = { singular: 'Sprint', plural: 'Sprints', lower: 'sprint' };
   });
 
@@ -209,6 +220,21 @@ describe('<ProjectTeamWorkflowPage> preset restatement', () => {
     expect(screen.getByText(/setup is unavailable/)).toBeInTheDocument();
   });
 
+  it('renders a failed read as a failure, not as an empty summary (rule 246)', async () => {
+    // A dead request must be visually distinct from "nothing here yet" — and it
+    // must offer a way back that re-runs THIS request rather than reloading the
+    // whole app, since the rest of the page is still working.
+    const user = userEvent.setup();
+    state.project = undefined;
+    state.isLoading = false;
+    state.isError = true;
+    renderPage();
+    expect(screen.queryByText(/This team runs/)).toBeNull();
+    expect(screen.getByText(/Couldn’t load this project’s setup/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(state.refetch).toHaveBeenCalledTimes(1);
+  });
+
   it('announces itself politely, since the control that changes it is off-screen', () => {
     renderPage();
     const live = summaryLine().closest('[role="status"]');
@@ -221,6 +247,8 @@ describe('<ProjectTeamWorkflowPage> the line the issue draws', () => {
   beforeEach(() => {
     seed();
     state.isLoading = false;
+    state.isError = false;
+    state.refetch = vi.fn();
     state.label = { singular: 'Sprint', plural: 'Sprints', lower: 'sprint' };
   });
 
@@ -276,6 +304,8 @@ describe('<ProjectTeamWorkflowPage> in-section jump strip', () => {
   beforeEach(() => {
     seed();
     state.isLoading = false;
+    state.isError = false;
+    state.refetch = vi.fn();
     state.label = { singular: 'Sprint', plural: 'Sprints', lower: 'sprint' };
   });
 

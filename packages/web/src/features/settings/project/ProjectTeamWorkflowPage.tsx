@@ -9,6 +9,7 @@ import {
   DOCS_LINK_INLINE,
 } from '../SettingsShell';
 import { settingsDocsSlug } from '../settingsDocs';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { ProjectMethodologyPage } from './ProjectMethodologyPage';
 import { ProjectWorkflowPage } from './ProjectWorkflowPage';
 import { ProjectGuardrailsPage } from './ProjectGuardrailsPage';
@@ -90,7 +91,7 @@ const METHOD_SUMMARY: Record<Methodology, { label: string; gives: (iteration: st
  */
 function PresetSummary() {
   const projectId = useProjectId();
-  const { data: project, isLoading } = useProject(projectId);
+  const { data: project, isLoading, isError, refetch } = useProject(projectId);
   const itl = useIterationLabel(projectId);
 
   // Say nothing rather than assert a default. `?? 'HYBRID'` would state
@@ -98,6 +99,19 @@ function PresetSummary() {
   // fetch, and this block's whole job is to be the trustworthy restatement.
   const effective: Methodology | null =
     project?.effective_methodology ?? project?.methodology ?? null;
+
+  // A failed read is not an empty one (rule 246). Inline variant: this is one
+  // widget on a page whose other blocks still work, so it announces politely and
+  // retries just this request rather than reloading the app.
+  if (isError && !project) {
+    return (
+      <QueryErrorState
+        variant="inline"
+        message="Couldn’t load this project’s setup."
+        onRetry={() => void refetch()}
+      />
+    );
+  }
 
   return (
     <div
