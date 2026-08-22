@@ -124,6 +124,7 @@ column automatically — this page needs no change to support it.
 | A team signal-visibility proposal opens | ON | OFF |
 | A signal-visibility proposal resolves | ON | OFF |
 | A project you belong to is deleted | ON | OFF |
+| The board or views you work on are reconfigured | ON | OFF |
 | A task you own goes stale | ON | OFF |
 | A task you own is carried to another sprint | ON | OFF |
 | Weekly program health digest | OFF | OFF |
@@ -176,6 +177,59 @@ still sends, with a subject line saying so, rather than going silent.
 Turning on either digest reveals a **Digest schedule** card — a day and hour
 picker, evaluated in your own timezone, that governs both digests together
 (there is one schedule per user, not one per digest).
+
+## Config-change notices
+
+:::note[Ships in 0.4]
+Config-change notices land in the **0.4 beta**. On `0.3.0-alpha.3` a board or
+preset change reaches only whoever has the board open at that moment, over the
+real-time channel — nobody else is told.
+:::
+
+Removing a board lane, hiding a board column, hiding one of the Reporting,
+Time tracking, Baselines or Monte Carlo views, or switching the methodology
+preset changes the surface **everyone** works on, not just the person who
+clicked. Those four changes send an inbox notice to everyone with work in the
+project.
+
+(Hiding a *tab* from your own navigation with
+[Customize views](/features/methodology-preset/#customize-views--your-personal-layer)
+is a per-user preference that changes nothing for anyone else, and correctly
+notifies nobody.)
+
+**The notice names the consequence, not the setting.** It says which lane went
+away, where its cards landed, and how many of *your own* items were in it —
+each recipient's copy is written for them, with their own count. Some examples
+of what actually arrives:
+
+- *A board lane was removed — 3 items moved* — "Dana removed the “QA” lane from
+  Review. Your 3 items in there now show in “Review” — the first lane of that
+  column."
+- *A board column was hidden — 2 items no longer on the board* — "Dana hid the
+  “Review” column. Your 2 items with that status keep their status and dates,
+  but the board no longer shows them — reach them from My Work or search."
+- *This project now runs as Waterfall* — "Dana switched this project's planning
+  preset from Agile to Waterfall. Baselines and Monte Carlo are now shown. Your
+  7 items keep their status, dates and assignments — what changed is where you
+  find them."
+
+Three things this deliberately does **not** do:
+
+- **It does not fire on every save.** A rename, a reorder, an accent color, a WIP
+  limit, an added lane, a column being un-hidden — none of these move or hide
+  anyone's work, and none of them notify. A notice on every write is noise, and
+  noise gets muted.
+- **It does not go to the whole membership.** Recipients are everyone with work
+  in the project — assigned as the task's owner *or* booked on it as a resource.
+  Someone with nothing assigned has nothing to be told about. A member who has
+  been removed from the project is never notified, even if work is still on their
+  name.
+- **It never fires from a rejected change.** If the change is refused — a Team
+  Member trying to re-shape the board, a Resource Manager trying to hide a view —
+  nothing was saved, so nobody is told.
+
+The row is filed under the **Project** category, and it is a durable inbox row
+only: email is opt-in and off by default, and it is never a push interrupt.
 
 ## Endpoints
 

@@ -41,6 +41,12 @@ Landing on a hidden view by direct URL never blocks the route, but it also never
 
 Flipping a project's methodology never touches existing data. If a project already has sprints and its methodology changes to Waterfall, the Sprints view keeps rendering them — with a banner explaining that they sit outside the project's current workflow — rather than showing the empty state as if they never existed. The Settings → Methodology picker also warns before a save that would hide existing sprints, naming how many, so the choice is made with the consequence in view.
 
+:::note[Ships in 0.4]
+The config-change notice below lands in the **0.4 beta**. In `v0.3.0-alpha.3` a preset switch reaches only whoever has the project open at that moment.
+:::
+
+**Switching the preset tells everyone with work in the project**, not just the person who changed it — the preset decides which views the whole team sees, so a silent flip re-arranges other people's workspace without telling them. The notice names both presets, which views became visible or hidden as a result, and confirms that the reader's own items keep their status, dates and assignments. It arrives the same way whether the preset is switched from a project's own settings or in bulk from the program settings matrix. See [Config-change notices](/features/notifications/#config-change-notices).
+
 ## Customize views — your personal layer
 
 The methodology preset is the team-level default; **Customize views** is your personal layer on top of it. Open the **Views** menu in the top bar (or **Settings → General → Views**) and toggle off the tabs you never use — a Product Owner who lives in Backlog and Board can hide Schedule and Calendar; a scheduler can hide the board. Your choice is saved to your account and applies to **every** project you open.

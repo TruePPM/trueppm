@@ -1321,6 +1321,10 @@ class ProjectViewSet(
         transaction.on_commit(lambda: _dispatch_webhooks(project_id, "project.created", payload))
 
     def perform_update(self, serializer: BaseSerializer[Project]) -> None:
+        from trueppm_api.apps.projects.config_notice import (
+            capture_project_surface,
+            notify_project_surface_change,
+        )
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         # Field-level conflict gate (ADR-0217, #322): raises 409 on an overlapping
@@ -1336,11 +1340,25 @@ class ProjectViewSet(
         # recompute (#1267).
         old_calendar_id = serializer.instance.calendar_id if serializer.instance else None
 
+        # Same reason as the calendar capture above: save() mutates the instance in
+        # place, so the previous preset and leaf-surface visibility are unrecoverable
+        # afterwards. Switching the preset or hiding a view changes the surface every
+        # assignee works on, and #2972 makes that reach them rather than only the
+        # person who clicked.
+        surface_before = (
+            capture_project_surface(serializer.instance) if serializer.instance else None
+        )
+
         instance = serializer.save()
         project_id = str(instance.pk)
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "project_updated", {"id": project_id})
         )
+
+        if surface_before is not None:
+            # No-op unless the preset changed or a surface's EFFECTIVE visibility
+            # flipped — a name, color or date edit notifies nobody.
+            notify_project_surface_change(instance, before=surface_before, actor=self.request.user)
 
         if instance.calendar_id != old_calendar_id:
             transaction.on_commit(
@@ -9978,6 +9996,7 @@ class BoardColumnConfigView(McpReadableViewMixin, IdempotencyMixin, APIView):
         return Response({"columns": columns}, status=status.HTTP_200_OK)
 
     def put(self, request: Request, pk: str) -> Response:
+        from trueppm_api.apps.projects.config_notice import notify_board_config_change
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         project = get_object_or_404(Project, pk=pk)
@@ -9986,6 +10005,23 @@ class BoardColumnConfigView(McpReadableViewMixin, IdempotencyMixin, APIView):
         serializer.is_valid(raise_exception=True)
         validated = serializer.validated_data
         with transaction.atomic():
+            # Read the config as it stood BEFORE the replace. PUT is a full
+            # replace, so this row is the only record of which lanes and columns
+            # existed a moment ago — without it the notice below could say a
+            # setting was saved but not what it did to anyone's work (#2972).
+            #
+            # Locked, because the write below depends on what this read returned.
+            # Two concurrent PUTs reading the same baseline would each diff against
+            # a config the other has already replaced, and the loser's notice would
+            # name a destination lane that no longer exists — the precise wrong
+            # answer the destination is computed to avoid. The broadcast is
+            # last-writer-wins and does not care; a durable inbox row does.
+            existing = BoardColumnConfig.objects.select_for_update().filter(project_id=pk).first()
+            old_columns = (
+                list(existing.columns or _DEFAULT_COLUMNS)
+                if existing is not None
+                else list(_DEFAULT_COLUMNS)
+            )
             BoardColumnConfig.objects.update_or_create(
                 project_id=pk,
                 defaults={"columns": validated["columns"]},
@@ -9996,6 +10032,16 @@ class BoardColumnConfigView(McpReadableViewMixin, IdempotencyMixin, APIView):
                 lambda: broadcast_board_event(
                     project_id, "board_config_updated", {"columns": columns_payload}
                 )
+            )
+            # The broadcast above only reaches whoever has the board open right
+            # now. A removed lane or hidden column moves work for people who are
+            # not looking, so it also gets a durable inbox row (#2972). No-op
+            # unless the diff actually moved or hid something.
+            notify_board_config_change(
+                project,
+                old_columns=old_columns,
+                new_columns=columns_payload,
+                actor=request.user,
             )
         return Response(validated, status=status.HTTP_200_OK)
 

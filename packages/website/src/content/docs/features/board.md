@@ -304,6 +304,11 @@ Practical notes:
   its lane — the destination's lanes are different lanes.
 - **Deleting a lane never loses a card.** Anything left in a deleted lane appears in
   the column's first lane, and the header count agrees.
+- **Deleting a lane tells the people whose cards moved.** Everyone with work in the
+  project gets an inbox notice naming the lane, where its cards went, and how many of
+  *their own* items were in it — see
+  [Config-change notices](/features/notifications/#config-change-notices). Renaming a
+  lane, adding one, reordering, or changing a WIP limit notifies nobody: nothing moved.
 - **A card with no lane set** sits in the column's first lane.
 - **Collapsing a column** folds all of its lanes into one stub, and the stub's WIP
   band reads against the *column* limit, not any one lane's.
