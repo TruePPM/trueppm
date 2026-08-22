@@ -600,6 +600,15 @@ upload again.
 The same refusal covers a `.xlsx` renamed to `.csv`, and any other binary file
 that reaches the CSV reader.
 
+:::note[Ships in 0.4 — risk-register CSV import]
+From 0.4 the **risk-register importer shares this exact decoding**, so everything
+in this section applies to it too. Through 0.3 it behaved differently and worse:
+it required strict UTF-8, so it *refused* Windows-1252 exports and Excel's
+BOM-marked UTF-16 that this page says are read correctly — and, because NUL is a
+valid UTF-8 character, it silently **imported** BOM-less UTF-16 as NUL-interleaved
+gibberish instead of refusing it.
+:::
+
 ### Excel changed your data
 
 Opening a CSV in Excel and saving it can silently alter the contents: leading
@@ -630,7 +639,7 @@ Every CSV TruePPM writes or reads follows the same rules
 | | |
 |---|---|
 | **Separator** | Comma |
-| **Encoding** | UTF-8 written. On import, a byte-order mark decides the encoding — UTF-8, UTF-16 and UTF-32 marks are all honored, so Excel's "Unicode Text" export reads correctly. Without a mark the importer tries UTF-8 then the Windows-1252 / Latin-1 fallbacks, and **refuses** the file if the result is not readable text rather than importing mojibake |
+| **Encoding** | UTF-8 written. On import, a byte-order mark decides the encoding — UTF-8, UTF-16 and UTF-32 marks are all honored, so Excel's "Unicode Text" export reads correctly. Without a mark the importer tries UTF-8 then the Windows-1252 / Latin-1 fallbacks, and **refuses** the file if the result is not readable text rather than importing mojibake. From 0.4 the risk-register importer uses the same decoder |
 | **Decimal mark** | Period or comma; see [Dates, durations and percentages](#dates-durations-and-percentages) |
 | **Line endings** | CRLF written; either accepted |
 | **Quoting** | Fields containing a comma, quote, or newline are wrapped in `"`; embedded quotes are doubled |
