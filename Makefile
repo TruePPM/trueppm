@@ -141,8 +141,13 @@ scheduler-typecheck: ## Run the scheduler:type-check CI job locally (mypy)
 web-lint: ## Run the web:lint CI job locally (eslint on packages/web/src + e2e)
 	cd packages/web && npm run lint
 
-web-typecheck: ## Run the web:type-check CI job locally (tsc --noEmit)
-	cd packages/web && npx tsc --noEmit
+web-typecheck: ## Run the web:type-check CI job locally (src + e2e projects)
+	# `npm run typecheck`, not a bare `tsc --noEmit`: the CI job runs BOTH
+	# passes, and `e2e/` is a separate tsconfig project (#2997). A bare
+	# `tsc --noEmit` here type-checked only `src/`, so a type error in a
+	# Playwright spec passed pre-push and failed CI — from a target whose own
+	# help text claimed it ran the CI job.
+	cd packages/web && npm run typecheck
 
 mobile-lint: ## Run the mobile:lint CI job locally (eslint on packages/mobile/src)
 	cd packages/mobile && npm run lint

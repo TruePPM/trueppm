@@ -55,16 +55,12 @@ function taskRow(over: Record<string, unknown>) {
 /**
  * Four leaf rows, all sharing dates so every bar occupies the same x-range —
  * which makes a mis-resolved tap unambiguous: the only thing distinguishing the
- * rows is y.
+ * rows is y. The names drive the fixture rather than being read back out of it,
+ * so there is one list and the row order is stated once.
  */
-const TASKS = [
-  taskRow({ id: 'r1', wbs_path: '1', name: 'Mobilization' }),
-  taskRow({ id: 'r2', wbs_path: '2', name: 'Survey' }),
-  taskRow({ id: 'r3', wbs_path: '3', name: 'Foundations' }),
-  taskRow({ id: 'r4', wbs_path: '4', name: 'Closeout' }),
-];
+const NAMES = ['Mobilization', 'Survey', 'Foundations', 'Closeout'];
 
-const NAMES = TASKS.map((t) => t.name as string);
+const TASKS = NAMES.map((name, i) => taskRow({ id: `r${i + 1}`, wbs_path: `${i + 1}`, name }));
 
 /**
  * The Schedule reads baselines on mount and the catch-all would answer a *list*
