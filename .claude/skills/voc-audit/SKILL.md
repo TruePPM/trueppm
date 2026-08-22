@@ -115,6 +115,8 @@ Walk through how you would use this surface to accomplish a real task in your ro
 
 Every finding MUST carry a **falsification line**: a specific, checkable condition that would prove the finding wrong. "Falsified if the CPM date is already visible to a suppressed reader" is a falsification line; "falsified if users are happy" is not. A finding without one is `unscoreable` and counts against the panel, not for it.
 
+Write the line as something a real user does, says, or reports — a support request that never arrives, a demo conversation, a usage metric that stays flat. A condition that only a code check can settle ("falsified if the serializer already exposes the field") will be run against the tree by the auditor, but it predicts nothing about a user and therefore cannot be scored later. Where both apply, give both, labeled.
+
 Return your response in this exact format and nothing else:
 
 ## <PERSONA_NAME>: N/10 [optional 🔴 / 🟡 / 🟢]
@@ -172,6 +174,19 @@ issue the finding assumes is open. Assign one of three outcomes:
 Findings that cannot be checked without running the product (frequency-in-practice,
 would-a-real-user-accept-this) are **unscoreable**: carry them, but mark them so, and do not
 present them with the same confidence as a verified one.
+
+**Code verification is not falsification.** "I verified this against `main` at `<sha>`"
+proves the defect exists; it does not predict what a user would say, which is the only
+thing calibration can score. Both belong in the issue, in separate fields, and they must
+never be conflated: verification grounds the finding in the code, while the falsification
+line stakes a claim about the world that a later real report can confirm or refute. A
+finding whose "falsification line" restates a code check is `unscoreable` — it counts
+against the panel, not for it. So a finding leaves this step carrying **two** things: the
+check that grounds it (the file:line, grep, or query) and a falsification line that
+predicts a real-world observation. Where the panel gave only a code condition, that
+condition has now been executed and is spent — write the real-world line before filing,
+or file the finding explicitly marked `unscoreable` so the ledger is not misled about
+what the panel actually staked.
 
 Two rules that matter more than they look:
 
@@ -274,6 +289,7 @@ should say so rather than presenting them as panel output>
 - **Raised by**: <personas who flagged it — or "verification (no persona raised this)">
 - **What's missing**: <one paragraph>
 - **Verified**: <the file:line, grep, or query that confirms it — this is what the finding rests on, not the persona>
+- **Falsification line**: <the real-world observation that would refute it, carried verbatim from the persona that raised it — or `unscoreable`, with the reason. Not a restatement of the Verified line above; they are different fields>
 - **Proposed improvement**: <narrow, concrete change>
 - **Why it matters**: <impact + frequency reasoning, drawn from persona quotes>
 - **Action**: file new / boost #N to priority::<P> / cross-link as new instance of closed #N / drop (already decided in #N)
@@ -310,9 +326,18 @@ finding genuinely survived.>
 For each finding requiring action, ask the user explicitly before mutating GitLab state. Never silently file, boost, or close.
 
 1. **Untracked findings → offer to file new issues.** Group them by milestone target (`$WORKING_RELEASE` if the surface is in-scope for the active release, the next minor if it's a future improvement). Ask: "File the N untracked findings above as issues against milestone `$WORKING_RELEASE`? (y / select / n)"
-   - `y` → file all with `glab issue create --repo trueppm/trueppm --milestone "$WORKING_RELEASE" --label "ux,voc-audit" --title "<title>" --description "<heredoc body that cites the persona(s), the friction, the proposed improvement>"`
+   - `y` → file all with `glab issue create --repo trueppm/trueppm --milestone "$WORKING_RELEASE" --label "ux,voc-audit" --title "<title>" --description "<heredoc body built from .gitlab/issue_templates/VoC-Finding.md>"`
    - `select` → ask which subset
    - `n` → list them as a manual checklist
+
+   **File through `.gitlab/issue_templates/VoC-Finding.md`, never `Bug.md` or
+   `Feature.md`.** Build the `--description` heredoc from that template and fill every
+   field: the provenance block, the raising persona(s), the finding, the falsification
+   line, and the code-level verification. Those last two are the fields that get dropped
+   when a panel finding is filed as an ordinary bug, and the falsification line is the
+   one thing `/voc-audit --calibrate` can score — a finding filed without it is graded
+   `unscoreable` a release later, counting against the panel however right it turns out
+   to be.
 
    **Every issue body carries its provenance and its evidence, and they are not the same
    thing.** State that a simulated panel raised it and that the panel is not evidence; then
@@ -322,11 +347,21 @@ For each finding requiring action, ask the user explicitly before mutating GitLa
    apparent hit rate and corrupts the Step 10 ledger. Where verification lowered a
    finding's severity below what the panel scored, file at the verified severity and say
    that you did.
+
+   **Code verification is not falsification** — keep them in their own fields, as Step 4
+   requires. "I verified this against `main` at `<sha>`" belongs under *Code-level
+   verification*; it proves the defect exists and predicts nothing about a user. The
+   *Falsification line* field is the claim about the world a later real report can confirm
+   or refute, and it is the only one calibration can score. Copying the verification into
+   the falsification field makes the finding `unscoreable` while looking complete, which
+   is worse than leaving it blank. Never put a panel score or the panel average in the
+   issue body.
 2. **Boost candidates → offer to update priority labels.** Ask: "Boost M existing issues to a higher priority based on hard-NO triggers? (y / select / n)" — same flow. Use `glab issue update <iid> --label "priority::P<n>"` and remove the old priority label first.
 3. **Closed-issue matches → ask the user to classify each.** For each, present:
    > Finding X matches closed #N ("<title>", closed <date>, close reason: <one-line>). Options:
    > - **regression** — reopen #N with a note linking this audit
-   > - **new instance** — open a new issue that references #N
+   > - **new instance** — open a new issue that references #N, on the same
+   >   `VoC-Finding` template and with every field filled
    > - **already decided** — drop from the report
    
    Wait for the answer per finding. Never re-file silently.
@@ -384,14 +419,15 @@ glab issue list --repo trueppm/trueppm --label "voc-audit" -A -P 100
 ### 10b — Score three buckets
 
 - **Hits** — a panel 🔴/🟡 that a real report independently matches. Cite both issue
-  numbers. Only findings that carried a falsification line are scoreable; record any
-  that did not as `unscoreable`, which counts against the panel.
+  numbers. Only findings that carried a falsification line are scoreable; read it off the
+  issue's *Falsification line* field and record any finding that has none — or whose line
+  is a restated code check — as `unscoreable`, which counts against the panel.
 - **Misses** — a real report no persona raised. Read each one and decide: does it reveal
   a gap in a persona definition (amend `personas.md` and say so), or is it knowingly out
   of model? Misses are the highest-value rows here.
 - **False alarms** — a panel 🔴 whose falsification condition was met. Note which persona
   raised it; repeated false alarms on a topic reduce that persona's weight on that topic
-  in future `/voc` runs (see `/voc` Step 0).
+  in future `/voc` runs (see `/voc` Step 0a).
 
 ### 10c — Append to the ledger
 
@@ -418,6 +454,8 @@ though it did.
 - **Treat agreement between two simulated panels as corroboration** — only a real user report corroborates a modeled finding
 - **File a finding it did not verify** — every issue opened from a run cites the check from Step 4, not only the persona that raised it
 - **Credit a persona with a finding that came from verification** — attribute it to the check; the ledger depends on the distinction
+- **File a finding without its falsification line and its raising persona** — both are required fields on `.gitlab/issue_templates/VoC-Finding.md`, and a finding filed without them cannot be scored by Step 10 however right it turns out to be
+- **Pass a code check off as a falsification line** — verification proves the defect exists; the falsification line predicts what a user would report. They are separate fields and conflating them yields an `unscoreable` finding that looks complete
 - **Raise a persona's grounding tier** outside a Step 10 ledger entry with a citation
 - Audit the codebase for bugs, perf issues, or security gaps — those have dedicated skills. Verification in Step 4 checks *the panel's claims*; it is not licence to start a general bug hunt
 - File issues without explicit user approval — every mutation is opt-in
