@@ -32,6 +32,8 @@ export class GanttEngineStub implements GanttEngine {
 
   setLinks(_links: TaskLink[]): void {}
 
+  rowMetricsChanged(): void {}
+
   updateTask(_taskId: string, _patch: Partial<Task>): void {}
 
   // ── Coordinate system ─────────────────────────────────────────────────────

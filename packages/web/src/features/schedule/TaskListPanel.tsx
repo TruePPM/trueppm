@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState, useEffect, useMemo, type RefObject } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { ProjectResource, Task } from '@/types';
-import { ROW_HEIGHT } from './scheduleConstants';
+import { useRowMetrics } from '@/hooks/useRowHeight';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { TaskListHeader } from './TaskListHeader';
@@ -83,7 +83,8 @@ function computeNameSuggestions(tasks: Task[]): string[] {
 // PendingTaskRow — shown for tasks created but not yet scheduled (no dates yet)
 // ---------------------------------------------------------------------------
 
-function PendingTaskRow({ name }: { name: string }) {
+function PendingTaskRow({ name, gripReserve }: { name: string; gripReserve: number }) {
+  const { rowHeight } = useRowMetrics();
   const [timedOut, setTimedOut] = useState(false);
 
   // After 8 s without the scheduler responding, swap spinner for a "Pending" label
@@ -99,10 +100,13 @@ function PendingTaskRow({ name }: { name: string }) {
       // treegrid) until the scheduler assigns them a real position.
       aria-level={1}
       aria-label={`${name}, pending scheduling`}
-      className="flex items-center h-[28px] px-2 gap-1 border-b border-neutral-800/50
+      className="flex items-center px-2 gap-1 border-b border-neutral-800/50
         bg-white/5 border-l-2 border-brand-primary/40"
-      style={{ height: ROW_HEIGHT }}
+      style={{ height: rowHeight }}
     >
+      {gripReserve > 0 && (
+        <span aria-hidden="true" className="shrink-0" style={{ width: gripReserve }} />
+      )}
       {/* Empty checkbox column */}
       <span className="w-6 flex-shrink-0" />
       {/* WBS placeholder */}
@@ -279,6 +283,21 @@ export function TaskListPanel({
   onMoveToRequest,
   onAnnounce,
 }: Props) {
+  // 28px on a mouse, 44px on a coarse pointer (#2997). This is the DOM half of
+  // the pitch the canvas engine paints on; both resolve from one binding.
+  const { rowHeight, gripReserve: coarseGripReserve } = useRowMetrics();
+  /**
+   * The ⋮⋮ grip's lane (#2997) — panel-level, never per-row.
+   *
+   * `onMoveRow` is the panel's own "can anything commit a move?" gate, and it is
+   * undefined for a read-only viewer and outside build mode. Deriving the lane
+   * from it keeps two things true at once: a viewer does not give up 44px of a
+   * ~280px name column to a control that is not rendered (web rule 302 makes the
+   * apparatus absent, not disabled), and the header, the rows, the pending rows
+   * and the draft row all reserve the *same* number — a lane that varies row to
+   * row is a table whose columns do not line up.
+   */
+  const gripReserve = onMoveRow ? coarseGripReserve : 0;
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollToTaskId = useScheduleStore((s) => s.scrollToTaskId);
   const scrollToTask = useScheduleStore((s) => s.scrollToTask);
@@ -355,7 +374,7 @@ export function TaskListPanel({
 
   const { session: dragSession, startDrag } = useOutlineDrag({
     rows: dragRows,
-    rowHeight: ROW_HEIGHT,
+    rowHeight,
     // Re-read per move: the list scrolls under the pointer, so a cached top is
     // wrong the moment an autoscroll or a wheel event lands.
     getRowsTop: useCallback(
@@ -369,9 +388,18 @@ export function TaskListPanel({
   const virtualizer = useVirtualizer({
     count: tasks.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => rowHeight,
     overscan: 5,
   });
+
+  // The virtualizer caches every row's measured size, so changing `estimateSize`
+  // alone leaves the old pitch in place — rows would keep their 28px offsets
+  // while each row's own box grew to 44, and they would overlap. Re-measuring is
+  // what actually moves them, and it must happen on a pointer-class flip
+  // (a tablet gaining a keyboard), not only on first mount (#2997).
+  useEffect(() => {
+    virtualizer.measure();
+  }, [rowHeight, virtualizer]);
 
   // Roving-tabindex model for the grid rows (#2204), mirroring ScheduleAriaOverlay:
   // exactly ONE row is Tab-reachable at a time so the grid is a single tab stop
@@ -436,7 +464,12 @@ export function TaskListPanel({
       // aria-rowindex on each data row (which starts at 2) stay consistent (#2204).
       aria-rowcount={tasks.length + 1}
     >
-      <TaskListHeader widths={widths} visible={visible} setWidth={setWidth} />
+      <TaskListHeader
+        widths={widths}
+        visible={visible}
+        setWidth={setWidth}
+        gripReserve={gripReserve}
+      />
 
       {/* Blank project (#2733): the outline opens with a LIVE row and the caret
           already in it, instead of a "No tasks yet" card the user has to get past.
@@ -444,7 +477,11 @@ export function TaskListPanel({
           to virtualize — it is exactly one row, and it must not be unmounted by a
           scroll measurement while somebody is typing into it. */}
       {tasks.length === 0 && (
-        <BlankOutlineDraftRow onCommit={onCommitDraftRow} nameWidth={widths.task} />
+        <BlankOutlineDraftRow
+            onCommit={onCommitDraftRow}
+            nameWidth={widths.task}
+            gripReserve={gripReserve}
+          />
       )}
 
       {/*
@@ -475,10 +512,11 @@ export function TaskListPanel({
                   top: virtualRow.start,
                   left: 0,
                   right: 0,
-                  height: ROW_HEIGHT,
+                  height: rowHeight,
                 }}
               >
                 <TaskListRow
+                  gripReserve={gripReserve}
                   task={task}
                   // Header is row 1, so data rows are 1-based from 2 (#2204).
                   ariaRowIndex={virtualRow.index + 2}
@@ -537,7 +575,8 @@ export function TaskListPanel({
               intent={dragSession.intent}
               rows={dragRows}
               draggedId={dragSession.draggedId}
-              rowHeight={ROW_HEIGHT}
+              rowHeight={rowHeight}
+              leftInset={gripReserve}
             />
           )}
         </div>
@@ -546,7 +585,7 @@ export function TaskListPanel({
         {pendingTaskIds && pendingTaskIds.size > 0 && (
           <div role="presentation">
             {Array.from(pendingTaskIds.entries()).map(([id, name]) => (
-              <PendingTaskRow key={id} name={name} />
+              <PendingTaskRow key={id} name={name} gripReserve={gripReserve} />
             ))}
           </div>
         )}

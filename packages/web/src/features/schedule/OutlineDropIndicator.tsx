@@ -32,6 +32,13 @@ export interface OutlineDropIndicatorProps {
   rows: OutlineDragRow[];
   draggedId: string;
   rowHeight: number;
+  /**
+   * Horizontal lane the rows reserve for the ⋮⋮ grip (#2997) — zero on a fine
+   * pointer, 44 on a coarse one. The insertion line's whole job is to name a
+   * *level* by its x, so it has to start from the same origin the rows' depth
+   * guides do; without this the line points one indent step shallow on touch.
+   */
+  leftInset?: number;
 }
 
 export function OutlineDropIndicator({
@@ -39,6 +46,7 @@ export function OutlineDropIndicator({
   rows,
   draggedId,
   rowHeight,
+  leftInset = 0,
 }: OutlineDropIndicatorProps) {
   const geometry = dropIndicatorGeometry(intent, rows, rowHeight);
   const description = describeDropIntent(intent, rows, draggedId);
@@ -76,7 +84,7 @@ export function OutlineDropIndicator({
           data-testid="outline-drop-line"
           data-indent={geometry.indent}
           className="absolute right-0 h-0.5 -translate-y-1/2 rounded-full bg-brand-primary"
-          style={{ top: lineTop, left: geometry.indent }}
+          style={{ top: lineTop, left: leftInset + geometry.indent }}
         >
           {/* The knob anchors the line to its indent origin, so "which level" is
               readable at a glance rather than inferred from where the line stops. */}

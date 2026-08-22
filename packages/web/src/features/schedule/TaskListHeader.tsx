@@ -83,9 +83,16 @@ interface Props {
   widths: ColumnWidths['widths'];
   visible: ColumnWidths['visible'];
   setWidth: ColumnWidths['setWidth'];
+  /**
+   * Width of the ⋮⋮ grip's lane (#2997) — 0 unless the outline is authorable on
+   * a coarse pointer. Taken from `TaskListPanel` rather than resolved here, so
+   * the header and the rows cannot answer the question differently and leave
+   * the columns 44px out of step.
+   */
+  gripReserve: number;
 }
 
-export function TaskListHeader({ widths, visible, setWidth }: Props) {
+export function TaskListHeader({ widths, visible, setWidth, gripReserve }: Props) {
   return (
     <div
       className="flex items-center h-7 bg-neutral-surface border-b border-neutral-border
@@ -94,6 +101,10 @@ export function TaskListHeader({ widths, visible, setWidth }: Props) {
       aria-rowindex={1}
       aria-label="Task list columns"
     >
+      {gripReserve > 0 && (
+        <span aria-hidden="true" className="shrink-0" style={{ width: gripReserve }} />
+      )}
+
       {/* WBS column (#248) — leftmost; right-aligned dot-path numbering */}
       {visible.wbs && (
         <span

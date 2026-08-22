@@ -153,6 +153,25 @@ export interface GanttEngine {
   setLinks(links: TaskLink[]): void;
 
   /**
+   * Tell the engine its row geometry changed (#2997).
+   *
+   * Row height is a **runtime** value — 28px on a mouse, 44px on a coarse
+   * pointer — so a tablet gaining or losing a keyboard moves every row. React
+   * re-renders the outline on its own; the canvas does not, because it paints
+   * from an imperative rAF loop that only re-arms when a mutator marks it dirty.
+   * Without this call the DOM list sits at the new pitch while the canvas is
+   * still painted **and hit-tested** at the old one until some incidental
+   * repaint (a scroll, a hover, a zoom) happens to land — and the symptom of
+   * that window is not a visual glitch, it is taps opening the row above or
+   * below the one under the finger.
+   *
+   * Takes no argument on purpose: the height is read from the module binding
+   * the renderer and the hit index already share, so there is no second value
+   * to keep in step (web rule 315).
+   */
+  rowMetricsChanged(): void;
+
+  /**
    * Apply a partial update to a single task without replacing the full list.
    * Used for real-time collaboration (WebSocket remote updates) — repaints
    * only the affected row, leaving all other rows untouched.

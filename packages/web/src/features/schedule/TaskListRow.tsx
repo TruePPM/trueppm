@@ -11,7 +11,8 @@ import {
 } from './useProgressAutoStatusConfirm';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { ProjectResource, Task } from '@/types';
-import { ROW_HEIGHT, WBS_INDENT } from './scheduleConstants';
+import { WBS_INDENT } from './scheduleConstants';
+import { useRowMetrics } from '@/hooks/useRowHeight';
 import type { RowMode } from './deliveryModePresentation';
 import { ModeChip, ModeGutter } from './RowModeIndicators';
 import { ScopeChangedChip } from '@/features/sprints/ScopeChangedChip';
@@ -247,6 +248,14 @@ interface Props {
   isDragSource?: boolean;
   /** Open the "Move to…" destination picker for this row (#2954). */
   onMoveToRequest?: (taskId: string) => void;
+  /**
+   * Width of the ⋮⋮ grip's lane (#2997) — from `TaskListPanel`, which is the
+   * only place that can answer it consistently for the header and every row.
+   * Defaults to 0: a row rendered outside the panel has no grip lane, and a
+   * viewer's panel passes 0 so nobody gives up 44px of name column to a control
+   * web rule 302 keeps absent.
+   */
+  gripReserve?: number;
 }
 
 // On macOS the modifier is labelled "Option"; everywhere else it's "Alt".
@@ -1287,37 +1296,68 @@ function useRowActions(ctx: {
  * — a 40-row outline's worth — that leads nowhere. The `title` is the pointer
  * user's hint and names the keyboard twin next to it.
  *
- * Touch: 26px wide below `md` (the design's 26×32 target), 14px otherwise, so a
- * finger has something to hold without a mouse losing 26px of every row. The
- * height is the row's own 28px rather than 32 — a taller grip would reach into
- * the neighbouring rows' grips, and two overlapping grips is a worse touch
- * target than one slightly short of the design's figure.
+ * Sizing follows the **pointer class, not the viewport width** (#2997). It used
+ * to be `max-md:w-[26px]`, which is a breakpoint: a 1024px tablet — a coarse
+ * pointer with a wide screen — got the 14px mouse grip, and a narrow desktop
+ * window got the fat one. `useRowMetrics()` asks the question the target size
+ * actually depends on.
+ *
+ * On a coarse pointer the grip is **44 x 44**: 44 wide from `gripWidth`, and 44
+ * tall from `rowHeight` — an explicit height, not `inset-y-0`, for the reason
+ * the inline comment on the style prop gives (a stretched child stops at the
+ * row's `border-b` and measures 43). #2954
+ * shipped it at 26x28 with the mitigation that a taller grip would reach into
+ * its neighbours' grips inside a 28px row — that constraint is gone, not
+ * loosened, and the width is reserved (`gripReserve`) rather than laid over the
+ * WBS column's nudges, so nothing else loses a target to pay for this one.
+ * A mouse still sees 14px and gives up no row width at all.
  */
 function RowReorderHandle({
   taskId,
   taskName,
   onDragStart,
   isDragging,
+  gripWidth,
+  rowHeight,
+  coarse,
 }: {
   taskId: string;
   taskName: string;
   onDragStart?: (taskId: string, e: React.PointerEvent) => void;
   isDragging: boolean;
+  gripWidth: number;
+  rowHeight: number;
+  coarse: boolean;
 }) {
   return (
     <div
       data-testid="row-reorder-grip"
       data-dragging={isDragging ? 'true' : undefined}
+      // `top: 0` + an explicit height rather than `inset-y-0`: the row's own
+      // `border-b` is inside its border-box, so an inset-stretched child is
+      // `rowHeight - 1` tall — 43px, and a 43px target has not met a 44px floor
+      // however close it looks. Spanning the border line costs nothing (the
+      // neighbour's grip starts exactly where this one ends, never over it).
+      style={{ width: gripWidth, height: rowHeight }}
       className={[
-        'absolute left-0 inset-y-0 z-10 flex items-center justify-center',
-        'w-3.5 max-md:w-[26px]',
-        'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100',
+        'absolute left-0 top-0 z-10 flex items-center justify-center',
+        coarse
+          ? 'opacity-100'
+          : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
         'transition-opacity cursor-grab active:cursor-grabbing',
         // The browser's own pan/select gestures would fight the drag on touch.
         'touch-none select-none',
         isDragging
           ? 'opacity-100 text-brand-primary'
-          : 'text-neutral-text-disabled hover:text-neutral-text-secondary',
+          : // `neutral-text-disabled` is 2.66:1 and reserved for inert
+            // affordances (web rule 169); it is only acceptable here because a
+            // mouse lifts it to `secondary` on hover. There is no hover on a
+            // coarse pointer, so the resting state IS the state — 2.66:1 would
+            // sit permanently under WCAG 1.4.11's 3:1 on the row's flagship
+            // control (#2997).
+            coarse
+            ? 'text-neutral-text-secondary'
+            : 'text-neutral-text-disabled hover:text-neutral-text-secondary',
       ].join(' ')}
       title={`Drag to reorder or reparent ${taskName || 'this row'}  ·  ${REORDER_KEY}+↑/↓, ${REORDER_KEY}+←/→ keyboard`}
       aria-hidden="true"
@@ -1688,7 +1728,11 @@ function TaskListRowInner({
   onOutlineDragStart,
   isDragSource = false,
   onMoveToRequest,
+  gripReserve = 0,
 }: Props) {
+  // Row geometry follows the pointer class (#2997): 28px rows on a mouse, 44px
+  // and a 44x44 grip in its own lane on a coarse pointer.
+  const { rowHeight, gripWidth, coarse } = useRowMetrics();
   const projectId = useProjectId() ?? '';
   const itl = useIterationLabel(projectId);
   const selectedTaskId = useScheduleStore((s) => s.selectedTaskId);
@@ -1914,7 +1958,7 @@ function TaskListRowInner({
       aria-expanded={hasChildren ? isExpanded : undefined}
       aria-selected={buildMode ? isBuildSelected : isSelected}
       tabIndex={rovingRowTabIndex}
-      style={{ height: ROW_HEIGHT }}
+      style={{ height: rowHeight }}
       className={getRowClassName({
         isEditing,
         anyCellInEdit,
@@ -1983,7 +2027,19 @@ function TaskListRowInner({
           taskName={task.name}
           onDragStart={onOutlineDragStart}
           isDragging={isDragSource}
+          gripWidth={gripWidth}
+          rowHeight={rowHeight}
+          coarse={coarse}
         />
+      )}
+
+      {/* The grip's lane (#2997). A spacer rather than row padding, because the
+          grip is `absolute left-0` and would move with the padding — see
+          `resolveGripReserve`. Rendered whenever the reserve is non-zero, with
+          or without edit rights, so a viewer's rows stay column-aligned with an
+          editor's and with the header. */}
+      {gripReserve > 0 && (
+        <span aria-hidden="true" className="shrink-0" style={{ width: gripReserve }} />
       )}
 
       {/* ── WBS column (#248) ───────────────────────────────────────────────── */}
@@ -2008,15 +2064,26 @@ function TaskListRowInner({
           }}
           aria-label={`Insert an item below ${task.name || 'this row'}, at the same level`}
           title="Insert an item here"
-          className="absolute left-0 bottom-0 translate-y-1/2 z-10 ml-1 w-4 h-4
-            flex items-center justify-center rounded-full
-            border border-neutral-border bg-neutral-surface-raised
-            text-xs leading-none text-neutral-text-secondary
-            opacity-0 group-hover:opacity-100 focus:opacity-100
-            hover:text-brand-primary hover:border-brand-primary
-            focus:outline-none focus:ring-2 focus:ring-brand-primary
-            transition-opacity"
-          style={{ marginLeft: 4 + (level - 1) * 12 }}
+          className={[
+            'absolute left-0 bottom-0 translate-y-1/2 z-10 w-4 h-4',
+            'flex items-center justify-center rounded-full',
+            'border border-neutral-border bg-neutral-surface-raised',
+            'text-xs leading-none text-neutral-text-secondary',
+            // Hover-revealed on a mouse; permanently visible on a coarse
+            // pointer, where there is no hover to reveal it with. Without this
+            // branch the affordance is invisible AND out of the tab order on a
+            // tablet, so build mode's "insert a sibling here" has no pointer
+            // path at all on the device 44px rows exist for (#2997).
+            coarse ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus:opacity-100',
+            'hover:text-brand-primary hover:border-brand-primary',
+            'focus:outline-none focus:ring-2 focus:ring-brand-primary',
+            'transition-opacity',
+            // The 16px disc is the mark; the tappable box around it is the
+            // target. `before:` rather than a bigger button so the disc keeps
+            // its position between rows and the row's own layout does not move.
+            coarse ? 'before:absolute before:-inset-3.5 before:content-[""]' : '',
+          ].join(' ')}
+          style={{ marginLeft: gripReserve + 4 + (level - 1) * 12 }}
         >
           +
         </button>

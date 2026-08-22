@@ -29,8 +29,15 @@ const VISIBLE: ColumnWidths['visible'] = {
   owner: true,
 };
 
-function renderHeader(setWidth = vi.fn()) {
-  render(<TaskListHeader widths={WIDTHS} visible={VISIBLE} setWidth={setWidth} />);
+function renderHeader(setWidth = vi.fn(), gripReserve = 0) {
+  render(
+    <TaskListHeader
+      widths={WIDTHS}
+      visible={VISIBLE}
+      setWidth={setWidth}
+      gripReserve={gripReserve}
+    />,
+  );
   return setWidth;
 }
 
@@ -72,11 +79,41 @@ describe('TaskListHeader column resize keyboard operability (#2205)', () => {
         widths={{ ...WIDTHS, dur: MIN_COL_WIDTHS.dur }}
         visible={VISIBLE}
         setWidth={setWidth}
+        gripReserve={0}
       />,
     );
     const handle = screen.getByRole('separator', { name: 'Resize dur column' });
     fireEvent.keyDown(handle, { key: 'ArrowLeft' });
     // Already at the floor — the clamp keeps it at the min, not below.
     expect(setWidth).toHaveBeenLastCalledWith('dur', MIN_COL_WIDTHS.dur);
+  });
+});
+
+
+/**
+ * #2997 — the ⋮⋮ grip's lane.
+ *
+ * The header and every row render this spacer independently. Drop it from
+ * either side and the columns sit 44px apart, which reads as a broken table;
+ * the value has to come from one place (`TaskListPanel`) and be rendered the
+ * same way by both. This pins the header's half — `TaskListPanel.test.tsx`
+ * pins that the panel hands the same number to both, and
+ * `e2e/schedule-coarse-row-height.spec.ts` measures the resulting alignment.
+ */
+describe('TaskListHeader — the grip lane (#2997)', () => {
+  function laneWidth(): string | undefined {
+    const row = screen.getByRole('row', { name: 'Task list columns' });
+    const first = row.firstElementChild as HTMLElement | null;
+    return first?.getAttribute('aria-hidden') === 'true' ? first.style.width : undefined;
+  }
+
+  it('reserves nothing when the panel says there is no grip', () => {
+    renderHeader(vi.fn(), 0);
+    expect(laneWidth()).toBeUndefined();
+  });
+
+  it('reserves exactly what the panel asked for, ahead of every column', () => {
+    renderHeader(vi.fn(), 44);
+    expect(laneWidth()).toBe('44px');
   });
 });

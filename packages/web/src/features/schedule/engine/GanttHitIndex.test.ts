@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { buildHitIndex, ROW_HEIGHT, BAR_TOP_OFFSET, BAR_HEIGHT } from './GanttHitIndex';
 import { buildScaleData } from './GanttScaleData';
-import { HEADER_HEIGHT } from '../scheduleConstants';
+import { HEADER_HEIGHT, syncRowMetrics } from '../scheduleConstants';
 import type { Task } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -244,5 +244,68 @@ describe('buildHitIndex', () => {
     expect(zone!.barRight).toBeCloseTo(barRightA, 1);
     expect(zone!.barTop).toBe(barTopA);
     expect(zone!.barBottom).toBe(barBottomA);
+  });
+});
+
+
+/**
+ * #2997 — the one hit zone whose geometry this change actually moved.
+ *
+ * The touch link-dot zone asks for 44px centered in the row. `query()` clips
+ * every zone to its own row band first, so at a 28px row that request was
+ * silently trimmed to 28 and a finger got a 28px target from code that read as
+ * though it got 44. At the coarse row height the inset is 0, the clip takes
+ * nothing, and the target is genuinely 44 tall.
+ */
+describe('link-dot touch zone at both row pitches (#2997)', () => {
+  afterEach(() => syncRowMetrics(false));
+
+  /** x inside the link-dot band: [barRight + 8, barRight + 16]. */
+  const linkX = barRightA + 12;
+  // Two rows on identical dates, so one x sits in BOTH rows' link-dot bands and
+  // the only thing separating them is y — which is the whole question here.
+  const stacked = [makeTask('s0', '2026-04-07', '2026-04-14'), makeTask('s1', '2026-04-07', '2026-04-14')];
+
+  it.each([
+    ['fine', false, 28],
+    ['coarse', true, 44],
+  ])('covers its own row band and never a neighbour (%s pointer)', (_l, coarse, h) => {
+    syncRowMetrics(coarse);
+    const idx = buildHitIndex(stacked, scales);
+    for (let row = 0; row < 2; row++) {
+      for (let y = HEADER_HEIGHT + row * h; y < HEADER_HEIGHT + (row + 1) * h; y += 1) {
+        const hit = idx.query(linkX, y, true);
+        expect(hit?.type, `row=${row} y=${y}`).toBe('link-dot');
+        expect(hit?.rowIndex, `row=${row} y=${y}`).toBe(row);
+      }
+    }
+  });
+
+  it('is 44px tall on a coarse pointer — and was only 28 before (#2997)', () => {
+    const heightOfZone = (coarse: boolean): number => {
+      syncRowMetrics(coarse);
+      const idx = buildHitIndex([taskA], scales);
+      let hits = 0;
+      for (let y = HEADER_HEIGHT - 20; y < HEADER_HEIGHT + 80; y += 1) {
+        if (idx.query(linkX, y, true)?.type === 'link-dot') hits += 1;
+      }
+      return hits;
+    };
+    expect(heightOfZone(false)).toBe(28); // clipped to the row band — under the floor
+    expect(heightOfZone(true)).toBe(44); // web rule 5 / WCAG 2.5.5, met
+  });
+
+  it('leaves the mouse zone hugging the bar at both pitches', () => {
+    for (const [coarse, inset] of [
+      [false, 5],
+      [true, 13],
+    ] as const) {
+      syncRowMetrics(coarse);
+      const idx = buildHitIndex([taskA], scales);
+      const barTop = HEADER_HEIGHT + inset;
+      expect(idx.query(linkX, barTop + 1, false)?.type, `coarse=${coarse}`).toBe('link-dot');
+      // A mouse gets the bar's own height, not the row's — unchanged.
+      expect(idx.query(linkX, barTop - 2, false), `coarse=${coarse}`).toBeNull();
+    }
   });
 });

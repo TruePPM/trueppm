@@ -422,6 +422,22 @@ export class GanttEngineImpl implements GanttEngine {
     this._requestRepaint();
   }
 
+  /**
+   * Re-derive everything that is a function of row height (#2997).
+   *
+   * The hit index bakes each row's `rowTop`/`barTop` at build time, and the
+   * arrow layout caches waypoints computed from row centers — both are stale the
+   * instant the pointer class flips, and neither is invalidated by anything the
+   * React tree does. See `GanttEngine.rowMetricsChanged` for why a stale hit
+   * index is the dangerous half.
+   */
+  rowMetricsChanged(): void {
+    this._rebuildHitIndex();
+    this._depLayout = null;
+    this._fullRepaintPending = true;
+    this._requestRepaint();
+  }
+
   updateTask(taskId: string, patch: Partial<Task>): void {
     const idx = this._tasks.findIndex((t) => t.id === taskId);
     if (idx === -1) return;

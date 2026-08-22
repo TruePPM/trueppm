@@ -43,7 +43,8 @@ import type { DeliveryMode, Task, TaskLink } from '@/types';
 import { useDragStore } from '@/stores/dragStore';
 import type { GanttEngine } from './engine';
 import { dateToLeft, dateToRight } from './engine';
-import { ROW_HEIGHT, BAR_TOP_OFFSET, BAR_HEIGHT } from './engine/GanttHitIndex';
+import { BAR_HEIGHT } from './engine/GanttHitIndex';
+import { useRowMetrics } from '@/hooks/useRowHeight';
 import { HEADER_HEIGHT } from './scheduleConstants';
 import { sprintBandByTaskId, type SprintBand } from './sprintBands';
 import { isPinnedByActuals } from './pinnedByActuals';
@@ -203,6 +204,12 @@ export function ScheduleAriaOverlay({
   sprintBands,
   containerRef,
 }: ScheduleAriaOverlayProps) {
+  // Row geometry follows the pointer class (#2997): 28px on a mouse, 44px on a
+  // coarse pointer. Taken from the hook rather than the `ROW_HEIGHT` binding
+  // directly, because a read alone would not re-render this overlay when a
+  // tablet gains a keyboard — and an overlay row rect that disagrees with the
+  // canvas beneath it is a focus ring framing the wrong bar.
+  const { rowHeight, barTopOffset } = useRowMetrics();
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
@@ -274,11 +281,11 @@ export function ScheduleAriaOverlay({
   );
 
   // Virtualised row range — viewportHeight is reduced by fixed header band
-  const overscan = OVERSCAN_ROWS * ROW_HEIGHT;
+  const overscan = OVERSCAN_ROWS * rowHeight;
   const minY = scrollTop - overscan;
   const maxY = scrollTop + viewportHeight - HEADER_HEIGHT + overscan;
-  const firstRow = Math.max(0, Math.floor(minY / ROW_HEIGHT));
-  const lastRow = Math.min(tasks.length - 1, Math.ceil(maxY / ROW_HEIGHT));
+  const firstRow = Math.max(0, Math.floor(minY / rowHeight));
+  const lastRow = Math.min(tasks.length - 1, Math.ceil(maxY / rowHeight));
 
   // After keyboard navigation re-renders the roving tab stop, move DOM focus
   // to it. Without this the next keydown still fires on the *previous* cell
@@ -321,11 +328,11 @@ export function ScheduleAriaOverlay({
         // outside it) and the bar into horizontal view.
         const container = containerRef.current;
         if (container) {
-          const rowTop = tasks.indexOf(target) * ROW_HEIGHT;
+          const rowTop = tasks.indexOf(target) * rowHeight;
           const viewH = container.clientHeight - HEADER_HEIGHT;
           if (rowTop < container.scrollTop) container.scrollTop = rowTop;
-          else if (rowTop + ROW_HEIGHT > container.scrollTop + viewH)
-            container.scrollTop = rowTop + ROW_HEIGHT - viewH;
+          else if (rowTop + rowHeight > container.scrollTop + viewH)
+            container.scrollTop = rowTop + rowHeight - viewH;
         }
         if (engine) engine.scrollToDate(target.start);
       };
@@ -384,7 +391,7 @@ export function ScheduleAriaOverlay({
           break;
       }
     },
-    [tasks, engine, containerRef],
+    [tasks, engine, containerRef, rowHeight],
   );
 
   const scales = engine?.scales ?? null;
@@ -418,7 +425,7 @@ export function ScheduleAriaOverlay({
       </span>
       {tasks.slice(firstRow, lastRow + 1).map((task, sliceIdx) => {
         const rowIndex = firstRow + sliceIdx;
-        const rowTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT - scrollTop;
+        const rowTop = rowIndex * rowHeight + HEADER_HEIGHT - scrollTop;
         // Roving tabindex: until the user has focused a row, the first task is the
         // tab stop so the listbox is reachable by Tab on initial load. Without the
         // `?? tasks[0]?.id` fallback every option was tabIndex=-1 and keyboard/AT
@@ -451,7 +458,7 @@ export function ScheduleAriaOverlay({
               top: rowTop,
               left: 0,
               right: 0,
-              height: ROW_HEIGHT,
+              height: rowHeight,
               pointerEvents: isFocused ? 'auto' : 'none',
             }}
           >
@@ -469,7 +476,7 @@ export function ScheduleAriaOverlay({
               style={{
                 position: 'absolute',
                 left: barLeft,
-                top: BAR_TOP_OFFSET,
+                top: barTopOffset,
                 width: barWidth,
                 height: BAR_HEIGHT,
                 pointerEvents: isFocused ? 'auto' : 'none',

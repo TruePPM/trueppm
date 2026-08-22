@@ -36,6 +36,7 @@ import type { DragPreviewResult, Task } from '@/types';
 import { useDragStore } from '@/stores/dragStore';
 import { dateToLeft } from '@/features/schedule/engine';
 import { ROW_HEIGHT, BAR_TOP_OFFSET, BAR_HEIGHT } from './engine/GanttHitIndex';
+import { useRowHeight } from '@/hooks/useRowHeight';
 import { HEADER_HEIGHT } from './scheduleConstants';
 import { isPinnedByActuals, PINNED_DRAG_EXPLANATION } from './pinnedByActuals';
 
@@ -232,6 +233,11 @@ interface Props {
  * through to the interaction canvas beneath it.
  */
 export function PreviewOverlay({ engine, tasks, containerRef }: Props) {
+  // Subscribe to the pointer class (#2997) so a coarse/fine flip re-renders the
+  // ghost bars. `barTop()` below reads the same live bindings the renderer paints
+  // real bars with, so the two cannot resolve different heights — but without a
+  // subscription this component would keep the pre-flip rows on screen.
+  useRowHeight();
   const phase = useDragStore((s) => s.phase);
   const draggedTaskId = useDragStore((s) => s.draggedTaskId);
   const previewResults = useDragStore((s) => s.previewResults);

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Task } from '@/types';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { buildSiblingIdsMap, TaskListPanel } from './TaskListPanel';
+import { stubCoarsePointer, restoreCoarsePointer } from '@/test/coarsePointer';
 
 /** Minimal task stub — buildSiblingIdsMap only reads `id` and `wbs`. */
 function t(id: string, wbs: string): Task {
@@ -76,7 +77,7 @@ describe('buildSiblingIdsMap', () => {
 // scroll-to-task effect.
 // ---------------------------------------------------------------------------
 
-const virtual = vi.hoisted(() => ({ scrollToIndex: vi.fn() }));
+const virtual = vi.hoisted(() => ({ scrollToIndex: vi.fn(), measure: vi.fn() }));
 
 vi.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: ({ count }: { count: number }) => ({
@@ -84,14 +85,19 @@ vi.mock('@tanstack/react-virtual', () => ({
     getVirtualItems: () =>
       Array.from({ length: count }, (_unused, index) => ({ key: index, index, start: index * 28 })),
     scrollToIndex: virtual.scrollToIndex,
+    // #2997: the panel re-measures when the pointer class flips the row height.
+    measure: virtual.measure,
   }),
 }));
 
 vi.mock('./TaskListHeader', () => ({
-  TaskListHeader: () => <div data-testid="task-list-header" />,
+  TaskListHeader: ({ gripReserve }: { gripReserve: number }) => (
+    <div data-testid="task-list-header" data-grip-reserve={gripReserve} />
+  ),
 }));
 
 interface RowStubProps {
+  gripReserve?: number;
   task: Task;
   level: number;
   dimmed?: boolean;
@@ -129,6 +135,7 @@ vi.mock('./TaskListRow', () => ({
       data-aria-rowindex={props.ariaRowIndex ?? ''}
       data-active-row={String(props.isActiveRow ?? false)}
       data-has-focus-edge={String(Boolean(props.onFocusEdge))}
+      data-grip-reserve={props.gripReserve ?? 0}
       data-sibling-names={(props.siblingNames ?? []).join(',')}
       data-name-suggestions={(props.nameSuggestions ?? []).join('|')}
       data-milestone-parents={(props.milestoneParents ?? []).map((p) => p.name).join(',')}
@@ -571,5 +578,69 @@ describe('TaskListPanel — the outline drag session', () => {
     unmount();
     renderPanel({ tasks: TASKS, summaryIds, onMoveToRequest: vi.fn() });
     expect(screen.getByTestId('row-a')).toHaveAttribute('data-has-move-to', 'true');
+  });
+});
+
+
+/**
+ * #2997 — the row pitch is a runtime value, and two things have to move with it.
+ */
+describe('TaskListPanel — the row pitch follows the pointer class (#2997)', () => {
+  afterEach(restoreCoarsePointer);
+
+  it('re-measures the virtualizer when the pointer class flips mid-session', () => {
+    const mq = stubCoarsePointer(false);
+    renderPanel({ tasks: [task({ id: 'a' }), task({ id: 'b', wbs: '2' })] });
+    virtual.measure.mockClear();
+
+    act(() => mq.flip(true));
+
+    // TanStack Virtual caches every measured size. Changing `estimateSize`
+    // alone leaves the old 28px offsets in place while each row's own box grows
+    // to 44 — the rows then overlap. Re-measuring is what actually moves them,
+    // and no other test on this branch would notice if the effect were deleted.
+    expect(virtual.measure).toHaveBeenCalled();
+  });
+
+  it('hands the header and every row the SAME grip lane', () => {
+    stubCoarsePointer(true);
+    renderPanel({
+      tasks: [task({ id: 'a' }), task({ id: 'b', wbs: '2' })],
+      onMoveRow: vi.fn(),
+    });
+    // One number from one place. Each of these renders the spacer itself, so a
+    // lane resolved per component is a table whose columns do not line up — and
+    // it would look like a rendering bug, not a missing constant.
+    expect(screen.getByTestId('task-list-header')).toHaveAttribute('data-grip-reserve', '44');
+    expect(screen.getByTestId('row-a')).toHaveAttribute('data-grip-reserve', '44');
+    expect(screen.getByTestId('row-b')).toHaveAttribute('data-grip-reserve', '44');
+  });
+
+  it('reserves nothing when no move can be committed — a viewer keeps the width', () => {
+    stubCoarsePointer(true);
+    renderPanel({ tasks: [task({ id: 'a' })] }); // no onMoveRow → no grip anywhere
+    // Web rule 302 makes the apparatus absent for a viewer; a 44px lane held for
+    // a control that is not rendered costs ~15% of the name column for nothing.
+    expect(screen.getByTestId('task-list-header')).toHaveAttribute('data-grip-reserve', '0');
+    expect(screen.getByTestId('row-a')).toHaveAttribute('data-grip-reserve', '0');
+  });
+
+  it('gives a pending row the same lane, so it does not jump when it schedules', () => {
+    stubCoarsePointer(true);
+    renderPanel({
+      tasks: [task({ id: 'a' })],
+      onMoveRow: vi.fn(),
+      pendingTaskIds: new Map([['p1', 'Newly typed row']]),
+    });
+    const pending = screen.getByRole('row', { name: /pending scheduling/ });
+    const lane = pending.firstElementChild as HTMLElement;
+    expect(lane.getAttribute('aria-hidden')).toBe('true');
+    expect(lane.style.width).toBe('44px');
+  });
+
+  it('reserves nothing on a fine pointer even when the grip is there', () => {
+    stubCoarsePointer(false);
+    renderPanel({ tasks: [task({ id: 'a' })], onMoveRow: vi.fn() });
+    expect(screen.getByTestId('row-a')).toHaveAttribute('data-grip-reserve', '0');
   });
 });

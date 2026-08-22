@@ -26,6 +26,7 @@ import type { GanttEngine, GanttScaleData } from './engine';
 import { dateToLeft, leftToDate, ZOOM_STEP_FACTOR } from './engine';
 import { computeInitialFraming, type RowBar } from './scheduleUtils';
 import { HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
+import { useRowHeight } from '@/hooks/useRowHeight';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useProjectResourcePool } from '@/hooks/useProjectResourcePool';
 import { useScheduleStore } from '@/stores/scheduleStore';
@@ -607,6 +608,11 @@ function consumeTaskParam(ctx: {
 // ---------------------------------------------------------------------------
 
 export function ScheduleView() {
+  // Subscribe to the pointer class (#2997). The value is the same one the canvas
+  // engine and the hit index read through the `ROW_HEIGHT` live binding — the
+  // subscription is what turns a coarse/fine flip into a re-render, so the
+  // scroll spacer below is resized in the same commit the engine repaints in.
+  const rowHeight = useRowHeight();
   // document.title for this route is set at the router level (router.tsx
   // `handle.title`) — see RouteTitle (issue 1915, completes #1327 A4).
   const projectId = useProjectId() ?? null;
@@ -990,6 +996,17 @@ export function ScheduleView() {
   const taskListScrollRef = useRef<HTMLDivElement>(null);
   const [engine, setEngine] = useState<GanttEngine | null>(null);
 
+  // #2997: the pointer class changed the row pitch. React has already
+  // re-rendered the outline, the overlay and the scroll spacer from the same
+  // value — the canvas has not, because it paints from an imperative rAF loop
+  // that only re-arms when a mutator marks it dirty, and its hit index bakes
+  // each row's `rowTop` at build time. Until this fires, a tap resolves against
+  // the OLD pitch while the DOM shows the new one, which opens the wrong task
+  // and looks like nothing is wrong.
+  useEffect(() => {
+    engine?.rowMetricsChanged();
+  }, [engine, rowHeight]);
+
   // Push the hover chain to the canvas whenever it changes — drives dep-arrow
   // recoloring (blue/green) and out-of-chain bar dimming (#475).
   useEffect(() => {
@@ -1197,7 +1214,7 @@ export function ScheduleView() {
     // emptiness the user reads as "the schedule is broken" (#2423).
     const rowsInView = Math.max(
       1,
-      Math.ceil((container.clientHeight - HEADER_HEIGHT) / ROW_HEIGHT),
+      Math.ceil((container.clientHeight - HEADER_HEIGHT) / rowHeight),
     );
     const bars: (RowBar | null)[] = visibleTasks.slice(0, rowsInView).map((t) => {
       if (!t.start || !t.finish) return null;
@@ -1222,7 +1239,7 @@ export function ScheduleView() {
     } else {
       container.scrollLeft = framing.scrollLeft;
     }
-  }, [engine, scheduleScales, visibleTasks]);
+  }, [engine, scheduleScales, visibleTasks, rowHeight]);
 
   // Fetched ahead of the two preview hooks below because both need the
   // project's data date. Project start date also feeds the project-start floor
@@ -2190,7 +2207,7 @@ export function ScheduleView() {
         const x = dateToLeft(dateIso, scheduleScales);
         const rowIdx = visibleTasks.findIndex((t) => t.id === taskId);
         const idx = rowIdx >= 0 ? rowIdx : visibleTasks.length;
-        const y = HEADER_HEIGHT + idx * ROW_HEIGHT + ROW_HEIGHT / 2;
+        const y = HEADER_HEIGHT + idx * rowHeight + rowHeight / 2;
         // The second of the two identical dead guards (see runTaskHashDeepLink).
         // `dateToLeft` cannot throw — it is arithmetic, and an unparseable date
         // yields NaN — so the catch never fired and NaN reached the style prop,
@@ -2207,7 +2224,7 @@ export function ScheduleView() {
         focus.focusRow(taskId);
       }
     },
-    [allTasks, scheduleScales, visibleTasks, buildModeActive, focus],
+    [allTasks, scheduleScales, visibleTasks, buildModeActive, focus, rowHeight],
   );
 
   // "+ Phase" (epic #1752, issue #1754, ADR-0293): the create-empty-then-nest
@@ -4256,6 +4273,10 @@ function timelineRowMenuItems(buildMode: BuildModeApi, taskId: string): RowMenuI
 }
 
 function ScheduleMainArea(props: ScheduleMainAreaProps) {
+  // The canvas scroll spacer's height is the engine's row model expressed in the
+  // DOM (#2997) — it is what makes the last row reachable. Read through the hook
+  // so a pointer-class flip resizes it, not just the canvas.
+  const rowHeight = useRowHeight();
   // Timeline right-click (#2978). In Timeline mode there is NO DOM row — the
   // canvas is full-width and the task-list panel is not rendered (#1221) — so a
   // right-click landed on the <canvas> and produced the browser's "Save Image
@@ -4453,7 +4474,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
               style={{
                 width: totalCanvasWidth > 0 ? totalCanvasWidth : '100%',
                 minWidth: '100%',
-                height: HEADER_HEIGHT + visibleTasks.length * ROW_HEIGHT,
+                height: HEADER_HEIGHT + visibleTasks.length * rowHeight,
                 position: 'relative',
               }}
             >
