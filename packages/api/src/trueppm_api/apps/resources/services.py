@@ -177,7 +177,7 @@ def _write_one_owner(
 
 
 def apply_task_owners(
-    task: Task, owners: list[dict[str, object]], *, actor: Any = None
+    task: Task, owners: list[dict[str, object]], *, actor: Any = None, broadcast: bool = True
 ) -> list[TaskResource]:
     """Write inline ``owners`` authored on a task write into ``TaskResource`` rows.
 
@@ -223,6 +223,13 @@ def apply_task_owners(
             scoped every resource to ``task.project``'s roster.
         actor: The acting user, for the audit row. ``None`` skips it — correct for a
             system path such as an import, which records its own provenance.
+        broadcast: Emit the ``assignment_*`` board events. Pass ``False`` only when the
+            caller already emits a coarser event covering the same rows — the recurring
+            occurrence sweep (#2902) writes many tasks per project per run and
+            deliberately emits one bulk ``tasks_bulk_mutated`` per project instead of one
+            event per row, and both event families funnel to the same
+            ``scheduleInvalidate('tasks')`` on the client, so the per-assignment events
+            would be pure duplicate load. Never pass ``False`` from a user-facing write.
 
     Returns:
         The ``TaskResource`` rows written, in input order.
@@ -237,7 +244,7 @@ def apply_task_owners(
         if event is not None:
             events.append(event)
 
-    if events:
+    if events and broadcast:
         project_id = str(task.project_id)
         task_id = str(task.pk)
 
