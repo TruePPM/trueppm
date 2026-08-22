@@ -310,9 +310,13 @@ vi.mock('./TaskListPanel', () => ({
   TaskListPanel: ({
     tasks,
     onCommitDraftRow,
+    onAppendTaskAtEnd,
+    appendAtEndReadOnly,
   }: {
     tasks: Task[];
     onCommitDraftRow?: (name: string) => void;
+    onAppendTaskAtEnd?: () => void;
+    appendAtEndReadOnly?: boolean;
   }) => (
     <div data-testid="task-list-panel">
       {tasks.map((t) => (
@@ -321,6 +325,18 @@ vi.mock('./TaskListPanel', () => ({
       {onCommitDraftRow && (
         <button type="button" onClick={() => onCommitDraftRow('Pour foundations')}>
           commit-draft
+        </button>
+      )}
+      {/* #2957: the footer's own rendering has its own spec — this stub covers
+          ScheduleView's half, that the callback exists at all and appends at the
+          top level regardless of the cursor. */}
+      {onAppendTaskAtEnd && (
+        <button
+          type="button"
+          data-read-only={appendAtEndReadOnly ? 'true' : 'false'}
+          onClick={onAppendTaskAtEnd}
+        >
+          append-at-end
         </button>
       )}
     </div>
@@ -735,6 +751,71 @@ describe('ScheduleView — read-only vs authoring gates', () => {
     renderSchedule();
     expect(screen.getByRole('button', { name: '+ Milestone' })).toBeEnabled();
     expect(screen.getByRole('button', { name: '+ Phase' })).toBeEnabled();
+  });
+});
+
+describe('ScheduleView — three insert affordances (#2957)', () => {
+  beforeEach(() => {
+    window.localStorage.removeItem('trueppm.schedule.authorMode.test-user-1.project-1');
+  });
+
+  it('appends at the TOP level from the footer, whatever the cursor is on', async () => {
+    // The whole defect: a control at the foot of the list that quietly did the
+    // cursor's bidding. `t3` is a child of the `t1` summary, so an affordance
+    // that honored the selection would post `parent_id: 't1'`.
+    const user = userEvent.setup();
+    mockRole = ROLE_MEMBER;
+    renderSchedule();
+    act(() => {
+      useScheduleStore.setState({ selectedTaskId: 't3' });
+    });
+    await user.click(screen.getByRole('button', { name: 'append-at-end' }));
+    expect(createTaskMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ parent_id: null }),
+      expect.anything(),
+    );
+  });
+
+  it('gives a viewer no footer at all — absent, not disabled', () => {
+    mockRole = ROLE_VIEWER;
+    renderSchedule();
+    expect(screen.queryByRole('button', { name: 'append-at-end' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the footer present and inert for an editor who chose Read', async () => {
+    const user = userEvent.setup();
+    mockRole = ROLE_MEMBER;
+    renderSchedule();
+    await user.click(screen.getByTestId('author-mode-pill'));
+    expect(screen.getByRole('button', { name: 'append-at-end' })).toHaveAttribute(
+      'data-read-only',
+      'true',
+    );
+  });
+
+  it('refuses the append in Read mode even if the control is reached', async () => {
+    // The stub button is not disabled, so the click reaches the handler — which
+    // is the point: the guard, not the styling, is what stops the write.
+    const user = userEvent.setup();
+    mockRole = ROLE_MEMBER;
+    renderSchedule();
+    await user.click(screen.getByTestId('author-mode-pill'));
+    createTaskMutate.mockClear();
+    await user.click(screen.getByRole('button', { name: 'append-at-end' }));
+    expect(createTaskMutate).not.toHaveBeenCalled();
+  });
+
+  it('states nothing and opens the create form when nothing is focused', async () => {
+    // No focused row means no row to land after — the toolbar says so by saying
+    // nothing, rather than borrowing the footer's append-at-the-end behavior.
+    const user = userEvent.setup();
+    mockRole = ROLE_MEMBER;
+    renderSchedule();
+    expect(screen.queryByTestId('schedule-insert-target')).not.toBeInTheDocument();
+    const addBtn = screen.getByRole('button', { name: 'Add task' });
+    expect(addBtn).toHaveAttribute('aria-expanded', 'false');
+    await user.click(addBtn);
+    expect(screen.getByRole('dialog', { name: 'Task form' })).toBeInTheDocument();
   });
 });
 

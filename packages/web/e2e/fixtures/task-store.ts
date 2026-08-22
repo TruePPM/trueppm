@@ -51,10 +51,17 @@ export interface TaskStoreOptions {
 export interface TaskStoreHandle {
   /** PATCH bodies the app sent, in order — the request-side contract to assert on. */
   patches: Record<string, unknown>[];
+  /** POST bodies the app sent, in order (#2957 — which parent an insert asked for). */
+  creates: Record<string, unknown>[];
   /** The store's current rows: exactly what the next refetch will return. */
   rows: () => TaskRow[];
   /** Classification-cascade bodies the app sent, in order (#2736). */
   classifications: Record<string, unknown>[];
+}
+
+/** A row's WBS path, narrowed off the `unknown`-valued `TaskRow` map. */
+function wbsOf(row: TaskRow): string {
+  return typeof row.wbs_path === 'string' ? row.wbs_path : '';
 }
 
 /** `/api/v1/tasks/<id>/` and nothing deeper — a nested path is not this store's. */
@@ -66,6 +73,8 @@ export async function setupTaskStore(
 ): Promise<TaskStoreHandle> {
   const rows: TaskRow[] = opts.tasks.map((t) => ({ ...t }));
   const patches: Record<string, unknown>[] = [];
+  const creates: Record<string, unknown>[] = [];
+  let createSeq = 0;
   const classifications: Record<string, unknown>[] = [];
   // ADR-0810 (#2756): the pre-cascade snapshot `/cascade-classification-operations/
   // {id}/undo/` restores — captured before the classification route's own mutation
@@ -98,6 +107,61 @@ export async function setupTaskStore(
       return row
         ? route.fulfill(json(row))
         : route.fulfill(json({ detail: 'Not found.' }, 404));
+    }
+
+    // `POST /tasks/` (#2957). The three insert affordances are only testable
+    // through *where the row ends up*, so the store has to place a create the
+    // way the server does: append within the requested parent, derive the WBS
+    // path from that parent's, and promote the parent to a summary. Asserting
+    // that a request fired proves nothing here — a request firing is exactly
+    // what the three affordances already had in common while landing in the
+    // wrong place.
+    // The LIST path only. `id === undefined` would also be true for every
+    // nested action (`tasks/{id}/restore/`, `/indent/`, `/comments/`, …),
+    // because `DETAIL_PATH` matches the detail path and nothing deeper — so a
+    // looser guard would fulfil a fabricated 201 task row where those calls
+    // used to `route.fallback()` to their own mock, and the spec would present
+    // as "a nonsense row appeared" rather than "a mock is missing".
+    if (method === 'POST' && new URL(request.url()).pathname.endsWith('/api/v1/tasks/')) {
+      const body = (request.postDataJSON() ?? {}) as Record<string, unknown>;
+      creates.push(body);
+      const parentId = (body.parent_id ?? null) as string | null;
+      const parent = parentId === null ? undefined : rows.find((r) => r.id === parentId);
+      const parentWbs = parent ? wbsOf(parent) : '';
+      const siblings = rows.filter((r) => (r.parent_id ?? null) === parentId);
+      createSeq += 1;
+      const created: TaskRow = {
+        early_start: '2026-04-05',
+        early_finish: '2026-04-09',
+        planned_start: '2026-04-05',
+        duration: 1,
+        percent_complete: 0,
+        is_critical: false,
+        is_milestone: false,
+        is_summary: false,
+        status: 'NOT_STARTED',
+        assignees: [],
+        total_float: null,
+        predecessor_count: 0,
+        is_blocked: false,
+        linked_risks_count: 0,
+        linked_risks_max_severity: null,
+        ...body,
+        id: `created-${createSeq}`,
+        parent_id: parentId,
+        wbs_path: parentWbs ? `${parentWbs}.${siblings.length + 1}` : `${siblings.length + 1}`,
+      };
+      // The server appends within the parent's subtree; at the root that is the
+      // end of the whole list, which is what the footer affordance relies on.
+      const lastOfSubtree = parentWbs
+        ? rows.reduce((acc, r, i) => {
+            const w = wbsOf(r);
+            return w === parentWbs || w.startsWith(`${parentWbs}.`) ? i : acc;
+          }, -1)
+        : rows.length - 1;
+      rows.splice(lastOfSubtree + 1, 0, created);
+      if (parent) parent.is_summary = true;
+      return route.fulfill(json(created, 201));
     }
 
     if (method === 'PATCH' && id !== undefined) {
@@ -335,5 +399,5 @@ export async function setupTaskStore(
     },
   );
 
-  return { patches, classifications, rows: () => rows.map((r) => ({ ...r })) };
+  return { patches, creates, classifications, rows: () => rows.map((r) => ({ ...r })) };
 }
