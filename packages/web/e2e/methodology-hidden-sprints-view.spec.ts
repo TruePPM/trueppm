@@ -243,6 +243,20 @@ test.describe('A methodology-hidden view reached by direct URL (#2619)', () => {
     await expect(page.getByRole('heading', { level: 1, name: /Active sprint/ })).toBeVisible();
   });
 
+  test('"Review methodology" routes to Settings → How this team works', async ({ page }) => {
+    // The mismatch banner's twin of "Change methodology" (#2969). It was
+    // repointed in the same commit, and only its EXISTENCE was ever asserted —
+    // so reverting the destination to the retired `#methodology` left every test
+    // green while the link degraded to a rewrite it should not need.
+    await setupCommon(page, [ACTIVE_SPRINT]);
+    await page.goto(BASE_URL);
+
+    await page.getByRole('button', { name: 'Review methodology' }).click();
+    await expect(page).toHaveURL(
+      new RegExp(`/projects/${PROJECT_ID}/settings#how-this-team-works$`),
+    );
+  });
+
   test('"Change methodology" routes to Settings → How this team works', async ({ page }) => {
     // The Methodology anchor was absorbed by the consolidated section in #2969.
     // The in-app deep link points at the live id directly rather than leaning on

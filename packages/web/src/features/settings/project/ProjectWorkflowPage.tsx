@@ -22,7 +22,11 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { SettingsPageTitle, type SettingsBlockProps } from '../SettingsShell';
+import {
+  SettingsPageTitle,
+  SettingsSubHeading,
+  type SettingsBlockProps,
+} from '../SettingsShell';
 import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
 import { Toggle } from '../components/Toggle';
 import { FieldHelp, type FieldHelpOption } from '@/components/FieldHelp';
@@ -203,9 +207,9 @@ function CadenceSection({
       className="bg-neutral-surface-raised border border-neutral-border rounded-card overflow-hidden"
     >
       <div className="px-4 py-3 border-b border-neutral-border flex items-center gap-2">
-        <h2 id="cadence-heading" className="text-[13px] font-semibold text-neutral-text-primary">
+        <SettingsSubHeading id="cadence-heading" className="text-[13px] font-semibold text-neutral-text-primary">
           Board cadence
-        </h2>
+        </SettingsSubHeading>
         <FieldHelp
           label="Board cadence"
           body="Cadence is how this board paces work. Sprint-based plans work in time-boxed sprints with a burndown; continuous flow (Kanban) drops the sprint cadence and tracks work as it moves through columns, surfacing flow analytics instead. Switching to continuous flow hides sprint tracking but preserves the sprint data."
@@ -644,9 +648,9 @@ function PhasesSection({
       className="bg-neutral-surface-raised border border-neutral-border rounded-card overflow-hidden"
     >
       <div className="px-4 py-3 border-b border-neutral-border flex items-center gap-2">
-        <h2 id="phases-heading" className="text-[13px] font-semibold text-neutral-text-primary">
+        <SettingsSubHeading id="phases-heading" className="text-[13px] font-semibold text-neutral-text-primary">
           Phases
-        </h2>
+        </SettingsSubHeading>
         <span className="text-[12px] text-neutral-text-secondary">
           · Swim-lanes on the board, summary rows on the schedule
         </span>
@@ -864,9 +868,9 @@ function StatusesSection({
       className="bg-neutral-surface-raised border border-neutral-border rounded-card overflow-hidden"
     >
       <div className="px-4 py-3 border-b border-neutral-border flex items-center gap-2">
-        <h2 id="statuses-heading" className="text-[13px] font-semibold text-neutral-text-primary">
+        <SettingsSubHeading id="statuses-heading" className="text-[13px] font-semibold text-neutral-text-primary">
           Statuses
-        </h2>
+        </SettingsSubHeading>
         <FieldHelp
           label="Statuses"
           body="Each status is a column on the board and the status pill on task cards. The five canonical statuses are fixed — rename, recolor, reorder, or hide a column here. The per-column age limit flags cards that have sat in that column longer than the set number of days with an aging indicator; leave it blank to use the default. Hiding a column keeps its tasks but removes the column from the board."
@@ -1186,9 +1190,9 @@ function FieldsSection({
       className="bg-neutral-surface-raised border border-neutral-border rounded-card overflow-hidden"
     >
       <div className="px-4 py-3 border-b border-neutral-border flex items-center gap-2">
-        <h2 id="fields-heading" className="text-[13px] font-semibold text-neutral-text-primary">
+        <SettingsSubHeading id="fields-heading" className="text-[13px] font-semibold text-neutral-text-primary">
           Fields
-        </h2>
+        </SettingsSubHeading>
         <span className="text-[12px] text-neutral-text-secondary">
           · Built-ins are required by the scheduler. Custom fields appear in the task drawer.
         </span>

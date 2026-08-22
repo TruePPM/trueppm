@@ -225,6 +225,42 @@ test.describe('Project settings — retired anchors redirect (#2969)', () => {
     ).toBeVisible();
   });
 
+  test('a retired anchor lands on its own BLOCK, not merely on the section', async ({ page }) => {
+    // The address becomes the section's, but the destination must still be the
+    // thing the old link named. `#guardrails` used to open the guardrail matrix;
+    // landing three blocks above it is technically not a 404 and practically a
+    // lost link. Focus is the assertable half — "visible" is true for every
+    // section on this page whether the scroll fired or not (ADR-0146).
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/settings#guardrails`);
+    await expectLanded(page);
+
+    await expect(
+      page.locator('[data-settings-anchor="guardrails"] [data-settings-block-heading]'),
+    ).toBeFocused();
+  });
+
+  test('the in-section jump strip reaches every block', async ({ page }) => {
+    // The merge buys one rail row and pays for it in navigability — the rail's
+    // scroll-spy is pinned to a single row across the tallest stretch of the page.
+    // This strip is what pays it back, and the only in-page route to a block for
+    // someone who did not arrive by a retired deep link.
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/settings#${SECTION}`);
+    await expectLanded(page);
+
+    const strip = page.getByRole('navigation', { name: 'In this section' });
+    await strip.getByRole('button', { name: 'Sprint guardrails' }).click();
+    await expect(
+      page.locator('[data-settings-anchor="guardrails"] [data-settings-block-heading]'),
+    ).toBeFocused();
+
+    await strip.getByRole('button', { name: 'Methodology' }).click();
+    await expect(
+      page.locator('[data-settings-anchor="methodology"] [data-settings-block-heading]'),
+    ).toBeFocused();
+  });
+
   test('the rail carries one row for the three, and none of the old three', async ({ page }) => {
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/settings#${SECTION}`);

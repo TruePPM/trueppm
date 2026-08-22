@@ -182,7 +182,11 @@ export function buildProjectSettingsNav({
           // somewhere, and this row is now the only place any of them lives.
           id: TEAM_WORKFLOW_SECTION_ID,
           label: 'How this team works',
-          keywords: `methodology agile scrum kanban waterfall hybrid workflow fields phases statuses board columns lanes wip limits custom fields cadence ${iterationSingular} guardrails policy`,
+          // Both iteration nouns unconditionally, not just the configured one: the
+          // retired Guardrails row carried `sprint iteration`, so a project that
+          // calls its container an Iteration must still answer to "sprint" and vice
+          // versa. Dropping one is an empty rail with no explanation.
+          keywords: `methodology agile scrum kanban waterfall hybrid workflow fields board states phases statuses board columns lanes wip limits capacity custom fields cadence sprint iteration ${iterationSingular} guardrails policy`,
           icon: (
             <NavIcon>
               <SprintIcon aria-hidden="true" />
@@ -414,7 +418,11 @@ export function ProjectSettingsPage() {
         contextOptions={contextOptions}
         contextActiveId={projectId}
         navGroups={navGroups}
-        anchorAliases={PROJECT_SETTINGS_ANCHOR_ALIASES}
+        // No `anchorAliases` here on purpose: every retired anchor resolves to
+        // `how-this-team-works`, which the member rail does not mount, so the map
+        // could only ever be dead config. The shell would decline the rewrite
+        // anyway — this makes the reason readable at the call site instead of
+        // leaving a future reader to work out why it silently does nothing.
         exitTo={`/projects/${projectId}/overview`}
         exitLabel="Overview"
       >

@@ -10,7 +10,11 @@ import {
   type GuardrailRule,
   type GuardrailLevel,
 } from '@/hooks/useProjectGuardrailPolicy';
-import { SettingsPageTitle, type SettingsBlockProps } from '../SettingsShell';
+import {
+  SettingsPageTitle,
+  SettingsSubHeading,
+  type SettingsBlockProps,
+} from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 
@@ -115,9 +119,9 @@ export function ProjectGuardrailsPage({ embedded, docsHref }: SettingsBlockProps
           >
             <div className="flex-1">
               <div className="flex items-center gap-1.5">
-                <h2 className="text-[13px] font-semibold text-neutral-text-primary">
+                <SettingsSubHeading className="text-[13px] font-semibold text-neutral-text-primary">
                   Policy set by {policy.sourceLabel || 'an external administrator'}
-                </h2>
+                </SettingsSubHeading>
                 <FieldHelp
                   label="External policy"
                   body="This guardrail policy was supplied by an external administrator (a TruePPM Enterprise resolver), not set on this project. Any rule configured as Block stays inert — warning only — until this team acknowledges the policy. Acknowledging activates those blocks; you can withdraw acknowledgement at any time. Warnings always fire regardless."

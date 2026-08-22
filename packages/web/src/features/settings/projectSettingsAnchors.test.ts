@@ -27,6 +27,7 @@ import {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROUTER = readFileSync(resolve(HERE, '../../router.tsx'), 'utf8');
+const PAGE = readFileSync(resolve(HERE, 'ProjectSettingsPage.tsx'), 'utf8');
 
 const navIds = (opts?: { showTeamTab?: boolean }) =>
   buildProjectSettingsNav({
@@ -68,15 +69,30 @@ describe('project settings rail — the three agile anchors are one row (#2969)'
       'agile',
       'hybrid',
       'workflow',
+      'board states',
       'statuses',
       'lanes',
       'wip',
+      'capacity',
       'custom fields',
       'cadence',
       'guardrails',
+      // BOTH iteration nouns, whatever this project calls its container — the
+      // retired Guardrails row carried `sprint iteration` unconditionally.
+      'sprint',
+      'iteration',
     ]) {
       expect(haystack, `rail search for "${term}" finds nothing`).toContain(term);
     }
+  });
+
+  it('answers to both iteration nouns even when the project relabels its container', () => {
+    const row = buildProjectSettingsNav({ showTeamTab: true, iterationSingular: 'Iteration' })
+      .flatMap((g) => g.items)
+      .find((i) => i.id === TEAM_WORKFLOW_SECTION_ID);
+    const haystack = `${row!.label} ${row!.keywords ?? ''}`.toLowerCase();
+    expect(haystack).toContain('sprint');
+    expect(haystack).toContain('iteration');
   });
 
   it('titles the row for the decision, not for the settings object', () => {
@@ -151,5 +167,19 @@ describe('the member rail is untouched by the consolidation (#2971)', () => {
   it('does not show a member the consolidated admin section', () => {
     const ids = buildProjectSettingsMemberNav().flatMap((g) => g.items.map((i) => i.id));
     expect(ids).not.toContain(TEAM_WORKFLOW_SECTION_ID);
+  });
+
+  it('is not handed an alias map it could never resolve', () => {
+    // Every alias target is `how-this-team-works`, which the member rail does not
+    // mount — so passing the map to the member shell would be config that can only
+    // ever no-op. Read off the source because the distinction is a call-site
+    // decision, not observable behavior: both "map passed" and "map absent" look
+    // identical to a member.
+    const memberShell = PAGE.slice(
+      PAGE.indexOf('if (memberView) {'),
+      PAGE.indexOf('return (\n    <SettingsShell'),
+    );
+    expect(memberShell).toContain('<SettingsShell');
+    expect(memberShell).not.toMatch(/anchorAliases=\{PROJECT_SETTINGS_ANCHOR_ALIASES\}/);
   });
 });
