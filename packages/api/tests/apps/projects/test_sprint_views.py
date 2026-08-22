@@ -834,11 +834,21 @@ def test_viewer_cannot_close(viewer_client: APIClient, project: Project) -> None
 
 
 def test_stranger_cannot_close(stranger_client: APIClient, project: Project) -> None:
+    """404 rather than 403 since #2995 — the refusal is unchanged, only its shape.
+
+    ``close`` resolves through the same membership-scoped queryset as every other
+    detail action on this viewset. A write is not reachable by an agent token
+    (``TokenReadOnlyMethods`` bars non-safe methods), so this particular route was
+    never part of the ADR-0678 bypass; it is converted anyway because leaving
+    write actions on the bare manager preserves the trap — the next action gets
+    written by copying its neighbour, and a read copied from here would reopen it.
+    """
     s = _make_sprint(project, state=SprintState.ACTIVE)
     resp = stranger_client.post(
         f"/api/v1/sprints/{s.pk}/close/", {"carry_over_to": "backlog"}, format="json"
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 404
+    # The refusal is what matters: the sprint is untouched either way.
     s.refresh_from_db()
     assert s.state == SprintState.ACTIVE
 
@@ -1003,9 +1013,20 @@ def test_capacity_endpoint_returns_aggregate_and_members(
 def test_capacity_endpoint_requires_membership(
     stranger_client: APIClient, project: Project
 ) -> None:
+    """404, not 403 (#2995).
+
+    Detail actions resolve through the membership-scoped queryset, so a
+    non-member cannot use the status code to learn whether a sprint id is real —
+    a fabricated id and a genuine one both answer 404. Pinned exactly rather
+    than `in (403, 404)`: the loose form is what let this endpoint's behaviour
+    drift unnoticed, and it would keep passing if the gate degraded to something
+    else entirely.
+    """
     s = _make_sprint(project)
     resp = stranger_client.get(f"/api/v1/sprints/{s.pk}/capacity/")
-    assert resp.status_code == 403
+    assert resp.status_code == 404
+    # And an id that does not exist is indistinguishable from one that does.
+    assert stranger_client.get(f"/api/v1/sprints/{uuid4()}/capacity/").status_code == 404
 
 
 # ---------------------------------------------------------------------------

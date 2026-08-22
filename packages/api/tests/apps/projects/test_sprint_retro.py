@@ -432,7 +432,9 @@ def test_viewer_cannot_write(project: Project, viewer: object) -> None:
 def test_outsider_gets_403(project: Project, stranger: object) -> None:
     s = _closed_sprint(project)
     resp = _client(stranger).get(f"/api/v1/sprints/{s.pk}/retro/")
-    assert resp.status_code == 403
+    # 404 since #2995 — the non-member is filtered out of the queryset before
+    # any role gate runs. The refusal is unchanged; only its shape is.
+    assert resp.status_code == 404
 
 
 @pytest.mark.django_db

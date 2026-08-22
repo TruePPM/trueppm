@@ -530,9 +530,21 @@ def test_bulk_accept_endpoint_plain_member_403(
 def test_bulk_accept_endpoint_non_member_403(
     project: Project, sprint: Sprint, owner: object, outsider: object
 ) -> None:
-    """The view-layer back-door close: an org/PMO principal with no ProjectMembership
-    and no facet is denied by IsProjectScopeManager at the HTTP layer, even as a
-    superuser — the facet path cannot be synthesized."""
+    """The view-layer back-door close: an org/PMO principal with no
+    ProjectMembership and no facet cannot accept injected scope, **even as a
+    superuser** — the facet path cannot be synthesized.
+
+    The refusal is 404 since #2995, and the docstring used to misdescribe why.
+    It claimed ``IsProjectScopeManager`` denied this "at the HTTP layer", but on
+    this flat ``/sprints/<pk>/`` route ``_project_pk_from_view`` finds no
+    ``project_pk`` kwarg, so ``has_permission`` returns True unconditionally and
+    the real denial came from ``has_object_permission`` *after* the body had
+    already resolved the sprint from the bare manager. Now the sprint is resolved
+    through the membership-scoped queryset, so a non-member never reaches the
+    object check at all — and there is no superuser escape hatch in
+    ``ProjectScopedViewSet.get_queryset``. The guarantee under test is unchanged;
+    only which layer enforces it, and the status code, have moved.
+    """
     a = _task(project, "A", sprint=sprint, story_points=1)
     _inject(a, sprint, owner)
     outsider.is_superuser = True
@@ -540,7 +552,7 @@ def test_bulk_accept_endpoint_non_member_403(
     client = APIClient()
     client.force_authenticate(user=outsider)
     resp = client.post(f"/api/v1/sprints/{sprint.pk}/scope-changes/accept/", {}, format="json")
-    assert resp.status_code == 403
+    assert resp.status_code == 404
 
 
 def test_single_accept_endpoint_member_403(
