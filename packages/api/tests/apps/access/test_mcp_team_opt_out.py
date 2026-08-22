@@ -343,6 +343,28 @@ def test_detail_route_of_opted_out_object_is_not_found(project: Project, owner: 
 
 
 @pytest.mark.django_db
+def test_template_divergence_respects_the_opt_out(project: Project, owner: Any) -> None:
+    """The divergence digest (#2971) resolves through the filtered queryset like its siblings.
+
+    Added with the endpoint rather than after it: this is exactly the shape #3001 /
+    #2995 found repeatedly — a project-detail ``@action`` whose body is correct for
+    humans and invisible to the agent opt-out because it looked the project up itself
+    instead of through ``get_object()``.
+    """
+    _opt_out(project)
+    resp = _agent(owner).get(f"/api/v1/projects/{project.pk}/template-divergence/")
+    assert resp.status_code in (403, 404), resp.status_code
+
+
+@pytest.mark.django_db
+def test_template_divergence_unaffected_for_humans(project: Project, owner: Any) -> None:
+    """The opt-out governs agents. The team's own read of their own report stays open."""
+    _opt_out(project)
+    resp = _human(owner).get(f"/api/v1/projects/{project.pk}/template-divergence/")
+    assert resp.status_code == 200, resp.status_code
+
+
+@pytest.mark.django_db
 def test_human_list_is_unfiltered(project: Project, other_project: Project, owner: Any) -> None:
     _opt_out(project)
     resp = _human(owner).get("/api/v1/projects/")
