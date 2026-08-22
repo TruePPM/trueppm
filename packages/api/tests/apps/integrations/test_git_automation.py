@@ -884,12 +884,15 @@ def test_an_unreadable_encryption_key_is_404_not_500(
 
 
 def test_a_non_ascii_secret_is_refused_at_write_time(project: Project) -> None:
-    """The ASCII invariant ``_constant_time_equal`` depends on, enforced in code.
+    """The ASCII invariant ``constant_time_equal`` depends on, enforced in code.
 
-    The header encode falls back latin-1 → utf-8, and the two codecs agree only on
-    ASCII, so a non-ASCII secret would let genuinely different headers compare equal.
-    Every secret today comes from ``secrets.token_urlsafe``; this keeps that true the
-    day a "paste your existing provider secret" path is added.
+    The encode falls back latin-1 → utf-8 and the two codecs agree only on ASCII.
+    Since #2929 both sides go through the same encode, so a non-ASCII secret no
+    longer lets different headers compare equal — it instead never verifies, because
+    the header's wire bytes round-trip through latin-1 and cannot match the secret's
+    own latin-1 encoding. Refused at write time either way. Every secret today comes
+    from ``secrets.token_urlsafe``; this keeps that true the day a "paste your
+    existing provider secret" path is added.
     """
     auto = BoardAutomation(project=project, enabled=True)
     with pytest.raises(ValueError, match="ASCII"):

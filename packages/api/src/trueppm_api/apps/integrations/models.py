@@ -392,14 +392,20 @@ class BoardAutomation(models.Model):
         # enforced here because here is the only place it can be. Signature
         # verification compares the stored secret against a request header, and the
         # header has to be encoded from text back to bytes to make that comparison
-        # safe (see ``git_webhook_auth._constant_time_equal``, #2881). That encode
-        # falls back from latin-1 to utf-8, and the two codecs agree only on ASCII —
-        # so a non-ASCII secret would make genuinely different headers compare equal
-        # (``"Ã©"`` encodes to the same bytes under latin-1 as ``"é"`` does under
-        # utf-8). Every secret today comes from ``secrets.token_urlsafe`` and is
-        # ASCII by construction; this guard is what keeps that true the day someone
-        # adds a "paste your existing provider secret" path, which is a routine
-        # request for a feature shaped like this one.
+        # safe (see ``core.constant_time.constant_time_equal``, #2881/#2929). That
+        # encode falls back from latin-1 to utf-8, and the two codecs agree only on
+        # ASCII. #2929 made the primitive encode *both* sides the same way, which
+        # closed the confusable-match this guard originally existed to prevent
+        # (``"Ã©"`` under latin-1 is the same bytes as ``"é"`` under utf-8); what a
+        # non-ASCII secret would now do is fail to verify at all, because the wire
+        # bytes of the header round-trip through latin-1 and never match the
+        # secret's own latin-1 encoding. Refusing it at write time is still the
+        # right call — a silently-never-authenticating webhook is a worse bug report
+        # than a rejected secret. Every secret today comes from
+        # ``secrets.token_urlsafe`` and is ASCII by construction; this guard is what
+        # keeps that true the day someone adds a "paste your existing provider
+        # secret" path, which is a routine request for a feature shaped like this
+        # one.
         if not plaintext.isascii():
             raise ValueError("webhook secret must be ASCII")
 

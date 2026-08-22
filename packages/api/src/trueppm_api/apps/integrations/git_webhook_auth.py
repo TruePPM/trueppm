@@ -27,6 +27,8 @@ import hmac
 from dataclasses import dataclass
 from typing import Any
 
+from trueppm_api.core.constant_time import constant_time_equal
+
 # Forward-only event vocabulary. Only these two map to a card move; every other
 # Git event resolves to ``None`` and the receiver returns a 200 "ignored".
 GIT_EVENT_PR_OPENED = "pr.opened"
@@ -97,32 +99,6 @@ def detect_provider(headers: Any) -> str | None:
     return None
 
 
-def _constant_time_equal(provided: str, expected: str) -> bool:
-    """Constant-time compare an attacker-controlled header against a secret value.
-
-    ``hmac.compare_digest`` raises ``TypeError`` when *either* ``str`` argument
-    contains a non-ASCII character, and ``provided`` here is a raw request header —
-    so calling it on the strings turned one byte of ``Latin-1`` in
-    ``X-Gitlab-Token`` into an unhandled 500. That mattered beyond the crash: a 500
-    is only reachable *after* the "is automation configured?" check, so its mere
-    shape told an anonymous caller that a project has automation enabled with a
-    secret set — exactly the fact the receiver's 404 exists to hide (#2881).
-
-    Comparing **bytes** removes the raising path entirely rather than special-casing
-    the input. WSGI/ASGI both hand header values over as ``Latin-1``-decoded text
-    (RFC 9110 §5.5), so ``latin-1`` round-trips the bytes the client actually sent;
-    the ``utf-8`` fallback covers a synthetic caller (a test, a future transport)
-    that put a real code point above U+00FF into the header. Both expected values
-    are ASCII — a hex HMAC digest, or a ``secrets.token_urlsafe`` secret — so no
-    encoding choice can make a mismatched header compare equal.
-    """
-    try:
-        provided_bytes = provided.encode("latin-1")
-    except UnicodeEncodeError:
-        provided_bytes = provided.encode("utf-8")
-    return hmac.compare_digest(provided_bytes, expected.encode("utf-8"))
-
-
 def verify_signature(
     provider: str,
     secret_plaintext: str,
@@ -150,13 +126,13 @@ def verify_signature(
         provided = headers.get("X-Hub-Signature-256") or ""
         digest = hmac.new(secret_plaintext.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
         expected = f"sha256={digest}"
-        if not _constant_time_equal(provided, expected):
+        if not constant_time_equal(provided, expected):
             raise WebhookSignatureError("github signature mismatch")
         return
 
     if provider == PROVIDER_GITLAB:
         provided = headers.get("X-Gitlab-Token") or ""
-        if not _constant_time_equal(provided, secret_plaintext):
+        if not constant_time_equal(provided, secret_plaintext):
             raise WebhookSignatureError("gitlab token mismatch")
         return
 
