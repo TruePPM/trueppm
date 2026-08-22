@@ -233,6 +233,20 @@ interface Props {
    * the row-menu entry rather than rendering it disabled with no explanation.
    */
   onClassifyRequest?: (taskId: string) => void;
+  /**
+   * Begin a pointer drag from this row's ⋮⋮ grip (#2954). Supplied by
+   * `TaskListPanel`, which owns the session — the row can start a gesture but
+   * cannot resolve one, since it does not know what is under the pointer.
+   *
+   * Absent is a real state: a row rendered outside the panel (tests, storybook)
+   * still shows its grip, because grip *presence* tracks edit rights (rule 302)
+   * and nothing else.
+   */
+  onOutlineDragStart?: (taskId: string, e: React.PointerEvent) => void;
+  /** This row is the one currently being dragged (#2954). */
+  isDragSource?: boolean;
+  /** Open the "Move to…" destination picker for this row (#2954). */
+  onMoveToRequest?: (taskId: string) => void;
 }
 
 // On macOS the modifier is labelled "Option"; everywhere else it's "Alt".
@@ -721,6 +735,7 @@ interface RowMenuCtx {
   handleToggleComplete: () => void;
   handleDuplicate: () => void;
   onClassifyRequest: Props['onClassifyRequest'];
+  onMoveToRequest: Props['onMoveToRequest'];
 }
 
 /**
@@ -738,6 +753,7 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
     handleToggleComplete,
     handleDuplicate,
     onClassifyRequest,
+    onMoveToRequest,
   } = ctx;
   return [
     {
@@ -779,6 +795,17 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
       // Disable outdent at root level (level 1).
       disabled: level <= 1,
       onSelect: () => buildMode.outdent(task.id),
+    },
+    {
+      // #2954. Drag can move a row to an *arbitrary* parent; ⌥→/⌥← can only
+      // step one level against the row above. Without this the drag would be
+      // the sole route to a capability, which fails WCAG 2.1.1 — and on touch
+      // it is the route that needs no drag at all.
+      key: 'move-to',
+      label: 'Move to…',
+      icon: <IndentIcon className="h-4 w-4" aria-hidden="true" />,
+      disabled: !onMoveToRequest,
+      onSelect: () => onMoveToRequest?.(task.id),
     },
     {
       key: 'add-predecessor',
@@ -1119,52 +1146,6 @@ function useBuildGhostBar(buildMode: BuildMode | null, editingColumnName: boolea
 }
 
 /**
- * #347: pointer handlers for the ⋮⋮ sibling-reorder handle. Split out of
- * TaskListRowInner (#2081) — the row-height quantisation and every no-op guard
- * (no handle down, unknown sibling, zero delta, clamped to range) are verbatim.
- */
-function useRowReorderHandle(ctx: {
-  buildMode: BuildMode | null;
-  siblingIds: string[] | undefined;
-  task: Task;
-  reorderTasks: ReturnType<typeof useReorderTasks>;
-}) {
-  const { buildMode, siblingIds, task, reorderTasks } = ctx;
-  const reorderHandleRef = useRef<{ startY: number } | null>(null);
-
-  const onPointerDown = (e: React.PointerEvent) => {
-    if (!buildMode || !siblingIds) return;
-    e.preventDefault();
-    e.stopPropagation();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    reorderHandleRef.current = { startY: e.clientY };
-  };
-
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (!reorderHandleRef.current) return;
-    e.preventDefault();
-  };
-
-  const onPointerUp = (e: React.PointerEvent) => {
-    if (!reorderHandleRef.current || !siblingIds) return;
-    const deltaY = e.clientY - reorderHandleRef.current.startY;
-    reorderHandleRef.current = null;
-    const deltaRows = Math.round(deltaY / ROW_HEIGHT);
-    if (deltaRows === 0) return;
-    const currentIdx = siblingIds.indexOf(task.id);
-    if (currentIdx === -1) return;
-    const newIdx = Math.max(0, Math.min(siblingIds.length - 1, currentIdx + deltaRows));
-    if (newIdx === currentIdx) return;
-    const newOrder = [...siblingIds];
-    newOrder.splice(currentIdx, 1);
-    newOrder.splice(newIdx, 0, task.id);
-    reorderTasks.mutate({ parent_path: wbsParentPath(task.wbs), ordered_ids: newOrder });
-  };
-
-  return { onPointerDown, onPointerMove, onPointerUp };
-}
-
-/**
  * Mark-complete (#477) and Duplicate (#477) row actions. Split out of
  * TaskListRowInner (#2081) — the celebrate-only-on-transition-into-complete
  * capture, the progress-anchor 400 toast, the 4 s auto-clear (#362 pattern) and
@@ -1289,26 +1270,58 @@ function useRowActions(ctx: {
 }
 
 /**
- * The ⋮⋮ sibling-reorder grip (#347) — build mode only, revealed on row hover or
- * focus-within and always visible on touch. Split out of TaskListRowInner
- * (#2081); markup and classes verbatim.
+ * The ⋮⋮ grip (#347, extended to reorder-or-reparent in #2954) — revealed on row
+ * hover or focus-within, always visible on touch, and **absent** without edit
+ * rights (web rule 302: no rights means no apparatus, not a dimmed one).
+ *
+ * The grip only *starts* the gesture; the session lives in `TaskListPanel`,
+ * which is the only thing that can answer "what row is under the pointer now".
+ * Nothing here calls a mutation, and the drop model — sibling vs child, and the
+ * two refusals — lives in `outlineDrag.ts` where it can be tested without a
+ * pointer.
+ *
+ * `aria-hidden`, and deliberately so. Everything this gesture does has a
+ * keyboard twin that is already announced (`⌥↑`/`⌥↓` reorder, `⌥→`/`⌥←`
+ * indent/outdent, and the row menu's "Move to…" for an arbitrary destination),
+ * so exposing a grip a keyboard user cannot operate would add a tab stop per row
+ * — a 40-row outline's worth — that leads nowhere. The `title` is the pointer
+ * user's hint and names the keyboard twin next to it.
+ *
+ * Touch: 26px wide below `md` (the design's 26×32 target), 14px otherwise, so a
+ * finger has something to hold without a mouse losing 26px of every row. The
+ * height is the row's own 28px rather than 32 — a taller grip would reach into
+ * the neighbouring rows' grips, and two overlapping grips is a worse touch
+ * target than one slightly short of the design's figure.
  */
 function RowReorderHandle({
-  handlers,
+  taskId,
+  taskName,
+  onDragStart,
+  isDragging,
 }: {
-  handlers: ReturnType<typeof useRowReorderHandle>;
+  taskId: string;
+  taskName: string;
+  onDragStart?: (taskId: string, e: React.PointerEvent) => void;
+  isDragging: boolean;
 }) {
   return (
     <div
-      className="absolute left-0 inset-y-0 w-3.5 flex items-center justify-center z-10
-        opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100
-        transition-opacity cursor-grab active:cursor-grabbing
-        text-neutral-text-disabled hover:text-neutral-text-secondary"
-      title={`Drag to reorder  ·  ${REORDER_KEY}+↑/↓ keyboard`}
+      data-testid="row-reorder-grip"
+      data-dragging={isDragging ? 'true' : undefined}
+      className={[
+        'absolute left-0 inset-y-0 z-10 flex items-center justify-center',
+        'w-3.5 max-md:w-[26px]',
+        'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100',
+        'transition-opacity cursor-grab active:cursor-grabbing',
+        // The browser's own pan/select gestures would fight the drag on touch.
+        'touch-none select-none',
+        isDragging
+          ? 'opacity-100 text-brand-primary'
+          : 'text-neutral-text-disabled hover:text-neutral-text-secondary',
+      ].join(' ')}
+      title={`Drag to reorder or reparent ${taskName || 'this row'}  ·  ${REORDER_KEY}+↑/↓, ${REORDER_KEY}+←/→ keyboard`}
       aria-hidden="true"
-      onPointerDown={handlers.onPointerDown}
-      onPointerMove={handlers.onPointerMove}
-      onPointerUp={handlers.onPointerUp}
+      onPointerDown={(e) => onDragStart?.(taskId, e)}
     >
       <svg width="7" height="11" viewBox="0 0 7 11" fill="currentColor" aria-hidden="true">
         <circle cx="1.5" cy="1.5" r="1.2" />
@@ -1672,6 +1685,9 @@ function TaskListRowInner({
   plannedBadge,
   rowMode,
   onClassifyRequest,
+  onOutlineDragStart,
+  isDragSource = false,
+  onMoveToRequest,
 }: Props) {
   const projectId = useProjectId() ?? '';
   const itl = useIterationLabel(projectId);
@@ -1809,13 +1825,6 @@ function TaskListRowInner({
       focusRowDom,
     });
 
-  const reorderHandlers = useRowReorderHandle({
-    buildMode: authoring,
-    siblingIds,
-    task,
-    reorderTasks,
-  });
-
   const { handleToggleComplete, handleDuplicate } = useRowActions({
     projectId,
     task,
@@ -1840,6 +1849,7 @@ function TaskListRowInner({
     handleToggleComplete,
     handleDuplicate,
     onClassifyRequest,
+    onMoveToRequest,
   });
 
   const isPhaseRow = isPhaseRowOf(task, hasChildren);
@@ -1965,9 +1975,16 @@ function TaskListRowInner({
           a row click or a cell edit. */}
       <ModeGutter mode={rowMode} />
 
-      {/* ── ⋮⋮ reorder handle — build mode only, visible on row hover (#347) ── */}
+      {/* ── ⋮⋮ grip — drag to reorder or reparent (#347, #2954) ─────────────── */}
       {/* Grip absent, not disabled, without edit rights — web rule 302 (#2961). */}
-      {authoring && siblingIds && <RowReorderHandle handlers={reorderHandlers} />}
+      {authoring && (
+        <RowReorderHandle
+          taskId={task.id}
+          taskName={task.name}
+          onDragStart={onOutlineDragStart}
+          isDragging={isDragSource}
+        />
+      )}
 
       {/* ── WBS column (#248) ───────────────────────────────────────────────── */}
       {/* Insert-below affordance (#2957). On the row's BOTTOM EDGE, because that

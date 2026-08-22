@@ -79,7 +79,7 @@ The Schedule list is in one of three focus states at any time. The same keys do 
 | Alt + A | Toggle **Author** / **Read** mode for the whole Schedule (see below) — persists per project, per browser |
 | Space | Mark the focused row complete / un-complete |
 | ⌘ D / Ctrl + D | Duplicate the row **and its subtree**, appended below with "(copy)" on the duplicated root only — internal dependencies inside the subtree are not cloned, matching single-row duplicate's existing "dependencies are never cloned" rule. With a multi-row selection, duplicates every top-level selected row as its own subtree |
-| Right-click | Open the row context menu (Edit / Indent / Outdent / Convert to milestone / Delete) |
+| Right-click | Open the row context menu (Edit / Indent / Outdent / Move to… / Convert to milestone / Delete) |
 | Delete / Backspace | Delete the focused row — or, with a multi-row selection active, every selected row (no confirm; undo via re-adding, or the delete toast's Undo action) |
 | Esc | Clear the current selection or row focus |
 
@@ -252,6 +252,49 @@ root.
 When you indent a row under a leaf row (one with no children), the parent automatically becomes a summary task — its name goes bold, computed dates roll up from its children, and the chevron lets you collapse / expand. There is no "convert this to a phase" step; phases form as a side effect of structuring.
 
 The reverse holds when you outdent: if a summary task loses all its children, it becomes a leaf again on the next refresh.
+
+## Rearranging with a pointer
+
+The keyboard stays the primary path — typing forty rows into an empty plan is the job
+build mode exists for, and no drag competes with `type, Alt + →, type, Enter`. But once a
+plan exists, *rearranging* it is a job a pointer is genuinely better at, so every row
+carries a **⋮⋮ grip** on its left edge. Hover a row to reveal it, then drag.
+
+There is one drop model, and it distinguishes two outcomes by where you release:
+
+- **Between two rows** places the row *beside* the one below the gap — same level, same
+  parent. The insertion line is drawn at that level's own indent guide, so you can read
+  the depth you are about to land at rather than infer it.
+- **Onto a row** places it *inside* that row. If the target had no children it becomes a
+  phase, exactly as `Alt + →` would have made it one. The line for a child drop sits one
+  indent step deeper than the line for a sibling drop at the same height, so the two are
+  never ambiguous.
+
+**The target row says what will happen before you let go** — *"↳ becomes a phase"*,
+*"into this phase"*, or *"same level as {row}"*. Two drops are refused, and the refusal
+says why rather than doing nothing: a **milestone cannot hold work** (*"a gate cannot
+hold work"* — a milestone is a date, not a container), and a row **cannot move inside its
+own subtree**. Press `Esc` at any point during the drag to abandon it; nothing is written
+until you release.
+
+On a touch screen, **press and hold** the grip to lift the row — a swipe that starts on
+the grip still scrolls the list, so the outline never becomes unscrollable. The grip
+itself grows to a finger-sized target below the desktop breakpoint.
+
+Everything the drag does has a non-drag equivalent, and none of them changes any dates:
+
+| Instead of | Use |
+|---|---|
+| Dragging a row up or down among its siblings | `Alt + ↑` / `Alt + ↓` |
+| Dragging a row into the row above it | `Alt + →` (indent) |
+| Dragging a row out of its phase | `Alt + ←` (outdent) |
+| Dragging a row under a phase somewhere else in the plan | **Move to…** in the row context menu |
+
+**Move to…** exists because it is the only one of these the `Alt` keys cannot reach: they
+step one level against the row immediately above, while a drag can move a row under *any*
+phase in the plan. It opens a list of every legal destination — the top level, plus every
+phase that is not a milestone and not inside the row you are moving — so the same
+operation is available with no drag at all. On touch it is usually the faster path.
 
 ## Author / Read mode
 

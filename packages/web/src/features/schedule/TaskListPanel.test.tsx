@@ -1,5 +1,6 @@
 import { useRef, type ComponentProps } from 'react';
-import { render, screen, act } from '@testing-library/react';
+import type React from 'react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Task } from '@/types';
@@ -110,6 +111,9 @@ interface RowStubProps {
   sourceSprint?: { id: string; name: string; state: string } | null;
   phaseInWaiting?: boolean;
   startInlineEditOnMount?: boolean;
+  onOutlineDragStart?: (taskId: string, e: React.PointerEvent) => void;
+  isDragSource?: boolean;
+  onMoveToRequest?: (taskId: string) => void;
 }
 
 vi.mock('./TaskListRow', () => ({
@@ -133,8 +137,19 @@ vi.mock('./TaskListRow', () => ({
       data-source-sprint={props.sourceSprint?.name ?? ''}
       data-phase-waiting={String(props.phaseInWaiting ?? false)}
       data-auto-edit={String(props.startInlineEditOnMount ?? false)}
+      data-drag-source={String(props.isDragSource ?? false)}
+      data-has-move-to={String(Boolean(props.onMoveToRequest))}
     >
       {props.task.name}
+      {props.onOutlineDragStart && (
+        <button
+          type="button"
+          data-testid={`grip-${props.task.id}`}
+          onPointerDown={(e) => props.onOutlineDragStart?.(props.task.id, e)}
+        >
+          grip
+        </button>
+      )}
     </div>
   ),
 }));
@@ -484,5 +499,77 @@ describe('TaskListPanel — blank project draft row (#2733)', () => {
     // Read-only roles: a caret in a field that cannot save is worse than no caret.
     renderPanel({ tasks: [] });
     expect(screen.queryByRole('textbox', { name: /first task name/i })).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Drag to reorder or reparent (#2954) — the panel owns the session, because it
+// is the only thing that can answer "what row is under the pointer now".
+// ---------------------------------------------------------------------------
+
+describe('TaskListPanel — the outline drag session', () => {
+  const TASKS = [
+    task({ id: 'phase', wbs: '1', name: 'Mobilization' }),
+    task({ id: 'a', wbs: '1.1', name: 'Survey', parentId: 'phase' }),
+    task({ id: 'tail', wbs: '2', name: 'Closeout' }),
+  ];
+  const summaryIds = new Set(['phase']);
+
+  /** Press the grip, then travel — the threshold is what turns a press into a drag. */
+  function dragFrom(id: string, toClientY: number) {
+    fireEvent.pointerDown(screen.getByTestId(`grip-${id}`), { clientY: 0, button: 0 });
+    act(() => {
+      const move = new Event('pointermove', { bubbles: true, cancelable: true });
+      Object.assign(move, { clientY: toClientY, clientX: 0 });
+      window.dispatchEvent(move);
+    });
+  }
+
+  it('offers no gesture at all when nothing can commit one', () => {
+    // Rule 302 in the panel's own terms: without a commit sink there is no
+    // capability, so there is no affordance either — not a dead one.
+    renderPanel({ tasks: TASKS, summaryIds });
+    expect(screen.queryByTestId('grip-a')).not.toBeInTheDocument();
+  });
+
+  it('wires the gesture up when one can', () => {
+    renderPanel({ tasks: TASKS, summaryIds, onMoveRow: vi.fn() });
+    expect(screen.getByTestId('grip-a')).toBeInTheDocument();
+  });
+
+  it('draws the consequence of the drop under the pointer', () => {
+    renderPanel({ tasks: TASKS, summaryIds, onMoveRow: vi.fn() });
+    // Row 2 ("Closeout") is a leaf — dropping onto it makes it a phase.
+    dragFrom('a', 2 * 28 + 14);
+    expect(screen.getByTestId('outline-drop-consequence')).toHaveTextContent('↳ becomes a phase');
+  });
+
+  it('marks the row being dragged, so the source is not ambiguous', () => {
+    renderPanel({ tasks: TASKS, summaryIds, onMoveRow: vi.fn() });
+    dragFrom('a', 2 * 28 + 14);
+    expect(screen.getByTestId('row-a')).toHaveAttribute('data-drag-source', 'true');
+    expect(screen.getByTestId('row-tail')).toHaveAttribute('data-drag-source', 'false');
+  });
+
+  it('commits the plan on release', () => {
+    const onMoveRow = vi.fn();
+    renderPanel({ tasks: TASKS, summaryIds, onMoveRow });
+    dragFrom('a', 2 * 28 + 14);
+    act(() => {
+      const up = new Event('pointerup', { bubbles: true, cancelable: true });
+      Object.assign(up, { clientY: 2 * 28 + 14, clientX: 0 });
+      window.dispatchEvent(up);
+    });
+    expect(onMoveRow).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: 'a', newParentId: 'tail', becomesPhase: true }),
+    );
+  });
+
+  it('passes "Move to…" down only when it can be honoured', () => {
+    const { unmount } = renderPanel({ tasks: TASKS, summaryIds });
+    expect(screen.getByTestId('row-a')).toHaveAttribute('data-has-move-to', 'false');
+    unmount();
+    renderPanel({ tasks: TASKS, summaryIds, onMoveToRequest: vi.fn() });
+    expect(screen.getByTestId('row-a')).toHaveAttribute('data-has-move-to', 'true');
   });
 });

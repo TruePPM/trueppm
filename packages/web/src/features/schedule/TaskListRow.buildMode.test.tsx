@@ -73,10 +73,12 @@ const stableSpies = {
 function Harness({
   task = baseTask,
   level = 2,
+  onMoveToRequest,
   capture,
 }: {
   task?: Task;
   level?: number;
+  onMoveToRequest?: (taskId: string) => void;
   capture: { current: Captured | null };
 }) {
   const focus = useScheduleFocus();
@@ -117,12 +119,20 @@ function Harness({
   };
   return (
     <BuildModeProvider api={api}>
-      <TaskListRow task={task} level={level} widths={widths} visible={visible} />
+      <TaskListRow
+        task={task}
+        level={level}
+        widths={widths}
+        visible={visible}
+        onMoveToRequest={onMoveToRequest}
+      />
     </BuildModeProvider>
   );
 }
 
-function renderHarness(opts: { task?: Task; level?: number } = {}) {
+function renderHarness(
+  opts: { task?: Task; level?: number; onMoveToRequest?: (taskId: string) => void } = {},
+) {
   const capture: { current: Captured | null } = { current: null };
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
@@ -514,6 +524,32 @@ describe('TaskListRow — build-mode context menu', () => {
     fireEvent.contextMenu(screen.getByRole('row'), { clientX: 50, clientY: 50 });
     const item = screen.getByRole('menuitem', { name: /Convert to milestone/ });
     expect(item).toBeDisabled();
+  });
+
+  // ── "Move to…" (#2954) ───────────────────────────────────────────────────
+  // Drag can move a row under ANY phase; ⌥→/⌥← can only step one level against
+  // the row above. Without this item the drag would be the sole route to that
+  // capability, which is a WCAG 2.1.1 failure — and on touch it is the route
+  // that needs no drag at all.
+
+  it('offers Move to… next to Indent and Outdent', () => {
+    renderHarness({ onMoveToRequest: vi.fn() });
+    fireEvent.contextMenu(screen.getByRole('row'), { clientX: 50, clientY: 50 });
+    expect(screen.getByRole('menuitem', { name: /Move to/ })).toBeInTheDocument();
+  });
+
+  it('Move to… opens the picker for THIS row', () => {
+    const onMoveToRequest = vi.fn();
+    renderHarness({ onMoveToRequest });
+    fireEvent.contextMenu(screen.getByRole('row'), { clientX: 50, clientY: 50 });
+    fireEvent.click(screen.getByRole('menuitem', { name: /Move to/ }));
+    expect(onMoveToRequest).toHaveBeenCalledWith('t-build-1');
+  });
+
+  it('Move to… is disabled where no picker is wired, not silently inert', () => {
+    renderHarness();
+    fireEvent.contextMenu(screen.getByRole('row'), { clientX: 50, clientY: 50 });
+    expect(screen.getByRole('menuitem', { name: /Move to/ })).toBeDisabled();
   });
 });
 

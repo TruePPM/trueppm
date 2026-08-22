@@ -52,6 +52,29 @@ export function moveSentence(row: ActRow, direction: 'up' | 'down'): string {
   return `${label(row)} moved ${direction}${carried}. Reordering does not change any dates.`;
 }
 
+/**
+ * A pointer drag or "Move to…" that changed where a row lives (#2954).
+ *
+ * Distinct from {@link moveSentence}, which covers `⌥↑`/`⌥↓` — reordering among
+ * siblings never changes containment, and saying "moved down" about a row that
+ * just changed parents would describe the wrong half of what happened. The
+ * destination is named; "moved" without a destination is the sentence a user
+ * cannot check against the tree.
+ *
+ * `destination` is null for the WBS root, which has no row to name.
+ */
+export function movedIntoSentence(
+  row: ActRow,
+  destination: ActRow | null,
+  destinationBecamePhase = false,
+): string {
+  const n = row.descendantCount ?? 0;
+  const carried = n > 0 ? ` with ${n} ${n === 1 ? 'item' : 'items'} under it` : '';
+  const where = destination ? `into ${label(destination)}` : 'to the top level';
+  const tail = destination && destinationBecamePhase ? ', which is now a phase' : '';
+  return `${label(row)} moved ${where}${carried}${tail}. Moving does not change any dates.`;
+}
+
 export function deleteSentence(row: ActRow): string {
   const n = row.descendantCount ?? 0;
   const carried = n > 0 ? ` with ${n} ${n === 1 ? 'item' : 'items'} under it` : '';

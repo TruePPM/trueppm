@@ -26,6 +26,7 @@
  * SprintPrompt is stubbed to a deterministic trigger.
  */
 import { useMemo, type ReactElement } from 'react';
+import type React from 'react';
 import { screen, render, fireEvent, act } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, beforeEach, beforeAll, afterEach, vi } from 'vitest';
@@ -130,6 +131,7 @@ interface HarnessProps {
   prevTaskId?: string | null;
   nextTaskId?: string | null;
   milestoneParents?: { name: string; finish?: string }[];
+  onOutlineDragStart?: (taskId: string, e: React.PointerEvent) => void;
   focusRef: { current: FocusApi | null };
 }
 
@@ -141,6 +143,7 @@ function Harness({
   prevTaskId,
   nextTaskId,
   milestoneParents,
+  onOutlineDragStart,
   focusRef,
 }: HarnessProps) {
   const focus = useScheduleFocus();
@@ -175,6 +178,7 @@ function Harness({
         prevTaskId={prevTaskId}
         nextTaskId={nextTaskId}
         milestoneParents={milestoneParents}
+        onOutlineDragStart={onOutlineDragStart}
       />
     </BuildModeProvider>
   );
@@ -344,53 +348,54 @@ describe('TaskListRow — sprint-outcome panel key containment', () => {
 // ───────────────────────────────────────────────────────────────────────────
 // ⋮⋮ reorder handle — pointer-up guards.
 // ───────────────────────────────────────────────────────────────────────────
-describe('TaskListRow — ⋮⋮ reorder handle guards (#347)', () => {
+describe('TaskListRow — ⋮⋮ grip starts a gesture it does not own (#347, #2954)', () => {
   beforeAll(() => {
     Element.prototype.setPointerCapture = vi.fn();
     Element.prototype.releasePointerCapture = vi.fn();
     Element.prototype.hasPointerCapture = vi.fn(() => false);
   });
 
-  it('ignores a pointer-up that was never preceded by a pointer-down on the handle', () => {
-    renderBuild({ siblingIds: ['t1', 't2', 't3'] });
-    const handle = screen.getByTitle(/Drag to reorder/);
+  it('hands the gesture to the list, naming the row it started on', () => {
+    const onOutlineDragStart = vi.fn();
+    renderBuild({ siblingIds: ['t1', 't2', 't3'], onOutlineDragStart });
 
-    fireEvent.pointerUp(handle, { clientY: 200, pointerId: 1 });
+    fireEvent.pointerDown(screen.getByTitle(/Drag to reorder/), { clientY: 0, pointerId: 1 });
 
-    expect(mocks.reorderMutate).not.toHaveBeenCalled();
+    expect(onOutlineDragStart).toHaveBeenCalledTimes(1);
+    expect(onOutlineDragStart.mock.calls[0][0]).toBe('t1');
   });
 
-  it('ignores a pointer-move that was never preceded by a pointer-down', () => {
-    renderBuild({ siblingIds: ['t1', 't2', 't3'] });
+  it('never mutates from the row — the row cannot see what is under the pointer', () => {
+    // The #347 grip resolved the drop itself, by rounding a pixel delta to a
+    // sibling slot. It could only ever reorder, it showed nothing before
+    // committing, and it was blind to the milestone and own-subtree refusals.
+    // The row is now a starter and nothing else; every drop resolves in
+    // `outlineDrag` and commits in `ScheduleView`.
+    const onOutlineDragStart = vi.fn();
+    renderBuild({ siblingIds: ['t1', 't2', 't3'], onOutlineDragStart });
     const handle = screen.getByTitle(/Drag to reorder/);
 
+    fireEvent.pointerDown(handle, { clientY: 0, pointerId: 1 });
     fireEvent.pointerMove(handle, { clientY: 40, pointerId: 1 });
-    fireEvent.pointerUp(handle, { clientY: 200, pointerId: 1 });
-
-    expect(mocks.reorderMutate).not.toHaveBeenCalled();
-  });
-
-  it('ignores a completed drag when the row is absent from its own sibling list', () => {
-    renderBuild({ siblingIds: ['other-a', 'other-b'] });
-    const handle = screen.getByTitle(/Drag to reorder/);
-
-    fireEvent.pointerDown(handle, { clientY: 0, pointerId: 1 });
     fireEvent.pointerUp(handle, { clientY: 60, pointerId: 1 });
 
     expect(mocks.reorderMutate).not.toHaveBeenCalled();
   });
 
-  it('still reorders on a genuine multi-row drag (control for the guards above)', () => {
+  it('is inert when no list is listening, rather than throwing', () => {
     renderBuild({ siblingIds: ['t1', 't2', 't3'] });
     const handle = screen.getByTitle(/Drag to reorder/);
 
-    fireEvent.pointerDown(handle, { clientY: 0, pointerId: 1 });
-    fireEvent.pointerUp(handle, { clientY: 60, pointerId: 1 });
+    expect(() => fireEvent.pointerDown(handle, { clientY: 0, pointerId: 1 })).not.toThrow();
+    expect(mocks.reorderMutate).not.toHaveBeenCalled();
+  });
 
-    expect(mocks.reorderMutate).toHaveBeenCalledWith({
-      parent_path: '1',
-      ordered_ids: ['t2', 't3', 't1'],
-    });
+  it('shows a grip on a row with no siblingIds — presence tracks edit rights alone', () => {
+    // Rule 302: the apparatus is present or absent, and what decides that is the
+    // entitlement. A grip that vanished because the panel had not computed a
+    // sibling map yet would read as "you may not edit this row".
+    renderBuild({});
+    expect(screen.getByTitle(/Drag to reorder/)).toBeInTheDocument();
   });
 });
 
@@ -864,22 +869,6 @@ describe('TaskListRow — classic inline rename commit guard', () => {
 
     expect(mocks.updateMutate).not.toHaveBeenCalled();
     expect(screen.getByText('Design Phase')).toBeInTheDocument();
-  });
-});
-
-// ───────────────────────────────────────────────────────────────────────────
-// ⋮⋮ drag that clamps back to the row's own slot.
-// ───────────────────────────────────────────────────────────────────────────
-describe('TaskListRow — ⋮⋮ drag clamped to the same slot', () => {
-  it('dragging the first sibling further up is a no-op', () => {
-    renderBuild({ siblingIds: ['t1', 't2', 't3'] });
-    const handle = screen.getByTitle(/Drag to reorder/);
-
-    // -3 rows from index 0 clamps back to index 0 — same slot, no PATCH.
-    fireEvent.pointerDown(handle, { clientY: 100, pointerId: 1 });
-    fireEvent.pointerUp(handle, { clientY: 16, pointerId: 1 });
-
-    expect(mocks.reorderMutate).not.toHaveBeenCalled();
   });
 });
 

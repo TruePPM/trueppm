@@ -7,6 +7,7 @@ import {
   milestoneSentence,
   moveSentence,
   outdentSentence,
+  movedIntoSentence,
 } from './structuralActs';
 
 describe('indent', () => {
@@ -107,6 +108,43 @@ describe('unnamed rows', () => {
     expect(deleteSentence({ name: '   ' })).toBe('Untitled deleted.');
     expect(indentSentence({ name: '' }, { name: 'Mobilization' }, false)).toBe(
       'Untitled indented under Mobilization.',
+    );
+  });
+});
+
+describe('moved into (#2954)', () => {
+  it('names the destination — "moved" alone is not checkable against the tree', () => {
+    expect(movedIntoSentence({ name: 'Permits' }, { name: 'Mobilization' })).toBe(
+      'Permits moved into Mobilization. Moving does not change any dates.',
+    );
+  });
+
+  it('says the destination became a phase, since that is the surprising half', () => {
+    expect(movedIntoSentence({ name: 'Permits' }, { name: 'Closeout' }, true)).toBe(
+      'Permits moved into Closeout, which is now a phase. Moving does not change any dates.',
+    );
+  });
+
+  it('names what travelled with it', () => {
+    expect(movedIntoSentence({ name: 'Wave 1', descendantCount: 3 }, { name: 'Delivery' })).toBe(
+      'Wave 1 moved into Delivery with 3 items under it. Moving does not change any dates.',
+    );
+    expect(movedIntoSentence({ name: 'Wave 1', descendantCount: 1 }, { name: 'Delivery' })).toContain(
+      'with 1 item under it',
+    );
+  });
+
+  it('has a name for the root, which is not a row', () => {
+    expect(movedIntoSentence({ name: 'Permits' }, null)).toBe(
+      'Permits moved to the top level. Moving does not change any dates.',
+    );
+  });
+
+  it('promises no date change, because a move genuinely makes none', () => {
+    // Reordering and reparenting rewrite WBS paths, not dates — and the first
+    // thing anybody watching a Gantt fears is that dragging moved a bar.
+    expect(movedIntoSentence({ name: 'X' }, { name: 'Y' })).toContain(
+      'does not change any dates',
     );
   });
 });

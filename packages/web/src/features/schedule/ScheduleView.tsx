@@ -68,6 +68,8 @@ import { BaselineManagerModal } from './BaselineManagerModal';
 import { TaskTrashDialog } from '@/features/project/TaskTrashDialog';
 import { CaptureBaselineConfirmDialog } from './CaptureBaselineConfirmDialog';
 import { SubtreeDeleteConfirmDialog } from './SubtreeDeleteConfirmDialog';
+import { MoveToDialog } from './MoveToDialog';
+import type { OutlineDragRow, OutlineMovePlan } from './outlineDrag';
 import { ScheduleForecastBar } from './ScheduleForecastBar';
 import { ScheduleReconcileStrip } from './reconcile/ScheduleReconcileStrip';
 import { useScheduleReconciliation } from './reconcile/useScheduleReconciliation';
@@ -157,6 +159,7 @@ import {
   useRestoreTask,
   useCreateTask,
   useReorderTasks,
+  useReparentTask,
   useAddDependency,
   parseCyclicDependencyError,
   buildCopyName,
@@ -169,6 +172,7 @@ import {
   outdentSentence,
   deleteSentence,
   milestoneSentence,
+  movedIntoSentence,
   type ActRow,
 } from './trail/structuralActs';
 import { useTrailStore } from './trail/trailStore';
@@ -1428,6 +1432,7 @@ export function ScheduleView() {
   const restoreTaskMut = useRestoreTask(projectId);
   const createTaskMut = useCreateTask(projectId);
   const reorderTaskMut = useReorderTasks(projectId);
+  const reparentTaskMut = useReparentTask(projectId);
   // Drag-to-link (#1666): the canvas `create-link` gesture lands here as an
   // FS/0-lag dependency create. Server enforces cycle detection (400
   // cyclic_dependency) and self-link rejection (ADR-0055); the arrow appears
@@ -1671,6 +1676,129 @@ export function ScheduleView() {
       };
     },
     [allTasks, childCountById],
+  );
+
+  /**
+   * Commit a pointer drag or a "Move to…" pick (#2954).
+   *
+   * Two endpoints, because neither one can do this alone: `reparent/` changes
+   * the parent but always appends the row **last** among its new siblings, and
+   * `reorder/` positions within a level but cannot cross one. A drop that names
+   * both a parent and a position is therefore reparent-then-reorder, in that
+   * order.
+   *
+   * Three details that are not obvious and each cost a 400 if got wrong:
+   *
+   *  - **The sibling list is resolved here, from `allTasks`.** `reorder/`
+   *    rejects a partial list ("Missing siblings from ordered_ids"), and the
+   *    panel only sees the *visible* rows — a filter or a collapsed branch would
+   *    silently hand it an incomplete level. That is why the plan carries a
+   *    position anchor rather than a finished array.
+   *  - **The destination's own WBS path can move during the reparent.** Pulling
+   *    the row out of its old level renumbers what is left, and if that level is
+   *    an ancestor of the destination, the destination's path shifts under it.
+   *    The response lists every rewritten path, so the follow-up reorder reads
+   *    the parent's new path from there rather than trusting the pre-move one.
+   *  - **A same-parent move is a reorder only.** `reparent/` treats an unchanged
+   *    parent as a no-op and returns 200 with nothing updated, so routing it
+   *    through there would drop the reposition on the floor.
+   */
+  const moveRow = useCallback(
+    (plan: OutlineMovePlan) => {
+      if (!projectId) return;
+      const dragged = allTasks.find((t) => t.id === plan.taskId);
+      if (!dragged) return;
+      const currentParentId = dragged.parentId ?? null;
+      const parentUnchanged = currentParentId === plan.newParentId;
+
+      // Final order of the destination level: every live sibling, with the
+      // dragged row placed at the anchor (or appended when there is none).
+      const destinationSiblings = siblingIdsOf(allTasks, plan.newParentId).filter(
+        (id) => id !== plan.taskId,
+      );
+      const anchorIdx = plan.beforeSiblingId
+        ? destinationSiblings.indexOf(plan.beforeSiblingId)
+        : -1;
+      const orderedIds = [...destinationSiblings];
+      orderedIds.splice(anchorIdx === -1 ? orderedIds.length : anchorIdx, 0, plan.taskId);
+
+      const row = actRow(plan.taskId);
+      const destination = plan.newParentId
+        ? { name: allTasks.find((t) => t.id === plan.newParentId)?.name ?? '' }
+        : null;
+
+      // A refusal the server raised (a permission on some sibling in the level,
+      // a race with another editor) is the one thing the drag preview could not
+      // predict, so it is the one thing that must say so out loud.
+      const announceFailure = () => {
+        setScheduleActionToast({ message: 'Couldn’t move that row. Nothing changed.' });
+      };
+
+      if (parentUnchanged) {
+        const currentOrder = siblingIdsOf(allTasks, plan.newParentId);
+        if (currentOrder.join() === orderedIds.join()) return;
+        reorderTaskMut.mutate(
+          { parent_path: wbsParentPath(dragged.wbs), ordered_ids: orderedIds },
+          { onError: announceFailure },
+        );
+        recordAct(movedIntoSentence(row, destination, false));
+        return;
+      }
+
+      reparentTaskMut.mutate(
+        { taskId: plan.taskId, newParentId: plan.newParentId },
+        {
+          onSuccess: (data) => {
+            recordAct(movedIntoSentence(row, destination, plan.becomesPhase));
+            // Already last, which is where the reparent left it.
+            if (!plan.beforeSiblingId) return;
+            const rewritten = new Map(data.updated.map((u) => [u.id, u.wbs_path]));
+            const parentPath = plan.newParentId
+              ? (rewritten.get(plan.newParentId) ??
+                allTasks.find((t) => t.id === plan.newParentId)?.wbs ??
+                '')
+              : '';
+            reorderTaskMut.mutate(
+              { parent_path: parentPath, ordered_ids: orderedIds },
+              { onError: announceFailure },
+            );
+          },
+          onError: announceFailure,
+        },
+      );
+    },
+    [
+      projectId,
+      allTasks,
+      actRow,
+      recordAct,
+      reorderTaskMut,
+      reparentTaskMut,
+      setScheduleActionToast,
+    ],
+  );
+
+  /** The row whose "Move to…" picker is open (#2954), or null. */
+  const [moveToTaskId, setMoveToTaskId] = useState<string | null>(null);
+
+  /**
+   * Destination candidates for "Move to…" — built from **`allTasks`**, not the
+   * visible rows the drag reasons over. A collapsed or filtered-out phase is a
+   * perfectly good home; the drag cannot offer it only because a pointer cannot
+   * land on a row that is not drawn, and reproducing that limit in a chooser
+   * would be copying an accident.
+   */
+  const moveDestinationRows = useMemo<OutlineDragRow[]>(
+    () =>
+      allTasks.map((t) => ({
+        id: t.id,
+        name: t.name,
+        wbs: t.wbs,
+        parentId: t.parentId ?? null,
+        isMilestone: t.isMilestone,
+        hasChildren: isPhaseTask(t, allTasks),
+      })),
+    [allTasks],
   );
 
   // The actual build-mode delete + Undo toast, factored out so both the fast
@@ -2967,6 +3095,11 @@ export function ScheduleView() {
         effectiveMethodology={effectiveMethodology}
         rowModes={rowModes}
         onClassifyRequest={readOnly ? undefined : handleClassifyRequest}
+        onMoveRow={readOnly ? undefined : moveRow}
+        onMoveToRequest={readOnly ? undefined : setMoveToTaskId}
+        onAnnounce={(sentence) => {
+          if (ariaLiveRef.current) ariaLiveRef.current.textContent = sentence;
+        }}
         onScheduleMany={readOnly ? undefined : handleScheduleMany}
       />
 
@@ -3125,6 +3258,28 @@ export function ScheduleView() {
           onClose={bulkEdit.close}
         />
       )}
+
+      {/* "Move to…" (#2954) — the drag's twin for a keyboard, a switch, or a
+          finger. Same drop model, same refusals; no pointer required. Mounted
+          here rather than threaded through ScheduleOverlayLayer for the reason
+          BulkEditSheet is: it is a fixed full-viewport layer, so its position in
+          the tree buys nothing and would cost three more props on an already-wide
+          interface. */}
+      {/* "Move to…" (#2954) — the drag's twin for a keyboard, a switch, or a
+          finger. Same drop model, same refusals; no pointer required. */}
+      {moveToTaskId && (
+        <MoveToDialog
+          taskId={moveToTaskId}
+          taskName={allTasks.find((t) => t.id === moveToTaskId)?.name ?? ''}
+          rows={moveDestinationRows}
+          onCancel={() => setMoveToTaskId(null)}
+          onConfirm={(plan) => {
+            setMoveToTaskId(null);
+            moveRow(plan);
+          }}
+        />
+      )}
+
     </div>
   );
 
@@ -4040,6 +4195,12 @@ interface ScheduleMainAreaProps {
   rowModes: Map<string, RowMode>;
   /** Opens the classification popover on a row (#2736); omitted when read-only. */
   onClassifyRequest?: (taskId: string) => void;
+  /** Commit a pointer-drag rearrangement of the outline (#2954). */
+  onMoveRow?: (plan: OutlineMovePlan) => void;
+  /** Open the "Move to…" picker for a row (#2954). */
+  onMoveToRequest?: (taskId: string) => void;
+  /** Sink for the drag's running "what this drop would do" sentence (#2954). */
+  onAnnounce?: (sentence: string) => void;
   /** Selects the tray's rows in the outline and opens the bulk-edit sheet
    *  (#2987); omitted when read-only, so the button is absent not disabled. */
   onScheduleMany?: (taskIds: string[]) => void;
@@ -4163,6 +4324,9 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
     effectiveMethodology,
     rowModes,
     onClassifyRequest,
+    onMoveRow,
+    onMoveToRequest,
+    onAnnounce,
     onScheduleMany,
   } = props;
 
@@ -4221,6 +4385,9 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
               onCommitDraftRow={readOnly ? undefined : handleCommitDraftRow}
               rowModes={rowModes}
               onClassifyRequest={onClassifyRequest}
+              onMoveRow={onMoveRow}
+              onMoveToRequest={onMoveToRequest}
+              onAnnounce={onAnnounce}
             />
             {/* Panel splitter — drag to resize task list width */}
             <PanelSplitter currentTaskWidth={widths.task} setWidth={setWidth} />
