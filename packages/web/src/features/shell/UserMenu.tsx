@@ -111,12 +111,20 @@ function MenuContent({
         My Work
       </NavLink>
 
-      {/* Project settings — shown when a project is in context AND the user can
-          reach the admin settings shell; otherwise RequireAdminSettings would
-          silently bounce them to personal notification prefs (#2147). */}
-      {projectId && canAccessProjectSettings && (
+      {/* Project settings — shown whenever a project is in context (#2971). It
+          used to be additionally gated on `canAccessProjectSettings`, because
+          `RequireAdminSettings` would have bounced a non-admin to personal
+          notification prefs (#2147). The project settings route no longer bounces
+          them: it renders a reduced member rail carrying the sections a non-admin
+          may read. The destination differs, though — #members is an admin section
+          and would scroll a member to an anchor that is not on their page. */}
+      {projectId && (
         <NavLink
-          to={`/projects/${projectId}/settings/members`}
+          to={
+            canAccessProjectSettings
+              ? `/projects/${projectId}/settings/members`
+              : `/projects/${projectId}/settings#template-divergence`
+          }
           onClick={onClose}
           className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
         >

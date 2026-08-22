@@ -65,38 +65,56 @@ def _adoptions(project: Project) -> list[TemplateApplication]:
 def compute_template_divergence(project: Project) -> dict[str, Any]:
     """The digest for one project — the same body for every reader.
 
-    Four counts over the rows a template wrote, plus one over the rows it did not:
+    **Two substrates, each answering the question it was built for** (see the
+    ``TemplateApplication`` docstring, which says this explicitly): the *headline*
+    — which template, which version, applied by whom and when — comes from the
+    adoption record, because that row answers "which application wrote this batch";
+    the *counts* come from the per-row provenance columns #2730 added, because
+    those answer "what wrote this row", which is the question a count is.
 
-    * ``unchanged`` — seeded, still present, and no person has touched it. Delegated
-      wholesale to ``Task.objects.untouched_seeded(..., within=None)``; ``within=None``
-      because the seven-day sweep window is about offering a *delete*, and a project
-      adopted last quarter has diverged just as legibly as one adopted on Tuesday.
-    * ``adapted`` — seeded, still present, and someone edited it. This is the number
-      the whole feature exists to keep neutral: it is a team doing its job, and the
+    That split is also what keeps the query bounded. Counting through
+    ``created_task_ids`` means a ``pk__in`` over the union of every adoption's id
+    array — 2,000 ids per apply with no cap on applies, one bind parameter each,
+    and PostgreSQL's 65,535-parameter protocol limit reached at roughly 33 full
+    applications. The endpoint would then be a permanent 500 for every member of
+    that project, self-inflicted and unclearable by the team. The provenance
+    columns express the same set as a plain indexed predicate with no id list at
+    all, so the cost does not grow with adoption history.
+
+    Four counts over the rows a template wrote into this project — *whichever*
+    adoption wrote them, which is what per-row provenance means:
+
+    * ``unchanged`` — still present and no person has touched it. Delegated
+      wholesale to ``Task.objects.untouched_seeded(..., within=None)``, THE
+      definition of untouched (ADR-0786 §3). ``within=None`` because the seven-day
+      window bounds a *delete* offer; inheriting it would report every long-lived
+      project as fully adapted, which is a false accusation rather than a stale
+      number.
+    * ``adapted`` — still present and someone edited it. This is the number the
+      whole feature exists to keep neutral: it is a team doing its job, and the
       digest reports it without a verdict attached.
-    * ``removed`` — seeded and no longer live (soft-deleted, or reaped by the
-      tombstone sweep). Derived by subtraction rather than by querying deleted rows,
-      because a hard-deleted row leaves nothing to query.
-    * ``added`` — live rows in this project that no adoption wrote. Named for what it
-      counts, not for when it happened: a project that already had rows before the
-      template was applied contributes them here too, and calling that "added since"
-      would be a claim the data does not support.
-
-    ``seeded_row_count`` is the union across every non-undone adoption, so a project
-    that adopted twice does not report the second batch's rows as team-authored.
+    * ``removed`` — a template row that has since been soft-deleted. A row
+      hard-deleted by the tombstone reap is genuinely gone from the database and is
+      not counted; nothing can count it, and inferring it by subtracting from a
+      stored id array is what forces the unbounded query above.
+    * ``added`` — live rows this project has that no template wrote.
 
     A project with no adoption returns ``adopted=False`` and zeroed counts rather
     than raising: "this project was not created from a template" is an answer the
-    settings section renders, not an error.
+    settings section renders, not an error. Its ``added`` is every live row, which
+    also covers the after-an-undo case — undo keeps rows a person had edited, and a
+    project whose only adoption was reversed is not "from" that template, so the
+    survivors are the team's.
 
     A template deleted after adoption returns ``template=None`` with
     ``template_name``/``template_version`` still populated — those columns are
     denormalized onto the application precisely so "this project came from Delivery
     Skeleton v3" outlives v3.
     """
-    from trueppm_api.apps.projects.models import Task
+    from trueppm_api.apps.projects.models import Task, TaskSource
 
     applications = _adoptions(project)
+    rows = Task.objects.filter(project=project)
     if not applications:
         return {
             "project": str(project.pk),
@@ -113,28 +131,19 @@ def compute_template_divergence(project: Project) -> dict[str, Any]:
             "unchanged": 0,
             "adapted": 0,
             "removed": 0,
-            "added": Task.objects.filter(project=project, is_deleted=False).count(),
+            "added": rows.filter(is_deleted=False).count(),
         }
 
     headline = applications[0]
-    # Union across adoptions, de-duplicated: an id can in principle appear twice if a
-    # template is applied, undone, and re-applied — and double-counting it would make
-    # `added` negative on a project whose rows all came from a template.
-    seeded_ids: set[Any] = set()
-    for application in applications:
-        seeded_ids.update(application.created_task_ids or [])
-
-    seeded_row_count = len(seeded_ids)
-    live_seeded = Task.objects.filter(project=project, pk__in=seeded_ids, is_deleted=False).count()
-    # THE definition of untouched (ADR-0786 §3), narrowed to this project's seeded set.
+    template_rows = rows.filter(source_kind=TaskSource.TEMPLATE)
+    live_seeded = template_rows.filter(is_deleted=False).count()
+    # THE definition of untouched (ADR-0786 §3), narrowed to template-written rows.
     unchanged = (
-        Task.objects.untouched_seeded(project, within=None).filter(pk__in=seeded_ids).count()
+        Task.objects.untouched_seeded(project, within=None)
+        .filter(source_kind=TaskSource.TEMPLATE)
+        .count()
     )
-    adapted = live_seeded - unchanged
-    removed = seeded_row_count - live_seeded
-    added = (
-        Task.objects.filter(project=project, is_deleted=False).exclude(pk__in=seeded_ids).count()
-    )
+    removed = template_rows.filter(is_deleted=True).count()
 
     return {
         "project": str(project.pk),
@@ -149,9 +158,11 @@ def compute_template_divergence(project: Project) -> dict[str, Any]:
         "template_available": headline.template_id is not None,
         "applied_at": headline.completed_at or headline.created_at,
         "applied_by_name": _display_name(headline.applied_by),
-        "seeded_row_count": seeded_row_count,
+        # Derived, not stored: the three parts are counted from the same predicate,
+        # so the total can never disagree with them the way a snapshot would.
+        "seeded_row_count": live_seeded + removed,
         "unchanged": unchanged,
-        "adapted": adapted,
+        "adapted": live_seeded - unchanged,
         "removed": removed,
-        "added": added,
+        "added": rows.filter(is_deleted=False).exclude(source_kind=TaskSource.TEMPLATE).count(),
     }

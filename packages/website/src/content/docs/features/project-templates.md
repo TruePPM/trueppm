@@ -214,7 +214,7 @@ template wrote:
 | --- | --- |
 | **Unchanged** | Still exactly as the template wrote them — nobody has touched the row. |
 | **Adapted** | Someone on the project edited the row after it was seeded. |
-| **Removed** | The row was deleted after the template wrote it. |
+| **Removed** | The row was deleted after the template wrote it. (A row deleted long enough ago to have been purged by the tombstone sweep is no longer counted — there is nothing left to count.) |
 | **Added** | Rows in the project that no template wrote, including any that predate the adoption. |
 
 Above the counts is the provenance line — which template, which version, who
@@ -227,7 +227,10 @@ A project that was never created from a template says so, and reports nothing el
 ### The digest is symmetric — the team reads it first
 
 The page is readable by **every member of the project, Viewer included**, and it
-is the same page for everyone. There is no fuller version for a PMO, no second
+is the same page for everyone. Project settings used to be admin-only end to end,
+so a Viewer or Team Member who opened it was redirected away; they now reach the
+page and see the sections that concern them, which today is this one. Everything
+else on the page stays admin-only, and the server still refuses their writes. There is no fuller version for a PMO, no second
 endpoint, and no audience parameter — a program manager looking at one project's
 divergence and that project's own team are reading the identical report.
 

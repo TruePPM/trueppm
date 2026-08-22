@@ -18,13 +18,27 @@ const PROJECT_ID = 'e2e-project-00000000-0000-0000-0000-000000002971';
 
 const pj = (data: unknown) => JSON.stringify(data);
 
-const FIXTURE_ME = {
-  id: 'user-alice',
-  username: 'alice',
-  display_name: 'Alice',
-  initials: 'AL',
-  email: 'alice@example.com',
-};
+/**
+ * `can_access_admin_settings` is derived from `role` on purpose (Admin=300+).
+ *
+ * That flag — not the project role — is what the `/projects/:id/settings` route
+ * used to gate on, so a spec whose `/auth/me` omits it renders the page for a
+ * "Viewer" that a real Viewer would be redirected off. The strict `=== false`
+ * check in the guard passes on `undefined`, which is exactly how that gap stays
+ * green. Deriving it here means the Viewer case runs the real gate.
+ */
+function me(role: number) {
+  return {
+    id: 'user-alice',
+    username: 'alice',
+    display_name: 'Alice',
+    initials: 'AL',
+    email: 'alice@example.com',
+    can_access_admin_settings: role >= 300,
+    workspace_role: role >= 300 ? 300 : 100,
+    max_project_role: role,
+  };
+}
 
 const FIXTURE_PROJECT = {
   id: PROJECT_ID,
@@ -105,7 +119,7 @@ async function setup(
   await setupCatchAll(page);
 
   await page.route('**/api/v1/auth/me/', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_ME) }),
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj(me(opts.role ?? 0)) }),
   );
   await page.route('**/api/v1/edition/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj({ edition: 'community' }) }),
@@ -182,6 +196,32 @@ test.describe('Project Settings → Template divergence', () => {
     const section = page.locator('#template-divergence');
     await expect(section.getByRole('button')).toHaveCount(0);
     await expect(section.getByText(/complian/i)).toHaveCount(0);
+  });
+
+  test('a Viewer is not redirected off their own project settings', async ({ page }) => {
+    // The regression test for the finding that nearly shipped this feature broken:
+    // `/projects/:id/settings` was wrapped in `RequireAdminSettings`, which reads
+    // the ORG-WIDE `can_access_admin_settings` (Admin+ in ANY project), not the
+    // project role — so every Viewer, Member and Scheduler was bounced to
+    // `/me/settings/notifications` before the page mounted. The endpoint answering
+    // a Viewer with 200 proved nothing while no route rendered it.
+    await setup(page, { role: 0 });
+    await page.goto(URL);
+
+    await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/settings`));
+    await expect(page.getByRole('heading', { name: 'Template divergence' })).toBeVisible();
+  });
+
+  test('a Viewer gets the reduced rail — only what they can act on', async ({ page }) => {
+    await setup(page, { role: 0 });
+    await page.goto(URL);
+
+    const nav = page.getByRole('navigation', { name: 'Settings sections' });
+    await expect(nav.getByText('Template divergence')).toBeVisible();
+    // Admin controls stay off a non-admin's page: admitting them to the route is
+    // not the same as handing them a shell full of things the server will refuse.
+    await expect(nav.getByText('Workflow & fields')).toHaveCount(0);
+    await expect(nav.getByText('Access', { exact: true })).toHaveCount(0);
   });
 
   test('the rail carries its own row, so the report is findable', async ({ page }) => {

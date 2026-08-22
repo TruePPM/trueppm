@@ -304,7 +304,10 @@ export interface TemplateDivergence {
   unchanged: number;
   /** Seeded and since edited. The number this whole feature exists to keep neutral. */
   adapted: number;
-  /** Seeded and no longer live. */
+  /**
+   * A template row that has since been soft-deleted. A row hard-deleted by the
+   * tombstone reap is not counted — nothing can count it.
+   */
   removed: number;
   /** Live rows no adoption wrote — including any that predate the template. */
   added: number;

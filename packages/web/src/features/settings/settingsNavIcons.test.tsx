@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { isValidElement } from 'react';
 import type { SettingsNavGroup } from './SettingsShell';
-import { buildProjectSettingsNav } from './ProjectSettingsPage';
+import { buildProjectSettingsNav, buildProjectSettingsMemberNav } from './ProjectSettingsPage';
 import { buildProgramSettingsNav } from './ProgramSettingsPage';
 import { buildWorkspaceNavGroups } from './workspace/workspaceNav';
 import { ExternalLinkIcon, WarningIcon } from '@/components/Icons';
@@ -28,6 +28,14 @@ const RAILS: Array<{ name: string; groups: SettingsNavGroup[] }> = [
   {
     name: 'project (pre-methodology — Team and Signal privacy hidden)',
     groups: buildProjectSettingsNav({ showTeamTab: false, iterationSingular: 'Sprint' }),
+  },
+  {
+    // The reduced rail a non-admin project member sees (#2971). One row today, so
+    // uniqueness is vacuous — it is listed anyway because the moment a second
+    // member-readable section is added, this is the only place that would catch it
+    // reusing the first one's glyph.
+    name: 'project (member view — non-admin)',
+    groups: buildProjectSettingsMemberNav(),
   },
   { name: 'program', groups: buildProgramSettingsNav() },
   { name: 'workspace (inline)', groups: buildWorkspaceNavGroups({ linked: false }) },

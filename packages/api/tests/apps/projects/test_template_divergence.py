@@ -240,7 +240,7 @@ def test_unchanged_matches_untouched_seeded_exactly(
 
     expected = (
         Task.objects.untouched_seeded(project, within=None)
-        .filter(pk__in=application.created_task_ids)
+        .filter(source_kind=TaskSource.TEMPLATE)
         .count()
     )
 
@@ -339,6 +339,10 @@ def test_undone_application_is_not_counted(project: Project, template: ProjectTe
 
     assert digest["adopted"] is False
     assert digest["seeded_row_count"] == 0
+    # Undo keeps rows a person had edited; this test undoes the record without
+    # sweeping the rows, so all four survive. A project whose only adoption was
+    # reversed is not "from" that template, so its survivors read as the team's.
+    assert digest["added"] == 4
 
 
 def test_second_adoption_does_not_read_as_team_authored(
@@ -412,3 +416,41 @@ def test_endpoint_body_matches_the_service(project: Project, template: ProjectTe
     body = client.get(_url(project)).json()
 
     assert set(body) == set(compute_template_divergence(project))
+
+
+def test_counts_do_not_read_the_stored_id_array(
+    project: Project, template: ProjectTemplate
+) -> None:
+    """The counts come from per-row provenance, never from ``created_task_ids``.
+
+    Not a style preference — it is the bound. Counting through the id array means a
+    ``pk__in`` over the union of every adoption's 2,000-id list, one bind parameter
+    each, and PostgreSQL refuses past 65,535: the endpoint becomes a permanent 500
+    for every member of a project that adopted often enough, which no one on that
+    team can clear. Emptying the array here is the cheapest way to assert the
+    counts never touch it; the headline still comes from the application row.
+    """
+    application = _adopt(template, project)
+    TemplateApplication.objects.filter(pk=application.pk).update(created_task_ids=[])
+
+    digest = compute_template_divergence(project)
+
+    assert digest["seeded_row_count"] == 4
+    assert digest["unchanged"] == 4
+    assert digest["added"] == 0
+    assert digest["template_name"] == "Delivery skeleton"
+
+
+def test_a_soft_deleted_seeded_row_is_removed_not_missing(
+    project: Project, template: ProjectTemplate
+) -> None:
+    """``removed`` is counted directly, so the three parts always sum to the total."""
+    application = _adopt(template, project)
+    row = Task.objects.filter(pk__in=application.created_task_ids).order_by("wbs_path").first()
+    assert row is not None
+    row.soft_delete()
+
+    digest = compute_template_divergence(project)
+
+    assert digest["removed"] == 1
+    assert digest["unchanged"] + digest["adapted"] + digest["removed"] == digest["seeded_row_count"]

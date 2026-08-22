@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { HealthState } from '@/types';
 import { useIsWorkspaceAdmin } from '@/hooks/useIsWorkspaceAdmin';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import { iterationLabelForms } from '@/lib/iterationLabel';
@@ -91,6 +92,42 @@ function projectHealthDot(health?: HealthState): 'onTrack' | 'atRisk' | 'critica
  * @param iterationSingular the project's own word for an iteration ("Sprint"),
  *   which titles the guardrails row.
  */
+/**
+ * The rail a project member who is **not** an admin anywhere sees (#2971).
+ *
+ * Project settings used to be admin-only end to end: `RequireAdminSettings`
+ * bounced anyone whose `can_access_admin_settings` was false, on the reasonable
+ * ADR-0122 grounds that a shell full of controls they cannot use reads as "not my
+ * tool". That stops being reasonable the moment one of the sections is a *report
+ * about them*. #2971's requirement is not "the endpoint answers a Viewer" — it is
+ * that the team can open what is said about their project, and a page they are
+ * redirected off is not open.
+ *
+ * So the page now admits them and shows exactly the sections they can act on,
+ * which today is one. Kept as its own builder rather than a filter over the admin
+ * rail so the set is a **declared allow-list**: a section becomes member-visible by
+ * being named here, never by a predicate somewhere else changing shape.
+ */
+export function buildProjectSettingsMemberNav(): SettingsNavGroup[] {
+  return [
+    {
+      label: 'Your project',
+      items: [
+        {
+          id: 'template-divergence',
+          label: 'Template divergence',
+          keywords: 'divergence digest template drift adapted unchanged reported governance',
+          icon: (
+            <NavIcon>
+              <SeededUntouchedIcon aria-hidden="true" />
+            </NavIcon>
+          ),
+        },
+      ],
+    },
+  ];
+}
+
 export function buildProjectSettingsNav({
   showTeamTab,
   iterationSingular,
@@ -318,6 +355,7 @@ export function ProjectSettingsPage() {
   // bounces a non-workspace-admin away from (#2012). Disable the tab (rather than
   // render a dead link) when the user is positively not a workspace admin.
   const isWorkspaceAdmin = useIsWorkspaceAdmin();
+  const { user } = useCurrentUser();
 
   if (!projectId) return null;
 
@@ -341,7 +379,50 @@ export function ProjectSettingsPage() {
   const showTeamTab = project?.methodology === 'AGILE' || project?.methodology === 'HYBRID';
   const iterationSingular = iterationLabelForms(project?.iteration_label).singular;
 
-  const navGroups: SettingsNavGroup[] = buildProjectSettingsNav({ showTeamTab, iterationSingular });
+  // #2971: a member who is admin nowhere reaches this page (the route no longer
+  // bounces them) and gets the reduced rail — today, the divergence digest alone.
+  // Strict `=== false`, matching every other consumer of this flag: an absent or
+  // still-loading signal renders the full rail, so an admin never sees a flash of
+  // the one-row view. The server is still the thing that refuses their writes.
+  const memberView = user?.can_access_admin_settings === false;
+
+  const navGroups: SettingsNavGroup[] = memberView
+    ? buildProjectSettingsMemberNav()
+    : buildProjectSettingsNav({ showTeamTab, iterationSingular });
+
+  if (memberView) {
+    return (
+      <SettingsShell
+        scope="project"
+        scopeLinks={[
+          {
+            scope: 'workspace',
+            label: 'Workspace',
+            to: null,
+            disabledReason: 'Requires workspace admin',
+          },
+          {
+            scope: 'program',
+            label: 'Program',
+            to: null,
+            disabledReason: 'Requires program admin',
+          },
+          { scope: 'project', label: 'Project', to: `/projects/${projectId}/settings` },
+        ]}
+        contextName={project?.name ?? 'Project settings'}
+        contextHealth={projectHealthDot(activeProjectHealth)}
+        contextOptions={contextOptions}
+        contextActiveId={projectId}
+        navGroups={navGroups}
+        exitTo={`/projects/${projectId}/overview`}
+        exitLabel="Overview"
+      >
+        <SettingsSection id="template-divergence">
+          <ProjectTemplateDivergencePage />
+        </SettingsSection>
+      </SettingsShell>
+    );
+  }
 
   return (
     <SettingsShell
