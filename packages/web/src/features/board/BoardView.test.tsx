@@ -2831,8 +2831,9 @@ describe('public board share (#1486)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Mobile create FAB (issue 605). On a phone the floating "+" opens the create
-// modal targeting the group in view (the snapped-to status column).
+// Mobile create FAB (issue 605, retargeted #2952). On a phone the floating "+"
+// opens the touch COMPOSE BAR targeting the group in view (the snapped-to
+// status column) — not a form.
 // ---------------------------------------------------------------------------
 describe('mobile create FAB (#605)', () => {
   beforeEach(() => {
@@ -2844,12 +2845,49 @@ describe('mobile create FAB (#605)', () => {
     Element.prototype.scrollIntoView = vi.fn();
   });
 
-  it('opens the create modal targeting the visible status column', async () => {
+  it('opens the compose bar targeting the visible status column, not a form', async () => {
     const user = userEvent.setup();
     renderBoard();
     // The FAB is the only "Add task" affordance on the mobile snap board.
     await user.click(screen.getByRole('button', { name: 'Add task' }));
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+
+    // A bar, not a sheet — the destination column stays on screen behind it.
+    expect(await screen.findByTestId('mobile-compose-bar')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    // It names where a committed row lands. NOT_STARTED is the seeded column.
+    expect(screen.getByRole('textbox', { name: /lands in To Do/i })).toBeInTheDocument();
+  });
+
+  it('commits one row into the visible status and keeps the caret for the next', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    await user.click(screen.getByRole('button', { name: 'Add task' }));
+
+    const field = await screen.findByRole('textbox', { name: /lands in To Do/i });
+    fireEvent.change(field, { target: { value: 'Check the riser bolts' } });
+    fireEvent.submit(field.closest('form')!);
+
+    expect(createTaskMutate).toHaveBeenCalledTimes(1);
+    expect(createTaskMutate.mock.calls[0][0]).toMatchObject({
+      name: 'Check the riser bolts',
+      status: 'NOT_STARTED',
+      parent_id: null,
+    });
+    // Intake on a phone is bursty — the bar stays, empty, with the caret in it.
+    expect(screen.getByTestId('mobile-compose-bar')).toBeInTheDocument();
+    expect(field).toHaveValue('');
+    expect(document.activeElement).toBe(field);
+  });
+
+  it('a read-only board offers no FAB at all — absence, not a disabled + (rule 302)', async () => {
+    boardRoleMock = ROLE_VIEWER;
+    renderBoard();
+    // The FAB was gated on `projectId` alone while every other write path on
+    // this board honored readOnly, so a Viewer on a phone got a live "+".
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Add task' })).toBeNull(),
+    );
+    expect(screen.queryByTestId('mobile-compose-bar')).toBeNull();
   });
 });
 
@@ -3065,11 +3103,13 @@ describe('backlog quick capture (#2459)', () => {
     expect(createTaskMutate).not.toHaveBeenCalled();
   });
 
-  it('opens the full create modal from the rail "Add with details" affordance', async () => {
-    const user = userEvent.setup();
+  it('offers no second creation form beside the rail capture field (#2952)', () => {
     renderBoard();
-    await user.click(screen.getByRole('button', { name: /Add with details/i }));
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    // "Add with details…" opened TaskFormModal with a BACKLOG default. The
+    // inbox catches an item with no place yet; a description, an assignee and
+    // a date are answers it does not have, and they are one tap away in the
+    // drawer on the card the capture field just made.
+    expect(screen.queryByRole('button', { name: /Add with details/i })).toBeNull();
   });
 });
 
@@ -3459,8 +3499,17 @@ describe('mobile FAB under the queue layout (#2459)', () => {
     const user = userEvent.setup();
     renderBoard(); // no explicit layout → phones resolve to the queue
     await user.click(screen.getByRole('button', { name: 'Add task' }));
-    const dialog = await screen.findByRole('dialog');
-    expect(dialog).toHaveTextContent(/backlog/i);
+
+    const field = await screen.findByRole('textbox', { name: /lands in Backlog/i });
+    fireEvent.change(field, { target: { value: 'Chase the vendor' } });
+    fireEvent.submit(field.closest('form')!);
+
+    expect(createTaskMutate.mock.calls[0][0]).toMatchObject({
+      name: 'Chase the vendor',
+      status: 'BACKLOG',
+      // An intake idea is not scheduled work yet.
+      duration: 0,
+    });
   });
 });
 
@@ -3506,11 +3555,66 @@ describe('backlog "Schedule…" dialog (#2459)', () => {
 
     const trigger = screen.getByRole('button', { name: 'Actions for Polish onboarding copy' });
     await user.click(trigger);
+    // The ··· is a real menu since #2952 — the rail gained `File under…` beside
+    // `Schedule…`, so the trigger opens a menu rather than the dialog directly.
+    await user.click(await screen.findByRole('menuitem', { name: 'Schedule…' }));
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toBeInTheDocument();
 
     fireEvent.keyDown(dialog, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(document.activeElement).toBe(trigger);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// "File under…" (#2952) — the rail's keyboard and touch promotion path. It must
+// perform the SAME move the rail→phase drag performs, through the same
+// mutation: a keyboard path that promoted differently from the drag would be a
+// second implementation of the board's central gesture.
+// ---------------------------------------------------------------------------
+describe('backlog "File under…" (#2952)', () => {
+  beforeEach(reset2459);
+
+  function backlogIdea(): Task {
+    return {
+      ...FIXTURE_TASKS[4],
+      id: 'idea-1',
+      name: 'Polish onboarding copy',
+      parentId: null,
+      status: 'BACKLOG',
+      plannedStart: null,
+      isSummary: false,
+      isMilestone: false,
+    };
+  }
+
+  it('re-parents into the chosen container and lands in To Do', async () => {
+    const user = userEvent.setup();
+    mockTasks = [...FIXTURE_TASKS, backlogIdea()];
+    renderBoard();
+
+    await user.click(screen.getByRole('button', { name: 'Actions for Polish onboarding copy' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'File under…' }));
+    // t1 is the summary task "Alpha Platform Upgrade" — the board's one phase lane.
+    await user.click(await screen.findByRole('menuitem', { name: 'Alpha Platform Upgrade' }));
+
+    expect(updateMutate).toHaveBeenCalledTimes(1);
+    expect(updateMutate.mock.calls[0][0]).toMatchObject({
+      taskId: 'idea-1',
+      status: 'NOT_STARTED',
+      parentId: 't1',
+    });
+  });
+
+  it('is absent for a Viewer — no rights means no apparatus (rule 302)', () => {
+    boardRoleMock = ROLE_VIEWER;
+    mockTasks = [...FIXTURE_TASKS, backlogIdea()];
+    renderBoard();
+
+    // Both menu actions write, so the whole ··· goes rather than opening onto a
+    // menu whose every item the server would refuse.
+    expect(screen.getByText('Polish onboarding copy')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Actions for Polish onboarding copy' })).toBeNull();
   });
 });

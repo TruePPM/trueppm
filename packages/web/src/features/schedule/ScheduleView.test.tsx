@@ -314,7 +314,7 @@ vi.mock('./TaskListPanel', () => ({
     appendAtEndReadOnly,
   }: {
     tasks: Task[];
-    onCommitDraftRow?: (name: string) => void;
+    onCommitDraftRow?: (name: string, opts?: { onError?: () => void }) => void;
     onAppendTaskAtEnd?: () => void;
     appendAtEndReadOnly?: boolean;
   }) => (
@@ -614,8 +614,12 @@ describe('ScheduleView — empty state', () => {
 
     await user.click(screen.getByRole('button', { name: 'commit-draft' }));
 
+    // The draft row now routes through the same create shape as the outline's
+    // own insert (#2952): `parent_id` from the insertion point, and an
+    // `onError` so a failed create on a blank project is not silent.
     expect(createTaskMutate).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'Pour foundations', duration: 1 }),
+      expect.objectContaining({ name: 'Pour foundations', duration: 1, parent_id: null }),
+      expect.objectContaining({ onError: expect.any(Function) as unknown }),
     );
   });
 
@@ -1335,7 +1339,8 @@ describe('ScheduleView — build mode (default on desktop, #2682)', () => {
     expect(screen.queryByRole('button', { name: '+ Add task' })).toBeNull();
     await user.click(screen.getByRole('button', { name: 'commit-draft' }));
     expect(createTaskMutate).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'Pour foundations', duration: 1 }),
+      expect.objectContaining({ name: 'Pour foundations', duration: 1, parent_id: null }),
+      expect.objectContaining({ onError: expect.any(Function) as unknown }),
     );
   });
 });

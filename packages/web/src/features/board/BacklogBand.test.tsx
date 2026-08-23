@@ -112,9 +112,17 @@ describe('BacklogBand (rail)', () => {
     expect(screen.getByText(/No backlog yet/)).toBeInTheDocument();
   });
 
-  it('renders the drag hint copy when expanded', () => {
-    renderBand({ tasks: [makeTask()] });
-    expect(screen.getByText(/Drag right onto a phase/i)).toBeInTheDocument();
+  it('names the File under… action in the hint, and the drag second (#2952)', () => {
+    renderBand({
+      tasks: [makeTask()],
+      fileUnderTargets: [{ id: 'phase-1', name: 'Discovery' }],
+      onFileUnder: vi.fn(),
+    });
+    const hint = screen.getByText(/promotes it to/i);
+    // The hint used to name ONLY the drag — the one path a keyboard user and a
+    // phone user cannot take, on the surface whose whole job is promotion.
+    expect(hint).toHaveTextContent('File under…');
+    expect(hint).toHaveTextContent(/Dragging it right onto a phase does the same/i);
   });
 
   it('renders backlog card names', () => {
@@ -190,26 +198,35 @@ describe('BacklogBand (rail)', () => {
 
   // --- Read-only rail (#2146) ---
 
-  it('suppresses the quick-capture field and "Add with details…" when readOnly', () => {
+  it('suppresses the quick-capture field when readOnly', () => {
     renderBand({
       tasks: [],
       onQuickCapture: vi.fn(),
-      onCaptureIdea: vi.fn(),
       readOnly: true,
     });
     // A Viewer (or closed sprint) sees no authoring affordances on the rail.
-    expect(screen.queryByRole('textbox', { name: /Capture a backlog idea/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Add with details/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('textbox', { name: /Capture a backlog idea/i }),
+    ).not.toBeInTheDocument();
   });
 
-  it('renders the quick-capture field and "Add with details…" when not readOnly', () => {
+  it('renders the quick-capture field when not readOnly', () => {
     renderBand({
       tasks: [],
       onQuickCapture: vi.fn(),
-      onCaptureIdea: vi.fn(),
     });
     expect(screen.getByRole('textbox', { name: /Capture a backlog idea/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Add with details/i })).toBeInTheDocument();
+  });
+
+  // --- The one field, and only one (#2952) ---
+
+  it('offers no second creation form beside the capture field', () => {
+    renderBand({ tasks: [makeTask()], onQuickCapture: vi.fn() });
+    // "Add with details…" opened TaskFormModal with a BACKLOG default — a
+    // richer form directly under a field that already captures. An inbox
+    // catches an item with no place yet; a description and an assignee are
+    // answers it does not have.
+    expect(screen.queryByRole('button', { name: /Add with details/i })).not.toBeInTheDocument();
   });
 
   // --- Drag guard (#2680) — the read-only rail must also disable drag, not
@@ -301,9 +318,15 @@ describe('BacklogBand (rail)', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('disables the capture field while a capture is pending', () => {
+  it('makes the capture field read-only — never disabled — while a capture is pending', () => {
     renderBand({ tasks: [], onQuickCapture: vi.fn(), isQuickCapturePending: true });
-    expect(screen.getByRole('textbox', { name: /Capture a backlog idea/i })).toBeDisabled();
+    // A disabled element is blurred by the browser, which drops the caret (and
+    // the soft keyboard on touch) between every idea — the opposite of the
+    // rapid successive intake this field exists for (#2952). `submitCapture`
+    // already refuses while pending, so nothing double-fires.
+    const field = screen.getByRole('textbox', { name: /Capture a backlog idea/i });
+    expect(field).toHaveAttribute('readonly');
+    expect(field).not.toBeDisabled();
   });
 
   it('points the empty state at the capture field when quick-capture is available', () => {
@@ -415,27 +438,6 @@ describe('BacklogBand (rail)', () => {
     const cmdk = screen.getByRole('button', { name: /command palette/i });
     fireEvent.click(cmdk);
     expect(onOpenCommandPalette).toHaveBeenCalledTimes(1);
-  });
-
-  it('calls onCaptureIdea when "Add with details…" is clicked', () => {
-    const onCaptureIdea = vi.fn();
-    renderBand({ tasks: [makeTask()], onCaptureIdea });
-    const cta = screen.getByRole('button', { name: /Add with details/i });
-    expect(cta).not.toBeDisabled();
-    fireEvent.click(cta);
-    expect(onCaptureIdea).toHaveBeenCalledTimes(1);
-  });
-
-  it('disables "Add with details…" while pending and shows "Adding…"', () => {
-    renderBand({ tasks: [makeTask()], onCaptureIdea: vi.fn(), isCaptureIdeaPending: true });
-    const cta = screen.getByRole('button', { name: /Adding/i });
-    expect(cta).toBeDisabled();
-  });
-
-  it('disables "Add with details…" when no onCaptureIdea handler provided', () => {
-    renderBand({ tasks: [makeTask()] });
-    const cta = screen.getByRole('button', { name: /Add with details/i });
-    expect(cta).toBeDisabled();
   });
 
   it('renders compact density without phase line and shows phase dot + initials', () => {
@@ -779,9 +781,11 @@ describe('BacklogCard — the ··· schedule action (#318)', () => {
     renderBand({ tasks: [makeTask({ id: 'idea-9', name: 'Spike auth flow' })], onSchedule });
     const action = screen.getByRole('button', { name: 'Actions for Spike auth flow' });
     fireEvent.click(action);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Schedule…' }));
     expect(onSchedule).toHaveBeenCalledTimes(1);
     expect(onSchedule.mock.calls[0][0]).toMatchObject({ id: 'idea-9' });
-    // The trigger is handed back so the dialog can return focus on close.
+    // The ··· trigger — not the menuitem, which unmounts with the menu — is
+    // handed back so the dialog can return focus somewhere that still exists.
     expect(onSchedule.mock.calls[0][1]).toBe(action);
   });
 
@@ -894,6 +898,7 @@ describe('BacklogBand — compact density', () => {
     // Right padding keeps the title clear of the absolutely-positioned action.
     expect(card.className).toContain('pr-7');
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Triage requests' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Schedule…' }));
     expect(onSchedule).toHaveBeenCalledTimes(1);
   });
 
@@ -1080,5 +1085,129 @@ describe('BacklogBand — collapsed strip', () => {
     localStorage.setItem('trueppm.board.backlogBand.collapsed', '1');
     renderBand({ tasks: [makeTask()] });
     expect(screen.getByRole('button', { name: 'Expand backlog rail, 1 idea' })).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// "File under…" (#2952) — the keyboard and touch path for what the rail
+// previously only offered as a drag.
+// ---------------------------------------------------------------------------
+describe('BacklogCard "File under…"', () => {
+  const TARGETS = [
+    { id: 'root', name: 'Test Project' },
+    { id: 'phase-1', name: 'Discovery' },
+    { id: 'phase-2', name: 'Build' },
+  ];
+
+  function openMenu(cardName: string) {
+    fireEvent.click(screen.getByRole('button', { name: `Actions for ${cardName}` }));
+  }
+
+  it('files the card under the chosen container', () => {
+    const onFileUnder = vi.fn();
+    renderBand({
+      tasks: [makeTask({ id: 'idea-1', name: 'Spike auth flow' })],
+      fileUnderTargets: TARGETS,
+      onFileUnder,
+    });
+
+    openMenu('Spike auth flow');
+    fireEvent.click(screen.getByRole('menuitem', { name: 'File under…' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Build' }));
+
+    expect(onFileUnder).toHaveBeenCalledTimes(1);
+    expect(onFileUnder.mock.calls[0][0]).toMatchObject({ id: 'idea-1' });
+    expect(onFileUnder.mock.calls[0][1]).toBe('phase-2');
+  });
+
+  it('lists every container the board is grouped by, including the project root', () => {
+    renderBand({
+      tasks: [makeTask({ name: 'Spike auth flow' })],
+      fileUnderTargets: TARGETS,
+      onFileUnder: vi.fn(),
+    });
+    openMenu('Spike auth flow');
+    fireEvent.click(screen.getByRole('menuitem', { name: 'File under…' }));
+    for (const t of TARGETS) {
+      expect(screen.getByRole('menuitem', { name: t.name })).toBeInTheDocument();
+    }
+  });
+
+  it('a read-only rail offers no ··· at all — absence, not disabled (rule 302)', () => {
+    renderBand({
+      tasks: [makeTask({ name: 'Spike auth flow' })],
+      fileUnderTargets: TARGETS,
+      // Both callers pass `undefined` read-only; the rail also drops them
+      // itself, so neither layer alone can leak a write action to a Viewer.
+      onFileUnder: vi.fn(),
+      onSchedule: vi.fn(),
+      readOnly: true,
+    });
+    expect(screen.queryByRole('button', { name: 'Actions for Spike auth flow' })).toBeNull();
+  });
+
+  it('a read-only rail describes no promotion path either', () => {
+    renderBand({ tasks: [makeTask()], fileUnderTargets: TARGETS, readOnly: true });
+    // A sentence naming two gestures a Viewer cannot perform is the same false
+    // capability claim as a dead button, in copy.
+    expect(screen.queryByText(/File under…/)).toBeNull();
+    expect(screen.queryByText(/Drag right onto a phase/)).toBeNull();
+  });
+
+  it('falls back to the drag-only hint when there is nothing to file into', () => {
+    renderBand({ tasks: [makeTask()], fileUnderTargets: [], onFileUnder: vi.fn() });
+    expect(screen.getByText(/Drag right onto a phase/)).toBeInTheDocument();
+    expect(screen.queryByText(/File under…/)).toBeNull();
+  });
+
+  it('returns focus to the capture field after filing, since the card unmounts', () => {
+    renderBand({
+      tasks: [makeTask({ name: 'Spike auth flow' })],
+      fileUnderTargets: TARGETS,
+      onFileUnder: vi.fn(),
+      onQuickCapture: vi.fn(),
+    });
+    openMenu('Spike auth flow');
+    fireEvent.click(screen.getByRole('menuitem', { name: 'File under…' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Build' }));
+    expect(screen.getByRole('textbox', { name: /Capture a backlog idea/i })).toHaveFocus();
+  });
+
+  it('offers no File under… when the board has no containers to file into', () => {
+    // Assignee (324) / epic (364) grouping: a lane id is a resource or an epic,
+    // not a WBS parent, so BoardView passes an empty target list.
+    renderBand({
+      tasks: [makeTask({ name: 'Spike auth flow' })],
+      fileUnderTargets: [],
+      onFileUnder: vi.fn(),
+      onSchedule: vi.fn(),
+    });
+    openMenu('Spike auth flow');
+    expect(screen.queryByRole('menuitem', { name: 'File under…' })).toBeNull();
+  });
+
+  it('renders no ··· at all when there is nothing to offer', () => {
+    renderBand({ tasks: [makeTask({ name: 'Spike auth flow' })], fileUnderTargets: [] });
+    expect(screen.queryByRole('button', { name: 'Actions for Spike auth flow' })).toBeNull();
+  });
+
+  it('walks the menu with the arrow keys and closes on Escape', () => {
+    renderBand({
+      tasks: [makeTask({ name: 'Spike auth flow' })],
+      fileUnderTargets: TARGETS,
+      onFileUnder: vi.fn(),
+      onSchedule: vi.fn(),
+    });
+    const trigger = screen.getByRole('button', { name: 'Actions for Spike auth flow' });
+    fireEvent.click(trigger);
+
+    const menu = screen.getByRole('menu', { name: 'Actions for Spike auth flow' });
+    expect(screen.getByRole('menuitem', { name: 'File under…' })).toHaveFocus();
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+    expect(screen.getByRole('menuitem', { name: 'Schedule…' })).toHaveFocus();
+
+    fireEvent.keyDown(menu, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(trigger).toHaveFocus();
   });
 });

@@ -20,7 +20,9 @@ The board has two zones:
 | Review | `REVIEW` | Work complete; awaiting review / sign-off | 3 |
 | Done | `COMPLETE` | Done | — |
 
-Dragging a card from the backlog into a working column commits it (status changes to the column's status). Dragging a To Do card back to the backlog opens a confirmation dialog — demoting committed work is a deliberate decision. Cards that are In Progress or beyond cannot be demoted to the backlog.
+Dragging a card from the backlog into a working column commits it (status changes to the column's status). Dragging is not the only way: each backlog card's **···** menu carries **File under…**, which files the idea into a phase and lands it in **To Do** — the same move the drag performs, reachable from the keyboard and comfortable on a touch screen. Dragging a To Do card back to the backlog opens a confirmation dialog — demoting committed work is a deliberate decision. Cards that are In Progress or beyond cannot be demoted to the backlog.
+
+The backlog rail captures with a **single field** at the top: type a name, press <kbd>Enter</kbd>, and the idea is created — the field clears and keeps the caret so you can fire off several in a row. A description, an assignee or a date go in the task drawer on the card you just made; intake is for catching an item that has no place yet, and those are answers it does not have.
 
 The legacy `ON_HOLD` status is kept for data compatibility with pre-0.1 projects but does not appear as a column; on the board it is treated like Backlog for drag guards.
 
@@ -355,7 +357,9 @@ clause is omitted at 0% and at 100% — a card in Done saying "100% done" adds n
 
 On viewports below 768px the board reflows into a **horizontal snap-scroll layout**: each status column becomes a full-width page (`scroll-snap-align: start`), and swiping settles cleanly column-to-column. The phase swimlanes collapse on a phone — each column shows a flat list of its cards across every phase, so the narrow screen carries the status axis without nesting.
 
-A **dot-strip** above the board names every column with its task count and a health dot, and acts as the map: the active column's bar fills solid, and tapping any segment jumps to that column. Card anatomy, WIP limits, and the critical / blocked treatment are unchanged from desktop — only the layout reflows. The mobile FAB creates a task in the first visible column.
+A **dot-strip** above the board names every column with its task count and a health dot, and acts as the map: the active column's bar fills solid, and tapping any segment jumps to that column. Card anatomy, WIP limits, and the critical / blocked treatment are unchanged from desktop — only the layout reflows.
+
+The floating **+** opens a **compose bar** across the bottom of the screen rather than a full-screen form. It is one field, it names where a committed row will land ("Lands in To Do" — the column in view, or **Backlog** under the Queue layout), and it stays open after each entry so a run of items can be captured without reopening anything. The bar is not shown at all to a Viewer, or on a closed sprint.
 
 ## Permissions
 

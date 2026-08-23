@@ -7,8 +7,13 @@ export interface BlankOutlineDraftRowProps {
    * field has content. Omitted for read-only roles, which get a static line
    * instead of an input — a caret in a field that cannot save is a worse lie
    * than no caret at all.
+   *
+   * `opts.onError` is the same contract the backlog rail's quick capture uses
+   * (#2030): this field clears optimistically so a second row can be typed
+   * immediately, so a failed POST would otherwise lose the typed name with no
+   * trace on the one screen where it is the user's *only* row (#2952).
    */
-  onCommit?: (name: string) => void;
+  onCommit?: (name: string, opts?: { onError?: () => void }) => void;
   /** Column width for the name cell, so the draft lines up with real rows. */
   nameWidth: number;
   /**
@@ -54,11 +59,19 @@ export function BlankOutlineDraftRow({
     const name = next.trim();
     if (!name || !onCommit) return;
     committingRef.current = true;
-    onCommit(name);
+    // Clear BEFORE handing the name off, so a caller that fails synchronously
+    // still leaves the restored text in the field rather than having it wiped
+    // by this line a moment later.
     setValue('');
     // Keep the caret here so a second row can be typed straight away —
     // "structure accumulates as you type" only works if Enter does not eject you.
     inputRef.current?.focus();
+    onCommit(name, {
+      // Restore only into a field the user has not already started refilling —
+      // clobbering a half-typed second row to hand back the first one is worse
+      // than the loss it repairs.
+      onError: () => setValue((cur) => (cur === '' ? name : cur)),
+    });
     committingRef.current = false;
   }
 
@@ -79,6 +92,7 @@ export function BlankOutlineDraftRow({
       <div
         role="row"
         aria-rowindex={2}
+        aria-level={1}
         style={{ height: rowHeight }}
         className="flex items-center px-2 text-xs text-neutral-text-secondary"
       >
@@ -91,6 +105,13 @@ export function BlankOutlineDraftRow({
     <div
       role="row"
       aria-rowindex={2}
+      // Same key set the outline's own rows carry (#2952). A `role="row"` inside
+      // a `role="treegrid"` with no `aria-level` is an invalid tree node, and on
+      // a blank project this row is the ONLY row — so the one screen where the
+      // outline had nothing to announce was also the one where it announced it
+      // wrongly. `1` because a first task is top level; there is nothing above
+      // it to nest under.
+      aria-level={1}
       style={{ height: rowHeight }}
       className="flex items-center border-b border-neutral-border/60"
     >

@@ -245,6 +245,9 @@ test.describe('Board sprint view (#429 / chrome #1138 #1141)', () => {
     // dragging it onto a phase cell. The dialog names the scoped ACTIVE sprint
     // and flags pending scope (ADR-0102).
     await page.getByRole('button', { name: 'Actions for Backlog idea' }).click();
+    // The ··· is a real menu since #2952 — the rail gained `File under…` beside
+    // `Schedule…`, so the trigger opens a menu rather than the dialog directly.
+    await page.getByRole('menuitem', { name: 'Schedule…' }).click();
     const dialog = page.getByRole('dialog', { name: /to Atlas 4/ });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText(/to Atlas 4 as pending scope/)).toBeVisible();

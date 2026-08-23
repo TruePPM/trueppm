@@ -21,7 +21,8 @@ describe('BlankOutlineDraftRow (#2733)', () => {
 
     await userEvent.type(input, 'Survey the site{Enter}');
 
-    expect(onCommit).toHaveBeenCalledExactlyOnceWith('Survey the site');
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit.mock.calls[0][0]).toBe('Survey the site');
     expect(input).toHaveValue('');
     expect(input).toHaveFocus();
   });
@@ -48,7 +49,8 @@ describe('BlankOutlineDraftRow (#2733)', () => {
     await userEvent.type(input, 'Pour foundations{Enter}');
     await userEvent.tab();
 
-    expect(onCommit).toHaveBeenCalledExactlyOnceWith('Pour foundations');
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit.mock.calls[0][0]).toBe('Pour foundations');
   });
 
   it('commits on blur when the field has content', async () => {
@@ -58,7 +60,8 @@ describe('BlankOutlineDraftRow (#2733)', () => {
     await userEvent.type(screen.getByRole('textbox', { name: /first task name/i }), 'Draft');
     await userEvent.tab();
 
-    expect(onCommit).toHaveBeenCalledExactlyOnceWith('Draft');
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit.mock.calls[0][0]).toBe('Draft');
   });
 
   it('Escape clears the draft without committing', async () => {
@@ -77,5 +80,51 @@ describe('BlankOutlineDraftRow (#2733)', () => {
     render(<BlankOutlineDraftRow nameWidth={240} />);
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     expect(screen.getByRole('row')).toHaveTextContent(/no tasks yet/i);
+  });
+});
+
+describe('BlankOutlineDraftRow — outline parity (#2952)', () => {
+  // The outline is a `role="treegrid"`, where every `role="row"` must state its
+  // depth. This row had no `aria-level` at all — and on a blank project it is
+  // the ONLY row, so the one screen with nothing to announce was also the one
+  // announcing it wrongly.
+  it('carries aria-level like every other outline row', () => {
+    render(<BlankOutlineDraftRow onCommit={vi.fn()} nameWidth={240} />);
+    expect(screen.getByRole('row')).toHaveAttribute('aria-level', '1');
+  });
+
+  it('carries aria-level in the read-only variant too', () => {
+    render(<BlankOutlineDraftRow nameWidth={240} />);
+    const row = screen.getByRole('row');
+    expect(row).toHaveAttribute('aria-level', '1');
+    expect(row).toHaveTextContent('No tasks yet.');
+  });
+
+  it('restores the typed name when the create fails', async () => {
+    // The field clears optimistically so a second row can be typed straight
+    // away. Without this the only row on a blank project vanishes on a failed
+    // POST and reads as "I never typed it".
+    const onCommit = vi.fn((_name: string, opts?: { onError?: () => void }) => opts?.onError?.());
+    render(<BlankOutlineDraftRow onCommit={onCommit} nameWidth={240} />);
+    const input = screen.getByRole('textbox', { name: /first task name/i });
+
+    await userEvent.type(input, 'Survey the site{Enter}');
+
+    expect(input).toHaveValue('Survey the site');
+  });
+
+  it('does not clobber a half-typed replacement when an earlier create fails', async () => {
+    let fail: (() => void) | undefined;
+    const onCommit = vi.fn((_name: string, opts?: { onError?: () => void }) => {
+      fail = opts?.onError;
+    });
+    render(<BlankOutlineDraftRow onCommit={onCommit} nameWidth={240} />);
+    const input = screen.getByRole('textbox', { name: /first task name/i });
+
+    await userEvent.type(input, 'First row{Enter}');
+    await userEvent.type(input, 'Second row');
+    fail?.();
+
+    expect(input).toHaveValue('Second row');
   });
 });

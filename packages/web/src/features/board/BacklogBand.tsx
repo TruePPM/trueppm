@@ -16,7 +16,16 @@
  * Sibling layouts (drawer, queue) are filed as #383 / #384 and consume the
  * same `BACKLOG_BAND_DROPPABLE_ID`.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FocusEvent as ReactFocusEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
+import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import type { Task, TaskStatus, TaskReadiness } from '@/types';
 import { ReadinessChip } from './ReadinessChip';
@@ -172,6 +181,14 @@ export interface BacklogCardProps {
    *  ScheduleTaskDialog. The card passes its own `···` button as the trigger so
    *  focus can be returned on close. When omitted, the action is not rendered. */
   onSchedule?: (task: Task, trigger: HTMLElement) => void;
+  /** Containers this idea can be filed into (#2952) — the board's phase lanes
+   *  plus the project root. Empty on an assignee/epic-grouped board, where a
+   *  lane id is not a WBS parent and there is nothing honest to file under. */
+  fileUnderTargets?: FileUnderTarget[];
+  /** Files the idea under `targetId` and lands it in To do — the keyboard and
+   *  touch path for what the rail previously only offered as a drag. Omitted
+   *  read-only, which removes the action rather than disabling it (rule 302). */
+  onFileUnder?: (task: Task, targetId: string) => void;
   /** Below MEMBER (a Viewer) or on a closed sprint (#2680): disables the
    *  drag-to-promote gesture, mirroring `BoardCard`'s `readOnly` handling. The
    *  card stays click-to-open — only the drag activator is dropped. */
@@ -187,42 +204,241 @@ function ownerInitialsFromTask(task: Task): string | null {
 }
 
 /**
- * The `···` "Schedule…" overflow action for a backlog card (#318, rule 135).
+ * A container a backlog idea can be filed into — the phase lanes of the board
+ * behind the rail, plus the project root.
+ */
+export interface FileUnderTarget {
+  /** Lane id; `'root'` is the parentless project node. */
+  id: string;
+  name: string;
+}
+
+/**
+ * The `···` overflow menu for a backlog card (#318 rule 135, extended #2952).
  *
  * Rendered as a sibling of the card's drag-source `<button>` (never nested —
  * an interactive control inside a button is invalid HTML and breaks the drag
- * activation). Positioned in the card's top-right; the trigger element is
- * handed to `onSchedule` so the dialog can return focus on close.
+ * activation). Positioned in the card's top-right.
+ *
+ * It used to be a single button that opened the Schedule dialog while
+ * announcing itself as "Actions for …" with `aria-haspopup="dialog"`. It is a
+ * real menu now because the rail gained a second action: **File under…**, the
+ * keyboard and touch path for what the rail previously only described as a
+ * drag. That hint — "drag right onto a phase" — was the whole promotion story
+ * for an inbox whose entire job is catching an item with no place yet, and a
+ * drag is unavailable to a keyboard user and awkward on a phone.
+ *
+ * `File under…` is the same move the drag performs (`dropOnCell`): re-parent
+ * into the chosen container and land in **To do**. `Schedule…` is unchanged.
  */
-function ScheduleAction({
+function BacklogCardMenu({
   task,
   onSchedule,
+  fileUnderTargets,
+  onFileUnder,
 }: {
   task: Task;
-  onSchedule: (task: Task, trigger: HTMLElement) => void;
+  onSchedule?: (task: Task, trigger: HTMLElement) => void;
+  fileUnderTargets: FileUnderTarget[];
+  onFileUnder?: (task: Task, targetId: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const [fileOpen, setFileOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const fileGroupId = useId();
+  // Rule 5's 44px floor is set by the POINTER class, not the viewport (rule
+  // 315): the rail is suppressed below `md:`, but a coarse-pointer tablet above
+  // that breakpoint renders this desktop grid and gets these very targets.
+  const coarse = useIsCoarsePointer();
+
+  const canFileUnder = typeof onFileUnder === 'function' && fileUnderTargets.length > 0;
+
+  // Focus the first item when the menu opens. Keyed on `open` alone so
+  // expanding the File-under list does not yank focus back to the top.
+  useEffect(() => {
+    if (!open) return;
+    panelRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setFileOpen(false);
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [open]);
+
+  // Tabbing past the last item would otherwise leave the menu floating open
+  // over the rail with focus somewhere else entirely.
+  const onPanelBlur = useCallback((e: ReactFocusEvent<HTMLDivElement>) => {
+    if (wrapRef.current?.contains(e.relatedTarget)) return;
+    setOpen(false);
+    setFileOpen(false);
+  }, []);
+
+  // Roving focus across every visible menuitem, including the expanded
+  // File-under targets. Escape closes and returns focus to the trigger
+  // (WCAG 2.1.1 menu pattern) — the same handler shape `CardOverflowMenu` uses.
+  const onMenuKeyDown = useCallback((e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      setOpen(false);
+      setFileOpen(false);
+      triggerRef.current?.focus();
+      return;
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+    const items = Array.from(
+      panelRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [],
+    );
+    if (items.length === 0) return;
+    e.preventDefault();
+    const current = items.indexOf(document.activeElement as HTMLElement);
+    let next: number;
+    if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = items.length - 1;
+    else if (e.key === 'ArrowDown') next = current < 0 ? 0 : (current + 1) % items.length;
+    else next = current <= 0 ? items.length - 1 : current - 1;
+    items[next]?.focus();
+  }, []);
+
+  // Nothing to offer: render nothing rather than an empty menu. A Viewer gets
+  // absence, not a disabled `···` (web rule 302) — and both actions in here
+  // write, so for a Viewer BOTH callers pass `undefined` and this returns null.
+  // `Schedule…` used to be gated on `projectId` alone, which left a read-only
+  // rail with a live ··· whose one item fired a promote PATCH the server then
+  // refused; the gutter's equivalent menu had already been gated (#2680).
+  if (!canFileUnder && !onSchedule) return null;
+
+  const itemClass =
+    'w-full flex items-center text-left px-3 py-2 text-sm text-neutral-text-primary hover:bg-neutral-surface-raised focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset';
+  // One owner for the number (rule 315(c)) — the hook, never a local ternary
+  // over a hard-coded 44.
+  const itemStyle = { minHeight: coarse ? 44 : 36 };
+
   return (
-    <button
-      type="button"
-      aria-haspopup="dialog"
-      aria-label={`Actions for ${task.name}`}
-      title="Schedule…"
-      onPointerDown={(e) => e.stopPropagation()}
-      onClick={(e) => {
-        e.stopPropagation();
-        onSchedule(task, e.currentTarget);
-      }}
-      // 24px corner action + invisible expander to the 44px touch target
-      // (rule 5); already position:absolute, so the pad anchors to the button.
-      className="absolute top-1 right-1 w-6 h-6 flex items-center justify-center rounded-control
-        text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised
-        focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
-        before:absolute before:inset-[-10px] before:content-['']"
-    >
-      <span aria-hidden="true" className="leading-none">
-        ···
-      </span>
-    </button>
+    <div ref={wrapRef} className="absolute top-1 right-1">
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Actions for ${task.name}`}
+        title="Actions"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+          setFileOpen(false);
+        }}
+        onKeyDown={(e) => {
+          // The menu-button pattern opens on ↓/↑ as well as Enter/Space.
+          if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+          e.preventDefault();
+          e.stopPropagation();
+          setOpen(true);
+          setFileOpen(false);
+        }}
+        // 24px corner action + invisible expander to the 44px touch target
+        // (rule 5); already position:absolute, so the pad anchors to the button.
+        className="relative w-6 h-6 flex items-center justify-center rounded-control
+          text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised
+          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
+          before:absolute before:inset-[-10px] before:content-['']"
+      >
+        <span aria-hidden="true" className="leading-none">
+          ···
+        </span>
+      </button>
+
+      {open && (
+        <div
+          ref={panelRef}
+          role="menu"
+          tabIndex={-1}
+          aria-label={`Actions for ${task.name}`}
+          onKeyDown={onMenuKeyDown}
+          onBlur={onPanelBlur}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="absolute right-0 top-7 z-20 min-w-[200px] rounded-card border border-neutral-border
+            bg-neutral-surface py-1 focus:outline-none"
+        >
+          {canFileUnder && (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                // A DISCLOSURE, not a submenu. `aria-haspopup="menu"` would
+                // promise a `role="menu"` the user could enter with →, and this
+                // opens a `role="group"` inside the same flat roving-focus list
+                // — announcing "has submenu" and then not answering → is worse
+                // than announcing an expander and behaving like one.
+                aria-expanded={fileOpen}
+                aria-controls={fileGroupId}
+                className={itemClass}
+                style={itemStyle}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFileOpen((v) => !v);
+                }}
+              >
+                File under…
+              </button>
+              {fileOpen && (
+                <div
+                  id={fileGroupId}
+                  role="group"
+                  aria-label="File under"
+                  // Bounded so a board with many phases cannot produce a list
+                  // taller than the rail it opens inside.
+                  className="py-0.5 max-h-60 overflow-y-auto"
+                >
+                  {fileUnderTargets.map((target) => (
+                    <button
+                      key={target.id}
+                      type="button"
+                      role="menuitem"
+                      className={`${itemClass} pl-6 text-neutral-text-secondary`}
+                      style={itemStyle}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpen(false);
+                        setFileOpen(false);
+                        onFileUnder?.(task, target.id);
+                      }}
+                    >
+                      {target.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+          {onSchedule && (
+            <button
+              type="button"
+              role="menuitem"
+              className={itemClass}
+              style={itemStyle}
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpen(false);
+                setFileOpen(false);
+                onSchedule(task, triggerRef.current ?? e.currentTarget);
+              }}
+            >
+              Schedule…
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -235,9 +451,17 @@ export function BacklogCard({
   onFocus,
   onClick,
   onSchedule,
+  fileUnderTargets = [],
+  onFileUnder,
   readOnly = false,
 }: BacklogCardProps) {
   const initials = ownerInitialsFromTask(task);
+  // Whether `BacklogCardMenu` will render anything — it returns null with no
+  // actions to offer, and the card's reserved corner padding has to follow the
+  // same condition or a menu-less card carries a gap for a button that isn't
+  // there (and a menu-bearing one lets its title run under the ···).
+  const hasMenu =
+    Boolean(onSchedule) || (typeof onFileUnder === 'function' && fileUnderTargets.length > 0);
   const readiness: TaskReadiness = task.readiness ?? 'idea';
   const isIdeaTone = readiness === 'idea';
   const focusRing = isFocused ? 'ring-2 ring-brand-primary' : '';
@@ -276,7 +500,7 @@ export function BacklogCard({
           onFocus={onFocus}
           onClick={(e) => onClick(e.currentTarget)}
           {...dragProps}
-          className={`flex w-full items-center gap-2 rounded-control border border-neutral-border bg-neutral-surface px-2.5 py-1.5 text-left focus:outline-none ${readOnly ? 'cursor-default' : 'cursor-grab'} ${onSchedule ? 'pr-7' : ''} ${focusRing} ${dragOpacity}`}
+          className={`flex w-full items-center gap-2 rounded-control border border-neutral-border bg-neutral-surface px-2.5 py-1.5 text-left focus:outline-none ${readOnly ? 'cursor-default' : 'cursor-grab'} ${hasMenu ? 'pr-7' : ''} ${focusRing} ${dragOpacity}`}
         >
           <PriorityDot rank={task.priorityRank} />
           <span
@@ -289,7 +513,12 @@ export function BacklogCard({
           <PhaseDot color={phaseColor} />
           <Avatar initials={initials} size={16} />
         </button>
-        {onSchedule && <ScheduleAction task={task} onSchedule={onSchedule} />}
+        <BacklogCardMenu
+          task={task}
+          onSchedule={onSchedule}
+          fileUnderTargets={fileUnderTargets}
+          onFileUnder={onFileUnder}
+        />
       </div>
     );
   }
@@ -324,7 +553,7 @@ export function BacklogCard({
           <span className="flex-1" />
           {/* Reserve room for the absolutely-positioned ··· so the avatar
               doesn't sit under it. */}
-          <span className={onSchedule ? 'pr-6' : ''}>
+          <span className={hasMenu ? 'pr-6' : ''}>
             <Avatar initials={initials} />
           </span>
         </div>
@@ -359,7 +588,12 @@ export function BacklogCard({
           </div>
         )}
       </button>
-      {onSchedule && <ScheduleAction task={task} onSchedule={onSchedule} />}
+      <BacklogCardMenu
+        task={task}
+        onSchedule={onSchedule}
+        fileUnderTargets={fileUnderTargets}
+        onFileUnder={onFileUnder}
+      />
     </div>
   );
 }
@@ -396,7 +630,8 @@ export interface BacklogBandProps {
   /** Quick capture (#1973) — type a title in the top field and press Enter to
    *  create a BACKLOG idea inline, no modal. The rail clears the field and keeps
    *  focus for rapid successive intake. When omitted, the capture field is not
-   *  rendered (the rail falls back to the "Add with details…" button only).
+   *  rendered and the rail has no create path at all — the "Add with details…"
+   *  modal it used to fall back to was deleted with #2952.
    *
    *  `opts.onError` is invoked if the create fails, so the rail can restore the
    *  typed idea it optimistically cleared (#2030) — a silent POST failure on a
@@ -404,15 +639,14 @@ export interface BacklogBandProps {
   onQuickCapture?: (name: string, opts?: { onError?: () => void }) => void;
   /** True while a quick-capture create is in flight — disables the field. */
   isQuickCapturePending?: boolean;
-  /** Called when the user clicks "Add with details…" — opens the full add-task
-   *  modal (assignee, description, dates) with a BACKLOG default. The richer
-   *  path alongside the top field's fast inline capture. */
-  onCaptureIdea?: () => void;
-  /** True while the create mutation is in flight — disables the button. */
-  isCaptureIdeaPending?: boolean;
+  /** Containers a card can be filed into (#2952) — passed through to each
+   *  card's `File under…` action. */
+  fileUnderTargets?: FileUnderTarget[];
+  /** Files a card under `targetId` and lands it in To do. Omitted read-only. */
+  onFileUnder?: (task: Task, targetId: string) => void;
   /** Below MEMBER (a Viewer) or on a closed sprint (#2146): the rail is a
-   *  read-only pile — the inline quick-capture field and the "Add with details…"
-   *  button are both suppressed, and cards are no longer draggable (#2680;
+   *  read-only pile — the inline quick-capture field is suppressed, the
+   *  `File under…` action is absent, and cards are no longer draggable (#2680;
    *  drag was the one write path that didn't check this flag). Cards remain
    *  openable — clicking one still opens the read-only detail view. */
   readOnly?: boolean;
@@ -512,8 +746,8 @@ export function BacklogBand({
   onSchedule,
   onQuickCapture,
   isQuickCapturePending = false,
-  onCaptureIdea,
-  isCaptureIdeaPending = false,
+  fileUnderTargets = [],
+  onFileUnder,
   onOpenCommandPalette,
   readOnly = false,
 }: BacklogBandProps) {
@@ -547,6 +781,21 @@ export function BacklogBand({
   // demoted to appear only once there is a pile to sift; below the threshold the
   // filter field is suppressed (⌘K still searches globally) and `query` stays ''.
   const canQuickCapture = typeof onQuickCapture === 'function' && !readOnly;
+  // One predicate for the control AND for the sentence that describes it.
+  const canFileUnder = !readOnly && typeof onFileUnder === 'function' && fileUnderTargets.length > 0;
+
+  // Filing an idea moves it out of BACKLOG, so the card — and the ··· trigger
+  // that had focus — unmounts. Without this, focus falls to `document.body` and
+  // a keyboard user's next Tab restarts at the top of the document (WCAG 2.4.3).
+  // The capture field is the honest landing place: it is where someone working
+  // the inbox is heading next, and it is the one control the rail always keeps.
+  const handleFileUnder = useCallback(
+    (task: Task, targetId: string) => {
+      onFileUnder?.(task, targetId);
+      captureInputRef.current?.focus();
+    },
+    [onFileUnder],
+  );
   const showSearch = tasks.length >= BACKLOG_SEARCH_MIN_IDEAS;
 
   const submitCapture = useCallback(() => {
@@ -679,12 +928,17 @@ export function BacklogBand({
               type="text"
               value={captureDraft}
               onChange={(e) => setCaptureDraft(e.target.value)}
-              disabled={isQuickCapturePending}
+              // `readOnly`, not `disabled` — this field's contract is rapid
+              // successive intake, and a disabled element is blurred by the
+              // browser, which drops the caret (and, on touch, the soft
+              // keyboard) between every idea. `submitCapture` already refuses
+              // while pending, so nothing double-fires (#2952).
+              readOnly={isQuickCapturePending}
               placeholder="Capture an idea…"
               aria-label="Capture a backlog idea"
               aria-keyshortcuts="Enter"
               className="flex-1 min-w-0 bg-transparent text-xs text-neutral-text-primary placeholder:text-neutral-text-secondary
-                focus:outline-none disabled:cursor-not-allowed"
+                focus:outline-none read-only:cursor-progress"
             />
             {captureDraft.trim() !== '' && (
               <span aria-hidden="true" className="tppm-mono text-xs text-neutral-text-disabled">
@@ -750,11 +1004,38 @@ export function BacklogBand({
         </div>
       )}
 
-      {/* Hint — orientation copy for first-time users. */}
-      <div className="px-4 pb-2.5 text-xs leading-snug text-neutral-text-secondary">
-        Drag right onto a phase to promote to{' '}
-        <strong className="font-semibold text-neutral-text-primary">To do</strong>.
-      </div>
+      {/* Hint — orientation copy for first-time users.
+
+          It used to name only the drag ("Drag right onto a phase to promote to
+          To do"), which described the one path a keyboard user and a phone user
+          could not take, on the surface whose entire job is getting an item out
+          of the inbox. It names the action instead (#2952); the drag still
+          works and is mentioned second, because it is the faster gesture for
+          whoever has a pointer.
+
+          It is derived from the SAME predicate as the control (`canFileUnder`),
+          not rendered unconditionally: a read-only rail has neither path, and
+          an assignee/epic-grouped board has no container to file into, so an
+          unconditional sentence would name an action that is not in the menu —
+          the rule-308 class arriving in copy instead of in a control. A viewer
+          gets no promotion sentence at all, because they have no promotion. */}
+      {!readOnly && (
+        <div className="px-4 pb-2.5 text-xs leading-snug text-neutral-text-secondary">
+          {canFileUnder ? (
+            <>
+              <strong className="font-semibold text-neutral-text-primary">File under…</strong> on a
+              card promotes it to{' '}
+              <strong className="font-semibold text-neutral-text-primary">To do</strong>. Dragging
+              it right onto a phase does the same.
+            </>
+          ) : (
+            <>
+              Drag right onto a phase to promote to{' '}
+              <strong className="font-semibold text-neutral-text-primary">To do</strong>.
+            </>
+          )}
+        </div>
+      )}
 
       {/* List — flex column with capture CTA pinned at the end. */}
       <div
@@ -780,7 +1061,11 @@ export function BacklogBand({
                   isFocused={focusedCardId === task.id}
                   onFocus={() => onCardFocus(task.id, task.status, task.parentId ?? 'root')}
                   onClick={(anchor) => onCardClick(task, anchor)}
-                  onSchedule={onSchedule}
+                  // Both write, so both are dropped read-only here as well as
+                  // at the caller — one layer failing open must not be enough.
+                  onSchedule={readOnly ? undefined : onSchedule}
+                  fileUnderTargets={fileUnderTargets}
+                  onFileUnder={canFileUnder ? handleFileUnder : undefined}
                   readOnly={readOnly}
                 />
               </div>
@@ -788,23 +1073,13 @@ export function BacklogBand({
           })
         )}
 
-        {!readOnly && (
-          <button
-            type="button"
-            onClick={onCaptureIdea}
-            disabled={isCaptureIdeaPending || !onCaptureIdea}
-            aria-busy={isCaptureIdeaPending}
-            className="mt-1.5 flex items-center justify-center gap-1.5 rounded-control border border-dashed border-neutral-border bg-transparent text-xs text-neutral-text-secondary
-              hover:border-brand-primary hover:text-brand-primary disabled:opacity-50 disabled:cursor-not-allowed
-              focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
-            style={{ height: 36 }}
-          >
-            <span aria-hidden="true" style={{ fontSize: 14, lineHeight: 0 }}>
-              +
-            </span>
-            {isCaptureIdeaPending ? 'Adding…' : 'Add with details…'}
-          </button>
-        )}
+        {/* "Add with details…" is gone (#2952). It opened `TaskFormModal` with a
+            BACKLOG default — a second, richer creation form sitting directly
+            under a field that already captures. The inbox catches an item that
+            has no place yet; a description, an assignee and a date are answers
+            it does not have. They are one tap away in the drawer on the card
+            that now exists, which is the same trade the shell's "+ New task"
+            demotion made (#2031). */}
       </div>
     </aside>
   );
