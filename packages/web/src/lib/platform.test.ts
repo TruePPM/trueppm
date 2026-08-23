@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { formatChord, modifierKeyLabel, altKeyLabel } from './platform';
+import { formatChord, modifierKeyLabel, altKeyLabel, isMacPlatform } from './platform';
 
 /**
  * #3028 — the same chord must render as something each platform's reader can
@@ -64,5 +64,43 @@ describe('the existing labels agree with formatChord', () => {
     setPlatform('Linux x86_64');
     expect(modifierKeyLabel()).toBe('Ctrl');
     expect(altKeyLabel()).toBe('Alt');
+  });
+});
+
+/**
+ * #3028 — which signal wins when they disagree.
+ *
+ * Not hypothetical: `playwright.config.ts` runs a **Windows user agent on a
+ * macOS host**, so `userAgentData.platform` is "Windows" while
+ * `navigator.platform` is "MacIntel". Preferring the hint made the keyboard
+ * layer listen for Ctrl while Playwright's `ControlOrMeta` — which resolves from
+ * the real host — pressed Meta, and every chord stopped firing. The failure
+ * looked like "undo is broken", not "platform detection changed".
+ */
+describe('signal precedence', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('trusts the machine over a spoofed user agent', () => {
+    vi.stubGlobal('navigator', {
+      platform: 'MacIntel',
+      userAgentData: { platform: 'Windows' },
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+    });
+    expect(isMacPlatform()).toBe(true);
+    expect(formatChord('mod+z')).toBe('⌘Z');
+  });
+
+  it('falls back to the hint when the machine reports nothing', () => {
+    vi.stubGlobal('navigator', { platform: '', userAgentData: { platform: 'macOS' }, userAgent: '' });
+    expect(isMacPlatform()).toBe(true);
+  });
+
+  it('is false when every signal says otherwise', () => {
+    vi.stubGlobal('navigator', {
+      platform: 'Linux x86_64',
+      userAgentData: { platform: 'Linux' },
+      userAgent: 'X11; Linux',
+    });
+    expect(isMacPlatform()).toBe(false);
   });
 });

@@ -463,4 +463,33 @@ describe('teaching surfaces spell chords for the reader (#3028)', () => {
     walk(here);
     expect(offenders).toEqual([]);
   });
+  it('no e2e spec asserts a hardcoded modifier glyph', () => {
+    // Learned the hard way on this very branch: the source sweep above passed,
+    // and `web:e2e` still failed on `schedule-group-ungroup.spec.ts` asserting
+    // `⌘Z undoes the whole group`. Playwright runs the NON-Mac branch, so a spec
+    // pinning the Mac spelling fails the moment the string is fixed — and it
+    // lives in a tree the source scan never looked at, which is the standing
+    // reason `web:e2e` is this repo's most common CI failure.
+    //
+    // Test NAMES may carry a glyph (`test('⌘Z reverses…')`) — they are prose.
+    // Only assertions are claims about rendered text.
+    const e2eDir = join(here, '..', '..', '..', 'e2e');
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, e.name);
+        if (e.isDirectory()) walk(full);
+        else if (/\.ts$/.test(e.name)) {
+          for (const [n, line] of codeLines(readFileSync(full, 'utf8'))) {
+            if (!/[⌘⌥]/.test(line)) continue;
+            // A chord inside `test(...)` / `describe(...)` is a label.
+            if (/^\s*(test|describe|it)(\.\w+)?\s*\(/.test(line)) continue;
+            offenders.push(`${e.name}:${n} ${line.trim().slice(0, 60)}`);
+          }
+        }
+      }
+    };
+    walk(e2eDir);
+    expect(offenders).toEqual([]);
+  });
 });

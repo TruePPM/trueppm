@@ -407,7 +407,12 @@ test.describe('Schedule outline — Group and Ungroup (#2955)', () => {
     await expect(notice).toBeVisible({ timeout: 15_000 });
     await expect(notice).toContainText('2 items are now a phase.');
     await expect(notice).toContainText('roll up from the work inside');
-    await expect(notice).toContainText('⌘Z undoes the whole group');
+    // Platform-neutral on purpose (#3028). The notice spells the chord for the
+    // browser's platform, and this assertion runs in Node — two different
+    // `isMacPlatform()` answers, so computing the expected string here couples
+    // the spec to which process evaluated it. Assert the part that does not
+    // vary; `platform.test.ts` owns the spelling.
+    await expect(notice).toContainText('undoes the whole group');
     await expect(page.getByTestId('group-left-alone')).toContainText(
       '1 row stayed where it was',
     );

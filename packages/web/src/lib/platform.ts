@@ -9,10 +9,25 @@
 /** True when running on a Mac/iOS-family platform. SSR/test-safe (false when no navigator). */
 export function isMacPlatform(): boolean {
   if (typeof navigator === 'undefined') return false;
-  // navigator.platform is deprecated but still the most reliable signal; fall
-  // back to userAgentData (Chromium) and userAgent for resilience.
+  // `navigator.platform` FIRST, then the UA hints — and the order is
+  // load-bearing, not stylistic.
+  //
+  // This answer decides two things that must agree: which glyph a shortcut is
+  // spelled with, and which physical modifier the keyboard layer matches
+  // (`useScheduleKeyboard`'s `mod`). `navigator.platform` reports the machine;
+  // `userAgentData.platform` reports what the UA *claims*, and the two can
+  // differ. Our own Playwright config is exactly that case — it runs a Windows
+  // user agent on a macOS host, so the hint says "Windows" while the keyboard
+  // under the user's hands is a Mac one, and Playwright's `ControlOrMeta`
+  // resolves from the host. Trusting the hint there made the app listen for
+  // Ctrl while the harness pressed Meta, and every chord silently stopped
+  // firing (#3028).
+  //
+  // Real browsers agree on both signals, so this changes nothing for a user; it
+  // decides which one wins when something is spoofing, and the physical keyboard
+  // is the thing a shortcut is actually about.
   const ua = navigator as Navigator & { userAgentData?: { platform?: string } };
-  const source = ua.userAgentData?.platform || navigator.platform || navigator.userAgent || '';
+  const source = navigator.platform || ua.userAgentData?.platform || navigator.userAgent || '';
   return /Mac|iPhone|iPad|iPod/i.test(source);
 }
 
