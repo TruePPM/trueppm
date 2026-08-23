@@ -2,11 +2,18 @@
 
 Verifies that a committed change to a task's sprint FK that ENTERS or LEAVES an
 ACTIVE sprint fans out a ``sprint.membership_changed`` in-app notification to the
-project lead cohort (role >= ADMIN, minus the actor) — the "PM/admin silently
-added a task to the active sprint" audit gap (Jordan's PO / Alex's SM hard-NOs in
-the 2026-07-14 activity-streams VoC audit). Covers the firing rules (active-only,
-no-op guard), recipient resolution, per-user opt-out, and DND, plus the end-to-end
-PATCH wiring at ``TaskViewSet.perform_update``.
+cohort authorized to rule on it — role >= ADMIN plus the ADR-0078 Scrum Master and
+Product Owner facet holders, minus the actor — the "PM/admin silently added a task
+to the active sprint" audit gap (Jordan's PO / Alex's SM hard-NOs in the 2026-07-14
+activity-streams VoC audit). Covers the firing rules (active-only, no-op guard),
+recipient resolution, per-user opt-out, and DND, plus the end-to-end PATCH wiring at
+``TaskViewSet.perform_update``.
+
+The facet half shipped in #2897. Until then the cohort was ADMIN+ only, so the two
+roles named in the paragraph above — the ones the notification exists for — were
+exactly the two it never reached. ``test_notified_set_covers_authorized_set`` pins
+the recipient set to the authorization predicate across the whole role x facet
+matrix so they cannot split again.
 """
 
 from __future__ import annotations
@@ -36,6 +43,7 @@ from trueppm_api.apps.projects.models import (
     TaskStatus,
 )
 from trueppm_api.apps.projects.services import notify_sprint_membership_change
+from trueppm_api.apps.teams.models import Team, TeamMembership
 
 User = get_user_model()
 pytestmark = pytest.mark.django_db
@@ -55,6 +63,38 @@ def project(db: object) -> Project:
 def _member(project: Project, username: str, role: int) -> Any:
     user = User.objects.create_user(username=username, password="pw")
     ProjectMembership.objects.create(project=project, user=user, role=role)
+    return user
+
+
+def _default_team(project: Project) -> Team:
+    """The project's default team — the only team the ADR-0078 facets are read from."""
+    team, _ = Team.objects.get_or_create(
+        project=project, is_default=True, defaults={"name": "Default Team", "short_id": "T01"}
+    )
+    return team
+
+
+def _facet_member(
+    project: Project,
+    username: str,
+    role: int,
+    *,
+    scrum_master: bool = False,
+    product_owner: bool = False,
+) -> Any:
+    """A project member who also holds a facet on the default team.
+
+    ``role`` is deliberately independent of the facet: the #2897 cohort is exactly
+    the people seated *below* ADMIN who nonetheless hold a facet, so a fixture that
+    only ever pairs a facet with ADMIN cannot see the bug.
+    """
+    user = _member(project, username, role)
+    TeamMembership.objects.create(
+        team=_default_team(project),
+        user=user,
+        is_scrum_master=scrum_master,
+        is_product_owner=product_owner,
+    )
     return user
 
 
@@ -101,6 +141,188 @@ def _fire(
 ) -> None:
     with callbacks(execute=True):
         notify_sprint_membership_change(task, old_id, new_id, actor)
+
+
+# --------------------------------------------------------------------------- #
+# #2897 — the notified set must equal the authorized set
+# --------------------------------------------------------------------------- #
+
+
+def test_product_owner_below_admin_is_notified(
+    project: Project,
+    actor: Any,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """A PO seated at MEMBER is authorized to rule on the change, so they are told.
+
+    This is the exact shape of #2897 and the normal seating for a Product Owner:
+    ``assert_scope_gate_for_project`` lets them accept or reject the injection, and
+    ``useCanManageScope`` shows them the "Review pending (N)" chip — but the
+    ADMIN-only recipient query meant they only ever found the queue by going to look.
+    """
+    po = _facet_member(project, "po", Role.MEMBER, product_owner=True)
+    active = _sprint(project, "S-active", SprintState.ACTIVE)
+    task = Task.objects.create(project=project, name="Injected card", duration=5, sprint=active)
+
+    _fire(task, None, active.pk, actor, django_capture_on_commit_callbacks)
+
+    recipients = {
+        n.recipient_id
+        for n in Notification.objects.filter(
+            event_type=NotificationEventType.SPRINT_MEMBERSHIP_CHANGED
+        )
+    }
+    assert po.pk in recipients
+
+
+def test_scrum_master_below_admin_is_notified(
+    project: Project,
+    actor: Any,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """Same for the SM facet — the gate unions both, so the cohort must too."""
+    sm = _facet_member(project, "sm", Role.MEMBER, scrum_master=True)
+    active = _sprint(project, "S-active", SprintState.ACTIVE)
+    task = Task.objects.create(project=project, name="Injected card", duration=5, sprint=active)
+
+    _fire(task, None, active.pk, actor, django_capture_on_commit_callbacks)
+
+    recipients = {
+        n.recipient_id
+        for n in Notification.objects.filter(
+            event_type=NotificationEventType.SPRINT_MEMBERSHIP_CHANGED
+        )
+    }
+    assert sm.pk in recipients
+
+
+def test_facet_holder_who_is_the_actor_is_not_notified(
+    project: Project,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """The actor exclusion still applies on the facet half — they made the change.
+
+    Worth its own case: the actor is discarded from the *unioned* set, so a PO who
+    is also the actor must not be re-added by the facet query.
+    """
+    po = _facet_member(project, "po", Role.MEMBER, product_owner=True)
+    lead_user = _member(project, "other-lead", Role.ADMIN)
+    active = _sprint(project, "S-active", SprintState.ACTIVE)
+    task = Task.objects.create(project=project, name="Card", duration=5, sprint=active)
+
+    _fire(task, None, active.pk, po, django_capture_on_commit_callbacks)
+
+    recipients = {
+        n.recipient_id
+        for n in Notification.objects.filter(
+            event_type=NotificationEventType.SPRINT_MEMBERSHIP_CHANGED
+        )
+    }
+    assert recipients == {lead_user.pk}
+
+
+def test_admin_holding_a_facet_is_notified_exactly_once(
+    project: Project,
+    actor: Any,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """The union must not duplicate someone who qualifies on both axes.
+
+    A set union rather than list concatenation is what makes this hold; a
+    concatenated recipient list would send the same person two inbox rows.
+    """
+    both = _facet_member(project, "admin-po", Role.ADMIN, product_owner=True)
+    active = _sprint(project, "S-active", SprintState.ACTIVE)
+    task = Task.objects.create(project=project, name="Card", duration=5, sprint=active)
+
+    _fire(task, None, active.pk, actor, django_capture_on_commit_callbacks)
+
+    assert (
+        Notification.objects.filter(
+            recipient=both, event_type=NotificationEventType.SPRINT_MEMBERSHIP_CHANGED
+        ).count()
+        == 1
+    )
+
+
+def test_revoked_facet_holder_is_not_notified(
+    project: Project,
+    actor: Any,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """A soft-deleted team membership keeps its facet flags — filter it out.
+
+    The privacy property the ADMIN half already had (``is_deleted=False`` on
+    ``ProjectMembership``) has to hold on the facet half too, or widening the cohort
+    would widen who keeps receiving a project's task names after being removed.
+    """
+    gone = _facet_member(project, "ex-po", Role.MEMBER, product_owner=True)
+    TeamMembership.objects.filter(user=gone).update(is_deleted=True)
+    active = _sprint(project, "S-active", SprintState.ACTIVE)
+    task = Task.objects.create(project=project, name="Card", duration=5, sprint=active)
+
+    _fire(task, None, active.pk, actor, django_capture_on_commit_callbacks)
+
+    assert not Notification.objects.filter(
+        recipient=gone, event_type=NotificationEventType.SPRINT_MEMBERSHIP_CHANGED
+    ).exists()
+
+
+@pytest.mark.parametrize("role", [Role.VIEWER, Role.MEMBER, Role.SCHEDULER, Role.ADMIN])
+@pytest.mark.parametrize(
+    ("scrum_master", "product_owner"),
+    [(False, False), (True, False), (False, True), (True, True)],
+)
+def test_notified_set_covers_authorized_set(
+    project: Project,
+    actor: Any,
+    role: int,
+    scrum_master: bool,
+    product_owner: bool,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """Across the whole role x facet matrix: authorized to rule => notified.
+
+    This is the anti-drift pin, and it asserts the *relationship* rather than either
+    side's membership list. #2897 was not a wrong query — both queries were correct
+    for what they said. It was two correct queries that had stopped meaning the same
+    thing, with a stale comment explaining away the difference. A test of either one
+    alone would have stayed green through it; only comparing them fails.
+
+    The converse (notified => authorized) is deliberately not asserted: an ADMIN who
+    is not a facet holder is both, but a future cohort could reasonably widen to
+    interested-but-unauthorized watchers. Authorized-without-notice is the defect.
+    """
+    from trueppm_api.apps.projects.services import (
+        ScopeAcceptForbidden,
+        assert_scope_gate_for_project,
+    )
+
+    subject = _facet_member(
+        project,
+        "subject",
+        role,
+        scrum_master=scrum_master,
+        product_owner=product_owner,
+    )
+    active = _sprint(project, "S-active", SprintState.ACTIVE)
+    task = Task.objects.create(project=project, name="Card", duration=5, sprint=active)
+
+    try:
+        assert_scope_gate_for_project(project.pk, subject)
+        authorized = True
+    except ScopeAcceptForbidden:
+        authorized = False
+
+    _fire(task, None, active.pk, actor, django_capture_on_commit_callbacks)
+    notified = Notification.objects.filter(
+        recipient=subject, event_type=NotificationEventType.SPRINT_MEMBERSHIP_CHANGED
+    ).exists()
+
+    assert not (authorized and not notified), (
+        f"role={role} scrum_master={scrum_master} product_owner={product_owner} may accept or "
+        "reject this scope change and was never told it arrived"
+    )
 
 
 # --------------------------------------------------------------------------- #

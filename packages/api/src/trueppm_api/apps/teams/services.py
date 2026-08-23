@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
+from django.db.models import Q
 
 from trueppm_api.apps.access.models import Role
 from trueppm_api.apps.teams.models import Team, TeamMembership, TeamRole
@@ -151,6 +152,34 @@ def team_member_user_ids(project_id: Any) -> set[Any]:
             team__is_deleted=False,
             is_deleted=False,
         ).values_list("user_id", flat=True)
+    )
+
+
+def facet_holder_user_ids(project_id: Any) -> set[Any]:
+    """User ids holding the Scrum Master or Product Owner facet on the default team.
+
+    The set-shaped counterpart to :func:`user_facets`: same table, same filters,
+    asked of the *project* rather than of one user. Notification and digest cohorts
+    need this shape — ``user_facets`` answers "does this person hold a facet", which
+    cannot build a recipient list without iterating every member.
+
+    It lives here, beside ``user_facets``, on purpose. #2897 happened because the
+    two questions were answered in different files against different tables: the
+    ADR-0102 scope gate authorized ADMIN+ ∪ SM ∪ PO from ``TeamMembership``, while
+    the notification for that same event was built from ``ProjectMembership`` at
+    ADMIN+ only. The facet holders the feature existed for were exactly the ones it
+    never told. A recipient cohort that must match an authorization predicate should
+    read the predicate's own source, not a lookalike.
+    """
+    return set(
+        TeamMembership.objects.filter(
+            team__project_id=project_id,
+            team__is_default=True,
+            team__is_deleted=False,
+            is_deleted=False,
+        )
+        .filter(Q(is_scrum_master=True) | Q(is_product_owner=True))
+        .values_list("user_id", flat=True)
     )
 
 

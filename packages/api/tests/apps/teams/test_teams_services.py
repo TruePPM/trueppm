@@ -20,6 +20,7 @@ from trueppm_api.apps.projects.models import Project
 from trueppm_api.apps.teams.models import Team, TeamMembership, TeamRole
 from trueppm_api.apps.teams.services import (
     ensure_team_membership,
+    facet_holder_user_ids,
     has_team_facet,
     project_role_to_team_role,
     resolve_default_team,
@@ -70,6 +71,60 @@ def test_product_owner_facet_drives_gate(project: Project, default_team: Team) -
 
     assert has_team_facet(user, project.pk, "is_product_owner") is True
     assert has_team_facet(user, project.pk, "is_scrum_master") is False
+
+
+def test_facet_holder_user_ids_is_the_set_form_of_user_facets(
+    project: Project, default_team: Team
+) -> None:
+    """The project-shaped counterpart returns exactly the users ``user_facets`` says hold one.
+
+    Asserted as an equality against ``user_facets`` rather than against a hand-written
+    expected set: the two answering the same question differently is the #2897 defect,
+    and a hardcoded expectation would not catch a future divergence.
+    """
+    sm = User.objects.create_user(username="sm", password="pw")
+    po = User.objects.create_user(username="po2", password="pw")
+    both = User.objects.create_user(username="both", password="pw")
+    neither = User.objects.create_user(username="neither", password="pw")
+    admin_no_facet = User.objects.create_user(username="admin-nf", password="pw")
+
+    TeamMembership.objects.create(team=default_team, user=sm, is_scrum_master=True)
+    TeamMembership.objects.create(team=default_team, user=po, is_product_owner=True)
+    TeamMembership.objects.create(
+        team=default_team, user=both, is_scrum_master=True, is_product_owner=True
+    )
+    TeamMembership.objects.create(team=default_team, user=neither)
+    TeamMembership.objects.create(team=default_team, user=admin_no_facet, role=TeamRole.ADMIN)
+
+    everyone = [sm, po, both, neither, admin_no_facet]
+    expected = {u.pk for u in everyone if any(user_facets(u, project.pk).values())}
+
+    assert facet_holder_user_ids(project.pk) == expected
+    assert facet_holder_user_ids(project.pk) == {sm.pk, po.pk, both.pk}
+
+
+def test_facet_holder_user_ids_excludes_revoked_and_non_default_teams(
+    project: Project, default_team: Team
+) -> None:
+    """Soft-deleted rows and non-default teams contribute nobody.
+
+    Both filters are privacy-load-bearing downstream: the set feeds the sprint
+    scope-change recipient cohort, so a revoked member left in it keeps receiving a
+    project's task names, and a second team's PO would be told about a project whose
+    default team they are not on.
+    """
+    revoked = User.objects.create_user(username="revoked", password="pw")
+    TeamMembership.objects.create(
+        team=default_team, user=revoked, is_product_owner=True, is_deleted=True
+    )
+
+    other_team = Team.objects.create(
+        project=project, name="Squad B", short_id="T02", is_default=False
+    )
+    off_team = User.objects.create_user(username="off-team", password="pw")
+    TeamMembership.objects.create(team=other_team, user=off_team, is_scrum_master=True)
+
+    assert facet_holder_user_ids(project.pk) == set()
 
 
 def test_user_facets_for_anonymous_and_nonmember(project: Project, default_team: Team) -> None:

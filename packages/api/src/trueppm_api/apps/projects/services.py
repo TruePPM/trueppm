@@ -4618,9 +4618,13 @@ def notify_sprint_membership_change(
     a no-op PATCH (``old == new``) fans out nothing, and a change touching only
     ``PLANNED`` / ``COMPLETED`` / ``CANCELLED`` sprints is not a live-commitment change so
     it is ignored (honoring ADR-0102 §6 — board mechanics on a non-active sprint carry no
-    accountability signal). Recipients are the project's lead cohort (``role >= ADMIN`` —
-    the interim stand-in until ADR-0078 PO/SM facets exist), minus the actor (they made the
-    change). Per-user ``NotificationPreference`` (in-app ON, email OFF by default) governs
+    accountability signal). Recipients are everyone ``assert_scope_gate_for_project``
+    authorizes to rule on the change — ``role >= ADMIN`` plus the ADR-0078 Scrum Master and
+    Product Owner facet holders — minus the actor (they made the change). See
+    ``_sprint_lead_recipient_ids``: the facet half was missing until #2897, so the two roles
+    this notification was built for were the two it never reached.
+
+    Per-user ``NotificationPreference`` (in-app ON, email OFF by default) governs
     delivery so any lead can mute it; DND holds email but never the durable inbox row
     (ADR-0292). Dispatch is deferred to ``transaction.on_commit`` and wrapped in try/except
     so a notification failure can never fail or revert the (already-committed) task update
@@ -4689,22 +4693,44 @@ def _resolve_active_sprint_change(
 
 
 def _sprint_lead_recipient_ids(project_id: Any, actor_id: Any) -> list[Any]:
-    """Project leads (``role >= ADMIN``) minus the actor, who made the change.
+    """Everyone authorized to rule on this scope change, minus the actor.
 
-    ``is_deleted=False`` is load-bearing for privacy: a revoked lead's membership
-    row survives the soft delete with its role, so without this filter they would
-    keep receiving scope-change notices for a project they no longer belong to
-    (rbac-check).
+    **The cohort is defined as the set** :func:`assert_scope_gate_for_project`
+    **authorizes**: ``role >= ADMIN`` ∪ {Scrum Master facet} ∪ {Product Owner facet}.
+    The two must not be allowed to drift — a person who can accept or reject an
+    injected scope change and is never told one arrived has an authority they cannot
+    exercise, which is worse than not having it.
+
+    They *did* drift (#2897). This query was ADMIN+ only, justified by a comment
+    calling it "the interim stand-in until ADR-0078 PO/SM facets exist" — while the
+    facets existed and were consumed 1,900 lines earlier in this same file. The
+    authorized-but-unnotified set was exactly the SM and PO facet holders seated
+    below role 300, which is how a Product Owner is normally seated. The notification
+    whose docstring says it exists to close a PO's and an SM's hard-NOs excluded
+    precisely those two people.
+
+    The facet half reads :func:`~trueppm_api.apps.teams.services.facet_holder_user_ids`
+    — the gate's own source — rather than reimplementing the team lookup here, and
+    ``test_notified_set_covers_authorized_set`` pins the relationship across the whole
+    role × facet matrix so a future widening of either side cannot silently split them
+    again.
+
+    ``is_deleted=False`` is load-bearing for privacy on both halves: a revoked lead's
+    membership row survives the soft delete with its role, so without this filter they
+    would keep receiving scope-change notices for a project they no longer belong to
+    (rbac-check). ``facet_holder_user_ids`` applies the same filter to the team row.
     """
     from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.teams.services import facet_holder_user_ids
 
-    return list(
+    admin_ids = set(
         ProjectMembership.objects.filter(
             project_id=project_id, role__gte=Role.ADMIN, is_deleted=False
-        )
-        .exclude(user_id=actor_id)
-        .values_list("user_id", flat=True)
+        ).values_list("user_id", flat=True)
     )
+    recipients = admin_ids | facet_holder_user_ids(project_id)
+    recipients.discard(actor_id)
+    return list(recipients)
 
 
 def _sprint_change_body(
