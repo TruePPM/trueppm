@@ -55,6 +55,14 @@ const SECTIONS: ShortcutSection[] = [
         label: 'Paste spreadsheet rows — hierarchy read from leading indentation',
       },
       { keys: ['⌘', 'Z'], label: 'Undo the last paste, while its receipt is showing' },
+      // Scoped deliberately (#2974): ⌘Z reverses the six structural gestures the
+      // server records, and duplicate / convert-to-milestone are NOT among them.
+      // Advertising a bare "Undo" here would promise a reversal this tree cannot
+      // perform, which is the exact defect the issue was filed for.
+      {
+        keys: ['⌘', 'Z'],
+        label: 'Undo the last move, indent, outdent, reorder or grouping',
+      },
     ],
   },
   {

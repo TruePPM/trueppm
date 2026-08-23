@@ -185,8 +185,14 @@ import {
   movedIntoSentence,
   type ActRow,
 } from './trail/structuralActs';
-import { useTrailStore } from './trail/trailStore';
+import { newestUndoableEntry, useTrailStore } from './trail/trailStore';
 import { SessionTrail } from './trail/SessionTrail';
+import {
+  StructuralUndoRefused,
+  describeStructuralUndo,
+  describeStructuralUndoRefusal,
+  useUndoStructuralOperation,
+} from '@/hooks/useStructuralUndo';
 
 // ---------------------------------------------------------------------------
 // ScheduleEmptyState — shown when tasks.length === 0 (rule 78)
@@ -719,6 +725,9 @@ export function ScheduleView() {
   }, [allLinks, showCpOnly, chartPrefs.dependencyLinesVisible]);
 
   const recordTrailAct = useTrailStore((st) => st.record);
+  const attachTrailOperation = useTrailStore((st) => st.attachOperation);
+  const markTrailUndone = useTrailStore((st) => st.markUndone);
+  const undoStructuralMut = useUndoStructuralOperation(projectId);
 
   // aria-live (polite) — drag announcements via DOM ref (rule 30)
   const ariaLiveRef = useRef<HTMLDivElement>(null);
@@ -1685,11 +1694,42 @@ export function ScheduleView() {
    * the failure this is meant to prevent.
    */
   const recordAct = useCallback(
-    (sentence: string) => {
+    (sentence: string): number | null => {
       if (ariaLiveRef.current) ariaLiveRef.current.textContent = sentence;
-      if (projectId) recordTrailAct(projectId, sentence);
+      // Returns the trail entry's id so a structural act can bind its server
+      // `operation_id` on response — the sentence is announced before the request
+      // lands, and waiting for the ledger handle would delay the announcement.
+      return projectId ? recordTrailAct(projectId, sentence) : null;
     },
     [projectId, recordTrailAct],
+  );
+
+  /**
+   * Reverse one structural act (ADR-0880, #2974).
+   *
+   * A `409` is the *designed* outcome when a collaborator has been working in the same
+   * place, not a failure — the server refuses rather than reverting partially, because a
+   * partial WBS restore can mint a duplicate path that corrupts the next structural
+   * write. So the refusal gets its own sentence rather than a generic error toast.
+   */
+  const undoStructuralAct = useCallback(
+    (entryId: number, operationId: string) => {
+      undoStructuralMut.mutate(operationId, {
+        onSuccess: (data) => {
+          markTrailUndone(entryId);
+          setScheduleActionToast({ message: describeStructuralUndo(data.undo) });
+        },
+        onError: (error) => {
+          setScheduleActionToast({
+            message:
+              error instanceof StructuralUndoRefused
+                ? describeStructuralUndoRefusal(error.refusal)
+                : 'Couldn’t undo that. Nothing changed.',
+          });
+        },
+      });
+    },
+    [undoStructuralMut, markTrailUndone, setScheduleActionToast],
   );
 
   /** A row reduced to what a sentence needs: its name and what travels with it. */
@@ -1763,11 +1803,16 @@ export function ScheduleView() {
       if (parentUnchanged) {
         const currentOrder = siblingIdsOf(allTasks, plan.newParentId);
         if (currentOrder.join() === orderedIds.join()) return;
+        const entryId = recordAct(movedIntoSentence(row, destination, false));
         reorderTaskMut.mutate(
           { parent_path: wbsParentPath(dragged.wbs), ordered_ids: orderedIds },
-          { onError: announceFailure },
+          {
+            onSuccess: (data) => {
+              if (entryId !== null) attachTrailOperation(entryId, data.operation_id);
+            },
+            onError: announceFailure,
+          },
         );
-        recordAct(movedIntoSentence(row, destination, false));
         return;
       }
 
@@ -1775,18 +1820,32 @@ export function ScheduleView() {
         { taskId: plan.taskId, newParentId: plan.newParentId },
         {
           onSuccess: (data) => {
-            recordAct(movedIntoSentence(row, destination, plan.becomesPhase));
+            const entryId = recordAct(movedIntoSentence(row, destination, plan.becomesPhase));
             // Already last, which is where the reparent left it.
-            if (!plan.beforeSiblingId) return;
+            if (!plan.beforeSiblingId) {
+              if (entryId !== null) attachTrailOperation(entryId, data.operation_id);
+              return;
+            }
             const rewritten = new Map(data.updated.map((u) => [u.id, u.wbs_path]));
             const parentPath = plan.newParentId
               ? (rewritten.get(plan.newParentId) ??
                 allTasks.find((t) => t.id === plan.newParentId)?.wbs ??
                 '')
               : '';
+            // A cross-level drop is reparent-then-reorder, so it leaves TWO ledger
+            // rows. The trail entry binds to the reorder — the later of the two, and
+            // therefore the one the server will accept as top-of-stack. Undoing it puts
+            // the level's order back; a second ⌘Z then reverses the reparent. Binding
+            // to the reparent instead would 409 every time, which is the failure mode
+            // this whole design exists to avoid.
             reorderTaskMut.mutate(
               { parent_path: parentPath, ordered_ids: orderedIds },
-              { onError: announceFailure },
+              {
+                onSuccess: (reorderData) => {
+                  if (entryId !== null) attachTrailOperation(entryId, reorderData.operation_id);
+                },
+                onError: announceFailure,
+              },
             );
           },
           onError: announceFailure,
@@ -1798,6 +1857,7 @@ export function ScheduleView() {
       allTasks,
       actRow,
       recordAct,
+      attachTrailOperation,
       reorderTaskMut,
       reparentTaskMut,
       setScheduleActionToast,
@@ -1927,16 +1987,24 @@ export function ScheduleView() {
         const idx = allTasks.findIndex((t) => t.id === taskId);
         const prev = idx > 0 ? allTasks[idx - 1] : undefined;
         const prevBecomesPhase = prev != null && !prev.isSummary;
-        indentTask.mutate(taskId);
-        if (prev) {
-          recordAct(indentSentence(row, { name: prev.name }, prevBecomesPhase));
-        }
+        const entryId = prev
+          ? recordAct(indentSentence(row, { name: prev.name }, prevBecomesPhase))
+          : null;
+        indentTask.mutate(taskId, {
+          onSuccess: (data) => {
+            if (entryId !== null) attachTrailOperation(entryId, data.operation_id);
+          },
+        });
       },
       outdent: (taskId) => {
         const row = actRow(taskId);
         const parent = allTasks.find((t) => t.id === allTasks.find((x) => x.id === taskId)?.parentId);
-        outdentTask.mutate(taskId);
-        if (parent) recordAct(outdentSentence(row, { name: parent.name }));
+        const entryId = parent ? recordAct(outdentSentence(row, { name: parent.name })) : null;
+        outdentTask.mutate(taskId, {
+          onSuccess: (data) => {
+            if (entryId !== null) attachTrailOperation(entryId, data.operation_id);
+          },
+        });
       },
       insertBelow: (taskId) => {
         // Enter creates a SIBLING of the focused row — same parent, same depth
@@ -2136,6 +2204,7 @@ export function ScheduleView() {
       focus,
       indentTask,
       outdentTask,
+      attachTrailOperation,
       updateTaskMut,
       deleteTaskMut,
       createNewTask,
@@ -2876,6 +2945,27 @@ export function ScheduleView() {
           e.preventDefault();
           pasteMany.undo();
         };
+      } else {
+        // Otherwise ⌘Z reverses the most recent structural act (ADR-0880, #2974).
+        //
+        // Ordered *after* the paste receipt deliberately: a receipt on screen is a
+        // narrower, more recent claim on the same keystroke, and stealing it would
+        // undo an indent while the user is looking at a paste they meant to reverse.
+        //
+        // `newestUndoableEntry` is the same derivation the trail popover's button
+        // reads, so the key and the control can never target different acts (rule
+        // 316). It returns null for an act with no ledger row — duplicate,
+        // convert-to-milestone, single-row insert — and ⌘Z then falls through to the
+        // browser rather than silently doing nothing to the outline. That fall-through
+        // is the honest outcome — the whole point of #2974 is that an undo which quietly
+        // fails to reverse something is worse than no undo at all.
+        out['mod+z'] = (e) => {
+          if (isUndoShortcutClaimed()) return;
+          const entry = newestUndoableEntry(useTrailStore.getState().entries);
+          if (!entry?.operationId) return;
+          e.preventDefault();
+          undoStructuralAct(entry.id, entry.operationId);
+        };
       }
     }
     // Continuous zoom shortcuts (#351). ⌘=/⌘- step geometrically through the
@@ -2901,6 +2991,7 @@ export function ScheduleView() {
   }, [
     projectId,
     readOnly,
+    undoStructuralAct,
     handleAddMilestone,
     handleAddPhase,
     buildModeActive,
@@ -3045,6 +3136,8 @@ export function ScheduleView() {
     <div className="flex flex-col h-full overflow-hidden">
       <h1 className="sr-only">Schedule</h1>
       <ScheduleToolbar
+        onUndoStructuralAct={undoStructuralAct}
+        undoPending={undoStructuralMut.isPending}
         hasEditRights={hasEditRights}
         displayOptions={displayOptions}
         onToggleDisplayOption={toggleDisplayOption}
@@ -3936,6 +4029,13 @@ function buildProjectActionsItems(ctx: {
 }
 
 interface ScheduleToolbarProps {
+  /**
+   * Reverses one structural act from the session trail (ADR-0880, #2974). Passed down
+   * rather than hooked here so the mutation, its toast, and the trail's `markUndone`
+   * stay in one place — the toolbar renders the control, it does not own the act.
+   */
+  onUndoStructuralAct: (entryId: number, operationId: string) => void;
+  undoPending: boolean;
   /** Per-person outline chrome (#2959) — surfaced in the Display menu. */
   displayOptions: ScheduleDisplayOptions;
   onToggleDisplayOption: (key: ScheduleDisplayOptionKey) => void;
@@ -4148,7 +4248,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           is no Monte Carlo result yet, which is exactly the fresh project where
           someone is authoring structure. It renders null with no acts, so a
           viewer never sees it. */}
-      <SessionTrail />
+      <SessionTrail onUndo={props.onUndoStructuralAct} undoPending={props.undoPending} />
       {/* Show the badge for in-flight optimistic edits, and also while a
           freshly-imported sample's first post-import CPM pass is still pending
           (recalculated_at null) so the demo never reads as broken (#1053). */}

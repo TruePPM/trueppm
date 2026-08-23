@@ -71,7 +71,7 @@ The Schedule list is in one of three focus states at any time. The same keys do 
 | ⌘ A / Ctrl + A | Select every sibling of the focused row; press again to expand to the whole visible tree |
 | Alt + ↑ / ↓ | Move the row **and its subtree** among its same-indent siblings — no-op on a selection that spans more than one parent |
 | ⌘ V / Ctrl + V | Paste rows from a spreadsheet — see [Paste rows from a spreadsheet](#paste-rows-from-a-spreadsheet) below |
-| ⌘ Z / Ctrl + Z | Undo the most recent paste, while its receipt strip is still showing |
+| ⌘ Z / Ctrl + Z | Undo the most recent structural change — a move, indent, outdent, reorder, or grouping. While a paste receipt strip is showing, undoes the paste instead. See [Undoing a structural change](#undoing-a-structural-change) |
 | F8 | Jump to the next row that needs attention — an unresolved `@owner` mention, or a row a recent paste couldn't infer a duration for |
 | Shift + F8 | Jump to the previous such row |
 | F7 | Jump to the next row that still **needs dates** — no committed start yet |
@@ -253,6 +253,72 @@ When you indent a row under a leaf row (one with no children), the parent automa
 
 The reverse holds when you outdent: if a summary task loses all its children, it becomes a leaf again on the next refresh.
 
+## Undoing a structural change
+
+Every change you make to the *shape* of the plan is recorded and can be reversed.
+Press **⌘ Z** (Ctrl + Z), or open the **N changes this session** panel in the toolbar and
+press **Undo** on the entry.
+
+### What undo covers
+
+| Act | Undoable |
+|---|---|
+| Moving a row (drag, or **Move to…**) | Yes |
+| Indent (`⌥ →`) and outdent (`⌥ ←`) | Yes |
+| Reordering rows within a level | Yes |
+| Grouping rows into a phase | Yes — the phase is removed again |
+| Ungrouping a phase | Yes — the phase comes back **with its original name, notes and links** |
+| Deleting a row | Yes, but through the delete toast's own **Undo**, not ⌘ Z |
+| Duplicating a row (`⌘ D`) | **No** — delete the copy instead |
+| Turning a row into a milestone | **No** — set its duration back above zero |
+| Adding a single row | **No** — delete it |
+
+The panel says the same thing, so you never have to remember this table. An act that
+cannot be reversed appears in the trail as a record with **no Undo button** next to it.
+
+### One gesture, one undo
+
+A change is reversed as the single act you performed, not as the row-by-row edits it
+implied. Grouping four rows into a phase is **one** press of ⌘ Z, not four. The same
+holds for a move that renumbers a dozen siblings.
+
+The one exception: indenting or outdenting a **multi-row selection** is sent as one
+request per row, so it takes one ⌘ Z per row to reverse. Each press is safe on its own.
+
+### Undo goes backwards one step at a time
+
+⌘ Z reverses your most recent structural change. Press it again and it reverses the one
+before that, and so on back through the panel. Only the newest reversible change offers
+a button, which is why the panel shows exactly one **Undo** at a time.
+
+Undo is scoped to **your** changes. A colleague restructuring a different part of the
+plan does not consume your undo, and you cannot reverse their change unless you are a
+Project Manager or above.
+
+### When undo is not offered
+
+If somebody has changed the same part of the outline since — moved a row, added one
+inside it, or restored something you had grouped away — undo **refuses** rather than
+reverting part of it. You will see *"The outline has changed here since — this can no
+longer be undone."*
+
+This is deliberate. Restoring only some of a level's rows can leave two rows claiming
+the same position in the plan, and nothing downstream would notice. Refusing is the safe
+outcome; nothing is written when it happens.
+
+Two other cases produce a refusal:
+
+- **A very large change.** A restructure touching more than about 2,000 rows is recorded
+  but not reversible. The change itself still succeeds — only the undo is unavailable,
+  and the panel says so.
+- **An older change with a newer one on top of it.** Reverse the newer one first.
+
+### How long an undo lasts
+
+The panel is scoped to your current session and holds the last ten changes. The server
+keeps the underlying record for **7 days**, so an undo is still possible through the API
+after a reload — but the panel itself starts empty in a new session.
+
 ## Where a new row lands
 
 There are three ways to add a row, and **each one lands where its own position implies**.
@@ -430,7 +496,7 @@ never the only signal.
 - **Enter's positional insert is one-directional.** Plain `Enter` appends the new row at the end of its parent's children rather than immediately after the focused row. `Shift + Enter` (insert above) *does* land exactly where you'd expect — it composes the create with a reorder — but the common "type, Enter, type" flow still appends.
 - **No optimistic indent.** Indent / outdent waits ~50ms for the server to confirm before the row position updates.
 - **No fill-down.** Multi-row select and duplicate exist, and 0.4 adds [paste-many from a spreadsheet](#paste-rows-from-a-spreadsheet); a fill-down / fill-series gesture for extending a value down a column does not exist yet.
-- **No multi-step undo (yet), and no Enter-to-create on the Timeline.** A paste, a classification cascade, and a spreadsheet import each undo as one step — see [Paste rows from a spreadsheet](#paste-rows-from-a-spreadsheet) above, [Classify a subtree](/features/task-classification/#undo-a-cascade), and [CSV/Excel import](/features/csv-import-export/#undo-an-import). What's still missing: a *stack* of undoable steps (only the most recent action of each kind is reversible), and creating rows from the Timeline the way Enter does on the list — tracked separately, not in this release.
+- **No Enter-to-create on the Timeline.** Creating rows from the Timeline the way Enter does on the list is tracked separately, not in this release. (Multi-step undo itself *has* landed for structural changes — see [Undoing a structural change](#undoing-a-structural-change) — and a paste, a classification cascade and a spreadsheet import each still undo as one step: [Paste rows from a spreadsheet](#paste-rows-from-a-spreadsheet) above, [Classify a subtree](/features/task-classification/#undo-a-cascade), and [CSV/Excel import](/features/csv-import-export/#undo-an-import).)
 - **A bulk edit is not undoable with `⌘ Z`.** The [bulk-edit sheet](#edit-many-rows-at-once) ships in 0.4, but unlike a paste or a cascade it records no undo step — re-open the sheet and set the field back. Take particular care with **Add owner**, which the sheet cannot reverse at all: remove the assignment from the row's own Assignees editor.
 - **The bulk-edit sheet cannot move rows under a phase, or set a calendar.** Phase changes go one row at a time (drag, `Alt + →`, or the `[Phase name]` inline token); the working calendar is a project-level setting, not a per-task one, and lives in **Project settings → Schedule**. Shifting a selection's dates by a relative amount ("everything slips a week") is likewise not available — the sheet sets absolute dates only.
 - **No Sprint backlog parity yet.** The same inline-edit / Tab pattern will extend to the Sprint backlog table in a future release.

@@ -13,7 +13,8 @@
  *   task_created / task_deleted / task_restored → invalidate tasks
  *   task_updated → invalidate tasks, unless self-echo (actor_id === current user) or a
  *                  duplicate/replayed version (ADR-0152, #327)
- *   tasks_reordered / tasks_restructured / tasks_bulk_mutated → invalidate tasks
+ *   tasks_reordered / tasks_bulk_mutated → invalidate tasks
+ *   tasks_restructured → invalidate tasks + dependencies (ungroup drops edges, undo restores them)
  *   dependency_created / dependency_updated / dependency_deleted → invalidate dependencies + tasks
  *   baseline_created / baseline_activated / baseline_deleted → invalidate baselines + tasks
  *   risk_created / risk_updated / risk_deleted → invalidate risks
@@ -452,7 +453,6 @@ function registerBulkAndBacklogHandlers(on: OnFn, deps: WsHandlerDeps): void {
   on(
     [
       'tasks_reordered',
-      'tasks_restructured',
       'tasks_bulk_mutated',
       'phases_reordered',
       // A collaborator promoted/demoted a queue row (issue 1610) — the board queue
@@ -463,6 +463,21 @@ function registerBulkAndBacklogHandlers(on: OnFn, deps: WsHandlerDeps): void {
       scheduleInvalidate('tasks');
     },
   );
+
+  // `tasks_restructured` also moves dependency EDGES, unlike its neighbours above:
+  // ungroup deletes the wrapper's own links, and structural undo restores them
+  // (ADR-0880, #2974). The `dependencies` cache is otherwise invalidated only by the
+  // `dependency_*` events, so a collaborator's Gantt kept drawing links that no longer
+  // existed — or omitted links that had come back — until an unrelated refetch.
+  //
+  // Both invalidations live in ONE handler because `on()` is last-write-wins
+  // (`eventHandlers[t] = handler`), not additive: registering a second handler for an
+  // event silently replaces the first, which drops the invalidation the original
+  // registration existed for.
+  on('tasks_restructured', () => {
+    scheduleInvalidate('tasks');
+    scheduleInvalidate('dependencies');
+  });
 
   // --- Product-backlog priority_rank change (ADR-0105 auto-rank / ADR-0110 reorder) ---
   on('backlog_reranked', () => {

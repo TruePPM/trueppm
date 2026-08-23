@@ -51,6 +51,7 @@ from trueppm_api.apps.projects.signal_privacy_views import (
     SignalPrivacyRatchetDownView,
 )
 from trueppm_api.apps.projects.standup_views import StandupView
+from trueppm_api.apps.projects.structural_operation_views import StructuralOperationViewSet
 from trueppm_api.apps.projects.template_views import (
     ProjectTemplateViewSet,
     TemplateApplicationViewSet,
@@ -145,6 +146,12 @@ router.register(
     r"cascade-classification-operations",
     CascadeClassificationOperationViewSet,
     basename="cascade-classification-operation",
+)
+# Structural (WBS restructure) undo ledger — ADR-0880, #2974/#3006. Same flat
+# collection as its ADR-0810 siblings, but one table for all six gestures: the
+# undo is kind-agnostic, so siblings would differ in name only.
+router.register(
+    r"structural-operations", StructuralOperationViewSet, basename="structural-operation"
 )
 router.register(r"task-relations", TaskRelationViewSet, basename="task-relation")
 router.register(r"slip-conflicts", CrossProjectSlipConflictViewSet, basename="slip-conflict")

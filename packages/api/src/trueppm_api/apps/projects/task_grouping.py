@@ -32,6 +32,9 @@ from typing import TYPE_CHECKING, Any
 
 from django.db.models import Q
 
+from trueppm_api.apps.projects.models import StructuralOperationKind
+from trueppm_api.apps.projects.structural_operation_services import StructuralCapture
+
 if TYPE_CHECKING:
     from rest_framework.request import Request
 
@@ -496,6 +499,7 @@ def perform_group(project: Project, request: Request, raw_ids: Any, name: Any) -
     project_id = str(project.pk)
     graph_before = capture_graph_state(project_id)
     parent_path = selection.parent_path
+    capture = StructuralCapture.begin(project.pk, {parent_path})
 
     parent: Task | None = None
     if parent_path:
@@ -582,6 +586,14 @@ def perform_group(project: Project, request: Request, raw_ids: Any, name: Any) -
         if not remaining and TaskResource.objects.filter(task=parent).exists():
             warning = "has_assignments"
 
+    operation = capture.record(
+        project=project,
+        applied_by=request.user,
+        kind=StructuralOperationKind.GROUP,
+        anchors=[task.pk for task in selection.kept],
+        created_task_ids=[container.pk],
+    )
+
     return {
         "container": {
             "id": str(container.pk),
@@ -594,6 +606,7 @@ def perform_group(project: Project, request: Request, raw_ids: Any, name: Any) -
         "left_alone": [entry.as_dict() for entry in selection.left_alone],
         "updated": [{"id": tid, "wbs_path": path} for tid, path in by_id.items()],
         "warning": warning,
+        "operation_id": str(operation.pk),
     }
 
 
@@ -676,6 +689,7 @@ def perform_ungroup(project: Project, request: Request, raw_id: Any) -> dict[str
     siblings = _get_siblings(project_id, parent_path, lock=True)
     container_index = next(i for i, s in enumerate(siblings) if s.pk == container.pk)
     graph_before = capture_graph_state(project_id)
+    capture = StructuralCapture.begin(project.pk, {parent_path})
 
     removed_dependency_ids = [
         str(dep_id)
@@ -717,10 +731,24 @@ def perform_ungroup(project: Project, request: Request, raw_id: Any) -> dict[str
 
     assert_graph_feasible(project_id, graph_before)
 
+    # This row is what makes #3006 answerable: the wrapper is soft-deleted, so restoring
+    # it returns the *original* id, name, notes and labels rather than the new container
+    # a re-group would mint. Nothing about the wrapper needs snapshotting — the soft
+    # delete retains all of it; only the pointer does.
+    operation = capture.record(
+        project=project,
+        applied_by=request.user,
+        kind=StructuralOperationKind.UNGROUP,
+        anchors=[container.pk, *[child.pk for child in children]],
+        deleted_task_ids=[container.pk],
+        removed_dependency_ids=[uuid.UUID(dep_id) for dep_id in removed_dependency_ids],
+    )
+
     return {
         "container_id": str(container.pk),
         "lifted_ids": [str(child.pk) for child in children],
         "removed_dependency_ids": removed_dependency_ids,
         "updated": updated,
         "warning": warning,
+        "operation_id": str(operation.pk),
     }

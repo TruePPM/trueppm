@@ -1883,6 +1883,22 @@ describe('useProjectWebSocket — remaining invalidation handlers', () => {
     },
   );
 
+  it('invalidates dependencies as well as tasks on tasks_restructured', () => {
+    // Ungroup deletes the wrapper's own dependency edges and structural undo restores
+    // them (ADR-0880, #2974), so this event is the one member of the bulk-mutation
+    // group that moves edges. Pinned separately because `on()` is last-write-wins:
+    // a second registration for the same event silently replaces the first, so the
+    // two invalidations must share one handler and this asserts both survive.
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('tasks_restructured');
+    flushDebounce();
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['dependencies', 'proj-1'] });
+  });
+
   it('invalidates the product backlog and tasks on backlog_reranked', () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });

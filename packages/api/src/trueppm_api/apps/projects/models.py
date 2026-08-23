@@ -7990,3 +7990,141 @@ class CascadeClassificationOperation(models.Model):
 
     def __str__(self) -> str:
         return f"CascadeClassificationOperation({self.id}, {self.project_id}, {self.status})"
+
+
+class StructuralOperationKind(models.TextChoices):
+    """Which outline gesture produced a :class:`StructuralOperation` (ADR-0880).
+
+    Purely descriptive. The undo path **never branches on this value** — every
+    kind is reversed by the same code, which is what makes the mechanism
+    general rather than six inverses sharing a table. It exists so the session
+    trail can name the act and so operators can see what a project's history is
+    made of.
+    """
+
+    INDENT = "indent", "Indent"
+    OUTDENT = "outdent", "Outdent"
+    REPARENT = "reparent", "Reparent"
+    REORDER = "reorder", "Reorder"
+    GROUP = "group", "Group"
+    UNGROUP = "ungroup", "Ungroup"
+
+
+class StructuralOperation(models.Model):
+    """One reversible WBS restructure — the undo target (ADR-0880, #2974, #3006).
+
+    Deliberately **one** model for all six outline gestures rather than the
+    sibling-per-operation shape ADR-0810 used for paste-many and cascade. The
+    argument is that these six are not six operations sharing a table; they are
+    one operation — *a WBS restructure* — with six names. Parenthood in this
+    tree is ``wbs_path`` and nothing else (there is no ``parent_id`` column, see
+    ``structural_parent``), so "restore the outline shape" is "restore N
+    strings" for every one of them, and ``undo_structural_operation()`` is a
+    single kind-agnostic function. A future structural act becomes undoable by
+    recording a snapshot, with no new inverse code.
+
+    That also puts this on the accepted side of the house style rather than the
+    rejected one. What ``ProgramExportJob``'s docstring argues against is a
+    discriminator whose per-kind columns "leak nullability through the
+    serializer, services, and tasks" — rows that each need their own service
+    logic. The counter-examples (``AuditEvent``, ``TaskActivityEvent``,
+    ``WebhookDelivery``) are one table plus a discriminator over a homogeneous
+    stream handled by one code path, which is this.
+
+    The four payload fields are not per-kind columns either. They are the three
+    ways *any* structural act can change a row set — it can move rows
+    (``shape_before``/``shape_after``), add rows (``created_task_ids``), or
+    remove them (``deleted_task_ids`` + ``removed_dependency_ids``). An act that
+    touches none of them is not structural.
+
+    ``shape_after`` exists so undo can verify nothing has shifted since. That
+    check is **all-or-nothing** and covers all four dimensions — see
+    ``structural_operation_services`` for why a partial restore is unsafe here
+    when it is fine for paste-many.
+
+    Plain (non-synced) model, like its ADR-0810 siblings: server-side operation
+    bookkeeping, never a mobile-offline entity. It is a working undo buffer and
+    **not an audit record** — ``TRUEPPM_STRUCTURAL_OPERATION_RETENTION_DAYS``
+    purges it, and ADR-0112 places durable audit retention on the Enterprise
+    side of the split.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        PROJECT_MODEL_LABEL,
+        on_delete=models.CASCADE,
+        related_name="structural_operations",
+    )
+    applied_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="structural_operations",
+    )
+    # Separate from applied_by because ADR-0880 §4 lets an Admin reverse another
+    # member's act: undone_at alone records that it happened, not who did it.
+    undone_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="structural_operations_undone",
+    )
+    kind = models.CharField(max_length=10, choices=StructuralOperationKind.choices)
+    # No standalone db_index, unlike the ADR-0810 siblings: this column has two values,
+    # so a btree on it selects nothing useful, and it is already the third column of
+    # `structop_stack_idx` — which serves the only query that filters on it. The table
+    # is high-write (a row per indent, per drag), so an index that earns nothing costs
+    # something.
+    status = models.CharField(
+        max_length=10,
+        choices=SyncBatchOperationStatus.choices,
+        default=SyncBatchOperationStatus.ACTIVE,
+    )
+    # False when the affected region exceeded STRUCTURAL_OPERATION_MAX_REGION.
+    # The act still succeeded; only its reversal is refused. Recording the row
+    # anyway keeps the session trail honest about what happened (ADR-0880 §7).
+    undoable = models.BooleanField(default=True)
+    # {"<task id>": "<wbs_path>"} — the affected region before and after.
+    shape_before = models.JSONField(default=dict, blank=True)
+    shape_after = models.JSONField(default=dict, blank=True)
+    # The minimal set of wbs_path prefixes bounding the affected region ("" is
+    # the project root). Stored rather than re-derived from shape_after so a bug
+    # in the reduction cannot silently narrow the precondition's scope later.
+    region_roots = ArrayField(models.TextField(), default=list, blank=True)
+    # The rows the forward act itself gated on. Undo re-checks authority against
+    # these and not the whole region: the forward endpoints only ever check the
+    # named row (descendants and renumbered siblings move unchecked), so gating
+    # the region on undo would be stricter than the act it reverses (§4).
+    anchor_task_ids = ArrayField(models.UUIDField(), default=list, blank=True)
+    # Rows this act minted (group's container) — undo soft-deletes them.
+    created_task_ids = ArrayField(models.UUIDField(), default=list, blank=True)
+    # Rows this act soft-deleted (ungroup's wrapper) — undo restores them, which
+    # is what returns the container's original id, name, notes and labels.
+    deleted_task_ids = ArrayField(models.UUIDField(), default=list, blank=True)
+    # {"<task id>": <server_version int>} for created_task_ids, so undo can tell
+    # whether anyone has edited a minted row before deleting it again.
+    created_task_versions = models.JSONField(default=dict, blank=True)
+    removed_dependency_ids = ArrayField(models.UUIDField(), default=list, blank=True)
+    result_summary = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    undone_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "projects_structural_operation"
+        ordering = ["-created_at"]
+        indexes = [
+            # The nightly purge scan (ADR-0880 §9).
+            models.Index(fields=["created_at"], name="structop_created_idx"),
+            models.Index(fields=["project", "created_at"], name="structop_proj_idx"),
+            # The top-of-stack lookup (§8): newest ACTIVE row for one actor in
+            # one project, run on every undo and on every list serialization.
+            models.Index(
+                fields=["project", "applied_by", "status", "created_at"],
+                name="structop_stack_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"StructuralOperation({self.id}, {self.kind}, {self.status})"
