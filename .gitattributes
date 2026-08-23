@@ -45,3 +45,11 @@ uv.lock           merge=union
 *.zip   binary
 *.tar   binary
 *.gz    binary
+
+# Encoding fixtures — the bytes ARE the test (#2892, #2937). These exercise the
+# decode boundary, so `text=auto` normalizing CRLF (or a future edit "fixing" the
+# encoding) would quietly void them. The UTF-16 ones survive today only because
+# their NUL bytes make git detect them as binary; the UTF-8 and cp1252 ones do
+# not, so make it explicit for all of them rather than rely on that.
+packages/api/tests/apps/csvimport/files/*.csv  -text binary
+packages/api/tests/apps/projects/files/*.csv   -text binary

@@ -1,6 +1,7 @@
 ---
 title: Risk Register
 description: Standards-aligned risk tracking with probability × impact scoring, task links, and real-time board integration.
+documentedFor: "0.4"
 ---
 
 :::note[0.1]
@@ -113,6 +114,15 @@ Import is **partial by design** — one valid row never blocks another:
 - Probability and impact must be whole numbers 1–5; a blank value defaults to 1.
 - An unrecognized status, category, or response is coerced to the default and flagged as a warning rather than failing the row.
 - The **Owner** column is matched against project members by email or username. A value matching no member leaves the risk unassigned and adds a warning — risks are never assigned to people outside the project.
+
+:::note[Ships in 0.4 — file encoding]
+Risk-register import reads the same encodings as every other TruePPM CSV from
+0.4: a byte-order mark decides, Windows-1252 exports work, and a file that
+decodes to gibberish is refused with the re-save instruction rather than
+imported. Through 0.3 this importer required strict UTF-8 — it rejected
+Windows-1252 and Excel's BOM-marked UTF-16, and silently imported a BOM-less
+UTF-16 file as gibberish. The rest of this page describes shipped behavior.
+:::
 
 A single import is capped at **2 MB** and **500 rows**. The result summary shows how many risks were imported and how many were skipped, with the full error and warning lists, so you can correct the source file and re-import.
 
