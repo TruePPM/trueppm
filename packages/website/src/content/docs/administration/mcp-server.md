@@ -431,15 +431,41 @@ What the control does guarantee is that a credential minted *as an agent* is
 bound, always, by whichever scope objects. Treat it as the answer to "may an agent
 be pointed at this team's data," not as a data-loss-prevention boundary.
 
-One route is a known exception to "every collection withholds that project's rows":
-**a program export archive is governed by the program's own setting, not by its
-member projects'**. `GET /programs/{id}/export-jobs/{job_id}/download/` streams a
-bundle that was built asynchronously and is served as opaque bytes, so unlike every
-other read it cannot have one project's rows removed from it — honoring a child's
-block would mean withholding the whole archive. The route already requires program
-Admin or above. Which of the two behaviors is correct is an open decision
-([#3014](https://gitlab.com/trueppm/trueppm/-/issues/3014)); it is listed here so
-nobody reads the current one as settled.
+### Program bulk exports are serve-or-refuse, and you choose which
+
+Two routes cannot honor a child's block by *withholding rows*, because they carry
+every member project's data in one artifact:
+
+- `GET /programs/{id}/export/` — the synchronous JSON seed.
+- `GET /programs/{id}/export-jobs/{job_id}/download/` — the async `.tar.gz` bundle.
+
+Neither can be narrowed. The bundle is built asynchronously and streamed as opaque
+bytes, so by download time there is nothing left to filter; the seed *could* be
+trimmed, but a seed is a re-import artifact, and handing back something shaped like
+the program that quietly is not the program is worse than refusing. So the only
+lever is serve-or-refuse, and
+[`TRUEPPM_MCP_PROGRAM_EXPORT_POLICY`](/administration/configuration/) chooses:
+
+| Value | An agent token requesting a program bulk export |
+| --- | --- |
+| `withhold` *(default)* | **Refused** (`403`) when **any** member project has opted out of agent reads. |
+| `allow` | Served, governed by the **program's own** agent-read setting alone. |
+
+`allow` is there because the other reading is defensible — a program-level export is
+a program-level artifact, and a program admin already sees every child's data through
+the program surfaces. The default is `withhold` because a team's "no" is meant to be
+final, and a bulk export is the widest possible read of what it covers.
+
+Both routes already require program Admin or above, and **humans are unaffected by
+either value** — this governs agent credentials only.
+
+:::note[Why this is an operator setting and not a workspace or program toggle]
+Putting it on a workspace or program would let a scope *above* a team override that
+team's own consent decision — exactly the *"consent that only an admin can grant or
+revoke on the team's behalf is consent in name only"* objection this control exists
+to answer. An operator is the person running the server, not a scope above the team
+inside it, so the switch lives in deployment configuration.
+:::
 
 Today `trueppm-mcp` will start on a `legacy:full` token without complaint, because
 `GET /api/v1/auth/me/` does not report the token's scope back to it. A later

@@ -26,6 +26,15 @@ That asymmetry is deliberate, not an oversight. Enterprise governance keeps the
 only lever that is coherent for a consent control — turning MCP off at the
 workspace scope, org-wide — which the AND already honors.
 
+The one policy knob that does exist, ``TRUEPPM_MCP_PROGRAM_EXPORT_POLICY``
+(:func:`program_export_policy`, #3014), is **operator-level and not a scope in this
+cascade**. It answers a question the AND above cannot: a program-level *bulk export*
+carries every member project's rows verbatim in one artifact that cannot be narrowed,
+so the choice is serve-or-refuse rather than filter. Keeping it in deployment
+settings rather than on ``Workspace`` or ``Program`` is what stops it from becoming
+the tenant-scope override this module refuses — an operator is the person running
+the server, not a scope above the team inside it.
+
 Resolution is computed-on-read (ADR-0108); there is no denormalized effective
 column to keep in sync. Clients read the serializer's ``effective_mcp_enabled`` /
 ``inherited_mcp_enabled`` fields and never re-implement this precedence.
@@ -161,6 +170,65 @@ def mcp_opted_out_project_ids() -> QuerySet[Any]:
     return Project.objects.filter(Q(mcp_enabled=False) | Q(program__mcp_enabled=False)).values_list(
         "pk", flat=True
     )
+
+
+#: Policy values for :data:`django.conf.settings.TRUEPPM_MCP_PROGRAM_EXPORT_POLICY`.
+PROGRAM_EXPORT_WITHHOLD = "withhold"
+PROGRAM_EXPORT_ALLOW = "allow"
+PROGRAM_EXPORT_POLICIES = frozenset({PROGRAM_EXPORT_WITHHOLD, PROGRAM_EXPORT_ALLOW})
+
+
+def program_export_policy() -> str:
+    """The operator's program-bulk-export policy, read at call time (#3014).
+
+    Unrecognized values fall back to ``withhold`` rather than raising: this is read
+    on a request path, and a typo in an env var must not turn a consent control off
+    by accident. A boot-time check (``core.checks``) surfaces the typo loudly so the
+    fallback is a safety net rather than a place mistakes go to hide.
+    """
+    from django.conf import settings
+
+    value = str(getattr(settings, "TRUEPPM_MCP_PROGRAM_EXPORT_POLICY", PROGRAM_EXPORT_WITHHOLD))
+    normalized = value.strip().lower()
+    return normalized if normalized in PROGRAM_EXPORT_POLICIES else PROGRAM_EXPORT_WITHHOLD
+
+
+def program_export_withheld_from_agents(program: Program) -> bool:
+    """Whether an agent token must be refused this program's bulk export (#3014).
+
+    A program-level bulk export — the sync JSON seed (``GET /programs/{id}/export/``)
+    and the async ``.tar.gz`` bundle — carries **every member project's data
+    verbatim**. The mixin's ``Program`` branch in ``_mcp_filter_queryset`` governs
+    only ``program.mcp_enabled``, so without this a child project's explicit "no" is
+    silently bypassed by reading the parent's export instead. Read through the
+    project's own endpoints, the same rows are withheld.
+
+    **Why withhold rather than narrow.** Neither surface can honestly serve a
+    subset. The ``.tar.gz`` is built asynchronously and streamed from storage as
+    opaque bytes, so at download time there is nothing left to filter — and because
+    ``TokenReadOnlyMethods`` refuses an agent token on POST, the archive was always
+    built *for a human*, so filtering at build time cannot see the eventual agent
+    reader either. The sync seed *could* be narrowed at request time, but a seed is
+    a re-import artifact: handing back something shaped like the program that
+    quietly is not the program is worse than refusing. So the lever is
+    serve-or-refuse, and the policy setting chooses which.
+
+    Returns ``False`` for the ``allow`` policy, and for a program with no opted-out
+    member project — the common case, answered with one ``EXISTS`` query.
+    """
+    if program_export_policy() == PROGRAM_EXPORT_ALLOW:
+        return False
+
+    from trueppm_api.apps.projects.models import Project
+
+    # Evaluated against the program's CURRENT member projects, not against a
+    # manifest of what the archive actually contains — ``ProgramExportJob`` records
+    # no such manifest. That makes this very slightly over-inclusive (a project that
+    # opted out after the bundle was built still withholds it) and never
+    # under-inclusive, which is the correct direction for a consent control.
+    return Project.objects.filter(
+        program_id=program.pk, pk__in=mcp_opted_out_project_ids()
+    ).exists()
 
 
 def mcp_reads_globally_disabled(*, workspace: Workspace | None = None) -> bool:

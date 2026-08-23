@@ -1540,6 +1540,30 @@ if not RATE_LIMIT_ENABLED:
 # the operator lever for "no agent access on this instance, period."
 TRUEPPM_MCP_ENABLED: bool = env.bool("TRUEPPM_MCP_ENABLED", default=True)
 
+# Whether a member project's ADR-0678 agent-read opt-out withholds a PROGRAM-LEVEL
+# BULK EXPORT from an agent (`mcp:read`) token — the sync JSON seed and the async
+# .tar.gz bundle both carry every member project's data verbatim (#3014).
+#
+#   "withhold" (default) — an agent token is refused (403) when ANY member project
+#       has opted out. The cascade's rule is that a team's "no" is final, and a
+#       bulk export is the widest possible read of the data it covers.
+#   "allow" — pre-0.4 behavior: the export is treated as a program-level artifact
+#       governed by the program's own `mcp_enabled` alone.
+#
+# OPERATOR-LEVEL ON PURPOSE, and the reason is the whole design (see
+# projects/mcp_settings.py, which refuses an `mcp_override_policy` field outright).
+# A workspace- or program-scoped toggle for this would be a *tenant* scope granting
+# over a team's denial — precisely the "consent that only an admin can grant or
+# revoke on the team's behalf is consent in name only" objection (#2415) the opt-out
+# exists to answer. An operator switch is the same kind of lever as
+# TRUEPPM_MCP_ENABLED above: the person running the server, not a scope above the
+# team inside it. Do not promote this to a model field.
+#
+# Humans are never affected by either value.
+TRUEPPM_MCP_PROGRAM_EXPORT_POLICY: str = env.str(
+    "TRUEPPM_MCP_PROGRAM_EXPORT_POLICY", default="withhold"
+)
+
 # Env-overridable safety caps for API tokens and inbound task-sync. Each keeps its
 # historical hardcoded default; surfacing them as settings lets an operator tune the
 # blast-radius/limits per deployment without a code change. Read at request time so

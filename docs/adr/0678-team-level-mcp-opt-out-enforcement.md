@@ -395,3 +395,60 @@ every guarantee in the Decision holds for it.
 The consent model itself is unchanged — restrictive-only AND, no `ENFORCE` override, no
 Enterprise enforcement seam. What changed is only *who* the control is aimed at, which
 is what the ADR intended all along and what the published documentation already claimed.
+
+## Amendment (2026-08-23, #3014) — program bulk exports are serve-or-refuse, by operator policy
+
+The Decision's enforcement section reasons entirely in terms of *narrowing*: a guard
+denies a route, or a filter drops rows. Two routes fit neither shape, and this ADR did
+not say what happens on them.
+
+`ProgramViewSet.export` (the synchronous JSON seed) and
+`ProgramViewSet.export_job_download` (the async `.tar.gz`) each emit **every member
+project's rows in one artifact**. `ProgramViewSet` is `McpScope.AGGREGATE`, so
+`McpProjectEnabled` passes unconditionally and the mixin's `Program` branch governs only
+`program.mcp_enabled` — a child project's explicit "no" was therefore readable through
+the parent. #3001 recorded this and deliberately declined to settle it.
+
+**Neither artifact can be narrowed**, which is why the AND cascade has nothing to say
+here. The bundle is built asynchronously and streamed from storage as opaque bytes, so
+at download time there is nothing left to filter — and because `TokenReadOnlyMethods`
+refuses an agent token on `POST`, the archive was always built *for a human*, so
+filtering at build time cannot see the eventual agent reader either. The seed *could* be
+trimmed at request time, but a seed is a re-import artifact: returning something shaped
+like the program that quietly is not the program is worse than refusing.
+
+So the lever is **serve-or-refuse**, and `TRUEPPM_MCP_PROGRAM_EXPORT_POLICY` chooses:
+`withhold` (default) refuses an agent token when any member project has opted out;
+`allow` treats the export as a program-level artifact governed by the program's own
+setting alone. Enforced by `McpProgramExportConsent`, composed into
+`ProgramViewSet._rbac_permissions()` for those two actions only — the job list and
+status poll report bookkeeping that names no child project's contents, so withholding
+them would cost an agent the ability to poll while protecting nothing.
+
+**This is not the `mcp_override_policy` the Decision refuses, and the distinction is the
+whole design.** That refusal is about *tenant scopes*: a workspace or program admin must
+never be able to grant over a team's denial, because consent an admin can revoke on your
+behalf is not consent (#2415). This setting lives in **deployment configuration** — the
+operator is the person running the server, not a scope above the team inside it, and it
+is the same kind of lever as the ADR-0497 instance switch the cascade already ANDs. A
+future MR that promotes this to a `Workspace` or `Program` field would convert it into
+exactly the override this ADR exists to prevent.
+
+`allow` is offered rather than the question being decided once because the opposing
+reading is genuinely defensible — a program-level export is a program-level artifact,
+and a program admin already sees every child's data through the program surfaces. What
+was not defensible was leaving it *implicit*.
+
+Two defects were found while implementing this and are tracked separately, because both
+are pre-existing and neither is specific to exports:
+
+- **#3017** — the agent-action audit log records **zero** refusals. Under
+  `ATOMIC_REQUESTS`, DRF's `exception_handler` calls `set_rollback()` for every
+  `APIException`, discarding the row `finalize_response` writes on a refusal path. This
+  ADR's §4 ("the audit row says so") and the T8 marker describe behavior that does not
+  currently occur. The caller-facing ADR-0809 refusal envelope is unaffected and does
+  work.
+- **#3022** — a program that denies agent reads and has **zero** member projects is not
+  withheld at all: `mcp_visible_project_ids` fast-paths on "has any *project* opted
+  out?", and skips the `Program` branch when the answer is no. Narrow (an empty program
+  holds no child data) but a direct contradiction of "any scope may deny for itself".

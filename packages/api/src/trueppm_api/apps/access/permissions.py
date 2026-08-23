@@ -1667,6 +1667,66 @@ class McpProjectEnabled(BasePermission):
         return True
 
 
+class McpProgramExportConsent(BasePermission):
+    """Refuse an agent a program bulk export when a member project opted out (#3014).
+
+    The gap this closes: ``ProgramViewSet`` declares :attr:`McpScope.AGGREGATE`, so
+    :class:`McpProjectEnabled` passes unconditionally, and the mixin's ``Program``
+    branch in ``_mcp_filter_queryset`` governs only ``program.mcp_enabled``. Both
+    program bulk exports — the synchronous JSON seed and the async ``.tar.gz``
+    bundle — carry **every member project's rows verbatim**, so an ``mcp:read`` token
+    could read through the parent exactly the data a child team had explicitly closed
+    to agents. Read via the child's own endpoints, those rows are withheld; the
+    export was the way around that.
+
+    Applied to the two export reads only, and to **token callers only** — a human
+    Admin's export is untouched under either policy, because ADR-0678 governs agents,
+    not people. It is composed into ``ProgramViewSet._rbac_permissions()`` rather than
+    into ``mcp_token_guards()``: the guards there apply to every action on the
+    viewset, and this question is meaningful for exactly two of them.
+
+    The behavior is chosen by ``TRUEPPM_MCP_PROGRAM_EXPORT_POLICY``, an operator
+    setting — see :func:`~trueppm_api.apps.projects.mcp_settings.program_export_policy`
+    for why it is deliberately not a workspace or program field.
+
+    Marks the refusal as ``policy``/``capability_scope``, which reaches the caller
+    through the ADR-0809 refusal envelope — an agent that cannot tell *why* it was
+    refused makes the same call again.
+
+    It does **not** currently reach the agent-action audit log, and that is a
+    pre-existing defect of the substrate rather than of this guard: under
+    ``ATOMIC_REQUESTS`` DRF's ``exception_handler`` calls ``set_rollback()`` for every
+    ``APIException``, so the row ``finalize_response`` writes on a refusal path is
+    discarded. **No** refusal from any guard is recorded today — measured, see #3017.
+    Do not read ``finalize_response``'s docstring claim that it "commits" as fact.
+    """
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        from trueppm_api.apps.agents.models import RefusalConstraint
+        from trueppm_api.apps.projects.mcp_settings import program_export_withheld_from_agents
+        from trueppm_api.apps.projects.models import Program, is_agent_token
+
+        if not is_agent_token(getattr(request, "auth", None)):
+            return True  # Human JWT/Session, or the owner's own full-access PAT.
+
+        # The program is the detail pk on every route this guards. An unresolvable
+        # id is left to the view's own 404 — there is no export to protect, and
+        # answering 403 here would turn a nonexistent program into a distinguishable
+        # one.
+        view_kwargs = getattr(view, "kwargs", {}) or {}
+        program_id = view_kwargs.get("pk")
+        if program_id is None:
+            return True
+        program = Program.objects.filter(pk=program_id).only("pk").first()
+        if program is None:
+            return True
+
+        if program_export_withheld_from_agents(program):
+            _mark_policy_refusal(request, RefusalConstraint.CAPABILITY_SCOPE)
+            return False
+        return True
+
+
 if TYPE_CHECKING:
     _McpViewBase = APIView
 else:
@@ -1872,10 +1932,11 @@ class McpReadableViewMixin(_McpViewBase):
             # projects are filtered on their own endpoints. Reading the program row
             # is not reading a project's data.
             #
-            # The one route where that reasoning does not hold is
-            # ``ProgramViewSet.export_job_download``, which streams a pre-built
-            # archive of child-project data that cannot be narrowed here. See its
-            # docstring and #3014 — this branch is not a ruling on that case.
+            # The reasoning does not hold for the two program BULK EXPORTS
+            # (``ProgramViewSet.export`` and ``export_job_download``), which carry
+            # every member project's rows verbatim in one artifact this branch
+            # cannot narrow. Those are governed separately by
+            # ``McpProgramExportConsent`` (#3014); this branch is not their ruling.
             filtered = qs.exclude(mcp_enabled=False)
         elif "program" in field_names:
             # Program-owned rows with no project FK (the program backlog pool).

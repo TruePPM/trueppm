@@ -463,3 +463,57 @@ def check_integration_encryption_key(
         getattr(settings, "INTEGRATION_ENCRYPTION_KEY", None),
         debug=bool(getattr(settings, "DEBUG", False)),
     )
+
+
+# ---------------------------------------------------------------------------
+# MCP program-export policy (#3014)
+#
+# TRUEPPM_MCP_PROGRAM_EXPORT_POLICY takes one of two words. A typo cannot be
+# allowed to silently pick a behavior: `program_export_policy()` falls back to the
+# restrictive `withhold` on an unrecognized value, which is the right runtime
+# default but also means a misspelled `allwo` would look like it worked and quietly
+# do the opposite of what the operator wrote. This check makes the typo loud at
+# deploy time so the fallback stays a safety net rather than a place mistakes hide.
+#
+# Registered as an Error rather than a Warning: the setting governs a consent
+# control, and "your security policy is not the one you wrote" is not advisory.
+# ---------------------------------------------------------------------------
+
+
+def validate_mcp_program_export_policy(value: object) -> list[CheckMessage]:
+    """Validate the configured program-export policy word."""
+    from trueppm_api.apps.projects.mcp_settings import (
+        PROGRAM_EXPORT_POLICIES,
+        PROGRAM_EXPORT_WITHHOLD,
+    )
+
+    if isinstance(value, str) and value.strip().lower() in PROGRAM_EXPORT_POLICIES:
+        return []
+    allowed = ", ".join(sorted(PROGRAM_EXPORT_POLICIES))
+    return [
+        Error(
+            f"TRUEPPM_MCP_PROGRAM_EXPORT_POLICY is {value!r}, which is not a "
+            f"recognized policy ({allowed}).",
+            hint=(
+                "The running instance falls back to "
+                f"{PROGRAM_EXPORT_WITHHOLD!r} (the safe value), so agent tokens are "
+                "being refused a program bulk export whenever a member project has "
+                "opted out of agent reads — which may not be what you intended. Fix "
+                "the value or unset it to accept the default."
+            ),
+            id="trueppm.E009",
+        )
+    ]
+
+
+@register(Tags.security, deploy=True)
+def check_mcp_program_export_policy(
+    app_configs: Sequence[object] | None = None,
+    **kwargs: object,
+) -> list[CheckMessage]:
+    """Django system check entry point — reads the live setting."""
+    from django.conf import settings
+
+    return validate_mcp_program_export_policy(
+        getattr(settings, "TRUEPPM_MCP_PROGRAM_EXPORT_POLICY", "withhold")
+    )
