@@ -1880,6 +1880,12 @@ def cascade_task_children_restore(task: Task) -> None:
 
     if task.wbs_path:
         Task.objects.filter(
+            # `wbs_path` is project-scoped and every project numbers from "1", so the
+            # prefix alone is not a subtree — it matches the same-shaped path in EVERY
+            # other project (#3010). Without this the restore un-deleted other projects'
+            # tombstoned subtasks and stamped them with a sequence value drawn from THIS
+            # project, corrupting their delta cursor as well.
+            project_id=task.project_id,
             is_deleted=True,
             is_subtask=True,
             wbs_path__startswith=str(task.wbs_path) + ".",
@@ -1893,7 +1899,12 @@ def cascade_task_children_restore(task: Task) -> None:
 
     # Edges touching the restored subtree (the task itself or any wbs descendant), gated
     # on both endpoints live + no live duplicate — mirrors the project cascade's edge pass.
-    subtree = Task.objects.filter(Q(pk=task.pk) | Q(wbs_path__startswith=str(task.wbs_path) + "."))
+    # Same scoping bug, same fix: an unscoped prefix pulls other projects' rows into the
+    # subtree and restores dependency edges that belong to them (#3010).
+    subtree = Task.objects.filter(
+        Q(pk=task.pk) | Q(wbs_path__startswith=str(task.wbs_path) + "."),
+        project_id=task.project_id,
+    )
     live_duplicate = Dependency.objects.filter(
         is_deleted=False,
         predecessor=OuterRef("predecessor"),
@@ -2443,6 +2454,63 @@ def sync_structure_shadow_values(task: Task) -> bool:
 
     # Declared container with nothing in it: legal, visible, and left alone.
     return False
+
+
+#: The columns :func:`sync_structure_shadow_values` can write. ``status`` and
+#: ``duration`` are in the list because the *restore* branch un-parks them; a
+#: promotion touches only the four declaration columns, but naming one list for
+#: both directions is what stops a caller from persisting half a transition.
+STRUCTURE_SHADOW_UPDATE_FIELDS = (
+    "status",
+    "duration",
+    "structure_role",
+    "auto_container",
+    "own_status",
+    "own_estimate",
+    "server_version",
+)
+
+
+def resync_container_declarations(*candidates: Task | None) -> list[Task]:
+    """Re-derive **and persist** the container declaration on rows whose child set moved.
+
+    :func:`sync_structure_shadow_values` only mutates the instance; it returns a bool
+    so the caller can skip a pointless UPDATE. That split is easy to half-implement —
+    a caller that forgets the ``save`` converges in memory and not in the database —
+    so every restructure path goes through this instead of open-coding the pair.
+
+    Each candidate is re-read first. A restructure renumbers siblings through *other*
+    instances of the same rows, so an object captured before the move can hold a stale
+    ``wbs_path`` and probe the wrong subtree. ``None`` and duplicate candidates are
+    skipped, which lets a call site pass "the new parent and the former parent" without
+    testing whether they are the same row or whether one exists.
+
+    ``server_version`` is in the update list because the declaration is a **synced**
+    fact: a promotion that skips the version bump never reaches the offline delta pull,
+    and the row stays a task on every mobile client (ADR-0686).
+
+    Must be called inside the restructure's own ``transaction.atomic()`` block — the
+    declaration and the move it follows from are one act, and a promotion that survived
+    a rolled-back move would describe a tree that does not exist.
+
+    Returns the rows it actually wrote, so a caller can report or broadcast them.
+    """
+    changed: list[Task] = []
+    seen: set[Any] = set()
+    for candidate in candidates:
+        if candidate is None or candidate.pk is None or candidate.pk in seen:
+            continue
+        seen.add(candidate.pk)
+        try:
+            candidate.refresh_from_db()
+        except Task.DoesNotExist:
+            # The row was deleted by the same act (ungroup dissolves its container).
+            continue
+        if not sync_structure_shadow_values(candidate):
+            continue
+        candidate.save(update_fields=list(STRUCTURE_SHADOW_UPDATE_FIELDS))
+        changed.append(candidate)
+    return changed
 
 
 class Task(VersionedModel):
