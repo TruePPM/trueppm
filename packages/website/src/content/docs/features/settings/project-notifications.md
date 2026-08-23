@@ -1,7 +1,16 @@
 ---
 title: Project notifications
 description: Per-project notification routing — pick which events reach you on which channel, set quiet hours, or pause everything for one project.
+documentedFor: "0.4"
 ---
+
+:::note[Ships in 0.4]
+The default matrix below, and the **not delivered yet** labels beside eight of the
+nine events, land in **TruePPM 0.4**. On the latest release those eight rows are
+defaulted **on** across in-app, email and Slack and carry no label — but they are
+dispatched by nothing either way, so no notification is sent for them on any
+release. 0.4 makes the page say so; it does not change what is delivered.
+:::
 
 The **Project Settings → Notifications** page controls how a single project's events reach *you*. Every project member owns their own copy of this page: the toggles you set apply only to your account on this project, and there is no admin surface for editing another member's routing. Open it at **Project → Settings → Notifications**.
 
@@ -17,17 +26,27 @@ The page has three parts:
 
 The matrix has one row per event. These are the events a project can notify you about:
 
-| Event | Fires when |
-|-------|-----------|
-| Task assigned to me | A task is assigned to you |
-| Task I own is overdue | A task you own passes its planned date without completing |
-| Mention (@) in a comment | Someone `@`-mentions you (or a group you belong to) in a comment |
-| Task moves to another column | A task changes status / board column |
-| Budget threshold crossed | A project budget threshold is exceeded |
-| Risk created or escalated | A risk is created or its severity escalates |
-| Milestone reached | A milestone is reached |
-| Sprint started | A sprint is activated |
-| Sprint closed | A sprint is closed |
+| Event | Fires when | Delivered today |
+|-------|-----------|:---------------:|
+| Mention (@) in a comment | Someone `@`-mentions you (or a group you belong to) in a comment | **Yes** |
+| Task assigned to me | A task is assigned to you | Not yet |
+| Task I own is overdue | A task you own passes its planned date without completing | Not yet |
+| Task moves to another column | A task changes status / board column | Not yet |
+| Budget threshold crossed | A project budget threshold is exceeded | Not yet |
+| Risk created or escalated | A risk is created or its severity escalates | Not yet |
+| Milestone reached | A milestone is reached | Not yet |
+| Sprint started | A sprint is activated | Not yet |
+| Sprint closed | A sprint is closed | Not yet |
+
+**"Not yet" means exactly that: nothing dispatches these eight events, so no
+notification is sent for them on any channel, whatever their toggles say.** The
+page marks each one **not delivered yet**, and the API reports it as a server fact
+so the label can never drift from the truth. Your setting is still saved and will
+apply once the event is wired up — you do not need to come back and re-enable it.
+
+The "Fires when" column above describes what each event will mean once it is
+delivered, not something happening today. Only **Mention (@) in a comment** is
+routed by this matrix right now.
 
 ## Channels
 
@@ -44,19 +63,27 @@ A toggle in the matrix represents *your intent to be notified*. It does not impl
 
 ## The default matrix
 
-When you first open the page, the matrix is seeded with sensible defaults rather than everything-on. The defaults bias toward **on for anything you need to act on**, and **off for mobile push on lower-signal events** so the app does not wake you for routine status changes.
+When you first open the page, the matrix is seeded with defaults rather than
+everything-on. **An event defaults on only if it is actually delivered** — a
+default of "on" is a promise that something will arrive, and TruePPM will not make
+that promise for an event it does not yet dispatch.
 
 | Event | In-app | Email | Slack | Mobile push |
 |-------|:------:|:-----:|:-----:|:-----------:|
-| Task assigned to me | on | on | on | on |
-| Task I own is overdue | on | on | on | on |
 | Mention (@) in a comment | on | on | on | on |
-| Task moves to another column | on | off | off | off |
-| Budget threshold crossed | on | on | on | on |
-| Risk created or escalated | on | on | on | on |
-| Milestone reached | on | on | on | off |
-| Sprint started | on | on | on | off |
-| Sprint closed | on | on | on | off |
+| Task assigned to me | off | off | off | off |
+| Task I own is overdue | off | off | off | off |
+| Task moves to another column | off | off | off | off |
+| Budget threshold crossed | off | off | off | off |
+| Risk created or escalated | off | off | off | off |
+| Milestone reached | off | off | off | off |
+| Sprint started | off | off | off | off |
+| Sprint closed | off | off | off | off |
+
+Each of those rows returns to a sensible on/off default in the same release that
+wires up its delivery. If you have used TruePPM before 0.4, whatever you had
+stored is kept as-is — these defaults apply to a preference row the first time it
+is created, not to one you already have.
 
 Defaults are applied lazily the first time you open the page — there is no per-member backfill when you join a project. If TruePPM adds a new event type later, your saved preferences are merged with the new defaults on read, so a row that predates the new event still routes correctly.
 

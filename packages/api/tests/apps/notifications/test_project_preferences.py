@@ -14,6 +14,7 @@ from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.notifications.backfill import _clean_matrix
 from trueppm_api.apps.notifications.models import (
     PROJECT_NOTIFICATION_DEFAULT_MATRIX,
+    PROJECT_NOTIFICATION_UNDISPATCHED_EVENTS,
     ProjectNotificationChannel,
     ProjectNotificationEventType,
     ProjectNotificationPreference,
@@ -126,8 +127,13 @@ def test_get_is_per_user(
         format="json",
     )
     bob_response = bob_client.get(_url(project))
+    # Derived from the default matrix, not hard-coded: the claim here is that Bob is
+    # unaffected by Alice's write, which is true whatever the default happens to be.
     assert (
-        bob_response.json()["matrix"][ProjectNotificationEventType.TASK_ASSIGNED]["email"] is True
+        bob_response.json()["matrix"][ProjectNotificationEventType.TASK_ASSIGNED]["email"]
+        is PROJECT_NOTIFICATION_DEFAULT_MATRIX[ProjectNotificationEventType.TASK_ASSIGNED][
+            ProjectNotificationChannel.EMAIL
+        ]
     )
 
 
@@ -148,8 +154,14 @@ def test_patch_partial_matrix_merges(
     assert response.status_code == 200
     body = response.json()
     assert body["matrix"][ProjectNotificationEventType.TASK_OVERDUE]["mobile_push"] is False
-    # Sibling channel preserved
-    assert body["matrix"][ProjectNotificationEventType.TASK_OVERDUE]["email"] is True
+    # Sibling channel preserved — again derived, so a default change cannot make
+    # this fail for a reason that has nothing to do with merge semantics.
+    assert (
+        body["matrix"][ProjectNotificationEventType.TASK_OVERDUE]["email"]
+        is PROJECT_NOTIFICATION_DEFAULT_MATRIX[ProjectNotificationEventType.TASK_OVERDUE][
+            ProjectNotificationChannel.EMAIL
+        ]
+    )
     # Sibling event preserved
     assert (
         body["matrix"][ProjectNotificationEventType.TASK_ASSIGNED]["email"]
@@ -358,3 +370,55 @@ def test_deleted_project_returns_404(
     project.save()
     response = alice_client.get(_url(project))
     assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# event_delivery — which rows are actually wired (#2904)
+# ---------------------------------------------------------------------------
+
+
+def test_get_reports_which_events_are_dispatched(
+    alice_client: APIClient, project: Project, memberships: dict
+) -> None:
+    """The settings page needs a server fact, not a hard-coded client list.
+
+    Eight of the nine rows have no dispatcher; without this the page renders them
+    identically to the one that works and implies a delivery that never happens.
+    """
+    body = alice_client.get(_url(project)).json()
+
+    delivery = body["event_delivery"]
+    assert set(delivery) == set(PROJECT_NOTIFICATION_DEFAULT_MATRIX)
+    assert delivery[ProjectNotificationEventType.COMMENT_MENTION] is True
+    for event in sorted(PROJECT_NOTIFICATION_UNDISPATCHED_EVENTS):
+        assert delivery[event] is False, (
+            f"{event} is reported as delivered but nothing dispatches it"
+        )
+
+
+def test_undispatched_events_default_off_over_the_api(
+    alice_client: APIClient, project: Project, memberships: dict
+) -> None:
+    """End-to-end version of the model-level guard: a fresh row must not arrive with
+    eight events switched on across in-app, email and Slack."""
+    matrix = alice_client.get(_url(project)).json()["matrix"]
+
+    for event in sorted(PROJECT_NOTIFICATION_UNDISPATCHED_EVENTS):
+        enabled = sorted(channel for channel, on in matrix[event].items() if on)
+        assert not enabled, f"{event} arrives ON for {enabled} but nothing dispatches it"
+
+
+def test_a_stored_preference_still_round_trips_for_an_undispatched_event(
+    alice_client: APIClient, project: Project, memberships: dict
+) -> None:
+    """Defaulting OFF must not make the row read-only. The setting is kept so it
+    applies when the dispatcher lands (#3016) — the API just stops claiming it is
+    live today."""
+    event = ProjectNotificationEventType.SPRINT_START
+    response = alice_client.patch(
+        _url(project), {"matrix": {event: {"email": True}}}, format="json"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["matrix"][event]["email"] is True
+    assert response.json()["event_delivery"][event] is False
