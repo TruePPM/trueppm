@@ -25,8 +25,9 @@ import { ancestorIdsOf } from './unscheduledSelection';
 import type { GanttEngine, GanttScaleData } from './engine';
 import { dateToLeft, leftToDate, ZOOM_STEP_FACTOR } from './engine';
 import { computeInitialFraming, type RowBar } from './scheduleUtils';
-import { HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
-import { useRowHeight } from '@/hooks/useRowHeight';
+import { resolveOutlineGripReserve, HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
+import { useRowHeight, useRowMetrics } from '@/hooks/useRowHeight';
+import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useProjectResourcePool } from '@/hooks/useProjectResourcePool';
 import { useScheduleStore } from '@/stores/scheduleStore';
@@ -46,6 +47,11 @@ import { formatToggleAnnouncement } from './wbsAnnouncement';
 import { TaskListPanel, type TaskDepChips } from './TaskListPanel';
 import { CanvasScheduleTimeline } from './CanvasScheduleTimeline';
 import { timelineRowIndexAt } from './timelineRowHitTest';
+import {
+  surfaceColumnVisibility,
+  surfaceOutlineWidth,
+  surfaceToggleableColumns,
+} from './scheduleSurface';
 import { useBuildMode } from './buildMode/BuildModeContext';
 import { BuildModeRowMenu, type RowMenuItem } from './buildMode';
 import { ZoomControl } from './ZoomControl';
@@ -73,7 +79,7 @@ import { inferNearestSummaryParent } from './inferMilestoneParent';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useBaselines, useCreateBaseline } from '@/hooks/useBaselines';
 import { useSurfaceVisibility } from '@/hooks/useSurfaceVisibility';
-import { ROLE_ADMIN, ROLE_SCHEDULER, canEditTask } from '@/lib/roles';
+import { ROLE_ADMIN, ROLE_SCHEDULER, canEditTask, canEditTaskRow } from '@/lib/roles';
 import { BaselineManagerModal } from './BaselineManagerModal';
 import { TaskTrashDialog } from '@/features/project/TaskTrashDialog';
 import { CaptureBaselineConfirmDialog } from './CaptureBaselineConfirmDialog';
@@ -335,11 +341,105 @@ function canvasIsSupported(): boolean {
 interface PanelSplitterProps {
   currentTaskWidth: number;
   setWidth: (col: 'task', width: number) => void;
+  /**
+   * Upper bound on the name column, resolved ONCE by the host from the measured
+   * pane (see `useSplitPaneMaxTaskWidth`) and shared with `TaskListHeader`'s own
+   * Task handle. Two separators over one quantity must enforce and announce the
+   * same range, or the narrower one is a decorative promise and the wider one is
+   * the escape hatch.
+   */
+  maxTaskWidth: number;
 }
 
-function PanelSplitter({ currentTaskWidth, setWidth }: PanelSplitterProps) {
+/** Floor on the bar track's width — below this the timeline stops being one. */
+export const MIN_BAR_TRACK = 320;
+/** Lower bound on the name column; mirrors the store's `MIN_COL_WIDTHS.task`. */
+const MIN_TASK_WIDTH = 120;
+/** Absolute upper bound, before the container's own room narrows it further. */
+const MAX_TASK_WIDTH = 600;
+
+/**
+ * How wide the name column may get, given the room on screen (#2960).
+ *
+ * `containerWidth` is the whole split pane and `nonTaskOutlineWidth` is what the
+ * outline's other columns already take, so the difference is what is left for
+ * the name column once the bar track keeps its floor.
+ *
+ * Two floors, and the second is the one that is easy to miss. A container of 0
+ * (not yet measured, or jsdom) falls back to the absolute bound rather than
+ * collapsing the column on first paint. And **the bound never reaches backwards
+ * past the width the user already holds**: the Grid's default outline is 600px,
+ * so in a ~780px pane the computed room is *negative* — a ceiling of 120 against
+ * a current 220 would announce `valuemax < valuenow` (a WCAG 4.1.2 failure no
+ * visual check sees) and collapse the column 220 → 120 on the first ArrowLeft.
+ * An upper bound is permission to grow, never an instruction to shrink.
+ */
+export function maxTaskWidthFor(
+  containerWidth: number,
+  nonTaskOutlineWidth: number,
+  currentTaskWidth: number,
+): number {
+  if (containerWidth <= 0) return Math.max(MAX_TASK_WIDTH, currentTaskWidth);
+  const room = containerWidth - MIN_BAR_TRACK - nonTaskOutlineWidth;
+  return Math.max(MIN_TASK_WIDTH, Math.min(MAX_TASK_WIDTH, room), currentTaskWidth);
+}
+
+/**
+ * The one clamp EVERY writer of `widths.task` resolves through.
+ *
+ * Before #2960 only `PanelSplitter`'s keyboard path clamped: its pointer drag
+ * could set any width at all, and `TaskListHeader`'s own Task resize handle —
+ * a second, wider hit zone over the same persisted value — clamped to a local
+ * constant of its own. On the Grid that merely looked wrong, because the data
+ * columns still marked where the outline ended. On the Timeline everything
+ * right of the outline IS the bar track, so an unbounded drag pushes the
+ * surface off the viewport with nothing left to grab — and Task is the last
+ * column there, which puts the two hit zones side by side.
+ */
+export function clampTaskWidth(next: number, max: number): number {
+  return Math.min(Math.max(max, MIN_TASK_WIDTH), Math.max(MIN_TASK_WIDTH, next));
+}
+
+/**
+ * The split pane's width, **observed** rather than measured on demand (#2960).
+ *
+ * The clamp needs the room on screen, and the obvious way to get it —
+ * `getBoundingClientRect()` where it is needed — puts a forced synchronous
+ * layout in two places it must never be. Inside a pointer-move handler it is a
+ * write-then-read cycle at pointer rate: the previous move committed a new panel
+ * width, so reading the pane's box flushes layout for the virtualized outline
+ * and the canvas stack 60–120 times a second, on the one gesture whose entire
+ * job is to feel direct. In the JSX (`aria-valuemax`) it is a layout read during
+ * the *render phase*, on a component that re-renders whenever the engine reports
+ * a bar hover — and on the very first render the ref is still null, so the
+ * fallback constant gets announced to assistive tech as fact.
+ *
+ * A ResizeObserver answers both: the value is known before the drag starts, the
+ * drag reads no layout at all, and the announced bound tracks a window resize or
+ * a sidebar collapse without anybody asking it to. Returns 0 until measured,
+ * which `maxTaskWidthFor` reads as "not laid out yet".
+ */
+function useObservedWidth(ref: RefObject<HTMLElement | null>): number {
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    setWidth(el.getBoundingClientRect().width);
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width;
+      if (typeof w === 'number') setWidth(w);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return width;
+}
+
+function PanelSplitter({ currentTaskWidth, setWidth, maxTaskWidth }: PanelSplitterProps) {
   const startXRef = useRef<number | null>(null);
   const startWidthRef = useRef<number>(currentTaskWidth);
+  const coarsePointer = useIsCoarsePointer();
 
   function onPointerDown(e: PointerEvent<HTMLDivElement>) {
     e.preventDefault();
@@ -351,7 +451,7 @@ function PanelSplitter({ currentTaskWidth, setWidth }: PanelSplitterProps) {
   function onPointerMove(e: PointerEvent<HTMLDivElement>) {
     if (startXRef.current === null) return;
     const delta = e.clientX - startXRef.current;
-    setWidth('task', startWidthRef.current + delta);
+    setWidth('task', clampTaskWidth(startWidthRef.current + delta, maxTaskWidth));
   }
 
   function onPointerUp() {
@@ -359,19 +459,17 @@ function PanelSplitter({ currentTaskWidth, setWidth }: PanelSplitterProps) {
   }
 
   // Keyboard-operable alternative to pointer drag (WCAG 2.1.1). Arrow keys nudge
-  // by 16px, Home/End jump to the soft min/max. Lower bound matches the store's
-  // MIN_COL_WIDTHS.task clamp; the 600 upper bound is keyboard-only guidance.
-  const MIN = 120;
-  const MAX = 600;
+  // by 16px, Home/End jump to the min/max. Lower bound matches the store's
+  // MIN_COL_WIDTHS.task clamp.
   function onKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
     let next: number | null = null;
     if (e.key === 'ArrowLeft') next = currentTaskWidth - 16;
     else if (e.key === 'ArrowRight') next = currentTaskWidth + 16;
-    else if (e.key === 'Home') next = MIN;
-    else if (e.key === 'End') next = MAX;
+    else if (e.key === 'Home') next = MIN_TASK_WIDTH;
+    else if (e.key === 'End') next = maxTaskWidth;
     if (next === null) return;
     e.preventDefault();
-    setWidth('task', Math.min(MAX, Math.max(MIN, next)));
+    setWidth('task', clampTaskWidth(next, maxTaskWidth));
   }
 
   // WAI-ARIA window-splitter pattern: a `separator` exposing aria-valuenow is a
@@ -386,15 +484,28 @@ function PanelSplitter({ currentTaskWidth, setWidth }: PanelSplitterProps) {
       aria-label="Resize task list panel"
       tabIndex={0}
       aria-valuenow={Math.round(currentTaskWidth)}
-      aria-valuemin={MIN}
-      aria-valuemax={MAX}
+      aria-valuemin={MIN_TASK_WIDTH}
+      aria-valuemax={Math.round(maxTaskWidth)}
       aria-valuetext={`Task list ${Math.round(currentTaskWidth)} pixels`}
-      className="w-1 flex-shrink-0 cursor-col-resize bg-brand-primary/10 hover:bg-brand-primary/60 focus-visible:bg-brand-primary focus-visible:outline-none transition-colors z-10"
+      // `focus:`, not `focus-visible:` — this control takes focus from a pointer
+      // drag on every single use, and Firefox and desktop Safari paint no
+      // `:focus-visible` for pointer-driven focus (web rule 6.1).
+      className="relative w-1 flex-shrink-0 cursor-col-resize bg-brand-primary/10 hover:bg-brand-primary/60 focus:bg-brand-primary focus:outline-none transition-colors z-10"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onKeyDown={onKeyDown}
-    />
+    >
+      {/* Coarse-pointer hit zone (web rule 5 / WCAG 2.5.5). A 4px rule is the
+          right VISUAL weight for a pane divider and an unreachable target for a
+          finger, so the target grows and the mark does not — `-inset-x-5` puts
+          44px of grabbable width around a 4px line. Fine pointers keep the 4px
+          target: a mouse can aim at it, and a 44px invisible band there would
+          swallow clicks meant for the outline's last column or the first bar. */}
+      {coarsePointer && (
+        <span aria-hidden="true" className="absolute -inset-x-5 inset-y-0" />
+      )}
+    </div>
   );
   /* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */
 }
@@ -423,12 +534,44 @@ type DomRef = { current: HTMLDivElement | null };
 type AddDependencyMutation = ReturnType<typeof useAddDependency>;
 
 /**
- * Horizontal offset for canvas overlays: 0 in Timeline mode (or the mobile
- * full-width override) where the task-list panel is hidden, else the panel's
- * total width so overlays clear the WBS table (#1221 / #1670).
+ * Horizontal offset for canvas overlays — the width of the outline panel the
+ * canvas starts to the right of.
+ *
+ * Both desktop surfaces render the outline since #2960, so the only case that
+ * still resolves to 0 is the mobile full-width override (#1670), where
+ * `ScheduleMainArea` returns the dedicated `MobileSchedule` surface and there is
+ * no panel at all. Reading it off `isMobile` rather than off the view mode is
+ * what keeps the Timeline's legend and unscheduled gutter anchored to the real
+ * left edge of the bar track instead of to the container (#1221 shipped the
+ * `viewMode === 'timeline' → 0` rule when Timeline genuinely had no panel).
  */
-function schedulePanelWidth(effectiveViewMode: 'grid' | 'timeline', totalWidth: number): number {
-  return effectiveViewMode === 'timeline' ? 0 : totalWidth;
+export function schedulePanelWidth(outlineRendered: boolean, outlineWidth: number): number {
+  return outlineRendered ? outlineWidth : 0;
+}
+
+/**
+ * Is the outline panel on screen at all? (#2960)
+ *
+ * ONE predicate, feeding both the render guard and `schedulePanelWidth`, because
+ * the two disagreeing is invisible: the legend and the unscheduled gutter are
+ * positioned by adding `panelWidth` to their left edge, so a panel that is not
+ * rendered while the offset still reads 600 floats them into the middle of the
+ * surface with nothing looking broken.
+ *
+ * Two cases answer no. **Mobile** returns the dedicated `MobileSchedule` surface
+ * instead of the split pane (#1670), so there is no panel. And an **AGILE
+ * project with nothing scheduled** gets `MethodologyEmptyState` full-width: the
+ * card says this view is not part of the project's workflow, and a live draft
+ * row beside it would invite the author to fill in a form the card just said
+ * does not apply.
+ */
+export function scheduleOutlineRendered(
+  isMobile: boolean,
+  taskCount: number,
+  methodology: Methodology,
+): boolean {
+  if (isMobile) return false;
+  return !(taskCount === 0 && methodology === 'AGILE');
 }
 
 /**
@@ -627,7 +770,7 @@ export function ScheduleView() {
   // engine and the hit index read through the `ROW_HEIGHT` live binding — the
   // subscription is what turns a coarse/fine flip into a re-render, so the
   // scroll spacer below is resized in the same commit the engine repaints in.
-  const rowHeight = useRowHeight();
+  const { rowHeight, coarse: coarsePointer } = useRowMetrics();
   // document.title for this route is set at the router level (router.tsx
   // `handle.title`) — see RouteTitle (issue 1915, completes #1327 A4).
   const projectId = useProjectId() ?? null;
@@ -969,29 +1112,19 @@ export function ScheduleView() {
   // Display menu. (`effectiveViewMode`, not the stored `viewMode`, so mobile's
   // forced-Timeline layout paints and edits Timeline's placement.)
   const activeNamePlacement = chartPrefs.taskNamePlacementByView[effectiveViewMode];
-  const hiddenChartCount = hiddenChartCountForView(
-    chartPrefs,
-    effectiveViewMode,
-    sprintBands.length > 0,
-  );
+  const hiddenChartCount = hiddenChartCountForView(chartPrefs, sprintBands.length > 0);
 
   // Engine chart options (name placement + progress pills). Dependency-line
-  // visibility is handled by the `links` filter above, not here. The gutter is
-  // drawn only in Timeline mode (table hidden) with the "Aligned left" choice —
-  // in Grid mode the task table already carries the names.
+  // visibility is handled by the `links` filter above, not here. The canvas no
+  // longer draws a name column of its own (#2960) — the outline renders on both
+  // surfaces, so the name is always two cells to the left of the track.
   const chartOptions = useMemo(
     () => ({
       taskNamePlacement: activeNamePlacement,
       showProgressPills: chartPrefs.progressPillsVisible,
-      showNameGutter: effectiveViewMode === 'timeline' && activeNamePlacement === 'left',
       showSprintBands: chartPrefs.sprintBandsVisible,
     }),
-    [
-      activeNamePlacement,
-      chartPrefs.progressPillsVisible,
-      chartPrefs.sprintBandsVisible,
-      effectiveViewMode,
-    ],
+    [activeNamePlacement, chartPrefs.progressPillsVisible, chartPrefs.sprintBandsVisible],
   );
 
   // Tracks tasks created but not yet scheduled (null dates filtered from Gantt).
@@ -1113,6 +1246,27 @@ export function ScheduleView() {
   // when setTasks rebuilds the scale after a project switch or task edit (issue #96).
   const [scheduleScales, setScheduleScales] = useState<GanttScaleData | null>(null);
   const { widths, visible, setWidth, toggleColumn, totalWidth } = useColumnWidths();
+
+  /**
+   * The active surface's column profile (#2960).
+   *
+   * Grid and Timeline are two surfaces over ONE row model: the same
+   * `TaskListPanel`, fed the same `visibleTasks` and the same `expandedIds`.
+   * What differs is only which columns the outline draws — Timeline swaps
+   * Dur / Start / Finish / % / Owner for the bar track and keeps WBS + Task.
+   * Narrowing the user's persisted visibility here (rather than branching the
+   * render) is what makes "the timeline renders the same rows" true by
+   * construction rather than by convention: there is one `TaskListPanel`, and a
+   * surface cannot re-derive rows it is never asked to derive.
+   */
+  const surfaceVisible = useMemo(
+    () => surfaceColumnVisibility(effectiveViewMode, visible),
+    [effectiveViewMode, visible],
+  );
+  const surfaceWidth = useMemo(
+    () => surfaceOutlineWidth(effectiveViewMode, widths, visible),
+    [effectiveViewMode, widths, visible],
+  );
 
   // Ref to the split-pane container for MilestoneDeltaTooltip positioning (rule 31)
   const timelineContainerRef = useRef<HTMLDivElement>(null);
@@ -1442,6 +1596,42 @@ export function ScheduleView() {
   // presentation only, and the server remains the thing that actually refuses.
   const hasEditRights = canEditTask(currentRole);
   const readOnly = !hasEditRights || authorMode.mode === 'read';
+
+  /**
+   * May this reader author THIS row? (#2960)
+   *
+   * `hasEditRights` above is the project-level answer; the server also sends a
+   * per-task `can_edit`, and that one is settled and wins outright. The Schedule
+   * canvas's right-click menu and the outline's own row menu must resolve it the
+   * same way, or a row the outline refuses to author stays authorable over its
+   * bar — the divergence this issue exists to close. One resolver, threaded down
+   * rather than re-derived at the call site.
+   */
+  const canEditRow = useCallback(
+    (task: Task) =>
+      canEditTaskRow(task.canEdit, currentRole, roleLoading || roleError === true),
+    [currentRole, roleLoading, roleError],
+  );
+
+  /**
+   * The outline panel's real box on the active surface (#2960).
+   *
+   * `surfaceWidth` is the sum of the columns; the ⋮⋮ grip's lane is rendered
+   * *inside* the panel and subtracted from no column, so it has to be added or
+   * the row content overruns its own box by 44px on a coarse pointer. Resolved
+   * through the same helper `TaskListPanel` uses, and gated on the same
+   * "authorable at all" question its `onMoveRow` answers (line ~3375).
+   */
+  const outlineWidth =
+    surfaceWidth + resolveOutlineGripReserve(coarsePointer, !readOnly);
+
+  /** Is the outline on screen at all? One predicate — see the function. */
+  const outlineRendered = scheduleOutlineRendered(
+    isMobile,
+    visibleTasks.length,
+    effectiveMethodology,
+  );
+
   // Per-project leaf-surface visibility (ADR-0193, issue 956): the in-Schedule
   // Monte-Carlo sub-surface reads the server-resolved values. Hide-only
   // (ADR-0041) — a false value hides the chrome; the underlying data is still computed
@@ -3087,7 +3277,13 @@ export function ScheduleView() {
         aria-busy="true"
         aria-label="Loading Schedule"
       >
-        <div className="w-[280px] flex-shrink-0 border-r border-white/10 p-2 space-y-1">
+        {/* Sized from the surface's own outline width (#2960) rather than a
+            literal, so the skeleton does not jump sideways when the real panel
+            lands — the Timeline's outline is ~268px, the Grid's ~600px. */}
+        <div
+          className="flex-shrink-0 border-r border-white/10 p-2 space-y-1"
+          style={{ width: outlineWidth }}
+        >
           {Array.from({ length: 8 }).map((_, i) => (
             <div
               key={i}
@@ -3108,6 +3304,12 @@ export function ScheduleView() {
         </div>
 
         <div className="flex flex-1 overflow-hidden">
+          {/* Deliberately the full Grid column set, not the active surface's
+              profile (#2960): there is no canvas here to swap columns for, so
+              `ScheduleFallbackTable` beside it is all the schedule this reader
+              gets. Narrowing to WBS + Task because the stored view mode happens
+              to say Timeline would take away the dates and leave nothing in
+              their place. */}
           <TaskListPanel
             childCountById={childCountById}
             tasks={visibleTasks}
@@ -3127,10 +3329,8 @@ export function ScheduleView() {
   }
 
   // Horizontal anchor for canvas overlays (legend, unscheduled gutter, milestone
-  // pulse). In Timeline mode (issue 1221) — or the mobile full-width override
-  // (#1670) — the task-list panel is hidden, so the canvas starts at the
-  // container's left edge and these overlays must offset by 0.
-  const panelWidth = schedulePanelWidth(effectiveViewMode, totalWidth);
+  // pulse) — the outline panel's width, or 0 where no panel is rendered (#2960).
+  const panelWidth = schedulePanelWidth(outlineRendered, outlineWidth);
 
   const mainView = (
     <div className="flex flex-col h-full overflow-hidden">
@@ -3250,18 +3450,19 @@ export function ScheduleView() {
         allTasks={allTasks}
         projectId={projectId}
         readOnly={readOnly}
+        canEditRow={canEditRow}
+        outlineRendered={outlineRendered}
         isLoading={isLoading}
         error={error}
         setShowAddForm={setShowAddForm}
         timelineContainerRef={timelineContainerRef}
-        effectiveViewMode={effectiveViewMode}
         visibleTasks={visibleTasks}
         pendingTaskIds={pendingTaskIds}
         taskListScrollRef={taskListScrollRef}
         widths={widths}
-        visible={visible}
+        visible={surfaceVisible}
         setWidth={setWidth}
-        totalWidth={totalWidth}
+        totalWidth={outlineWidth}
         summaryIds={summaryIds}
         expandedIds={expandedIds}
         toggleExpand={toggleExpand}
@@ -4283,14 +4484,16 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
         showMilestonesOnly={showMilestonesOnly}
         setShowMilestonesOnly={setShowMilestonesOnly}
         columns={
-          effectiveViewMode === 'grid'
-            ? (['wbs', 'dur', 'start', 'finish', 'progress', 'owner'] as const).map((col) => ({
-                id: col,
-                label: COLUMN_MENU_LABELS[col],
-                checked: visible[col],
-                onChange: () => toggleColumn(col),
-              }))
-            : null
+          // Derived from the SAME predicate the outline renders through
+          // (#2960), so the menu cannot offer a column this surface does not
+          // draw — on Timeline that is `wbs` alone, and Start / Finish / Owner
+          // are absent rather than present-and-inert (web rule 302).
+          surfaceToggleableColumns(effectiveViewMode).map((col) => ({
+            id: col,
+            label: COLUMN_MENU_LABELS[col],
+            checked: visible[col],
+            onChange: () => toggleColumn(col),
+          }))
         }
         chart={{
           dependencyLinesVisible: chartPrefs.dependencyLinesVisible,
@@ -4392,11 +4595,21 @@ interface ScheduleMainAreaProps {
   allTasks: Task[];
   projectId: string | null;
   readOnly: boolean;
+  /**
+   * May this reader author a given row? (web rule 302, #2960)
+   *
+   * Distinct from `readOnly`, which is also true for an editor who chose Read
+   * mode — and per-ROW, because the server's `task.can_edit` is a settled answer
+   * that outranks the project role. Same resolver the outline's row menu uses.
+   */
+  canEditRow: (task: Task) => boolean;
+  /** Is the outline panel rendered on this surface? (#2960) — the same predicate
+   *  the canvas overlay offsets are computed from, so the two cannot disagree. */
+  outlineRendered: boolean;
   isLoading: boolean;
   error: ReturnType<typeof useScheduleTasks>['error'];
   setShowAddForm: Dispatch<SetStateAction<boolean>>;
   timelineContainerRef: RefObject<HTMLDivElement | null>;
-  effectiveViewMode: 'grid' | 'timeline';
   visibleTasks: Task[];
   pendingTaskIds: Map<string, string>;
   taskListScrollRef: RefObject<HTMLDivElement | null>;
@@ -4469,7 +4682,11 @@ interface ScheduleMainAreaProps {
  * Anything absent here is still reachable from the Grid. A short menu that works
  * beats a long one assembled from placeholder state.
  */
-function timelineRowMenuItems(buildMode: BuildModeApi, taskId: string): RowMenuItem[] {
+function timelineRowMenuItems(
+  buildMode: BuildModeApi,
+  taskId: string,
+  onMoveToRequest?: (taskId: string) => void,
+): RowMenuItem[] {
   return [
     {
       key: 'indent',
@@ -4481,6 +4698,14 @@ function timelineRowMenuItems(buildMode: BuildModeApi, taskId: string): RowMenuI
       label: 'Outdent',
       onSelect: () => buildMode.outdent(taskId),
     },
+    // The pointer drag's named twin (web rule 311(d) / 320(a)). A drag can
+    // reparent anywhere the keys cannot reach, so a surface that offers the
+    // gesture and not this is a WCAG 2.1.1 failure — and the outline's own row
+    // menu has carried it since #2954, so leaving it out here would be exactly
+    // the divergence #2960 exists to close.
+    ...(onMoveToRequest
+      ? [{ key: 'move-to', label: 'Move to…', onSelect: () => onMoveToRequest(taskId) }]
+      : []),
     {
       key: 'insert-below',
       label: 'Insert item below',
@@ -4510,17 +4735,20 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
   // DOM (#2997) — it is what makes the last row reachable. Read through the hook
   // so a pointer-class flip resizes it, not just the canvas.
   const rowHeight = useRowHeight();
-  // Timeline right-click (#2978). In Timeline mode there is NO DOM row — the
-  // canvas is full-width and the task-list panel is not rendered (#1221) — so a
-  // right-click landed on the <canvas> and produced the browser's "Save Image
-  // As…" menu. The row is resolved from the pointer's y instead.
+  // The split pane, measured once for BOTH writers of `widths.task` — the
+  // splitter and the outline header's own Task resize handle (#2960). Two
+  // controls over one persisted value must enforce and announce one range, or
+  // the narrower is a decorative promise and the wider is the escape hatch.
+  const paneWidth = useObservedWidth(props.timelineContainerRef);
+  // Right-click over the BAR TRACK (#2978). The outline's rows are real DOM on
+  // both layouts since #2960 and carry the full row menu; the track is a canvas,
+  // so a right-click there produced the browser's "Save Image As…" menu with
+  // nothing of the plan on offer. The row is resolved from the pointer's y
+  // instead (`timelineRowIndexAt`).
   //
   // Deliberately NOT by re-enabling pointer events on ScheduleAriaOverlay: that
-  // `pointerEvents: 'none'` is load-bearing (the canvas beneath needs the
-  // pointer for drag-to-reschedule and drag-to-link), and the overlay's rows sit
-  // at the BAR, so they could never cover the left-hand name gutter — which is
-  // exactly where the names render under "Aligned left", and the spot that most
-  // looks like the Grid outline.
+  // `pointerEvents: 'none'` is load-bearing — the canvas beneath needs the
+  // pointer for drag-to-reschedule and drag-to-link.
   const timelineBuildMode = useBuildMode();
   const [timelineMenu, setTimelineMenu] = useState<{
     anchor: { x: number; y: number };
@@ -4532,11 +4760,12 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
     allTasks,
     projectId,
     readOnly,
+    canEditRow,
+    outlineRendered,
     isLoading,
     error,
     setShowAddForm,
     timelineContainerRef,
-    effectiveViewMode,
     visibleTasks,
     pendingTaskIds,
     taskListScrollRef,
@@ -4588,6 +4817,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
 
   const itl = useIterationLabel(projectId ?? undefined);
   const totalCanvasWidth = scheduleScales?.totalWidth ?? 0;
+  const maxTaskWidth = maxTaskWidthFor(paneWidth, totalWidth - widths.task, widths.task);
 
   if (isMobile) {
     // Dedicated mobile-first Schedule surface (#1671, ADR-0348) — a DOM
@@ -4610,10 +4840,19 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
   return (
     <>
       <div className="relative flex flex-1 overflow-hidden" ref={timelineContainerRef}>
-        {/* Grid mode shows the WBS task-list table + resize splitter; Timeline
-            mode (issue 1221) hides both for a full-width canvas (task names render
-            inline on the bars). */}
-        {effectiveViewMode === 'grid' && (
+        {/* ONE outline, on BOTH surfaces (#2960). Grid and Timeline are two
+            surfaces over the same row model: the same `visibleTasks`, the same
+            `expandedIds`, the same markup. Timeline differs only in the column
+            profile it is handed (`surfaceColumnVisibility` — WBS + Task, with
+            Dur / Start / Finish / % / Owner swapped for the bar track), so
+            phase bands, depth guides, fold carets, the mode gutter, the ⋮⋮ grip
+            and the insert points cannot diverge between them.
+
+            The exception is an AGILE project with nothing scheduled: its empty
+            state says this view does not apply, and a live draft row beside that
+            card would invite the author to fill in a form the card just said is
+            not part of their workflow. */}
+        {outlineRendered && (
           <>
             <TaskListPanel
               tasks={visibleTasks}
@@ -4623,6 +4862,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
               visible={visible}
               setWidth={setWidth}
               totalWidth={totalWidth}
+              maxTaskWidth={maxTaskWidth}
               summaryIds={summaryIds}
               expandedIds={expandedIds}
               onToggle={toggleExpand}
@@ -4647,8 +4887,15 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
               onAppendTaskAtEnd={onAppendTaskAtEnd}
               appendAtEndReadOnly={appendAtEndReadOnly}
             />
-            {/* Panel splitter — drag to resize task list width */}
-            <PanelSplitter currentTaskWidth={widths.task} setWidth={setWidth} />
+            {/* Panel splitter — drag to resize the name column. Present on both
+                surfaces: on the Timeline it is what makes a deeply nested WBS
+                readable, since the name cell indents by `(level-1) * WBS_INDENT`
+                inside a column that is now the outline's whole width budget. */}
+            <PanelSplitter
+              currentTaskWidth={widths.task}
+              setWidth={setWidth}
+              maxTaskWidth={maxTaskWidth}
+            />
           </>
         )}
 
@@ -4686,6 +4933,12 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
             className="flex-1 min-w-0 overflow-auto relative z-0"
             onScroll={handleCanvasScroll}
             onContextMenu={(e) => {
+              // `BuildModeProvider` is mounted for every desktop user, viewers
+              // included (`buildModeActive = !isMobile`), so a non-null build
+              // mode is NOT an entitlement check. Without this a viewer got a
+              // context menu offering Indent, Duplicate and Delete over the bar
+              // track while the outline correctly offered them nothing — web
+              // rule 302: absence, not a control that refuses.
               if (!timelineBuildMode) return;
               const box = e.currentTarget.getBoundingClientRect();
               const index = timelineRowIndexAt(
@@ -4696,6 +4949,11 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
               if (index === null) return;
               const task = visibleTasks[index];
               if (!task) return;
+              // Resolved per ROW, through the same helper the outline's own row
+              // menu uses — `task.canEdit` is a settled server verdict and wins
+              // outright, so a row the outline correctly refuses to author must
+              // not be authorable over its bar either (#2960).
+              if (!canEditRow(task)) return;
               // Only now: leaving preventDefault to the miss case would suppress
               // the browser menu over the ruler and empty space too, where there
               // is nothing of ours to offer instead.
@@ -4755,7 +5013,11 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
         {timelineMenu && timelineBuildMode && (
           <BuildModeRowMenu
             anchor={timelineMenu.anchor}
-            items={timelineRowMenuItems(timelineBuildMode, timelineMenu.taskId)}
+            items={timelineRowMenuItems(
+              timelineBuildMode,
+              timelineMenu.taskId,
+              onMoveToRequest,
+            )}
             onClose={() => setTimelineMenu(null)}
           />
         )}

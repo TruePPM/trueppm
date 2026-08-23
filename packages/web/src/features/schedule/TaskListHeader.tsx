@@ -5,16 +5,34 @@ interface ResizeHandleProps {
   colKey: ColumnKey;
   setWidth: ColumnWidths['setWidth'];
   currentWidth: number;
+  /**
+   * Upper bound for this column, when the host has one (#2960).
+   *
+   * Only the Task column gets one, and only because it has a **second writer**:
+   * `ScheduleView`'s `PanelSplitter` resizes the same persisted value against
+   * the room the bar track needs. Before #2960 this handle's pointer path was
+   * unbounded and its keyboard path stopped at a local constant, so the
+   * splitter's container-aware clamp was defeated by the wider hit zone one row
+   * above it — and the two separators announced different `aria-valuemax` for
+   * one quantity, which is a WCAG 4.1.2 failure nothing visual catches.
+   */
+  maxWidth?: number;
 }
 
-// Keyboard-only upper guidance; the store clamps the lower bound to
-// MIN_COL_WIDTHS but enforces no max, so this bounds Home/End + arrow nudges.
+// Upper bound for a column with no second writer. The store clamps the lower
+// bound to MIN_COL_WIDTHS but enforces no max, so this bounds the pointer drag
+// as well as Home/End + arrow nudges.
 const MAX_COL_WIDTH = 400;
 
-function ResizeHandle({ colKey, setWidth, currentWidth }: ResizeHandleProps) {
+function ResizeHandle({ colKey, setWidth, currentWidth, maxWidth }: ResizeHandleProps) {
   const startXRef = useRef<number | null>(null);
   const startWidthRef = useRef<number>(currentWidth);
   const min = MIN_COL_WIDTHS[colKey];
+  // Never below the width already held: an upper bound is permission to grow,
+  // not an instruction to shrink, and a bound that reaches backwards would both
+  // announce `valuemax < valuenow` and collapse the column on first contact.
+  const max = Math.max(maxWidth ?? MAX_COL_WIDTH, currentWidth, min);
+  const clamp = (next: number) => Math.min(max, Math.max(min, next));
 
   function onPointerDown(e: PointerEvent<HTMLDivElement>) {
     e.preventDefault();
@@ -26,7 +44,10 @@ function ResizeHandle({ colKey, setWidth, currentWidth }: ResizeHandleProps) {
   function onPointerMove(e: PointerEvent<HTMLDivElement>) {
     if (startXRef.current === null) return;
     const delta = e.clientX - startXRef.current;
-    setWidth(colKey, startWidthRef.current + delta);
+    // Same clamp as the keyboard path below, and — for Task — the same one the
+    // panel splitter uses. A pointer path that can reach a width the keyboard
+    // refuses is the bound's escape hatch, not its implementation.
+    setWidth(colKey, clamp(startWidthRef.current + delta));
   }
 
   function onPointerUp() {
@@ -40,10 +61,10 @@ function ResizeHandle({ colKey, setWidth, currentWidth }: ResizeHandleProps) {
     if (e.key === 'ArrowLeft') next = currentWidth - 16;
     else if (e.key === 'ArrowRight') next = currentWidth + 16;
     else if (e.key === 'Home') next = min;
-    else if (e.key === 'End') next = MAX_COL_WIDTH;
+    else if (e.key === 'End') next = max;
     if (next === null) return;
     e.preventDefault();
-    setWidth(colKey, Math.min(MAX_COL_WIDTH, Math.max(min, next)));
+    setWidth(colKey, clamp(next));
   }
 
   // WAI-ARIA window-splitter: a focusable `separator` exposing aria-valuenow is
@@ -59,7 +80,7 @@ function ResizeHandle({ colKey, setWidth, currentWidth }: ResizeHandleProps) {
       tabIndex={0}
       aria-valuenow={Math.round(currentWidth)}
       aria-valuemin={min}
-      aria-valuemax={MAX_COL_WIDTH}
+      aria-valuemax={Math.round(max)}
       aria-valuetext={`${colKey} column ${Math.round(currentWidth)} pixels`}
       className="absolute right-0 top-0 bottom-0 w-3 cursor-col-resize z-10 flex items-center justify-end group focus-visible:outline-none"
       onPointerDown={onPointerDown}
@@ -90,9 +111,11 @@ interface Props {
    * the columns 44px out of step.
    */
   gripReserve: number;
+  /** Shared upper bound for the Task column — see `ResizeHandle` (#2960). */
+  maxTaskWidth?: number;
 }
 
-export function TaskListHeader({ widths, visible, setWidth, gripReserve }: Props) {
+export function TaskListHeader({ widths, visible, setWidth, gripReserve, maxTaskWidth }: Props) {
   return (
     <div
       className="flex items-center h-7 bg-neutral-surface border-b border-neutral-border
@@ -125,7 +148,12 @@ export function TaskListHeader({ widths, visible, setWidth, gripReserve }: Props
         role="columnheader"
       >
         Task
-        <ResizeHandle colKey="task" setWidth={setWidth} currentWidth={widths.task} />
+        <ResizeHandle
+          colKey="task"
+          setWidth={setWidth}
+          currentWidth={widths.task}
+          maxWidth={maxTaskWidth}
+        />
       </span>
 
       {visible.dur && (

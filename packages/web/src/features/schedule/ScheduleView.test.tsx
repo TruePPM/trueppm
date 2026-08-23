@@ -493,7 +493,7 @@ vi.mock('./CaptureBaselineConfirmDialog', () => ({ CaptureBaselineConfirmDialog:
 vi.mock('./SubtreeDeleteConfirmDialog', () => ({ SubtreeDeleteConfirmDialog: () => null }));
 
 // Import AFTER mocks so the mocked modules resolve.
-import { ScheduleView } from './ScheduleView';
+import { ScheduleView, schedulePanelWidth, scheduleOutlineRendered } from './ScheduleView';
 
 /**
  * The Schedule's transient status surface (toast / export progress).
@@ -648,6 +648,10 @@ describe('ScheduleView — empty state', () => {
     expect(screen.queryByText(/no tasks yet/i)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Go to Sprints' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Change methodology' })).toBeInTheDocument();
+    // …and no outline beside it (#2960). The card says this view does not apply
+    // to this project; a live draft row next to it would invite the author to
+    // fill in a form the card just said is not part of their workflow.
+    expect(screen.queryByTestId('task-list-panel')).toBeNull();
   });
 
   it('draws the blank canvas on a non-AGILE project (#2733)', () => {
@@ -661,6 +665,10 @@ describe('ScheduleView — empty state', () => {
     expect(
       screen.queryByText("Schedule isn't part of this project's workflow"),
     ).not.toBeInTheDocument();
+    // The counterpart to the AGILE case above: an empty NON-agile project keeps
+    // its outline, so the AGILE suppression cannot regress into "never render
+    // the panel when empty" with both tests still green (#2960).
+    expect(screen.getByTestId('task-list-panel')).toBeInTheDocument();
   });
 });
 
@@ -1141,6 +1149,65 @@ describe('ScheduleView — PanelSplitter (keyboard + pointer resize)', () => {
     // After pointer-up the drag origin is cleared — a stray move does nothing.
     fireEvent.pointerMove(sep, { clientX: 300 });
     expect(Number(sep.getAttribute('aria-valuenow'))).toBe(before + 40);
+  });
+
+  // #2960: before this the POINTER path was unbounded — only the keyboard
+  // clamped. On the Grid a runaway drag merely looked untidy beside five data
+  // columns; on the Timeline the outline is the only thing left of the bar
+  // track, so it pushes the entire surface off the viewport with nothing to
+  // grab. Both cases below fail against origin/main.
+  it('clamps a runaway pointer drag at both ends', () => {
+    window.localStorage.clear();
+    renderSchedule();
+    const sep = screen.getByRole('separator', { name: 'Resize task list panel' });
+    sep.setPointerCapture = vi.fn();
+
+    fireEvent.pointerDown(sep, { clientX: 100, pointerId: 1 });
+    fireEvent.pointerMove(sep, { clientX: 10_000 });
+    expect(Number(sep.getAttribute('aria-valuenow'))).toBe(600);
+    fireEvent.pointerMove(sep, { clientX: -10_000 });
+    expect(Number(sep.getAttribute('aria-valuenow'))).toBe(120);
+    fireEvent.pointerUp(sep);
+  });
+
+  it('announces the bound it actually enforces', () => {
+    // jsdom measures the container as 0, which `maxTaskWidthFor` reads as
+    // "not laid out yet" and answers with the absolute ceiling rather than
+    // collapsing the column — so the announced max is 600 here, and tracks the
+    // narrower bar-track floor in a real viewport.
+    window.localStorage.clear();
+    renderSchedule();
+    const sep = screen.getByRole('separator', { name: 'Resize task list panel' });
+    expect(sep).toHaveAttribute('aria-valuemax', '600');
+    expect(sep).toHaveAttribute('aria-valuemin', '120');
+  });
+});
+
+describe('the outline predicate and the overlay offset (#2960)', () => {
+  // The legend, the unscheduled gutter and the milestone pulse are positioned by
+  // adding this number to their left edge. Before #2960 it was
+  // `viewMode === 'timeline' ? 0 : …` because Timeline genuinely had no outline
+  // panel. Now ONE predicate answers "is a panel on screen at all?" and feeds
+  // both the render guard and this offset — the two disagreeing is invisible,
+  // because it parks the legend in the middle of the surface with nothing
+  // looking broken, and no e2e that measures the OUTLINE's box can see it.
+  it('offsets by the outline when one is rendered, and by nothing when none is', () => {
+    expect(schedulePanelWidth(true, 268)).toBe(268);
+    expect(schedulePanelWidth(true, 600)).toBe(600);
+    expect(schedulePanelWidth(false, 268)).toBe(0);
+  });
+
+  it('renders no outline on mobile, nor on an AGILE project with nothing scheduled', () => {
+    // Mobile returns the dedicated MobileSchedule surface (#1670) — no panel.
+    expect(scheduleOutlineRendered(true, 12, 'HYBRID')).toBe(false);
+    // An AGILE project with no schedule gets the methodology card full-width: a
+    // live draft row beside it would invite the author to fill in a form the
+    // card just said is not part of their workflow.
+    expect(scheduleOutlineRendered(false, 0, 'AGILE')).toBe(false);
+    // Everything else keeps its outline — including an EMPTY non-agile project,
+    // whose blank-canvas state is a live draft row plus the fill options (#2733).
+    expect(scheduleOutlineRendered(false, 0, 'HYBRID')).toBe(true);
+    expect(scheduleOutlineRendered(false, 12, 'AGILE')).toBe(true);
   });
 });
 

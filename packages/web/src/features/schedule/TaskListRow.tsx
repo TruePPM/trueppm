@@ -59,7 +59,7 @@ import {
   UndoIcon,
 } from '@/components/Icons';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
-import { canEditTask } from '@/lib/roles';
+import { canEditTaskRow } from '@/lib/roles';
 import {
   DepthGuides,
   PhaseBandEdge,
@@ -1768,7 +1768,7 @@ function TaskListRowInner({
   // `task.canEdit` still wins outright when the server sent it, because that is
   // a settled answer and does not depend on the role query at all.
   const roleUnsettled = roleLoading || roleError === true;
-  const canEdit = task.canEdit ?? (roleUnsettled ? true : canEditTask(currentRole));
+  const canEdit = canEditTaskRow(task.canEdit, currentRole, roleUnsettled);
 
   // #2639: confirmation gate for the progress=100 auto-status side effect
   // (REVIEW for contributors, COMPLETE for Admin+ — Option E, #381 follow-up),

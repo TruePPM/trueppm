@@ -1,9 +1,10 @@
 /**
- * Timeline right-click (#2978).
+ * Right-click over the bar track (#2978, revised #2960).
  *
- * In Timeline mode the task-list panel is not rendered at all (#1221) — the
- * canvas is full-width and task names are painted pixels. A right-click landed
- * on the `<canvas>` and produced the browser's own "Save Image As…" menu.
+ * The outline owns the left of the surface on both layouts since #2960 and its
+ * rows carry the full row menu. The bar track is still a canvas, so a
+ * right-click there produced the browser's own "Save Image As…" menu with
+ * nothing of the plan on offer.
  *
  * This class is invisible to vitest: jsdom has no layout and no hit-testing, so
  * the row-index arithmetic has unit tests and the *reachability* has this.
@@ -73,10 +74,34 @@ test.describe('Timeline right-click (#2978)', () => {
     // First row: just below the 28px ruler, half a 28px row down.
     await page.mouse.click(box.x + 200, box.y + 28 + 14, { button: 'right' });
 
-    // The app's own menu — the same portal the Grid opens.
-    await expect(page.getByRole('menu')).toBeVisible();
+    // The app's own menu — the same portal the outline row opens.
+    const menu = page.getByRole('menu');
+    await expect(menu).toBeVisible();
     await expect(page.getByRole('menuitem', { name: 'Indent' })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: 'Delete' })).toBeVisible();
+    // The pointer drag's NAMED twin (web rules 311(d)/320) — the outline's row
+    // menu has carried it since #2954, so a track menu without it would be the
+    // divergence #2960 exists to close.
+    await expect(page.getByRole('menuitem', { name: 'Move to…' })).toBeVisible();
+
+    // The panel is a control now, so it has to be reachable, and `toBeVisible`
+    // cannot say that — it is a box-and-opacity question, not a viewport one
+    // (web rule 319(a)).
+    const menuBox = await menu.boundingBox();
+    expect(menuBox).not.toBeNull();
+    expect(menuBox!.y).toBeGreaterThanOrEqual(0);
+    expect(menuBox!.x).toBeGreaterThanOrEqual(0);
+  });
+
+  test('"Move to…" opens the destination picker the outline uses', async ({ page }) => {
+    const canvas = page.getByTestId('schedule-canvas-scroll');
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error('canvas has no box');
+    await page.mouse.click(box.x + 200, box.y + 28 + 14, { button: 'right' });
+    await page.getByRole('menuitem', { name: 'Move to…' }).click();
+    // The same dialog the row menu's twin opens — one implementation of the
+    // move, reached from either place.
+    await expect(page.getByRole('dialog', { name: /Move/i })).toBeVisible();
   });
 
   test('right-clicking the ruler leaves the browser menu alone', async ({ page }) => {

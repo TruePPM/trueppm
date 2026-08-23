@@ -56,6 +56,35 @@ export function canEditTask(role: number | null | undefined): boolean {
 }
 
 /**
+ * May this reader mutate **this row**? (web rule 302, #2961, extended #2960)
+ *
+ * Three inputs, and the order matters:
+ *
+ * 1. `taskCanEdit` — the server's per-task verdict, when it sent one. It is a
+ *    *settled* answer that does not depend on the role query at all, so it wins
+ *    outright: a row the server declares uneditable must not offer a mutation
+ *    anywhere, on any surface.
+ * 2. `roleUnsettled` — the membership lookup is still in flight **or failed**
+ *    (`retry: false` makes a single blip indistinguishable from "not a member").
+ *    Assume rights: the server is the enforcement point, so a control briefly
+ *    offered to a viewer costs at worst one silent refusal, while a control
+ *    briefly withheld from an editor is visible on every load.
+ * 3. Otherwise the project role decides.
+ *
+ * It lives here rather than inline because two surfaces ask it about the same
+ * row — the outline's row menu and the Schedule canvas's right-click menu — and
+ * two copies drift into one surface hiding an action the other still offers,
+ * which is the divergence #2960 exists to close.
+ */
+export function canEditTaskRow(
+  taskCanEdit: boolean | undefined,
+  role: number | null | undefined,
+  roleUnsettled: boolean,
+): boolean {
+  return taskCanEdit ?? (roleUnsettled ? true : canEditTask(role));
+}
+
+/**
  * True iff a viewer with this project role may write risks — create, edit, and
  * import via CSV (issue 223). Member+ qualifies; Viewers do not. Mirrors the server
  * gate (IsProjectMemberWrite on the risk import action). `null`/`undefined`

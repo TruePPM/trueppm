@@ -1782,16 +1782,13 @@ describe('forced-colors (Windows High Contrast) palette (#1742)', () => {
 
 import {
   drawTaskBarLabel as drawLabel2096,
-  drawTimelineNameGutter,
   drawHoverRowBand,
   setRendererChartOptions,
-  NAME_GUTTER_WIDTH,
 } from './GanttRenderer';
 
 const DEFAULT_CHART = {
   taskNamePlacement: 'next' as const,
   showProgressPills: true,
-  showNameGutter: false,
   showSprintBands: true,
 };
 
@@ -1821,30 +1818,6 @@ describe('drawTaskBarLabel — paper halo + placement gate (#2096/#2097)', () =>
     expect(calls.filter((c) => c.name === 'fillText')).toHaveLength(0);
   });
 
-  it('suppresses the on-bar label when placement is "left" (gutter draws it instead)', () => {
-    setRendererChartOptions({ ...DEFAULT_CHART, taskNamePlacement: 'left' });
-    const { ctx, calls } = makeCtxSpy();
-    drawLabel2096(ctx, makeBarTask({ name: 'Cutover' }), 0, scales, 0, VIEWPORT_W);
-    expect(calls.filter((c) => c.name === 'fillText')).toHaveLength(0);
-  });
-});
-
-describe('drawTimelineNameGutter (#2096)', () => {
-  it('paints an opaque band, a right divider, and one name per visible row', () => {
-    const { ctx, calls } = makeCtxSpy();
-    const tasks = [
-      makeBarTask({ id: 't1', name: 'Alpha' }),
-      makeBarTask({ id: 't2', name: 'Beta' }),
-    ];
-    drawTimelineNameGutter(ctx, tasks, 0, 1, 0, 600);
-    const names = calls.filter((c) => c.name === 'fillText').map((c) => c.args[0]);
-    expect(names).toContain('Alpha');
-    expect(names).toContain('Beta');
-    // Opaque background band drawn at gutter width, and a right divider stroke.
-    const rects = calls.filter((c) => c.name === 'fillRect');
-    expect(rects.some((c) => c.args[2] === NAME_GUTTER_WIDTH)).toBe(true);
-    expect(calls.some((c) => c.name === 'stroke')).toBe(true);
-  });
 });
 
 describe('drawHoverRowBand (#2096)', () => {
@@ -2105,9 +2078,8 @@ describe('chart render options round-trip (#2097)', () => {
 
   it('getRendererChartOptions returns the last set options', () => {
     const opts = {
-      taskNamePlacement: 'left' as const,
+      taskNamePlacement: 'hidden' as const,
       showProgressPills: false,
-      showNameGutter: true,
       showSprintBands: false,
     };
     setRendererChartOptions(opts);
@@ -2135,43 +2107,85 @@ describe('chart render options round-trip (#2097)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// drawTimelineNameGutter — truncation + summary vs leaf color (#2096)
+// drawTaskBarLabel — capping and flipping (#2960)
+//
+// The Timeline's bar track no longer owns the full window width: the outline
+// renders to its left on BOTH surfaces, so a label that overflows used to be
+// clipped mid-glyph on exactly the crowded charts it was written for.
 // ---------------------------------------------------------------------------
 
-describe('drawTimelineNameGutter — truncation + row styling (#2096)', () => {
-  it('truncates an over-wide name with an ellipsis', () => {
-    const { ctx, calls } = makeCtxSpy();
-    // Width ∝ length so the binary-search truncation actually fires: a 40-char
-    // name measures 400px, well past the ~156px gutter text budget.
+describe('drawTaskBarLabel — cap and flip (#2960)', () => {
+  const capScales = buildScaleData('week', '2026-04-01', '2026-05-01');
+
+  afterEach(() => setRendererChartOptions(DEFAULT_CHART));
+
+  /** Width ∝ length, so the binary-search cap actually fires. */
+  function measureByLength(ctx: CanvasRenderingContext2D, pxPerChar: number) {
     (ctx.measureText as ReturnType<typeof vi.fn>).mockImplementation((t: string) => ({
-      width: t.length * 10,
+      width: t.length * pxPerChar,
     }));
-    const tasks = [makeBarTask({ id: 't1', name: 'A very very long task name that overflows' })];
-    drawTimelineNameGutter(ctx, tasks, 0, 0, 0, 600);
-    const drawn = calls.find((c) => c.name === 'fillText')!.args[0] as string;
+  }
+
+  it('draws the whole name when it fits to the right of the bar', () => {
+    setRendererChartOptions(DEFAULT_CHART);
+    const { ctx, calls } = makeCtxSpy();
+    measureByLength(ctx, 4);
+    drawLabel2096(ctx, makeBarTask({ name: 'Cutover' }), 0, capScales, 0, 1200);
+    expect(argsOf(calls, 'fillText')[0][0]).toBe('Cutover');
+  });
+
+  it('flips the label to the LEFT of the bar when it would overflow the viewport', () => {
+    setRendererChartOptions(DEFAULT_CHART);
+    const { ctx, calls } = makeCtxSpy();
+    measureByLength(ctx, 6);
+    const task = makeBarTask({ name: 'Regulatory sign-off window' });
+    const barLeft = dateToLeft(task.start, capScales);
+    // Viewport ends just past the bar, so there is no room on the right.
+    drawLabel2096(ctx, task, 0, capScales, 0, dateToRight(task.finish, capScales) + 12);
+    const [text, x] = argsOf(calls, 'fillText')[0] as [string, number];
+    expect(x).toBeLessThan(barLeft);
+    expect(text.length).toBeGreaterThan(0);
+  });
+
+  it('caps the flipped label with an ellipsis rather than clipping it', () => {
+    setRendererChartOptions(DEFAULT_CHART);
+    const { ctx, calls } = makeCtxSpy();
+    measureByLength(ctx, 40);
+    const task = makeBarTask({ name: 'A very long milestone-adjacent task name' });
+    drawLabel2096(ctx, task, 0, capScales, 0, dateToRight(task.finish, capScales) + 12);
+    const drawn = argsOf(calls, 'fillText')[0][0] as string;
     expect(drawn.endsWith('…')).toBe(true);
-    expect(drawn.length).toBeLessThan(tasks[0].name.length);
+    expect(drawn.length).toBeLessThan(task.name.length);
   });
 
-  it('uses primary text for summary rows and secondary for leaf rows', () => {
+  it('caps into the RIGHT field when the bar is flush left and cannot flip', () => {
+    // The arm that fires on a Timeline whose track starts at the outline's
+    // right edge: scrolled so the bar begins at x≈0, there is no left field to
+    // flip into, so the label caps into whatever the right-hand field offers
+    // rather than being dropped.
+    setRendererChartOptions(DEFAULT_CHART);
     const { ctx, calls } = makeCtxSpy();
-    const tasks = [
-      makeBarTask({ id: 's1', name: 'Phase', isSummary: true }),
-      makeBarTask({ id: 't1', name: 'Leaf', isSummary: false }),
-    ];
-    drawTimelineNameGutter(ctx, tasks, 0, 1, 0, 600);
-    const fills = calls.filter((c) => c.name === 'fillStyle').map((c) => c.args[0]);
-    expect(fills).toContain(COLOR.text); // summary row = primary ink
-    expect(fills).toContain(COLOR.textSecondary); // leaf row = secondary
+    measureByLength(ctx, 20);
+    const task = makeBarTask({ name: 'Commissioning and handover' });
+    const scrollLeft = dateToLeft(task.start, capScales);
+    const rightOfBar = dateToRight(task.finish, capScales) - scrollLeft + 4;
+    // Wide enough on the right for a few glyphs, nothing at all on the left.
+    drawLabel2096(ctx, task, 0, capScales, scrollLeft, rightOfBar + 120);
+    const [text, x] = argsOf(calls, 'fillText')[0] as [string, number];
+    expect(x).toBeCloseTo(rightOfBar, 0);
+    expect(text.endsWith('…')).toBe(true);
+    expect(text.length).toBeLessThan(task.name.length);
   });
 
-  it('skips rows with no task in the array (sparse range guard)', () => {
+  it('draws NOTHING when neither side has room — a bare ellipsis names no task', () => {
+    setRendererChartOptions(DEFAULT_CHART);
     const { ctx, calls } = makeCtxSpy();
-    // Only one task, but asked to render rows 0..2 — rows 1 and 2 are undefined.
-    const tasks = [makeBarTask({ id: 't1', name: 'Only' })];
-    drawTimelineNameGutter(ctx, tasks, 0, 2, 0, 600);
-    const names = calls.filter((c) => c.name === 'fillText').map((c) => c.args[0]);
-    expect(names).toEqual(['Only']);
+    measureByLength(ctx, 1000);
+    const task = makeBarTask({ name: 'Overflowing name' });
+    // Bar starts at x=0 (no left room) and the viewport ends at its finish.
+    const scrollLeft = dateToLeft(task.start, capScales);
+    drawLabel2096(ctx, task, 0, capScales, scrollLeft, 8);
+    expect(calls.filter((c) => c.name === 'fillText')).toHaveLength(0);
   });
 });
 
@@ -2660,17 +2674,6 @@ describe('drawTimelineHeader — auto-tier units across the zoom continuum (#245
     // Week/month units are calendar-only — no FY string appears.
     expect(drawn.some((l) => l.includes('FY'))).toBe(false);
     expect(drawn.some((l) => /^W\d+$/.test(l))).toBe(true);
-  });
-});
-
-describe('drawTimelineNameGutter — extreme truncation (#2459)', () => {
-  it('degrades to a bare ellipsis when not even one character fits', () => {
-    const { ctx, calls } = makeCtxSpy();
-    (ctx.measureText as ReturnType<typeof vi.fn>).mockImplementation((t: string) => ({
-      width: t.length * 1000,
-    }));
-    drawTimelineNameGutter(ctx, [makeBarTask({ name: 'Overflowing name' })], 0, 0, 0, 600);
-    expect(argsOf(calls, 'fillText')[0][0]).toBe('…');
   });
 });
 

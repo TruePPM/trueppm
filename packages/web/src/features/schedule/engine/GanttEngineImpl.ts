@@ -53,7 +53,6 @@ import {
   drawTimelineHeader,
   drawTaskBar,
   drawTaskBarLabel,
-  drawTimelineNameGutter,
   drawSummaryBar,
   drawMilestone,
   prepareDependencyLayout,
@@ -288,7 +287,6 @@ export class GanttEngineImpl implements GanttEngine {
   private _chartOptions: ChartRenderOptions = {
     taskNamePlacement: 'next',
     showProgressPills: true,
-    showNameGutter: false,
     showSprintBands: true,
   };
 
@@ -1250,18 +1248,6 @@ export class GanttEngineImpl implements GanttEngine {
     // Painted after bars, arrows and labels so nothing overdraws it.
     this._paintHoverLinkHandle(ctx);
 
-    // Aligned-left name gutter (#2096) — painted last so it reads as a frozen
-    // column the timeline scrolls under. Drawn in screen coords (no translate).
-    if (this._chartOptions.showNameGutter) {
-      drawTimelineNameGutter(
-        ctx,
-        this._tasks,
-        firstRow,
-        lastRow,
-        this._scrollTop,
-        this._viewportHeight,
-      );
-    }
   }
 
   /**
@@ -1365,15 +1351,6 @@ export class GanttEngineImpl implements GanttEngine {
     setRendererColorMode(this._isDark, this._forcedColors);
     setRendererChartOptions(this._chartOptions);
     if (!this._scales) return;
-    // The frozen name gutter (#2096) spans the row's left edge; a single-row
-    // repaint would draw the bar back over its gutter cell. Promote to a full
-    // repaint (cheap, and only in Timeline aligned-left mode) so the gutter is
-    // repainted on top afterward.
-    if (this._chartOptions.showNameGutter) {
-      this._fullRepaintPending = true;
-      this._requestRepaint();
-      return;
-    }
     const ctx = this._barsCtx;
     const rowTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT - this._scrollTop;
     const rowBottom = rowTop + ROW_HEIGHT;

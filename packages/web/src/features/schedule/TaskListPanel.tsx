@@ -2,6 +2,7 @@ import { useCallback, useRef, useState, useEffect, useMemo, type RefObject } fro
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { ProjectResource, Task } from '@/types';
 import { useRowMetrics } from '@/hooks/useRowHeight';
+import { resolveOutlineGripReserve } from './scheduleConstants';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { TaskListHeader } from './TaskListHeader';
@@ -49,12 +50,19 @@ export function buildSiblingIdsMap(tasks: Task[]): Map<string, string[]> {
   return map;
 }
 
-/** Ancestor summary tasks for a milestone, closest first (up to 3 levels). */
+/**
+ * Ancestor summary tasks for a milestone, closest first (up to 3 levels).
+ *
+ * Takes the WBS index rather than the task array: building it here made the
+ * whole thing O(milestones × tasks) — ~100k Map insertions on a 1000-task plan
+ * with 100 gates, rebuilt on every expand/collapse because the memo is keyed on
+ * `tasks` identity. Latent while only the Grid mounted this panel; #2960 put it
+ * on the Timeline too.
+ */
 function computeMilestoneParents(
   task: Task,
-  allTasks: Task[],
+  wbsByTask: ReadonlyMap<string, Task>,
 ): { name: string; finish?: string }[] {
-  const wbsByTask = new Map(allTasks.map((t) => [t.wbs, t]));
   const parts = task.wbs.split('.');
   const parents: { name: string; finish?: string }[] = [];
   for (let i = parts.length - 1; i >= 1; i--) {
@@ -266,6 +274,19 @@ interface Props {
   onAppendTaskAtEnd?: () => void;
   /** Read mode (#2949): the footer stays present and inert. */
   appendAtEndReadOnly?: boolean;
+  /**
+   * Upper bound on the Task column, resolved by the host from the measured split
+   * pane and shared with `ScheduleView`'s `PanelSplitter` (#2960).
+   *
+   * The header's own Task resize handle is a **second writer** of the same
+   * persisted `widths.task`, and on the Timeline — where Task is the last
+   * column — its 12px hit zone sits directly against the splitter's 4px one. Two
+   * controls over one value must enforce and announce the same range, or the
+   * narrower one is a decorative promise and the wider one is the escape hatch.
+   * Omitted by hosts with no splitter (the no-canvas fallback, the print
+   * layout), which fall back to the header's own column ceiling.
+   */
+  maxTaskWidth?: number;
 }
 
 export function TaskListPanel({
@@ -300,10 +321,11 @@ export function TaskListPanel({
   onAnnounce,
   onAppendTaskAtEnd,
   appendAtEndReadOnly = false,
+  maxTaskWidth,
 }: Props) {
   // 28px on a mouse, 44px on a coarse pointer (#2997). This is the DOM half of
   // the pitch the canvas engine paints on; both resolve from one binding.
-  const { rowHeight, gripReserve: coarseGripReserve } = useRowMetrics();
+  const { rowHeight, coarse } = useRowMetrics();
   /**
    * The ⋮⋮ grip's lane (#2997) — panel-level, never per-row.
    *
@@ -314,8 +336,13 @@ export function TaskListPanel({
    * apparatus absent, not disabled), and the header, the rows, the pending rows
    * and the draft row all reserve the *same* number — a lane that varies row to
    * row is a table whose columns do not line up.
+   *
+   * Resolved through the shared helper rather than inline (#2960) because
+   * `ScheduleView` has to add the same number to this panel's `totalWidth` and
+   * to the canvas overlay offsets — the lane is rendered *inside* the panel's
+   * fixed-width box and subtracted from no column.
    */
-  const gripReserve = onMoveRow ? coarseGripReserve : 0;
+  const gripReserve = resolveOutlineGripReserve(coarse, onMoveRow !== undefined);
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollToTaskId = useScheduleStore((s) => s.scrollToTaskId);
   const scrollToTask = useScheduleStore((s) => s.scrollToTask);
@@ -361,8 +388,10 @@ export function TaskListPanel({
 
   const milestoneParentsMap = useMemo(() => {
     const map = new Map<string, { name: string; finish?: string }[]>();
+    // One index for the whole pass — see computeMilestoneParents.
+    const wbsByTask = new Map(tasks.map((t) => [t.wbs, t]));
     for (const task of tasks) {
-      if (task.isMilestone) map.set(task.id, computeMilestoneParents(task, tasks));
+      if (task.isMilestone) map.set(task.id, computeMilestoneParents(task, wbsByTask));
     }
     return map;
   }, [tasks]);
@@ -493,6 +522,7 @@ export function TaskListPanel({
         visible={visible}
         setWidth={setWidth}
         gripReserve={gripReserve}
+        maxTaskWidth={maxTaskWidth}
       />
 
       {/* Blank project (#2733): the outline opens with a LIVE row and the caret

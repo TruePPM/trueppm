@@ -13,13 +13,14 @@ describe('useScheduleChartPrefs (#2097, per-view placement #2107)', () => {
     localStorage.clear();
   });
 
-  it('defaults to Grid hidden, Timeline aligned-left, everything else visible', () => {
+  it('defaults BOTH views to hidden names, everything else visible (#2960)', () => {
     // Neither default is a free-floating on-bar label: nothing measures those
-    // against the arrows and bars they overdraw (#2422).
+    // against the arrows and bars they overdraw (#2422). Timeline joined Grid on
+    // `hidden` once it started rendering the outline that carries the names.
     const { result } = renderHook(() => useScheduleChartPrefs());
     expect(result.current.prefs).toEqual({
       dependencyLinesVisible: true,
-      taskNamePlacementByView: { grid: 'hidden', timeline: 'left' },
+      taskNamePlacementByView: { grid: 'hidden', timeline: 'hidden' },
       progressPillsVisible: true,
       sprintBandsVisible: true,
     });
@@ -47,16 +48,32 @@ describe('useScheduleChartPrefs (#2097, per-view placement #2107)', () => {
 
   it('sets each view placement independently and persists to localStorage', () => {
     const { result } = renderHook(() => useScheduleChartPrefs());
-    act(() => result.current.setTaskNamePlacement('timeline', 'left'));
-    act(() => result.current.setTaskNamePlacement('grid', 'next'));
+    act(() => result.current.setTaskNamePlacement('timeline', 'next'));
+    act(() => result.current.setTaskNamePlacement('grid', 'hidden'));
 
     // The two views diverge — setting one does not touch the other.
     expect(result.current.prefs.taskNamePlacementByView).toEqual({
-      grid: 'next',
-      timeline: 'left',
+      grid: 'hidden',
+      timeline: 'next',
     });
     const stored = JSON.parse(localStorage.getItem(KEY) ?? '{}') as ScheduleChartPrefs;
-    expect(stored.taskNamePlacementByView).toEqual({ grid: 'next', timeline: 'left' });
+    expect(stored.taskNamePlacementByView).toEqual({ grid: 'hidden', timeline: 'next' });
+  });
+
+  it('falls a persisted `left` back to the view default (#2960 retired the gutter)', () => {
+    // `left` was the SHIPPED Timeline default, so most existing users carry it.
+    // It must land on `hidden` — the closest behavior, since the outline now
+    // renders the names in a real frozen column — never on free-floating
+    // `next` labels over their bars.
+    localStorage.setItem(
+      KEY,
+      JSON.stringify({ taskNamePlacementByView: { grid: 'next', timeline: 'left' } }),
+    );
+    const { result } = renderHook(() => useScheduleChartPrefs());
+    expect(result.current.prefs.taskNamePlacementByView).toEqual({
+      grid: 'next',
+      timeline: 'hidden',
+    });
   });
 
   it('persists the global chart toggles alongside the per-view placement', () => {
@@ -110,12 +127,12 @@ describe('useScheduleChartPrefs (#2097, per-view placement #2107)', () => {
       });
     });
 
-    it('keeps a legacy `left` scalar on Timeline, with Grid on its default', () => {
+    it('drops a legacy `left` scalar to the Timeline default (#2960 retired it)', () => {
       localStorage.setItem(KEY, JSON.stringify({ taskNamePlacement: 'left' }));
       const { result } = renderHook(() => useScheduleChartPrefs());
       expect(result.current.prefs.taskNamePlacementByView).toEqual({
         grid: 'hidden',
-        timeline: 'left',
+        timeline: 'hidden',
       });
     });
 
@@ -149,7 +166,7 @@ describe('useScheduleChartPrefs (#2097, per-view placement #2107)', () => {
     const { result } = renderHook(() => useScheduleChartPrefs());
     expect(result.current.prefs.taskNamePlacementByView).toEqual({
       grid: 'hidden',
-      timeline: 'left',
+      timeline: 'hidden',
     });
   });
 
@@ -161,7 +178,7 @@ describe('useScheduleChartPrefs (#2097, per-view placement #2107)', () => {
     const { result } = renderHook(() => useScheduleChartPrefs());
     expect(result.current.prefs.taskNamePlacementByView).toEqual({
       grid: 'hidden',
-      timeline: 'left',
+      timeline: 'hidden',
     });
   });
 });
@@ -175,41 +192,39 @@ describe('hiddenChartCountForView (#2107)', () => {
   };
 
   it('counts hidden sprint windows on the Display badge (#2738)', () => {
-    expect(hiddenChartCountForView(base, 'grid', true)).toBe(0);
-    expect(hiddenChartCountForView({ ...base, sprintBandsVisible: false }, 'grid', true)).toBe(1);
+    expect(hiddenChartCountForView(base, true)).toBe(0);
+    expect(hiddenChartCountForView({ ...base, sprintBandsVisible: false }, true)).toBe(1);
   });
 
   it('does not count a hidden sprint window on a project that has none (#2738)', () => {
     // The badge would otherwise point at the absence of a mark that could never
     // have drawn — a pure waterfall plan reading "1 hidden" for nothing.
-    expect(hiddenChartCountForView({ ...base, sprintBandsVisible: false }, 'grid', false)).toBe(0);
-    expect(hiddenChartCountForView({ ...base, sprintBandsVisible: false }, 'grid')).toBe(0);
+    expect(hiddenChartCountForView({ ...base, sprintBandsVisible: false }, false)).toBe(0);
+    expect(hiddenChartCountForView({ ...base, sprintBandsVisible: false })).toBe(0);
   });
 
-  it('does not count a hidden Grid name (the table still shows it)', () => {
-    // Grid default is `hidden` — a brand-new Grid user must show a zero badge.
-    expect(hiddenChartCountForView(base, 'grid')).toBe(0);
+  it('does not count a hidden on-bar name on EITHER surface (#2960)', () => {
+    // Before #2960 a hidden Timeline name counted 1, because the canvas was the
+    // Timeline's sole name carrier. The Timeline now renders the same outline
+    // rows the Grid does, so both defaults must show a zero badge — which is
+    // also why the function no longer takes a view at all.
+    expect(hiddenChartCountForView(base)).toBe(0);
+    expect(
+      hiddenChartCountForView({
+        ...base,
+        taskNamePlacementByView: { grid: 'hidden', timeline: 'hidden' },
+      }),
+    ).toBe(0);
+    expect(
+      hiddenChartCountForView({
+        ...base,
+        taskNamePlacementByView: { grid: 'next', timeline: 'next' },
+      }),
+    ).toBe(0);
   });
 
-  it('counts a hidden Timeline name (the canvas is the sole name carrier)', () => {
-    const prefs = {
-      ...base,
-      taskNamePlacementByView: { grid: 'hidden' as const, timeline: 'hidden' as const },
-    };
-    expect(hiddenChartCountForView(prefs, 'timeline')).toBe(1);
-  });
-
-  it('does not count a Timeline `left` placement — the name is still visible', () => {
-    const prefs = {
-      ...base,
-      taskNamePlacementByView: { grid: 'hidden' as const, timeline: 'left' as const },
-    };
-    expect(hiddenChartCountForView(prefs, 'timeline')).toBe(0);
-  });
-
-  it('counts hidden dependency lines and progress pills in either view', () => {
+  it('counts hidden dependency lines and progress pills', () => {
     const prefs = { ...base, dependencyLinesVisible: false, progressPillsVisible: false };
-    expect(hiddenChartCountForView(prefs, 'grid')).toBe(2);
-    expect(hiddenChartCountForView(prefs, 'timeline')).toBe(2);
+    expect(hiddenChartCountForView(prefs)).toBe(2);
   });
 });

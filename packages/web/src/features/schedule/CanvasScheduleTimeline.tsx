@@ -48,7 +48,6 @@ interface CanvasScheduleTimelineProps {
 const DEFAULT_CHART_OPTIONS: ChartRenderOptions = {
   taskNamePlacement: 'next',
   showProgressPills: true,
-  showNameGutter: false,
   showSprintBands: true,
 };
 

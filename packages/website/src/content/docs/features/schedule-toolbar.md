@@ -1,6 +1,7 @@
 ---
 title: Schedule Toolbar
 description: Reference for the Schedule view toolbar — filter groups, summary chip, column controls, and zoom.
+documentedFor: "0.4"
 ---
 
 The Schedule view's toolbar gives you the at-a-glance project status (rightmost summary chip), the day-to-day filtering controls (toggle groups), and the three primary authoring actions (`+ Task`, `+ Milestone`, `+ Phase`).
@@ -16,12 +17,35 @@ The Schedule view's toolbar gives you the at-a-glance project status (rightmost 
 
 ## Layout: Grid and Timeline
 
-A `Grid | Timeline` toggle controls how much of the schedule the view devotes to the table versus the bars:
+:::note[Ships in 0.4]
+On 0.3, **Timeline** hides the task list entirely and the canvas spans the full width,
+painting each task's name beside its bar — or, with **Task names → Aligned left**, into a
+gutter the canvas draws at its own left edge. The description below is the 0.4 behavior:
+the outline stays on screen in both layouts, and the **Aligned left** placement is removed
+because the outline provides that column for real.
+:::
 
-- **Grid** (default) — the WBS task-list table (WBS, Task, Dur, Start, Finish, %, Owner) sits to the left of the timeline, with a draggable splitter between them.
-- **Timeline** — the task-list table is hidden and the timeline canvas spans the full width. Each bar still carries its task name inline, so rows stay identifiable; switch back to Grid whenever you need the tabular detail. If you prefer the names lined up on the left rather than floating beside each bar, choose **Task names → Aligned left** in the Display menu's Chart section — names then render in a fixed, row-aligned gutter at the canvas edge.
+A `Grid | Timeline` toggle controls how much of the schedule the view devotes to the
+table versus the bars. **Both layouts render the same rows** — the same order, the same
+nesting, the same collapsed phases, the same fold carets, mode gutters, drag grips and
+insert points. What changes is only how many columns the outline gives you:
 
-The choice is a per-user view preference saved in your browser, so the Schedule reopens in the layout you last used.
+- **Grid** (default) — the full task-list table (WBS, Task, Dur, Start, Finish, %, Owner)
+  sits to the left of the bars, with a draggable splitter between them.
+- **Timeline** — the outline narrows to **WBS + Task**, and Duration, Start, Finish, %
+  and Owner give their width to the bar track. Nothing about the plan's shape is hidden:
+  a phase is still a phase, a collapsed phase is still collapsed, and collapsing one here
+  keeps it collapsed when you switch back.
+
+Because the outline is present in both layouts, a task's name is always in a real,
+row-aligned column two cells to the left of its bar. On-bar names are therefore optional
+in both (see **Task names** below), and a milestone's name is never repeated in the track.
+
+Drag the splitter to trade outline width for bar-track width. It stops before the bar
+track gets too narrow to read, so the timeline cannot be pushed off the edge of the window.
+
+The choice is a per-user view preference saved in your browser, so the Schedule reopens in
+the layout you last used.
 
 ## Filter groups
 
@@ -37,10 +61,10 @@ Filters are split into two clusters so they don't read as a "pick one of four" r
 
 **Chart** — control what the timeline paints (presentation, not a data filter):
 - **Dependency lines** — show or hide all dependency arrows.
-- **Task names** — place on-bar names **Next to bar**, **Aligned left** (the Timeline-mode gutter described above; offered only in Timeline), or **Hidden**. This placement is remembered **independently for Grid and Timeline** — the sub-label names the view it applies to (*Task names (Grid)* / *Task names (Timeline)*). Timeline defaults to **Next to bar** (the canvas is the only place names appear there); Grid defaults to **Hidden** (the task-list table already shows every name), so you can drop the redundant on-bar label in Grid without stripping the names off the bars in Timeline.
+- **Task names** — place on-bar names **Next to bar** or **Hidden**. This placement is remembered **independently for Grid and Timeline** — the sub-label names the view it applies to (*Task names (Grid)* / *Task names (Timeline)*) — and both default to **Hidden**, because the outline already shows every name in both layouts. Choose **Next to bar** where a name riding along with its bar as you scroll is worth the extra ink; the label caps with an ellipsis to the room it has, and flips to the left of the bar when the bar runs long. (0.3 offered a third placement, **Aligned left**, which drew a name column onto the canvas for the layout that hid the outline. 0.4 removes it, and an existing preference for it becomes **Hidden**.)
 - **Progress %** — show or hide the on-bar completion pills.
 
-Chart choices are saved per-user in your browser. Unlike the view/render filters (which are encoded in the URL so a filtered view is shareable), Chart choices are personal presentation preferences and stay local. Hiding a Chart element lights the Display trigger's badge so nothing disappears silently (a hidden **Grid** task name is the one exception — the name is still right there in the task-list table, so the badge stays quiet), and a PDF export opens matching what you see — hide the dependency lines and the export's arrow toggle starts off to match.
+Chart choices are saved per-user in your browser. Unlike the view/render filters (which are encoded in the URL so a filtered view is shareable), Chart choices are personal presentation preferences and stay local. Hiding a Chart element lights the Display trigger's badge so nothing disappears silently (a hidden on-bar task name is the one exception, on either layout — the name is still right there in the outline, so the badge stays quiet), and a PDF export opens matching what you see — hide the dependency lines and the export's arrow toggle starts off to match.
 
 ## Summary chip
 
@@ -82,7 +106,7 @@ The button is disabled with a "Read-only access" tooltip for **Viewer** role.
 
 ## Task-list columns
 
-The task list shows seven columns by default. All except Task can be hidden via the **Columns** popover.
+The task list shows seven columns by default in **Grid**. All except Task can be hidden via the **Columns** popover — which offers exactly the columns the current layout draws, so in **Timeline** (WBS + Task) it offers WBS alone rather than five checkboxes that would change nothing. A column you hide in Grid stays hidden in Timeline; switching layout never brings one back.
 
 | Column | Width | Content |
 |---|---|---|

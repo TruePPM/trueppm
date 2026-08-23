@@ -19,7 +19,6 @@ import { CALENDAR_QUARTERS, ZOOM_CONFIGS, dateToLeft, dateToRight } from './Gant
 import {
   drawRowBands,
   drawTimelineHeader,
-  drawTimelineNameGutter,
   drawDragShadow,
   drawResizeIndicator,
   drawLinkPreview,
@@ -46,7 +45,6 @@ vi.mock('./GanttRenderer', async (importOriginal) => {
     prepareDependencyLayout: vi.fn(actual.prepareDependencyLayout),
     drawTimelineHeader: vi.fn(actual.drawTimelineHeader),
     drawRowBands: vi.fn(actual.drawRowBands),
-    drawTimelineNameGutter: vi.fn(actual.drawTimelineNameGutter),
     // Interaction-layer + per-task draw fns wrapped (still call through to the
     // real impl) so the _paintInteraction / _paintTaskAt specs below can assert
     // *which* primitive a given gesture / task shape routes to, without pixels.
@@ -1598,35 +1596,6 @@ describe('GanttEngineImpl — drag-to-link gesture (#1666)', () => {
   });
 });
 
-describe('GanttEngineImpl — chart presentation toggles (#2097)', () => {
-  it('paints the frozen name gutter only when showNameGutter is enabled', () => {
-    const { engine, flushFrame } = setup();
-    engine.setTasks([makeTask('a', '2026-04-01', '2026-04-10')]);
-    flushFrame(); // default options: showNameGutter=false
-
-    const gutterSpy = vi.mocked(drawTimelineNameGutter);
-    const before = gutterSpy.mock.calls.length;
-
-    engine.setChartOptions({
-      taskNamePlacement: 'next',
-      showProgressPills: true,
-      showNameGutter: false,
-      showSprintBands: true,
-    });
-    flushFrame();
-    expect(gutterSpy.mock.calls.length).toBe(before); // still off → not drawn
-
-    engine.setChartOptions({
-      taskNamePlacement: 'next',
-      showProgressPills: true,
-      showNameGutter: true,
-      showSprintBands: true,
-    });
-    flushFrame();
-    expect(gutterSpy.mock.calls.length).toBeGreaterThan(before); // on → drawn
-  });
-});
-
 describe('GanttEngineImpl — resize observer + accessibility media queries', () => {
   it('re-lays out and re-emits scales-change when the viewport size changes', () => {
     const { engine } = setup();
@@ -1978,13 +1947,12 @@ describe('GanttEngineImpl — single-row repaint path (_dirtyRows)', () => {
     expect(internals._dirtyRows.size).toBe(0);
   });
 
-  it('promotes a dirty-row repaint to a full repaint when the name gutter is on', () => {
+  it('keeps a dirty-row repaint row-local (the name gutter that forced a full repaint is gone, #2960)', () => {
     const { engine, flushFrame, hasScheduledFrame } = setup();
     engine.setTasks([makeTask('a', '2026-04-01', '2026-04-10')]);
     engine.setChartOptions({
       taskNamePlacement: 'next',
       showProgressPills: true,
-      showNameGutter: true,
       showSprintBands: true,
     });
     flushFrame(); // full repaint from setChartOptions settles
@@ -1998,10 +1966,11 @@ describe('GanttEngineImpl — single-row repaint path (_dirtyRows)', () => {
     internals._requestRepaint();
     flushFrame();
 
-    // A row-local repaint would draw the bar over its frozen gutter cell, so
-    // _paintRow promotes to a full repaint instead — which re-arms the loop.
-    expect(internals._fullRepaintPending).toBe(true);
-    expect(hasScheduledFrame()).toBe(true);
+    // Nothing left on the bars layer spans the row's left edge, so the row can
+    // be repainted alone: the dirty set drains and no full repaint is queued.
+    expect(internals._fullRepaintPending).toBe(false);
+    expect(internals._dirtyRows.size).toBe(0);
+    expect(hasScheduledFrame()).toBe(false);
   });
 });
 
@@ -2127,7 +2096,6 @@ describe('GanttEngineImpl — sprint-window bands (#2738)', () => {
   const CHART = {
     taskNamePlacement: 'next' as const,
     showProgressPills: true,
-    showNameGutter: false,
     showSprintBands: true,
   };
 
