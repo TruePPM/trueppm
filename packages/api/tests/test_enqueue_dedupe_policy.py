@@ -63,7 +63,7 @@ POLICY: dict[str, tuple[str, str]] = {
         "Structurally the same shape as pre-fix enqueue_sprint_close, but bounded by "
         "SeedImportThrottle on the apply action, and a TemplateApplication row is adoption "
         "HISTORY that a dedupe would swallow. Whether a second concurrent apply to the same "
-        "project should 409 is an open product question — see the #2996 follow-up.",
+        "project should 409 is an open product question — see #3015.",
     ),
     "enqueue_import": (
         NO_DEDUPE,
