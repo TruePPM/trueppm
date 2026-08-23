@@ -2893,3 +2893,151 @@ describe('useProjectWebSocket — secure-origin scheme', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Overview rollups — the page whose whole job is to be current (#2912)
+// ---------------------------------------------------------------------------
+
+describe('useProjectWebSocket — Overview rollup invalidation (#2912)', () => {
+  const originalWebSocket = globalThis.WebSocket;
+  let qc: QueryClient;
+
+  // The four server-computed keys the Overview page reads. `monte-carlo-latest` is
+  // deliberately absent: it serves the cached result of the last simulation, which no
+  // broadcast event reports, so there is nothing to hook it to.
+  const OVERVIEW_KEYS = [
+    'project-overview',
+    'project-attention',
+    'project-my-tasks',
+    'cp-tasks',
+  ] as const;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockWebSocket.instances = [];
+    // @ts-expect-error — overriding WebSocket for the test environment
+    globalThis.WebSocket = MockWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok-abc', isAuthenticated: true });
+    });
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    globalThis.WebSocket = originalWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: null, isAuthenticated: false });
+    });
+  });
+
+  function dispatch(eventType: string, payload: Record<string, unknown> = { id: 'task-1' }) {
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({ event_type: eventType, payload }),
+      });
+    });
+  }
+
+  function flushDebounce() {
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+  }
+
+  function expectOverviewInvalidated(spy: ReturnType<typeof vi.spyOn>) {
+    for (const key of OVERVIEW_KEYS) {
+      expect(spy).toHaveBeenCalledWith({ queryKey: [key, 'proj-1'] });
+    }
+  }
+
+  it.each([
+    'task_created',
+    'task_deleted',
+    'task_restored',
+    'tasks_restructured',
+    'dependency_created',
+    'dependency_deleted',
+  ])('refreshes the Overview rollups on %s', (eventType) => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch(eventType);
+    flushDebounce();
+
+    expectOverviewInvalidated(invalidateSpy);
+  });
+
+  it('refreshes the Overview rollups when a CPM recompute lands', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    // The task_dates_updated delta splices moved rows into the tasks cache in place
+    // (ADR-0091) and never refetches. The aggregates are server-computed, so the
+    // splice cannot maintain them — this is the "stale critical path after a CPM run"
+    // half of #2912.
+    dispatch('task_dates_updated', { tasks: [], truncated: false });
+    flushDebounce();
+
+    expectOverviewInvalidated(invalidateSpy);
+  });
+
+  it('refreshes the Overview rollups on a collaborator task_updated', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('task_updated', { id: 'task-1', actor_id: 'someone-else', version: 2 });
+    flushDebounce();
+
+    expectOverviewInvalidated(invalidateSpy);
+  });
+
+  it('refreshes the Overview rollups on the editor own edit, unlike the tasks cache', () => {
+    // ADR-0152 suppresses the tasks refetch for a self-echo because the originating
+    // client already applied an optimistic update. No client optimistically computes a
+    // server-side rollup, so suppressing these too would leave the *editor's* own
+    // health chip and critical path stale — the same defect, one user over.
+    qc.setQueryData(['current-user'], { id: 'user-me' });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('task_updated', { id: 'task-1', actor_id: 'user-me', version: 2 });
+    flushDebounce();
+
+    expectOverviewInvalidated(invalidateSpy);
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
+
+  it('coalesces a burst into one invalidation per key', () => {
+    // The rollups are the most expensive reads on the page, and a paste-many or a CPM
+    // cascade emits dozens of events. Routing them through scheduleInvalidate rather
+    // than invalidating inline is what keeps that a single refetch.
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    for (let i = 0; i < 5; i += 1) dispatch('task_created', { id: `task-${i}` });
+    flushDebounce();
+
+    const overviewCalls = invalidateSpy.mock.calls.filter(
+      ([arg]) =>
+        Array.isArray((arg as { queryKey?: unknown[] }).queryKey) &&
+        (arg as { queryKey: unknown[] }).queryKey[0] === 'project-overview',
+    );
+    expect(overviewCalls).toHaveLength(1);
+  });
+
+  it('does not invalidate monte-carlo-latest, which no event reports', () => {
+    // Pinning the deliberate omission so it reads as a decision rather than an
+    // oversight: the endpoint serves the cached result of the last simulation, and
+    // invalidating it on a task edit would re-fetch the identical row.
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('task_created');
+    flushDebounce();
+
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['monte-carlo-latest', 'proj-1'] });
+  });
+});

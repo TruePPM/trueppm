@@ -95,8 +95,43 @@ const TASKS_INVALIDATE_DEBOUNCE_MS = 300;
 
 // Coalescable query keys — the burst-prone invalidations routed through
 // scheduleInvalidate (see the hook's effect) rather than fired immediately.
-type InvalidateKey = 'tasks' | 'dependencies' | 'board-activity' | 'standup';
+type InvalidateKey =
+  | 'tasks'
+  | 'dependencies'
+  | 'board-activity'
+  | 'standup'
+  | 'project-overview'
+  | 'project-attention'
+  | 'project-my-tasks'
+  | 'cp-tasks';
 type ScheduleInvalidateFn = (...keys: InvalidateKey[]) => void;
+
+/**
+ * The Overview page's server-computed rollups (#2912).
+ *
+ * The KPI cards, health chip, blocked-task rollup and critical-path panel were
+ * invalidated by **no** WebSocket event. With `staleTime: 60_000` and
+ * `refetchOnWindowFocus: false` (`lib/queryClient.ts`), they sat stale after a
+ * collaborator's edit or a completed CPM run until the route remounted — and a stale
+ * critical path looks exactly like a current one, so the user has no way to tell.
+ *
+ * Every member is `[key, projectId]`-shaped, which is what lets them ride the existing
+ * coalescing helper: a burst of task edits collapses into one refetch per key rather
+ * than one per event.
+ *
+ * `monte-carlo-latest` — the fifth key named in #2912 — is deliberately **not** here.
+ * It serves the cached result of the most recent simulation, which changes only when
+ * someone runs one, and no broadcast event exists for a completed run. Invalidating it
+ * on a task edit would re-fetch the identical row. Propagating a collaborator's
+ * simulation needs a server-side event that does not exist yet; that is backend work,
+ * not a missing handler.
+ */
+const OVERVIEW_KEYS = [
+  'project-overview',
+  'project-attention',
+  'project-my-tasks',
+  'cp-tasks',
+] as const satisfies readonly InvalidateKey[];
 
 // A single dispatched-event handler. `on(...)` registers these against one or
 // more event_type keys; `handleMessage` looks the handler up by event_type.
@@ -289,6 +324,12 @@ function registerPresenceAndCpmHandlers(on: OnFn, deps: WsHandlerDeps): void {
     // it splices the moved tasks in place so a collaborator's bars slide
     // instantly, with no full re-fetch. The coarse task_run_completed /
     // cpm_complete events above intentionally no longer invalidate tasks.
+    // A CPM recompute landed, so every Overview rollup derived from the dates moved
+    // with it — the finish-date KPI, the health chip, and the critical-path panel
+    // above all. Invalidated unconditionally, before the splice/refetch branch below:
+    // the aggregates are server-computed and the delta splice only maintains the
+    // client's own task rows, so neither branch refreshes them (#2912).
+    scheduleInvalidate(...OVERVIEW_KEYS);
     if (payload.truncated === true) {
       // Too many tasks moved to ship economically — fall back to a re-fetch.
       scheduleInvalidate('tasks');
@@ -357,6 +398,15 @@ function registerTaskMutationHandlers(on: OnFn, deps: WsHandlerDeps): void {
     if (!isSelfEcho && !isDuplicate) {
       scheduleInvalidate('tasks');
     }
+    // The Overview rollups refresh even on a SELF-echo, unlike the tasks cache above
+    // (#2912). The self-echo skip exists because the originating client already applied
+    // an optimistic update to its own task rows — but nobody optimistically computes a
+    // server-side aggregate, so the editor's own health chip and critical path go stale
+    // on their own edit exactly as a collaborator's does. A true duplicate/replay is
+    // still skipped: the aggregate cannot have moved twice for one version.
+    if (!isDuplicate) {
+      scheduleInvalidate(...OVERVIEW_KEYS);
+    }
     // The board activity feed is an append-only audit log, so it refetches
     // even for the originating client's own edit (you want your action to land
     // in the feed) — only a true duplicate/replay at an already-seen version is
@@ -378,7 +428,7 @@ function registerTaskMutationHandlers(on: OnFn, deps: WsHandlerDeps): void {
     }
   });
   on(['task_created', 'task_deleted', 'task_restored'], (payload) => {
-    scheduleInvalidate('tasks', 'board-activity', 'standup');
+    scheduleInvalidate('tasks', 'board-activity', 'standup', ...OVERVIEW_KEYS);
     // The drawer Activity tab merges the per-task history feed (#1867) —
     // create/delete/restore all append a history record for the affected task.
     const historyTaskId = typeof payload.id === 'string' ? payload.id : null;
@@ -406,7 +456,9 @@ function registerTaskMutationHandlers(on: OnFn, deps: WsHandlerDeps): void {
       // need the same refetch (issue 1323). Without a handler they stayed stale until
       // the next fallback poll. The follow-up cpm_complete event refreshes
       // computed dates; the edge itself becomes visible on the next coalesced flush.
-      scheduleInvalidate('dependencies', 'tasks');
+      // The critical path is defined by these edges, so the Overview's critical-path
+      // panel and finish-date KPI move with them (#2912).
+      scheduleInvalidate('dependencies', 'tasks', ...OVERVIEW_KEYS);
     },
   );
   // task_duration_changed is intentionally unregistered (no-op, issue 1323): the
@@ -477,6 +529,7 @@ function registerBulkAndBacklogHandlers(on: OnFn, deps: WsHandlerDeps): void {
   on('tasks_restructured', () => {
     scheduleInvalidate('tasks');
     scheduleInvalidate('dependencies');
+    scheduleInvalidate(...OVERVIEW_KEYS);
   });
 
   // --- Product-backlog priority_rank change (ADR-0105 auto-rank / ADR-0110 reorder) ---
