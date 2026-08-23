@@ -16,7 +16,8 @@ import { FieldHelp } from '@/components/FieldHelp';
 import { IDENTITY_VIOLET, tintedChipStyle } from '@/lib/identityColors';
 import { filterMembers } from './filterMembers';
 import { CheckIcon, CloseIcon } from '@/components/Icons';
-import { downloadCsv, escapeField } from '@/utils/exportCsv';
+import { escapeField } from '@/utils/exportCsv';
+import { useDownloadAnnouncer } from '@/hooks/useDownloadAnnouncer';
 
 const ROLE_PALETTE: Record<string, { bg: string; text: string; style?: CSSProperties }> = {
   // Admin is a distinct identity hue, not a status — the single-sourced violet
@@ -247,13 +248,14 @@ export function buildMembersCsv(members: WorkspaceMember[]): string {
   return [header, ...rows].join('\n');
 }
 
-function exportMembersCsv(members: WorkspaceMember[]): void {
-  downloadCsv(buildMembersCsv(members), 'trueppm-workspace-members.csv');
-}
+
 
 /** Workspace > Members management page. */
 export function WorkspaceMembersPage() {
   const { members, pendingInvites, isLoading } = useWorkspaceMembers();
+  // Rule 297: a download is the one action producing no in-page change, so the
+  // announcement rides with the helper rather than being a caller's obligation.
+  const { download: downloadMembersCsv, region: downloadRegion } = useDownloadAnnouncer();
   const updateMember = useUpdateWorkspaceMember();
   const removeMember = useRemoveWorkspaceMember();
   const createInvite = useCreateInvite();
@@ -383,7 +385,13 @@ export function WorkspaceMembersPage() {
               active search/role filter, so the export tracks the view. */}
             <button
               type="button"
-              onClick={() => exportMembersCsv(visibleMembers)}
+              onClick={() =>
+                downloadMembersCsv(
+                  buildMembersCsv(visibleMembers),
+                  'trueppm-workspace-members.csv',
+                  `${visibleMembers.length} members downloaded as CSV.`,
+                )
+              }
               disabled={visibleMembers.length === 0}
               title={
                 visibleMembers.length === 0
@@ -394,6 +402,7 @@ export function WorkspaceMembersPage() {
             >
               Export CSV
             </button>
+            {downloadRegion}
           </div>
         }
       />

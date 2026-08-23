@@ -1,6 +1,7 @@
 import { type RefObject } from 'react';
 import type { Risk } from '@/api/types';
 import { exportRisksToCSV } from '../riskExport';
+import { useDownloadAnnouncer } from '@/hooks/useDownloadAnnouncer';
 import type { SeveritySort } from '../riskFilters';
 
 /**
@@ -123,8 +124,13 @@ export function RiskRegisterHeader({
   onCloseOverflow,
   overflowRef,
 }: RiskRegisterHeaderProps) {
+  // Rule 297. Both export buttons below (toolbar + overflow menu) hand off to
+  // exportRisksToCSV, which owns its own local-day filename — so this announces
+  // beside the helper rather than wrapping it (#2943).
+  const { announce: announceDownload, region: downloadRegion } = useDownloadAnnouncer();
   return (
     <>
+      {downloadRegion}
       {/* ── Page header ──────────────────────────────────────────────────── */}
       <header className="flex items-start justify-between gap-4 px-6 pt-5 pb-4 shrink-0">
         {/* Breadcrumb + heading */}
@@ -244,7 +250,10 @@ export function RiskRegisterHeader({
           {risks.length > 0 && (
             <button
               type="button"
-              onClick={() => exportRisksToCSV(displayRisks, projectSlug)}
+              onClick={() => {
+              exportRisksToCSV(displayRisks, projectSlug);
+              announceDownload(`${displayRisks.length} risks downloaded as CSV.`);
+            }}
               className="inline-flex items-center gap-1 h-8 px-3 rounded-control text-xs font-medium
                 border border-neutral-border text-neutral-text-secondary bg-neutral-surface
                 hover:text-neutral-text-primary hover:bg-neutral-surface-raised
@@ -334,8 +343,13 @@ function RiskOverflowMenu({
   onOpenImport,
   overflowRef,
 }: RiskOverflowMenuProps) {
+  // Rule 297, again — this menu is the second export button in the file, and "a
+  // second download button added to the same file without one" is the exact case the
+  // rule was written down for. Its own component, so its own region (#2943).
+  const { announce: announceDownload, region: downloadRegion } = useDownloadAnnouncer();
   return (
     <>
+      {downloadRegion}
       {/* Mobile overflow menu (< md) — exposes Import (issue 223, Member+) and
             Export CSV (ADR-0043) and other low-frequency actions. Rendered when
             either action is available so import is reachable on an empty register. */}
@@ -383,6 +397,7 @@ function RiskOverflowMenu({
                   role="menuitem"
                   onClick={() => {
                     exportRisksToCSV(displayRisks, projectSlug);
+                    announceDownload(`${displayRisks.length} risks downloaded as CSV.`);
                     onCloseOverflow();
                   }}
                   className="w-full text-left px-3 py-2 text-sm text-neutral-text-primary
