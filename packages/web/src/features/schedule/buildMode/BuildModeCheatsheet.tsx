@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { modifierKeyLabel, altKeyLabel } from '@/lib/platform';
 import { createPortal } from 'react-dom';
 import { CloseIcon } from '@/components/Icons';
 
@@ -18,13 +19,20 @@ interface ShortcutSection {
 // ratchet shares the # character with the token grammar.
 const DURATION_EXAMPLE = `${'#'}5d`;
 
+// Resolved once at module load: the labels are platform facts, not state, and
+// the cheatsheet is remounted per open. `⌘`/`⌥` printed to a Linux reader names
+// keys their keyboard does not have (#3028).
+const MOD = modifierKeyLabel();
+const ALT = altKeyLabel();
+const SHIFT = 'Shift';
+
 const SECTIONS: ShortcutSection[] = [
   {
     title: 'Selecting rows',
     entries: [
       { keys: ['↑', '↓'], label: 'Move row focus' },
       { keys: ['Shift', '↑', '↓'], label: 'Extend selection' },
-      { keys: ['⌘', 'A'], label: 'Select siblings, then the whole tree' },
+      { keys: [MOD, 'A'], label: 'Select siblings, then the whole tree' },
       { keys: ['Shift', 'Click'], label: 'Extend the selection to the row you click' },
       { keys: ['F8'], label: 'Jump to next unresolved @owner or missing duration' },
       { keys: ['Shift', 'F8'], label: 'Jump to previous unresolved @owner or missing duration' },
@@ -50,18 +58,18 @@ const SECTIONS: ShortcutSection[] = [
     entries: [
       { keys: ['⏎'], label: 'New row below, same level' },
       { keys: ['Shift', '⏎'], label: 'New row above, same level' },
-      { keys: ['⌘', '⏎'], label: 'New child row (one level deeper)' },
+      { keys: [MOD, '⏎'], label: 'New child row (one level deeper)' },
       {
-        keys: ['⌘', 'V'],
+        keys: [MOD, 'V'],
         label: 'Paste spreadsheet rows — hierarchy read from leading indentation',
       },
-      { keys: ['⌘', 'Z'], label: 'Undo the last paste, while its receipt is showing' },
+      { keys: [MOD, 'Z'], label: 'Undo the last paste, while its receipt is showing' },
       // Scoped deliberately (#2974): ⌘Z reverses the six structural gestures the
       // server records, and duplicate / convert-to-milestone are NOT among them.
       // Advertising a bare "Undo" here would promise a reversal this tree cannot
       // perform, which is the exact defect the issue was filed for.
       {
-        keys: ['⌘', 'Z'],
+        keys: [MOD, 'Z'],
         label: 'Undo the last move, indent, outdent, reorder or grouping',
       },
     ],
@@ -69,20 +77,20 @@ const SECTIONS: ShortcutSection[] = [
   {
     title: 'Structuring (the WBS tree)',
     entries: [
-      { keys: ['⌥', '→'], label: 'Indent under previous row' },
-      { keys: ['⌥', '←'], label: 'Outdent one level' },
-      { keys: ['⌥', '↑'], label: 'Move row (and its subtree) up' },
-      { keys: ['⌥', '↓'], label: 'Move row (and its subtree) down' },
+      { keys: [ALT, '→'], label: 'Indent under previous row' },
+      { keys: [ALT, '←'], label: 'Outdent one level' },
+      { keys: [ALT, '↑'], label: 'Move row (and its subtree) up' },
+      { keys: [ALT, '↓'], label: 'Move row (and its subtree) down' },
       // The three structure acts (#2955). Listed here rather than under "Creating
       // rows" because all three change what CONTAINS what, which is what this
       // section is: ⇥ and ⌥→ make a phase from the top down, these make one around
       // work that already exists.
-      { keys: ['⌥', '⌘', 'G'], label: 'Group the selected rows into a phase — name it last' },
+      { keys: [ALT, MOD, 'G'], label: 'Group the selected rows into a phase — name it last' },
       {
-        keys: ['⌥', '⇧', '⌘', 'G'],
+        keys: [ALT, SHIFT, MOD, 'G'],
         label: 'Ungroup this phase — its rows come up one level, keeping links and owners',
       },
-      { keys: ['⌥', '⌘', 'P'], label: 'New phase, with its first task already in it' },
+      { keys: [ALT, MOD, 'P'], label: 'New phase, with its first task already in it' },
       { keys: ['Right-click'], label: 'Open row menu' },
     ],
   },
@@ -90,15 +98,15 @@ const SECTIONS: ShortcutSection[] = [
     title: 'Quick actions',
     entries: [
       { keys: ['Space'], label: 'Mark complete / un-complete focused row' },
-      { keys: ['⌘', 'D'], label: 'Duplicate row and its subtree' },
+      { keys: [MOD, 'D'], label: 'Duplicate row and its subtree' },
       { keys: ['⌫'], label: 'Delete row (no selection: focused row; with a selection: every selected row)' },
-      { keys: ['⌥', 'A'], label: 'Toggle Author / Read mode' },
+      { keys: [ALT, 'A'], label: 'Toggle Author / Read mode' },
       {
-        keys: ['⌘', '⇧', 'M'],
+        keys: [MOD, SHIFT, 'M'],
         label: 'Classify this subtree — governance and delivery mode, with a preview',
       },
       {
-        keys: ['⌘', '⇧', 'K'],
+        keys: [MOD, SHIFT, 'K'],
         label: 'Edit every selected row — owner, classification, dates',
       },
     ],
@@ -123,7 +131,7 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ['↑', '↓'], label: 'Choose a suggestion' },
       { keys: ['Tab'], label: 'Accept the highlighted suggestion' },
       { keys: ['Esc'], label: 'Dismiss the picker, leaving your text untouched' },
-      { keys: ['⌥', '→'], label: 'Cycle dependency type FS → SS → FF → SF' },
+      { keys: [ALT, '→'], label: 'Cycle dependency type FS → SS → FF → SF' },
     ],
   },
   {

@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
+import { formatChord } from '@/lib/platform';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/Button';
 import { CloseIcon } from '@/components/Icons';
@@ -141,7 +142,7 @@ export function BulkEditSheet({
               summaryCount={preflight.summaryCount}
             />
 
-            <Group title="Classification" note="⌘⇧M for a whole subtree">
+            <Group title="Classification" note={`${formatChord('mod+shift+m')} for a whole subtree`}>
               <RadioRow
                 name="bulk_governance_class"
                 label="Governed by"

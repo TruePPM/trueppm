@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/coverage';
+import { formatChord } from '../src/lib/platform';
 import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
@@ -320,11 +321,15 @@ test.describe('CSV/Excel import wizard (#746)', () => {
     await dialog.getByRole('button', { name: /Import 12 tasks/ }).click();
 
     await expect(dialog.getByText(/Imported 11 tasks/)).toBeVisible();
-    await dialog.getByRole('button', { name: 'Undo import (⌘Z)' }).click();
+    // Name resolved through the formatter (#3028) — the button is spelled for the
+    // reader's platform, and Playwright runs the non-Mac branch.
+    await dialog.getByRole('button', { name: `Undo import (${formatChord('mod+z')})` }).click();
 
     await expect(dialog.getByText('Import undone — the rows it created were removed.')).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'View schedule' })).toHaveCount(0);
-    await expect(dialog.getByRole('button', { name: 'Undo import (⌘Z)' })).toHaveCount(0);
+    await expect(
+      dialog.getByRole('button', { name: `Undo import (${formatChord('mod+z')})` }),
+    ).toHaveCount(0);
   });
 
   test('unresolvable rows are parked in a review branch, not dropped (#2732)', async ({ page }) => {

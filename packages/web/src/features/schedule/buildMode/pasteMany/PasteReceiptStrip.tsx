@@ -1,4 +1,5 @@
 import type { PasteSummary } from './buildPasteOperations';
+import { formatChord } from '@/lib/platform';
 
 const FIELD_LABEL: Record<string, string> = { name: 'name', duration: 'duration', owner: 'owner' };
 
@@ -79,7 +80,7 @@ export function PasteReceiptStrip({
           underline underline-offset-2 hover:no-underline disabled:opacity-50
           focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
-        {isUndoing ? 'Undoing…' : 'Undo (⌘Z)'}
+        {isUndoing ? 'Undoing…' : `Undo (${formatChord('mod+z')})`}
       </button>
       <button
         type="button"

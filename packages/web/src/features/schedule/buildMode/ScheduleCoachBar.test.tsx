@@ -1,4 +1,5 @@
 import { render, screen, cleanup } from '@testing-library/react';
+import { formatChord } from '@/lib/platform';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { ScheduleCoachBar } from './ScheduleCoachBar';
@@ -15,7 +16,7 @@ describe('ScheduleCoachBar', () => {
     // reproduces the WCAG 2.1.2 keyboard trap fixed in #2192/#2727. The
     // liveness property is gated in scheduleTeachingChords.test.tsx; this pins
     // the specific string a reader sees.
-    expect(screen.getByText('⌥→')).toBeInTheDocument();
+    expect(screen.getByText(formatChord('alt+ArrowRight'))).toBeInTheDocument();
     expect(screen.getByText('the one above becomes a phase')).toBeInTheDocument();
     expect(screen.getByText('wrap them in a phase')).toBeInTheDocument();
   });

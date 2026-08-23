@@ -1,3 +1,5 @@
+import { formatChord } from '@/lib/platform';
+
 export interface ScheduleAddPhaseButtonProps {
   onAddPhase: () => void;
   /** True when the user has read-only access — button renders disabled. */
@@ -38,7 +40,7 @@ export function ScheduleAddPhaseButton({
       onClick={onAddPhase}
       disabled={isDisabled}
       aria-label="Add new phase (Option+Cmd+P)"
-      title={disabled ? 'Read-only access' : 'Add new phase, with its first task (⌥⌘P)'}
+      title={disabled ? 'Read-only access' : `Add new phase, with its first task (${formatChord('mod+alt+p')})`}
       data-testid="add-phase-button"
       className={[
         // shrink-0 + whitespace-nowrap keep the button a fixed size in the

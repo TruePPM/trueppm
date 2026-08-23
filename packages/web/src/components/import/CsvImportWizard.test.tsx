@@ -1,4 +1,5 @@
 import { fireEvent, screen } from '@testing-library/react';
+import { formatChord } from '@/lib/platform';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderWithProvidersAndRouter } from '@/test/utils';
@@ -672,7 +673,7 @@ describe('CsvImportWizard (#746)', () => {
       );
       await advanceToResult(user, container, { tasks_created: 12, row_errors: [], warnings: [] });
 
-      expect(screen.getByRole('button', { name: 'Undo import (⌘Z)' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: `Undo import (${formatChord('mod+z')})` })).toBeInTheDocument();
     });
 
     it('calls the undo hook with the import id and shows the outcome', async () => {
@@ -687,7 +688,7 @@ describe('CsvImportWizard (#746)', () => {
       );
       await advanceToResult(user, container, { tasks_created: 12, row_errors: [], warnings: [] });
 
-      await user.click(screen.getByRole('button', { name: 'Undo import (⌘Z)' }));
+      await user.click(screen.getByRole('button', { name: `Undo import (${formatChord('mod+z')})` }));
 
       expect(h.undo.mutate).toHaveBeenCalledWith('imp-1', expect.anything());
       expect(
@@ -706,10 +707,10 @@ describe('CsvImportWizard (#746)', () => {
         <CsvImportWizard projectId="p1" onClose={vi.fn()} />,
       );
       await advanceToResult(user, container, { tasks_created: 12, row_errors: [], warnings: [] });
-      await user.click(screen.getByRole('button', { name: 'Undo import (⌘Z)' }));
+      await user.click(screen.getByRole('button', { name: `Undo import (${formatChord('mod+z')})` }));
 
       expect(screen.queryByRole('button', { name: 'View schedule' })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Undo import (⌘Z)' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: `Undo import (${formatChord('mod+z')})` })).not.toBeInTheDocument();
     });
 
     it('offers no Undo on a failed import — there is nothing to reverse', async () => {
@@ -719,7 +720,7 @@ describe('CsvImportWizard (#746)', () => {
       );
       await advanceToResult(user, container, { error: 'Bad file' }, 'dead');
 
-      expect(screen.queryByRole('button', { name: 'Undo import (⌘Z)' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: `Undo import (${formatChord('mod+z')})` })).not.toBeInTheDocument();
     });
 
     // #2892: the label has advertised "(⌘Z)" since #2756 and nothing listened

@@ -28,6 +28,7 @@
  * a renderer or a server.
  */
 import type { GroupTasksResponse, LeftAloneEntry, UngroupTasksResponse } from '@/hooks/useTaskGrouping';
+import { formatChord } from '@/lib/platform';
 
 /** `n item` / `n items`, since every sentence below needs it. */
 function items(n: number): string {
@@ -144,7 +145,7 @@ export function describeGroupOutcome(response: GroupTasksResponse): GroupingOutc
   return {
     headline: `${items(n)} ${n === 1 ? 'is' : 'are'} now a phase.`,
     detail:
-      'Name it — its dates, status and estimate roll up from the work inside, so there is nothing else to fill in. ⌘Z undoes the whole group.',
+      `Name it — its dates, status and estimate roll up from the work inside, so there is nothing else to fill in. ${formatChord('mod+z')} undoes the whole group.`,
     leftAlone: describeLeftAlone(response.left_alone),
     warning: describeGroupWarning(response.warning),
   };
@@ -174,8 +175,8 @@ export function describeUngroupOutcome(
     headline: `${name} is no longer a phase.`,
     detail:
       n === 0
-        ? `It was empty, so nothing moved.${links} ⌘Z puts it back.`
-        : `Its ${items(n)} moved up one level, keeping their links, owners and estimates.${links} ⌘Z puts the phase back.`,
+        ? `It was empty, so nothing moved.${links} ${formatChord('mod+z')} puts it back.`
+        : `Its ${items(n)} moved up one level, keeping their links, owners and estimates.${links} ${formatChord('mod+z')} puts the phase back.`,
     leftAlone: null,
     warning: describeUngroupWarning(response.warning),
   };
@@ -238,7 +239,7 @@ export function deriveGroupTarget(
 export function describeGroupTarget(target: GroupTarget): string | null {
   if (target.blocked !== null) return null;
   const n = target.taskIds.length;
-  return `⌥⌘G wraps ${rows(n)} in a new phase. A row already inside another selected row stays where it is.`;
+  return `${formatChord('mod+alt+g')} wraps ${rows(n)} in a new phase. A row already inside another selected row stays where it is.`;
 }
 
 /**
@@ -267,7 +268,7 @@ export function deriveUngroupTarget(
 export function describeUngroupTarget(target: UngroupTarget): string | null {
   if (target.blocked !== null) return null;
   const name = target.containerName.trim() || 'Untitled';
-  return `⌥⇧⌘G dissolves ${name}, lifting its rows one level. Their links, owners and estimates stay.`;
+  return `${formatChord('mod+shift+alt+g')} dissolves ${name}, lifting its rows one level. Their links, owners and estimates stay.`;
 }
 
 /**
@@ -288,7 +289,7 @@ export function describeUngroupRefusal(target: UngroupTarget): string {
   }
   if (target.blocked === 'not-a-phase') {
     const name = target.containerName.trim() || 'That row';
-    return `${name} is not a phase, so there is nothing to dissolve. Use ⌥← to outdent a single row.`;
+    return `${name} is not a phase, so there is nothing to dissolve. Use ${formatChord('alt+ArrowLeft')} to outdent a single row.`;
   }
   return '';
 }

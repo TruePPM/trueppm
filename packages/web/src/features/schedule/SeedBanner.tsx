@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { formatChord } from '@/lib/platform';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/Button';
 import { toast } from '@/components/Toast/toast';
@@ -214,7 +215,7 @@ export function SeedBanner({
             onClick={handleUndo}
             disabled={undoMutation.isPending}
           >
-            Undo apply <span className="text-neutral-text-secondary">⌘Z</span>
+            Undo apply <span className="text-neutral-text-secondary">{formatChord('mod+z')}</span>
           </Button>
         </div>
       )}
