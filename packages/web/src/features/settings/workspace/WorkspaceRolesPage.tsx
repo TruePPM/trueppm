@@ -3,7 +3,8 @@ import { SettingsPageTitle } from '../SettingsShell';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { docsUrl } from '@/lib/docsUrl';
 import { IDENTITY_VIOLET, tintedChipStyle } from '@/lib/identityColors';
-import { downloadCsv, escapeField } from '@/utils/exportCsv';
+import { escapeField } from '@/utils/exportCsv';
+import { useDownloadAnnouncer } from '@/hooks/useDownloadAnnouncer';
 
 const ROLES = ['Viewer', 'Member', 'Scheduler', 'Admin', 'Owner'] as const;
 type Role = (typeof ROLES)[number];
@@ -163,9 +164,7 @@ export function buildRolesMatrixCsv(): string {
   return [header, ...rows].join('\n');
 }
 
-function exportRolesMatrixCsv(): void {
-  downloadCsv(buildRolesMatrixCsv(), 'trueppm-roles-matrix.csv');
-}
+
 
 /** Workspace > Roles & permissions RBAC matrix. */
 export function WorkspaceRolesPage() {
@@ -176,6 +175,9 @@ export function WorkspaceRolesPage() {
   // never lands. The Enterprise boundary is surfaced instead: the custom-roles
   // affordance below and the per-capability EE badges (web-rule 121). EnterpriseBadge
   // self-gates on edition — it renders only under community, so no edition check here.
+  //
+  // Rule 297: the export below produces no in-page change, so it announces (#2943).
+  const { download: downloadMatrixCsv, region: downloadRegion } = useDownloadAnnouncer();
   return (
     <div>
       <SettingsPageTitle
@@ -185,11 +187,18 @@ export function WorkspaceRolesPage() {
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={exportRolesMatrixCsv}
+              onClick={() =>
+                downloadMatrixCsv(
+                  buildRolesMatrixCsv(),
+                  'trueppm-roles-matrix.csv',
+                  'Roles matrix downloaded as CSV.',
+                )
+              }
               className="px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             >
               Export matrix
             </button>
+            {downloadRegion}
           </div>
         }
       />
