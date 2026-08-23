@@ -9,6 +9,14 @@ export interface UseShellStatsResult {
   error: Error | null;
 }
 
+/**
+ * The `GET /projects/{id}/status-summary/` body.
+ *
+ * `last_saved` and `recalculated_at` are real server values (#2903) but are not
+ * mapped onto `ShellStats`: nothing in the shell renders them. They stay declared
+ * here so the interface still describes the endpoint rather than only the subset
+ * this hook happens to read.
+ */
 interface StatusSummaryResponse {
   task_count: number;
   monte_carlo_p80: string | null;
@@ -33,8 +41,6 @@ function toShellStats(r: StatusSummaryResponse): ShellStats {
     atRiskTasks: r.at_risk_tasks,
     criticalTasks: r.critical_tasks,
     onlineUsers: 0,
-    lastSaved: r.last_saved,
-    recalculatedAt: r.recalculated_at,
   };
 }
 

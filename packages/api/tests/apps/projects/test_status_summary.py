@@ -1,4 +1,9 @@
-"""Tests for GET /api/v1/projects/<pk>/status-summary/ (issue #205)."""
+"""Tests for GET /api/v1/projects/<pk>/status-summary/ (issue #205).
+
+The recency/forecast half of this suite guards #2903: ``monte_carlo_p80``,
+``last_saved`` and ``recalculated_at`` were returned as unconditional nulls behind a
+comment whose stated reason was wrong, while all three underlying values existed.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +15,7 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project, Task, TaskStatus
+from trueppm_api.apps.scheduling.models import MonteCarloRun
 
 User = get_user_model()
 
@@ -137,22 +143,116 @@ class TestStatusSummary:
         assert "1" in wbs_list
         assert "4" not in wbs_list
 
-    def test_p80_is_null_until_mc_store(
+    # -----------------------------------------------------------------------
+    # #2903 — the three fields that were hard-coded to null
+    #
+    # A hard null is worse than a missing key for an API or MCP consumer: it is
+    # indistinguishable from "no data yet", so automation keyed on that distinction
+    # was silently wrong for every project that HAD run a forecast. Each field below
+    # is asserted twice — once for the real value, once for the null that now means
+    # something.
+    # -----------------------------------------------------------------------
+
+    def test_p80_is_the_latest_monte_carlo_runs_p80(
         self, client: APIClient, project: Project, tasks: list[Task]
     ) -> None:
+        MonteCarloRun.objects.create(
+            project=project, p80=datetime.date(2026, 10, 1), n_simulations=500
+        )
+        newest = MonteCarloRun.objects.create(
+            project=project, p80=datetime.date(2026, 11, 3), n_simulations=500
+        )
+
         resp = client.get(f"/api/v1/projects/{project.pk}/status-summary/")
+
+        assert resp.json()["monte_carlo_p80"] == "2026-11-03"
+        assert newest.p80 == datetime.date(2026, 11, 3)
+
+    def test_p80_is_null_only_when_no_run_exists(
+        self, client: APIClient, project: Project, tasks: list[Task]
+    ) -> None:
+        """Null now carries a fact — "no forecast" — rather than "not implemented"."""
+        resp = client.get(f"/api/v1/projects/{project.pk}/status-summary/")
+
         assert resp.json()["monte_carlo_p80"] is None
 
-    def test_timestamps_are_null(
+    def test_p80_ignores_another_projects_run(
+        self, client: APIClient, project: Project, calendar: Calendar, tasks: list[Task]
+    ) -> None:
+        other = Project.objects.create(
+            name="Other", start_date=datetime.date(2026, 1, 1), calendar=calendar
+        )
+        MonteCarloRun.objects.create(
+            project=other, p80=datetime.date(2026, 12, 25), n_simulations=500
+        )
+
+        resp = client.get(f"/api/v1/projects/{project.pk}/status-summary/")
+
+        assert resp.json()["monte_carlo_p80"] is None
+
+    def test_recalculated_at_is_the_projects_last_cpm_pass(
         self, client: APIClient, project: Project, tasks: list[Task]
     ) -> None:
-        # Task model uses server_version, not auto_now timestamps; the response
-        # surfaces null for both fields. The redesigned StatusBar (#201) does
-        # not display them.
+        """The stale comment blamed the *Task* model; ``recalculated_at`` is on Project
+        and has been written on every CPM pass since ADR-0114."""
+        stamp = datetime.datetime(2026, 4, 27, 9, 30, tzinfo=datetime.UTC)
+        Project.objects.filter(pk=project.pk).update(recalculated_at=stamp)
+
         resp = client.get(f"/api/v1/projects/{project.pk}/status-summary/")
-        data = resp.json()
-        assert data["last_saved"] is None
-        assert data["recalculated_at"] is None
+
+        assert resp.json()["recalculated_at"] == "2026-04-27T09:30:00Z"
+
+    def test_recalculated_at_is_null_before_the_first_pass(
+        self, client: APIClient, project: Project, tasks: list[Task]
+    ) -> None:
+        assert project.recalculated_at is None
+
+        resp = client.get(f"/api/v1/projects/{project.pk}/status-summary/")
+
+        assert resp.json()["recalculated_at"] is None
+
+    def test_last_saved_is_the_newest_human_edit_across_live_tasks(
+        self, client: APIClient, project: Project, tasks: list[Task]
+    ) -> None:
+        # Every fixture row is stamped first: Task.save() treats a write as human
+        # unless it opts out (ADR-0786 §4), so creating the fixture already set
+        # edited_at on all four, and a partial override would leave `now` as the max.
+        Task.objects.filter(project=project).update(
+            edited_at=datetime.datetime(2026, 5, 1, 14, 0, tzinfo=datetime.UTC)
+        )
+        Task.objects.filter(pk=tasks[0].pk).update(
+            edited_at=datetime.datetime(2026, 5, 2, 14, 0, tzinfo=datetime.UTC)
+        )
+
+        resp = client.get(f"/api/v1/projects/{project.pk}/status-summary/")
+
+        assert resp.json()["last_saved"] == "2026-05-02T14:00:00Z"
+
+    def test_last_saved_ignores_a_deleted_task(
+        self, client: APIClient, project: Project, tasks: list[Task]
+    ) -> None:
+        """The live-task queryset is the one the counts use — recency must agree with it."""
+        Task.objects.filter(project=project).update(
+            edited_at=datetime.datetime(2026, 5, 1, 14, 0, tzinfo=datetime.UTC)
+        )
+        Task.objects.filter(pk=tasks[1].pk).update(
+            edited_at=datetime.datetime(2026, 9, 9, 14, 0, tzinfo=datetime.UTC),
+            is_deleted=True,
+        )
+
+        resp = client.get(f"/api/v1/projects/{project.pk}/status-summary/")
+
+        assert resp.json()["last_saved"] == "2026-05-01T14:00:00Z"
+
+    def test_last_saved_is_null_when_no_task_has_been_touched(
+        self, client: APIClient, project: Project, tasks: list[Task]
+    ) -> None:
+        """A freshly seeded or imported project: a machine wrote every row (ADR-0786 §4)."""
+        Task.objects.filter(project=project).update(edited_at=None)
+
+        resp = client.get(f"/api/v1/projects/{project.pk}/status-summary/")
+
+        assert resp.json()["last_saved"] is None
 
     def test_requires_authentication(self, anon_client: APIClient, project: Project) -> None:
         resp = anon_client.get(f"/api/v1/projects/{project.pk}/status-summary/")

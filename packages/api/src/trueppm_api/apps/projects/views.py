@@ -3103,13 +3103,55 @@ class ProjectViewSet(
     @extend_schema(
         summary="Get the project status summary",
         responses={
-            200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description=(
-                    "Task counts and health signals for the shell: task_count, "
-                    "critical/at-risk counts, top-5 critical and at-risk task lists, "
-                    "and recency metadata."
-                ),
+            200: inline_serializer(
+                name="ProjectStatusSummary",
+                fields={
+                    "task_count": serializers.IntegerField(),
+                    "at_risk_count": serializers.IntegerField(),
+                    "critical_count": serializers.IntegerField(),
+                    "at_risk_tasks": inline_serializer(
+                        name="ProjectStatusSummaryTask",
+                        many=True,
+                        fields={
+                            "id": serializers.UUIDField(),
+                            "name": serializers.CharField(),
+                            "wbs": serializers.CharField(),
+                        },
+                    ),
+                    "critical_tasks": inline_serializer(
+                        name="ProjectStatusSummaryCriticalTask",
+                        many=True,
+                        fields={
+                            "id": serializers.UUIDField(),
+                            "name": serializers.CharField(),
+                            "wbs": serializers.CharField(),
+                        },
+                    ),
+                    "monte_carlo_p80": serializers.DateField(
+                        allow_null=True,
+                        help_text=(
+                            "P80 finish from the project's most recent Monte Carlo run. "
+                            "Null means no run has been recorded, or the run produced no "
+                            "distribution to anchor on — not 'not computed yet'."
+                        ),
+                    ),
+                    "last_saved": serializers.DateTimeField(
+                        allow_null=True,
+                        help_text=(
+                            "Most recent human-caused write to any live task in the "
+                            "project. Null means nobody has edited a task yet — a "
+                            "freshly seeded or imported project reports null until "
+                            "somebody touches it. A CPM recalculation is not an edit."
+                        ),
+                    ),
+                    "recalculated_at": serializers.DateTimeField(
+                        allow_null=True,
+                        help_text=(
+                            "When the last CPM pass completed. Null until the first "
+                            "schedule pass runs."
+                        ),
+                    ),
+                },
             )
         },
     )
@@ -3124,8 +3166,10 @@ class ProjectViewSet(
         negative float, which means already late).
         Critical: incomplete tasks where is_critical=True.
 
-        P80 is omitted (null) until a Monte Carlo result store is added — the
-        front-end falls back to "P80: —" when the field is null.
+        P80 is the most recent persisted MonteCarloRun's p80 for this project, or
+        null when no run has been recorded. Null means "no forecast exists", not
+        "not computed yet" — a client may render "P80 —" for it without having to
+        guess which of the two it is looking at.
         """
         project = self.get_object()
 
@@ -3133,11 +3177,14 @@ class ProjectViewSet(
         # separate COUNT queries against the same base queryset. status_summary
         # is hit on every dashboard mount; collapsing to one aggregate() saves
         # 2 DB round-trips per call without changing the response shape.
-        from django.db.models import Count, Q
+        from django.db.models import Count, Max, Q
 
         live_tasks = project.tasks.filter(is_deleted=False)
         counts = live_tasks.aggregate(
             task_count=Count("id"),
+            # Folded into the existing aggregate rather than a second query: this
+            # endpoint is hit on every dashboard mount.
+            last_saved=Max("edited_at"),
             at_risk_count=Count(
                 "id",
                 filter=~Q(status=TaskStatus.COMPLETE)
@@ -3178,23 +3225,41 @@ class ProjectViewSet(
             {"id": str(t["id"]), "name": t["name"], "wbs": t["wbs_path"]} for t in critical_qs
         ]
 
-        # Task model uses server_version rather than auto_now timestamps, so
-        # last_saved / recalculated_at are returned as null. The redesigned
-        # StatusBar (issue #201) does not display these fields; they remain
-        # in the response shape only for ShellStats back-compat.
+        # All three recency/forecast fields below were hard-coded to None (#2903).
+        # The comment that justified it blamed the Task model's lack of auto_now
+        # timestamps, which was wrong twice over: recalculated_at is a *Project*
+        # field and has been written on every CPM pass since ADR-0114, and a
+        # persisted P80 has existed on MonteCarloRun since ADR-0175. A hard null is
+        # worse than a missing key for an API or MCP consumer — it is
+        # indistinguishable from "no data yet", so automation keyed on that
+        # distinction was silently wrong for every project that HAD run a forecast.
+        #
+        # last_saved is the newest human-caused write across the project's live
+        # tasks. Task.edited_at is stamped only on a person's write (ADR-0786 §4) —
+        # a recalculation deliberately does not touch it — so this reports when
+        # somebody last changed the plan, not when the server last wrote a row.
+        from trueppm_api.apps.scheduling.models import MonteCarloRun
+
+        latest_p80 = (
+            MonteCarloRun.objects.filter(project=project)
+            .order_by("-taken_at")
+            .values_list("p80", flat=True)
+            .first()
+        )
+
         return Response(
             {
                 "task_count": task_count,
                 # `critical_path_count` was an exact alias of `critical_count`
                 # (same aggregate). Dropped pre-0.3 so the public status-summary
                 # contract carries the count once (#1325).
-                "monte_carlo_p80": None,
+                "monte_carlo_p80": latest_p80,
                 "at_risk_count": at_risk_count,
                 "critical_count": critical_count,
                 "at_risk_tasks": at_risk_tasks,
                 "critical_tasks": critical_tasks,
-                "last_saved": None,
-                "recalculated_at": None,
+                "last_saved": counts["last_saved"],
+                "recalculated_at": project.recalculated_at,
             },
             status=status.HTTP_200_OK,
         )

@@ -61,8 +61,18 @@ describe('useShellStats', () => {
     expect(s?.criticalCount).toBe(5);
     expect(s?.atRiskTasks).toEqual(SUMMARY.at_risk_tasks);
     expect(s?.criticalTasks).toEqual(SUMMARY.critical_tasks);
-    expect(s?.lastSaved).toBe('2026-06-01T10:00:00Z');
-    expect(s?.recalculatedAt).toBe('2026-06-01T11:00:00Z');
+  });
+
+  it('does not carry last_saved or recalculated_at onto ShellStats', async () => {
+    // Both were mapped onto ShellStats and read by nothing (#2903). They are real
+    // server values now, so the guard is against re-adding a dead *client* field —
+    // the response keys below are deliberately still present in the payload.
+    getMock.mockResolvedValue({ data: SUMMARY });
+    const { result } = renderHook(() => useShellStats(), { wrapper: makeWrapper(newClient()) });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+
+    expect(result.current.data).not.toHaveProperty('lastSaved');
+    expect(result.current.data).not.toHaveProperty('recalculatedAt');
   });
 
   it('derives criticalPathCount from the surviving critical_count alias (issue 1325)', async () => {
@@ -74,15 +84,15 @@ describe('useShellStats', () => {
     expect(result.current.data?.criticalCount).toBe(7);
   });
 
-  it('passes nullable schedule-recency fields straight through as null', async () => {
+  it('passes a null P80 straight through', async () => {
+    // A null p80 now means "no Monte Carlo run exists for this project", which is a
+    // fact — before #2903 the server hard-coded it and the value meant nothing.
     getMock.mockResolvedValue({
       data: { ...SUMMARY, monte_carlo_p80: null, last_saved: null, recalculated_at: null },
     });
     const { result } = renderHook(() => useShellStats(), { wrapper: makeWrapper(newClient()) });
     await waitFor(() => expect(result.current.data).toBeDefined());
     expect(result.current.data?.monteCarlop80).toBeNull();
-    expect(result.current.data?.lastSaved).toBeNull();
-    expect(result.current.data?.recalculatedAt).toBeNull();
   });
 
   it('always reports onlineUsers as 0 (presence is layered in elsewhere)', async () => {

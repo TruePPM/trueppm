@@ -12,8 +12,6 @@ const STATS: ShellStats = {
   atRiskTasks: [{ id: 't4', wbs: '1.3', name: 'Frontend Build' }],
   criticalTasks: [{ id: 't3', wbs: '1.2', name: 'Backend Implementation' }],
   onlineUsers: 0,
-  lastSaved: null,
-  recalculatedAt: null,
 };
 
 // The selector only reads start_date/finish_date/name + the four points/count

@@ -14,6 +14,4 @@ export const FIXTURE_SHELL_STATS: ShellStats = {
     { id: 't3', wbs: '1.2', name: 'Backend Implementation' },
   ],
   onlineUsers: 3,
-  lastSaved: new Date(Date.now() - 1000 * 60 * 2).toISOString(), // 2 minutes ago
-  recalculatedAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(), // 5 minutes ago
 };
