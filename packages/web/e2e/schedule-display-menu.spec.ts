@@ -240,8 +240,10 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
     await expect(menu.getByRole('menuitemcheckbox', { name: 'Dependency lines' })).toBeVisible();
     await expect(menu.getByRole('menuitemcheckbox', { name: 'Progress %' })).toBeVisible();
 
-    // Grid view: the sub-label is scoped to Grid and offers only Next-to-bar +
-    // Hidden. "Aligned left" is a Timeline-only gutter, so it is not shown here.
+    // The sub-label is scoped to the active view and offers Next-to-bar +
+    // Hidden. "Aligned left" drew a canvas-owned name column that existed only
+    // because Timeline hid the outline; #2960 renders the outline on both
+    // surfaces, so the option is retired everywhere.
     await expect(menu.getByText('Task names (Grid)')).toBeVisible();
     await expect(menu.getByRole('menuitemradio', { name: 'Next to bar' })).toBeVisible();
     await expect(menu.getByRole('menuitemradio', { name: 'Hidden' })).toBeVisible();
@@ -272,8 +274,7 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
     await expect(page.getByRole('button', { name: /Display, 1 active/i })).toBeVisible();
   });
 
-  test('selecting "Aligned left" in Timeline persists to the Timeline slot', async ({ page }) => {
-    // "Aligned left" is Timeline-only — switch to Timeline first.
+  test('the Timeline offers the SAME two placements as the Grid (#2960)', async ({ page }) => {
     await page.getByRole('radio', { name: 'Timeline' }).click();
 
     await page
@@ -282,9 +283,15 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
       .click();
     const menu = page.getByRole('menu', { name: 'Display options' });
     await expect(menu.getByText('Task names (Timeline)')).toBeVisible();
-    const aligned = menu.getByRole('menuitemradio', { name: 'Aligned left' });
-    await aligned.click();
-    await expect(aligned).toHaveAttribute('aria-checked', 'true');
+    // "Aligned left" is gone from the surface it was invented for: the outline
+    // renders here now, so a canvas-drawn name column would sit beside the real
+    // one. Its removal is what makes "a gate's name is not repeated in the
+    // track" true rather than aspirational.
+    await expect(menu.getByRole('menuitemradio', { name: 'Aligned left' })).toHaveCount(0);
+
+    const next = menu.getByRole('menuitemradio', { name: 'Next to bar' });
+    await next.click();
+    await expect(next).toHaveAttribute('aria-checked', 'true');
 
     await expect
       .poll(() =>
@@ -294,7 +301,32 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
           return stored?.taskNamePlacementByView?.timeline ?? null;
         }),
       )
-      .toBe('left');
+      .toBe('next');
+  });
+
+  test('the Columns section narrows with the surface (#2960)', async ({ page }) => {
+    const openMenu = async () => {
+      await page
+        .getByRole('toolbar', { name: 'Schedule toolbar' })
+        .getByRole('button', { name: 'Display' })
+        .click();
+      return page.getByRole('menu', { name: 'Display options' });
+    };
+
+    // Grid draws all seven columns, so all six toggleable ones are offered.
+    let menu = await openMenu();
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'Start' })).toBeVisible();
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'Owner' })).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    // Timeline draws WBS + Task only, so it offers exactly the one toggle that
+    // does something — the rest are ABSENT, not present-and-inert (rule 302).
+    await page.getByRole('radio', { name: 'Timeline' }).click();
+    menu = await openMenu();
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'WBS' })).toBeVisible();
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'Start' })).toHaveCount(0);
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'Finish' })).toHaveCount(0);
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'Owner' })).toHaveCount(0);
   });
 
   test('Grid and Timeline placements are independent and survive navigation (#2107)', async ({

@@ -415,12 +415,14 @@ export function setRendererColorMode(dark: boolean, forced = false): void {
 
 /**
  * Where the on-canvas task name renders relative to its bar (#2097 Chart menu):
- * - `next`   — immediately right of the bar end (the default legacy behavior)
- * - `left`   — suppressed on-canvas; names appear in the Timeline aligned-left
- *              gutter overlay instead (see ScheduleView TimelineNameGutter)
- * - `hidden` — not drawn at all
+ * - `next`   — immediately right of the bar end, capped to the room it has
+ * - `hidden` — not drawn at all (the default on both surfaces since #2960, where
+ *              the outline carries every name)
+ *
+ * A third value, `left`, drew a canvas-owned frozen name column and was retired
+ * in #2960 along with the Timeline layout that hid the outline.
  */
-export type TaskNamePlacement = 'next' | 'left' | 'hidden';
+export type TaskNamePlacement = 'next' | 'hidden';
 
 /**
  * Presentation toggles for what the canvas paints, controlled by the Schedule
@@ -432,10 +434,6 @@ export type TaskNamePlacement = 'next' | 'left' | 'hidden';
 export interface ChartRenderOptions {
   taskNamePlacement: TaskNamePlacement;
   showProgressPills: boolean;
-  /** Draw the row-aligned left name gutter (#2096). Set by the host only when
-   *  placement is `left` AND the task table is hidden (Timeline mode) — in Grid
-   *  mode the table already carries the names, so no gutter is needed. */
-  showNameGutter: boolean;
   /** Draw sprint-window bands over the rows of sprint-driven subtrees (#2738).
    *  A presentation toggle, NOT a view switch: turning it off hides the band and
    *  changes nothing else — the same bars, the same links, the same one plan. */
@@ -447,7 +445,6 @@ export interface ChartRenderOptions {
 let _chartOptions: ChartRenderOptions = {
   taskNamePlacement: 'next',
   showProgressPills: true,
-  showNameGutter: false,
   showSprintBands: true,
 };
 
@@ -1797,10 +1794,16 @@ export function drawFilterMatchMarker(
 }
 
 /**
- * Draw the task name OUTSIDE the bar (rule 72 / #212).
+ * Draw the task name OUTSIDE the bar (rule 72 / #212), capped to the room it
+ * has (#2960).
  *
- * Primary: 4px right of bar end. Fallback: 4px left of bar start,
- * right-aligned, when the right-of-bar position would overflow the viewport.
+ * Primary: 4px right of bar end. When a bar runs long enough that the label
+ * would overflow, it **flips** to 4px left of the bar start, right-aligned. Both
+ * placements **cap** with an ellipsis rather than clipping, because the Timeline
+ * bar track no longer owns the full window width — it starts to the right of the
+ * outline — so a hard clip cuts glyphs mid-stroke on exactly the crowded charts
+ * the label was written for. A capped label says which task it names; half a
+ * letter says nothing.
  *
  * Extracted from {@link drawTaskBar} so the engine can layer
  * bars → arrows → labels. The horizontal exit segment of dependency arrows
@@ -1818,9 +1821,9 @@ export function drawTaskBarLabel(
 ): void {
   if (!task.start || !task.finish) return;
   if (!task.plannedStart && !task.sprintId) return;
-  // The Chart menu (#2097) can hide on-bar names entirely, or move them to the
-  // Timeline aligned-left gutter (#2096) — in both cases nothing draws next to
-  // the bar. Only the `next` placement paints here.
+  // The Chart menu (#2097) can hide on-bar names entirely — the default on both
+  // surfaces since #2960, where the outline carries every name. Only the `next`
+  // placement paints here.
   if (_chartOptions.taskNamePlacement !== 'next') return;
   const barLeft = dateToLeft(task.start, scales) - scrollLeft;
   // finish is inclusive — the label hugs the true (exclusive) bar edge (#950).
@@ -1838,21 +1841,34 @@ export function drawTaskBarLabel(
   const nameRight = rightOfBar + nameWidth;
 
   if (nameRight <= viewportWidth - 8) {
-    // Fits to the right — draw with a right-side clip to avoid overflowing viewport
-    ctx.beginPath();
-    ctx.rect(rightOfBar, barTop - 2, viewportWidth - rightOfBar - 4, BAR_HEIGHT + 4);
-    ctx.clip();
+    // Fits to the right of the bar end — the common case, drawn in full.
     strokeLabelHalo(ctx, task.name, rightOfBar, nameY);
     ctx.fillText(task.name, rightOfBar, nameY);
   } else {
-    // Flush right — draw left of the bar start, right-aligned
-    const leftX = barLeft - 4 - nameWidth;
-    if (leftX >= 0) {
-      strokeLabelHalo(ctx, task.name, leftX, nameY);
-      ctx.fillText(task.name, leftX, nameY);
+    // The bar runs long. Prefer flipping to its left, where a label reads
+    // against the empty field ahead of the bar rather than off the edge.
+    //
+    // "Has room" is not `> 0`: `truncateToWidth` degrades to a lone `…` when not
+    // one character fits, and three pixels of field satisfy `> 0`. A bare
+    // ellipsis names no task and reads as a rendering fault, so the floor is the
+    // ellipsis plus a glyph — below it the label is omitted, which is what the
+    // absent-vs-broken distinction asks for.
+    const floor = ctx.measureText('…W').width;
+    const leftRoom = barLeft - 4;
+    const rightRoom = viewportWidth - 8 - rightOfBar;
+    if (leftRoom >= rightRoom && leftRoom >= floor) {
+      const capped = truncateToWidth(ctx, task.name, leftRoom);
+      const leftX = barLeft - 4 - ctx.measureText(capped).width;
+      strokeLabelHalo(ctx, capped, leftX, nameY);
+      ctx.fillText(capped, leftX, nameY);
+    } else if (rightRoom >= floor) {
+      // A bar flush against the left edge has nowhere to flip to; cap into
+      // whatever the right-hand field still offers instead of drawing nothing.
+      const capped = truncateToWidth(ctx, task.name, rightRoom);
+      strokeLabelHalo(ctx, capped, rightOfBar, nameY);
+      ctx.fillText(capped, rightOfBar, nameY);
     }
-    // If the bar is also flush left, the name is silently omitted — bar is too
-    // wide for any label to fit. Acceptable at extreme zoom-out levels.
+    // Neither side has room for a legible cap (extreme zoom-out): omitted.
   }
 
   ctx.restore();
@@ -1882,10 +1898,6 @@ function strokeLabelHalo(ctx: CanvasRenderingContext2D, text: string, x: number,
   ctx.lineJoin = prevJoin;
 }
 
-/** Fixed width (logical px) of the Timeline aligned-left name gutter (#2096). */
-export const NAME_GUTTER_WIDTH = 176;
-const GUTTER_TEXT_PAD = 10;
-
 /** Truncate `text` to fit `maxWidth` px, appending an ellipsis. `ctx.font` must be set. */
 function truncateToWidth(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
   if (ctx.measureText(text).width <= maxWidth) return text;
@@ -1899,58 +1911,6 @@ function truncateToWidth(ctx: CanvasRenderingContext2D, text: string, maxWidth: 
     else hi = mid - 1;
   }
   return lo > 0 ? text.slice(0, lo) + ellipsis : ellipsis;
-}
-
-/**
- * Draw the Timeline-mode aligned-left name gutter (#2096).
- *
- * When the task table is hidden (Timeline view) and the user chose "Aligned
- * left" name placement, the on-bar labels are suppressed and task names render
- * here instead: a fixed-width, row-aligned, opaque frozen column at canvas-left.
- * Painted on the bars layer *after* bars and arrows so it reads as a frozen
- * column the timeline scrolls under — the left-hand names line up with their row
- * exactly as the old table did, without bringing back the full 7-column table.
- *
- * Drawn in absolute screen coordinates (scrollTop applied here) — the caller
- * must NOT have translated the context. Rows outside the visible band are
- * skipped by the caller via firstRow/lastRow.
- */
-export function drawTimelineNameGutter(
-  ctx: CanvasRenderingContext2D,
-  tasks: Task[],
-  firstRow: number,
-  lastRow: number,
-  scrollTop: number,
-  viewportHeight: number,
-): void {
-  ctx.save();
-  // Opaque band so the timeline visibly scrolls *under* the names (frozen column).
-  ctx.fillStyle = _palette.surface;
-  ctx.fillRect(0, HEADER_HEIGHT, NAME_GUTTER_WIDTH, viewportHeight - HEADER_HEIGHT);
-
-  ctx.font = canvasFont();
-  ctx.textBaseline = 'middle';
-  const maxTextWidth = NAME_GUTTER_WIDTH - GUTTER_TEXT_PAD * 2;
-
-  const rowH = ROW_HEIGHT; // hoisted live binding — see drawRowBands (#2997)
-  for (let i = firstRow; i <= lastRow; i++) {
-    const task = tasks[i];
-    if (!task) continue;
-    const rowTop = i * rowH + HEADER_HEIGHT - scrollTop;
-    const centerY = rowTop + rowH / 2;
-    // Summary rows read as structural headers; everything else is secondary text.
-    ctx.fillStyle = task.isSummary ? _palette.text : _palette.textSecondary;
-    ctx.fillText(truncateToWidth(ctx, task.name, maxTextWidth), GUTTER_TEXT_PAD, centerY);
-  }
-
-  // Right divider so the gutter delineates from the timeline field.
-  ctx.strokeStyle = _palette.gridLine;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(NAME_GUTTER_WIDTH + 0.5, HEADER_HEIGHT);
-  ctx.lineTo(NAME_GUTTER_WIDTH + 0.5, viewportHeight);
-  ctx.stroke();
-  ctx.restore();
 }
 
 /**

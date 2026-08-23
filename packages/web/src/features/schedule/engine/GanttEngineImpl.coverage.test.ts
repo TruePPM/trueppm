@@ -29,7 +29,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Task } from '@/types';
 import { GanttEngineImpl } from './GanttEngineImpl';
 import { dateToLeft, dateToRight } from './GanttScaleData';
-import { drawHoverRowBand, drawTimelineHeader, drawTimelineNameGutter } from './GanttRenderer';
+import { drawHoverRowBand, drawTimelineHeader } from './GanttRenderer';
 
 vi.mock('./GanttRenderer', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./GanttRenderer')>();
@@ -37,7 +37,6 @@ vi.mock('./GanttRenderer', async (importOriginal) => {
     ...actual,
     drawHoverRowBand: vi.fn(actual.drawHoverRowBand),
     drawTimelineHeader: vi.fn(actual.drawTimelineHeader),
-    drawTimelineNameGutter: vi.fn(actual.drawTimelineNameGutter),
   };
 });
 
@@ -557,12 +556,6 @@ describe('GanttEngineImpl — pointercancel on touch', () => {
 // ---------------------------------------------------------------------------
 
 describe('GanttEngineImpl — single-row repaint path', () => {
-  const CHART_BASE = {
-    taskNamePlacement: 'next' as const,
-    showProgressPills: true,
-    showSprintBands: true,
-  };
-
   function clears(ctx: CanvasRenderingContext2D): number {
     return (ctx.clearRect as ReturnType<typeof vi.fn>).mock.calls.length;
   }
@@ -626,23 +619,4 @@ describe('GanttEngineImpl — single-row repaint path', () => {
     expect((h.barsCtx.save as ReturnType<typeof vi.fn>).mock.calls.length).toBe(savesBefore);
   });
 
-  it('promotes to a full repaint in aligned-left name-gutter mode (#2096)', () => {
-    const h = setup();
-    const gutter = vi.mocked(drawTimelineNameGutter);
-    h.engine.setTasks([makeTask('a', '2026-04-01', '2026-04-10')]);
-    h.engine.setChartOptions({ ...CHART_BASE, showNameGutter: true });
-    h.flushFrame();
-
-    gutter.mockClear();
-    const before = clears(h.barsCtx);
-    h.internals._paintRow(0);
-
-    // No row-local clear — the gutter cell would be overdrawn, so the row
-    // repaint defers to a queued full repaint instead.
-    expect(clears(h.barsCtx)).toBe(before);
-    expect(h.hasScheduledFrame()).toBe(true);
-
-    h.flushFrame();
-    expect(gutter).toHaveBeenCalledTimes(1);
-  });
 });

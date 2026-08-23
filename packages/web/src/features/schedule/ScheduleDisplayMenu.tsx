@@ -70,18 +70,15 @@ export interface ChartMenuConfig {
   setSprintBandsVisible?: (v: boolean) => void;
 }
 
+// `left` (the canvas-drawn aligned-left name gutter, #2096) was retired in
+// #2960. It existed only because Timeline hid the DOM task table; both surfaces
+// now render the same outline rows, so the option would have drawn a second
+// frozen name column beside the real one. The remaining two are offered on both
+// views — the placement is still stored per view (#2107).
 const TASK_NAME_OPTIONS: ReadonlyArray<{ value: TaskNamePlacement; label: string }> = [
   { value: 'next', label: 'Next to bar' },
-  { value: 'left', label: 'Aligned left' },
   { value: 'hidden', label: 'Hidden' },
 ];
-
-// `left` (aligned-left name gutter, #2096) only exists in Timeline mode — in
-// Grid the DOM task table already carries the names, so the option would be a
-// no-op. Offer it only where it means something (#2107).
-function taskNameOptionsFor(view: ScheduleViewMode) {
-  return view === 'grid' ? TASK_NAME_OPTIONS.filter((o) => o.value !== 'left') : TASK_NAME_OPTIONS;
-}
 
 // Internal flattened, focusable menu item — checkbox or radio. Roving focus and
 // keyboard nav operate over this uniform list regardless of source section.
@@ -241,7 +238,7 @@ export function ScheduleDisplayMenu({
     // active view (#2107): Grid omits the Timeline-only `left` option, and the
     // label names the view so the value visibly differing across views reads as
     // intentional ("Task names (Grid)") rather than a bug.
-    const taskNameOptions = taskNameOptionsFor(chart.viewMode);
+    const taskNameOptions = TASK_NAME_OPTIONS;
     const radioIds = taskNameOptions.map((o) => `task-name-${o.value}`);
     const taskNamesLabel = `Task names (${chart.viewMode === 'grid' ? 'Grid' : 'Timeline'})`;
     sections.push({
@@ -323,11 +320,11 @@ export function ScheduleDisplayMenu({
 
   useLayoutEffect(() => {
     if (!open) return;
-    // Clamp: the focusable item count varies with the active view (#2107 — Grid
-    // offers 2 name-placement radios, Timeline 3, and the Columns section is
-    // Grid-only). If the list shrinks while the menu is open (e.g. a device
-    // rotation flips the effective view), a stale activeIndex would point past
-    // the array and drop focus to <body>; clamp it back into range instead.
+    // Clamp: the focusable item count varies with the active view (#2960 — the
+    // Columns section offers six toggles in Grid and one on the Timeline, whose
+    // outline draws only WBS + Task). If the list shrinks while the menu is open
+    // (e.g. a device rotation flips the effective view), a stale activeIndex
+    // would point past the array and drop focus to <body>; clamp it back in.
     const index = Math.min(activeIndex, items.length - 1);
     itemRefs.current[index]?.focus();
   }, [open, activeIndex, items.length]);

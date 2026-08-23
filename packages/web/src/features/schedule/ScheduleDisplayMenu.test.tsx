@@ -150,11 +150,11 @@ describe('ScheduleDisplayMenu (#1741)', () => {
       fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Progress %' }));
       expect(chart.setProgressPillsVisible).toHaveBeenCalledWith(false);
 
-      // Radio group — three placements in Timeline, "Next to bar" selected.
+      // Radio group — two placements, "Next to bar" selected.
       const nextToBar = screen.getByRole('menuitemradio', { name: 'Next to bar' });
       expect(nextToBar).toHaveAttribute('aria-checked', 'true');
-      fireEvent.click(screen.getByRole('menuitemradio', { name: 'Aligned left' }));
-      expect(chart.setTaskNamePlacement).toHaveBeenCalledWith('left');
+      fireEvent.click(screen.getByRole('menuitemradio', { name: 'Hidden' }));
+      expect(chart.setTaskNamePlacement).toHaveBeenCalledWith('hidden');
     });
 
     it('renders Sprint windows in Chart, not among the view filters (#2738)', () => {
@@ -190,15 +190,24 @@ describe('ScheduleDisplayMenu (#1741)', () => {
       expect(screen.getByText('Task names (Timeline)')).toBeInTheDocument();
     });
 
-    it('scopes the sub-label and omits the Timeline-only "Aligned left" option in Grid', () => {
+    // The aligned-left gutter existed only because Timeline hid the outline.
+    // Both surfaces now render it, so a canvas-drawn name column would sit
+    // beside the real one — the option is gone from BOTH, not just from Grid.
+    it.each(['grid', 'timeline'] as const)(
+      'offers the same two placements in %s (#2960 retired "Aligned left")',
+      (view) => {
+        setup({ chart: chartProps(view) });
+        fireEvent.click(screen.getByRole('button', { name: 'Display' }));
+        expect(screen.getByRole('menuitemradio', { name: 'Next to bar' })).toBeInTheDocument();
+        expect(screen.getByRole('menuitemradio', { name: 'Hidden' })).toBeInTheDocument();
+        expect(screen.queryByRole('menuitemradio', { name: 'Aligned left' })).toBeNull();
+      },
+    );
+
+    it('scopes the task-name sub-label to the active view (Grid)', () => {
       setup({ chart: chartProps('grid') });
       fireEvent.click(screen.getByRole('button', { name: 'Display' }));
       expect(screen.getByText('Task names (Grid)')).toBeInTheDocument();
-      // Grid offers only Next-to-bar and Hidden — the aligned-left gutter is
-      // Timeline-only, so its option is not rendered here.
-      expect(screen.getByRole('menuitemradio', { name: 'Next to bar' })).toBeInTheDocument();
-      expect(screen.getByRole('menuitemradio', { name: 'Hidden' })).toBeInTheDocument();
-      expect(screen.queryByRole('menuitemradio', { name: 'Aligned left' })).toBeNull();
     });
 
     it('adds hidden chart elements to the trigger badge count', () => {

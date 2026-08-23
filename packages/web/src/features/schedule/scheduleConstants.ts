@@ -166,6 +166,24 @@ export function resolveGripWidth(coarse: boolean): number {
 export function resolveGripReserve(coarse: boolean): number {
   return coarse ? GRIP_WIDTH_COARSE : 0;
 }
+
+/**
+ * The outline's grip lane, given the pointer class AND whether the outline can
+ * be authored at all (#2960).
+ *
+ * A viewer has no grip (web rule 302 makes the apparatus absent, not disabled),
+ * so it must not give up 44px of its name column to a control that is not
+ * rendered. That rule was already correct inside `TaskListPanel`, but the lane
+ * is *not* subtracted from any column and *is* rendered inside the panel's
+ * fixed-width box — so the panel's own `width` has to carry it too, and the
+ * overlay offsets that position the legend and the unscheduled gutter have to
+ * agree. Three readers, one rule: at the Timeline's ~268px outline a 44px
+ * disagreement is a fifth of the name column, where at the Grid's ~600px it was
+ * merely untidy.
+ */
+export function resolveOutlineGripReserve(coarse: boolean, authorable: boolean): number {
+  return authorable ? resolveGripReserve(coarse) : 0;
+}
 /**
  * Height of the Monte Carlo confidence row below the split pane.
  * 44px — meets touch-target minimums; outside the virtualizer so scroll sync

@@ -9,11 +9,15 @@ import type { ScheduleViewMode } from '@/stores/scheduleStore';
 // *data* filters (focus/cp/crit/ms) while these are personal presentation prefs.
 const CHART_PREFS_KEY = 'trueppm.schedule.chartDisplay.v1';
 
-// Per-view placement allow-lists. `left` renders the frozen aligned-left name
-// gutter (#2096), which only exists in Timeline mode — in Grid the DOM task
-// table already is the left gutter, so `left` is not offered there.
+// Per-view placement allow-lists — identical since #2960, and that is the point.
+// `left` rendered the frozen aligned-left name gutter (#2096), which existed
+// only because Timeline hid the DOM task table. Timeline now renders the SAME
+// outline rows the Grid does, so a canvas-drawn name column would be a second
+// frozen name column sitting beside the real one. The placement is retired:
+// `resolvePlacement` falls a persisted `left` back to the view default, so a
+// user who chose it simply lands on the outline names they now have.
 const GRID_PLACEMENTS: readonly TaskNamePlacement[] = ['next', 'hidden'];
-const TIMELINE_PLACEMENTS: readonly TaskNamePlacement[] = ['next', 'left', 'hidden'];
+const TIMELINE_PLACEMENTS: readonly TaskNamePlacement[] = ['next', 'hidden'];
 
 /** On-bar task-name placement, tracked independently for each view (#2107). */
 export interface TaskNamePlacementByView {
@@ -26,11 +30,12 @@ export interface ScheduleChartPrefs {
   dependencyLinesVisible: boolean;
   /**
    * Where on-bar task names render (or `hidden`), independent per view (#2107).
-   * Grid defaults to `hidden` — the task table already carries every name, so
-   * the on-bar label is redundant ink. Timeline defaults to `left` — the table
-   * is hidden, so the canvas must carry task identity, but a free-floating
-   * on-bar label has no collision avoidance against arrows or its neighbours,
-   * whereas the aligned-left gutter sidesteps collision by construction (#2422).
+   * BOTH views default to `hidden` since #2960: the outline carries every name
+   * on both surfaces now, so the on-bar label is redundant ink — and a
+   * free-floating on-bar label has no collision avoidance against the arrows or
+   * neighbours it is drawn over (#2422). The per-view split is kept because the
+   * Timeline's bar track is wider, so choosing `next` there is a different
+   * trade than choosing it in the Grid.
    */
   taskNamePlacementByView: TaskNamePlacementByView;
   /** Show/hide the on-bar progress % pills. */
@@ -48,13 +53,14 @@ export interface ScheduleChartPrefs {
   sprintBandsVisible: boolean;
 }
 
-// Defaults (#2107, revised #2422): Grid hides the redundant on-bar name; Timeline
-// renders it in the aligned-left gutter. Both defaults exist to keep free-floating
-// on-bar labels off the canvas, because nothing measures them against the arrows
-// and bars they are drawn over — see the placement note on ScheduleChartPrefs.
+// Defaults (#2107, revised #2422, revised again #2960): both views hide the
+// on-bar name, because both now render the outline that carries it. The defaults
+// exist to keep free-floating on-bar labels off the canvas, because nothing
+// measures them against the arrows and bars they are drawn over — see the
+// placement note on ScheduleChartPrefs.
 const DEFAULT_PLACEMENT_BY_VIEW: TaskNamePlacementByView = {
   grid: 'hidden',
-  timeline: 'left',
+  timeline: 'hidden',
 };
 
 const DEFAULT_PREFS: ScheduleChartPrefs = {
@@ -138,18 +144,22 @@ function loadPrefs(): ScheduleChartPrefs {
  * `hasSprintBands` is whether the project has any sprint window to draw at all;
  * see the sprint-band note in the body.
  *
- * A hidden *Grid* task name is deliberately NOT counted: the task table still
- * shows every name, so nothing is lost and a brand-new Grid user (names hidden
- * by default) must not see a spurious "1 active" badge on a default view. Only a
- * hidden *Timeline* name — where the canvas is the sole name carrier — counts,
- * preserving the #2097 "don't leave the user wondering where it went" intent.
+ * A hidden on-bar task name is deliberately NOT counted on EITHER view. Before
+ * #2960 it was counted on the Timeline, where the canvas was the sole carrier of
+ * a task's name and hiding it really did remove information — the #2097 "don't
+ * leave the user wondering where it went" intent. The Timeline now renders the
+ * same outline rows the Grid does, so the name is on screen either way and a
+ * default view would otherwise wear a spurious "1 active" badge.
+ *
+ * The `view` parameter went with it: nothing in the count varies by surface any
+ * more, and a live-looking argument no code reads is the "write but never read"
+ * class at API level. Add it back when a chart element genuinely exists on one
+ * surface and not the other — not on the promise that one might.
  */
 export function hiddenChartCountForView(
   prefs: ScheduleChartPrefs,
-  view: ScheduleViewMode,
   hasSprintBands = false,
 ): number {
-  const nameHidden = view === 'timeline' && prefs.taskNamePlacementByView.timeline === 'hidden';
   // A hidden sprint window only counts when there IS one to hide (#2738). On a
   // pure waterfall project the badge would otherwise point at the absence of a
   // mark that would never have drawn — the same "don't leave the user wondering
@@ -157,7 +167,6 @@ export function hiddenChartCountForView(
   const bandsHidden = hasSprintBands && !prefs.sprintBandsVisible;
   return (
     (prefs.dependencyLinesVisible ? 0 : 1) +
-    (nameHidden ? 1 : 0) +
     (prefs.progressPillsVisible ? 0 : 1) +
     (bandsHidden ? 1 : 0)
   );
