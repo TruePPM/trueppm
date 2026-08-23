@@ -422,12 +422,22 @@ class TestInactiveOwnerRejected:
     def test_refusal_audit_row_names_the_disabled_account(self, creator: object) -> None:
         # The 401 body stays generic, but the internal AgentAction row must not claim a
         # revocation that never happened — a responder would chase a phantom.
+        #
+        # The authenticator *queues* the row rather than writing it (#3017, ADR-0902):
+        # an INSERT issued here is inside the request's ATOMIC_REQUESTS transaction,
+        # which DRF rolls back when it turns AuthenticationFailed into the 401. This
+        # test drives the authenticator directly, with no middleware in the stack, so it
+        # drains the queue itself — through the same code path AgentActionAuditMiddleware
+        # runs, so the assertion still checks the persisted row and not the intent.
+        from trueppm_api.apps.agents.deferred import drain_agent_actions
         from trueppm_api.apps.agents.models import AgentAction, AgentActionRefusalReason
 
         owner = User.objects.create_user(username="offboarded4", password="pw", is_active=False)
         _mint(owner=owner, project=None, created_by=creator)
+        request = _request(f"Bearer {_RAW_TOKEN}")
         with pytest.raises(exceptions.AuthenticationFailed):
-            ProjectApiTokenAuthentication().authenticate(_request(f"Bearer {_RAW_TOKEN}"))
+            ProjectApiTokenAuthentication().authenticate(request)
+        assert drain_agent_actions(request) == 1
         row = AgentAction.objects.filter(refusal_reason=AgentActionRefusalReason.IDENTITY).first()
         assert row is not None
         assert "disabled" in row.summary

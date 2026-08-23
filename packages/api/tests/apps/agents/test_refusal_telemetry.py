@@ -28,6 +28,7 @@ from rest_framework import exceptions
 from rest_framework.test import APIClient, APIRequestFactory
 
 from trueppm_api.apps.agents.canonical import canonical_fields, compute_record_hash
+from trueppm_api.apps.agents.deferred import drain_agent_actions
 from trueppm_api.apps.agents.models import (
     AgentAction,
     AgentActionRefusalDetail,
@@ -174,6 +175,9 @@ def test_identity_refusal_records_token_identity_constraint(owner: Any) -> None:
     request = APIRequestFactory().get("/", HTTP_AUTHORIZATION=f"Bearer {raw}")
     with pytest.raises(exceptions.AuthenticationFailed):
         ProjectApiTokenAuthentication().authenticate(request)
+    # Queued, not written here (#3017, ADR-0902) — see the module-level note in
+    # test_agent_action_audit.py. No middleware in this stack, so drain by hand.
+    drain_agent_actions(request)
 
     action = AgentAction.objects.get(actor_token=token)
     assert action.refusal_reason == AgentActionRefusalReason.IDENTITY

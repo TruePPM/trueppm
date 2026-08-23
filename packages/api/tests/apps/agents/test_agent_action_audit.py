@@ -29,6 +29,7 @@ from rest_framework.test import APIClient, APIRequestFactory
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.agents.canonical import canonical_fields, compute_record_hash
+from trueppm_api.apps.agents.deferred import drain_agent_actions
 from trueppm_api.apps.agents.models import (
     AgentAction,
     AgentActionChainHead,
@@ -279,11 +280,28 @@ def _auth_request(raw: str):
     return APIRequestFactory().get("/", HTTP_AUTHORIZATION=f"Bearer {raw}")
 
 
+def _authenticate_expecting_refusal(raw: str) -> None:
+    """Drive the authenticator and drain its deferred audit queue.
+
+    The identity-refusal row is *queued*, not written where it is detected (#3017,
+    ADR-0902): an INSERT issued inside the request's ATOMIC_REQUESTS transaction is
+    discarded when DRF turns ``AuthenticationFailed`` into the 401. In a real request
+    ``AgentActionAuditMiddleware`` drains the queue once that transaction has closed;
+    these tests drive the authenticator directly with no middleware in the stack, so
+    they drain through the same function the middleware calls. The assertions below
+    still check persisted rows, not intent.
+    """
+
+    request = _auth_request(raw)
+    with pytest.raises(exceptions.AuthenticationFailed):
+        ProjectApiTokenAuthentication().authenticate(request)
+    drain_agent_actions(request)
+
+
 @pytest.mark.django_db
 def test_revoked_token_records_identity_refusal(owner: Any) -> None:
     token, raw = _mint_personal(owner, scopes=[SCOPE_MCP_READ], revoked_at=timezone.now())
-    with pytest.raises(exceptions.AuthenticationFailed):
-        ProjectApiTokenAuthentication().authenticate(_auth_request(raw))
+    _authenticate_expecting_refusal(raw)
 
     action = AgentAction.objects.get()
     assert action.verdict == AgentActionVerdict.REFUSED
@@ -297,8 +315,7 @@ def test_expired_token_records_identity_refusal(owner: Any) -> None:
     token, raw = _mint_personal(
         owner, scopes=[SCOPE_MCP_READ], expires_at=timezone.now() - timedelta(minutes=1)
     )
-    with pytest.raises(exceptions.AuthenticationFailed):
-        ProjectApiTokenAuthentication().authenticate(_auth_request(raw))
+    _authenticate_expecting_refusal(raw)
     assert AgentAction.objects.filter(
         refusal_reason=AgentActionRefusalReason.IDENTITY, actor_token=token
     ).exists()
@@ -311,8 +328,7 @@ def test_replayed_dead_token_audits_identity_refusal_only_once(owner: Any) -> No
     # dead token to avoid a chain-locking DoS amplifier.
     token, raw = _mint_personal(owner, scopes=[SCOPE_MCP_READ], revoked_at=timezone.now())
     for _ in range(3):
-        with pytest.raises(exceptions.AuthenticationFailed):
-            ProjectApiTokenAuthentication().authenticate(_auth_request(raw))
+        _authenticate_expecting_refusal(raw)
     assert (
         AgentAction.objects.filter(
             actor_token=token, refusal_reason=AgentActionRefusalReason.IDENTITY
@@ -326,8 +342,7 @@ def test_unknown_token_records_nothing(db: object) -> None:
     # A well-formed but never-minted token must not write an audit row — auditing unknown
     # hashes would be an unbounded, chain-locking DoS amplifier.
     raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
-    with pytest.raises(exceptions.AuthenticationFailed):
-        ProjectApiTokenAuthentication().authenticate(_auth_request(raw))
+    _authenticate_expecting_refusal(raw)
     assert AgentAction.objects.count() == 0
 
 

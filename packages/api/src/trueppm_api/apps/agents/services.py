@@ -83,7 +83,15 @@ def hash_request_payload(request: Request) -> str:
 
     Hashes the method, path, sorted query parameters, and the request body when present
     (a read usually has none). Never includes headers, so no token material is hashed.
-    Total by construction — a malformed body is hashed as its raw bytes, never raised.
+
+    Total by construction, and that has to be enforced rather than assumed. A malformed
+    body is hashed as its raw bytes. Reading ``request.body`` *after* something has
+    consumed the stream — which every DRF view that touches ``request.data`` on a
+    POST/PATCH has done by the time an audit runs — raises ``RawPostDataException``, and
+    ``getattr(..., default)`` does not swallow it (the default only covers
+    ``AttributeError``). Such a body is recorded as unavailable rather than raised: this
+    function runs on the audit path, where raising converts a clean refusal into a 500
+    (#3017).
     """
 
     parts: dict[str, Any] = {
@@ -91,7 +99,11 @@ def hash_request_payload(request: Request) -> str:
         "path": request.path,
         "query": sorted(request.GET.items()),
     }
-    body = getattr(request, "body", b"") or b""
+    try:
+        body = getattr(request, "body", b"") or b""
+    except Exception:
+        parts["body_sha256"] = "unavailable"
+        body = b""
     if body:
         parts["body_sha256"] = hashlib.sha256(body).hexdigest()
     canonical = json.dumps(parts, sort_keys=True, separators=(",", ":"), default=str)
