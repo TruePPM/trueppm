@@ -150,6 +150,13 @@ MIDDLEWARE = [
     "simple_history.middleware.HistoryRequestMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Write queued agent-action audit rows after the view's ATOMIC_REQUESTS
+    # transaction has closed (#3017, ADR-0902). A refusal audit written inside that
+    # transaction is discarded by the set_rollback() DRF performs for every
+    # APIException, which is why the log contained only successes. Placed LAST so its
+    # response half runs FIRST on the way out — as close to the view as a middleware
+    # can be, while still being outside the transaction.
+    "trueppm_api.apps.agents.middleware.AgentActionAuditMiddleware",
 ]
 
 ROOT_URLCONF = "trueppm_api.urls"

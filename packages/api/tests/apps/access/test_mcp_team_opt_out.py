@@ -1013,15 +1013,19 @@ def test_withheld_export_discloses_why_to_the_agent(
     ``capability_scope`` is on the ADR-0809 disclosure allow-list, so the caller is
     told which guard fired instead of getting DRF's constant ``default_detail``.
 
-    **The durable operator-side half is asserted here deliberately as absent.**
-    ``finalize_response`` claims it audits refusals; under ``ATOMIC_REQUESTS`` DRF's
-    ``set_rollback()`` discards that write for every ``APIException``, so **no**
-    refusal from any guard reaches the agent-action log — pre-existing and repo-wide,
-    filed as #3017. Pinning the current behavior rather than asserting the
-    documented-but-false one keeps this test honest, and makes it fail loudly when
-    #3017 lands so the assertion gets flipped rather than silently over-passing.
+    **The durable operator-side half is now asserted present.** This assertion used to
+    read ``not AgentAction.objects.exists()`` — pinning, honestly, that
+    ``finalize_response``'s claim to audit refusals was false: under ``ATOMIC_REQUESTS``
+    DRF's ``set_rollback()`` discarded the write for every ``APIException``, so no
+    refusal from any guard reached the log. #3017 moved the refusal write to after the
+    request transaction closes (ADR-0902), and this is the flip that test asked for.
     """
-    from trueppm_api.apps.agents.models import AgentAction, RefusalConstraint
+    from trueppm_api.apps.agents.models import (
+        AgentAction,
+        AgentActionRefusalReason,
+        AgentActionVerdict,
+        RefusalConstraint,
+    )
 
     _opt_out(project)
     resp = _agent(owner).get(f"/api/v1/programs/{program.pk}/{_SEED_EXPORT}")
@@ -1031,10 +1035,13 @@ def test_withheld_export_discloses_why_to_the_agent(
     assert refusal.get("reason") == "policy"
     assert refusal.get("constraint") == RefusalConstraint.CAPABILITY_SCOPE
 
-    assert not AgentAction.objects.exists(), (
-        "an agent-action row survived a refusal — #3017 has landed; flip this "
-        "assertion to check the row's verdict/reason/constraint instead"
-    )
+    # The wire envelope and the durable row must agree about why the call was refused —
+    # they are built from the same marks, and a disagreement between them is the failure
+    # mode the taxonomy exists to prevent.
+    row = AgentAction.objects.get()
+    assert row.verdict == AgentActionVerdict.REFUSED
+    assert row.refusal_reason == AgentActionRefusalReason.POLICY
+    assert row.refusal_detail.constraint == RefusalConstraint.CAPABILITY_SCOPE
 
 
 @pytest.mark.django_db

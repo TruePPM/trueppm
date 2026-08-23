@@ -366,28 +366,23 @@ def test_is_agent_token_predicate(owner: Any, scopes: list[str], expected: bool)
 
 
 @pytest.mark.django_db
-def test_a_refused_scoped_token_probe_is_blocked_but_not_audited(
-    project: Project, owner: Any
-) -> None:
-    """Pins the *actual* state of a claim that did not reproduce, so it stays honest.
+def test_a_refused_scoped_token_probe_is_blocked_and_audited(project: Project, owner: Any) -> None:
+    """The #1712 confused-deputy probe is refused **and** leaves a row.
 
-    A security review of this change asserted that the #1712 confused-deputy probe — a
-    one-project integration token walked against a collection tool to read its minter's
-    whole membership — used to write a ``refused`` ``AgentAction`` row and stopped doing
-    so here. Probed against ``origin/main``: it wrote **zero** rows there too. Nothing
-    was removed.
+    This test used to be named ``…_but_not_audited`` and asserted the absence of the
+    row, pinning honestly that no *permission-layer* refusal on this surface was ever
+    audited: DRF's ``exception_handler`` calls ``set_rollback()``, so the write issued
+    in ``finalize_response`` was discarded before it could commit. It carried an
+    instruction to flip if that changed. #3017 changed it (ADR-0902) — the refusal is
+    queued and written after the request transaction closes — so the assertion now
+    checks the row instead of its absence.
 
-    The reason is structural and worth pinning rather than leaving as folklore: DRF's
-    ``exception_handler`` calls ``set_rollback()``, so by the time ``finalize_response``
-    runs, the connection is marked for rollback and ``_record_mcp_agent_action``'s
-    refusal branch declines to write a row that could not commit. Every
-    *permission-layer* refusal on this surface is therefore unaudited; the refusals that
-    do get recorded come from the authenticator, which runs earlier. Tracked as #2939.
-
-    What must not regress is the part that does work — the probe is refused, and the
-    scoped token reads nothing.
+    The probe here is a one-project integration token walked against a collection tool
+    to read its minter's whole membership. That is precisely the event most worth
+    keeping, and it is why ``_record_mcp_agent_action``'s scope predicate deliberately
+    does **not** filter refusals the way it filters allowed reads.
     """
-    from trueppm_api.apps.agents.models import AgentAction
+    from trueppm_api.apps.agents.models import AgentAction, AgentActionVerdict
 
     raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
     ApiToken.objects.create(
@@ -401,11 +396,9 @@ def test_a_refused_scoped_token_probe_is_blocked_but_not_audited(
     resp = _bearer(raw).get("/api/v1/projects/")
     assert resp.status_code == 401, resp.data
     assert resp.data["refusal"]["reason"] == "identity", resp.data
-    assert not AgentAction.objects.exists(), (
-        "a permission-layer refusal became auditable — good news, but then "
-        "_record_mcp_agent_action's scope predicate is now load-bearing and this test "
-        "should assert the row instead of its absence (#2939)"
-    )
+    row = AgentAction.objects.get()
+    assert row.verdict == AgentActionVerdict.REFUSED
+    assert row.refusal_reason == "identity"
 
 
 @pytest.mark.django_db

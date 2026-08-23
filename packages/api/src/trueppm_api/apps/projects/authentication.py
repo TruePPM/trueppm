@@ -228,9 +228,16 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
         presented after it stopped conferring authority, and both are bounded by the
         number of tokens ever minted.
 
-        Runs on the authentication-failure path, inside the request's ATOMIC_REQUESTS
-        transaction, before ``AuthenticationFailed`` is raised (DRF turns that into a 401
-        response, so the transaction still commits and the audit row survives).
+        Runs on the authentication-failure path, before ``AuthenticationFailed`` is
+        raised. The row is **queued**, not written here: DRF turns that exception into a
+        401 via ``exception_handler``, which calls ``set_rollback()``, so an INSERT
+        issued inside the request's ATOMIC_REQUESTS transaction would execute and then be
+        discarded. It is drained by ``AgentActionAuditMiddleware`` once the transaction
+        has closed (#3017, ADR-0902).
+
+        This docstring previously claimed the opposite — "the transaction still commits
+        and the audit row survives". It did not: a revoked token's 401 left zero rows,
+        measured, exactly like the policy refusals #3017 was filed for.
 
         This path runs during authentication, which DRF executes *before* throttling — so
         it must be bounded on its own. Two guards make it safe against a replay flood
@@ -244,9 +251,12 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
             only one indexed read and never re-takes the global chain lock.
 
         The write is also best-effort: a failure is logged and swallowed so it can never
-        convert the 401 into a 500 (matching the permission-layer refusal path).
+        convert the 401 into a 500 (matching the permission-layer refusal path). Since
+        the drain runs after this method returns, every value it needs is resolved here
+        and captured in the queued kwargs.
         """
 
+        from trueppm_api.apps.agents.deferred import queue_agent_action
         from trueppm_api.apps.agents.models import (
             AgentAction,
             AgentActionRefusalReason,
@@ -254,10 +264,7 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
             AgentActorKind,
             RefusalConstraint,
         )
-        from trueppm_api.apps.agents.services import (
-            hash_request_payload,
-            record_agent_action,
-        )
+        from trueppm_api.apps.agents.services import hash_request_payload
         from trueppm_api.apps.projects.models import ProjectApiToken
 
         dead = (
@@ -286,26 +293,23 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
 
         xff = request.META.get("HTTP_X_FORWARDED_FOR")
         source_ip = xff.split(",")[0].strip() if xff else request.META.get("REMOTE_ADDR")
-        try:
-            record_agent_action(
-                actor_kind=AgentActorKind.MCP_TOKEN,
-                actor_token=dead,
-                principal=dead.owner,
-                action="authenticate",
-                method=request.method or "",
-                capability_used="",
-                verdict=AgentActionVerdict.REFUSED,
-                refusal_reason=AgentActionRefusalReason.IDENTITY,
-                # Finer constraint axis (ADR-0421, #1850): a dead/revoked token is a
-                # token_identity refusal; an identity rejection carries no schedule impact.
-                refusal_constraint=RefusalConstraint.TOKEN_IDENTITY,
-                payload_hash=hash_request_payload(request),
-                summary=summary,
-                source_ip=source_ip,
-            )
-        except Exception:
-            # Never let an audit-write failure turn the 401 into a 500.
-            logger.warning("agent-action identity-refusal audit failed", exc_info=True)
+        queue_agent_action(
+            request,
+            actor_kind=AgentActorKind.MCP_TOKEN,
+            actor_token=dead,
+            principal=dead.owner,
+            action="authenticate",
+            method=request.method or "",
+            capability_used="",
+            verdict=AgentActionVerdict.REFUSED,
+            refusal_reason=AgentActionRefusalReason.IDENTITY,
+            # Finer constraint axis (ADR-0421, #1850): a dead/revoked token is a
+            # token_identity refusal; an identity rejection carries no schedule impact.
+            refusal_constraint=RefusalConstraint.TOKEN_IDENTITY,
+            payload_hash=hash_request_payload(request),
+            summary=summary,
+            source_ip=source_ip,
+        )
 
     def authenticate_header(self, request: Request) -> str:
         return self.keyword

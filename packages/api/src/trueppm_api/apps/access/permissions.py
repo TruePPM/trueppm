@@ -1957,11 +1957,25 @@ class McpReadableViewMixin(_McpViewBase):
 
         ``finalize_response`` runs exactly once per request for **both** a successful
         read and a DRF-handled refusal (auth/permission exceptions are turned into
-        responses, so this still runs and — under ATOMIC_REQUESTS — commits). It is
-        therefore the single point where an ``allowed`` read and a ``policy`` refusal are
-        both audited exactly once (ADR-0112 RC1). The write is fail-closed: if
-        ``record_agent_action`` cannot persist, the exception propagates and the request
-        rolls back — an audit substrate must never serve an un-audited read.
+        responses, so this still runs). It is therefore the single point where an
+        ``allowed`` read and a ``policy`` refusal are both audited exactly once
+        (ADR-0112 RC1).
+
+        The two halves reach the database by different routes, and must (#3017,
+        ADR-0902):
+
+        * an **allowed** read is written inline and fail-closed — if
+          ``record_agent_action`` cannot persist, the exception propagates and the
+          request rolls back, because an audit substrate must never serve an un-audited
+          read;
+        * a **refusal** is *queued*, not written. This method runs inside the
+          ATOMIC_REQUESTS transaction, and DRF's ``exception_handler`` has already
+          called ``set_rollback()`` for the exception that produced the 4xx — so an
+          INSERT issued here would execute and then be discarded. It is drained by
+          ``AgentActionAuditMiddleware`` once that transaction has closed.
+
+        Until #3017 this docstring claimed the refusal path "commits". It did not, and
+        the log held zero refusals of any kind as a result.
         """
 
         response = super().finalize_response(request, response, *args, **kwargs)
@@ -2018,20 +2032,17 @@ class McpReadableViewMixin(_McpViewBase):
         # token into a read of its minter's whole membership — the #1712 confused-deputy
         # attempt.
         #
-        # Inert today because **no permission-layer refusal on this surface reaches the
-        # write below**, on this branch or before it. DRF's ``exception_handler`` calls
-        # ``set_rollback()``, so by the time ``finalize_response`` runs the connection is
-        # already marked for rollback and the guard further down returns rather than
-        # emitting a row that could not commit. Verified by probe against ``origin/main``:
-        # a project-scoped token refused on ``GET /api/v1/projects/`` writes zero
-        # ``AgentAction`` rows both before and after this change. Refusals that *are*
-        # recorded come from the authenticator (``_audit_identity_refusal``), which runs
-        # before the exception handler. Closing the permission-layer half needs an
-        # out-of-transaction write, which is its own change (#2939) — this predicate is
-        # written to be correct when that lands rather than to need revisiting then.
+        # This predicate was written while the branch below it was inert: every
+        # permission-layer refusal reached a write whose INSERT ``set_rollback()`` then
+        # discarded, so no refusal row survived and the asymmetry could not be observed.
+        # #3017 supplied the out-of-transaction write the earlier note anticipated (the
+        # refusal is queued and drained by ``AgentActionAuditMiddleware``), so the
+        # predicate is now load-bearing rather than aspirational — a scoped token walked
+        # against the collection tools is recorded.
         if status_code < 400 and not is_agent_token(token):
             return
 
+        from trueppm_api.apps.agents.deferred import queue_agent_action
         from trueppm_api.apps.agents.models import (
             AgentActionRefusalReason,
             AgentActionVerdict,
@@ -2046,6 +2057,15 @@ class McpReadableViewMixin(_McpViewBase):
 
         status = status_code
         allowed = status < 400
+        if status >= 500:
+            # A server error is not a refusal. The taxonomy has no ERROR verdict, so the
+            # only row this code could write says refused/policy/capability_scope — i.e.
+            # "a guard denied you", about a request no guard ever ruled on. That was
+            # latent while every refusal row was rolled back (#3017); now that they
+            # persist, writing it would put a false denial in the operator's log and
+            # inflate the exact signal the log exists to carry. Recorded as nothing
+            # until the enum grows an error member.
+            return
         verdict = AgentActionVerdict.ALLOWED if allowed else AgentActionVerdict.REFUSED
         # An authenticated token rejected by an MCP guard is a *policy* refusal (the
         # actor is known; a capability/scope check denied it). The finer constraint
@@ -2080,44 +2100,41 @@ class McpReadableViewMixin(_McpViewBase):
             # web client (tracked as follow-up, not smuggled into 0.4).
             summary += " — consent-scoped (opted-out projects withheld)"
 
-        def _write() -> None:
-            record_agent_action(
-                actor_kind=AgentActorKind.MCP_TOKEN,
-                actor_token=token,
-                principal=token.owner,
-                action=action,
-                method=request.method or "",
-                capability_used=SCOPE_MCP_READ,
-                verdict=verdict,
-                refusal_reason=refusal_reason,
-                refusal_constraint=refusal_constraint,
-                object_type=object_type,
-                object_id=object_id,
-                project_id=project_id,
-                payload_hash=hash_request_payload(request),
-                summary=summary,
-                source_ip=_mcp_client_ip(request),
-            )
-            _set_agent_span_attributes(token, str(verdict))
+        audit_kwargs: dict[str, Any] = {
+            "actor_kind": AgentActorKind.MCP_TOKEN,
+            "actor_token": token,
+            "principal": token.owner,
+            "action": action,
+            "method": request.method or "",
+            "capability_used": SCOPE_MCP_READ,
+            "verdict": verdict,
+            "refusal_reason": refusal_reason,
+            "refusal_constraint": refusal_constraint,
+            "object_type": object_type,
+            "object_id": object_id,
+            "project_id": project_id,
+            "payload_hash": hash_request_payload(request),
+            "summary": summary,
+            "source_ip": _mcp_client_ip(request),
+        }
+        # Stamped now either way: the span is the *current* request's, and on the
+        # deferred path it may well have ended by the time the queue drains.
+        _set_agent_span_attributes(token, str(verdict))
 
         if allowed:
-            # Fail-closed: a successful read that we could not audit must not be served —
-            # the write raises, ATOMIC_REQUESTS rolls back, and the request 500s.
-            _write()
+            # Fail-closed, and inline for that reason: a successful read that we could
+            # not audit must not be served, so the write shares the read's transaction —
+            # it raises, ATOMIC_REQUESTS rolls back, and the request 500s. This is the
+            # one case where being inside the request transaction is the point.
+            record_agent_action(**audit_kwargs)
             return
 
-        # A refusal is already the safe outcome. Never turn a 401/403 into a 500 because
-        # the audit could not be written, and skip when the request transaction is already
-        # marked for rollback (a denied request often taints its transaction, and the row
-        # could not persist regardless). Recorded best-effort on a clean refusal path.
-        from django.db import connection
-
-        if getattr(connection, "needs_rollback", False):
-            return
-        try:
-            _write()
-        except Exception:
-            logger.warning("agent-action refusal audit failed", exc_info=True)
+        # A refusal cannot be written here at all. DRF's exception_handler has already
+        # called set_rollback() for the APIException that produced this 4xx, so an INSERT
+        # issued now executes and is then discarded when the request transaction unwinds —
+        # which is exactly why this log contained only successes (#3017). Queue it for
+        # AgentActionAuditMiddleware, which runs after ATOMIC_REQUESTS has closed.
+        queue_agent_action(request, **audit_kwargs)
 
     def _mcp_audit_target(self, request: Request) -> tuple[str, str, str, Any | None]:
         """Best-effort ``(action, object_type, object_id, project_id)`` for the audit row.
