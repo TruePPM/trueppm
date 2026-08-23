@@ -52,7 +52,20 @@ import { useTrailStore } from './trail/trailStore';
  * The row-scoped derivation is deliberately a *superset* — an unmodified
  * `e.key === 'Escape'` guard registers bare `escape`. Erring wide is right for
  * this gate: a false negative ships another dead chip, while the widest possible
- * false positive is admitting a chord no teaching surface names anyway.
+ * false positive is admitting a chord no teaching surface names anyway. That
+ * asymmetry is the whole safety argument, so a pattern that errs *narrow* is a
+ * defect even where it looks stricter — see the `.toLowerCase()` note below.
+ *
+ * ## What this does NOT cover, and why
+ *
+ * `BuildModeCheatsheet` (~40 chips, the surface the `?` button opens) and
+ * `BuildModeHintStrip` are **not** checked here. That is a scoping decision
+ * rather than an oversight: both legitimately teach bare `Tab` — next-field in
+ * cell edit (`EditableCell`) and accept-suggestion (`TokenAutocomplete`) — which
+ * are real bindings living in a *third* layer, inside a text surface. Extending
+ * the gate over them needs that layer in the derivation first; without it those
+ * honest claims would read as dead chords and the gate would demand they be
+ * deleted, which is the failure mode this file exists to prevent, inverted.
  */
 
 const SOURCES: Record<string, string> = import.meta.glob('./*.tsx', {
@@ -196,14 +209,24 @@ describe('the keyboard layers the guard derives from', () => {
     // Written as `e.key.toLowerCase() === 'd'`, so it pins that the row-layer
     // pattern reaches the normalized form and not just the bare comparison.
     expect(live.has('mod+d')).toBe(true); // TaskListRow, duplicate
+    expect(live.has('mod+a')).toBe(true); // TaskListRow, select siblings
     expect(live.size).toBeGreaterThan(15);
   });
 
-  it('does not resolve Tab — the premise the coach bar got wrong', () => {
-    // Not an incidental absence. Tab is left to native focus traversal on
-    // purpose: intercepting it reproduces the WCAG 2.1.2 keyboard trap fixed in
-    // #2192/#2727 (ADR-0776 §6). If this ever turns true, the fix is to find out
-    // who bound Tab, not to update this expectation.
+  it('does not resolve Tab at the row/outline layer — the premise the coach bar got wrong', () => {
+    // Scope this precisely, because the unqualified claim is false and would
+    // send the next reader hunting a regression that is not one. Tab **is**
+    // bound elsewhere in the Schedule and correctly so: `EditableCell` uses it
+    // for next-field, `TokenAutocomplete` to accept a suggestion, and five
+    // dialogs/menus run focus traps on it. All of those are *inside* a text
+    // surface or a trap the user opened.
+    //
+    // What must stay unbound is Tab on a focused ROW — the navigation layer
+    // these two files derive from. Binding it there reproduces the WCAG 2.1.2
+    // keyboard trap fixed in #2192/#2727 (ADR-0776 §6): every Tab keydown gets
+    // `preventDefault()`d, so a keyboard user can never leave the grid and each
+    // escape attempt fires a mutation. If this turns true, check whether the
+    // new binding is on a row or in a text surface before treating it as a bug.
     expect(live.has('tab')).toBe(false);
     expect(live.has('shift+tab')).toBe(false);
   });

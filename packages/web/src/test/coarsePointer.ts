@@ -1,4 +1,4 @@
-import { syncRowMetrics } from '@/features/schedule/scheduleConstants';
+import { syncRowMetrics, syncComfortableRows } from '@/features/schedule/scheduleConstants';
 
 let previousMatchMedia: { had: boolean; value: unknown } | null = null;
 
@@ -82,5 +82,10 @@ export function restoreCoarsePointer(): void {
     else delete g.matchMedia;
     previousMatchMedia = null;
   }
+  // Both inputs, not just the pointer class. Since #3019 the height resolves
+  // from two latched values, so resetting one leaves the other free to hold the
+  // row model at 44px — and this helper is the shared reset for six suites that
+  // would then be asserting against a height nothing in them chose.
+  syncComfortableRows(false);
   syncRowMetrics(false);
 }
