@@ -6,7 +6,7 @@
  */
 import { useMemo } from 'react';
 import { screen, render, fireEvent, act } from '@testing-library/react';
-import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { TaskListRow } from './TaskListRow';
 import { BuildModeProvider } from './buildMode/BuildModeContext';
 import {
@@ -17,6 +17,16 @@ import {
 import type { Task } from '@/types';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
 import { MemoryRouter } from 'react-router';
+import { stubCoarsePointer, restoreCoarsePointer } from '@/test/coarsePointer';
+import { useRowMetrics } from '@/hooks/useRowHeight';
+import {
+  NUDGE_SIZE_COARSE,
+  NUDGE_SIZE_FINE,
+  ROW_HEIGHT_COARSE,
+  INSERT_LANE_GAP,
+  INSERT_TAP_INSET_COARSE,
+  resolveNudgeLaneWidth,
+} from './scheduleConstants';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const widths: ColumnWidths['widths'] = {
@@ -74,11 +84,14 @@ function Harness({
   task = baseTask,
   level = 2,
   onMoveToRequest,
+  visibleOverride,
   capture,
 }: {
   task?: Task;
   level?: number;
   onMoveToRequest?: (taskId: string) => void;
+  /** Column visibility for THIS render — #3026 needs a row with `wbs: false`. */
+  visibleOverride?: typeof visible;
   capture: { current: Captured | null };
 }) {
   const focus = useScheduleFocus();
@@ -119,19 +132,58 @@ function Harness({
   };
   return (
     <BuildModeProvider api={api}>
-      <TaskListRow
+      <PanelStandIn
         task={task}
         level={level}
-        widths={widths}
-        visible={visible}
+        visible={visibleOverride ?? visible}
         onMoveToRequest={onMoveToRequest}
       />
     </BuildModeProvider>
   );
 }
 
+/**
+ * Plays `TaskListPanel`'s one structural role for these tests: resolving the
+ * ⇤/⇥ lane and handing it down (#3026).
+ *
+ * The row has no fallback — a lane it renders without the panel reserving is a
+ * row whose columns sit a lane right of their own headings — so a harness that
+ * omits `nudgeReserve` is testing a row with no structural controls at all.
+ * Resolving it the way the panel does (`resolveNudgeLaneWidth` off the live
+ * pointer class) also means these tests exercise the same arithmetic production
+ * does rather than a literal that can drift away from it.
+ */
+function PanelStandIn({
+  task,
+  level,
+  visible: visibleProp,
+  onMoveToRequest,
+}: {
+  task: Task;
+  level: number;
+  visible: typeof visible;
+  onMoveToRequest?: (taskId: string) => void;
+}) {
+  const { coarse } = useRowMetrics();
+  return (
+    <TaskListRow
+      task={task}
+      level={level}
+      widths={widths}
+      visible={visibleProp}
+      nudgeReserve={resolveNudgeLaneWidth(coarse)}
+      onMoveToRequest={onMoveToRequest}
+    />
+  );
+}
+
 function renderHarness(
-  opts: { task?: Task; level?: number; onMoveToRequest?: (taskId: string) => void } = {},
+  opts: {
+    task?: Task;
+    level?: number;
+    onMoveToRequest?: (taskId: string) => void;
+    visibleOverride?: typeof visible;
+  } = {},
 ) {
   const capture: { current: Captured | null } = { current: null };
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -744,6 +796,233 @@ describe('TaskListRow — structure controls at the WBS number (#2956)', () => {
     expect(screen.queryByRole('button', { name: /Indent Foundation/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Outdent Foundation/ })).not.toBeInTheDocument();
   });
+});
+
+/**
+ * #3026 — the pair degraded two ways, and both defeat the reason it exists.
+ *
+ * The design's own justification for putting indent/outdent on the row is that
+ * "restructuring is not keyboard-only knowledge". A control that disappears with
+ * an unrelated column, or that is a 16px target on a device with no keyboard,
+ * fails that sentence rather than the aesthetic around it.
+ */
+describe('TaskListRow — the structural nudges survive a hidden WBS column (#3026)', () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(restoreCoarsePointer);
+
+  const editable: Task = { ...baseTask, canEdit: true };
+  const wbsHidden = { ...visible, wbs: false };
+
+  it('still offers indent and outdent when the WBS column is switched off', () => {
+    // THE defect. The pair used to live inside the WBS cell, which is rendered
+    // `visible.wbs && …` — so a Display ▸ Columns preference that has nothing to
+    // do with restructuring deleted both controls from every row, leaving
+    // right-click as the only pointer route.
+    renderHarness({ task: editable, visibleOverride: wbsHidden });
+    expect(screen.queryByLabelText('WBS 1.2')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Indent Foundation/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Outdent Foundation/ })).toBeInTheDocument();
+  });
+
+  it('keeps them working, not merely present, with the column hidden', () => {
+    // Present-but-inert would be the same defect with a nicer screenshot.
+    renderHarness({ task: editable, visibleOverride: wbsHidden });
+    fireEvent.click(screen.getByRole('button', { name: /Indent Foundation/ }));
+    expect(stableSpies.indent).toHaveBeenCalledWith('t-build-1');
+    fireEvent.click(screen.getByRole('button', { name: /Outdent Foundation/ }));
+    expect(stableSpies.outdent).toHaveBeenCalledWith('t-build-1');
+  });
+
+  it('puts them in their OWN lane, not inside the WBS gridcell', () => {
+    // The structural half of the fix: as long as the buttons are descendants of
+    // the WBS cell, some future column change can delete them again.
+    renderHarness({ task: editable });
+    const wbsCell = screen.getByLabelText('WBS 1.2');
+    const indent = screen.getByRole('button', { name: /Indent Foundation/ });
+    expect(wbsCell.contains(indent)).toBe(false);
+    expect(screen.getByTestId('row-structure-nudges').contains(indent)).toBe(true);
+  });
+
+  it('keeps the lane to the LEFT of the WBS number — never rightward toward delete', () => {
+    // The design is explicit that a structural nudge and a destructive act must
+    // not be neighbours (#2956). "Free it from the WBS column" must not be
+    // solved by moving it across the row to the other controls.
+    renderHarness({ task: editable });
+    const row = screen.getByRole('row');
+    const cells = Array.from(row.children);
+    const lane = screen.getByTestId('row-structure-nudges');
+    const wbsCell = screen.getByLabelText('WBS 1.2');
+    expect(cells.indexOf(lane)).toBeGreaterThanOrEqual(0);
+    expect(cells.indexOf(lane)).toBeLessThan(cells.indexOf(wbsCell));
+  });
+});
+
+describe('TaskListRow — the nudges meet the touch floor on a coarse pointer (#3026)', () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(restoreCoarsePointer);
+
+  const editable: Task = { ...baseTask, canEdit: true };
+
+  it('sizes both buttons 44x44 on a coarse pointer', () => {
+    // They were hard-coded `w-4 h-4` and did not grow at all: 16px targets
+    // inside the 44px row #2997 shipped, on the surface whose stated reason to
+    // exist is that restructuring must not be keyboard-only — for the user
+    // (tablet) who has no keyboard. Web rule 5 / WCAG 2.5.5.
+    stubCoarsePointer(true);
+    renderHarness({ task: editable });
+    for (const name of [/Indent Foundation/, /Outdent Foundation/]) {
+      const btn = screen.getByRole('button', { name });
+      expect(btn.style.width).toBe(`${NUDGE_SIZE_COARSE}px`);
+      expect(btn.style.height).toBe(`${NUDGE_SIZE_COARSE}px`);
+      expect(NUDGE_SIZE_COARSE).toBeGreaterThanOrEqual(44);
+    }
+  });
+
+  it('takes the 44 from the ROW-HEIGHT owner, not a second literal (rule 315)', () => {
+    // A second `44` in this file would agree with the row by luck. The moment
+    // one moves, a control stops being as tall as its row and nothing looks
+    // broken — which is the whole reason rule 315 is about ownership.
+    expect(NUDGE_SIZE_COARSE).toBe(ROW_HEIGHT_COARSE);
+  });
+
+  it('leaves a mouse the compact 16px pair — no `md:` breakpoint in sight', () => {
+    // The counterweight. A change that made every desktop row carry 44px nudges
+    // would pass the assertion above and cost the planner a lane of the outline
+    // they read the plan in.
+    stubCoarsePointer(false);
+    renderHarness({ task: editable });
+    const btn = screen.getByRole('button', { name: /Indent Foundation/ });
+    expect(btn.style.width).toBe(`${NUDGE_SIZE_FINE}px`);
+    expect(btn.style.height).toBe(`${NUDGE_SIZE_FINE}px`);
+  });
+
+  it('gives the pair a lane wide enough for both targets, so neither covers the other', () => {
+    // #2997: a 44px target that only reaches the floor by covering its neighbour
+    // has not met the floor — it has moved the failure somewhere the tester will
+    // not look. Two targets therefore cost two targets' width.
+    stubCoarsePointer(true);
+    renderHarness({ task: editable });
+    const lane = screen.getByTestId('row-structure-nudges');
+    expect(lane.style.width).toBe(`${resolveNudgeLaneWidth(true)}px`);
+    expect(resolveNudgeLaneWidth(true)).toBeGreaterThanOrEqual(2 * 44);
+  });
+
+  it('sizes the lane to the full row height, not to the row minus its border', () => {
+    // `inset-y-0` would make the lane `rowHeight - 1` — 43px, which has not met
+    // a 44px floor however close it looks (the #2997 corollary).
+    stubCoarsePointer(true);
+    renderHarness({ task: editable });
+    expect(screen.getByTestId('row-structure-nudges').style.height).toBe(`${ROW_HEIGHT_COARSE}px`);
+  });
+});
+
+describe('TaskListRow — the lane does not land on top of the insert affordance (#3026)', () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(restoreCoarsePointer);
+
+  const editable: Task = { ...baseTask, canEdit: true };
+
+  /** Left edge of the `+`'s TAP box — the disc, less what `before:` overhangs. */
+  function insertTapLeft(coarse: boolean): number {
+    const insert = screen.getByRole('button', { name: /Insert an item below Foundation/ });
+    const disc = Number.parseInt(insert.style.marginLeft, 10);
+    return disc - (coarse ? INSERT_TAP_INSET_COARSE : 0);
+  }
+
+  it('clears the nudge lane with the TAP BOX, not merely with the disc', () => {
+    // Two mistakes are available and the second is the subtle one. Omit the
+    // nudge term and the 16px disc lands inside the ⇤/⇥ lane; include it but
+    // clear only the disc, and the `before:-inset-3.5` box — what the browser
+    // actually hit-tests — still covers the indent button's bottom-right 10px.
+    //
+    // Asserted as a clearance PROPERTY rather than by restating the offset
+    // formula: a test that recomputes `lane + gap` agrees with the bug, and
+    // jsdom renders no pseudo-element to measure instead.
+    stubCoarsePointer(true);
+    renderHarness({ task: editable, level: 1 });
+    expect(insertTapLeft(true)).toBeGreaterThanOrEqual(resolveNudgeLaneWidth(true));
+  });
+
+  it('still clears it at depth, where the offset grows', () => {
+    stubCoarsePointer(true);
+    renderHarness({ task: editable, level: 4 });
+    expect(insertTapLeft(true)).toBeGreaterThanOrEqual(resolveNudgeLaneWidth(true));
+  });
+
+  it('does not over-pay on a mouse, where no tap box is drawn at all', () => {
+    // The `before:` box is coarse-only, so a fine pointer needs the visible
+    // gutter and nothing more — pushing the disc 14px further right there would
+    // be chrome bought for a box that does not exist.
+    stubCoarsePointer(false);
+    renderHarness({ task: editable, level: 1 });
+    expect(insertTapLeft(false)).toBe(resolveNudgeLaneWidth(false) + INSERT_LANE_GAP);
+  });
+});
+
+describe('TaskListRow — the nudges reserve their space at rest (#3026)', () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(restoreCoarsePointer);
+
+  const editable: Task = { ...baseTask, canEdit: true };
+
+  /** The element the resting-opacity treatment is actually on. */
+  function ink(): HTMLElement {
+    return screen.getByTestId('row-structure-nudges-ink');
+  }
+
+  it('rests at 32% opacity on a mouse rather than at zero', () => {
+    // No test pinned this before, which is how a "tidy-up" to
+    // `opacity-0 group-hover:opacity-100` would have landed green: identical in
+    // a screenshot, and a row that shifts under the pointer on hover.
+    stubCoarsePointer(false);
+    renderHarness({ task: editable });
+    expect(ink().className).toContain('opacity-[0.32]');
+    expect(ink().className).not.toContain('opacity-0');
+  });
+
+  it('is at FULL strength on a coarse pointer — 32% would be the only state', () => {
+    // There is no hover on a finger and both buttons are `tabIndex={-1}`, so
+    // neither reveal path can fire: 32% of `neutral-text-secondary` is ≈1.6:1,
+    // under WCAG 1.4.11's 3:1 for an active control. A 44px target nobody can
+    // see is not a discoverable one — sizing it without showing it fixes the
+    // measurable half of #3026 and leaves the half that matters.
+    stubCoarsePointer(true);
+    renderHarness({ task: editable });
+    expect(ink().className).toContain('opacity-100');
+    expect(ink().className).not.toContain('opacity-[0.32]');
+  });
+
+  it('brightens on ROW hover and on focus, WITHOUT re-laying-out the row', () => {
+    // Only `opacity` transitions, and the buttons occupy their box at rest —
+    // that pair of facts is what stops the FS/CP chips being shoved sideways
+    // when the pointer crosses the row. A `transition-all`, or a display/width
+    // branch, reintroduces the shift.
+    //
+    // `group-hover:`, not `group-hover/nudge:`: a reveal scoped to the 34px lane
+    // needs the pointer already on the control, which is the discoverability
+    // problem restated. The grip and the insert `+` both read the row's group.
+    stubCoarsePointer(false);
+    renderHarness({ task: editable });
+    const cls = ink().className;
+    expect(cls).toContain('group-hover:opacity-100');
+    expect(cls).not.toContain('group-hover/nudge:');
+    expect(cls).toContain('focus-within:opacity-100');
+    expect(cls).toContain('transition-opacity');
+    expect(cls).not.toContain('transition-all');
+    expect(cls).not.toMatch(/\bhidden\b/);
+  });
+
+  it('keeps the populated lane a real gridcell — a row may not own bare buttons', () => {
+    // The buttons used to live inside the WBS `role="gridcell"`. Freeing them
+    // from that column must not cost the row its ARIA structure: `role="row"` in
+    // a treegrid may own only gridcell / columnheader / rowheader.
+    renderHarness({ task: editable });
+    const lane = screen.getByTestId('row-structure-nudges');
+    expect(lane).toHaveAttribute('role', 'gridcell');
+    expect(lane).not.toHaveAttribute('aria-hidden');
+    expect(lane.contains(screen.getByRole('button', { name: /Indent Foundation/ }))).toBe(true);
+  });
+
 });
 
 describe('TaskListRow — insert lands where its position implies (#2957)', () => {

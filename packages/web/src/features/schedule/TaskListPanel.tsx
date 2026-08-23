@@ -2,7 +2,11 @@ import { useCallback, useRef, useState, useEffect, useMemo, type RefObject } fro
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { ProjectResource, Task } from '@/types';
 import { useRowMetrics } from '@/hooks/useRowHeight';
-import { resolveOutlineGripReserve } from './scheduleConstants';
+import {
+  resolveOutlineGripReserve,
+  resolveOutlineNudgeReserve,
+  resolveOutlineLeftReserve,
+} from './scheduleConstants';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { TaskListHeader } from './TaskListHeader';
@@ -92,7 +96,7 @@ function computeNameSuggestions(tasks: Task[]): string[] {
 // PendingTaskRow — shown for tasks created but not yet scheduled (no dates yet)
 // ---------------------------------------------------------------------------
 
-function PendingTaskRow({ name, gripReserve }: { name: string; gripReserve: number }) {
+function PendingTaskRow({ name, leftReserve }: { name: string; leftReserve: number }) {
   const { rowHeight } = useRowMetrics();
   const [timedOut, setTimedOut] = useState(false);
 
@@ -113,8 +117,8 @@ function PendingTaskRow({ name, gripReserve }: { name: string; gripReserve: numb
         bg-white/5 border-l-2 border-brand-primary/40"
       style={{ height: rowHeight }}
     >
-      {gripReserve > 0 && (
-        <span aria-hidden="true" className="shrink-0" style={{ width: gripReserve }} />
+      {leftReserve > 0 && (
+        <span aria-hidden="true" className="shrink-0" style={{ width: leftReserve }} />
       )}
       {/* Empty checkbox column */}
       <span className="w-6 flex-shrink-0" />
@@ -167,9 +171,18 @@ interface Props {
   /** Set of expanded task IDs for collapse/expand. */
   expandedIds: Set<string>;
   /**
-   * Direct structural child count per summary row (#2956) — what the fold caret
-   * states as "N inside" / "N hidden". Optional so callers that do not compute
-   * it (the print layout) keep working.
+   * Rows in each summary's SUBTREE — what the fold caret and the row's own
+   * statement render as "N inside" / "N hidden" (#2956, #3025).
+   *
+   * Descendants, not direct children, and the distinction is the point: folding
+   * a phase hides its whole subtree, so "4 hidden" on a phase with two children
+   * and two grandchildren is the honest number and "2 hidden" would be a
+   * confident wrong one. `ScheduleView`'s `walk()` is where it is counted; this
+   * docstring said "direct" for as long as nothing rendered the value, which is
+   * how the two got to disagree unnoticed.
+   *
+   * Optional so callers that do not compute it (the print layout) keep working —
+   * a row with no entry states no count rather than claiming zero.
    */
   childCountById?: ReadonlyMap<string, { name: string; count: number }>;
   /** Toggle expand/collapse for a task. */
@@ -343,6 +356,19 @@ export function TaskListPanel({
    * fixed-width box and subtracted from no column.
    */
   const gripReserve = resolveOutlineGripReserve(coarse, onMoveRow !== undefined);
+  /**
+   * The ⇤/⇥ structural-nudge lane (#3026) — panel-level for exactly the reasons
+   * above, and gated on the same question.
+   *
+   * The pair used to live inside the WBS cell, which made it conditional on
+   * `visible.wbs` — a Display ▸ Columns preference. Hiding an unrelated column
+   * therefore removed indent and outdent from every row and left right-click as
+   * the only pointer route. A lane of its own is the structural fix: a column
+   * choice can no longer decide whether a control exists.
+   */
+  const nudgeReserve = resolveOutlineNudgeReserve(coarse, onMoveRow !== undefined);
+  /** Both lanes — what anything positioning against "where the columns start" reads. */
+  const leftReserve = resolveOutlineLeftReserve(coarse, onMoveRow !== undefined);
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollToTaskId = useScheduleStore((s) => s.scrollToTaskId);
   const scrollToTask = useScheduleStore((s) => s.scrollToTask);
@@ -522,6 +548,7 @@ export function TaskListPanel({
         visible={visible}
         setWidth={setWidth}
         gripReserve={gripReserve}
+        nudgeReserve={nudgeReserve}
         maxTaskWidth={maxTaskWidth}
       />
 
@@ -534,7 +561,7 @@ export function TaskListPanel({
         <BlankOutlineDraftRow
             onCommit={onCommitDraftRow}
             nameWidth={widths.task}
-            gripReserve={gripReserve}
+            leftReserve={leftReserve}
           />
       )}
 
@@ -571,6 +598,7 @@ export function TaskListPanel({
               >
                 <TaskListRow
                   gripReserve={gripReserve}
+                  nudgeReserve={nudgeReserve}
                   task={task}
                   // Header is row 1, so data rows are 1-based from 2 (#2204).
                   ariaRowIndex={virtualRow.index + 2}
@@ -630,7 +658,7 @@ export function TaskListPanel({
               rows={dragRows}
               draggedId={dragSession.draggedId}
               rowHeight={rowHeight}
-              leftInset={gripReserve}
+              leftInset={leftReserve}
             />
           )}
         </div>
@@ -639,7 +667,7 @@ export function TaskListPanel({
         {pendingTaskIds && pendingTaskIds.size > 0 && (
           <div role="presentation">
             {Array.from(pendingTaskIds.entries()).map(([id, name]) => (
-              <PendingTaskRow key={id} name={name} gripReserve={gripReserve} />
+              <PendingTaskRow key={id} name={name} leftReserve={leftReserve} />
             ))}
           </div>
         )}

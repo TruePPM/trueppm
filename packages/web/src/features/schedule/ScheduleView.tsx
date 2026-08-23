@@ -25,7 +25,7 @@ import { ancestorIdsOf } from './unscheduledSelection';
 import type { GanttEngine, GanttScaleData } from './engine';
 import { dateToLeft, leftToDate, ZOOM_STEP_FACTOR } from './engine';
 import { computeInitialFraming, type RowBar } from './scheduleUtils';
-import { resolveOutlineGripReserve, HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
+import { resolveOutlineLeftReserve, HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
 import { useRowHeight, useRowMetrics, useComfortableRows } from '@/hooks/useRowHeight';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
@@ -922,7 +922,10 @@ export function ScheduleView() {
     const tree = buildWbsTree(allTasks);
     const sIds = new Set(allTasks.filter((t) => t.isSummary).map((t) => t.id));
     const visible = flattenVisible(tree, expandedIds).map((n) => n.task);
-    // Count descendants per summary — used for aria-live announcements
+    // Rows in each summary's SUBTREE. Descendants rather than direct children
+    // because folding hides the whole subtree, so that is what "N hidden" —
+    // and therefore "N inside" — is counting (#3025). Read by the fold
+    // announcement, the row's own statement, and the group/ungroup notices.
     const counts = new Map<string, { name: string; count: number }>();
     const walk = (nodes: ReturnType<typeof buildWbsTree>): number => {
       let total = 0;
@@ -1644,14 +1647,16 @@ export function ScheduleView() {
   /**
    * The outline panel's real box on the active surface (#2960).
    *
-   * `surfaceWidth` is the sum of the columns; the ⋮⋮ grip's lane is rendered
-   * *inside* the panel and subtracted from no column, so it has to be added or
-   * the row content overruns its own box by 44px on a coarse pointer. Resolved
-   * through the same helper `TaskListPanel` uses, and gated on the same
-   * "authorable at all" question its `onMoveRow` answers (line ~3375).
+   * `surfaceWidth` is the sum of the columns; the ⋮⋮ grip's lane (#2997) and the
+   * ⇤/⇥ structural-nudge lane (#3026) are both rendered *inside* the panel and
+   * subtracted from no column, so they have to be added or the row content
+   * overruns its own box. Resolved through the same helper `TaskListPanel` uses,
+   * and gated on the same "authorable at all" question its `onMoveRow` answers
+   * (line ~3375) — one function returns both lanes, so a reader cannot learn
+   * about one and miss the other.
    */
   const outlineWidth =
-    surfaceWidth + resolveOutlineGripReserve(coarsePointer, !readOnly);
+    surfaceWidth + resolveOutlineLeftReserve(coarsePointer, !readOnly);
 
   /** Is the outline on screen at all? One predicate — see the function. */
   const outlineRendered = scheduleOutlineRendered(
@@ -3775,6 +3780,7 @@ export function ScheduleView() {
         setWidth={setWidth}
         totalWidth={outlineWidth}
         summaryIds={summaryIds}
+        childCountById={childCountById}
         expandedIds={expandedIds}
         toggleExpand={toggleExpand}
         focusChainIds={focusChainIds}
@@ -4968,6 +4974,19 @@ interface ScheduleMainAreaProps {
   setWidth: ColWidthsHook['setWidth'];
   totalWidth: number;
   summaryIds: Set<string>;
+  /**
+   * Rows in each summary's subtree — what the fold caret and the row's own
+   * `N inside` / `N hidden` statement are derived from (#3025). Descendants,
+   * not direct children: folding a phase hides the whole subtree, so that is
+   * the number both fold states are talking about.
+   *
+   * This was computed in `ScheduleView` and handed only to the *print* panel;
+   * the live outline's `TaskListPanel` never received it, so every caret on the
+   * real Schedule fell back to `childCount = 0` and said "Collapse Mobilization"
+   * with no count at all. The tooltip-only rendering was the visible half of the
+   * defect; this was the half that made even the `aria-label` empty.
+   */
+  childCountById: ComponentProps<typeof TaskListPanel>['childCountById'];
   expandedIds: Set<string>;
   toggleExpand: (id: string) => void;
   focusChainIds: Set<string> | undefined;
@@ -5124,6 +5143,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
     setWidth,
     totalWidth,
     summaryIds,
+    childCountById,
     expandedIds,
     toggleExpand,
     focusChainIds,
@@ -5214,6 +5234,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
               totalWidth={totalWidth}
               maxTaskWidth={maxTaskWidth}
               summaryIds={summaryIds}
+              childCountById={childCountById}
               expandedIds={expandedIds}
               onToggle={toggleExpand}
               focusChainIds={focusChainIds}

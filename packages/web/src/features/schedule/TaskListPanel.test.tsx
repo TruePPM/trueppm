@@ -7,6 +7,7 @@ import type { Task } from '@/types';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { buildSiblingIdsMap, TaskListPanel } from './TaskListPanel';
 import { stubCoarsePointer, restoreCoarsePointer } from '@/test/coarsePointer';
+import { resolveOutlineLeftReserve, resolveNudgeLaneWidth } from './scheduleConstants';
 
 /** Minimal task stub — buildSiblingIdsMap only reads `id` and `wbs`. */
 function t(id: string, wbs: string): Task {
@@ -91,13 +92,24 @@ vi.mock('@tanstack/react-virtual', () => ({
 }));
 
 vi.mock('./TaskListHeader', () => ({
-  TaskListHeader: ({ gripReserve }: { gripReserve: number }) => (
-    <div data-testid="task-list-header" data-grip-reserve={gripReserve} />
+  TaskListHeader: ({
+    gripReserve,
+    nudgeReserve,
+  }: {
+    gripReserve: number;
+    nudgeReserve: number;
+  }) => (
+    <div
+      data-testid="task-list-header"
+      data-grip-reserve={gripReserve}
+      data-nudge-reserve={nudgeReserve}
+    />
   ),
 }));
 
 interface RowStubProps {
   gripReserve?: number;
+  nudgeReserve?: number;
   task: Task;
   level: number;
   dimmed?: boolean;
@@ -136,6 +148,7 @@ vi.mock('./TaskListRow', () => ({
       data-active-row={String(props.isActiveRow ?? false)}
       data-has-focus-edge={String(Boolean(props.onFocusEdge))}
       data-grip-reserve={props.gripReserve ?? 0}
+      data-nudge-reserve={props.nudgeReserve ?? 0}
       data-sibling-names={(props.siblingNames ?? []).join(',')}
       data-name-suggestions={(props.nameSuggestions ?? []).join('|')}
       data-milestone-parents={(props.milestoneParents ?? []).map((p) => p.name).join(',')}
@@ -636,7 +649,31 @@ describe('TaskListPanel — the row pitch follows the pointer class (#2997)', ()
     const pending = screen.getByRole('row', { name: /pending scheduling/ });
     const lane = pending.firstElementChild as HTMLElement;
     expect(lane.getAttribute('aria-hidden')).toBe('true');
-    expect(lane.style.width).toBe('44px');
+    // BOTH lanes (#3026) — a pending row that spaced by the grip alone would
+    // slide left by the nudge lane the instant the scheduler answered.
+    expect(lane.style.width).toBe(`${resolveOutlineLeftReserve(true, true)}px`);
+  });
+
+  it('hands the header and every row the SAME nudge lane (#3026)', () => {
+    stubCoarsePointer(true);
+    renderPanel({
+      tasks: [task({ id: 'a' }), task({ id: 'b', wbs: '2' })],
+      onMoveRow: vi.fn(),
+    });
+    // Same invariant as the grip lane above, for the same reason: the header and
+    // the rows each render the spacer themselves, so a lane resolved per
+    // component is a table whose columns do not line up.
+    const lane = String(resolveNudgeLaneWidth(true));
+    expect(screen.getByTestId('task-list-header')).toHaveAttribute('data-nudge-reserve', lane);
+    expect(screen.getByTestId('row-a')).toHaveAttribute('data-nudge-reserve', lane);
+    expect(screen.getByTestId('row-b')).toHaveAttribute('data-nudge-reserve', lane);
+  });
+
+  it('gives a VIEWER no nudge lane — absence, not a reserved hole (#3026)', () => {
+    stubCoarsePointer(true);
+    renderPanel({ tasks: [task({ id: 'a' })] }); // no onMoveRow → nothing to nudge
+    expect(screen.getByTestId('task-list-header')).toHaveAttribute('data-nudge-reserve', '0');
+    expect(screen.getByTestId('row-a')).toHaveAttribute('data-nudge-reserve', '0');
   });
 
   it('reserves nothing on a fine pointer even when the grip is there', () => {

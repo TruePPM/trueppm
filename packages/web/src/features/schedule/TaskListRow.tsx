@@ -11,7 +11,8 @@ import {
 } from './useProgressAutoStatusConfirm';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { ProjectResource, Task } from '@/types';
-import { WBS_INDENT } from './scheduleConstants';
+import { WBS_INDENT, resolveInsertLaneGap } from './scheduleConstants';
+import { formatContainmentCount } from './containmentCount';
 import { useRowMetrics } from '@/hooks/useRowHeight';
 import type { RowMode } from './deliveryModePresentation';
 import { ModeChip, ModeGutter } from './RowModeIndicators';
@@ -256,6 +257,13 @@ interface Props {
    * web rule 302 keeps absent.
    */
   gripReserve?: number;
+  /**
+   * Width of the ⇤/⇥ structural-nudge lane (#3026) — from `TaskListPanel`, for
+   * the same reason `gripReserve` is: the header, every row, the pending rows
+   * and the draft row must reserve the *same* number or the columns do not line
+   * up. Defaults to 0, which is also what a viewer's panel passes.
+   */
+  nudgeReserve?: number;
 }
 
 // On macOS the modifier is labelled "Option"; everywhere else it's "Alt".
@@ -1379,41 +1387,139 @@ function RowReorderHandle({
  * WBS column (#248). Split out of TaskListRowInner (#2081) — the character
  * budget that drives the middle-ellipsis truncation is verbatim.
  */
-function RowWbsCell({
-  wbs,
-  widthPx,
+function RowWbsCell({ wbs, widthPx }: { wbs: string; widthPx: number }) {
+  return (
+    <div
+      className="flex items-center justify-end shrink-0 border-r border-neutral-border/20
+        text-right text-neutral-text-secondary tppm-mono pr-2 text-xs"
+      style={{ width: widthPx }}
+      role="gridcell"
+      aria-label={`WBS ${wbs}`}
+      title={wbs}
+    >
+      <span className="truncate">
+        {truncateWbsPath(wbs, Math.max(3, Math.floor(widthPx / 8) - 1))}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The structural-nudge lane — ⇤ outdent / ⇥ indent, in a lane of their own
+ * (#3026).
+ *
+ * ## Why this is not inside `RowWbsCell` any more
+ *
+ * It was, and that made the pair conditional on `visible.wbs` — a Display ▸
+ * Columns preference. Hiding the WBS column deleted indent and outdent from
+ * every row and left the right-click menu as the only pointer route, which is
+ * exactly the discoverability problem the design placed them at the WBS number
+ * to solve. The lane is now reserved by `TaskListPanel` and rendered here
+ * whenever that reserve is non-zero, so a column choice cannot delete a control.
+ *
+ * The lane sits immediately left of where the WBS column draws, so when that
+ * column *is* shown the pair is still adjacent to the number that states the
+ * depth it changes — and it stays at the row's left edge, far from delete. The
+ * design is explicit that a structural nudge and a destructive act must not be
+ * neighbours (#2956), so this is never fixed by moving the pair rightward.
+ *
+ * ## The 32% resting opacity is load-bearing — do not regress it
+ *
+ * `opacity-[0.32]` with **only `opacity`** transitioning is what reserves the
+ * space: the buttons occupy their box at rest, so hovering the row brightens
+ * them in place instead of inserting them and shoving the FS/CP chips sideways
+ * under the pointer. `opacity-0 group-hover:opacity-100` looks identical in a
+ * screenshot and reintroduces the layout shift. Because the pair now has its own
+ * fixed-width lane the reservation is doubly true, but the opacity treatment
+ * stays: it is also what keeps the resting row calm.
+ *
+ * The reveal is keyed on the **row's** group, not the lane's. A `group/nudge`
+ * scoped to a 34px lane means the pointer has to already be on the control to
+ * see it — which is the discoverability problem restated, and it is not what the
+ * neighbouring affordances do (the grip and the insert `+` both read the row's
+ * unnamed `group`).
+ *
+ * ## …and it does not apply on a coarse pointer
+ *
+ * There is no hover on a finger, and both buttons are `tabIndex={-1}`, so
+ * neither `group-hover` nor `focus-within` can ever fire on touch: 32% would be
+ * the *resting and only* state. `neutral-text-secondary` at 0.32 over the row's
+ * surface is ≈1.6:1 — well under WCAG 1.4.11's 3:1 for an active control, and a
+ * 44px target nobody can see
+ * is not a discoverable one, and sizing it without showing it would have fixed
+ * the measurable half of #3026 and left the half that matters. This is the same
+ * branch `RowReorderHandle` and the insert `+` already carry, for the same
+ * reason.
+ *
+ * ## Sizing
+ *
+ * `size` comes from `useRowMetrics()` → `resolveNudgeSize`, whose coarse value
+ * *is* `ROW_HEIGHT_COARSE`. There is no second `44` here and no `md:` breakpoint
+ * (web rule 315): a 1024px tablet is a coarse pointer with a wide screen, and a
+ * narrow desktop window is not a finger. The buttons were hard-coded `w-4 h-4`,
+ * so they stayed 16px inside the 44px row #2997 shipped — on the surface whose
+ * stated reason to exist is that restructuring must not be keyboard-only, for
+ * the user who has no keyboard.
+ *
+ * The lane is `self-start` with an explicit `rowHeight`, and each button takes
+ * the full `size`: the row's own `border-b` is inside its border box, so a
+ * centered or `inset-y-0` child measures `rowHeight - 1` — 43px, which has not
+ * met a 44px floor however close it looks (the #2997 corollary).
+ */
+function RowStructureNudges({
+  laneWidth,
+  size,
+  rowHeight,
+  coarse,
   onIndent,
   onOutdent,
   canOutdent,
   taskName,
 }: {
-  wbs: string;
-  widthPx: number;
+  laneWidth: number;
+  size: number;
+  rowHeight: number;
+  coarse: boolean;
   onIndent?: () => void;
   onOutdent?: () => void;
   canOutdent: boolean;
   taskName: string;
 }) {
   const showControls = onIndent != null || onOutdent != null;
+  const buttonClass = `flex items-center justify-center rounded-control text-neutral-text-secondary
+    hover:text-brand-primary
+    focus:outline-none focus:ring-1 focus:ring-inset focus:ring-brand-primary`;
   return (
     <div
-      className="group/wbs flex items-center justify-end shrink-0 border-r border-neutral-border/20
-        text-right text-neutral-text-secondary tppm-mono pr-2 text-xs gap-0.5"
-      style={{ width: widthPx }}
-      role="gridcell"
-      aria-label={`WBS ${wbs}`}
-      title={wbs}
+      // A populated lane is a real cell: `role="row"` in a treegrid may own only
+      // gridcell/columnheader/rowheader, and these buttons used to be inside the
+      // WBS `gridcell`. Freeing them from that column must not cost the row its
+      // ARIA structure. When empty the lane is `aria-hidden` instead — its width
+      // is what keeps a viewer's rows column-aligned with an editor's and with
+      // the header, but an empty presentational box must not join the row's
+      // gridcell set (#2204).
+      role={showControls ? 'gridcell' : undefined}
+      aria-label={showControls ? 'Restructure' : undefined}
+      aria-hidden={showControls ? undefined : true}
+      data-testid="row-structure-nudges"
+      className="flex shrink-0 items-center justify-center self-start gap-0.5"
+      style={{ width: laneWidth, height: rowHeight }}
     >
       {showControls && (
-        // Structural nudges live HERE, at the WBS number, because that is where
-        // the row's depth is already stated — and deliberately NOT next to
-        // delete, which sits alone at the far right of the row. A structural
-        // nudge and a destructive act should not be neighbours; mis-hitting one
-        // must never cost the other (#2956).
-        //
-        // Always rendered, at 32% opacity, so the space is reserved and nothing
-        // shifts under the pointer on hover.
-        <span className="flex items-center opacity-[0.32] focus-within:opacity-100 group-hover/wbs:opacity-100 transition-opacity">
+        // Always rendered, at 32% opacity on a mouse, so the space is reserved
+        // and nothing shifts under the pointer on hover. Only `opacity`
+        // transitions — see the docstring; this is why the FS/CP chips no longer
+        // swap out. Full strength on a coarse pointer, where the resting state
+        // IS the state.
+        <span
+          data-testid="row-structure-nudges-ink"
+          className={[
+            'flex items-center gap-0.5 transition-opacity',
+            coarse
+              ? 'opacity-100'
+              : 'opacity-[0.32] focus-within:opacity-100 group-hover:opacity-100',
+          ].join(' ')}
+        >
           <button
             type="button"
             tabIndex={-1}
@@ -1426,9 +1532,8 @@ function RowWbsCell({
             // own shortcut instead of needing a label.
             aria-label={`Outdent ${taskName} — move it out of its phase`}
             title="Outdent (⌥←)"
-            className="w-4 h-4 flex items-center justify-center rounded-control
-              hover:text-brand-primary disabled:opacity-40 disabled:cursor-not-allowed
-              focus:outline-none focus:ring-1 focus:ring-inset focus:ring-brand-primary"
+            style={{ width: size, height: size }}
+            className={`${buttonClass} disabled:opacity-40 disabled:cursor-not-allowed`}
           >
             ⇤
           </button>
@@ -1441,17 +1546,13 @@ function RowWbsCell({
             }}
             aria-label={`Indent ${taskName} — move it under the row above`}
             title="Indent (⌥→)"
-            className="w-4 h-4 flex items-center justify-center rounded-control
-              hover:text-brand-primary
-              focus:outline-none focus:ring-1 focus:ring-inset focus:ring-brand-primary"
+            style={{ width: size, height: size }}
+            className={buttonClass}
           >
             ⇥
           </button>
         </span>
       )}
-      <span className="truncate">
-        {truncateWbsPath(wbs, Math.max(3, Math.floor(widthPx / 8) - 1))}
-      </span>
     </div>
   );
 }
@@ -1476,6 +1577,9 @@ function RowExpandChevron({
   childCount: number;
 }) {
   if (!hasChildren) return <span className="shrink-0 w-4 mr-0.5" aria-hidden="true" />;
+  // One derivation of the phrase, shared with the visible chip and the live
+  // region (#3025) — see `containmentCount.ts`.
+  const containment = formatContainmentCount(childCount, isExpanded);
   return (
     <button
       type="button"
@@ -1489,17 +1593,18 @@ function RowExpandChevron({
       // what is behind the caret, and a collapsed phase is otherwise
       // indistinguishable from an empty one (#2956).
       aria-label={
-        childCount > 0
+        containment
           ? isExpanded
-            ? `Collapse ${task.name}, ${childCount} inside`
-            : `Expand ${task.name}, ${childCount} hidden`
+            ? `Collapse ${task.name}, ${containment}`
+            : `Expand ${task.name}, ${containment}`
           : isExpanded
             ? `Collapse ${task.name}`
             : `Expand ${task.name}`
       }
-      title={
-        childCount > 0 ? `${childCount} ${isExpanded ? 'inside' : 'hidden'}` : undefined
-      }
+      // No `title`: the count is drawn on the row now (`RowContainmentCount`),
+      // so a tooltip here would be a second copy of a fact already on screen —
+      // and it was the *only* copy, which is the defect (#3025).
+      title={undefined}
       className="shrink-0 w-4 h-4 flex items-center justify-center mr-0.5
         text-neutral-text-secondary hover:text-neutral-text-primary
         focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-primary rounded-control"
@@ -1515,6 +1620,50 @@ function RowExpandChevron({
         <path d="M2 1l4 3-4 3z" />
       </svg>
     </button>
+  );
+}
+
+/**
+ * The row's containment statement — `4 inside` open, `4 hidden` shut (#3025).
+ *
+ * The design asks the row to *state* its child count, and what shipped stated it
+ * only in a `title` and an `aria-label`: a sighted user had to hover the caret
+ * and wait out the tooltip delay to learn how many rows were inside a phase, or
+ * whether a collapsed phase held anything at all. A tooltip is not a scan, and
+ * on touch there is no hover to perform — on the surface #2997 just made a
+ * first-class touch target.
+ *
+ * Three properties, all deliberate:
+ *
+ * - **`aria-hidden`.** The caret's accessible name already carries the same
+ *   phrase from the same function, and the caret is the control this describes.
+ *   Announcing it twice per row would make a 40-row plan read as 80 facts. This
+ *   is the rule-309(b) treatment: a redundant *encoding* of something ARIA
+ *   already says, which is also why it may sit at a muted weight.
+ * - **`shrink-0`, beside a `shrink truncate` name.** Containment outranks the
+ *   tail of a long name for the width: the name degrades to an ellipsis, the
+ *   count stays legible. A count that silently truncates to `4 insi` would be
+ *   the tooltip problem again in a different costume.
+ * - **No hover or fold branch on visibility.** It is present at rest, in both
+ *   fold states — the acceptance criterion of the issue and the whole point.
+ */
+function RowContainmentCount({
+  childCount,
+  isExpanded,
+}: {
+  childCount: number;
+  isExpanded: boolean;
+}) {
+  const containment = formatContainmentCount(childCount, isExpanded);
+  if (!containment) return null;
+  return (
+    <span
+      className="inline-flex shrink-0 items-center whitespace-nowrap text-xs text-neutral-text-secondary"
+      aria-hidden="true"
+      data-testid="containment-count"
+    >
+      {containment}
+    </span>
   );
 }
 
@@ -1752,10 +1901,13 @@ function TaskListRowInner({
   isDragSource = false,
   onMoveToRequest,
   gripReserve = 0,
+  nudgeReserve = 0,
 }: Props) {
   // Row geometry follows the pointer class (#2997): 28px rows on a mouse, 44px
-  // and a 44x44 grip in its own lane on a coarse pointer.
-  const { rowHeight, gripWidth, coarse } = useRowMetrics();
+  // and a 44x44 grip in its own lane on a coarse pointer. `nudgeSize` is the
+  // same question asked for the ⇤/⇥ pair (#3026) — one subscription, so the row
+  // cannot pick up a height from one render and a target size from another.
+  const { rowHeight, gripWidth, nudgeSize, coarse } = useRowMetrics();
   const projectId = useProjectId() ?? '';
   const itl = useIterationLabel(projectId);
   const selectedTaskId = useScheduleStore((s) => s.selectedTaskId);
@@ -1921,6 +2073,33 @@ function TaskListRowInner({
 
   const isPhaseRow = isPhaseRowOf(task, hasChildren);
   const { isCriticalStyle, isSummaryStyle } = taskNameStyles(task, isPhaseRow);
+
+  /**
+   * Width of the ⇤/⇥ lane on THIS row (#3026) — **whatever the panel reserved,
+   * and nothing else.**
+   *
+   * There is deliberately no `authoring` fallback here, and the reason is worth
+   * stating because the fallback looks obviously right. The lane is an *in-flow*
+   * box, so its width is layout: if a row renders one the panel did not reserve,
+   * every column on that row sits a lane right of its own heading and the
+   * content overruns the panel's fixed-width box — the #2960 failure, which has
+   * no symptom other than misalignment.
+   *
+   * And the two gates genuinely differ. The panel asks `onMoveRow !== undefined`,
+   * which `ScheduleView` derives from `readOnly = !hasEditRights || authorMode
+   * === 'read'`; the row asks `canEdit ? buildMode : null`, where `canEdit` is
+   * the server's per-task flag and `BuildModeProvider` is mounted for any
+   * non-mobile viewport. Flip the Read/Author pill to **Read** and the panel
+   * reserves nothing while every row still wants a lane. A per-row gate can
+   * never be reconciled with a panel-level number anyway — `canEdit` varies row
+   * to row — which is exactly why the grip is absolutely positioned and this
+   * lane is the panel's to own.
+   *
+   * The consequence is intentional: in Read mode the pair is absent. That is the
+   * mode's whole promise, and `onMoveRow` being undefined there means a
+   * structural move could not commit in any case.
+   */
+  const nudgeLane = nudgeReserve;
 
   // Data-integrity warning (issue #317): a task that has reached IN_PROGRESS /
   // REVIEW / COMPLETE without a PM-committed `planned_start` is a data error,
@@ -2107,16 +2286,38 @@ function TaskListRowInner({
             // its position between rows and the row's own layout does not move.
             coarse ? 'before:absolute before:-inset-3.5 before:content-[""]' : '',
           ].join(' ')}
-          style={{ marginLeft: gripReserve + 4 + (level - 1) * 12 }}
+          // Past BOTH left-edge lanes, and past what the TAP BOX overhangs
+          // (#3026). The `+` is `absolute left-0`, so its offset names every
+          // lane ahead of it by hand and a lane added later is invisible to it.
+          // Two separate mistakes are available here and the second is the
+          // subtle one: omit the nudge term and the disc lands inside the ⇤/⇥
+          // lane; include it but clear only the disc, and the `before:-inset-3.5`
+          // box — which is what the browser actually hit-tests — still covers
+          // the indent button's bottom-right 10px. `resolveInsertLaneGap` owns
+          // both, so the gap is the one on a mouse (no `before:` box is drawn)
+          // and the one plus the overhang on a finger.
+          style={{
+            marginLeft:
+              gripReserve + nudgeLane + resolveInsertLaneGap(coarse) + (level - 1) * 12,
+          }}
         >
           +
         </button>
       )}
 
-      {visible.wbs && (
-        <RowWbsCell
-          wbs={task.wbs}
-          widthPx={widths.wbs}
+      {/* ── Structural-nudge lane (#3026) ───────────────────────────────────
+          Its OWN lane, deliberately not inside the WBS cell: that cell is
+          conditional on a Display ▸ Columns preference, so nesting the pair in
+          it meant turning off an unrelated column deleted indent and outdent
+          from every row. Rendered whenever the reserve is non-zero — with or
+          without edit rights — so a viewer's rows stay column-aligned with an
+          editor's and with the header, exactly like the grip's lane above. */}
+      {nudgeLane > 0 && (
+        <RowStructureNudges
+          laneWidth={nudgeLane}
+          size={nudgeSize}
+          rowHeight={rowHeight}
+          coarse={coarse}
           taskName={task.name}
           canOutdent={level > 1}
           // Absent, not disabled, without edit rights — web rule 302 (#2949).
@@ -2124,6 +2325,8 @@ function TaskListRowInner({
           onOutdent={authoring ? () => authoring.outdent(task.id) : undefined}
         />
       )}
+
+      {visible.wbs && <RowWbsCell wbs={task.wbs} widthPx={widths.wbs} />}
 
       {/* ── Task column ─────────────────────────────────────────────────────── */}
       {/* Positioned wrapper carries the WBS indent. Properties button lives here
@@ -2213,6 +2416,8 @@ function TaskListRowInner({
           depChips={depChips}
           phaseInWaiting={phaseInWaiting}
           onAddPhaseFirstChild={onAddPhaseFirstChild}
+          childCount={childCount}
+          isExpanded={isExpanded}
         />
 
         {/* Properties button — absolute within the task column so it never overlaps
@@ -2472,6 +2677,10 @@ interface TaskNameContentProps {
   depChips: Props['depChips'];
   phaseInWaiting: boolean;
   onAddPhaseFirstChild: Props['onAddPhaseFirstChild'];
+  /** Structural children, and whether they are showing — the `N inside` /
+   *  `N hidden` statement the row draws beside the name (#3025). */
+  childCount: number;
+  isExpanded: boolean;
 }
 
 /**
@@ -2828,6 +3037,8 @@ function TaskNameBadges(props: TaskNameContentProps) {
     projectId,
     canEdit,
     setRecalcPrompt,
+    childCount,
+    isExpanded,
   } = props;
   return (
     <>
@@ -2835,6 +3046,10 @@ function TaskNameBadges(props: TaskNameContentProps) {
           row while the badges after it describe its state. Passive text; the
           gutter carries the same fact non-textually. */}
       <ModeChip mode={rowMode} />
+      {/* `4 inside` / `4 hidden` (#3025) — second, for the same reason the mode
+          chip is first: both classify the row, and everything after them
+          describes its state. */}
+      <RowContainmentCount childCount={childCount} isExpanded={isExpanded} />
       {/* "N planned" badge (#1798): a phase row whose subtree holds sprint-
           assigned backlog. Muted + dashed neutral (never a semantic/critical
           token) — planned work is a read-state, not a risk. It is a

@@ -814,3 +814,179 @@ describe('TaskListRow — "N planned" badge (#1798)', () => {
     expect(useScheduleStore.getState().revealGutterSprint?.sprintId).toBe('s1');
   });
 });
+
+/**
+ * #3025 — a phase stated its child count only in a tooltip.
+ *
+ * Both strings existed and switched correctly on fold state, but only as a
+ * `title` and an `aria-label`. So a sighted user had to hover the caret and wait
+ * out the tooltip delay to learn how many rows were inside a phase, or whether a
+ * collapsed phase held anything at all — an interaction unavailable on touch,
+ * and precisely the one the design's "containment survives a fast visual scan"
+ * premise exists to remove.
+ *
+ * The current tests passed on the attribute alone, which is why this shipped:
+ * every assertion below is about *rendered text*.
+ */
+describe('TaskListRow — the row states its child count visibly (#3025)', () => {
+  const phase: Task = { ...base, name: 'Mobilization', isSummary: true };
+
+  function renderPhase(over: { isExpanded: boolean; childCount: number }) {
+    renderWithRouter(
+      <TaskListRow
+        task={phase}
+        level={1}
+        widths={{ ...defaultWidths, task: 400 }}
+        visible={defaultVisible}
+        hasChildren
+        onToggleId={vi.fn()}
+        {...over}
+      />,
+    );
+  }
+
+  it('renders "4 inside" as text on an expanded phase, at rest with no hover', () => {
+    renderPhase({ isExpanded: true, childCount: 4 });
+    // getByText, not getByTitle / getByLabelText: the attribute was never the
+    // defect, the absence of a visible form was.
+    expect(screen.getByText('4 inside')).toBeInTheDocument();
+  });
+
+  it('renders "4 hidden" as text once the phase is folded', () => {
+    renderPhase({ isExpanded: false, childCount: 4 });
+    expect(screen.getByText('4 hidden')).toBeInTheDocument();
+    expect(screen.queryByText('4 inside')).toBeNull();
+  });
+
+  it('uses the design’s exact words — not "children visible", not "collapsed"', () => {
+    renderPhase({ isExpanded: true, childCount: 4 });
+    expect(screen.queryByText(/children visible/)).toBeNull();
+    expect(screen.queryByText(/4 items/)).toBeNull();
+  });
+
+  it('keeps the count on the caret’s accessible name, saying the same thing', () => {
+    // "Keep the aria-label" — a screen-reader user still gets it from the
+    // control, and the two forms are derived from one function so they cannot
+    // drift into disagreeing about the same row.
+    renderPhase({ isExpanded: true, childCount: 4 });
+    expect(
+      screen.getByRole('button', { name: 'Collapse Mobilization, 4 inside' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('4 inside')).toBeInTheDocument();
+  });
+
+  it('announces the count exactly once — the chip is a redundant encoding', () => {
+    // The caret's accessible name already carries the phrase, and the caret is
+    // the control the count describes. Two announcements per row would make a
+    // 40-row plan read as 80 facts (rule 309(b)).
+    renderPhase({ isExpanded: false, childCount: 4 });
+    expect(screen.getByTestId('containment-count')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('drops the caret tooltip — the fact is on the row now, not behind a dwell', () => {
+    renderPhase({ isExpanded: true, childCount: 4 });
+    expect(screen.getByRole('button', { name: /Collapse Mobilization/ })).not.toHaveAttribute(
+      'title',
+    );
+  });
+
+  it('states the SUBTREE size, not the direct-child count', () => {
+    // `childCountById` counts descendants, and that is the right number for both
+    // fold states: folding hides the whole subtree, so a phase with two children
+    // and two grandchildren really does hide four rows. A two-level fixture
+    // cannot tell the two readings apart, which is how the prop's docstring
+    // ("direct structural child count") drifted from what it carries.
+    renderPhase({ isExpanded: false, childCount: 4 });
+    expect(screen.getByText('4 hidden')).toBeInTheDocument();
+    expect(screen.queryByText('2 hidden')).toBeNull();
+  });
+
+  it('a summary with children but a count of zero states nothing, and names nothing', () => {
+    // Exactly the state the live outline was stuck in before this fix: the caret
+    // rendered, `childCountById` never reached the panel, and every phase
+    // announced itself with no count. A regression of that wiring lands back
+    // here, and `/Collapse Mobilization/` would not notice — hence `exact`.
+    renderPhase({ isExpanded: true, childCount: 0 });
+    expect(screen.queryByTestId('containment-count')).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Collapse Mobilization' }),
+    ).toBeInTheDocument();
+  });
+
+  it('says nothing on a leaf row — "0 inside" is true of every task in the plan', () => {
+    renderWithRouter(
+      <TaskListRow
+        task={base}
+        level={2}
+        widths={defaultWidths}
+        visible={defaultVisible}
+        {...defaultTreeProps}
+      />,
+    );
+    expect(screen.queryByTestId('containment-count')).toBeNull();
+  });
+
+  it('states the count even with the WBS column hidden — it lives beside the name', () => {
+    renderWithRouter(
+      <TaskListRow
+        task={phase}
+        level={1}
+        widths={{ ...defaultWidths, task: 400 }}
+        visible={{ ...defaultVisible, wbs: false }}
+        hasChildren
+        childCount={4}
+        isExpanded
+        onToggleId={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('4 inside')).toBeInTheDocument();
+  });
+});
+
+/**
+ * #3026 — the lane is reserved by the panel, so a row holds it open whether or
+ * not this particular reader may author.
+ */
+describe('TaskListRow — the nudge lane is the panel’s, not the row’s (#3026)', () => {
+  it('holds the reserved lane open for a viewer, with no controls in it', () => {
+    // A lane that exists only on editable rows is a table whose columns move
+    // when the reader's rights do. Web rule 302 keeps the apparatus absent; the
+    // lane keeps the columns aligned.
+    renderWithRouter(
+      <TaskListRow
+        task={{ ...base, canEdit: false }}
+        level={2}
+        widths={defaultWidths}
+        visible={defaultVisible}
+        nudgeReserve={34}
+        {...defaultTreeProps}
+      />,
+    );
+    const lane = screen.getByTestId('row-structure-nudges');
+    expect(lane.style.width).toBe('34px');
+    expect(lane).toHaveAttribute('aria-hidden', 'true');
+    // An empty lane is not a cell — a `role="row"` must not own a presentational
+    // box, and a viewer's row would otherwise gain a gridcell an editor's has
+    // content in (#2204).
+    expect(lane).not.toHaveAttribute('role');
+    expect(screen.queryByRole('button', { name: /Indent/ })).toBeNull();
+  });
+
+  it('renders NO lane at all when the panel reserved none', () => {
+    // The third branch of `nudgeLane`. A zero-width box left in the row is not
+    // the same as no box: it still joins the gridcell set and still answers a
+    // `getByTestId`, so a regression that reserved 0 instead of omitting the
+    // lane would be invisible to the assertion above.
+    renderWithRouter(
+      <TaskListRow
+        task={{ ...base, canEdit: false }}
+        level={2}
+        widths={defaultWidths}
+        visible={defaultVisible}
+        nudgeReserve={0}
+        {...defaultTreeProps}
+      />,
+    );
+    expect(screen.queryByTestId('row-structure-nudges')).toBeNull();
+  });
+});
