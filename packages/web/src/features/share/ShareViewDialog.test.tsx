@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { renderWithProviders } from '@/test/utils';
+import { renderWithProviders, renderWithProvidersAndRouter } from '@/test/utils';
 import { ShareViewDialog } from './ShareViewDialog';
 import type { ShareLink, CreatedShareLink } from '@/features/settings/hooks/useShareLinks';
 
@@ -40,6 +40,22 @@ vi.mock('@/features/settings/hooks/useShareLinks', () => ({
   useRevokeShareLink: () => revokeMutation,
 }));
 
+// The sharing precondition (#2910). `effective_public_sharing` is server-resolved
+// (ADR-0135); the dialog reads only the effective value. `undefined` is the loading
+// state and must NOT block the form — the default here keeps every pre-existing spec on
+// the unblocked path.
+let projectResult: { data: { effective_public_sharing: boolean } | undefined };
+vi.mock('@/hooks/useProject', () => ({
+  useProject: () => projectResult,
+}));
+
+// Tri-state, like the real hook: null while /auth/me is loading or the field is absent,
+// false only on a positive sub-admin answer.
+let workspaceAdminResult: boolean | null;
+vi.mock('@/hooks/useIsWorkspaceAdmin', () => ({
+  useIsWorkspaceAdmin: () => workspaceAdminResult,
+}));
+
 const writeText = vi.fn().mockResolvedValue(undefined);
 
 function link(overrides: Partial<ShareLink> = {}): ShareLink {
@@ -76,6 +92,8 @@ beforeEach(() => {
   createMutation = { mutate: createMutate, isPending: false, error: null };
   revokeMutation = { mutate: revokeMutate, isPending: false };
   sharedLinksResult = { data: [] };
+  projectResult = { data: { effective_public_sharing: true } };
+  workspaceAdminResult = true;
   writeText.mockClear().mockResolvedValue(undefined);
   // Use defineProperty (not Object.assign) with configurable: true — in singleFork
   // mode a prior test file's userEvent.setup() installs a getter-only clipboard, and
@@ -606,5 +624,105 @@ describe('ShareViewDialog — custom expiry that cannot be parsed', () => {
       expect.objectContaining({ expiresAt: null }),
       expect.anything(),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Public sharing turned off — the dead-control state (#2910)
+// ---------------------------------------------------------------------------
+
+describe('ShareViewDialog — public sharing disabled', () => {
+  /** The notice renders a <Link>, so these need a router the base helper does not give. */
+  function renderBlocked(props: Partial<Parameters<typeof ShareViewDialog>[0]> = {}) {
+    const onClose = props.onClose ?? vi.fn();
+    projectResult = { data: { effective_public_sharing: false } };
+    renderWithProvidersAndRouter(
+      <ShareViewDialog projectId="p-1" contentKind="schedule" onClose={onClose} {...props} />,
+    );
+    return { onClose };
+  }
+
+  it('says sharing is off instead of letting the user earn a 403', () => {
+    // `Workspace.public_sharing` defaults to false, so on a fresh install this was the
+    // FIRST thing an evaluator hit: fill in the form, submit, receive the mint's 403.
+    // Read-only share links are the only zero-install way to show someone a live
+    // schedule on the shipped tag, so failing here fails the whole first impression.
+    renderBlocked();
+
+    expect(screen.getByText(/public sharing is turned off for this workspace/i)).toBeVisible();
+  });
+
+  it('disables Create link rather than presenting a control that cannot work', () => {
+    renderBlocked();
+
+    const createBtn = screen.getByRole('button', { name: /create link/i });
+    expect(createBtn).toBeDisabled();
+  });
+
+  it('points a workspace admin at the setting that unblocks it', () => {
+    // The whole point of preferring this over hiding the affordance: an Admin who wants
+    // to share should be one click from enabling it, not told no.
+    workspaceAdminResult = true;
+    renderBlocked();
+
+    const link = screen.getByRole('link', { name: /turn on public sharing/i });
+    expect(link).toHaveAttribute('href', '/settings#general');
+  });
+
+  it('closes the dialog when the user follows the link', () => {
+    // Leaving a modal open over the page it just navigated to would trap focus on a
+    // route the user can no longer see.
+    workspaceAdminResult = true;
+    const { onClose } = renderBlocked();
+
+    fireEvent.click(screen.getByRole('link', { name: /turn on public sharing/i }));
+
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('tells a non-workspace-admin who can turn it on, and offers no link', () => {
+    // /settings is RequireWorkspaceAdmin-gated, so linking a project-admin-but-plain-
+    // workspace-member there would bounce them — the enabled-but-403 shape #2012
+    // removed from the settings tree. Naming the person is the actionable thing here.
+    workspaceAdminResult = false;
+    renderBlocked();
+
+    expect(
+      screen.getByText(/a workspace admin can turn it on in workspace settings/i),
+    ).toBeVisible();
+    expect(screen.queryByRole('link', { name: /turn on public sharing/i })).toBeNull();
+  });
+
+  it('does not block the form while the project is still loading', () => {
+    // Gated on an explicit `=== false`, not on falsiness. A truthiness check would show
+    // "sharing is off" on every open for the split second before the project resolves —
+    // a false accusation on the happy path, which is worse than the bug being fixed.
+    projectResult = { data: undefined };
+    renderWithProvidersAndRouter(
+      <ShareViewDialog projectId="p-1" contentKind="schedule" onClose={vi.fn()} />,
+    );
+
+    expect(screen.getByRole('button', { name: /create link/i })).toBeEnabled();
+    expect(screen.queryByText(/public sharing is turned off/i)).toBeNull();
+  });
+
+  it('leaves the form alone when sharing is enabled', () => {
+    projectResult = { data: { effective_public_sharing: true } };
+    renderWithProvidersAndRouter(
+      <ShareViewDialog projectId="p-1" contentKind="schedule" onClose={vi.fn()} />,
+    );
+
+    expect(screen.getByRole('button', { name: /create link/i })).toBeEnabled();
+    expect(screen.queryByText(/public sharing is turned off/i)).toBeNull();
+  });
+
+  it('still lets an admin revoke existing links while sharing is off', () => {
+    // Turning the workspace switch off does not retract already-minted links, so the
+    // Manage panel has to keep working — that is the surface an admin uses to actually
+    // close them. Blocking the whole dialog would strand them.
+    sharedLinksResult = { data: [link()] };
+    renderBlocked();
+
+    expect(screen.getByRole('button', { name: /revoke/i })).toBeEnabled();
   });
 });

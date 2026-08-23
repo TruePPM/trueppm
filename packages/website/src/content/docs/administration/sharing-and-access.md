@@ -39,6 +39,23 @@ to *lock* the workspace value as a hard ceiling that downstream scopes cannot lo
 Both are booleans, both default at the workspace, and both behave the same way under
 inheritance.
 
+### What the Share dialog does when the setting is off
+
+Public sharing is **off by default**, so on a fresh install the Share dialog opens into
+its blocked state. It says so up front — "Public sharing is turned off for this
+workspace" — and the **Create link** button is disabled, rather than letting you fill in
+the form and receive a `403` from the server on submit.
+
+A workspace admin gets a link straight to **Workspace Settings → General**, where the
+switch lives. Anyone else is told that a workspace admin can turn it on: that page is
+admin-gated, so sending a project admin who is a plain workspace member there would only
+bounce them.
+
+Already-minted links stay manageable while the setting is off. The dialog's Manage panel
+still lists them and **Revoke** still works — turning the workspace switch off withdraws
+links from *recipients* (below) but does not remove them, and closing them for good is
+still something you may want to do.
+
 ### Turning Public sharing off revokes existing links
 
 The switch is **retroactive and immediate**. The effective policy is re-checked on

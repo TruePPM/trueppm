@@ -1,6 +1,9 @@
 import { WarningIcon } from '@/components/Icons';
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import axios from 'axios';
+import { Link } from 'react-router';
+import { useProject } from '@/hooks/useProject';
+import { useIsWorkspaceAdmin } from '@/hooks/useIsWorkspaceAdmin';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import { toast } from '@/components/Toast';
@@ -97,6 +100,8 @@ function CreateForm({
   isPending,
   onSubmit,
   onCancel,
+  sharingBlocked,
+  sharingNotice,
 }: {
   noun: string;
   allowKindChoice: boolean;
@@ -116,6 +121,9 @@ function CreateForm({
   isPending: boolean;
   onSubmit: () => void;
   onCancel: () => void;
+  /** Server-resolved `effective_public_sharing === false` — the mint will 403 (#2910). */
+  sharingBlocked: boolean;
+  sharingNotice: ReactNode;
 }) {
   return (
     <>
@@ -225,6 +233,7 @@ function CreateForm({
         <div className="mb-4" />
       )}
 
+      {sharingNotice}
       {detail ? (
         <p className="mb-3 text-xs text-semantic-critical" role="alert">
           {detail}
@@ -237,13 +246,76 @@ function CreateForm({
         <button
           type="button"
           onClick={onSubmit}
-          disabled={isPending || (expiry === 'custom' && !customDate)}
+          disabled={sharingBlocked || isPending || (expiry === 'custom' && !customDate)}
           className={PRI}
+          // Named by the notice above rather than a tooltip: the reason and the remedy
+          // must survive into the accessible name, and a disabled button is not
+          // hoverable or focusable (#2910).
+          aria-describedby={sharingBlocked ? 'share-sharing-disabled' : undefined}
         >
           {isPending ? 'Creating…' : 'Create link'}
         </button>
       </div>
     </>
+  );
+}
+
+/**
+ * Why the Create button is blocked, and the one click that unblocks it (#2910).
+ *
+ * `Workspace.public_sharing` defaults to **false**, so on a fresh install an Admin could
+ * open this dialog from any of its three launch points, fill it in, submit, and receive a
+ * 403 from the mint (`share_views.py`, which correctly checks the ADR-0135 policy). The
+ * dialog surfaced the server's detail string honestly but read no
+ * `effective_public_sharing` and offered no route to the setting — a dead end, and the
+ * shape web rules 8 and 274 exist to prevent.
+ *
+ * This states the blocked status *before* the user fills in a form that cannot succeed,
+ * and names the actual lever. The setting is **workspace**-scoped and lives on Workspace
+ * Settings → General; the resolution is project override ?? program override ?? workspace
+ * (ADR-0135), but the workspace toggle is the only one with a UI.
+ *
+ * The link is offered only to a workspace admin. That route is `RequireWorkspaceAdmin`,
+ * so pointing a project-admin-but-plain-workspace-member at it would bounce them — the
+ * enabled-but-403 shape #2012 removed from the settings tree. They are told who can turn
+ * it on instead, which is the actionable thing for them.
+ */
+function SharingDisabledNotice({
+  projectId,
+  isWorkspaceAdmin,
+  onNavigate,
+}: {
+  projectId: string;
+  isWorkspaceAdmin: boolean | null;
+  onNavigate: () => void;
+}) {
+  return (
+    <div
+      id="share-sharing-disabled"
+      className="mb-4 rounded-control border border-semantic-warning bg-semantic-warning-bg p-3"
+      role="status"
+    >
+      <p className="flex items-start gap-2 text-[12px] font-medium text-neutral-text-primary">
+        <WarningIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <span>Public sharing is turned off for this workspace</span>
+      </p>
+      <p className="mt-1 text-xs text-neutral-text-secondary">
+        Read-only share links are disabled, so this form cannot create one yet.
+        {isWorkspaceAdmin === false
+          ? ' A workspace admin can turn it on in Workspace Settings → General.'
+          : null}
+      </p>
+      {isWorkspaceAdmin !== false ? (
+        <Link
+          to="/settings#general"
+          onClick={onNavigate}
+          state={{ from: `/projects/${projectId}` }}
+          className="mt-2 inline-block text-xs font-medium text-brand-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        >
+          Turn on public sharing in Workspace Settings
+        </Link>
+      ) : null}
+    </div>
   );
 }
 
@@ -533,6 +605,13 @@ export function ShareViewDialog({
   const [kind, setKind] = useState<'board' | 'schedule'>(contentKind);
   const noun = kind === 'schedule' ? 'schedule' : 'board';
   const { data: allLinks } = useShareLinks(projectId);
+  // ADR-0135 resolves this server-side (project override ?? program ?? workspace); the
+  // client reads the effective value and never the raw nullable overrides. Gated on an
+  // explicit `=== false` so the form is never blocked while the project is still
+  // loading — a real Admin must not see a spurious "sharing is off" on every open.
+  const { data: project } = useProject(projectId);
+  const sharingBlocked = project?.effective_public_sharing === false;
+  const isWorkspaceAdmin = useIsWorkspaceAdmin();
   // Expiry is an instant — render it through the user's date-format preference
   // (rule 257) so "Expires …" cannot show a different calendar day than the rest
   // of the app (the ADR-0144/#1953 bug class), which matters on a security string.
@@ -654,6 +733,16 @@ export function ShareViewDialog({
             isPending={create.isPending}
             onSubmit={onSubmit}
             onCancel={() => (links.length > 0 ? setMode('manage') : onClose())}
+            sharingBlocked={sharingBlocked}
+            sharingNotice={
+              sharingBlocked ? (
+                <SharingDisabledNotice
+                  projectId={projectId}
+                  isWorkspaceAdmin={isWorkspaceAdmin}
+                  onNavigate={onClose}
+                />
+              ) : null
+            }
           />
         )}
       </div>

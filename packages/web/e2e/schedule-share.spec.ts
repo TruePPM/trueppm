@@ -282,6 +282,45 @@ test.describe('Schedule share — milestone reveal', () => {
     });
   }
 
+  test('a workspace with public sharing off states why and links to the setting', async ({
+    page,
+  }) => {
+    // `Workspace.public_sharing` defaults to FALSE, so this is what an evaluator meets
+    // on a fresh install — and read-only share links are the only zero-install way to
+    // show a colleague a live schedule on the shipped tag. Before #2910 the form
+    // submitted and returned a 403 from the mint, with no route to the setting that
+    // unblocks it.
+    const minted: { body?: unknown } = {};
+    await setupSettings(page, minted);
+    // Declared last so it wins: Playwright matches most-recently-added first.
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: PROJECT_ID,
+          server_version: 1,
+          name: 'Atlas Rollout',
+          start_date: '2026-05-01',
+          public_sharing: null,
+          effective_public_sharing: false,
+        }),
+      }),
+    );
+
+    await page.goto(`/projects/${PROJECT_ID}/settings#sharing`);
+    await page.getByRole('button', { name: 'Create link…' }).click();
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByText(/public sharing is turned off/i)).toBeVisible();
+    // Blocked, not dead: the reason is on screen and the remedy is one click away.
+    await expect(dialog.getByRole('button', { name: 'Create link' })).toBeDisabled();
+    await expect(dialog.getByRole('link', { name: /turn on public sharing/i })).toHaveAttribute(
+      'href',
+      '/settings#general',
+    );
+  });
+
   test('minting with the reveal off omits every milestone row from the public page', async ({
     page,
   }) => {
