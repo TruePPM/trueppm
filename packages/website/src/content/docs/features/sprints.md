@@ -151,6 +151,39 @@ A read-only sidebar lists the unfinished tasks from the **previous closed sprint
 | `POST` | `/api/v1/sprint-task-outcomes/{id}/set-note/` | Set the optional contributor review note (Member+, ≤200 chars, added in 0.3) |
 | `POST` | `/api/v1/sprint-task-outcomes/{id}/flag-for-backlog/` | Carry a not-shipped story forward to the backlog in one tap (Member+, idempotent, added in 0.3) |
 
+#### What `carry_over_to` does to a task
+
+The close body's `carry_over_to` takes `"none"`, `"backlog"`, or a sprint id. Only
+tasks in a carry-eligible status move — `BACKLOG`, `NOT_STARTED`, `IN_PROGRESS` and
+`REVIEW`. Anything `COMPLETE` stays in the sprint it completed in, because that is the
+set the committed/completed metrics were snapshotted from.
+
+The two moving policies are deliberately **not** symmetric:
+
+| `carry_over_to` | Sprint | Status |
+|---|---|---|
+| a sprint id | moves to that sprint | **unchanged** — a re-commitment moves nothing else |
+| `"backlog"` | cleared | `NOT_STARTED` → `BACKLOG`; `IN_PROGRESS` and `REVIEW` **preserved** |
+| `"none"` | unchanged | unchanged — incomplete tasks stay in the closed sprint |
+
+:::note[Ships in 0.4]
+The `IN_PROGRESS` / `REVIEW` preservation on the `"backlog"` policy ships in
+**TruePPM 0.4**. In `v0.3.0-alpha.3` (the latest release) that policy rewrites
+*every* carry-eligible status to `BACKLOG`, so a task somebody was actively working on
+comes back marked as un-started.
+:::
+
+`NOT_STARTED` means "committed to this sprint, not begun" — no longer true once the
+task is out of every sprint — so the `"backlog"` policy rewrites it. That is also what
+keeps the row in the product-backlog grooming list, which is scoped to
+`status=BACKLOG` with no sprint. `IN_PROGRESS` and `REVIEW` describe what a person is
+actually doing rather than a commitment level, and sprint housekeeping somebody else
+performed must not discard them.
+
+Either way the pre-close state is recoverable: `GET /api/v1/sprints/{id}/outcome/`
+records every task's `final_status` as of the close, captured before the carry-over
+moves anything.
+
 ## Related ADRs
 
 - [ADR-0036](/architecture/decisions/) — Hybrid PM philosophy and sprint model

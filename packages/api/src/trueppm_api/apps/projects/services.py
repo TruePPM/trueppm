@@ -1165,14 +1165,42 @@ def burn_series(
 
 _CARRY_OVER_INCOMPLETE_STATUSES = ("BACKLOG", "NOT_STARTED", "IN_PROGRESS", "REVIEW")
 
+# Statuses that mean "committed to this sprint but not begun", and therefore stop being
+# true the moment ``carry_over_to="backlog"`` takes the task out of every sprint. Only
+# these are rewritten to BACKLOG; IN_PROGRESS and REVIEW describe what a person is
+# actually doing and survive the move (#2913 — see ``apply_carry_over``).
+_DECOMMITTED_ON_CARRY_OVER_TO_BACKLOG = ("NOT_STARTED",)
+
 
 def apply_carry_over(sprint: Any, carry_over_to: str) -> list[str]:
     """Reassign incomplete tasks per the carry-over policy.
 
-    Called from inside ``close_sprint`` after ``completed_*`` is snapshotted
-    and the sprint state has been advanced. ``completed_*`` reflects only
-    tasks that completed within the sprint window — the carry-over move is
-    pure FK reassignment.
+    Called from inside ``close_sprint`` after ``completed_*`` is snapshotted and the
+    sprint state has been advanced. ``completed_*`` reflects only tasks that completed
+    within the sprint window.
+
+    **The two policies are not symmetric, and the asymmetry is deliberate (#2913).**
+    A sprint target is a re-commitment — the task moves to another sprint and keeps
+    everything else, so that branch is a pure FK reassignment. ``backlog`` is a
+    *de*-commitment, and one status has to change to record it:
+
+    * ``NOT_STARTED`` -> ``BACKLOG``. NOT_STARTED means "committed, not begun"; once
+      the task is out of every sprint that is no longer true. It also keeps the row in
+      the product-backlog grooming list, which is scoped ``status=BACKLOG AND
+      sprint IS NULL`` (``product_backlog_services._backlog_stories``) — preserving
+      NOT_STARTED would drop uncommitted work out of the one surface built to
+      re-prioritize it.
+    * ``IN_PROGRESS`` and ``REVIEW`` are **preserved**. These are a contributor's
+      real state, not a commitment level, and sprint housekeeping they did not perform
+      must not silently discard them. This branch used to overwrite both with BACKLOG,
+      so somebody came back to find their own card moved out from under them with no
+      notice they could act on. The board is project-scoped by status
+      (``useScheduleTasks`` fetches every live task, unfiltered), so a sprint-less
+      IN_PROGRESS task still renders in its real column.
+    * ``BACKLOG`` is already BACKLOG and is untouched either way.
+
+    Nothing is lost in either direction regardless: ``snapshot_sprint_task_outcomes``
+    runs *before* this and records every task's pre-close ``final_status``.
 
     Returns the IDs of the tasks that were moved, so the caller can broadcast a
     single ``tasks_bulk_mutated`` event — without it, connected clients keep
@@ -1194,8 +1222,11 @@ def apply_carry_over(sprint: Any, carry_over_to: str) -> list[str]:
         # task — queryset.update() bypasses the model and mobile sync misses it.
         for task in incomplete:
             task.sprint = None
-            task.status = TaskStatus.BACKLOG
-            task.save(update_fields=["sprint", "status"])
+            fields = ["sprint"]
+            if task.status in _DECOMMITTED_ON_CARRY_OVER_TO_BACKLOG:
+                task.status = TaskStatus.BACKLOG
+                fields.append("status")
+            task.save(update_fields=fields)
             moved_ids.append(str(task.pk))
         return moved_ids
 
