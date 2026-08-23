@@ -72,7 +72,7 @@ describe('EditableCell — static state', () => {
     expect(onStartEdit).toHaveBeenCalledOnce();
   });
 
-  // Web rule 323. A plain click must be swallowed here — the cell owns it, and letting
+  // Web rule 324. A plain click must be swallowed here — the cell owns it, and letting
   // it reach the row would re-set RowFocused a tick after this handler moved to CellEdit.
   // A SHIFT-click must not be: shift is a selection gesture, the cell occupies most of a
   // row's width, and swallowing it is what left the outline's shift-click-to-extend range
