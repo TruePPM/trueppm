@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 
-from django.db import transaction
+from django.db import models, transaction
 from django.utils import timezone
 
 from trueppm_api.core.idempotent import idempotent_task
@@ -37,6 +37,7 @@ from .external_sources import (
     ExternalSourceAuthError,
     ExternalSourceConfigError,
     ExternalSourceError,
+    ExternalSourceRateLimited,
     ExternalWorkItemDTO,
 )
 from .models import (
@@ -64,6 +65,17 @@ _DRAIN_PENDING_FLOOR = timedelta(minutes=2)
 # is HTTP-timeout-bounded to a few seconds), so its worker died — reset it to
 # PENDING for re-dispatch. Matches the scheduling drain's 10-minute window.
 _DRAIN_ORPHAN_CUTOFF = timedelta(minutes=10)
+
+# Rate-limit backoff (#2924). Used when a 429 carries no usable ``Retry-After``;
+# a header value always wins. Clamped at the top end so a source answering with an
+# absurd Retry-After (or a clock-skewed HTTP-date) cannot park a pull for hours.
+_RATE_LIMIT_DEFAULT_BACKOFF = timedelta(seconds=60)
+_RATE_LIMIT_MAX_BACKOFF = timedelta(minutes=15)
+
+# How many times one pull may be re-queued for rate limiting before it retires.
+# Bounds the loop for a source that 429s indefinitely; the user's next manual
+# refresh (or the poll) starts a fresh row, so this is not a permanent give-up.
+_MAX_RATE_LIMIT_ATTEMPTS = 3
 
 # Retention windows for the nightly purge.
 _OUTBOX_RETENTION = timedelta(days=7)
@@ -175,10 +187,21 @@ def _do_sync(request_id: str) -> None:
                 req.source,
             )
             return
+        except ExternalSourceRateLimited as exc:
+            # 429: the source told us WHEN to come back, so re-queue against that
+            # clock instead of dead-lettering (#2924). Before this the row was
+            # marked DEAD "unreachable" and the owner saw a broken connection for
+            # what is a routine, self-healing condition. Deliberately does NOT
+            # touch the connection status: the credential is valid and the host is
+            # reachable, so flagging it would send the user to re-issue a token
+            # that was never the problem. Must precede the generic arm below —
+            # this is a subclass of it.
+            _requeue_rate_limited(req, exc.retry_after, now)
+            return
         except ExternalSourceError as exc:
-            # Transient (5xx / timeout / rate-limit): keep the last-good cache and
-            # retire this attempt. The user (or the next poll) re-triggers; the
-            # cooldown keeps the retry cadence sane. No data is lost.
+            # Transient (5xx / timeout): keep the last-good cache and retire this
+            # attempt. The user (or the next poll) re-triggers; the cooldown keeps
+            # the retry cadence sane. No data is lost.
             _mark_dead(req, f"unreachable: {type(exc).__name__}")
             logger.info(
                 "external_sync: source unreachable for user=%s source=%s (%s)",
@@ -262,6 +285,66 @@ def _set_connection_status(
     cred.save(update_fields=["config", *(extra_save_fields or [])])
 
 
+def _requeue_rate_limited(
+    req: ExternalSyncRequest,
+    retry_after: float | None,
+    now: datetime,
+) -> None:
+    """Put a rate-limited pull back in the PENDING pool behind a retry clock.
+
+    ``Retry-After`` wins when the source sent a usable one; otherwise a default
+    backoff applies. Either way the value is clamped to
+    :data:`_RATE_LIMIT_MAX_BACKOFF` so a hostile or clock-skewed header cannot park
+    the pull indefinitely.
+
+    The row goes back to PENDING rather than staying DISPATCHED because PENDING is
+    what the drain re-dispatches. That is safe against the partial-unique
+    ``one pending per (user, source)`` constraint: this row *is* that connection's
+    live pull — anything else that wanted one adopted it while it was in flight.
+
+    Once the attempt budget is spent the row retires DEAD, so a source that 429s
+    forever cannot cycle forever. That is not a permanent give-up: the owner's next
+    manual refresh writes a fresh row.
+    """
+    req.attempt_count += 1
+    if req.attempt_count >= _MAX_RATE_LIMIT_ATTEMPTS:
+        _mark_dead(req, f"rate_limited: retry budget spent after {req.attempt_count} attempt(s)")
+        logger.info(
+            "external_sync: rate-limit budget spent for user=%s source=%s",
+            req.user_id,
+            req.source,
+        )
+        return
+
+    backoff = _RATE_LIMIT_DEFAULT_BACKOFF
+    if retry_after is not None:
+        backoff = timedelta(seconds=retry_after)
+    backoff = min(backoff, _RATE_LIMIT_MAX_BACKOFF)
+
+    req.status = ExternalSyncRequestStatus.PENDING
+    req.next_attempt_at = now + backoff
+    req.celery_task_id = ""
+    req.dispatched_at = None
+    req.last_error = f"rate_limited: retrying in {int(backoff.total_seconds())}s"[:512]
+    req.save(
+        update_fields=[
+            "status",
+            "next_attempt_at",
+            "attempt_count",
+            "celery_task_id",
+            "dispatched_at",
+            "last_error",
+        ]
+    )
+    logger.info(
+        "external_sync: rate limited for user=%s source=%s — re-queued in %ss (attempt %d)",
+        req.user_id,
+        req.source,
+        int(backoff.total_seconds()),
+        req.attempt_count,
+    )
+
+
 def _mark_dead(req: ExternalSyncRequest, error: str) -> None:
     """Retire an outbox row as ``DEAD`` with a scrubbed error note."""
     req.status = ExternalSyncRequestStatus.DEAD
@@ -311,6 +394,12 @@ def _do_drain() -> None:
         ExternalSyncRequest.objects.filter(
             status=ExternalSyncRequestStatus.PENDING,
             requested_at__lt=now - _DRAIN_PENDING_FLOOR,
+        ).filter(
+            # A rate-limited row carries the clock the source itself gave us;
+            # re-dispatching before it would just earn another 429 (#2924). Null
+            # is the ordinary case and means "eligible now", so this narrows
+            # nothing for any row that was never rate-limited.
+            models.Q(next_attempt_at__isnull=True) | models.Q(next_attempt_at__lte=now)
         )
     )
     dispatched = 0

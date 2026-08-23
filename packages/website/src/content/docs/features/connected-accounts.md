@@ -185,6 +185,12 @@ field limits (custom fields are excluded there too).
   than pull wider than you asked for. Both are fixed by reopening the connect
   wizard, and in both cases the items already in My Work are kept until the next
   successful pull.
+- **When the source is busy** — if Jira rate-limits the pull, nothing is flagged
+  and you are not asked to do anything. TruePPM reads the `Retry-After` the source
+  sends and re-queues the same pull behind that clock, so it completes on its own
+  shortly after. The connection stays **Active** and your existing items stay in
+  My Work throughout — a rate limit is the source asking for a moment, not a
+  broken connection, and it is deliberately not reported as one.
 - Enterprise sources appear here automatically when the Enterprise edition is
   installed — the OSS build shows only OSS sources.
 

@@ -581,6 +581,19 @@ class ExternalSyncRequest(models.Model):
     # to the client. Scrubbed of the PAT/Authorization by the worker before it
     # lands here (ADR-0097 §Resolution #2 "never logged").
     last_error = models.CharField(max_length=512, blank=True, default="")
+    # The retry clock for a rate-limited pull (#2924). A 429 is the source telling
+    # us when to come back, so the row is re-queued PENDING against this time
+    # rather than dead-lettered as "unreachable". Null is the ordinary case — the
+    # drain treats a null clock as "eligible now", so every pre-existing row and
+    # every non-429 path is unaffected.
+    next_attempt_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Earliest time the drain may re-dispatch this row (rate-limit backoff).",
+    )
+    # Bounds the re-queue loop so a source that 429s indefinitely retires instead
+    # of cycling forever. Counts rate-limit re-queues only, not dispatches.
+    attempt_count = models.PositiveIntegerField(default=0)
 
     class Meta:
         ordering = ("requested_at",)
