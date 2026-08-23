@@ -316,7 +316,7 @@ test.describe('Board view', () => {
   test('column headers render (issue #211)', async ({ page }) => {
     // BACKLOG was lifted out of the phase grid into the BacklogBand rail
     // (#381 / epic #361). The four committed columns remain. Scope by
-    // role=heading because the rail hint copy ("...promote to To do")
+    // role=heading because the rail hint copy ("... promotes it to To do")
     // also contains the column words at the document level.
     await expect(page.getByRole('heading', { name: /^To Do,/ })).toBeVisible();
     await expect(page.getByRole('heading', { name: /^In Progress,/ })).toBeVisible();

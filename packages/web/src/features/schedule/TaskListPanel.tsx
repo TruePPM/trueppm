@@ -214,7 +214,7 @@ interface Props {
    * read-only roles — the draft row then renders as a static line rather than an
    * input, because a caret in a field that cannot save is worse than no caret.
    */
-  onCommitDraftRow?: (name: string) => void;
+  onCommitDraftRow?: (name: string, opts?: { onError?: () => void }) => void;
   /**
    * Project resource roster — the only index the `@owner` authoring token resolves
    * against (ADR-0774, #2718). Owned by ScheduleView, which already runs the project's

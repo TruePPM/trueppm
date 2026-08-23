@@ -1,4 +1,4 @@
-import { ROW_HEIGHT } from './scheduleConstants';
+import { useRowHeight } from '@/hooks/useRowHeight';
 
 export interface ScheduleAppendTaskFooterProps {
   /** Appends a task at the end of the outline, at the top level. */
@@ -28,12 +28,19 @@ export interface ScheduleAppendTaskFooterProps {
  * lands at. The toolbar's insert takes the focused row's depth and the row-edge
  * `+` takes its own row's depth; this one is always top level, because the end
  * of the plan is not inside anything.
+ *
+ * Height comes from `useRowHeight()`, not the `ROW_HEIGHT` live binding (#2952).
+ * Reading the binding inside a render returns the right number *once* and then
+ * never re-renders when the pointer class flips — a tablet gaining a keyboard
+ * left this row 44px tall in a 28px outline, which is precisely the "second
+ * implementation that drifts" the one-place-to-author package exists to close.
  */
 export function ScheduleAppendTaskFooter({
   onAppend,
   readOnly = false,
   ariaRowIndex,
 }: ScheduleAppendTaskFooterProps) {
+  const rowHeight = useRowHeight();
   return (
     <div
       role="row"
@@ -41,7 +48,7 @@ export function ScheduleAppendTaskFooter({
       aria-level={1}
       data-testid="schedule-append-task-footer"
       className="flex items-center border-t border-dashed border-neutral-border"
-      style={{ height: ROW_HEIGHT }}
+      style={{ height: rowHeight }}
     >
       <div role="gridcell" className="flex-1 min-w-0 h-full flex items-center px-1">
         <button
@@ -52,10 +59,12 @@ export function ScheduleAppendTaskFooter({
           onClick={() => onAppend()}
           disabled={readOnly}
           title={readOnly ? 'Read-only access' : undefined}
-          // Full width and full row height: `ROW_HEIGHT` is 28px, so the 44px
-          // touch floor (rule 5) is unreachable inside an outline row — taking
+          // Full width and full row height. On a fine pointer the row is 28px,
+          // so the 44px touch floor (rule 5) is unreachable inside it — taking
           // the whole row is the largest target the surface can offer, and it
-          // matches how the rest of the outline treats a row as one target.
+          // matches how the rest of the outline treats a row as one target. On a
+          // coarse pointer `useRowHeight()` is already 44px (#2997), so the same
+          // "whole row" rule clears the floor rather than approximating it.
           className="flex items-center gap-1.5 w-full h-full px-2 rounded-control
             text-xs text-left text-neutral-text-secondary
             hover:text-brand-primary hover:bg-neutral-surface-sunken

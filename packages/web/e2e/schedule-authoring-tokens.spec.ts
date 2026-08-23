@@ -58,15 +58,6 @@ const FIXTURE_TASKS = [
 
 const ANA = { id: 'res-ana', name: 'Ana Rivera' };
 
-async function enableBuildMode(page: import('@playwright/test').Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem(
-      'trueppm.featureFlags',
-      JSON.stringify({ schedule_build_mode_v1: true }),
-    );
-  });
-}
-
 /**
  * The roster the `@owner` picker resolves against. The catch-all returns an empty
  * list here, which reads as "no roster" and silently disables the token — the
@@ -108,7 +99,9 @@ async function mockRoster(page: import('@playwright/test').Page) {
 
 test.describe('Inline authoring tokens', () => {
   test.beforeEach(async ({ page }) => {
-    await enableBuildMode(page);
+    // No build-mode opt-in here on purpose: `schedule_build_mode_v1` was
+    // deleted when build mode became the desktop default (ADR-0054, #2682), and
+    // the helper that used to seed it kept setting a flag nothing reads (#2952).
     await setupAuth(page);
     await setupCatchAll(page);
     await setupApiMocks(page, {
