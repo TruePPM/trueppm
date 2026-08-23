@@ -35382,7 +35382,7 @@
                 ],
                 "responses": {
                     "202": {
-                        "description": "Close request accepted; body includes the SprintCloseRequest id (request_id) and an optional pending-scope advisory."
+                        "description": "Close request accepted; body includes the SprintCloseRequest id (request_id) and an optional pending-scope advisory. At most one close is live per sprint: if one is already running this returns its existing request_id with deduplicated=true, plus the carry_over_to and pending_disposition that close is actually using — this request's own values are not applied."
                     },
                     "400": {
                         "description": "Sprint is not ACTIVE or carry_over_to target is invalid."

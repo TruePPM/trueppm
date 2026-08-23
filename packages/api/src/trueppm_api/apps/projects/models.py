@@ -4986,6 +4986,36 @@ class SprintCloseRequest(models.Model):
     def __str__(self) -> str:
         return f"SprintCloseRequest({self.sprint_id}, {self.status})"
 
+    @classmethod
+    def live_for_sprint(cls, sprint_id: Any) -> models.QuerySet[SprintCloseRequest]:
+        """Close requests for ``sprint_id`` that still expect to run (#2996).
+
+        "Live" is the same notion of *not finished* that
+        ``purge_sprint_close_requests`` already applies from the other side: a
+        row is live while it is PENDING or IN_FLIGHT, and a FAILED row is live
+        exactly while ``next_attempt_at`` is non-null, because that field is the
+        single source of truth for whether another attempt will be made (#2894).
+        A terminally-FAILED row (cancelled sprint, non-closable state, exhausted
+        budget) and a COMPLETED row are both finished and neither is returned.
+
+        This is the dedupe predicate for :func:`enqueue_sprint_close`: at most
+        one live request per sprint means a repeated ``POST /sprints/{id}/close/``
+        cannot multiply worker load, and the ``close-request`` read route has a
+        single unambiguous row to report on rather than "whichever was newest".
+        """
+        return cls.objects.filter(sprint_id=sprint_id).filter(
+            models.Q(
+                status__in=[
+                    SprintCloseRequestStatus.PENDING,
+                    SprintCloseRequestStatus.IN_FLIGHT,
+                ]
+            )
+            | models.Q(
+                status=SprintCloseRequestStatus.FAILED,
+                next_attempt_at__isnull=False,
+            )
+        )
+
 
 # ---------------------------------------------------------------------------
 # Sprint retrospective (issue #231)

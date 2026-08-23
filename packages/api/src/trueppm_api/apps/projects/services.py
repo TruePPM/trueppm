@@ -128,13 +128,41 @@ def enqueue_sprint_close(
     carry_over_to: str = "backlog",
     pending_disposition: str = "carry",
     requested_by: Any | None = None,
-) -> Any:
-    """Insert a SprintCloseRequest outbox row and best-effort dispatch.
+) -> tuple[Any, bool]:
+    """Return this sprint's live close request, creating and dispatching one if none exists.
+
+    Deduplicating (#2996). The sprint stays ACTIVE until the async close lands,
+    so ``POST /sprints/{id}/close/`` keeps accepting repeat requests; before this
+    each one wrote a row and fired ``close_sprint.delay()``, and since #2894 each
+    of those buys up to three attempts, every attempt taking ``select_for_update``
+    on the sprint plus a full task-outcome snapshot. Neither ``_DISPATCH_BUDGET``
+    nor ``_RETRY_DISPATCH_BUDGET`` bounds it — both bound *drain-initiated*
+    dispatch, and the POST-time ``.delay()`` bypasses them — so N POSTs bought 3N
+    heavy serialized transactions.
+
+    The same duplication also made the ``close-request`` read route misreport:
+    it answers with the most recent row, so with two concurrent requests where
+    the loser hits a serialization error the endpoint says FAILED ("the close
+    failed and will be retried") for a sprint that is already COMPLETED. One
+    live row per sprint fixes both at once, because there is only ever one row
+    to report on.
+
+    Concurrency: the sprint row is locked with ``select_for_update`` before the
+    lookup, which is what makes the check-then-create safe. The per-request Redis
+    lock cannot serialize this — it is keyed ``sprint_close_lock:{request_id}``,
+    i.e. per row rather than per sprint, so two concurrent POSTs hold two
+    different locks. Without the row lock both would find no live request and
+    both would insert.
 
     Safe to call from inside an HTTP request transaction — Celery dispatch is
     deferred via ``transaction.on_commit`` so a rolled-back request never
     fires the worker. If immediate dispatch fails (broker down) the row
     remains PENDING and the drain Beat task processes it within 30 seconds.
+
+    A deduplicated call deliberately does **not** re-dispatch: the existing row
+    is already PENDING (dispatched, or drain-eligible within 30 s), IN_FLIGHT, or
+    FAILED with a live retry clock. Re-dispatching would reintroduce exactly the
+    amplification this exists to remove.
 
     Args:
         sprint_id: UUID of the sprint to close.
@@ -146,31 +174,47 @@ def enqueue_sprint_close(
         requested_by: User instance who initiated the close (nullable).
 
     Returns:
-        The created ``SprintCloseRequest`` instance.
+        ``(request, created)`` in the shape of ``get_or_create``. When ``created``
+        is False the returned row is a pre-existing live request and **the
+        caller's ``carry_over_to`` / ``pending_disposition`` were not applied** —
+        the in-flight close keeps the disposition it was created with. Callers
+        that surface the result to a user must say so rather than implying the
+        new arguments took effect.
     """
-    from trueppm_api.apps.projects.models import SprintCloseRequest
+    from trueppm_api.apps.projects.models import Sprint, SprintCloseRequest
 
-    req = SprintCloseRequest.objects.create(
-        sprint_id=sprint_id,
-        carry_over_to=carry_over_to,
-        pending_disposition=pending_disposition,
-        requested_by=requested_by,
-    )
+    with transaction.atomic():
+        # Serializes concurrent enqueues for this sprint so the lookup below
+        # cannot race another inserting request. Nested atomic() is a savepoint
+        # under ATOMIC_REQUESTS; select_for_update requires a transaction, and
+        # this makes the function correct when called outside one too.
+        Sprint.objects.select_for_update().filter(pk=sprint_id).first()
 
-    def _dispatch() -> None:
-        from trueppm_api.apps.projects.tasks import close_sprint
+        existing = SprintCloseRequest.live_for_sprint(sprint_id).order_by("requested_at").first()
+        if existing is not None:
+            return existing, False
 
-        try:
-            close_sprint.delay(str(req.id))
-        except Exception:
-            logger.warning(
-                "enqueue_sprint_close: could not immediately dispatch sprint=%s "
-                "— drain task will pick it up within 30 s",
-                sprint_id,
-            )
+        req = SprintCloseRequest.objects.create(
+            sprint_id=sprint_id,
+            carry_over_to=carry_over_to,
+            pending_disposition=pending_disposition,
+            requested_by=requested_by,
+        )
 
-    transaction.on_commit(_dispatch)
-    return req
+        def _dispatch() -> None:
+            from trueppm_api.apps.projects.tasks import close_sprint
+
+            try:
+                close_sprint.delay(str(req.id))
+            except Exception:
+                logger.warning(
+                    "enqueue_sprint_close: could not immediately dispatch sprint=%s "
+                    "— drain task will pick it up within 30 s",
+                    sprint_id,
+                )
+
+        transaction.on_commit(_dispatch)
+    return req, True
 
 
 def enqueue_project_cascade_soft_delete(project_id: str | uuid.UUID) -> None:
