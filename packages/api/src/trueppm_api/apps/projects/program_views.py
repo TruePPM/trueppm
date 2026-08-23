@@ -46,6 +46,7 @@ from trueppm_api.apps.access.permissions import (
     IsProgramNotClosed,
     IsProgramOwner,
     IsProgramScheduler,
+    McpProgramExportConsent,
     McpReadableViewMixin,
     McpScope,
 )
@@ -578,13 +579,27 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             # Viewer/Member reaching it is a bulk ADR-0104 bypass. Bulk export at
             # program grain is a program-admin action. Stays available on closed
             # programs (portability for archival/forensics).
-            return [IsAuthenticated(), IsProgramAdmin()]
+            #
+            # McpProgramExportConsent (#3014) governs the GET seed for AGENT callers
+            # only: the seed carries every member project's rows verbatim, so without
+            # it an mcp:read token reads through the parent what a child team closed
+            # to agents. No effect on the POST — TokenReadOnlyMethods already refuses
+            # a token there — and none on any human.
+            return [IsAuthenticated(), IsProgramAdmin(), McpProgramExportConsent()]
         if self.action in ("export_jobs", "export_job_detail", "export_job_download"):
             # Async program export bundle list / poll / download (#1958, ADR-0219):
             # Admin+, matching the POST enqueue. Available on closed programs;
             # object-level cross-program IDOR (a job_id from another program) is
             # closed in the action bodies via program-scoped lookups.
-            return [IsAuthenticated(), IsProgramAdmin()]
+            base = [IsAuthenticated(), IsProgramAdmin()]
+            if self.action == "export_job_download":
+                # Only the download streams child-project data (#3014). `export_jobs`
+                # and `export_job_detail` report job status, size and timestamps —
+                # program-level bookkeeping that names no child project's contents —
+                # so withholding them would cost an agent the ability to poll a job
+                # while protecting nothing.
+                base.append(McpProgramExportConsent())
+            return base
         if self.action == "import_job_detail":
             # Poll one seed import job (ADR-0726). Admin+, matching the export
             # job poll: the summary reports the program's entity counts, and the
@@ -1149,7 +1164,15 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                     "and its member projects, delivered as a file attachment. Round-trips "
                     "back through the importer."
                 ),
-            )
+            ),
+            403: OpenApiResponse(
+                description=(
+                    "Not a program Admin — or an agent (`mcp:read`) token where a member "
+                    "project has opted out of agent reads and "
+                    "`TRUEPPM_MCP_PROGRAM_EXPORT_POLICY` is `withhold` (#3014). The body "
+                    "carries the ADR-0809 refusal envelope naming `capability_scope`."
+                )
+            ),
         },
     )
     @extend_schema(
@@ -1249,6 +1272,14 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             410: OpenApiResponse(
                 response=OpenApiTypes.OBJECT, description="Download link has expired."
             ),
+            403: OpenApiResponse(
+                description=(
+                    "Not a program Admin — or an agent (`mcp:read`) token where a member "
+                    "project has opted out of agent reads and "
+                    "`TRUEPPM_MCP_PROGRAM_EXPORT_POLICY` is `withhold` (#3014). The body "
+                    "carries the ADR-0809 refusal envelope naming `capability_scope`."
+                )
+            ),
         },
     )
     @action(
@@ -1266,16 +1297,17 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         ``409`` if not ready, ``410 Gone`` once the link has expired. The job is
         program-scoped so a ``job_id`` from another program 404s (IDOR guard).
 
-        **ADR-0678 agent opt-out: a child project's "off" does NOT withhold this
-        archive today, and that is recorded here rather than left implicit (#3001).**
-        The mixin's ``Program`` branch governs this route on ``program.mcp_enabled``
-        alone, so an ``mcp:read`` token at Admin+ can download a bundle carrying the
-        tasks of a member project whose team switched agent reads off. Unlike every
-        other read on this viewset the archive cannot be *narrowed*: it is built
-        asynchronously and streamed from storage as bytes, so honoring the child's
-        opt-out means withholding the whole artifact or nothing. That is a behavior
-        change on an export route, not a filter, and is tracked separately as #3014 —
-        do not read this comment as a decision that the current behavior is right.
+        **ADR-0678 agent opt-out — settled in #3014.** The mixin's ``Program`` branch
+        governs this route on ``program.mcp_enabled`` alone, so a child project's
+        "off" did not withhold the bundle: an ``mcp:read`` token at Admin+ could
+        download an archive carrying the tasks of a team that had switched agent
+        reads off. ``McpProgramExportConsent`` now decides that, per the operator's
+        ``TRUEPPM_MCP_PROGRAM_EXPORT_POLICY`` — ``withhold`` (default) refuses the
+        download to an agent when any member project has opted out; ``allow`` keeps
+        the previous program-level-artifact behavior. Humans are unaffected either
+        way. The lever is serve-or-refuse rather than filter because the archive is
+        built asynchronously and streamed as opaque bytes, so at download time there
+        is nothing left to narrow.
         """
         from django.core.files.storage import default_storage
 

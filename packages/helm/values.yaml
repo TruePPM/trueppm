@@ -529,6 +529,18 @@ env:
   # instance — the operator lever for "no agent access, period." Human
   # JWT/session traffic on the same endpoints is unaffected either way.
   TRUEPPM_MCP_ENABLED: "true"
+  # Whether a member project's agent-read opt-out withholds a PROGRAM-LEVEL BULK
+  # EXPORT from an agent token (#3014, ADR-0678). Both program exports — the sync
+  # JSON seed and the async .tar.gz bundle — carry every member project's rows
+  # verbatim, and neither can be narrowed, so the lever is serve-or-refuse.
+  #   "withhold" (default) — refuse an agent token when ANY member project has
+  #     opted out of agent reads. A team's "no" is final.
+  #   "allow" — treat the export as a program-level artifact governed by the
+  #     program's own agent-read setting alone (pre-0.4 behavior).
+  # Humans are unaffected by either value. This is an OPERATOR setting on purpose:
+  # a per-workspace or per-program toggle would let a scope above a team override
+  # that team's own consent decision, which the opt-out exists to prevent.
+  TRUEPPM_MCP_PROGRAM_EXPORT_POLICY: "withhold"
   # Per-token rate limits for the MCP read surface (#1808). These bound
   # token-authenticated reads ONLY; human JWT/session traffic on the same views is
   # unaffected. TRUEPPM_THROTTLE_MCP_READ_RATE is the baseline per-token cap on

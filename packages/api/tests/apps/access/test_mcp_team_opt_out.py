@@ -25,12 +25,14 @@ scope above it can re-enable them. Covered here:
 from __future__ import annotations
 
 import secrets
-from datetime import date
+from collections.abc import Iterator
+from datetime import date, timedelta
 from typing import Any
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.test import override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient, APIRequestFactory
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
@@ -858,6 +860,232 @@ def test_me_work_retro_action_items_unaffected_for_humans(project: Project, owne
     resp = _human(owner).get("/api/v1/me/work/")
     assert resp.status_code == 200, resp.data
     assert "retro-secret" in {r["text"] for r in resp.data["retro_action_items"]}
+
+
+# ---------------------------------------------------------------------------
+# #3014 — program bulk exports and a child project's opt-out
+# ---------------------------------------------------------------------------
+#
+# ProgramViewSet is AGGREGATE-scoped, so McpProjectEnabled passes unconditionally
+# and the mixin's Program branch governs only `program.mcp_enabled`. Both program
+# BULK EXPORTS carry every member project's rows verbatim, so an mcp:read token
+# could read through the parent exactly what a child team had closed to agents.
+#
+# #3001 recorded this and deliberately did not decide it. #3014 makes it an
+# operator setting: `withhold` (default) refuses the agent, `allow` keeps the old
+# program-level-artifact behavior. The sync JSON seed is covered as well as the
+# async bundle — the issue named only the bundle, and the seed has the same hole.
+
+_SEED_EXPORT = "export/"
+_PROGRAM_EXPORTS = [_SEED_EXPORT, "export/jobs/", "export/jobs/{job_id}/"]
+
+
+@pytest.fixture
+def _export_job(program: Program, owner: Any) -> Iterator[Any]:
+    """A SUCCESS export job with a real file behind it, so download reaches its body.
+
+    Built through the model rather than by running the export task: the assertions
+    are about who may reach the bytes, and a job stuck in PENDING would 409 before
+    the consent guard's outcome could be observed — passing vacuously.
+    """
+    from django.core.files.base import ContentFile
+    from django.core.files.storage import default_storage
+
+    from trueppm_api.apps.projects.models import ExportJobStatus, ProgramExportJob
+
+    # Written under the gitignored `program-exports/` prefix the real export task
+    # uses, and deleted on teardown: with the default local storage backend these
+    # are real files in the working tree, and a fixture that only creates them
+    # leaves one behind per test run.
+    path = default_storage.save(
+        f"program-exports/{program.pk}.tar.gz", ContentFile(b"archive-bytes")
+    )
+    job = ProgramExportJob.objects.create(
+        program=program,
+        requested_by=owner,
+        status=ExportJobStatus.SUCCESS,
+        file_path=path,
+        expires_at=timezone.now() + timedelta(days=1),
+    )
+    yield job
+    default_storage.delete(path)
+
+
+def _download_url(program: Program, job: Any) -> str:
+    return f"/api/v1/programs/{program.pk}/export/jobs/{job.pk}/download/"
+
+
+@pytest.mark.django_db
+def test_program_seed_export_withheld_when_a_child_opted_out(
+    project: Project, program: Program, owner: Any
+) -> None:
+    """The surface #3014's issue did not name: the SYNCHRONOUS JSON seed.
+
+    ``GET /programs/{id}/export/`` dumps the seed across every member project with
+    no opt-out consideration at all. It is a GET on an MCP-readable viewset, so it
+    was reachable by an ``mcp:read`` token whose owner is program Admin+ — the same
+    hole as the bundle, one action over.
+    """
+    _opt_out(project)
+    resp = _agent(owner).get(f"/api/v1/programs/{program.pk}/{_SEED_EXPORT}")
+    assert resp.status_code == 403, resp.status_code
+    assert project.name not in resp.content.decode(errors="ignore")
+
+
+@pytest.mark.django_db
+def test_program_bundle_download_withheld_when_a_child_opted_out(
+    project: Project, program: Program, owner: Any, _export_job: Any
+) -> None:
+    """The surface the issue did name: the pre-built .tar.gz."""
+    _opt_out(project)
+    resp = _agent(owner).get(_download_url(program, _export_job))
+    assert resp.status_code == 403, resp.status_code
+
+
+@pytest.mark.django_db
+def test_program_exports_served_when_no_child_opted_out(
+    project: Project, program: Program, owner: Any, _export_job: Any
+) -> None:
+    """The default must not be "refuse agents program exports" — only "refuse when a
+    team said no". Without this the withhold tests would pass on a guard that denies
+    unconditionally."""
+    agent = _agent(owner)
+    assert agent.get(f"/api/v1/programs/{program.pk}/{_SEED_EXPORT}").status_code == 200
+    assert agent.get(_download_url(program, _export_job)).status_code == 200
+
+
+@pytest.mark.django_db
+@override_settings(TRUEPPM_MCP_PROGRAM_EXPORT_POLICY="allow")
+def test_allow_policy_restores_the_program_level_artifact_behavior(
+    project: Project, program: Program, owner: Any, _export_job: Any
+) -> None:
+    """The escape hatch: an operator who treats the export as a program-level artifact.
+
+    This is the whole point of making it a setting rather than a ruling — the
+    argument for `allow` (a program admin already sees every child's data through
+    the program surfaces) is defensible, and ADR-0678 never settled it.
+    """
+    _opt_out(project)
+    agent = _agent(owner)
+    assert agent.get(f"/api/v1/programs/{program.pk}/{_SEED_EXPORT}").status_code == 200
+    assert agent.get(_download_url(program, _export_job)).status_code == 200
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("policy", ["withhold", "allow"])
+def test_program_exports_unaffected_for_humans_under_either_policy(
+    project: Project, program: Program, owner: Any, _export_job: Any, policy: str
+) -> None:
+    """ADR-0678 governs agents, not people. A fix that locked out the program's own
+    Admin would be an outage, not a control — and it must hold for BOTH values, since
+    the guard is what humans now pass through."""
+    _opt_out(project)
+    with override_settings(TRUEPPM_MCP_PROGRAM_EXPORT_POLICY=policy):
+        human = _human(owner)
+        assert human.get(f"/api/v1/programs/{program.pk}/{_SEED_EXPORT}").status_code == 200
+        assert human.get(_download_url(program, _export_job)).status_code == 200
+
+
+@pytest.mark.django_db
+def test_job_status_polling_is_not_withheld(
+    project: Project, program: Program, owner: Any, _export_job: Any
+) -> None:
+    """Only the download streams child data; the job list and poll report bookkeeping.
+
+    Withholding those would cost an agent the ability to poll a job while protecting
+    nothing — the rows name no child project's contents.
+    """
+    _opt_out(project)
+    agent = _agent(owner)
+    assert agent.get(f"/api/v1/programs/{program.pk}/export/jobs/").status_code == 200
+    assert (
+        agent.get(f"/api/v1/programs/{program.pk}/export/jobs/{_export_job.pk}/").status_code == 200
+    )
+
+
+@pytest.mark.django_db
+def test_withheld_export_discloses_why_to_the_agent(
+    project: Project, program: Program, owner: Any
+) -> None:
+    """A refusal an agent cannot explain gets retried forever.
+
+    The guard marks reason=policy / constraint=capability_scope, and
+    ``capability_scope`` is on the ADR-0809 disclosure allow-list, so the caller is
+    told which guard fired instead of getting DRF's constant ``default_detail``.
+
+    **The durable operator-side half is asserted here deliberately as absent.**
+    ``finalize_response`` claims it audits refusals; under ``ATOMIC_REQUESTS`` DRF's
+    ``set_rollback()`` discards that write for every ``APIException``, so **no**
+    refusal from any guard reaches the agent-action log — pre-existing and repo-wide,
+    filed as #3017. Pinning the current behavior rather than asserting the
+    documented-but-false one keeps this test honest, and makes it fail loudly when
+    #3017 lands so the assertion gets flipped rather than silently over-passing.
+    """
+    from trueppm_api.apps.agents.models import AgentAction, RefusalConstraint
+
+    _opt_out(project)
+    resp = _agent(owner).get(f"/api/v1/programs/{program.pk}/{_SEED_EXPORT}")
+    assert resp.status_code == 403
+
+    refusal = resp.data.get("refusal") or {}
+    assert refusal.get("reason") == "policy"
+    assert refusal.get("constraint") == RefusalConstraint.CAPABILITY_SCOPE
+
+    assert not AgentAction.objects.exists(), (
+        "an agent-action row survived a refusal — #3017 has landed; flip this "
+        "assertion to check the row's verdict/reason/constraint instead"
+    )
+
+
+@pytest.mark.django_db
+def test_program_own_denial_still_governs_under_allow(
+    project: Project, program: Program, owner: Any, _export_job: Any
+) -> None:
+    """`allow` relaxes only the CHILD question, never the program's own switch.
+
+    Worth pinning: `allow` is the permissive value, and a guard that short-circuits
+    before the program's own ``mcp_enabled`` would turn it into a blanket bypass of
+    the cascade rather than an answer to one unsettled question.
+
+    The ``project`` fixture is required, not incidental. A program with **zero**
+    member projects is not withheld at all today, regardless of policy — the mixin's
+    filter fast-paths on "has any *project* opted out?" and skips its own ``Program``
+    branch when the answer is no (#3022, pre-existing). Testing this invariant on an
+    empty program would assert that unrelated bug instead of the one property this
+    MR is responsible for.
+    """
+    program.mcp_enabled = False
+    program.save(update_fields=["mcp_enabled"])
+    with override_settings(TRUEPPM_MCP_PROGRAM_EXPORT_POLICY="allow"):
+        agent = _agent(owner)
+        assert agent.get(f"/api/v1/programs/{program.pk}/{_SEED_EXPORT}").status_code in (403, 404)
+        assert agent.get(_download_url(program, _export_job)).status_code in (403, 404)
+
+
+@pytest.mark.django_db
+@override_settings(TRUEPPM_MCP_PROGRAM_EXPORT_POLICY="allwo")
+def test_an_unrecognized_policy_falls_back_to_withhold(
+    project: Project, program: Program, owner: Any
+) -> None:
+    """A typo must fail safe, not pick the permissive branch.
+
+    `check_mcp_program_export_policy` makes the typo loud at deploy time; this pins
+    what the running instance does in the meantime.
+    """
+    _opt_out(project)
+    assert _agent(owner).get(f"/api/v1/programs/{program.pk}/{_SEED_EXPORT}").status_code == 403
+
+
+def test_the_policy_check_rejects_an_unrecognized_value() -> None:
+    """The boot-time half — an Error, not a Warning: a security policy that is not
+    the one the operator wrote is not advisory."""
+    from trueppm_api.core.security_checks import validate_mcp_program_export_policy
+
+    assert validate_mcp_program_export_policy("withhold") == []
+    assert validate_mcp_program_export_policy("ALLOW") == []  # normalized
+    errors = validate_mcp_program_export_policy("allwo")
+    assert [e.id for e in errors] == ["trueppm.E009"]
+    assert "withhold" in (errors[0].hint or "")
 
 
 # ---------------------------------------------------------------------------
