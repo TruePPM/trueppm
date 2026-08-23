@@ -97,7 +97,9 @@ def reduce_region_roots(paths: set[str]) -> list[str]:
     return out
 
 
-def capture_shape(project_id: Any, region_roots: list[str]) -> dict[str, str]:
+def capture_shape(
+    project_id: Any, region_roots: list[str], *, limit: int | None = None
+) -> dict[str, str]:
     """Read every live row at-or-under ``region_roots`` as ``{task id: wbs_path}``.
 
     The region is the whole subtree of each root, not just the rows a gesture moved.
@@ -105,6 +107,13 @@ def capture_shape(project_id: Any, region_roots: list[str]) -> dict[str, str]:
     a per-row check, and it is exactly what produces an orphan when the undo puts the
     surrounding paths back (a row whose parent path no longer exists resolves
     ``parent_id = NULL`` and silently renders at the project root).
+
+    ``limit`` reads at most ``limit + 1`` rows, so the caller can detect an oversized
+    region without materializing it. A root-level gesture reduces to ``[""]``, which is
+    the whole project — on a large plan that is tens of thousands of rows pulled into a
+    dict inside the hot write transaction, twice, only to be discarded when the size
+    cap rejects them. The extra row is what makes "more than the cap" distinguishable
+    from "exactly the cap".
     """
     from trueppm_api.apps.projects.models import Task
 
@@ -116,7 +125,10 @@ def capture_shape(project_id: Any, region_roots: list[str]) -> dict[str, str]:
         for root in region_roots:
             clause |= Q(wbs_path=root) | Q(wbs_path__startswith=f"{root}.")
         rows = rows.filter(clause)
-    return {str(pk): str(path) for pk, path in rows.values_list("pk", "wbs_path")}
+    pairs = rows.values_list("pk", "wbs_path")
+    if limit is not None:
+        pairs = pairs.order_by("pk")[: limit + 1]
+    return {str(pk): str(path) for pk, path in pairs}
 
 
 class StructuralCapture:
@@ -133,15 +145,30 @@ class StructuralCapture:
     undo precondition compares against later.
     """
 
-    def __init__(self, project_id: Any, region_roots: list[str], shape_before: dict[str, str]):
+    def __init__(
+        self,
+        project_id: Any,
+        region_roots: list[str],
+        shape_before: dict[str, str],
+        *,
+        oversized: bool = False,
+    ):
         self.project_id = project_id
         self.region_roots = region_roots
         self.shape_before = shape_before
+        self.oversized = oversized
 
     @classmethod
     def begin(cls, project_id: Any, region_roots: set[str]) -> StructuralCapture:
         roots = reduce_region_roots(region_roots)
-        return cls(project_id, roots, capture_shape(project_id, roots))
+        # Bounded read. The cap has to be applied HERE, not after both reads: measuring
+        # the region by materializing it means an oversized act pays the full cost
+        # anyway and then throws the result away, which is the opposite of what a cap
+        # is for.
+        shape = capture_shape(project_id, roots, limit=STRUCTURAL_OPERATION_MAX_REGION)
+        if len(shape) > STRUCTURAL_OPERATION_MAX_REGION:
+            return cls(project_id, roots, {}, oversized=True)
+        return cls(project_id, roots, shape)
 
     def record(
         self,
@@ -162,9 +189,18 @@ class StructuralCapture:
         # A minted row is not in shape_before and a soft-deleted one drops out of
         # shape_after, so neither is covered by the shape comparison. They are recorded
         # and precondition-checked on their own terms (ADR-0880 §2).
-        shape_after = capture_shape(self.project_id, self.region_roots)
+        #
+        # An oversized region skips the second read entirely — there is nothing to
+        # compare it against and nothing will be persisted.
+        shape_after = (
+            {}
+            if self.oversized
+            else capture_shape(
+                self.project_id, self.region_roots, limit=STRUCTURAL_OPERATION_MAX_REGION
+            )
+        )
         region_size = len(set(self.shape_before) | set(shape_after)) + len(created) + len(deleted)
-        undoable = region_size <= STRUCTURAL_OPERATION_MAX_REGION
+        undoable = not self.oversized and region_size <= STRUCTURAL_OPERATION_MAX_REGION
 
         created_versions: dict[str, int] = {}
         if undoable and created:
@@ -224,7 +260,7 @@ def _newest_active_id(operation: StructuralOperation) -> uuid.UUID | None:
     )
 
 
-def undo_blocked_reason(operation: StructuralOperation) -> str:
+def undo_blocked_reason(operation: StructuralOperation, *, check_shape: bool = True) -> str:
     """Why this operation cannot be undone right now, or ``""`` if it can.
 
     ``status`` cannot answer this on its own — its own docstring says the only question
@@ -234,6 +270,12 @@ def undo_blocked_reason(operation: StructuralOperation) -> str:
 
     Deliberately excludes the role check: authority depends on the *caller*, and this is
     a property of the operation. The view adds ``forbidden`` for the caller it has.
+
+    ``check_shape=False`` skips the drift comparison — the one arm that costs a
+    full-region read. The list endpoint passes it because the answer is racy anyway
+    (it can flip between a client reading the list and pressing Undo) and the ``409``
+    on the write is authoritative regardless. The detail endpoint and the undo itself
+    ask the full question.
     """
     from trueppm_api.apps.projects.models import SyncBatchOperationStatus
 
@@ -243,7 +285,7 @@ def undo_blocked_reason(operation: StructuralOperation) -> str:
         return "too_large"
     if _newest_active_id(operation) != operation.pk:
         return "not_top_of_stack"
-    if _describe_shape_drift(operation):
+    if check_shape and _describe_shape_drift(operation):
         return "shape_changed"
     return ""
 
@@ -423,9 +465,16 @@ def undo_structural_operation(
                         is_deleted=False,
                     )
                 ),
-                delete_rows=list(
+                # Only rows the act SOFT-DELETED are gated at delete grade. Rows it
+                # MINTED are not: `perform_group` creates its container with no
+                # assignee and demands no delete authority to make it, so demanding
+                # delete authority to un-make it denies a Member the reversal of
+                # their own group — the exact asymmetry this design exists to
+                # remove, reproduced one layer down. Un-minting is gated by the
+                # authority the mint required, which is the anchors above.
+                restore_rows=list(
                     Task.objects.filter(
-                        pk__in=list(locked.created_task_ids) + list(locked.deleted_task_ids),
+                        pk__in=locked.deleted_task_ids,
                         project_id=locked.project_id,
                     )
                 ),
@@ -449,7 +498,9 @@ def undo_structural_operation(
         deps_restored = 0
         deps_skipped = 0
         for dep in Dependency.objects.select_for_update().filter(
-            pk__in=locked.removed_dependency_ids, is_deleted=True
+            pk__in=locked.removed_dependency_ids,
+            is_deleted=True,
+            predecessor__project_id=locked.project_id,
         ):
             endpoints_live = (
                 Task.objects.filter(
@@ -485,11 +536,11 @@ def undo_structural_operation(
             )
         }
         for task_id, path in (locked.shape_before or {}).items():
-            row = rows_by_id.get(task_id)
-            if row is None or str(row.wbs_path) == path:
+            target = rows_by_id.get(task_id)
+            if target is None or str(target.wbs_path) == path:
                 continue
-            row.wbs_path = path
-            row.save(update_fields=["wbs_path"])
+            target.wbs_path = path
+            target.save(update_fields=["wbs_path"])
             restored += 1
 
         # 4. Un-mint what the act minted.
@@ -558,6 +609,21 @@ def _broadcast_and_recalc(project_id: Any) -> None:
     project_id_str = str(project_id)
     transaction.on_commit(lambda: enqueue_recalculate(project_id_str))
     transaction.on_commit(lambda: broadcast_board_event(project_id_str, "tasks_restructured", {}))
+
+
+def may_undo(request: Request, operation: StructuralOperation) -> bool:
+    """Whether this caller clears the actor-or-Admin bar. Never raises.
+
+    Exists so the serializer can report ``forbidden`` rather than advertising an
+    enabled Undo on a row that will 403 — the serializer's whole reason for computing
+    undoability server-side is that the web trail and an API client must not each
+    guess separately, and authority is part of the answer.
+    """
+    try:
+        require_structural_undo_authority(request, operation)
+    except Exception:
+        return False
+    return True
 
 
 def require_structural_undo_authority(request: Request, operation: StructuralOperation) -> None:

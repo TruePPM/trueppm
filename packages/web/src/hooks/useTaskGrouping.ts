@@ -53,6 +53,8 @@ export interface GroupTasksResponse {
   left_alone: LeftAloneEntry[];
   updated: WbsPathEntry[];
   warning: string | null;
+  /** Ledger handle for `POST /structural-operations/{id}/undo/` (ADR-0880, #2974). */
+  operation_id: string | null;
 }
 
 export interface UngroupTasksResponse {
@@ -67,6 +69,8 @@ export interface UngroupTasksResponse {
   removed_dependency_ids: string[];
   updated: WbsPathEntry[];
   warning: string | null;
+  /** Ledger handle for `POST /structural-operations/{id}/undo/` (ADR-0880, #2974). */
+  operation_id: string | null;
 }
 
 export interface GroupTasksPayload {

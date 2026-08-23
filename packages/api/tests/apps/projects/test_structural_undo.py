@@ -530,9 +530,113 @@ def test_a_member_can_undo_their_own_indent(project: Project, member_client: API
 def test_a_member_may_not_undo_someone_elses_act(
     project: Project, owner_client: APIClient, member_client: APIClient
 ) -> None:
+    """404, not 403 — and the distinction is the point.
+
+    The list queryset scopes to *your own* acts plus anything where you are Admin+, so a
+    Member never sees a colleague's operation at all. Asserting the exact status stops
+    this from silently becoming a test of the wrong mechanism: if the queryset were ever
+    widened to the ADR-0810 siblings' membership-only scope, this would flip to 403 and
+    say so, instead of passing either way behind an `in (403, 404)`.
+    """
     tasks = make_tasks(project, ["1", "2"])
     response = act(owner_client, INDENT_URL.format(pk=project.pk, task_id=tasks["2"].pk))
-    assert undo(member_client, response.json()["operation_id"]).status_code in (403, 404)
+    assert undo(member_client, response.json()["operation_id"]).status_code == 404
+
+
+@pytest.mark.django_db
+def test_require_structural_undo_authority_refuses_a_non_admin_third_party(
+    project: Project, owner_client: APIClient, member_client: APIClient
+) -> None:
+    """Pin the guard directly — the endpoint's queryset 404s before it is reached.
+
+    `require_structural_undo_authority` is defense-in-depth today: nothing routes a
+    non-Admin to an operation they did not perform. That makes it exactly the kind of
+    check that rots unnoticed, so it is exercised against the function rather than
+    through the endpoint that currently shadows it.
+    """
+    from rest_framework.exceptions import PermissionDenied
+    from rest_framework.test import APIRequestFactory
+
+    from trueppm_api.apps.projects.structural_operation_services import (
+        may_undo,
+        require_structural_undo_authority,
+    )
+
+    tasks = make_tasks(project, ["1", "2"])
+    response = act(owner_client, INDENT_URL.format(pk=project.pk, task_id=tasks["2"].pk))
+    operation = StructuralOperation.objects.get(pk=response.json()["operation_id"])
+
+    request = APIRequestFactory().post("/")
+    request.user = User.objects.get(username="member")
+    with pytest.raises(PermissionDenied):
+        require_structural_undo_authority(request, operation)
+    assert may_undo(request, operation) is False
+
+    request.user = User.objects.get(username="owner")
+    require_structural_undo_authority(request, operation)  # the actor: no raise
+    assert may_undo(request, operation) is True
+
+
+@pytest.mark.django_db
+def test_a_member_can_undo_their_own_group(project: Project, member_client: APIClient) -> None:
+    """The group container is minted unassigned, and undo deletes it.
+
+    Gating that deletion at DELETE grade would deny a Member the reversal of their own
+    group — `can_user_edit_task(..., "DELETE")` fails on an unassigned row for a Member —
+    which is the very asymmetry ADR-0880 §4 removes, reappearing one layer down. Undo
+    gates minted rows at the authority the *mint* required instead.
+    """
+    member = User.objects.get(username="member")
+    tasks = make_tasks(project, ["1", "2"])
+    for task in tasks.values():
+        task.assignee = member
+        task.save()
+    before = shape(project)
+
+    response = act(
+        member_client,
+        GROUP_URL.format(pk=project.pk),
+        {"task_ids": [str(tasks["1"].pk), str(tasks["2"].pk)], "name": "Discovery"},
+    )
+    assert response.status_code == 200
+    assert undo(member_client, response.json()["operation_id"]).status_code == 200
+    assert shape(project) == before
+
+
+@pytest.mark.django_db
+def test_a_member_cannot_undo_once_their_anchor_row_is_reassigned(
+    project: Project, member_client: APIClient
+) -> None:
+    """Undo re-checks authority against the row's CURRENT state, not the act's."""
+    member = User.objects.get(username="member")
+    tasks = make_tasks(project, ["1", "2"])
+    for task in tasks.values():
+        task.assignee = member
+        task.save()
+    response = act(member_client, INDENT_URL.format(pk=project.pk, task_id=tasks["2"].pk))
+    assert response.status_code == 200
+
+    other = User.objects.create_user(username="reassigned-to", password="pw")
+    Task.objects.filter(pk=tasks["2"].pk).update(assignee=other)
+
+    assert undo(member_client, response.json()["operation_id"]).status_code == 403
+
+
+@pytest.mark.django_db
+def test_undo_is_refused_on_an_archived_project(project: Project, owner_client: APIClient) -> None:
+    """`IsProjectNotArchived` is the only place `is_archived` is enforced.
+
+    Without it on the undo route, a Member who indented before archival could still
+    rewrite an archived plan's WBS — a write no role can otherwise make.
+    """
+    tasks = make_tasks(project, ["1", "2"])
+    response = act(owner_client, INDENT_URL.format(pk=project.pk, task_id=tasks["2"].pk))
+    after_act = shape(project)
+
+    Project.objects.filter(pk=project.pk).update(is_archived=True)
+
+    assert undo(owner_client, response.json()["operation_id"]).status_code == 403
+    assert shape(project) == after_act
 
 
 @pytest.mark.django_db
@@ -553,7 +657,9 @@ def test_a_scheduler_is_excluded_from_plan_authoring_and_from_its_undo(
 ) -> None:
     tasks = make_tasks(project, ["1", "2"])
     response = act(owner_client, INDENT_URL.format(pk=project.pk, task_id=tasks["2"].pk))
-    assert undo(scheduler_client, response.json()["operation_id"]).status_code in (403, 404)
+    # 404: the queryset scopes a non-actor, non-Admin out before any permission class
+    # runs. The plan-author bar is asserted on an operation they DO own, below.
+    assert undo(scheduler_client, response.json()["operation_id"]).status_code == 404
 
 
 @pytest.mark.django_db
@@ -562,7 +668,31 @@ def test_a_viewer_may_not_undo(
 ) -> None:
     tasks = make_tasks(project, ["1", "2"])
     response = act(owner_client, INDENT_URL.format(pk=project.pk, task_id=tasks["2"].pk))
-    assert undo(viewer_client, response.json()["operation_id"]).status_code in (403, 404)
+    assert undo(viewer_client, response.json()["operation_id"]).status_code == 404
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("username", "role"), [("scheduler", Role.SCHEDULER), ("viewer", Role.VIEWER)]
+)
+def test_a_non_authoring_role_is_refused_even_on_its_own_operation(
+    project: Project, username: str, role: int
+) -> None:
+    """Exercises the permission classes, not the queryset that usually shadows them.
+
+    Neither role can perform a structural act, so an operation attributed to one can
+    only be constructed directly — which is the point: it puts the caller past the
+    `applied_by` scope and onto `IsProjectMemberWrite` / `IsProjectPlanAuthor`, the
+    layer the endpoint-level role tests never reach.
+    """
+    client = _member(project, username, role)
+    make_tasks(project, ["1", "2"])
+    operation = StructuralOperation.objects.create(
+        project=project,
+        applied_by=User.objects.get(username=username),
+        kind=StructuralOperationKind.INDENT,
+    )
+    assert undo(client, str(operation.pk)).status_code == 403
 
 
 @pytest.mark.django_db

@@ -61,6 +61,11 @@ if TYPE_CHECKING:
 KIND_FILE = "file"
 KIND_LINK = "link"
 KINDS: frozenset[str] = frozenset({KIND_FILE, KIND_LINK})
+#: The same two values as an ordered list, for the serializer's ChoiceField and for
+#: the ``KindEnum`` pin in ``ENUM_NAME_OVERRIDES``. A frozenset cannot serve either:
+#: drf-spectacular needs a stable order, and an unordered pin would make the
+#: generated enum's member order vary between runs.
+KIND_CHOICES: list[str] = [KIND_FILE, KIND_LINK]
 
 # Fixed source ranks — encoded in the cursor and MUST stay stable (see module
 # docstring). File sorts before link on an exact ``created_at`` tie.
@@ -431,7 +436,7 @@ class AssetItemSerializer(serializers.Serializer[Any]):
     links (``TaskLink`` has no uploader).
     """
 
-    kind = serializers.ChoiceField(choices=[KIND_FILE, KIND_LINK])
+    kind = serializers.ChoiceField(choices=KIND_CHOICES)
     id = serializers.CharField()
     title = serializers.CharField(allow_blank=True)
     url = serializers.CharField(allow_null=True)

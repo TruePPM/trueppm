@@ -2071,6 +2071,14 @@ SPECTACULAR_SETTINGS = {
         # above exist to prevent. Pin Task's to its existing stable name; the
         # template's own set is then free to take the model-prefixed name.
         "SourceKindEnum": "trueppm_api.apps.projects.models.TaskSource",
+        # ADR-0880 (#2974): StructuralOperation.kind introduces a SECOND "kind"
+        # choice set alongside AssetItemSerializer.kind (file|link). Without a pin
+        # drf-spectacular disambiguates both by prefix, renaming the published
+        # `KindEnum` to `AssetItemKindEnum` — a removed component referenced by
+        # AgentAction, AssetItem, ShareLink, ShareLinkCreateRequest,
+        # ShareLinkCreateResponse and Task. Same regression class as every pin in
+        # this block. Keep the incumbent's name; the new set takes the prefixed one.
+        "KindEnum": "trueppm_api.apps.projects.asset_feed.KIND_CHOICES",
         "TemplateSourceEnum": "trueppm_api.apps.projects.models.TemplateSource",
         # ADR-0116: Workspace.iteration_label_override_policy adds an
         # INHERIT/SUGGEST/ENFORCE choice set. Pin it so drf-spectacular does not

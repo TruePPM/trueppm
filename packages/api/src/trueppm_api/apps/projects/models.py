@@ -8072,11 +8072,15 @@ class StructuralOperation(models.Model):
         related_name="structural_operations_undone",
     )
     kind = models.CharField(max_length=10, choices=StructuralOperationKind.choices)
+    # No standalone db_index, unlike the ADR-0810 siblings: this column has two values,
+    # so a btree on it selects nothing useful, and it is already the third column of
+    # `structop_stack_idx` — which serves the only query that filters on it. The table
+    # is high-write (a row per indent, per drag), so an index that earns nothing costs
+    # something.
     status = models.CharField(
         max_length=10,
         choices=SyncBatchOperationStatus.choices,
         default=SyncBatchOperationStatus.ACTIVE,
-        db_index=True,
     )
     # False when the affected region exceeded STRUCTURAL_OPERATION_MAX_REGION.
     # The act still succeeded; only its reversal is refused. Recording the row

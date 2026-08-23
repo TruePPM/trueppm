@@ -34,7 +34,13 @@ const PROJECTS = [
   },
 ];
 
-function taskRow(over: Record<string, unknown>) {
+interface FixtureTask extends Record<string, unknown> {
+  id: string;
+  wbs_path: string;
+  name: string;
+}
+
+function taskRow(over: Partial<FixtureTask> & { id: string; wbs_path: string; name: string }): FixtureTask {
   return {
     early_start: '2026-04-05',
     early_finish: '2026-04-09',
@@ -68,6 +74,8 @@ const TASKS = [
 ];
 
 interface UndoStore {
+  /** Indent requests the app sent, in order. */
+  indents: string[];
   /** Undo requests the app sent, in order. */
   undos: string[];
   /** Set to make the next undo refuse the way a real collaborator conflict does. */
@@ -83,7 +91,7 @@ interface UndoStore {
  */
 async function setupStructuralStore(page: Page): Promise<UndoStore> {
   const rows = TASKS.map((t) => ({ ...t }));
-  const store: UndoStore = { undos: [], refuseWith: null };
+  const store: UndoStore = { indents: [], undos: [], refuseWith: null };
 
   await page.route('**/api/v1/tasks/**', async (route) => {
     const url = new URL(route.request().url());
@@ -100,9 +108,10 @@ async function setupStructuralStore(page: Page): Promise<UndoStore> {
 
   await page.route('**/api/v1/projects/*/tasks/*/indent/', async (route) => {
     const taskId = new URL(route.request().url()).pathname.split('/').slice(-3, -2)[0];
+    store.indents.push(taskId);
     const idx = rows.findIndex((r) => r.id === taskId);
     const above = rows[idx - 1];
-    rows[idx] = { ...rows[idx], parent_id: above.id, wbs_path: `${above.wbs_path as string}.1` };
+    rows[idx] = { ...rows[idx], parent_id: above.id, wbs_path: `${above.wbs_path}.1` };
     rows[idx - 1] = { ...above, is_summary: true };
     await route.fulfill({
       json: {
@@ -184,11 +193,25 @@ async function outlineShape(page: Page): Promise<Record<string, string>> {
  * and `TaskListRow`'s own specs cover ⌥→. This spec is about whether an act and its
  * undo restore the same structure, so it triggers the act the stable way.
  */
-async function indentSurvey(page: Page) {
+async function indentSurvey(page: Page, store: UndoStore) {
   const row = page.getByRole('row').filter({ hasText: 'Survey' }).first();
   await expect(row).toBeVisible();
   await row.hover();
   await row.getByRole('button', { name: /^Indent Survey/ }).click();
+  // Assert the act actually left the browser before assuming anything about the DOM.
+  // A click that lands while the row list is mid-re-render can hit a node the handler
+  // has already been detached from — Playwright reports a successful click either way,
+  // and the failure surfaces ten seconds later as "the outline never changed", which
+  // reads like a bug in the feature rather than a lost gesture.
+  await expect.poll(() => store.indents.length, { timeout: 10_000 }).toBeGreaterThan(0);
+  // Then gate on the app having *processed* the response, not merely sent the request.
+  // The trail button only exists once `recordAct` has run, which happens in the same
+  // pass that binds the ledger handle — so its appearance is the earliest point at
+  // which reading the outline back is meaningful. Without this the next assertion
+  // races the refetch and fails as "the outline never changed".
+  await expect(
+    page.getByRole('button', { name: /structural change.* this session/i }),
+  ).toBeVisible({ timeout: 15_000 });
 }
 
 /** Gate on the whole outline being on screen before reading a baseline from it. */
@@ -218,11 +241,11 @@ test.describe('Schedule outline — structural undo (#2974)', () => {
     const before = await outlineShape(page);
     expect(before).toEqual({ Mobilization: '1@1', Survey: '2@1', Closeout: '3@1' });
 
-    await indentSurvey(page);
+    await indentSurvey(page, store);
 
     // The act landed: Survey went into Mobilization, and Closeout took its number.
     await expect
-      .poll(async () => await outlineShape(page), { timeout: 10_000 })
+      .poll(async () => await outlineShape(page), { timeout: 20_000 })
       .toEqual({ Mobilization: '1@1', Survey: 'absent', Closeout: '2@1' });
 
     await openTrail(page);
@@ -231,7 +254,7 @@ test.describe('Schedule outline — structural undo (#2974)', () => {
     await expect.poll(() => store.undos.length).toBe(1);
     // The assertion the issue is about: the *structure* came back, not just a 200.
     await expect
-      .poll(async () => await outlineShape(page), { timeout: 10_000 })
+      .poll(async () => await outlineShape(page), { timeout: 20_000 })
       .toEqual(before);
   });
 
@@ -241,16 +264,16 @@ test.describe('Schedule outline — structural undo (#2974)', () => {
     await outlineReady(page);
 
     const before = await outlineShape(page);
-    await indentSurvey(page);
+    await indentSurvey(page, store);
     await expect
-      .poll(async () => (await outlineShape(page)).Closeout, { timeout: 10_000 })
+      .poll(async () => (await outlineShape(page)).Closeout, { timeout: 20_000 })
       .toBe('2@1');
 
     await page.keyboard.press('ControlOrMeta+z');
 
     await expect.poll(() => store.undos).toEqual([OPERATION_ID]);
     await expect
-      .poll(async () => await outlineShape(page), { timeout: 10_000 })
+      .poll(async () => await outlineShape(page), { timeout: 20_000 })
       .toEqual(before);
   });
 
@@ -262,9 +285,9 @@ test.describe('Schedule outline — structural undo (#2974)', () => {
     await page.goto(BASE_URL);
     await outlineReady(page);
 
-    await indentSurvey(page);
+    await indentSurvey(page, store);
     await expect
-      .poll(async () => (await outlineShape(page)).Closeout, { timeout: 10_000 })
+      .poll(async () => (await outlineShape(page)).Closeout, { timeout: 20_000 })
       .toBe('2@1');
     const afterIndent = await outlineShape(page);
 
@@ -287,11 +310,11 @@ test.describe('Schedule outline — structural undo (#2974)', () => {
   }) => {
     // #2974: advertising ⌘Z for an act that cannot be reversed is the defect. The
     // panel must name what is outside the boundary, not imply everything is inside.
-    await setupStructuralStore(page);
+    const store = await setupStructuralStore(page);
     await page.goto(BASE_URL);
     await outlineReady(page);
 
-    await indentSurvey(page);
+    await indentSurvey(page, store);
     await openTrail(page);
 
     const panel = page.getByRole('dialog', { name: 'Structural changes this session' });

@@ -44770,7 +44770,7 @@
                 "description": "One unified asset — a file (``TaskAttachment``) or a link (``TaskLink``).\n\nThe instance is a plain dict from :func:`build_asset_feed`. Link-only fields\n(``provider``/``status``/``preview_type``) are null on files; ``labels`` is\n``[]`` on files; ``download_url`` is the signed-url action target on stored\nfiles and null on external-URL attachments and links; ``added_by`` is null on\nlinks (``TaskLink`` has no uploader).",
                 "properties": {
                     "kind": {
-                        "$ref": "#/components/schemas/AssetItemKindEnum"
+                        "$ref": "#/components/schemas/KindEnum"
                     },
                     "id": {
                         "type": "string"
@@ -44847,14 +44847,6 @@
                     "title",
                     "url"
                 ]
-            },
-            "AssetItemKindEnum": {
-                "enum": [
-                    "file",
-                    "link"
-                ],
-                "type": "string",
-                "description": "* `file` - file\n* `link` - link"
             },
             "AssetProgramRef": {
                 "type": "object",
@@ -48247,6 +48239,14 @@
                 ],
                 "type": "string",
                 "description": "* `HISTORY_RETENTION_DAYS` - HISTORY_RETENTION_DAYS\n* `TASK_RUN_RETENTION_DAYS` - TASK_RUN_RETENTION_DAYS\n* `TRUEPPM_WEBHOOK_RETENTION_DAYS` - TRUEPPM_WEBHOOK_RETENTION_DAYS\n* `TRUEPPM_IMPORT_RETENTION_DAYS` - TRUEPPM_IMPORT_RETENTION_DAYS\n* `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` - TRUEPPM_SYNC_BATCH_RETENTION_HOURS\n* `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` - TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS"
+            },
+            "KindEnum": {
+                "enum": [
+                    "file",
+                    "link"
+                ],
+                "type": "string",
+                "description": "* `file` - file\n* `link` - link"
             },
             "Label": {
                 "type": "object",
