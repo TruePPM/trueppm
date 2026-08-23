@@ -13239,7 +13239,11 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             202: OpenApiResponse(
                 description=(
                     "Close request accepted; body includes the SprintCloseRequest id "
-                    "(request_id) and an optional pending-scope advisory."
+                    "(request_id) and an optional pending-scope advisory. At most one "
+                    "close is live per sprint: if one is already running this returns "
+                    "its existing request_id with deduplicated=true, plus the "
+                    "carry_over_to and pending_disposition that close is actually "
+                    "using — this request's own values are not applied."
                 )
             ),
             400: OpenApiResponse(
@@ -13325,13 +13329,23 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
                 )
 
         with transaction.atomic():
-            req = enqueue_sprint_close(
+            req, created = enqueue_sprint_close(
                 sprint_id=sprint.pk,
                 carry_over_to=carry_over_to,
                 pending_disposition=pending_disposition,
                 requested_by=request.user,
             )
         payload: dict[str, Any] = {"queued": True, "request_id": str(req.id)}
+        if not created:
+            # A close for this sprint is already live, so this POST joined it
+            # rather than starting a second one (#2996). Say so explicitly: the
+            # 202 is honest — the close *is* accepted and running — but the
+            # caller's carry_over_to / pending_disposition were NOT applied, and
+            # a client that assumed otherwise would report a disposition the
+            # close is not using.
+            payload["deduplicated"] = True
+            payload["carry_over_to"] = req.carry_over_to
+            payload["pending_disposition"] = req.pending_disposition
         if advisory is not None:
             payload["scope_pending_on_close"] = advisory
         return Response(payload, status=status.HTTP_202_ACCEPTED)
