@@ -60,10 +60,10 @@ vi.mock('@/components/Toast', () => ({
 }));
 
 const widths: ColumnWidths['widths'] = {
-  wbs: 48, task: 180, dur: 52, start: 74, finish: 74, progress: 52, owner: 72,
+  wbs: 48, task: 180, links: 76, dur: 52, start: 74, finish: 74, progress: 52, owner: 72,
 };
 const visible: ColumnWidths['visible'] = {
-  wbs: true, task: true, dur: true, start: true, finish: true, progress: true, owner: true,
+  wbs: true, task: true, links: true, dur: true, start: true, finish: true, progress: true, owner: true,
 };
 
 const base: Task = {
@@ -410,30 +410,39 @@ describe('TaskListRow — inline chips', () => {
     expect(screen.queryByTestId('link-status-chip')).toBeNull();
   });
 
-  it('replaces assignee chips with dependency chips when selected in focus mode', () => {
-    useScheduleStore.setState({ selectedTaskId: 't1' });
-    // Owner column hidden so the only AssigneeChips would be the name-column one
-    // that dep chips replace — its "A" initial must therefore be absent.
+  it('renders the flag UNSELECTED — the row carries its dependency state at rest', () => {
+    // The shipped chips rendered only while the row was selected in focus mode,
+    // so you had to select a row to learn whether it had links, which is the
+    // opposite of scanning. Nothing selected here.
+    useScheduleStore.setState({ selectedTaskId: null });
     renderWithRouter(
       <TaskListRow
         task={{ ...base, assignees: [{ resourceId: 'r1', name: 'Alice', units: 1 }] }}
         level={1}
         widths={widths}
+        // Owner column hidden so the only AssigneeChips left is the name-column
+        // one the dep chips used to displace — its "A" initial must be present.
         visible={{ ...visible, owner: false }}
         {...tree}
-        depChips={{ predsCount: 2, succsCount: 1, predsCritical: true, succsCritical: false }}
+        depChips={{
+          preds: [
+            { type: 'FS', lag: 0 },
+            { type: 'FS', lag: 0 },
+          ],
+          succs: [{ type: 'FS', lag: 0 }],
+          predsCritical: true,
+          succsCritical: false,
+        }}
       />,
     );
-    expect(screen.getByLabelText('2 predecessors, 1 successors')).toBeInTheDocument();
-    const preds = screen.getByText('←2');
-    expect(preds.className).toMatch(/text-semantic-critical/);
-    expect(screen.getByText('→1')).toBeInTheDocument();
-    // Assignee initials chip is suppressed in favor of dep chips.
-    expect(screen.queryByText('A')).toBeNull();
+    expect(screen.getByTestId('dep-flag-predecessor')).toHaveTextContent('←FS×2');
+    expect(screen.getByTestId('dep-flag-predecessor').className).toMatch(/text-semantic-critical/);
+    expect(screen.getByTestId('dep-flag-successor')).toHaveTextContent('→FS');
+    // And it no longer displaces the assignee chip — they are different columns.
+    expect(screen.getByText('A')).toBeInTheDocument();
   });
 
-  it('omits the predecessor chip when there are zero predecessors', () => {
-    useScheduleStore.setState({ selectedTaskId: 't1' });
+  it('states the whole cell in one label, and puts the detail in the tooltip', () => {
     renderWithRouter(
       <TaskListRow
         task={base}
@@ -441,11 +450,111 @@ describe('TaskListRow — inline chips', () => {
         widths={widths}
         visible={visible}
         {...tree}
-        depChips={{ predsCount: 0, succsCount: 2, predsCritical: false, succsCritical: true }}
+        depChips={{
+          preds: [
+            { type: 'FS', lag: 0 },
+            { type: 'SS', lag: 2 },
+          ],
+          succs: [],
+          predsCritical: false,
+          succsCritical: false,
+        }}
       />,
     );
-    expect(screen.queryByText(/←/)).toBeNull();
-    expect(screen.getByText('→2')).toBeInTheDocument();
+    const cell = screen.getByTestId('links-cell');
+    expect(cell).toHaveAttribute(
+      'aria-label',
+      'Links for Design Phase — 2 predecessors: Finish-to-Start, Start-to-Start +2d',
+    );
+  });
+
+  it('omits the predecessor flag when there are zero predecessors', () => {
+    renderWithRouter(
+      <TaskListRow
+        task={base}
+        level={1}
+        widths={widths}
+        visible={visible}
+        {...tree}
+        depChips={{
+          preds: [],
+          succs: [
+            { type: 'FS', lag: 0 },
+            { type: 'FS', lag: 0 },
+          ],
+          predsCritical: false,
+          succsCritical: true,
+        }}
+      />,
+    );
+    expect(screen.queryByTestId('dep-flag-predecessor')).toBeNull();
+    expect(screen.getByTestId('dep-flag-successor')).toHaveTextContent('→FS×2');
+  });
+
+  it('draws NO links cell when the surface has hidden the column', () => {
+    // The Timeline narrows `visible.links` to false. Without the guard the row
+    // would carry a gridcell the header does not, and the outline would be one
+    // column out of alignment with every column-header count still passing.
+    renderWithRouter(
+      <TaskListRow
+        task={base}
+        level={1}
+        widths={widths}
+        visible={{ ...visible, links: false }}
+        {...tree}
+        depChips={{
+          preds: [{ type: 'FS', lag: 0 }],
+          succs: [],
+          predsCritical: false,
+          succsCritical: false,
+        }}
+      />,
+    );
+    expect(screen.queryByTestId('links-cell')).toBeNull();
+    expect(screen.queryByTestId('dep-flag-predecessor')).toBeNull();
+  });
+
+  it('puts the per-row detail in the chip tooltip — the control\'s NAME is constant', () => {
+    // The button is named "Edit predecessor links" on every row, so `title` is
+    // the only per-row detail a sighted mouse user gets.
+    renderWithRouter(
+      <TaskListRow
+        task={base}
+        level={1}
+        widths={widths}
+        visible={visible}
+        {...tree}
+        depChips={{
+          preds: [
+            { type: 'FS', lag: 0 },
+            { type: 'SS', lag: 2 },
+          ],
+          succs: [],
+          predsCritical: true,
+          succsCritical: false,
+        }}
+      />,
+    );
+    const chip = screen.getByTestId('dep-flag-predecessor');
+    // The chip is nested inside the control when authoring is off, so walk up
+    // to whichever element carries the tooltip.
+    const titled = chip.closest('[title]');
+    expect(titled).toHaveAttribute(
+      'title',
+      '2 predecessors: Finish-to-Start, Start-to-Start +2d — on the critical path',
+    );
+  });
+
+  it('renders an em dash and the empty statement when the row has no links at all', () => {
+    renderWithRouter(
+      <TaskListRow task={base} level={1} widths={widths} visible={visible} {...tree} />,
+    );
+    expect(screen.queryByTestId('dep-flag-predecessor')).toBeNull();
+    expect(screen.queryByTestId('dep-flag-successor')).toBeNull();
+    expect(screen.getByTestId('links-cell')).toHaveAttribute(
+      'aria-label',
+      'Links: none for Design Phase',
+    );
   });
 });
 

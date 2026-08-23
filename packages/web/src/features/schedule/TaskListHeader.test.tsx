@@ -12,6 +12,7 @@ import { MIN_COL_WIDTHS, type ColumnWidths } from '@/hooks/useColumnWidths';
 const WIDTHS: ColumnWidths['widths'] = {
   wbs: 48,
   task: 220,
+  links: 76,
   dur: 52,
   start: 74,
   finish: 74,
@@ -22,6 +23,7 @@ const WIDTHS: ColumnWidths['widths'] = {
 const VISIBLE: ColumnWidths['visible'] = {
   wbs: true,
   task: true,
+  links: true,
   dur: true,
   start: true,
   finish: true,
@@ -53,6 +55,17 @@ describe('TaskListHeader column resize keyboard operability (#2205)', () => {
     expect(handle).toHaveAttribute('aria-valuemin', String(MIN_COL_WIDTHS.task));
     expect(handle).toHaveAttribute('aria-orientation', 'vertical');
     expect(handle).toHaveAttribute('aria-valuetext', 'task column 220 pixels');
+  });
+
+  it('gives the Links column a header and a working resize handle (#3023)', () => {
+    // A typo'd `colKey` renders a handle that resizes nothing, and nothing else
+    // in the suite would notice.
+    const setWidth = renderHeader();
+    expect(screen.getByRole('columnheader', { name: 'Dependency links' })).toBeInTheDocument();
+    const handle = screen.getByRole('separator', { name: 'Resize links column' });
+    expect(handle).toHaveAttribute('aria-valuemin', String(MIN_COL_WIDTHS.links));
+    fireEvent.keyDown(handle, { key: 'Home' });
+    expect(setWidth).toHaveBeenCalledWith('links', MIN_COL_WIDTHS.links);
   });
 
   it('ArrowRight / ArrowLeft nudge the width by 16px', () => {

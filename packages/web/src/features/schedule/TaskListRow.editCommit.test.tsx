@@ -112,10 +112,10 @@ type BuildModeApi = import('./buildMode').BuildModeApi;
 type FocusApi = import('./buildMode').UseScheduleFocusReturn;
 
 const widths: ColumnWidths['widths'] = {
-  wbs: 48, task: 220, dur: 60, start: 80, finish: 80, progress: 50, owner: 72,
+  wbs: 48, task: 220, links: 76, dur: 60, start: 80, finish: 80, progress: 50, owner: 72,
 };
 const visible: ColumnWidths['visible'] = {
-  wbs: true, task: true, dur: true, start: true, finish: true, progress: true, owner: true,
+  wbs: true, task: true, links: true, dur: true, start: true, finish: true, progress: true, owner: true,
 };
 
 const base: Task = {

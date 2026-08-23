@@ -21,6 +21,7 @@
  * no membership at all.
  */
 import { useMemo, type ReactElement } from 'react';
+import type React from 'react';
 import { screen, render, fireEvent } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
@@ -68,10 +69,10 @@ vi.mock('@/hooks/useTaskMutations', async (importOriginal) => {
 });
 
 const widths: ColumnWidths['widths'] = {
-  wbs: 48, task: 180, dur: 52, start: 74, finish: 74, progress: 52, owner: 72,
+  wbs: 48, task: 180, links: 76, dur: 52, start: 74, finish: 74, progress: 52, owner: 72,
 };
 const visible: ColumnWidths['visible'] = {
-  wbs: true, task: true, dur: true, start: true, finish: true, progress: true, owner: true,
+  wbs: true, task: true, links: true, dur: true, start: true, finish: true, progress: true, owner: true,
 };
 
 const base: Task = {
@@ -88,7 +89,17 @@ beforeEach(() => {
   useScheduleStore.setState({ selectedTaskId: null, scheduleError: null });
 });
 
-function Harness({ task = base, siblingIds }: { task?: Task; siblingIds?: string[] }) {
+function Harness({
+  task = base,
+  siblingIds,
+  depChips,
+  onAddDependencyRequest,
+}: {
+  task?: Task;
+  siblingIds?: string[];
+  depChips?: React.ComponentProps<typeof TaskListRow>['depChips'];
+  onAddDependencyRequest?: React.ComponentProps<typeof TaskListRow>['onAddDependencyRequest'];
+}) {
   const focus = useScheduleFocus();
   const api = useMemo<BuildModeApi>(
     () => ({
@@ -110,7 +121,15 @@ function Harness({ task = base, siblingIds }: { task?: Task; siblingIds?: string
   );
   return (
     <BuildModeProvider api={api}>
-      <TaskListRow task={task} level={2} widths={widths} visible={visible} siblingIds={siblingIds} />
+      <TaskListRow
+        task={task}
+        level={2}
+        widths={widths}
+        visible={visible}
+        siblingIds={siblingIds}
+        depChips={depChips}
+        onAddDependencyRequest={onAddDependencyRequest}
+      />
     </BuildModeProvider>
   );
 }
@@ -298,5 +317,106 @@ describe('a failed role lookup does not read as "no rights"', () => {
     mocks.roleError = false;
     renderBuild({ siblingIds: ['t1', 't2'] });
     expect(screen.queryByTitle(/Drag to reorder/i)).not.toBeInTheDocument();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// The Links cell: a field for an author, TEXT for a viewer (#3023, rule 302).
+// ───────────────────────────────────────────────────────────────────────────
+describe('Links cell — control for an author, text for a viewer', () => {
+  const CHIPS = {
+    preds: [
+      { type: 'FS' as const, lag: 0 },
+      { type: 'SS' as const, lag: 0 },
+    ],
+    succs: [],
+    predsCritical: false,
+    succsCritical: false,
+  };
+
+  it('gives a viewer the SAME statement with no control to press', () => {
+    mocks.role = null;
+    const onAdd = vi.fn();
+    renderBuild({ depChips: CHIPS, onAddDependencyRequest: onAdd });
+
+    // The fact is still stated — a viewer reads the plan.
+    expect(screen.getByTestId('dep-flag-predecessor')).toHaveTextContent('←FS·SS');
+    expect(screen.getByTestId('links-cell')).toHaveAttribute(
+      'aria-label',
+      'Links for Design Phase — 2 predecessors: Finish-to-Start, Start-to-Start',
+    );
+    // Absent, not disabled: there is no button at all, so there is no gesture
+    // left to refuse and nothing announces itself as "dimmed".
+    expect(screen.queryByTestId('links-cell-control')).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /^Edit (predecessor|successor) links$/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('gives an author a control that opens the picker in predecessor mode', async () => {
+    mocks.role = 100;
+    const onAdd = vi.fn();
+    renderBuild({ depChips: CHIPS, onAddDependencyRequest: onAdd });
+
+    const control = screen.getByRole('button', { name: 'Edit predecessor links' });
+    await userEvent.click(control);
+    expect(onAdd).toHaveBeenCalledWith('t1', 'predecessor');
+  });
+
+  it('routes the SUCCESSOR chip to the successor direction, not the predecessor one', async () => {
+    // Two chips that look like two targets are two targets. Sending both to the
+    // predecessor picker lands half the clicks on the wrong direction.
+    mocks.role = 100;
+    const onAdd = vi.fn();
+    renderBuild({
+      depChips: { ...CHIPS, succs: [{ type: 'FF' as const, lag: 0 }] },
+      onAddDependencyRequest: onAdd,
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Edit successor links' }));
+    expect(onAdd).toHaveBeenCalledWith('t1', 'successor');
+  });
+
+  it('offers the empty cell as an add-a-link control, and names the act', async () => {
+    mocks.role = 100;
+    const onAdd = vi.fn();
+    renderBuild({ onAddDependencyRequest: onAdd });
+    const control = screen.getByRole('button', { name: 'Add a dependency link to Design Phase' });
+    expect(control).toHaveAttribute('title', 'Add a dependency link to Design Phase');
+    await userEvent.click(control);
+    expect(onAdd).toHaveBeenCalledWith('t1', 'predecessor');
+  });
+
+  it('gives a viewer the empty cell as text, with nothing to add a link with', () => {
+    mocks.role = null;
+    renderBuild({ onAddDependencyRequest: vi.fn() });
+    expect(screen.queryByTestId('links-cell-control')).not.toBeInTheDocument();
+    expect(screen.getByTestId('links-cell')).toHaveAttribute(
+      'aria-label',
+      'Links: none for Design Phase',
+    );
+  });
+
+  it('takes the row\'s roving tab stop rather than being its own', () => {
+    // Without this, Tab walks every row of a 1000-row plan. The invariant is
+    // that the control carries the SAME tabindex the row does — 0 on the active
+    // row (this harness renders one row, so that is the case observable here),
+    // -1 everywhere else.
+    mocks.role = 100;
+    renderBuild({ depChips: CHIPS, onAddDependencyRequest: vi.fn() });
+    const row = screen.getByRole('row');
+    expect(screen.getByTestId('links-cell-control')).toHaveAttribute(
+      'tabindex',
+      row.getAttribute('tabindex'),
+    );
+    expect(row).toHaveAttribute('tabindex', '0');
+  });
+
+  it('is text, not a dead button, when there is no picker host to open into', () => {
+    // `onAddDependencyRequest` undefined means nothing can host the picker
+    // (the print layout, for one). A button there would refuse every click.
+    mocks.role = 100;
+    renderBuild({ depChips: CHIPS });
+    expect(screen.queryByTestId('links-cell-control')).not.toBeInTheDocument();
+    expect(screen.getByTestId('dep-flag-predecessor')).toHaveTextContent('←FS·SS');
   });
 });

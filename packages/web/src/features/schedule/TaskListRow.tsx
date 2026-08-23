@@ -44,6 +44,13 @@ import { GuardrailBlock } from './sections/GuardrailBlock';
 import { useDragStore } from '@/stores/dragStore';
 import { AssigneeChips } from './AssigneeChips';
 import {
+  depFlag,
+  describeLinksCell,
+  type DepFlag,
+  type TaskDepChips,
+} from './deps/depFlag';
+
+import {
   ArrowDownLeftIcon,
   ArrowUpRightIcon,
   CheckboxIcon,
@@ -144,15 +151,13 @@ interface Props {
    */
   dimmed?: boolean;
   /**
-   * Predecessor/successor dep-chip data — shown inline when this task is selected
-   * and focus mode is on (spec § ④). Chips appear to the right of the task name.
+   * This row's incoming and outgoing edges — what the Links cell states (#3023).
+   *
+   * Was a pair of counts rendered beside the task name, and only while the row
+   * was selected in focus mode. It now carries the edges (types + lag) because
+   * the flag names the types, and it renders in its own column at rest.
    */
-  depChips?: {
-    predsCount: number;
-    succsCount: number;
-    predsCritical: boolean;
-    succsCritical: boolean;
-  };
+  depChips?: TaskDepChips;
   /**
    * Ordered IDs of all same-wbs-level siblings. Used for Option/Alt+↑/↓ reorder (#347).
    * Includes this task's own id.
@@ -940,6 +945,187 @@ function getRowClassName(s: {
   ].join(' ');
 }
 
+/**
+ * One direction's flag, rendered as its own control when the reader may author.
+ *
+ * Its own control, not a share of one: a cell that draws `←FS×2` and `→FS`
+ * side by side and routes both to the predecessor picker sends half the clicks
+ * to the wrong direction, and the two chips look like two targets because they
+ * are two facts.
+ *
+ * Criticality is carried by weight and an inset ring as well as by hue — the red
+ * tint alone is a WCAG 1.4.1 failure, and `depFlag` also puts it in words so it
+ * reaches the tooltip and the cell's label.
+ */
+function DepFlagChip({
+  flag,
+  direction,
+  isCritical,
+  onOpen,
+  tabIndex,
+}: {
+  flag: DepFlag;
+  direction: 'predecessor' | 'successor';
+  isCritical: boolean;
+  onOpen: (() => void) | undefined;
+  tabIndex?: number;
+}) {
+  const tone = isCritical
+    ? 'bg-semantic-critical-bg text-semantic-critical font-semibold ring-1 ring-inset ring-semantic-critical'
+    : 'bg-neutral-surface-raised text-neutral-text-secondary font-medium';
+  const className = `inline-flex min-w-0 max-w-full items-center truncate rounded-chip px-1 py-px text-xs tabular-nums ${tone}`;
+  const body = (
+    <>
+      {direction === 'predecessor' ? '←' : '→'}
+      {flag.label}
+    </>
+  );
+
+  if (!onOpen) {
+    return (
+      <span className={className} title={flag.detail} data-testid={`dep-flag-${direction}`}>
+        {body}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      // The accessible NAME stays constant while the row's links change, so the
+      // control does not rename itself as the plan is edited; the state is in
+      // the tooltip and the cell's own label (rule 316).
+      aria-label={`Edit ${direction} links`}
+      title={flag.detail}
+      tabIndex={tabIndex}
+      data-testid="links-cell-control"
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen();
+      }}
+      className={`${className} border border-transparent hover:border-brand-primary hover:text-brand-primary
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary`}
+    >
+      <span data-testid={`dep-flag-${direction}`} className="truncate">
+        {body}
+      </span>
+    </button>
+  );
+}
+
+/**
+ * The Links cell (#3023, `design_handoff_trueppm_v4/README.md`).
+ *
+ * Two things the shipped row could not do at once. It **states** the row's
+ * dependency shape — `←FS×2` reads as a chain, `←FS·SS` as an overlap — and it
+ * **offers to change it**, in the same place, in one gesture. Before this the
+ * only entry point was a right-click menu, so the row could show its links or
+ * offer to edit them but never both; and the count chips it did show rendered
+ * only while the row was selected in focus mode, which means the outline did not
+ * carry its own dependency state at rest and could not be scanned down.
+ *
+ * The flag renders **unconditionally** — selection, focus mode and hover are all
+ * irrelevant to it. That is the whole point: a planner glancing down the column
+ * is looking for the row that is linked, and a signal that appears only after
+ * you have already found the row answers a question you no longer have.
+ *
+ * Entitlement (web rule 302): with no authoring rights the cell is **text, not a
+ * field** — same content, no button, nothing to press and be refused. The gate
+ * is `authoring` (edit rights AND an outline that authors), never `buildMode`,
+ * which is also non-null for a viewer because it carries row navigation.
+ *
+ * Each direction opens its own direction in the picker. A row with **no** links
+ * gets one control, on the predecessor direction, because that is the question a
+ * links cell is asked — what governs this row's start; a first successor is
+ * still added from the row menu, which this does not replace.
+ *
+ * `focus-visible:` rather than `focus:` on the controls is deliberate: they sit
+ * in a roving-tabindex treegrid (`tabIndex` is -1 on every non-active row), so
+ * the ring only ever appears on a keyboard traversal, which is the case the
+ * variant exists for and what every sibling row control already uses.
+ */
+function TaskLinksCell({
+  task,
+  widthPx,
+  depChips,
+  onOpenLinkPicker,
+  tabIndex,
+}: {
+  task: Task;
+  widthPx: number;
+  depChips: Props['depChips'];
+  onOpenLinkPicker: ((mode: 'predecessor' | 'successor') => void) | undefined;
+  tabIndex?: number;
+}) {
+  const predsCritical = depChips?.predsCritical ?? false;
+  const succsCritical = depChips?.succsCritical ?? false;
+  // Derived ONCE and passed down. Each flag carries its own detail string, and
+  // deriving them again inside each chip built and threw away a second copy on
+  // every row of a virtualized list.
+  const pred = depFlag(depChips?.preds ?? [], 'predecessor', predsCritical);
+  const succ = depFlag(depChips?.succs ?? [], 'successor', succsCritical);
+  const description = describeLinksCell(pred, succ, task.name);
+  const addLabel = `Add a dependency link to ${task.name}`;
+
+  return (
+    <div
+      role="gridcell"
+      className="flex items-stretch shrink-0 overflow-hidden"
+      style={{ width: widthPx }}
+      aria-label={description}
+      data-testid="links-cell"
+    >
+      {!pred && !succ ? (
+        // Empty state. The control fills the cell rather than sitting as an
+        // ~18px dash inside it, so the target is the 44px row on a coarse
+        // pointer and the whole cell is the "add a link here" affordance.
+        onOpenLinkPicker ? (
+          <button
+            type="button"
+            aria-label={addLabel}
+            title={addLabel}
+            tabIndex={tabIndex}
+            data-testid="links-cell-control"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenLinkPicker('predecessor');
+            }}
+            className="flex h-full w-full items-center pl-2 text-xs text-neutral-text-disabled
+              hover:text-brand-primary focus-visible:outline-none focus-visible:ring-2
+              focus-visible:ring-inset focus-visible:ring-brand-primary"
+          >
+            —
+          </button>
+        ) : (
+          <span className="flex h-full w-full items-center pl-2 text-xs text-neutral-text-disabled">
+            —
+          </span>
+        )
+      ) : (
+        <span className="flex h-full min-w-0 items-center gap-0.5 overflow-hidden pl-2">
+          {pred && (
+            <DepFlagChip
+              flag={pred}
+              direction="predecessor"
+              isCritical={predsCritical}
+              onOpen={onOpenLinkPicker ? () => onOpenLinkPicker('predecessor') : undefined}
+              tabIndex={tabIndex}
+            />
+          )}
+          {succ && (
+            <DepFlagChip
+              flag={succ}
+              direction="successor"
+              isCritical={succsCritical}
+              onOpen={onOpenLinkPicker ? () => onOpenLinkPicker('successor') : undefined}
+              tabIndex={tabIndex}
+            />
+          )}
+        </span>
+      )}
+    </div>
+  );
+}
+
 interface TaskDataCellsProps {
   /** Structural children — how many tasks the Σ rolls up from (#2951). */
   childCount: number;
@@ -966,10 +1152,23 @@ interface TaskDataCellsProps {
    *  (shared with the dialog it renders) so a single confirm gate covers this
    *  row's cell regardless of how deep TaskDataCells nests it. */
   requestProgressCommit: ProgressAutoStatusConfirm['requestCommit'];
+  /** Link graph for this row — what the Links cell states (#3023). */
+  depChips: Props['depChips'];
+  /**
+   * Present only for a reader who may author. `undefined` makes the Links cell
+   * text rather than a control (web rule 302) — a viewer must find the picker
+   * absent, not disabled.
+   */
+  onOpenLinkPicker: ((mode: 'predecessor' | 'successor') => void) | undefined;
+  /**
+   * Roving tab stop (0 on the active row, -1 elsewhere). Without it every row's
+   * Links button becomes its own tab stop and Tab walks a 1000-row plan.
+   */
+  rovingChildTabIndex: number;
 }
 
 /**
- * The Dur / Start / Finish / Progress / Owner columns. Each is suppressed while
+ * The Links / Dur / Start / Finish / Progress / Owner columns. Each is suppressed while
  * the row's name is being inline-edited and gated by its column-visibility flag
  * (#248). Split out of TaskListRowInner (#2081) — guards and props are verbatim.
  */
@@ -993,9 +1192,23 @@ function TaskDataCells({
   setScheduleError,
   itl,
   requestProgressCommit,
+  depChips,
+  onOpenLinkPicker,
+  rovingChildTabIndex,
 }: TaskDataCellsProps) {
   return (
     <>
+      {/* ── Links column (#3023) ────────────────────────────────────────────── */}
+      {!isEditing && visible.links && (
+        <TaskLinksCell
+          task={task}
+          widthPx={widths.links}
+          depChips={depChips}
+          onOpenLinkPicker={onOpenLinkPicker}
+          tabIndex={rovingChildTabIndex}
+        />
+      )}
+
       {/* ── Dur column ──────────────────────────────────────────────────────── */}
       {!isEditing && visible.dur && (
         <TaskDurationCell
@@ -2414,7 +2627,6 @@ function TaskListRowInner({
           recalcPrompt={recalcPrompt}
           setRecalcPrompt={setRecalcPrompt}
           isSelected={isSelected}
-          depChips={depChips}
           phaseInWaiting={phaseInWaiting}
           onAddPhaseFirstChild={onAddPhaseFirstChild}
           childCount={childCount}
@@ -2453,6 +2665,16 @@ function TaskListRowInner({
         setScheduleError={setScheduleError}
         itl={itl}
         requestProgressCommit={requestProgressCommit}
+        depChips={depChips}
+        // `authoring`, not `buildMode` (#3023 / web rule 302): a viewer's Links
+        // cell is text. `onAddDependencyRequest` being absent means the picker
+        // has no host to open into, which is also text — not a dead button.
+        onOpenLinkPicker={
+          authoring && onAddDependencyRequest
+            ? (mode) => onAddDependencyRequest(task.id, mode)
+            : undefined
+        }
+        rovingChildTabIndex={rovingChildTabIndex}
       />
       {progressAutoStatusDialog}
       {/* Sprint assignment prompt after name commit in agile mode (#346).
@@ -2675,7 +2897,6 @@ interface TaskNameContentProps {
   recalcPrompt: RecalcPromptState | null;
   setRecalcPrompt: React.Dispatch<React.SetStateAction<RecalcPromptState | null>>;
   isSelected: boolean;
-  depChips: Props['depChips'];
   phaseInWaiting: boolean;
   onAddPhaseFirstChild: Props['onAddPhaseFirstChild'];
   /** Structural children, and whether they are showing — the `N inside` /
@@ -3099,42 +3320,21 @@ function TaskNameBadges(props: TaskNameContentProps) {
 }
 
 /**
- * Trailing region of the name cell: dependency count chips (in focus mode)
- * or assignee chips, plus the phase-in-waiting ghost affordance. Split from
- * TaskNameContent (#2245); markup verbatim.
+ * Trailing region of the name cell: assignee chips plus the phase-in-waiting
+ * ghost affordance. Split from TaskNameContent (#2245).
+ *
+ * The dependency chips that used to live here moved to the Links cell (#3023).
+ * They were a pair of counts (`←2` / `→1`) that rendered only while the row was
+ * selected in focus mode, which meant the row did not carry its own dependency
+ * state at rest — you had to select a row to learn whether it had links, which
+ * defeats scanning. They also displaced the assignee chips whenever they
+ * appeared, so selecting a row swapped out an unrelated fact.
  */
 function TaskNameTrailing(props: TaskNameContentProps) {
-  const { isSelected, depChips, task, phaseInWaiting, onAddPhaseFirstChild } = props;
+  const { task, phaseInWaiting, onAddPhaseFirstChild } = props;
   return (
     <>
-      {/* Dep chips — shown when task is selected in focus mode; replaces
-          assignee chips. Passive counters, not buttons: click-to-highlight
-          is tracked in issue 1608. */}
-      {isSelected && depChips ? (
-        <span
-          className="flex items-center gap-0.5 flex-shrink-0"
-          aria-label={`${depChips.predsCount} predecessors, ${depChips.succsCount} successors`}
-        >
-          {depChips.predsCount > 0 && (
-            <span
-              className={`inline-flex items-center px-1 py-px rounded-chip text-xs font-medium ${depChips.predsCritical ? 'bg-semantic-critical-bg text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
-              title={`${depChips.predsCount} predecessor${depChips.predsCount !== 1 ? 's' : ''}`}
-            >
-              ←{depChips.predsCount}
-            </span>
-          )}
-          {depChips.succsCount > 0 && (
-            <span
-              className={`inline-flex items-center px-1 py-px rounded-chip text-xs font-medium ${depChips.succsCritical ? 'bg-semantic-critical-bg text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
-              title={`${depChips.succsCount} successor${depChips.succsCount !== 1 ? 's' : ''}`}
-            >
-              →{depChips.succsCount}
-            </span>
-          )}
-        </span>
-      ) : (
-        !task.isSummary && !task.isMilestone && <AssigneeChips assignees={task.assignees} />
-      )}
+      {!task.isSummary && !task.isMilestone && <AssigneeChips assignees={task.assignees} />}
       {/* Phase-in-waiting ghost affordance (issue #1754): a "+ Phase" row
           has no structural child yet, so `isPhaseTask` is still false.
           One tap nests a structural child under it — the row becomes a

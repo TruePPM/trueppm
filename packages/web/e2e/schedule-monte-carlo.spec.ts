@@ -329,17 +329,20 @@ test.beforeEach(async ({ page }) => {
 
 test.describe('Monte Carlo Schedule Integration (#333)', () => {
   test('P50/P80/P95 markers are visible on the Gantt timeline', async ({ page }) => {
+    // Wider than the 1280 default on purpose, and now for two reasons.
+    //
     // This is the one test in the file that needs all three markers on screen at
-    // the same time, so it is the one that needs the canvas to be wider than the
-    // P50…P95 span. `Desktop Chrome`'s 1280px left just enough headroom for that
-    // to work by luck, and #3026's 34px structural-nudge lane spent it — the
-    // canvas is the viewport minus the outline, so widening the outline narrows
-    // it, and P95 (the rightmost) started self-hiding while P50/P80 stayed.
+    // once, and the bar track is whatever is left after the outline — so at 1280
+    // the assertion silently doubled as "the outline is no wider than N".
+    // `Desktop Chrome`'s 1280px left just enough headroom by luck, and two
+    // separate changes spent it: #3026's 34px structural-nudge lane and #3023's
+    // Links column. Both widen the outline, both narrow the canvas, and P95 —
+    // the rightmost marker — started self-hiding while P50/P80 stayed.
     //
     // Stated as an explicit viewport rather than tuned back to the edge: a test
     // whose premise is "these three fit at once" should say how much room it
-    // needs, not inherit it from a default and break whenever a neighbouring
-    // surface grows.
+    // needs, not inherit it from a default and fail for a reason that has
+    // nothing to do with Monte Carlo whenever a neighbouring surface grows.
     await page.setViewportSize({ width: 1600, height: 900 });
     await gotoScheduleWithMC(page);
 

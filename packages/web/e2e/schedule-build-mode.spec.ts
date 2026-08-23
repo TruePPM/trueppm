@@ -748,7 +748,12 @@ test.describe('Schedule build-mode — Enter inserts a sibling row (#1666)', () 
     await page.goto(BASE_URL);
     const rowB = page.locator('[data-row-id="task-b"]');
     await expect(rowB).toBeVisible();
-    await rowB.dblclick();
+    // Aim at a named cell, not the row's centre: `dblclick()` targets the middle
+    // of the box, and the outline's middle is whichever column sits there —
+    // Duration at seven columns, the Links CONTROL at eight (#3023, web rule
+    // 327(d)). The row's own dblclick handler opens the Name cell from any
+    // inert cell; landing on the Links control opened the picker instead.
+    await rowB.getByRole('gridcell', { name: /^(Duration|Estimate):/ }).dblclick();
 
     const input = nameInput(page);
     await expect(input).toBeVisible();

@@ -91,7 +91,7 @@ test.describe('Grid ↔ Timeline — one row model, two surfaces (#2960)', () =>
       'true',
     );
     await expect(outline(page)).toBeVisible();
-    await expect(page.getByRole('columnheader')).toHaveCount(7);
+    await expect(page.getByRole('columnheader')).toHaveCount(8);
   });
 
   test('Timeline keeps the outline and swaps the data columns for the bar track', async ({
@@ -111,12 +111,15 @@ test.describe('Grid ↔ Timeline — one row model, two surfaces (#2960)', () =>
     // …with the same rows, in the same order, at the same depth, folded the same.
     expect(await rowModel(page)).toEqual(before);
 
-    // Only the columns moved: WBS + Task remain, the five data columns are gone.
+    // Only the columns moved: WBS + Task remain, the six data columns are gone.
     await expect(page.getByRole('columnheader')).toHaveCount(2);
     await expect(page.getByRole('columnheader', { name: 'Work breakdown structure' })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'Task' })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'Start date' })).toHaveCount(0);
     await expect(page.getByRole('columnheader', { name: 'Finish date' })).toHaveCount(0);
+    // Links is a Grid column (#3023): on the Timeline the edges are drawn, so a
+    // cell restating them is the same fact twice in the narrower surface.
+    await expect(page.getByRole('columnheader', { name: 'Dependency links' })).toHaveCount(0);
 
     // And the bar track still occupies the rest of the surface.
     await expect(page.getByTestId('schedule-canvas-scroll')).toBeVisible();
@@ -154,7 +157,7 @@ test.describe('Grid ↔ Timeline — one row model, two surfaces (#2960)', () =>
     await expect(page.locator('[data-row-id="c1"]')).toHaveCount(0);
 
     await layout(page).getByRole('radio', { name: 'Grid' }).click();
-    await expect(page.getByRole('columnheader')).toHaveCount(7);
+    await expect(page.getByRole('columnheader')).toHaveCount(8);
     // Still collapsed: one fold state, not one per surface.
     await expect(page.locator('[data-row-id="ph"]')).toHaveAttribute('aria-expanded', 'false');
     await expect(page.locator('[data-row-id="c1"]')).toHaveCount(0);
@@ -261,7 +264,7 @@ test.describe('Grid ↔ Timeline — an empty project (#2960)', () => {
     // A blank project opens with a live draft row in the outline (#2733) and the
     // fill options to its right. That arrangement is the Grid's already; the
     // Timeline inherits it verbatim rather than dropping half of it.
-    await expect(page.getByRole('columnheader')).toHaveCount(7);
+    await expect(page.getByRole('columnheader')).toHaveCount(8);
     await layout(page).getByRole('radio', { name: 'Timeline' }).click();
     await expect(page.getByRole('columnheader')).toHaveCount(2);
     await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible();

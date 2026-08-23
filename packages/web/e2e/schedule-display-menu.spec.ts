@@ -234,6 +234,10 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
     // WBS + Owner columns are now toggleable (previously missing).
     await expect(menu.getByRole('menuitemcheckbox', { name: 'WBS' })).toBeVisible();
     await expect(menu.getByRole('menuitemcheckbox', { name: 'Owner' })).toBeVisible();
+    // Links (#3023). The menu and the panel resolve through one predicate
+    // (rule 316) — offering a toggle the Grid does not draw is the failure this
+    // assertion pins alongside the header assertion in schedule-links-cell.
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'Links' })).toBeVisible();
 
     // Chart section: dep lines + progress checkboxes, task-name radio group.
     await expect(menu.getByText('Chart')).toBeVisible();
@@ -313,10 +317,11 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
       return page.getByRole('menu', { name: 'Display options' });
     };
 
-    // Grid draws all seven columns, so all six toggleable ones are offered.
+    // Grid draws all eight columns, so all seven toggleable ones are offered.
     let menu = await openMenu();
     await expect(menu.getByRole('menuitemcheckbox', { name: 'Start' })).toBeVisible();
     await expect(menu.getByRole('menuitemcheckbox', { name: 'Owner' })).toBeVisible();
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'Links' })).toBeVisible();
     await page.keyboard.press('Escape');
 
     // Timeline draws WBS + Task only, so it offers exactly the one toggle that
@@ -327,6 +332,36 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
     await expect(menu.getByRole('menuitemcheckbox', { name: 'Start' })).toHaveCount(0);
     await expect(menu.getByRole('menuitemcheckbox', { name: 'Finish' })).toHaveCount(0);
     await expect(menu.getByRole('menuitemcheckbox', { name: 'Owner' })).toHaveCount(0);
+    await expect(menu.getByRole('menuitemcheckbox', { name: 'Links' })).toHaveCount(0);
+  });
+
+  test('turning Links off removes the header AND the cell, and persists (#3023)', async ({
+    page,
+  }) => {
+    // Offering a toggle is not the same as it working. Without this, the menu
+    // item could be inert and only the "is it visible" assertion above would run.
+    await expect(page.getByRole('columnheader', { name: 'Dependency links' })).toBeVisible();
+
+    await page
+      .getByRole('toolbar', { name: 'Schedule toolbar' })
+      .getByRole('button', { name: 'Display' })
+      .click();
+    await page
+      .getByRole('menu', { name: 'Display options' })
+      .getByRole('menuitemcheckbox', { name: 'Links' })
+      .click();
+    await page.keyboard.press('Escape');
+
+    await expect(page.getByRole('columnheader', { name: 'Dependency links' })).toHaveCount(0);
+    await expect(page.getByTestId('links-cell')).toHaveCount(0);
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const raw = localStorage.getItem('trueppm.schedule.columnVisibility.v1');
+          return raw ? (JSON.parse(raw) as Record<string, boolean>).links : null;
+        }),
+      )
+      .toBe(false);
   });
 
   test('Grid and Timeline placements are independent and survive navigation (#2107)', async ({

@@ -16,6 +16,7 @@ import { stubCoarsePointer, restoreCoarsePointer } from '@/test/coarsePointer';
 const WIDTHS: ColumnWidths['widths'] = {
   wbs: 48,
   task: 220,
+  links: 76,
   dur: 52,
   start: 74,
   finish: 74,
@@ -26,6 +27,7 @@ const WIDTHS: ColumnWidths['widths'] = {
 const ALL_VISIBLE: ColumnWidths['visible'] = {
   wbs: true,
   task: true,
+  links: true,
   dur: true,
   start: true,
   finish: true,
@@ -44,7 +46,7 @@ describe('scheduleSurface — column profile (#2960)', () => {
     }
     expect(surfaceRendersColumn('timeline', 'wbs')).toBe(true);
     expect(surfaceRendersColumn('timeline', 'task')).toBe(true);
-    for (const col of ['dur', 'start', 'finish', 'progress', 'owner'] as const) {
+    for (const col of ['links', 'dur', 'start', 'finish', 'progress', 'owner'] as const) {
       expect(surfaceRendersColumn('timeline', col)).toBe(false);
     }
   });
@@ -54,6 +56,7 @@ describe('scheduleSurface — column profile (#2960)', () => {
     expect(surfaceColumnVisibility('timeline', ALL_VISIBLE)).toEqual({
       wbs: true,
       task: true,
+      links: false,
       dur: false,
       start: false,
       finish: false,
@@ -80,6 +83,7 @@ describe('scheduleSurface — column profile (#2960)', () => {
   it('offers only the toggles the surface can honour, and never the locked Task column', () => {
     expect(surfaceToggleableColumns('grid')).toEqual([
       'wbs',
+      'links',
       'dur',
       'start',
       'finish',
@@ -299,18 +303,38 @@ describe('one row model, two surfaces (#2960)', () => {
     expect(phaseOf(timeline)?.expanded).toBe(phaseOf(grid)?.expanded);
   });
 
-  it('differs ONLY in the columns: seven on the Grid, two on the Timeline', () => {
+  it('differs ONLY in the columns: eight on the Grid, two on the Timeline', () => {
     const grid = renderSurface('grid');
     const timeline = renderSurface('timeline');
-    expect(grid.headers).toEqual(['WBS', 'Task', 'Dur', 'Start', 'Finish', '%', 'Owner']);
+    expect(grid.headers).toEqual([
+      'WBS',
+      'Task',
+      'Links',
+      'Dur',
+      'Start',
+      'Finish',
+      '%',
+      'Owner',
+    ]);
     expect(timeline.headers).toEqual(['WBS', 'Task']);
     // The name column is byte-identical, which is what makes a gate's name "two
     // cells to the left" true on the Timeline as well as the Grid.
     expect(timeline.headers).toContain('Task');
   });
 
+  it('draws Links on the Grid ONLY, and the Display menu says the same (#3023)', () => {
+    // Rule 316 applied to a new column: the menu that offers it and the panel
+    // that draws it resolve through one predicate, so they cannot disagree.
+    // Header labels are what the panel actually drew; the menu list is what
+    // ScheduleView maps over.
+    expect(renderSurface('grid').headers).toContain('Links');
+    expect(renderSurface('timeline').headers).not.toContain('Links');
+    expect(surfaceToggleableColumns('grid')).toContain('links');
+    expect(surfaceToggleableColumns('timeline')).not.toContain('links');
+  });
+
   it('shrinks the panel box to the columns it actually draws', () => {
-    expect(renderSurface('grid').panelWidth).toBe('600px');
+    expect(renderSurface('grid').panelWidth).toBe('676px');
     expect(renderSurface('timeline').panelWidth).toBe('268px');
   });
 

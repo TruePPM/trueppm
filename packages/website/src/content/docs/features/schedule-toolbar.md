@@ -30,10 +30,11 @@ table versus the bars. **Both layouts render the same rows** — the same order,
 nesting, the same collapsed phases, the same fold carets, mode gutters, drag grips and
 insert points. What changes is only how many columns the outline gives you:
 
-- **Grid** (default) — the full task-list table (WBS, Task, Dur, Start, Finish, %, Owner)
-  sits to the left of the bars, with a draggable splitter between them.
-- **Timeline** — the outline narrows to **WBS + Task**, and Duration, Start, Finish, %
-  and Owner give their width to the bar track. Nothing about the plan's shape is hidden:
+- **Grid** (default) — the full task-list table (WBS, Task, Links, Dur, Start, Finish, %,
+  Owner) sits to the left of the bars, with a draggable splitter between them.
+- **Timeline** — the outline narrows to **WBS + Task**, and Links, Duration, Start,
+  Finish, % and Owner give their width to the bar track. Links is absent there on
+  purpose: the canvas already draws the dependency arrows. Nothing about the plan's shape is hidden:
   a phase is still a phase, a collapsed phase is still collapsed, and collapsing one here
   keeps it collapsed when you switch back.
 
@@ -139,12 +140,13 @@ Once a row is a phase, its rollup behavior matches every other WBS summary task 
 
 ## Task-list columns
 
-The task list shows seven columns by default in **Grid**. All except Task can be hidden via the **Columns** popover — which offers exactly the columns the current layout draws, so in **Timeline** (WBS + Task) it offers WBS alone rather than five checkboxes that would change nothing. A column you hide in Grid stays hidden in Timeline; switching layout never brings one back.
+The task list shows eight columns by default in **Grid**. All except Task can be hidden via the **Columns** popover — which offers exactly the columns the current layout draws, so in **Timeline** (WBS + Task) it offers WBS alone rather than six checkboxes that would change nothing. A column you hide in Grid stays hidden in Timeline; switching layout never brings one back.
 
 | Column | Width | Content |
 |---|---|---|
 | WBS | 48 px | Dot-path numbering (`1.1.2`). Long paths truncate with a hover tooltip. |
 | Task | flex | Name + chevron for summary expand/collapse + WBS indent. |
+| Links | 104 px | The row's dependency flags — see below. Each is a control. |
 | Dur | 52 px | Duration in working days (`5d`). |
 | Start | 74 px | Computed early start (read-only — change Planned Start to override). |
 | Finish | 74 px | Computed early finish (read-only). |
@@ -152,6 +154,41 @@ The task list shows seven columns by default in **Grid**. All except Task can be
 | Owner | 72 px | Up to three 24 px assignee avatars overlapping; "+N" overflow chip. |
 
 Column widths are persisted per-browser under `trueppm.schedule.columnWidths.v5`.
+
+### The Links column
+
+:::note[Ships in 0.4]
+On 0.3 a row's dependencies show as `←2` / `→1` **count** chips beside the task name, and
+only while the row is selected with **Focus chain** on. There is no Links column, and the
+only way to add a link is the row's right-click menu. The description below is the 0.4
+behavior.
+:::
+
+The Links cell states the *shape* of a row's dependencies rather than only how many there
+are, because a count cannot tell a chain from an overlap:
+
+| Flag | Means |
+|---|---|
+| `←FS` | One predecessor, finish-to-start. |
+| `←FS×2` | Two predecessors that **agree** — a chain. |
+| `←FS·SS` | Two predecessors of **different** types — an overlap. |
+| `←Mixed×4` | Four predecessors spanning three or more types. Hover for the breakdown. |
+| `→…` | The same three forms for successors — what this row governs. |
+
+Hovering a flag (or reading the cell with a screen reader) gives the full detail: how many
+links, of which types, the lead/lag on each, and whether the chain is on the critical
+path — `2 predecessors: Finish-to-Start, Start-to-Start +2d — on the critical path`. A
+critical flag is also tinted and outlined, but the words are what carries it: color alone
+would leave the fact unavailable to screen readers and to anyone with a red deficiency.
+
+Each flag is a **control**, and each opens its own direction — clicking `←FS×2` opens the
+predecessor picker, clicking `→FS` the successor picker — the same pickers the row's
+right-click menu opens. Seeing what a row is linked to and changing it therefore happen in
+the same place. A row with **no** links reads as a muted `—`, and that dash is itself the
+"add a link" control.
+
+If your project role does not allow editing tasks, the cell shows the identical flags as
+plain text with nothing to click.
 
 ## Zoom
 

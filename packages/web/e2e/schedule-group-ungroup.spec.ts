@@ -307,16 +307,12 @@ async function outlineReady(page: Page) {
  * exercised as a keystroke below, because that binding is the thing under test there.
  */
 async function groupSurveyAndPermits(page: Page, store: GroupStore) {
-  await page.getByRole('row').filter({ hasText: 'Survey' }).first().click();
-  // A plain click on a row lands on its Name cell, which opens inline edit — so the
-  // outline is now behind a focused `<input>`. Escape returns to RowFocused. Without it
-  // the next act either types into the field or is swallowed by `isTypingInInput`.
+  await clickRowName(page, 'Survey');
+  // A click on the Name cell opens inline edit — so the outline is now behind a
+  // focused `<input>`. Escape returns to RowFocused. Without it the next act either
+  // types into the field or is swallowed by `isTypingInInput`.
   await leaveCellEdit(page);
-  await page
-    .getByRole('row')
-    .filter({ hasText: 'Permits' })
-    .first()
-    .click({ modifiers: ['Shift'] });
+  await durationCell(page, 'Permits').click({ modifiers: ['Shift'] });
   // The selection is the precondition for the act, so gate on it rather than on the
   // button's own enabled state — the button is enabled for a single focused row too.
   await expect(page.getByRole('row').filter({ hasText: 'Survey' }).first()).toHaveAttribute(
@@ -343,6 +339,37 @@ async function groupSurveyAndPermits(page: Page, store: GroupStore) {
 }
 
 /** Escape out of an inline cell edit, leaving the row focused. */
+/**
+ * Click a row on its **Duration** cell, by name rather than by geometry.
+ *
+ * `locator.click()` aims at the center of the box, and the outline's center is
+ * whichever column happens to sit there — Duration at seven columns, Links at
+ * eight (#3023). The Links cell is a *control*: it opens the dependency picker
+ * and stops the event, so a centered click silently stopped selecting the row
+ * and every act downstream read as "nothing happened", with the failure landing
+ * on an `aria-selected` assertion two lines later.
+ *
+ * Duration keeps the behavior this suite was written against: on a leaf row it
+ * is an `EditableCell`, so a plain click focuses the row and opens cell edit
+ * (which the Escape below leaves), and a shift-click extends the selection. On
+ * a summary row it is the inert rolled-up estimate, which focuses the row and
+ * opens nothing. Naming the cell instead of guessing an offset makes the suite
+ * immune to the next column.
+ */
+function durationCell(page: Page, name: string) {
+  return page
+    .getByRole('row')
+    .filter({ hasText: name })
+    .first()
+    // Two labels for one column: an editable row says "Duration: …", a summary
+    // row's rolled-up estimate says "Estimate: … Not editable here."
+    .getByRole('gridcell', { name: /^(Duration|Estimate):/ });
+}
+
+async function clickRowName(page: Page, name: string) {
+  await durationCell(page, name).click();
+}
+
 async function leaveCellEdit(page: Page) {
   await page.keyboard.press('Escape');
 }
@@ -444,7 +471,7 @@ test.describe('Schedule outline — Group and Ungroup (#2955)', () => {
     // throw away the very target the button reads. A row click opens its Name cell, and
     // `deriveUngroupTarget` reads the focused row either way — cell-edit is a state of
     // the same focused row, not a different one.
-    await phase.click();
+    await clickRowName(page, 'New phase');
     await expect(page.getByTestId('ungroup-rows-button')).toBeEnabled();
     await page.getByTestId('ungroup-rows-button').click();
     await expect.poll(() => store.ungroups.length, { timeout: 10_000 }).toBe(1);
@@ -473,7 +500,7 @@ test.describe('Schedule outline — Group and Ungroup (#2955)', () => {
     await outlineReady(page);
 
     const survey = page.getByRole('row').filter({ hasText: 'Survey' }).first();
-    await survey.click();
+    await clickRowName(page, 'Survey');
     await leaveCellEdit(page);
     // Row-level keys are React handlers on the row element, so the row must hold DOM
     // focus — Escape leaves the cell's input, which does not put it back.
@@ -504,13 +531,9 @@ test.describe('Schedule outline — Group and Ungroup (#2955)', () => {
     const before = await outlineShape(page, NAMES);
     expect(before).toEqual({ Survey: '1@1', Permits: '2@1', Closeout: '3@1' });
 
-    await page.getByRole('row').filter({ hasText: 'Survey' }).first().click();
+    await clickRowName(page, 'Survey');
     await leaveCellEdit(page);
-    await page
-      .getByRole('row')
-      .filter({ hasText: 'Permits' })
-      .first()
-      .click({ modifiers: ['Shift'] });
+    await durationCell(page, 'Permits').click({ modifiers: ['Shift'] });
     await expect(page.getByRole('row').filter({ hasText: 'Permits' }).first()).toHaveAttribute(
       'aria-selected',
       'true',
