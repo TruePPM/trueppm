@@ -5422,6 +5422,114 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         }
 
 
+class TaskWriteWarningSerializer(serializers.Serializer[Any]):
+    """One entry of the non-blocking ``warnings`` array on a task write (ADR-0101).
+
+    Schema-only: the array is assembled in ``TaskViewSet`` from tripped warn-level
+    guardrails and from body keys the write ignored (#2899). Declared here so the
+    published contract carries the shape rather than leaving a client to discover it
+    from a live response.
+    """
+
+    rule = serializers.CharField(
+        help_text=(
+            "Stable machine identifier for the warning — a guardrail rule id, or "
+            "``dropped_fields`` when the request body carried keys the write ignored."
+        )
+    )
+    detail = serializers.CharField(help_text="Human-readable explanation for the client notice.")
+
+
+class TaskCreateSerializer(TaskSerializer):
+    """The task **create** body, including the two placement keys read off raw request data.
+
+    ``parent_id`` and ``is_subtask`` are deliberately read-only on :class:`TaskSerializer`
+    (ADR-0743 / #2585): a writable declaration would reach PATCH and the sync upload, where
+    it lets any Member relocate a row past every create-time placement guard. The create
+    path therefore reads both straight off ``request.data`` — which left them honored on
+    POST but absent from the published request schema entirely, so an integrator reading
+    only the schema could not discover how to create a child task at all (#2898).
+
+    This subclass exists **for schema generation only** — it is never used to deserialize.
+    It restores the two keys as optional, write-only inputs so ``TaskCreateRequest``
+    documents the create contract the server actually implements. Neither key is honored on
+    PATCH; use ``POST /api/v1/projects/{project_pk}/tasks/{id}/reparent/`` to move an
+    existing task.
+    """
+
+    parent_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text=(
+            "Place the new task as the last child of this task. Omit to append at root "
+            "level. Honored on create only — a PATCH ignores it and returns a "
+            "``dropped_fields`` warning; use the reparent action instead."
+        ),
+    )
+    is_subtask = serializers.BooleanField(
+        required=False,
+        write_only=True,
+        help_text=(
+            "Create the task as a drawer subtask of ``parent_id`` rather than a structural "
+            "WBS node. Requires ``parent_id``, and the parent must not already have a "
+            "structural child. Honored on create only."
+        ),
+    )
+
+    # ltree: drf-spectacular cannot resolve the field type, so declaring it here keeps
+    # these schema-only components from re-emitting the resolution error once each.
+    wbs_path = serializers.CharField(
+        read_only=True, help_text="Server-derived WBS path (ADR-0743). Never client-writable."
+    )
+
+    class Meta(TaskSerializer.Meta):
+        # Both placement keys are declared writable above, so they must leave
+        # read_only_fields — DRF refuses a field that is both declared and listed there.
+        read_only_fields = [
+            name
+            for name in TaskSerializer.Meta.read_only_fields
+            if name not in ("parent_id", "is_subtask", "wbs_path")
+        ]
+
+
+class TaskWriteResponseSerializer(TaskSerializer):
+    """A task write response: the task, plus the optional ``warnings`` array.
+
+    Schema-only, for the same reason as :class:`TaskCreateSerializer` — the
+    ``warnings`` key is attached by the viewset after the serializer has run, so without
+    this the published 200/201 shape omits a key the endpoint really returns (#2899).
+    ``required=False``: warnings are absent on the common clean write.
+    """
+
+    # Not ``read_only``: drf-spectacular adds every read-only field to a response
+    # component's ``required`` list, and warnings are absent on the common clean write —
+    # a required-but-missing key is exactly the declared-vs-actual drift the API fuzz job
+    # exists to catch (#2515). The field is never deserialized, so writability is inert.
+    warnings = serializers.ListField(
+        child=TaskWriteWarningSerializer(),
+        required=False,
+        help_text=(
+            "Non-blocking notices about this write, added by the viewset after "
+            "serialization. Read-only in practice: a value sent by a client is ignored. "
+            "Present only when a warn-level guardrail tripped or the body carried keys "
+            "the write did not apply."
+        ),
+    )
+
+    # ltree: drf-spectacular cannot resolve the field type, so declaring it here keeps
+    # these schema-only components from re-emitting the resolution error once each.
+    wbs_path = serializers.CharField(
+        read_only=True, help_text="Server-derived WBS path (ADR-0743). Never client-writable."
+    )
+
+    class Meta(TaskSerializer.Meta):
+        fields = [*TaskSerializer.Meta.fields, "warnings"]
+        read_only_fields = [
+            name for name in TaskSerializer.Meta.read_only_fields if name != "wbs_path"
+        ]
+
+
 class TaskDurationChangeEventSerializer(serializers.ModelSerializer[TaskDurationChangeEvent]):
     """Read serializer for a task's duration-change audit events (ADR-0151, #414).
 
