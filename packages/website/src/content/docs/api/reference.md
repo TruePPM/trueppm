@@ -277,6 +277,40 @@ governance, not part of this surface.
 | GET | `/api/v1/projects/{id}/` | Retrieve |
 | PUT / PATCH | `/api/v1/projects/{id}/` | Update |
 | DELETE | `/api/v1/projects/{id}/` | Soft-delete |
+| GET | `/api/v1/projects/{id}/status-summary/` | Health and recency summary for the shell — see [Status summary](#status-summary) |
+
+#### Status summary
+
+:::note[Ships in 0.4]
+`monte_carlo_p80`, `last_saved` and `recalculated_at` carry real values from
+**TruePPM 0.4**. In `v0.3.0-alpha.3` (the latest release) all three are returned as
+unconditional `null` regardless of project state.
+:::
+
+`GET /api/v1/projects/{id}/status-summary/` returns task counts, health signals, and
+recency metadata in one request, so a client rendering a project header does not have
+to fan out.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `task_count` | `integer` | Live (non-deleted) tasks in the project |
+| `at_risk_count` | `integer` | Incomplete tasks with `total_float` ≤ 5 working days, including negative float |
+| `critical_count` | `integer` | Incomplete tasks on the critical path |
+| `at_risk_tasks` | `array` | Up to 5 at-risk tasks as `{id, name, wbs}`, lowest float first |
+| `critical_tasks` | `array` | Up to 5 critical tasks as `{id, name, wbs}`, in WBS order |
+| `monte_carlo_p80` | `date \| null` | P80 finish from the project's most recent Monte Carlo run |
+| `last_saved` | `date-time \| null` | Newest human-caused write to any live task |
+| `recalculated_at` | `date-time \| null` | When the last CPM pass completed |
+
+**Read the nulls as facts.** Each of the last three is `null` for exactly one reason,
+and that reason is the answer rather than "not available yet":
+
+- `monte_carlo_p80` — no Monte Carlo run has been recorded for this project, or the
+  run produced no distribution to anchor on (a project with no committed tasks).
+- `last_saved` — nobody has edited a task yet. A freshly seeded or imported project
+  reports `null` until a person touches a row; a CPM recalculation is deliberately
+  not an edit, so a schedule pass does not clear it.
+- `recalculated_at` — the first CPM pass has not completed.
 
 Projects and programs carry the inheritable sharing settings. The override fields
 `public_sharing` and `allow_guests` are nullable (`null` = inherit from the parent

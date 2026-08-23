@@ -1116,9 +1116,6 @@ export interface ShellStats {
   /** Tasks on critical path that are incomplete (up to 5 shown in badge popover) */
   criticalTasks: ShellStatTask[];
   onlineUsers: number;
-  lastSaved: string | null;
-  /** ISO timestamp of most recent CPM engine recalculation; null if never run */
-  recalculatedAt: string | null;
 }
 
 // ---------------------------------------------------------------------------

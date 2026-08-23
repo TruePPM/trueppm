@@ -19476,7 +19476,7 @@
         "/api/v1/projects/{id}/status-summary/": {
             "get": {
                 "operationId": "v1_projects_status_summary_retrieve",
-                "description": "Project health summary for the TopBar and StatusBar shell components.\n\nReturns task counts, health signals, and recency metadata in a single\nrequest so the shell avoids waterfall fetches on every project view.\n\nAt-risk: incomplete tasks with total_float <= 5 working days (or\nnegative float, which means already late).\nCritical: incomplete tasks where is_critical=True.\n\nP80 is omitted (null) until a Monte Carlo result store is added — the\nfront-end falls back to \"P80: —\" when the field is null.",
+                "description": "Project health summary for the TopBar and StatusBar shell components.\n\nReturns task counts, health signals, and recency metadata in a single\nrequest so the shell avoids waterfall fetches on every project view.\n\nAt-risk: incomplete tasks with total_float <= 5 working days (or\nnegative float, which means already late).\nCritical: incomplete tasks where is_critical=True.\n\nP80 is the most recent persisted MonteCarloRun's p80 for this project, or\nnull when no run has been recorded. Null means \"no forecast exists\", not\n\"not computed yet\" — a client may render \"P80 —\" for it without having to\nguess which of the two it is looking at.",
                 "summary": "Get the project status summary",
                 "parameters": [
                     {
@@ -19512,12 +19512,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/ProjectStatusSummary"
                                 }
                             }
                         },
-                        "description": "Task counts and health signals for the shell: task_count, critical/at-risk counts, top-5 critical and at-risk task lists, and recency metadata."
+                        "description": ""
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -56688,6 +56687,100 @@
                 "required": [
                     "project",
                     "resource"
+                ]
+            },
+            "ProjectStatusSummary": {
+                "type": "object",
+                "properties": {
+                    "task_count": {
+                        "type": "integer"
+                    },
+                    "at_risk_count": {
+                        "type": "integer"
+                    },
+                    "critical_count": {
+                        "type": "integer"
+                    },
+                    "at_risk_tasks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProjectStatusSummaryTask"
+                        }
+                    },
+                    "critical_tasks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProjectStatusSummaryCriticalTask"
+                        }
+                    },
+                    "monte_carlo_p80": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true,
+                        "description": "P80 finish from the project's most recent Monte Carlo run. Null means no run has been recorded, or the run produced no distribution to anchor on — not 'not computed yet'."
+                    },
+                    "last_saved": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true,
+                        "description": "Most recent human-caused write to any live task in the project. Null means nobody has edited a task yet — a freshly seeded or imported project reports null until somebody touches it. A CPM recalculation is not an edit."
+                    },
+                    "recalculated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true,
+                        "description": "When the last CPM pass completed. Null until the first schedule pass runs."
+                    }
+                },
+                "required": [
+                    "at_risk_count",
+                    "at_risk_tasks",
+                    "critical_count",
+                    "critical_tasks",
+                    "last_saved",
+                    "monte_carlo_p80",
+                    "recalculated_at",
+                    "task_count"
+                ]
+            },
+            "ProjectStatusSummaryCriticalTask": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "wbs": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name",
+                    "wbs"
+                ]
+            },
+            "ProjectStatusSummaryTask": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "wbs": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name",
+                    "wbs"
                 ]
             },
             "ProjectTemplate": {
