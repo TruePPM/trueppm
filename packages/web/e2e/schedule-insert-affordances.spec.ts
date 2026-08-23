@@ -190,6 +190,105 @@ test.describe('Schedule — each insert affordance lands where its position impl
       .toBe(store.rows().length - 1);
   });
 
+  test('an insert reaches the session trail, naming where each row landed (#3018)', async ({
+    page,
+  }) => {
+    // Insert was the one structural act that announced nothing and left no
+    // record: `insertSentence` existed and was imported by nothing. The trail is
+    // the observable half of that contract — the live region is `sr-only` and
+    // written through a DOM ref, so the popover is where a browser can see it.
+    const store = await setupTaskStore(page, { tasks: FIXTURE_TASKS });
+    await page.goto(BASE_URL);
+    await expect(page.getByText('Survey the site')).toBeVisible();
+
+    // The region every structural sentence is spoken through carries its
+    // declared role, which is the second half of #3018.
+    await expect(page.getByTestId('schedule-act-live')).toHaveAttribute('role', 'status');
+
+    // The trail button only exists once something has been recorded, so its
+    // absence here is the pre-insert state rather than a missing mock.
+    const trailButton = page.getByRole('button', { name: /structural change.* this session/i });
+    await expect(trailButton).toHaveCount(0);
+
+    await page.getByText('Survey the site').click();
+    await expect(page.getByTestId('schedule-insert-target')).toBeVisible();
+    await page.getByRole('button', { name: 'Add task' }).click();
+    await expect.poll(() => store.creates.length).toBe(1);
+
+    // One act, one entry — and the sentence names the neighbour the row landed
+    // beside, which is the only part a user cannot read off the caret.
+    await expect(trailButton).toBeVisible({ timeout: 15_000 });
+    await trailButton.click();
+    const trail = page.getByRole('dialog', { name: 'Structural changes this session' });
+    await expect(trail).toBeVisible();
+    await expect(
+      trail.getByText('New item added below Clear access road, at the same level.'),
+    ).toBeVisible();
+  });
+
+  test('the footer append names the LEVEL in the trail, having no anchor row (#3018)', async ({
+    page,
+  }) => {
+    // The counterpart to the case above, and the reason the sentence is not one
+    // shared string: the foot of the plan is not inside anything, so an entry
+    // reading "below <whatever was selected>" would be a record that is wrong.
+    const store = await setupTaskStore(page, { tasks: FIXTURE_TASKS });
+    await page.goto(BASE_URL);
+    await expect(page.getByText('Survey the site')).toBeVisible();
+
+    // Park the cursor deep inside the phase — the sentence must not borrow it.
+    await page.getByText('Survey the site').click();
+    await expect(page.getByTestId('schedule-insert-target')).toBeVisible();
+
+    const footer = page.getByTestId('schedule-append-task-footer');
+    await footer.scrollIntoViewIfNeeded();
+    await footer.getByRole('button', { name: 'Add a task at the end' }).click();
+    await expect.poll(() => store.creates.length).toBe(1);
+
+    const trailButton = page.getByRole('button', { name: /structural change.* this session/i });
+    await expect(trailButton).toBeVisible({ timeout: 15_000 });
+    await trailButton.click();
+    await expect(
+      page
+        .getByRole('dialog', { name: 'Structural changes this session' })
+        .getByText('New item added at the end of the plan, at the top level.'),
+    ).toBeVisible();
+  });
+
+  test('a refused create leaves no record claiming a row exists (#3018)', async ({ page }) => {
+    // The error half of the flow, and the property the golden paths cannot prove: the
+    // sentence is bound to the mutation's SUCCESS, not to the click. A trail entry for
+    // a row the server rejected is worse than no entry — it is a record that is wrong,
+    // and the trail's whole job is to be checkable against the outline.
+    const store = await setupTaskStore(page, { tasks: FIXTURE_TASKS });
+    // Registered last, so it wins over the store's own POST handler.
+    let refusedCreates = 0;
+    await page.route('**/api/v1/tasks/', async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      refusedCreates += 1;
+      await route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ name: ['This field is required.'] }),
+      });
+    });
+
+    await page.goto(BASE_URL);
+    await expect(page.getByText('Survey the site')).toBeVisible();
+    await page.getByText('Survey the site').click();
+    await expect(page.getByTestId('schedule-insert-target')).toBeVisible();
+    await page.getByRole('button', { name: 'Add task' }).click();
+
+    await expect.poll(() => refusedCreates).toBe(1);
+    expect(store.creates).toHaveLength(0);
+    // The trail button only exists once something has been recorded, so its continued
+    // absence IS the assertion. Given a beat to be wrong in.
+    await expect(page.getByText(/Couldn’t add a new task|Couldn't add a new task/)).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: /structural change.* this session/i }),
+    ).toHaveCount(0);
+  });
+
   test('a viewer gets neither affordance — absent, not disabled', async ({ page }) => {
     // Viewer is ordinal 1, not 0 and not 100 (`lib/roles.ts` — every ordinal is
     // truthy on purpose, #2489). The whole authoring apparatus goes; a dimmed

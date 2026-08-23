@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Task } from '@/types';
-import { deriveInsertTarget, describeInsertTarget } from './insertTarget';
+import { deriveInsertTarget, describeInsertTarget, landingSiblingOf } from './insertTarget';
 
 function task(over: Partial<Task> & { id: string; wbs: string; name: string }): Task {
   return {
@@ -132,5 +132,26 @@ describe('describeInsertTarget', () => {
 
   it('says nothing at all when nothing is focused', () => {
     expect(describeInsertTarget({ kind: 'none' })).toBeNull();
+  });
+});
+
+describe('landingSiblingOf', () => {
+  it('returns the LAST sibling when the cursor is parked mid-list', () => {
+    // The trail's insert sentence names this row (#3018). Naming the focused row
+    // instead would make the trail contradict the toolbar statement the user read
+    // before pressing the button — two descriptions of one mutation, disagreeing.
+    const focused = TASKS.find((t) => t.id === 't-23')!;
+    expect(landingSiblingOf(TASKS, focused).id).toBe('t-blank');
+  });
+
+  it('returns the focused row itself when it is already last', () => {
+    const focused = TASKS_LAST.find((t) => t.id === 't-blank2')!;
+    expect(landingSiblingOf(TASKS_LAST, focused).id).toBe('t-blank2');
+  });
+
+  it('scopes to siblings — a row in another subtree is never the anchor', () => {
+    const focused = TASKS.find((t) => t.id === 't-2')!;
+    // `t-2` is the only root row here, so its own subtree's deeper rows must not win.
+    expect(landingSiblingOf(TASKS, focused).id).toBe('t-2');
   });
 });

@@ -264,9 +264,13 @@ test.describe('Schedule build-mode — delete surfaces an Undo toast (#1762)', (
     // The grid row unmounts on refetch (scope to role=row: the toast also names
     // the task, so a bare getByText would still match it)…
     await expect(page.getByRole('row').filter({ hasText: 'Foundation' })).toHaveCount(0);
-    // …and the schedule action toast offers the Undo safety net. Scope to the
-    // action toast (the page has several live `role=status` regions).
-    const toast = page.getByRole('status').filter({ hasText: 'Deleted' });
+    // …and the schedule action toast offers the Undo safety net. Located by
+    // testid, not by role + text: the Schedule carries three `role="status"`
+    // regions, and since #3018 the structural-act region speaks a sentence about
+    // the SAME act ("Foundation deleted."), so `filter({ hasText: 'Deleted' })`
+    // matches two nodes and trips strict mode.
+    const toast = page.getByTestId('schedule-action-toast');
+    await expect(toast).toContainText('Deleted');
     await expect(toast).toContainText('Foundation');
     await expect(toast.getByRole('button', { name: 'Undo' })).toBeVisible();
   });
@@ -285,13 +289,13 @@ test.describe('Schedule build-mode — delete surfaces an Undo toast (#1762)', (
     const foundationRow = page.getByRole('row').filter({ hasText: 'Foundation' });
     await expect(foundationRow).toHaveCount(0);
 
-    await page.getByRole('status').getByRole('button', { name: 'Undo' }).click();
+    await page.getByTestId('schedule-action-toast').getByRole('button', { name: 'Undo' }).click();
 
     // Undo POSTs to the restore endpoint (not a create), and the row returns; the
     // faithful-recovery toast is a plain "Restored".
     await expect(foundationRow).toHaveCount(1);
     expect(restoreCalls).toEqual(['bm1']);
-    await expect(page.getByRole('status').filter({ hasText: 'Restored' })).toBeVisible();
+    await expect(page.getByTestId('schedule-action-toast')).toContainText('Restored');
   });
 });
 
@@ -438,7 +442,7 @@ test.describe('Schedule build-mode — subtree delete confirms, Undo restores it
     await expect(page.getByRole('row').filter({ hasText: 'Design Phase' })).toHaveCount(0);
     expect(deleteCount).toBe(1);
     // Toast names the blast radius and offers Undo.
-    const toast = page.getByRole('status').filter({ hasText: 'Deleted' });
+    const toast = page.getByTestId('schedule-action-toast');
     await expect(toast).toContainText('Deleted “Design Phase” and its 2 subtasks');
     await expect(toast.getByRole('button', { name: 'Undo' })).toBeVisible();
 
@@ -448,7 +452,7 @@ test.describe('Schedule build-mode — subtree delete confirms, Undo restores it
     await expect(page.getByRole('row').filter({ hasText: 'Design Phase' })).toHaveCount(1);
     await expect(page.getByRole('row').filter({ hasText: 'Wireframes' })).toHaveCount(1);
     await expect(page.getByRole('row').filter({ hasText: 'Mockups' })).toHaveCount(1);
-    await expect(page.getByRole('status').filter({ hasText: 'Restored' })).toBeVisible();
+    await expect(page.getByTestId('schedule-action-toast')).toContainText('Restored');
   });
 });
 

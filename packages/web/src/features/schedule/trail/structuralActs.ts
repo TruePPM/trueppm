@@ -81,9 +81,40 @@ export function deleteSentence(row: ActRow): string {
   return `${label(row)} deleted${carried}.`;
 }
 
-export function insertSentence(where: 'below' | 'above' | 'child', anchor: ActRow): string {
+/** Where a newly created row landed, from the gesture that created it. */
+export type InsertPlacement = 'below' | 'above' | 'child' | 'end';
+
+/**
+ * A new row (#3018) — the most frequent structural act, and the one that was
+ * silent for three releases because this function existed and nothing imported it.
+ *
+ * Every form names **where the row landed**, which is the only thing a user cannot
+ * see for themselves: the caret moves into a Name cell that reads "New task" no
+ * matter which of the four gestures made it, so "added" alone would be a sentence
+ * that cannot be checked against the tree. `end` has no anchor — the foot of the
+ * plan is not inside anything — so it names the level instead, the same way
+ * {@link movedIntoSentence} names the top level when there is no destination row.
+ */
+export function insertSentence(where: InsertPlacement, anchor: ActRow | null): string {
+  if (where === 'end' || anchor === null) {
+    return 'New item added at the end of the plan, at the top level.';
+  }
   if (where === 'child') return `New item added under ${label(anchor)}.`;
   return `New item added ${where} ${label(anchor)}, at the same level.`;
+}
+
+/**
+ * `⇧⏎` created the row but the reorder that would have placed it failed (#3018).
+ *
+ * "Added above X" is composed of two requests — the create endpoint appends at the
+ * end of the parent's children, and only the reorder lifts the row into place. When
+ * the second half fails the row is real and in the wrong place, so the earlier
+ * sentence has become false. Correcting it out loud is the whole point: an
+ * announcement a user cannot trust is worse than one that never came, and the trail
+ * is a log, so the correction lands beside the claim rather than erasing it.
+ */
+export function insertMisplacedSentence(anchor: ActRow): string {
+  return `Added the row, but couldn’t place it above ${label(anchor)} — it is at the end of that level instead.`;
 }
 
 export function milestoneSentence(row: ActRow, becameMilestone: boolean): string {

@@ -53,4 +53,38 @@ describe('newestUndoableEntry', () => {
     ];
     expect(newestUndoableEntry(entries)?.id).toBe(1);
   });
+
+  // #3018 — insert is recorded but does NOT sit on the undo stack.
+  it('steps OVER a non-blocking entry instead of stopping at it', () => {
+    // The regression this guards: insert is the most frequent act on the surface, so
+    // treating its (ledger-less) entry as a barrier would kill ⌘Z the moment anyone
+    // adds a row — precisely when they are most likely to reach for it.
+    const entries = [
+      entry(1, { operationId: 'op-1' }),
+      entry(2, { blocksUndo: false }),
+    ];
+    expect(newestUndoableEntry(entries)?.id).toBe(1);
+  });
+
+  it('steps over SEVERAL non-blocking entries in a row', () => {
+    const entries = [
+      entry(1, { operationId: 'op-1' }),
+      entry(2, { blocksUndo: false }),
+      entry(3, { blocksUndo: false }),
+      entry(4, { blocksUndo: false }),
+    ];
+    expect(newestUndoableEntry(entries)?.id).toBe(1);
+  });
+
+  it('still blocks on a ledger-less entry that did NOT opt out', () => {
+    // The default stays `true`: convert-to-milestone and duplicate touch rows that
+    // already existed, so an older undo underneath them is genuinely unsafe. Only an
+    // act whose rows did not exist when the older act ran may skip.
+    const entries = [entry(1, { operationId: 'op-1' }), entry(2)];
+    expect(newestUndoableEntry(entries)).toBeNull();
+  });
+
+  it('finds nothing behind a non-blocking entry when nothing behind it is reversible', () => {
+    expect(newestUndoableEntry([entry(1, { blocksUndo: false })])).toBeNull();
+  });
 });
