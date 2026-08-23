@@ -396,6 +396,12 @@ export function useRescheduleTask() {
 export interface IndentOutdentResponse {
   updated: Array<{ id: string; wbs_path: string }>;
   warning: 'has_assignments' | null;
+  /**
+   * Ledger handle for `POST /structural-operations/{id}/undo/` (ADR-0880, #2974).
+   * Null when the request was a no-op — a reparent onto the current parent moves
+   * nothing, so there is nothing to reverse.
+   */
+  operation_id: string | null;
 }
 
 /** POST /api/v1/projects/{pk}/tasks/{id}/indent/ — make a task a child of the preceding sibling. */
@@ -894,6 +900,12 @@ export interface ReorderTasksPayload {
   ordered_ids: string[];
 }
 
+export interface ReorderTasksResponse {
+  updated: Array<{ id: string; wbs_path: string }>;
+  /** Ledger handle for `POST /structural-operations/{id}/undo/` (ADR-0880, #2974). */
+  operation_id: string | null;
+}
+
 /**
  * POST /api/v1/projects/{pk}/tasks/reorder/ — reorder all siblings under a WBS parent.
  * The full sibling list must be provided; partial lists are rejected by the API.
@@ -903,7 +915,13 @@ export function useReorderTasks(projectId: string | null) {
 
   return useMutation({
     mutationFn: async (payload: ReorderTasksPayload) => {
-      await apiClient.post(`/projects/${projectId}/tasks/reorder/`, payload);
+      // The body is returned, not discarded: it carries `operation_id`, the ledger
+      // handle the session trail binds its Undo to (ADR-0880, #2974).
+      const res = await apiClient.post<ReorderTasksResponse>(
+        `/projects/${projectId}/tasks/reorder/`,
+        payload,
+      );
+      return res.data;
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });

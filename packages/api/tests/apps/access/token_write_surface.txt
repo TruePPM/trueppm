@@ -96,6 +96,7 @@ api/v1/^resources/(?P<pk>[^/.]+)/restore/$
 api/v1/^skills/$
 api/v1/^skills/(?P<pk>[^/.]+)/$
 api/v1/^slip-conflicts/(?P<pk>[^/.]+)/acknowledge/$
+api/v1/^structural-operations/(?P<pk>[^/.]+)/undo/$
 api/v1/^task-relations/$
 api/v1/^task-relations/(?P<pk>[^/.]+)/$
 api/v1/^task-resources/$

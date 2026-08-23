@@ -37403,6 +37403,202 @@
                 }
             }
         },
+        "/api/v1/structural-operations/": {
+            "get": {
+                "operationId": "v1_structural_operations_list",
+                "description": "Adds ``Idempotency-Key`` replay/store semantics to a DRF view.\n\nApply by inheriting before the DRF base (so its ``initial`` /\n``finalize_response`` / ``handle_exception`` overrides precede ``APIView`` in the\nMRO). Set ``idempotency_exempt = True`` to opt a view out (auth/token endpoints,\nalready-deduped outbox entrypoints, streaming/export views).",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "structural-operations"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedStructuralOperationList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "List structural operations"
+            }
+        },
+        "/api/v1/structural-operations/{id}/": {
+            "get": {
+                "operationId": "v1_structural_operations_retrieve",
+                "description": "Adds ``Idempotency-Key`` replay/store semantics to a DRF view.\n\nApply by inheriting before the DRF base (so its ``initial`` /\n``finalize_response`` / ``handle_exception`` overrides precede ``APIView`` in the\nMRO). Set ``idempotency_exempt = True`` to opt a view out (auth/token endpoints,\nalready-deduped outbox entrypoints, streaming/export views).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "structural-operations"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/StructuralOperation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve structural operation"
+            }
+        },
+        "/api/v1/structural-operations/{id}/undo/": {
+            "post": {
+                "operationId": "v1_structural_operations_undo_create",
+                "description": "Reverse this structural act. All-or-nothing: if anything the undo would write has moved since, it refuses with 409 rather than reverting partially. Undoing an act you performed needs the same authority the act needed; undoing someone else's needs Project Manager.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "structural-operations"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/StructuralOperation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Undo structural operation"
+            }
+        },
         "/api/v1/sync/user/programs/": {
             "get": {
                 "operationId": "v1_sync_user_programs_retrieve",
@@ -44574,7 +44770,7 @@
                 "description": "One unified asset — a file (``TaskAttachment``) or a link (``TaskLink``).\n\nThe instance is a plain dict from :func:`build_asset_feed`. Link-only fields\n(``provider``/``status``/``preview_type``) are null on files; ``labels`` is\n``[]`` on files; ``download_url`` is the signed-url action target on stored\nfiles and null on external-URL attachments and links; ``added_by`` is null on\nlinks (``TaskLink`` has no uploader).",
                 "properties": {
                     "kind": {
-                        "$ref": "#/components/schemas/KindEnum"
+                        "$ref": "#/components/schemas/AssetItemKindEnum"
                     },
                     "id": {
                         "type": "string"
@@ -44651,6 +44847,14 @@
                     "title",
                     "url"
                 ]
+            },
+            "AssetItemKindEnum": {
+                "enum": [
+                    "file",
+                    "link"
+                ],
+                "type": "string",
+                "description": "* `file` - file\n* `link` - link"
             },
             "AssetProgramRef": {
                 "type": "object",
@@ -48044,14 +48248,6 @@
                 "type": "string",
                 "description": "* `HISTORY_RETENTION_DAYS` - HISTORY_RETENTION_DAYS\n* `TASK_RUN_RETENTION_DAYS` - TASK_RUN_RETENTION_DAYS\n* `TRUEPPM_WEBHOOK_RETENTION_DAYS` - TRUEPPM_WEBHOOK_RETENTION_DAYS\n* `TRUEPPM_IMPORT_RETENTION_DAYS` - TRUEPPM_IMPORT_RETENTION_DAYS\n* `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` - TRUEPPM_SYNC_BATCH_RETENTION_HOURS\n* `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` - TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS"
             },
-            "KindEnum": {
-                "enum": [
-                    "file",
-                    "link"
-                ],
-                "type": "string",
-                "description": "* `file` - file\n* `link` - link"
-            },
             "Label": {
                 "type": "object",
                 "description": "Read/write serializer for the project-scoped label catalog (ADR-0400).\n\n``color`` is validated against the fixed ``LabelColor`` enum by the choices\nfield. ``name`` is normalized (trimmed) and checked for case-insensitive\nuniqueness within the project so a clean 400 is returned instead of a raw\nIntegrityError on the ``uniq_label_name_per_project`` constraint. ``project``\nand ``created_by`` are stamped by the viewset, never client-supplied.\n\n``task_count`` is the number of non-deleted tasks carrying the label, fed by\nthe ``task_count`` annotation on ``LabelViewSet.get_queryset`` (a single\n``Count`` — no N+1). ``default=0`` keeps it safe on bare-instance write paths\n(create/update serialize the un-annotated saved instance), so the field is\nmeaningful on list/retrieve where the annotation is present.",
@@ -50403,6 +50599,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/Sprint"
+                        }
+                    }
+                }
+            },
+            "PaginatedStructuralOperationList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/StructuralOperation"
                         }
                     }
                 }
@@ -59678,6 +59905,100 @@
                 "type": "string",
                 "description": "* `active` - Active\n* `undone` - Undone"
             },
+            "StructuralOperation": {
+                "type": "object",
+                "description": "The ledger row plus the two computed facts a client needs to render an Undo.\n\n``is_undoable`` is a server fact rather than a client derivation on purpose:\n``status`` only answers whether the row has *already* been undone, while undoability\nalso varies with live shape, stack position and region size. Without it, an API\nclient listing operations sees N rows all reading ``active``, at most one of which is\nactually reversible — and the web trail and that client would each guess separately.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "applied_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "undone_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StructuralOperationKindEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StatusE83Enum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "undoable": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "is_undoable": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "undo_blocked_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "result_summary": {
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "undone_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "applied_by",
+                    "created_at",
+                    "id",
+                    "is_undoable",
+                    "kind",
+                    "project",
+                    "result_summary",
+                    "status",
+                    "undo_blocked_reason",
+                    "undoable",
+                    "undone_at",
+                    "undone_by"
+                ]
+            },
+            "StructuralOperationKindEnum": {
+                "enum": [
+                    "indent",
+                    "outdent",
+                    "reparent",
+                    "reorder",
+                    "group",
+                    "ungroup"
+                ],
+                "type": "string",
+                "description": "* `indent` - Indent\n* `outdent` - Outdent\n* `reparent` - Reparent\n* `reorder` - Reorder\n* `group` - Group\n* `ungroup` - Ungroup"
+            },
             "StructureRoleConflict": {
                 "type": "object",
                 "description": "The body of the ``409`` a contradicted ``structure_role`` returns (#2976).\n\nDeclared as a real serializer rather than ``OpenApiTypes.OBJECT`` so the shape\nis visible in ``openapi.json``. #2942 records what OBJECT costs: the whole\nresponse becomes invisible to anyone diffing the schema, which is the only\nearly-warning mechanism an integrator has.\n\n**Every field is a string, and that is a contract, not an accident.** DRF\nwraps every value in an exception detail as an ``ErrorDetail`` (a ``str``\nsubclass), so a boolean here would reach a client as ``\"True\"``. Declaring\nthe types explicitly is what stops the next person adding a boolean field to\nthis body and shipping that trap.",
@@ -61400,12 +61721,19 @@
                     "warning": {
                         "type": "string",
                         "nullable": true
+                    },
+                    "operation_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true,
+                        "description": "Ledger handle for `POST /structural-operations/{id}/undo/` (ADR-0880). Null when the request was a no-op, which has nothing to reverse."
                     }
                 },
                 "required": [
                     "container",
                     "grouped_ids",
                     "left_alone",
+                    "operation_id",
                     "updated",
                     "warning"
                 ]
@@ -62036,9 +62364,16 @@
                         "items": {
                             "$ref": "#/components/schemas/WbsPathEntry"
                         }
+                    },
+                    "operation_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true,
+                        "description": "Ledger handle for `POST /structural-operations/{id}/undo/` (ADR-0880). Null when the request was a no-op, which has nothing to reverse."
                     }
                 },
                 "required": [
+                    "operation_id",
                     "updated"
                 ]
             },
@@ -62367,9 +62702,16 @@
                         "type": "string",
                         "nullable": true,
                         "description": "'has_assignments' when the move turned a task into a summary that still carries resource assignments; otherwise null."
+                    },
+                    "operation_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true,
+                        "description": "Ledger handle for `POST /structural-operations/{id}/undo/` (ADR-0880). Null when the request was a no-op, which has nothing to reverse."
                     }
                 },
                 "required": [
+                    "operation_id",
                     "updated",
                     "warning"
                 ]
@@ -62698,11 +63040,18 @@
                     "warning": {
                         "type": "string",
                         "nullable": true
+                    },
+                    "operation_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true,
+                        "description": "Ledger handle for `POST /structural-operations/{id}/undo/` (ADR-0880). Null when the request was a no-op, which has nothing to reverse."
                     }
                 },
                 "required": [
                     "container_id",
                     "lifted_ids",
+                    "operation_id",
                     "removed_dependency_ids",
                     "updated",
                     "warning"

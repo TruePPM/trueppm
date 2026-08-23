@@ -128,6 +128,7 @@ from trueppm_api.apps.projects.models import (
     SprintScopeChange,
     SprintState,
     SprintTaskOutcome,
+    StructuralOperationKind,
     Task,
     TaskActivityEvent,
     TaskAttachment,
@@ -223,6 +224,7 @@ from trueppm_api.apps.projects.serializers import (
     TaskScopeRollupSerializer,
     TaskSerializer,
 )
+from trueppm_api.apps.projects.structural_operation_services import StructuralCapture
 from trueppm_api.apps.projects.task_bulk import MSG_PROGRESS_NEEDS_ANCHOR, BulkOutcome
 from trueppm_api.apps.scheduling.models import ScheduleRequestReason
 from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue_recalculate
@@ -480,6 +482,13 @@ class TaskReorderResponseSerializer(serializers.Serializer[Any]):
     """Response for the sibling-reorder endpoint."""
 
     updated = WbsPathEntrySerializer(many=True)
+    operation_id = serializers.UUIDField(
+        allow_null=True,
+        help_text=(
+            "Ledger handle for `POST /structural-operations/{id}/undo/` (ADR-0880). "
+            "Null when the request was a no-op, which has nothing to reverse."
+        ),
+    )
 
 
 class TaskRestructureResponseSerializer(serializers.Serializer[Any]):
@@ -491,6 +500,13 @@ class TaskRestructureResponseSerializer(serializers.Serializer[Any]):
         help_text=(
             "'has_assignments' when the move turned a task into a summary that "
             "still carries resource assignments; otherwise null."
+        ),
+    )
+    operation_id = serializers.UUIDField(
+        allow_null=True,
+        help_text=(
+            "Ledger handle for `POST /structural-operations/{id}/undo/` (ADR-0880). "
+            "Null when the request was a no-op, which has nothing to reverse."
         ),
     )
 
@@ -544,6 +560,13 @@ class TaskGroupResponseSerializer(serializers.Serializer[Any]):
     )
     updated = WbsPathEntrySerializer(many=True)
     warning = serializers.CharField(allow_null=True)
+    operation_id = serializers.UUIDField(
+        allow_null=True,
+        help_text=(
+            "Ledger handle for `POST /structural-operations/{id}/undo/` (ADR-0880). "
+            "Null when the request was a no-op, which has nothing to reverse."
+        ),
+    )
 
 
 class TaskUngroupResponseSerializer(serializers.Serializer[Any]):
@@ -563,6 +586,13 @@ class TaskUngroupResponseSerializer(serializers.Serializer[Any]):
     )
     updated = WbsPathEntrySerializer(many=True)
     warning = serializers.CharField(allow_null=True)
+    operation_id = serializers.UUIDField(
+        allow_null=True,
+        help_text=(
+            "Ledger handle for `POST /structural-operations/{id}/undo/` (ADR-0880). "
+            "Null when the request was a no-op, which has nothing to reverse."
+        ),
+    )
 
 
 class TaskBulkAppliedEntrySerializer(serializers.Serializer[Any]):
@@ -7581,6 +7611,8 @@ class TaskReorderView(IdempotencyMixin, APIView):
         updated: list[dict[str, Any]] = []
 
         with transaction.atomic():
+            capture = StructuralCapture.begin(project.pk, {parent_path})
+
             for position, task_id in enumerate(ordered_ids, start=1):
                 task = siblings_by_id[task_id]
                 new_path = _build_wbs_path(parent_path, position)
@@ -7589,11 +7621,23 @@ class TaskReorderView(IdempotencyMixin, APIView):
                     task.save(update_fields=["wbs_path"])
                 updated.append({"id": str(task_id), "wbs_path": new_path})
 
+            # Reorder is the one structural endpoint that already gates every sibling
+            # (the complete-set invariant makes that exact), so all of them are anchors.
+            operation = capture.record(
+                project=project,
+                applied_by=request.user,
+                kind=StructuralOperationKind.REORDER,
+                anchors=list(ordered_ids),
+            )
+
             project_id = str(project.pk)
             transaction.on_commit(lambda: _enqueue_recalculate(project_id))
             transaction.on_commit(lambda: broadcast_board_event(project_id, "tasks_reordered", {}))
 
-        return Response({"updated": updated}, status=status.HTTP_200_OK)
+        return Response(
+            {"updated": updated, "operation_id": str(operation.pk)},
+            status=status.HTTP_200_OK,
+        )
 
 
 def _get_parent_path(wbs_path: str) -> str:
@@ -7739,6 +7783,10 @@ class TaskIndentView(IdempotencyMixin, APIView):
                 )
             descendants = _get_descendants(str(project.pk), task.wbs_path, lock=True)
 
+            # Both the old level and the new one (under prev_sibling) live inside
+            # parent_path's subtree, so one root bounds the whole affected region.
+            capture = StructuralCapture.begin(project.pk, {parent_path})
+
             # Count existing children of previous sibling to determine insertion position.
             prev_children = _get_siblings(str(project.pk), prev_sibling.wbs_path, lock=True)
             new_position = len(prev_children) + 1
@@ -7764,6 +7812,13 @@ class TaskIndentView(IdempotencyMixin, APIView):
                 if TaskResource.objects.filter(task=prev_sibling).exists():
                     warning = "has_assignments"
 
+            operation = capture.record(
+                project=project,
+                applied_by=request.user,
+                kind=StructuralOperationKind.INDENT,
+                anchors=[task.pk],
+            )
+
             project_id = str(project.pk)
             transaction.on_commit(lambda: _enqueue_recalculate(project_id))
             transaction.on_commit(
@@ -7771,7 +7826,11 @@ class TaskIndentView(IdempotencyMixin, APIView):
             )
 
         return Response(
-            {"updated": all_updated, "warning": warning},
+            {
+                "updated": all_updated,
+                "warning": warning,
+                "operation_id": str(operation.pk),
+            },
             status=status.HTTP_200_OK,
         )
 
@@ -7857,6 +7916,10 @@ class TaskOutdentView(IdempotencyMixin, APIView):
 
             old_path = task.wbs_path
 
+            # The task moves up to the grandparent level and adopts its following
+            # siblings, so the grandparent's subtree bounds both levels at once.
+            capture = StructuralCapture.begin(project.pk, {grandparent_path})
+
             # Count existing children of the task.
             existing_children = _get_siblings(str(project.pk), task.wbs_path, lock=True)
             next_child_pos = len(existing_children) + 1
@@ -7905,6 +7968,13 @@ class TaskOutdentView(IdempotencyMixin, APIView):
                 if TaskResource.objects.filter(task=task).exists():
                     warning = "has_assignments"
 
+            operation = capture.record(
+                project=project,
+                applied_by=request.user,
+                kind=StructuralOperationKind.OUTDENT,
+                anchors=[task.pk],
+            )
+
             project_id = str(project.pk)
             transaction.on_commit(lambda: _enqueue_recalculate(project_id))
             transaction.on_commit(
@@ -7912,7 +7982,11 @@ class TaskOutdentView(IdempotencyMixin, APIView):
             )
 
         return Response(
-            {"updated": all_updated, "warning": warning},
+            {
+                "updated": all_updated,
+                "warning": warning,
+                "operation_id": str(operation.pk),
+            },
             status=status.HTTP_200_OK,
         )
 
@@ -8063,16 +8137,23 @@ class TaskReparentView(IdempotencyMixin, APIView):
             except _ReparentRejected as rejected:
                 return rejected.response
 
-            # No-op when the task is already a child of the target parent.
+            # No-op when the task is already a child of the target parent. No ledger
+            # row: nothing changed, so there is nothing to reverse and offering an
+            # Undo would be a control that does nothing.
             if old_parent_path == new_parent_path:
                 return Response(
-                    {"updated": [], "warning": None},
+                    {"updated": [], "warning": None, "operation_id": None},
                     status=status.HTTP_200_OK,
                 )
 
             descendants = _get_descendants(str(project.pk), old_path, lock=True)
             old_siblings = _get_siblings(str(project.pk), old_parent_path, lock=True)
             new_children = _get_siblings(str(project.pk), new_parent_path, lock=True)
+
+            # Unlike indent/outdent the two levels can be anywhere in the tree, so both
+            # bound the region; reduce_region_roots collapses them when one contains
+            # the other (and to the project root when either is root level).
+            capture = StructuralCapture.begin(project.pk, {old_parent_path, new_parent_path})
 
             new_position = len(new_children) + 1
             new_path = _build_wbs_path(new_parent_path, new_position)
@@ -8094,6 +8175,13 @@ class TaskReparentView(IdempotencyMixin, APIView):
                 if TaskResource.objects.filter(task=new_parent).exists():
                     warning = "has_assignments"
 
+            operation = capture.record(
+                project=project,
+                applied_by=request.user,
+                kind=StructuralOperationKind.REPARENT,
+                anchors=[task.pk],
+            )
+
             project_id = str(project.pk)
             transaction.on_commit(lambda: _enqueue_recalculate(project_id))
             transaction.on_commit(
@@ -8101,7 +8189,11 @@ class TaskReparentView(IdempotencyMixin, APIView):
             )
 
         return Response(
-            {"updated": all_updated, "warning": warning},
+            {
+                "updated": all_updated,
+                "warning": warning,
+                "operation_id": str(operation.pk),
+            },
             status=status.HTTP_200_OK,
         )
 

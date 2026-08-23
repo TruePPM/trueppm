@@ -1422,23 +1422,51 @@ def purge_expired_batch_operations(self: object) -> None:
     _do_purge_expired_batch_operations()
 
 
+def _structural_operation_retention_days() -> int | None:
+    """Structural rows get their own, shorter window (ADR-0880 Sec.9).
+
+    A structural act fires on every indent and every drag, so an afternoon of outlining
+    is hundreds of rows where a paste-many is a handful. Sharing the 30-day batch
+    window would accumulate an order of magnitude more rows for a horizon nobody uses:
+    the undo affordance is session-scoped (the session trail caps at 10 entries), so
+    7 days comfortably outlives any session while keeping the table small.
+    """
+    from django.conf import settings
+
+    return getattr(settings, "TRUEPPM_STRUCTURAL_OPERATION_RETENTION_DAYS", 7)
+
+
 def _do_purge_expired_batch_operations() -> None:
-    from trueppm_api.apps.projects.models import CascadeClassificationOperation, PasteManyOperation
+    from trueppm_api.apps.projects.models import (
+        CascadeClassificationOperation,
+        PasteManyOperation,
+        StructuralOperation,
+    )
 
     retention = _batch_operation_retention_days()
-    if retention is None:  # retention disabled — keep rows indefinitely
-        return
-    cutoff = timezone.now() - timedelta(days=retention)
-    paste_deleted, _ = PasteManyOperation.objects.filter(created_at__lt=cutoff).delete()
-    cascade_deleted, _ = CascadeClassificationOperation.objects.filter(
-        created_at__lt=cutoff
-    ).delete()
-    total = paste_deleted + cascade_deleted
+    paste_deleted = cascade_deleted = structural_deleted = 0
+    if retention is not None:  # None disables retention — keep rows indefinitely
+        cutoff = timezone.now() - timedelta(days=retention)
+        paste_deleted, _ = PasteManyOperation.objects.filter(created_at__lt=cutoff).delete()
+        cascade_deleted, _ = CascadeClassificationOperation.objects.filter(
+            created_at__lt=cutoff
+        ).delete()
+
+    structural_retention = _structural_operation_retention_days()
+    if structural_retention is not None:
+        structural_cutoff = timezone.now() - timedelta(days=structural_retention)
+        structural_deleted, _ = StructuralOperation.objects.filter(
+            created_at__lt=structural_cutoff
+        ).delete()
+
+    total = paste_deleted + cascade_deleted + structural_deleted
     if total:
         logger.info(
-            "purge_expired_batch_operations: deleted %d paste-many + %d cascade row(s)",
+            "purge_expired_batch_operations: deleted %d paste-many + %d cascade "
+            "+ %d structural row(s)",
             paste_deleted,
             cascade_deleted,
+            structural_deleted,
         )
 
 
