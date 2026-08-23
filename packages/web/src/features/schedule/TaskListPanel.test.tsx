@@ -494,7 +494,8 @@ describe('TaskListPanel — blank project draft row (#2733)', () => {
     const draft = await screen.findByRole('textbox', { name: /first task name/i });
     await userEvent.type(draft, 'Survey the site{Enter}');
 
-    expect(onCommitDraftRow).toHaveBeenCalledExactlyOnceWith('Survey the site');
+    expect(onCommitDraftRow).toHaveBeenCalledTimes(1);
+    expect(onCommitDraftRow.mock.calls[0][0]).toBe('Survey the site');
   });
 
   it('does not render the draft row once the outline has tasks', () => {

@@ -15,6 +15,7 @@
  */
 import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import { setupTaskStore } from './fixtures/task-store';
 
 const FIXTURE_PROJECT_ID = 'e2e-band-00000000-0000-0000-0000-000000000361';
 const BASE_URL = `/projects/${FIXTURE_PROJECT_ID}`;
@@ -200,8 +201,9 @@ test.describe('Board BACKLOG rail (ADR-0057, epic #361 child A)', () => {
   test('phase-less project still renders the project-node lane as a drop target (issue #386)', async ({ page }) => {
     // Fixture: ONE backlog card, NO summary tasks, NO committed cards.
     // Without #386 the grid renders the empty-state copy and the rail's
-    // "Drag right onto a phase" affordance has no target; with the fix
-    // the project-node lane appears with the four status columns.
+    // promote affordance ("File under…", and the drag it names, #2952) has no
+    // target; with the fix the project-node lane appears with the four status
+    // columns.
     const PHASE_LESS_BACKLOG = {
       id: 'idea-phaseless',
       wbs_path: '1',
@@ -317,5 +319,78 @@ test.describe('Board BACKLOG rail (ADR-0057, epic #361 child A)', () => {
 
     await page.getByRole('button', { name: /Expand backlog rail/i }).click();
     await expect(rail.getByText('Tone-of-voice study')).toBeVisible();
+  });
+});
+
+/**
+ * "File under…" (#2952) — the rail's keyboard and touch promotion path.
+ *
+ * The rail's only promotion affordance used to be a drag, described by a static
+ * hint. A drag is unavailable to a keyboard user and awkward on a phone, on the
+ * one surface whose entire job is getting an item out of the inbox.
+ *
+ * These assert the OUTCOME — the row lands in the container and reads back as
+ * To Do — not that a menu item was clicked. `setupTaskStore` is what makes the
+ * post-write DOM assertion stable: the default list mock is stateless and the
+ * app's own `onSuccess` invalidate re-serves the pre-write rows.
+ */
+test.describe('Backlog rail — File under… (#2952)', () => {
+  test('files an idea under a phase and lands it in To Do', async ({ page }) => {
+    const tasks = [SUMMARY_TASK, COMMITTED_TASK, BACKLOG_TASK_A];
+    await setup(page, tasks);
+    const store = await setupTaskStore(page, { tasks });
+
+    await page.goto(`${BASE_URL}/board`);
+    const rail = page.getByTestId('backlog-band');
+    await expect(rail.getByText('Tone-of-voice study')).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: 'Actions for Tone-of-voice study' }).click();
+    await page.getByRole('menuitem', { name: 'File under…' }).click();
+    await page.getByRole('menuitem', { name: 'Discovery' }).click();
+
+    // Same move the rail→phase drag performs, through the same mutation.
+    await expect.poll(() => store.patches.length, { timeout: 10_000 }).toBeGreaterThan(0);
+    expect(store.patches[0]).toMatchObject({ status: 'NOT_STARTED', parent_id: 'phase-1' });
+
+    // And the outcome the user sees: the idea has left the inbox.
+    await expect(rail.getByText('Tone-of-voice study')).toHaveCount(0);
+  });
+
+  test('the hint names the action, not only the drag', async ({ page }) => {
+    await setup(page, [SUMMARY_TASK, BACKLOG_TASK_A]);
+    await page.goto(`${BASE_URL}/board`);
+    const rail = page.getByTestId('backlog-band');
+    await expect(rail.getByText(/File under…/)).toBeVisible({ timeout: 10_000 });
+    await expect(rail.getByText(/Dragging it right onto a phase does the same/)).toBeVisible();
+  });
+
+  test('a Viewer gets no ··· and no capture field — absence, not disabled', async ({ page }) => {
+    const tasks = [SUMMARY_TASK, BACKLOG_TASK_A];
+    await setup(page, tasks);
+    await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/members/**`, (route) => {
+      const url = new URL(route.request().url());
+      if (route.request().method() === 'GET' && url.searchParams.get('self') === 'true') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([{ id: 'mem-viewer', role: 1, role_label: 'Viewer' }]),
+        });
+      }
+      return route.continue();
+    });
+
+    await page.goto(`${BASE_URL}/board`);
+    const rail = page.getByTestId('backlog-band');
+    await expect(rail.getByText('Tone-of-voice study')).toBeVisible({ timeout: 10_000 });
+
+    // Both actions in that menu write, so the trigger itself is gone rather
+    // than opening onto a menu the server would refuse every item of.
+    await expect(page.getByRole('button', { name: 'Actions for Tone-of-voice study' })).toHaveCount(
+      0,
+    );
+    await expect(rail.getByRole('textbox', { name: /Capture a backlog idea/i })).toHaveCount(0);
+    // And no sentence describing a promotion path they do not have.
+    await expect(rail.getByText(/File under…/)).toHaveCount(0);
+    await expect(rail.getByText(/Drag right onto a phase/)).toHaveCount(0);
   });
 });

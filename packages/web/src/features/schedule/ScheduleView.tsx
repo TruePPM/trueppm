@@ -3038,12 +3038,27 @@ export function ScheduleView() {
   // handleAddFirstTask below this does NOT open the cell editor afterwards — the
   // draft input keeps the caret itself so a second row can be typed immediately,
   // and stealing focus into a freshly-created row's editor would interrupt that.
+  //
+  // The payload is `createNewTask`'s, minus the focus handoff (#2952): same
+  // `duration: 1`, same `parent_id` from the outline's own insertion point, and
+  // — the part that was actually missing — the same `onError`. Without it a
+  // failed create on a blank project cleared the field and rendered nothing,
+  // which on the one screen with no other rows is indistinguishable from having
+  // typed nothing at all.
   const handleCommitDraftRow = useCallback(
-    (name: string) => {
+    (name: string, opts?: { onError?: () => void }) => {
       if (!projectId || readOnly) return;
-      createTaskMut.mutate({ name, duration: 1 });
+      createTaskMut.mutate(
+        { name, duration: 1, parent_id: inferredParentId },
+        {
+          onError: () => {
+            toast.error(`Couldn't add "${name}" — try again.`);
+            opts?.onError?.();
+          },
+        },
+      );
     },
-    [projectId, readOnly, createTaskMut],
+    [projectId, readOnly, createTaskMut, inferredParentId],
   );
 
   // The project's stated facts, shown beside the horizon so the ruler is legible

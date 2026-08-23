@@ -3,8 +3,9 @@
  *
  * Below `md:` (< 768px) the desktop phase-grid is unusable, so a phone with no
  * explicit layout preference auto-defaults to the Queue layout, and the mobile
- * FAB (previously a dead, disabled button) opens the create modal targeting the
- * group in view: BACKLOG under Queue, else the snapped-to status column. An
+ * FAB (previously a dead, disabled button) opens the touch COMPOSE BAR
+ * targeting the group in view (#2952 — it used to open a full-screen create
+ * sheet): BACKLOG under Queue, else the snapped-to status column. An
  * explicit rail / drawer choice is preserved across the breakpoint — the board
  * never silently flips a user who picked their layout on purpose.
  *
@@ -94,7 +95,7 @@ test.describe('Board mobile — Queue auto-default + FAB (issue 605)', () => {
     await expect(page.getByTestId('mobile-board-scroller')).toHaveCount(0);
   });
 
-  test('the FAB opens the create modal and a created task lands in the visible group (BACKLOG on Queue)', async ({
+  test('the FAB opens the compose bar and a created task lands in the visible group (BACKLOG on Queue)', async ({
     page,
   }) => {
     await setup(page);
@@ -128,17 +129,22 @@ test.describe('Board mobile — Queue auto-default + FAB (issue 605)', () => {
 
     await page.getByRole('button', { name: 'Add task', exact: true }).click();
 
-    // Queue is a flat, backlog-first list — the modal opens preset to BACKLOG.
-    const dialog = page.getByRole('dialog', { name: /Add to backlog/i });
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByLabel('Status')).toHaveValue('BACKLOG');
+    // A bar, not a sheet (#2952): the destination stays on screen behind it and
+    // the bar names it, so "where does this land" is answered by looking.
+    const bar = page.getByTestId('mobile-compose-bar');
+    await expect(bar).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
 
-    // Create the task and assert it lands in BACKLOG (the visible group).
-    await dialog.getByLabel('Task name *').fill('Mobile capture');
-    await dialog.getByRole('button', { name: 'Create task' }).click();
+    // Queue is a flat, backlog-first list — the bar targets BACKLOG.
+    const field = bar.getByRole('textbox', { name: /lands in Backlog/i });
+    await field.fill('Mobile capture');
+    await field.press('Enter');
 
-    await expect(dialog).toBeHidden({ timeout: 10_000 });
-    expect(createdStatus).toBe('BACKLOG');
+    // Assert the OUTCOME — the POST carried the visible group's status.
+    await expect.poll(() => createdStatus, { timeout: 10_000 }).toBe('BACKLOG');
+    // The bar stays for the next item: intake on a phone is bursty.
+    await expect(bar).toBeVisible();
+    await expect(field).toHaveValue('');
   });
 
   test('an explicit rail preference is preserved on mobile and the FAB targets the visible status column', async ({
@@ -153,11 +159,40 @@ test.describe('Board mobile — Queue auto-default + FAB (issue 605)', () => {
     await expect(page.getByTestId('queue-layout')).toHaveCount(0);
 
     // The first column (To Do / NOT_STARTED) is in view on load, so the FAB
-    // opens the modal preset to that status.
+    // opens the compose bar targeting that status.
     await page.getByRole('button', { name: 'Add task', exact: true }).click();
-    const dialog = page.getByRole('dialog');
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByLabel('Status')).toHaveValue('NOT_STARTED');
+    const bar = page.getByTestId('mobile-compose-bar');
+    await expect(bar).toBeVisible();
+    await expect(bar.getByRole('textbox', { name: /lands in To Do/i })).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  });
+
+  test('a Viewer gets no FAB at all — absence, not a disabled + (web rule 302)', async ({
+    page,
+  }) => {
+    await seedLayoutPref(page, 'rail');
+    await setup(page);
+    // The FAB was gated on `projectId` alone while every other write path on
+    // this board honored `readOnly`, so a Viewer on a phone got a live "+" that
+    // opened a create form the server would refuse (#2952).
+    // `useCurrentUserRole` reads `?self=true` and takes row 0 — a bare object
+    // leaves the role null and hides every gated control for the wrong reason.
+    await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/members/**`, (route) => {
+      const url = new URL(route.request().url());
+      if (route.request().method() === 'GET' && url.searchParams.get('self') === 'true') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([{ id: 'mem-viewer', role: 1, role_label: 'Viewer' }]),
+        });
+      }
+      return route.continue();
+    });
+    await page.goto(`${BASE_URL}/board`);
+
+    await expect(page.getByTestId('mobile-board-scroller')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('button', { name: 'Add task', exact: true })).toHaveCount(0);
+    await expect(page.getByTestId('mobile-compose-bar')).toHaveCount(0);
   });
 
   test('an explicit drawer preference is preserved on mobile (not flipped to Queue)', async ({

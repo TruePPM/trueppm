@@ -3,7 +3,7 @@ import type { Task, TaskStatus } from '@/types';
 import type { BoardDensity, EvmMode, BoardCardScopeActions } from '../BoardCard';
 import type { ProjectCustomField } from '@/hooks/useProjectCustomFields';
 import type { BacklogDensity, BoardLayoutVariant } from '@/hooks/useBoardToolbarPrefs';
-import { BacklogBand } from '../BacklogBand';
+import { BacklogBand, type FileUnderTarget } from '../BacklogBand';
 import type { BoardCadence } from '@/types';
 import { BacklogDrawer } from '../BacklogDrawer';
 import { QueueLayout } from '../QueueLayout';
@@ -55,7 +55,8 @@ interface BoardBodyProps {
   onSchedule?: (task: Task, trigger: HTMLElement) => void;
   onQuickCapture?: (name: string, opts?: { onError?: () => void }) => void;
   isQuickCapturePending: boolean;
-  onCaptureIdea: () => void;
+  fileUnderTargets: FileUnderTarget[];
+  onFileUnder?: (task: Task, targetId: string) => void;
   onOpenCommandPalette: () => void;
 
   // Mobile snap board
@@ -105,7 +106,17 @@ interface BoardBodyProps {
   isAddingPhase: boolean;
   mineActive: boolean;
   onShowAllTasks: () => void;
-  onAddTask: () => void;
+  /**
+   * The desktop "No lanes yet" empty-board CTA.
+   *
+   * It used to be the same `onAddTask` prop the mobile FAB was wired to, which
+   * is why it created into `mobileActiveStatus` — a value a phone scroll set.
+   * #2952 split them: once the FAB started opening a `md:hidden` compose bar,
+   * one shared handler would have had this desktop button open a control that
+   * cannot render. The FAB is wired directly in `BoardView` and no longer
+   * passes through here at all.
+   */
+  onAddTaskEmptyBoard: () => void;
 }
 
 /**
@@ -135,7 +146,8 @@ export function BoardBody(props: BoardBodyProps) {
     onSchedule,
     onQuickCapture,
     isQuickCapturePending,
-    onCaptureIdea,
+    fileUnderTargets,
+    onFileUnder,
     onOpenCommandPalette,
     mobileTasksByStatus,
     onActiveStatusChange,
@@ -175,7 +187,7 @@ export function BoardBody(props: BoardBodyProps) {
     isAddingPhase,
     mineActive,
     onShowAllTasks,
-    onAddTask,
+    onAddTaskEmptyBoard,
   } = props;
   return (
     <>
@@ -260,10 +272,11 @@ export function BoardBody(props: BoardBodyProps) {
           focusedCardId={focusedCardId}
           onCardFocus={onCardFocus}
           onCardClick={onCardClick}
-          onSchedule={projectId ? onSchedule : undefined}
+          onSchedule={projectId && !readOnly ? onSchedule : undefined}
           onQuickCapture={projectId && !readOnly ? onQuickCapture : undefined}
           isQuickCapturePending={isQuickCapturePending}
-          onCaptureIdea={onCaptureIdea}
+          fileUnderTargets={fileUnderTargets}
+          onFileUnder={onFileUnder}
           onOpenCommandPalette={onOpenCommandPalette}
           readOnly={readOnly}
           projectId={projectId}
@@ -292,7 +305,7 @@ export function BoardBody(props: BoardBodyProps) {
           isAddingPhase={isAddingPhase}
           mineActive={mineActive}
           onShowAllTasks={onShowAllTasks}
-          onAddTask={onAddTask}
+          onAddTaskEmptyBoard={onAddTaskEmptyBoard}
         />
       )}
     </>
@@ -342,7 +355,8 @@ function BoardDesktopGrid({
   onSchedule,
   onQuickCapture,
   isQuickCapturePending,
-  onCaptureIdea,
+  fileUnderTargets,
+  onFileUnder,
   onOpenCommandPalette,
   readOnly,
   projectId,
@@ -371,7 +385,7 @@ function BoardDesktopGrid({
   isAddingPhase,
   mineActive,
   onShowAllTasks,
-  onAddTask,
+  onAddTaskEmptyBoard,
 }: BoardDesktopGridProps) {
   return (
     <div className="flex-1 flex flex-row min-h-0">
@@ -385,11 +399,11 @@ function BoardDesktopGrid({
           focusedCardId={focusedCardId}
           onCardFocus={onCardFocus}
           onCardClick={onCardClick}
-          onSchedule={projectId ? onSchedule : undefined}
+          onSchedule={projectId && !readOnly ? onSchedule : undefined}
           onQuickCapture={projectId && !readOnly ? onQuickCapture : undefined}
           isQuickCapturePending={isQuickCapturePending}
-          onCaptureIdea={onCaptureIdea}
-          isCaptureIdeaPending={false}
+          fileUnderTargets={fileUnderTargets}
+          onFileUnder={onFileUnder}
           onOpenCommandPalette={onOpenCommandPalette}
           readOnly={readOnly}
         />
@@ -461,8 +475,11 @@ function BoardDesktopGrid({
             isAddingPhase={isAddingPhase}
             mineActive={mineActive}
             onShowAllTasks={onShowAllTasks}
-            canCreate={Boolean(projectId)}
-            onAddTask={onAddTask}
+            // Same gate the lane "+", the rail capture and the mobile FAB all
+            // carry: a Viewer on an empty board was still offered "+ Add task"
+            // (#2952, web rule 302).
+            canCreate={Boolean(projectId) && !readOnly}
+            onAddTask={onAddTaskEmptyBoard}
           />
         </div>
         {/* Bottom edge-fade — the "more below" cue for vertical overflow

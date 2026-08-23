@@ -65,6 +65,11 @@ _EVENT_TYPE_CATEGORY: dict[str, str] = {
     NotificationEventType.SIGNAL_CEILING_PROPOSAL_OPENED.value: CATEGORY_SIGNALS,
     NotificationEventType.SIGNAL_CEILING_PROPOSAL_RESOLVED.value: CATEGORY_SIGNALS,
     NotificationEventType.PROJECT_DELETED.value: CATEGORY_PROJECT,
+    # `project`, not `tasks` (#2972): the subject is the project's own board and
+    # view configuration, and the row carries no task anchor — the recipient's
+    # item count is context for a project-level change, not the thing that
+    # changed. Contrast PLAN_AMENDED above, where a single task IS the subject.
+    NotificationEventType.PROJECT_CONFIG_CHANGED.value: CATEGORY_PROJECT,
     NotificationEventType.PROGRAM_HEALTH_DIGEST.value: CATEGORY_DIGESTS,
     NotificationEventType.RESOURCE_OVERALLOCATION_DIGEST.value: CATEGORY_DIGESTS,
 }

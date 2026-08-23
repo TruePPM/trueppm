@@ -95,7 +95,8 @@ import { useBoardOffline } from './offline/useBoardOffline';
 import { LaneMeta } from './LaneMeta';
 import { PhaseMilestoneRail } from './PhaseMilestoneRail';
 import { phaseColor } from './phaseColors';
-import { BACKLOG_BAND_DROPPABLE_ID } from './BacklogBand';
+import { BACKLOG_BAND_DROPPABLE_ID, type FileUnderTarget } from './BacklogBand';
+import { MobileComposeBar } from './MobileComposeBar';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
 import { CalmToolbar } from './CalmToolbar';
 import { TaskTrashDialog } from '@/features/project/TaskTrashDialog';
@@ -1667,6 +1668,12 @@ export function BoardView() {
   // — drives the FAB's create-into-visible-group default. Seeded to the first
   // column and kept in sync by MobileBoard's IntersectionObserver.
   const [mobileActiveStatus, setMobileActiveStatus] = useState<TaskStatus>('NOT_STARTED');
+  // Touch compose bar (#2952) — what the mobile FAB opens now that it no longer
+  // opens a form.
+  const [composeOpen, setComposeOpen] = useState(false);
+  // The bar replaces the FAB while open, so closing it unmounts whatever had
+  // focus. Hand it back to the control the user pressed (WCAG 2.4.3).
+  const composeFabRef = useRef<HTMLButtonElement>(null);
   const [riskLinkedOnly, setRiskLinkedOnly] = useState(false);
   // Tech-debt filter (ADR-0178, #1076) — transient board toggle that narrows to
   // type=tech_debt so a team can see remediation work distinctly. Not part of a
@@ -2782,11 +2789,51 @@ export function BoardView() {
     });
   }, []);
 
+  // The containers a rail card can be filed into (#2952). Phase grouping only:
+  // under assignee (324) or epic (364) grouping a lane id is a resource or an
+  // epic, not a WBS parent, so there is nothing a re-parent could honestly mean
+  // — the same asymmetry that suppresses the per-lane "+" in those lenses.
+  const fileUnderTargets = useMemo<FileUnderTarget[]>(
+    () => (groupMode === 'phase' ? phases.map((p) => ({ id: p.id, name: p.name })) : []),
+    [groupMode, phases],
+  );
+
+  // `File under…` — the keyboard and touch path for what the rail previously
+  // only offered as a drag (#2952).
+  //
+  // It performs the SAME move `dropOnCell` performs for a rail→phase drag: land
+  // in NOT_STARTED (To do) and re-parent into the chosen container. Routing it
+  // through the one `updateStatus` mutation rather than a second promote call is
+  // the point — a keyboard path that promoted differently from the drag would be
+  // a second implementation of the board's central gesture.
+  //
+  // The sprint assignment rides along for the same reason it does on a drag
+  // (#429): under a PLANNED/ACTIVE sprint view, promoting an idea commits it to
+  // the sprint in view, and doing that on drag but not on keyboard would make
+  // the two paths disagree about scope.
+  const handleFileUnder = useCallback(
+    (task: Task, targetId: string) => {
+      if (readOnly || !projectId) return;
+      const assignSprintId = sprintAssignTarget(selectedSprint, task);
+      updateStatus.mutate({
+        projectId,
+        taskId: task.id,
+        status: 'NOT_STARTED',
+        parentId: targetId,
+        ...(assignSprintId ? { sprintId: assignSprintId } : {}),
+      });
+      const targetName = phaseNameMap.get(targetId) ?? 'the project';
+      announce(`${task.name} filed under ${targetName} and moved to To Do`);
+    },
+    [announce, phaseNameMap, projectId, readOnly, selectedSprint, updateStatus],
+  );
+
   // Quick capture from the backlog rail (#1973): the intake inbox's primary
   // affordance is fast, no-modal capture — create a BACKLOG idea directly from
   // the typed title so the user can fire off successive ideas without a dialog.
-  // The richer path (assignee, description) stays on the "Add with details…"
-  // button, which opens the full modal via handleAddTask above.
+  // The rail no longer carries a second, richer form beside it (#2952) — the
+  // drawer on the card that now exists is where a description or an assignee
+  // goes.
   const handleQuickCaptureBacklog = useCallback(
     (name: string, opts?: { onError?: () => void }) => {
       const trimmed = name.trim();
@@ -2807,17 +2854,56 @@ export function BoardView() {
     [createTask, projectId],
   );
 
-  // Mobile FAB (issue 605): open the create modal targeting the group in view.
-  // Queue is a flat, backlog-first list so intake lands in BACKLOG; the snap
-  // board creates into whichever status column is currently swiped into view.
+  // Mobile FAB (issue 605, retargeted #2952): opens the touch COMPOSE BAR, not
+  // a form. The entry point and its target-the-group-in-view rule are unchanged
+  // — Queue is a flat, backlog-first list so intake lands in BACKLOG, and the
+  // snap board creates into whichever status column is currently swiped into
+  // view. What changed is what it opens: a one-field bar that leaves the
+  // destination column on screen, instead of a full-screen sheet that covered
+  // it (see `MobileComposeBar`).
+  const composeStatus: TaskStatus =
+    effectiveLayout === 'queue' ? 'BACKLOG' : mobileActiveStatus;
+  const composeDestinationLabel =
+    effectiveLayout === 'queue'
+      ? 'Backlog'
+      : (COLUMNS.find((c) => c.status === mobileActiveStatus)?.label ?? 'Board');
+
   const handleMobileFabAdd = useCallback(() => {
-    if (effectiveLayout === 'queue') {
-      setAddTaskPhase({ id: 'root', name: 'backlog', isSynthetic: true, status: 'BACKLOG' });
-      return;
-    }
-    const label = COLUMNS.find((c) => c.status === mobileActiveStatus)?.label ?? 'board';
-    setAddTaskPhase({ id: 'root', name: label, status: mobileActiveStatus });
-  }, [effectiveLayout, mobileActiveStatus, COLUMNS]);
+    setComposeOpen(true);
+  }, []);
+
+  // One row, one name — the same payload shape the backlog rail's quick capture
+  // commits, with the status the visible group implies rather than a hard-coded
+  // BACKLOG. `duration: 0` for an intake idea (it is not scheduled work yet) and
+  // `1` for anything committed to a real status, matching what the modal's own
+  // floor produced for a non-milestone row.
+  const handleMobileCompose = useCallback(
+    (name: string, opts?: { onError?: () => void }) => {
+      const trimmed = name.trim();
+      if (!trimmed || !projectId || readOnly) return;
+      createTask.mutate(
+        {
+          name: trimmed,
+          duration: composeStatus === 'BACKLOG' ? 0 : 1,
+          status: composeStatus,
+          parent_id: null,
+        },
+        {
+          // The bar's only visible feedback is the field emptying, which says
+          // nothing to a screen reader — and the row it just made may land in a
+          // column that is off-screen. Announcing the failure but not the
+          // success is the wrong asymmetry (rule 105: one writer for the
+          // board's live region).
+          onSuccess: () => announce(`${trimmed} added to ${composeDestinationLabel}`),
+          onError: () => {
+            toast.error(`Couldn't add "${trimmed}" — try again.`);
+            opts?.onError?.();
+          },
+        },
+      );
+    },
+    [announce, composeDestinationLabel, createTask, projectId, readOnly, composeStatus],
+  );
 
   const handlePhaseRename = useCallback(
     (phaseId: string, newName: string) => {
@@ -3282,7 +3368,8 @@ export function BoardView() {
             onSchedule={handleScheduleRequest}
             onQuickCapture={handleQuickCaptureBacklog}
             isQuickCapturePending={createTask.isPending}
-            onCaptureIdea={() => handleAddTask('root', 'backlog', true)}
+            fileUnderTargets={fileUnderTargets}
+            onFileUnder={readOnly ? undefined : handleFileUnder}
             onOpenCommandPalette={() => openCommandPalette(true)}
             mobileTasksByStatus={mobileTasksByStatus}
             onActiveStatusChange={setMobileActiveStatus}
@@ -3328,7 +3415,7 @@ export function BoardView() {
             isAddingPhase={createTask.isPending}
             mineActive={mineActive}
             onShowAllTasks={() => myTasksFilter.setEnabled(false)}
-            onAddTask={handleMobileFabAdd}
+            onAddTaskEmptyBoard={() => handleAddTask('root', projectName ?? 'Project')}
           />
 
           {/* Scope-injection drop toast (#1140) — bottom-center, neutral, ephemeral.
@@ -3344,12 +3431,20 @@ export function BoardView() {
         </DragOverlay>
       </DndContext>
 
-      {/* Mobile FAB (issue 605) — opens the create modal targeting the group in
-          view: BACKLOG under the Queue layout, else the snapped-to status column.
-          `md:hidden` keeps it phone-only; the desktop lane "+" affordances cover
-          create above the breakpoint. */}
-      {projectId && (
+      {/* Mobile FAB (issue 605, retargeted #2952) — opens the touch compose bar
+          targeting the group in view: BACKLOG under the Queue layout, else the
+          snapped-to status column. `md:hidden` keeps it phone-only; the desktop
+          lane "+" affordances cover create above the breakpoint.
+
+          `!readOnly` is new and is a fix, not a tightening: the FAB was gated on
+          `projectId` alone while every other write affordance on this board
+          (lane "+", rail capture, drag, Move-to) already honored `readOnly`, so
+          a Viewer on a phone — and anyone on a closed sprint — got a live "+"
+          that opened a create form the server would refuse. Web rule 302: no
+          rights means the apparatus is ABSENT, not disabled. */}
+      {projectId && !readOnly && !composeOpen && (
         <button
+          ref={composeFabRef}
           type="button"
           onClick={handleMobileFabAdd}
           title="Add task"
@@ -3362,6 +3457,22 @@ export function BoardView() {
         >
           +
         </button>
+      )}
+
+      {/* The bar replaces the FAB while it is open rather than sitting under it
+          — two "add a task" controls on a phone screen is the multiplicity this
+          package exists to remove. */}
+      {projectId && !readOnly && composeOpen && (
+        <MobileComposeBar
+          destinationLabel={composeDestinationLabel}
+          onCommit={handleMobileCompose}
+          isPending={createTask.isPending}
+          onClose={() => {
+            setComposeOpen(false);
+            // The FAB re-mounts in the same commit; focus it once it exists.
+            requestAnimationFrame(() => composeFabRef.current?.focus());
+          }}
+        />
       )}
 
       <BoardConfirmDialogs
