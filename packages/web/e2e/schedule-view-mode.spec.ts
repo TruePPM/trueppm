@@ -20,6 +20,7 @@
  */
 import { test, expect, type Page } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import { resolveOutlineLeftReserve } from '../src/features/schedule/scheduleConstants';
 
 const PROJECT_ID = 'e2e-vm-00000000-0000-0000-0000-000000002960';
 const BASE_URL = `/projects/${PROJECT_ID}/schedule`;
@@ -219,23 +220,25 @@ test.describe('Grid ↔ Timeline — a viewer gets absence on BOTH surfaces (#29
 });
 
 test.describe('Grid ↔ Timeline — a coarse pointer on the Timeline (#2960/#2997)', () => {
-  // The grip lane is 44px on a coarse pointer and is subtracted from no column,
-  // so on the Timeline's ~268px outline it is a FIFTH of the name column. The
-  // failure mode if the panel's box and its rows disagree about it has no visual
+  // The left-edge lanes are subtracted from no column, so on the Timeline's
+  // ~268px outline they are a large fraction of the name column. The failure
+  // mode if the panel's box and its rows disagree about them has no visual
   // symptom — the row content simply overruns the box it is drawn in.
   test.use({ hasTouch: true, isMobile: false, viewport: { width: 1400, height: 900 } });
 
-  test('the outline reserves the grip lane in its own box', async ({ page }) => {
+  test('the outline reserves BOTH left-edge lanes in its own box', async ({ page }) => {
     await goto(page);
     await layout(page).getByRole('radio', { name: 'Timeline' }).click();
     await expect(page.getByRole('columnheader')).toHaveCount(2);
 
     // The grip is present (this reader can author) and the outline is wider than
-    // the fine-pointer 268px by exactly the lane it reserves for it.
+    // the fine-pointer 268px by exactly the lanes it reserves — read from the
+    // shared resolver rather than restated, so #3026 adding a second lane is a
+    // one-line change here instead of a mystery arithmetic failure.
     await expect(page.getByTestId('row-reorder-grip').first()).toBeVisible();
     const box = await outline(page).boundingBox();
     expect(box).not.toBeNull();
-    expect(Math.round(box!.width)).toBe(268 + 44);
+    expect(Math.round(box!.width)).toBe(268 + resolveOutlineLeftReserve(true, true));
 
     // …and the rows still fit inside it, which is the thing the shared reserve
     // exists to guarantee.

@@ -128,3 +128,22 @@ describe('BlankOutlineDraftRow — outline parity (#2952)', () => {
     expect(input).toHaveValue('Second row');
   });
 });
+
+describe('BlankOutlineDraftRow — the left-edge lanes (#3026)', () => {
+  it('spaces by the SAME reserve a real row does, so the first task lines up', () => {
+    // The one row a blank project types its first task into. If it spaces by the
+    // grip lane alone, the caret sits a nudge lane left of where every row that
+    // follows it will draw — and the jump happens the instant the task commits.
+    render(<BlankOutlineDraftRow onCommit={vi.fn()} nameWidth={240} leftReserve={134} />);
+    const row = screen.getByRole('row');
+    const lane = row.querySelector<HTMLElement>(':scope > span[aria-hidden="true"]');
+    expect(lane).not.toBeNull();
+    expect(lane!.style.width).toBe('134px');
+  });
+
+  it('reserves nothing when the panel reserves nothing', () => {
+    render(<BlankOutlineDraftRow onCommit={vi.fn()} nameWidth={240} />);
+    const row = screen.getByRole('row');
+    expect(row.querySelector(':scope > span[aria-hidden="true"]')).toBeNull();
+  });
+});

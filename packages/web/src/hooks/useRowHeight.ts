@@ -8,6 +8,8 @@ import {
   resolveBarTopOffset,
   resolveGripWidth,
   resolveGripReserve,
+  resolveNudgeSize,
+  resolveNudgeLaneWidth,
 } from '@/features/schedule/scheduleConstants';
 
 /** SSR has no preference to read — the leaner default, same as the store's. */
@@ -97,6 +99,10 @@ export function useRowMetrics(): {
   barTopOffset: number;
   gripWidth: number;
   gripReserve: number;
+  /** Edge length of ONE ⇤/⇥ structural nudge — 44 on a coarse pointer (#3026). */
+  nudgeSize: number;
+  /** Width of the lane holding both nudges plus the gap between them (#3026). */
+  nudgeLaneWidth: number;
   coarse: boolean;
 } {
   const coarse = useIsCoarsePointer();
@@ -127,6 +133,8 @@ export function useRowMetrics(): {
     // swap — tracked separately rather than smuggled in here.
     gripWidth: resolveGripWidth(coarse),
     gripReserve: resolveGripReserve(coarse),
+    nudgeSize: resolveNudgeSize(coarse),
+    nudgeLaneWidth: resolveNudgeLaneWidth(coarse),
     coarse,
   };
 }

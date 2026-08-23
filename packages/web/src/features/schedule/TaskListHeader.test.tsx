@@ -29,13 +29,14 @@ const VISIBLE: ColumnWidths['visible'] = {
   owner: true,
 };
 
-function renderHeader(setWidth = vi.fn(), gripReserve = 0) {
+function renderHeader(setWidth = vi.fn(), gripReserve = 0, nudgeReserve = 0) {
   render(
     <TaskListHeader
       widths={WIDTHS}
       visible={VISIBLE}
       setWidth={setWidth}
       gripReserve={gripReserve}
+      nudgeReserve={nudgeReserve}
     />,
   );
   return setWidth;
@@ -80,6 +81,7 @@ describe('TaskListHeader column resize keyboard operability (#2205)', () => {
         visible={VISIBLE}
         setWidth={setWidth}
         gripReserve={0}
+        nudgeReserve={0}
       />,
     );
     const handle = screen.getByRole('separator', { name: 'Resize dur column' });
@@ -115,5 +117,38 @@ describe('TaskListHeader — the grip lane (#2997)', () => {
   it('reserves exactly what the panel asked for, ahead of every column', () => {
     renderHeader(vi.fn(), 44);
     expect(laneWidth()).toBe('44px');
+  });
+});
+
+describe('TaskListHeader — the row\u2019s left-edge lanes (#2997, #3026)', () => {
+  /** The header's leading `aria-hidden` spacers, in DOM order. */
+  function spacers(): HTMLElement[] {
+    const header = screen.getByRole('row', { name: 'Task list columns' });
+    return Array.from(header.querySelectorAll<HTMLElement>(':scope > span[aria-hidden="true"]'));
+  }
+
+  it('reserves the grip lane and the nudge lane, in that order', () => {
+    // The header, every row, the pending rows and the draft row each render
+    // these themselves. Drop one, or swap the order, and that element's columns
+    // sit a lane off — which reads as a broken table, not as a constant that
+    // drifted, and no unit test on the rows alone can see it.
+    renderHeader(vi.fn(), 44, 90);
+    const [grip, nudge] = spacers();
+    expect(grip.style.width).toBe('44px');
+    expect(nudge.style.width).toBe('90px');
+  });
+
+  it('renders neither spacer when neither lane is reserved', () => {
+    renderHeader(vi.fn(), 0, 0);
+    expect(spacers()).toHaveLength(0);
+  });
+
+  it('renders only the nudge spacer on a fine pointer, where the grip overlays', () => {
+    // `resolveGripReserve(false)` is 0 — a 14px grip overlays the row's edge and
+    // no column pays for it — while the nudges are in flow and always drawn.
+    renderHeader(vi.fn(), 0, 34);
+    const [only] = spacers();
+    expect(spacers()).toHaveLength(1);
+    expect(only.style.width).toBe('34px');
   });
 });

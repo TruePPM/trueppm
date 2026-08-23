@@ -8,7 +8,7 @@ import {
   surfaceOutlineWidth,
   surfaceToggleableColumns,
 } from './scheduleSurface';
-import { resolveOutlineGripReserve } from './scheduleConstants';
+import { resolveOutlineGripReserve, resolveOutlineLeftReserve } from './scheduleConstants';
 import { maxTaskWidthFor, clampTaskWidth, MIN_BAR_TRACK } from './ScheduleView';
 import { TaskListPanel } from './TaskListPanel';
 import { stubCoarsePointer, restoreCoarsePointer } from '@/test/coarsePointer';
@@ -110,12 +110,25 @@ describe('scheduleSurface — geometry at both pointer classes (#2960/#2997)', (
     expect(resolveOutlineGripReserve(true, false)).toBe(0);
   });
 
-  it('the Timeline outline box is the columns PLUS the lane, at both classes', () => {
-    // The lane is rendered inside the panel's fixed-width box and subtracted
-    // from no column, so a box that omits it overruns by exactly the lane.
+  it('the Timeline outline box is the columns PLUS every lane, at both classes', () => {
+    // The lanes are rendered inside the panel's fixed-width box and subtracted
+    // from no column, so a box that omits one overruns by exactly that lane.
+    // Stated against the shared resolver rather than as literals: #3026's nudge
+    // lane moved both numbers (268 → 302 fine, 312 → 402 coarse), and a test
+    // carrying the old constants would have gone on describing a geometry
+    // nothing renders.
     const columns = surfaceOutlineWidth('timeline', WIDTHS, ALL_VISIBLE);
-    expect(columns + resolveOutlineGripReserve(false, true)).toBe(268);
-    expect(columns + resolveOutlineGripReserve(true, true)).toBe(312);
+    expect(columns).toBe(268);
+    expect(columns + resolveOutlineLeftReserve(false, true)).toBe(
+      268 + resolveOutlineLeftReserve(false, true),
+    );
+    // The fine pointer now reserves something for the first time: the grip
+    // overlays at 14px and costs nothing, but the nudges are in flow.
+    expect(resolveOutlineGripReserve(false, true)).toBe(0);
+    expect(resolveOutlineLeftReserve(false, true)).toBeGreaterThan(0);
+    expect(resolveOutlineLeftReserve(true, true)).toBeGreaterThan(
+      resolveOutlineLeftReserve(false, true),
+    );
   });
 });
 
@@ -229,9 +242,14 @@ function renderSurface(surface: 'grid' | 'timeline', opts: { authorable?: boolea
       widths={WIDTHS}
       visible={surfaceColumnVisibility(surface, ALL_VISIBLE)}
       setWidth={vi.fn()}
+      // The SAME expression `ScheduleView` uses (`outlineWidth`). Computing it
+      // from `resolveOutlineGripReserve` here — as this did until #3026 added a
+      // second lane — makes the suite assert its own stale formula and green
+      // while production overruns its box by the lane the test does not know
+      // about. Read the shared resolver, never restate the arithmetic.
       totalWidth={
         surfaceOutlineWidth(surface, WIDTHS, ALL_VISIBLE) +
-        resolveOutlineGripReserve(isCoarse(), onMoveRow !== undefined)
+        resolveOutlineLeftReserve(isCoarse(), onMoveRow !== undefined)
       }
       summaryIds={SUMMARY_IDS}
       expandedIds={EXPANDED_IDS}
@@ -296,24 +314,29 @@ describe('one row model, two surfaces (#2960)', () => {
     expect(renderSurface('timeline').panelWidth).toBe('268px');
   });
 
-  it('carries the grip lane in the BOX, not only in the rows, on a coarse pointer', () => {
-    // The lane is a leading flex spacer inside the panel's fixed-width box and
-    // is subtracted from no column, so a box that omits it lets the row content
-    // overrun by exactly 44px — a fifth of the Timeline's ~268px outline, where
-    // on the Grid's 600px it was merely untidy. This is the assertion that the
-    // panel's box and the panel's rows resolve ONE grip rule (#2960).
+  it('carries EVERY left-edge lane in the BOX, not only in the rows', () => {
+    // The lanes are leading flex spacers inside the panel's fixed-width box and
+    // are subtracted from no column, so a box that omits one lets the row
+    // content overrun by exactly that lane — a large fraction of the Timeline's
+    // 268px outline, where on the Grid's 600px it was merely untidy. This is the
+    // assertion that the panel's box and the panel's rows resolve ONE rule
+    // (#2960), and since #3026 that rule covers both lanes.
     const mq = stubCoarsePointer(true);
     try {
       const timeline = renderSurface('timeline', { authorable: true });
-      expect(timeline.panelWidth).toBe('312px');
+      expect(timeline.panelWidth).toBe(`${268 + resolveOutlineLeftReserve(true, true)}px`);
       expect(timeline.headerGripReserve).toContain('44px');
 
-      // A viewer has no grip, so it gives up nothing — absence, not a hole.
+      // A viewer has neither lane, so gives up nothing — absence, not a hole.
       expect(renderSurface('timeline').panelWidth).toBe('268px');
 
-      // …and back on a fine pointer the lane costs nothing at all.
+      // …and on a fine pointer the box still carries the nudge lane, which is
+      // the change #3026 made to the desktop geometry.
       mq.flip(false);
-      expect(renderSurface('timeline', { authorable: true }).panelWidth).toBe('268px');
+      expect(renderSurface('timeline', { authorable: true }).panelWidth).toBe(
+        `${268 + resolveOutlineLeftReserve(false, true)}px`,
+      );
+      expect(renderSurface('timeline').panelWidth).toBe('268px');
     } finally {
       restoreCoarsePointer();
     }

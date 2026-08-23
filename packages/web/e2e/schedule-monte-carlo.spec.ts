@@ -329,15 +329,37 @@ test.beforeEach(async ({ page }) => {
 
 test.describe('Monte Carlo Schedule Integration (#333)', () => {
   test('P50/P80/P95 markers are visible on the Gantt timeline', async ({ page }) => {
+    // This is the one test in the file that needs all three markers on screen at
+    // the same time, so it is the one that needs the canvas to be wider than the
+    // P50…P95 span. `Desktop Chrome`'s 1280px left just enough headroom for that
+    // to work by luck, and #3026's 34px structural-nudge lane spent it — the
+    // canvas is the viewport minus the outline, so widening the outline narrows
+    // it, and P95 (the rightmost) started self-hiding while P50/P80 stayed.
+    //
+    // Stated as an explicit viewport rather than tuned back to the edge: a test
+    // whose premise is "these three fit at once" should say how much room it
+    // needs, not inherit it from a default and break whenever a neighbouring
+    // surface grows.
+    await page.setViewportSize({ width: 1600, height: 900 });
     await gotoScheduleWithMC(page);
 
     // Markers mount once the canvas engine is ready. They self-hide when
     // outside the viewport (style.visibility = 'hidden' when x < -120 or
     // x > viewportWidth + 4), so wait for DOM attach (not visibility), then
-    // scroll the canvas so the P80 marker (the middle percentile, Dec 10) is
-    // centered horizontally — this brings P50, P80, and P95 all into view.
-    // Each marker's inline `style.left` is viewport-relative; adding the
-    // current scrollLeft recovers its canvas-origin coordinate.
+    // scroll the canvas so all three come into view.
+    //
+    // Centered on the MIDPOINT OF THE P50…P95 SPAN, not on P80. Those are not
+    // the same point — the percentiles are not evenly spaced — and centering on
+    // the middle *percentile* silently spends whatever slack the canvas happens
+    // to have on one side. That made this spec a tripwire for the outline's
+    // width rather than for the markers: #3026 gave the outline a 34px
+    // structural-nudge lane on a fine pointer, the canvas lost exactly that,
+    // and P95 (the rightmost) fell off the edge while P50/P80 stayed. Centering
+    // the span the assertion is about makes the test robust to any future change
+    // in how much width the outline takes.
+    //
+    // Each marker's inline `style.left` is viewport-relative; adding the current
+    // scrollLeft recovers its canvas-origin coordinate.
     await page.waitForSelector('[data-testid="mc-marker-p80"]', {
       state: 'attached',
       timeout: 10_000,
@@ -346,11 +368,15 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
       const scroller = document.querySelector<HTMLElement>(
         '[data-testid="schedule-canvas-scroll"]',
       );
-      const marker = document.querySelector<HTMLElement>('[data-testid="mc-marker-p80"]');
-      if (!scroller || !marker) return;
-      const viewportLeft = Number.parseFloat(marker.style.left || '0');
-      const canvasOriginX = viewportLeft + scroller.scrollLeft;
-      scroller.scrollLeft = Math.max(0, canvasOriginX - scroller.clientWidth / 2);
+      if (!scroller) return;
+      const originOf = (id: string) => {
+        const el = document.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+        return el ? Number.parseFloat(el.style.left || '0') + scroller.scrollLeft : null;
+      };
+      const first = originOf('mc-marker-p50');
+      const last = originOf('mc-marker-p95');
+      if (first === null || last === null) return;
+      scroller.scrollLeft = Math.max(0, (first + last) / 2 - scroller.clientWidth / 2);
     });
 
     await expect(page.locator('[data-testid="mc-marker-p50"]')).toBeVisible();

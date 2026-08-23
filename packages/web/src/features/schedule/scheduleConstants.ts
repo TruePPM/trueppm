@@ -276,6 +276,133 @@ export function resolveGripReserve(coarse: boolean): number {
 export function resolveOutlineGripReserve(coarse: boolean, authorable: boolean): number {
   return authorable ? resolveGripReserve(coarse) : 0;
 }
+
+/**
+ * The structural-nudge pair — ⇤ outdent / ⇥ indent — and the lane it lives in
+ * (#3026).
+ *
+ * ## Why the pair needs a lane of its own
+ *
+ * The buttons shipped *inside* the WBS cell, and that cell is conditional on
+ * `visible.wbs` — a Display ▸ Columns preference. Turning off a column that has
+ * nothing to do with restructuring therefore deleted indent and outdent from
+ * every row, leaving the right-click menu as the only pointer route and
+ * reinstating exactly the discoverability problem the design placed them there
+ * to solve. A control's existence must not be a side effect of somebody else's
+ * column choice, so the pair gets its own lane on the same model as the ⋮⋮ grip
+ * (`resolveGripReserve` above): reserved by the panel, rendered by the header
+ * and by every row, subtracted from no column.
+ *
+ * The lane sits immediately to the LEFT of where the WBS column draws, which
+ * keeps two design constraints true at once: the pair is still adjacent to the
+ * WBS number when that column is shown (the depth is stated right beside the
+ * control that changes it), and it stays at the row's left edge — far from
+ * delete, which sits alone at the far right. A structural nudge and a
+ * destructive act must not be neighbours, so "free it from the WBS column" is
+ * never solved by moving it rightward toward the other controls.
+ *
+ * ## Why the coarse size is 44 and where the 44 comes from
+ *
+ * `NUDGE_SIZE_COARSE` is `ROW_HEIGHT_COARSE`, not a second literal `44`. That is
+ * web rule 315 taken literally: the row-height owner is the only place the touch
+ * floor is written down, and a control sized to it should say so rather than
+ * agree with it by luck.
+ *
+ * Note it keys on the **pointer class**, not on the resolved `ROW_HEIGHT`, which
+ * since #3019 can also reach 44 from the Comfortable-rows preference at a fine
+ * pointer. That is deliberate parity with `resolveGripWidth` rather than a
+ * separate judgement: Comfortable rows currently raises the row without raising
+ * the row's controls, and whether it should is one decision across the grip, this
+ * pair and the insert `+` — not a divergence introduced here. `resolveNudgeSize`
+ * takes the same argument as `resolveGripWidth` so the two cannot drift apart
+ * while that stays true. The buttons were `w-4 h-4` and did not
+ * grow at all on a coarse pointer — 16px targets inside a 44px row, on the one
+ * surface whose stated reason to exist is that restructuring must not be
+ * keyboard-only knowledge, for a user (tablet) who has no keyboard.
+ *
+ * The pair is two targets, so the lane is two of them plus the gap between —
+ * 34px on a mouse, 90px on a finger. That width is the honest cost of the floor:
+ * #2997 already recorded that a 44px target which only reaches the floor by
+ * covering its neighbour has not met the floor, it has moved the failure
+ * somewhere the tester will not look.
+ */
+export const NUDGE_SIZE_FINE = 16;
+export const NUDGE_SIZE_COARSE = ROW_HEIGHT_COARSE;
+
+/** Gap between the two nudges. `gap-0.5` in the markup this replaces. */
+export const NUDGE_GAP = 2;
+
+/** Edge length of ONE nudge button. Square, so this is both width and height. */
+export function resolveNudgeSize(coarse: boolean): number {
+  return coarse ? NUDGE_SIZE_COARSE : NUDGE_SIZE_FINE;
+}
+
+/** Width of the lane holding both nudges plus the gap between them. */
+export function resolveNudgeLaneWidth(coarse: boolean): number {
+  return 2 * resolveNudgeSize(coarse) + NUDGE_GAP;
+}
+
+/**
+ * The outline's nudge lane, given the pointer class AND whether the outline can
+ * be authored at all.
+ *
+ * Same gate and same reasoning as `resolveOutlineGripReserve`: a viewer never
+ * sees indent/outdent (web rule 302 makes the apparatus absent, not disabled),
+ * so a viewer's rows must not give up the lane's width to reserve room for
+ * controls that are not rendered.
+ */
+export function resolveOutlineNudgeReserve(coarse: boolean, authorable: boolean): number {
+  return authorable ? resolveNudgeLaneWidth(coarse) : 0;
+}
+
+/**
+ * Everything the outline reserves at a row's left edge before its first column.
+ *
+ * The grip lane plus the nudge lane. This is the number the panel's own `width`
+ * must carry, the number the pending and draft rows must space by, and the
+ * number the drop indicator insets by — anything that positions against "where
+ * the columns start" reads this rather than adding the two itself, so a reader
+ * that learns about one lane and not the other cannot exist.
+ */
+export function resolveOutlineLeftReserve(coarse: boolean, authorable: boolean): number {
+  return resolveOutlineGripReserve(coarse, authorable) + resolveOutlineNudgeReserve(coarse, authorable);
+}
+
+/** Visible breathing room between the nudge lane and the insert `+` disc. */
+export const INSERT_LANE_GAP = 4;
+
+/**
+ * How far the insert `+`'s tap box reaches PAST its disc on a coarse pointer —
+ * `before:-inset-3.5`, i.e. 3.5 × 4px (#3026).
+ *
+ * The disc is the mark; the `before:` box is what the browser hit-tests. So the
+ * box is what has to clear the nudge lane, and offsetting the *disc* by a visual
+ * gap alone is not enough — it leaves the invisible box overlapping the indent
+ * button by `INSERT_TAP_INSET_COARSE - INSERT_LANE_GAP` (10px, over the button's
+ * bottom-right corner). That is two 44px targets on the same pixels: precisely
+ * the collision the lane was added to prevent, arriving from the other direction
+ * and with no visual symptom whatsoever.
+ *
+ * Verified by hit-testing rather than by arithmetic: `document.elementFromPoint`
+ * inside the overlap returns the `+`, not the nudge. jsdom computes no
+ * pseudo-element geometry, so a unit test can only assert the *clearance*
+ * property — one that restates this formula agrees with the bug. The browser
+ * assertion is in `e2e/schedule-coarse-row-height.spec.ts`.
+ */
+export const INSERT_TAP_INSET_COARSE = 14;
+
+/**
+ * Gap from the nudge lane's right edge to the insert `+` disc.
+ *
+ * On a coarse pointer this absorbs the tap box's left overhang as well as the
+ * visible gutter; on a fine pointer the `before:` box is not rendered at all, so
+ * the gutter alone is the whole gap. The `+` is absolutely positioned, so
+ * widening this costs the row no chrome — it moves the disc, not the columns.
+ */
+export function resolveInsertLaneGap(coarse: boolean): number {
+  return coarse ? INSERT_LANE_GAP + INSERT_TAP_INSET_COARSE : INSERT_LANE_GAP;
+}
+
 /**
  * Height of the Monte Carlo confidence row below the split pane.
  * 44px — meets touch-target minimums; outside the virtualizer so scroll sync

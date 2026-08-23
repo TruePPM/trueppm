@@ -100,8 +100,12 @@ describe('useRowMetrics', () => {
       barTopOffset: 13,
       gripWidth: 44,
       // The grip takes a lane of its own on touch rather than laying a 44px hit
-      // area over the WBS column's nudges.
+      // area over the row's other controls.
       gripReserve: 44,
+      // …and so do the ⇤/⇥ nudges, which used to be 16px inside this 44px row
+      // and lived in a column the user could switch off (#3026).
+      nudgeSize: 44,
+      nudgeLaneWidth: 90,
       coarse: true,
     });
   });
@@ -115,6 +119,10 @@ describe('useRowMetrics', () => {
       gripWidth: 14,
       // Zero: a mouse gives up no row width to a grip it can aim at.
       gripReserve: 0,
+      // The nudges are in flow and always drawn, so their lane is real at both
+      // pointer classes — it is simply narrow on a mouse (#3026).
+      nudgeSize: 16,
+      nudgeLaneWidth: 34,
       coarse: false,
     });
   });
@@ -126,6 +134,8 @@ describe('useRowMetrics', () => {
     // these two numbers are the two axes of the same target.
     expect(result.current.rowHeight).toBeGreaterThanOrEqual(44);
     expect(result.current.gripWidth).toBeGreaterThanOrEqual(44);
+    // #3026: the pair on the same row was 16px and did not grow at all.
+    expect(result.current.nudgeSize).toBeGreaterThanOrEqual(44);
   });
 });
 

@@ -111,11 +111,25 @@ interface Props {
    * the columns 44px out of step.
    */
   gripReserve: number;
+  /**
+   * Width of the ⇤/⇥ structural-nudge lane (#3026) — same source, same reason.
+   * The pair no longer lives inside the WBS cell, so the header has to reserve
+   * its lane too or every column below sits a lane's width to the left of its
+   * own heading.
+   */
+  nudgeReserve: number;
   /** Shared upper bound for the Task column — see `ResizeHandle` (#2960). */
   maxTaskWidth?: number;
 }
 
-export function TaskListHeader({ widths, visible, setWidth, gripReserve, maxTaskWidth }: Props) {
+export function TaskListHeader({
+  widths,
+  visible,
+  setWidth,
+  gripReserve,
+  nudgeReserve,
+  maxTaskWidth,
+}: Props) {
   return (
     <div
       className="flex items-center h-7 bg-neutral-surface border-b border-neutral-border
@@ -126,6 +140,9 @@ export function TaskListHeader({ widths, visible, setWidth, gripReserve, maxTask
     >
       {gripReserve > 0 && (
         <span aria-hidden="true" className="shrink-0" style={{ width: gripReserve }} />
+      )}
+      {nudgeReserve > 0 && (
+        <span aria-hidden="true" className="shrink-0" style={{ width: nudgeReserve }} />
       )}
 
       {/* WBS column (#248) — leftmost; right-aligned dot-path numbering */}

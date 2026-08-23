@@ -12,6 +12,14 @@ import {
   resolveBarTopOffset,
   resolveGripWidth,
   resolveGripReserve,
+  NUDGE_SIZE_FINE,
+  NUDGE_SIZE_COARSE,
+  NUDGE_GAP,
+  resolveNudgeSize,
+  resolveNudgeLaneWidth,
+  resolveOutlineNudgeReserve,
+  resolveOutlineGripReserve,
+  resolveOutlineLeftReserve,
   syncRowMetrics,
 } from './scheduleConstants';
 import * as constants from './scheduleConstants';
@@ -387,5 +395,78 @@ describe('the grip reserve', () => {
     // column's nudges, which is the failure the lane exists to prevent.
     expect(resolveGripReserve(false)).toBe(0);
     expect(resolveGripReserve(true)).toBe(resolveGripWidth(true));
+  });
+});
+
+/**
+ * #3026 — the ⇤/⇥ structural-nudge lane. Same model as the grip lane above, and
+ * the assertions are about the same thing: identity of source, not the value.
+ */
+describe('the structural-nudge lane (#3026)', () => {
+  it('takes its coarse size FROM the row-height owner rather than repeating 44', () => {
+    // A second literal `44` in this module would agree with the row by luck. The
+    // moment one moves, a control stops being as tall as its row — and nothing
+    // looks broken, which is why rule 315 is about ownership.
+    expect(NUDGE_SIZE_COARSE).toBe(ROW_HEIGHT_COARSE);
+    expect(resolveNudgeSize(true)).toBeGreaterThanOrEqual(44);
+  });
+
+  it('leaves a mouse the compact pair — a fine pointer must not pay the touch floor', () => {
+    expect(resolveNudgeSize(false)).toBe(NUDGE_SIZE_FINE);
+    expect(NUDGE_SIZE_FINE).toBeLessThan(NUDGE_SIZE_COARSE);
+  });
+
+  it('sizes the lane for BOTH targets — neither may reach the floor by covering the other', () => {
+    // #2997's finding, applied to a pair: a 44px target that only meets the
+    // floor by swallowing its neighbour has moved the failure, not fixed it.
+    expect(resolveNudgeLaneWidth(true)).toBe(2 * NUDGE_SIZE_COARSE + NUDGE_GAP);
+    expect(resolveNudgeLaneWidth(true)).toBeGreaterThanOrEqual(2 * 44);
+    expect(resolveNudgeLaneWidth(false)).toBe(2 * NUDGE_SIZE_FINE + NUDGE_GAP);
+  });
+
+  it('gives a VIEWER no lane at either pointer class — absence, not a reserved hole', () => {
+    // Web rule 302 keeps indent/outdent absent for a reader with no rights, so
+    // their rows must not give up the lane's width to reserve room for controls
+    // that are never rendered.
+    expect(resolveOutlineNudgeReserve(false, false)).toBe(0);
+    expect(resolveOutlineNudgeReserve(true, false)).toBe(0);
+    expect(resolveOutlineNudgeReserve(false, true)).toBe(resolveNudgeLaneWidth(false));
+    expect(resolveOutlineNudgeReserve(true, true)).toBe(resolveNudgeLaneWidth(true));
+  });
+
+  it('unlike the grip, reserves its lane on a FINE pointer too', () => {
+    // The grip is `absolute left-0` and overlays the row's edge at 14px, so a
+    // mouse gives up nothing. The nudges are in flow and always drawn, so their
+    // lane is real at both pointer classes — the pair used to take this width
+    // out of the WBS column, which is exactly the coupling being removed.
+    expect(resolveGripReserve(false)).toBe(0);
+    expect(resolveOutlineNudgeReserve(false, true)).toBeGreaterThan(0);
+  });
+
+  it('follows the same pointer-class rule as the grip, so the two cannot drift', () => {
+    // Both row-level touch affordances answer one question. Since #3019 the row
+    // can also reach 44 from the Comfortable-rows preference at a fine pointer,
+    // and neither control grows with it — whether they should is one decision
+    // across the grip, this pair and the insert `+`, so this pins that they at
+    // least still agree on the rule they do follow.
+    for (const coarse of [false, true]) {
+      expect(resolveNudgeSize(coarse) >= 44).toBe(resolveGripWidth(coarse) >= 44);
+    }
+  });
+
+  it('sums BOTH lanes in one function, so no reader can learn about only one', () => {
+    // `TaskListPanel`'s width, `ScheduleView`'s outline box, the pending rows,
+    // the draft row and the drop indicator all position against "where the
+    // columns start". Each adding the two itself is how one of them ends up a
+    // lane out of step, which reads as a broken table rather than a constant
+    // that drifted.
+    for (const coarse of [false, true]) {
+      for (const authorable of [false, true]) {
+        expect(resolveOutlineLeftReserve(coarse, authorable)).toBe(
+          resolveOutlineGripReserve(coarse, authorable) +
+            resolveOutlineNudgeReserve(coarse, authorable),
+        );
+      }
+    }
   });
 });

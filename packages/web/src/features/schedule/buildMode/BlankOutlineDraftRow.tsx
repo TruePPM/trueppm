@@ -17,11 +17,13 @@ export interface BlankOutlineDraftRowProps {
   /** Column width for the name cell, so the draft lines up with real rows. */
   nameWidth: number;
   /**
-   * Width of the ⋮⋮ grip's lane (#2997), from `TaskListPanel`. Defaults to 0 so
-   * the *empty* variant — the "No tasks yet." line a viewer sees — reserves
+   * Everything a real row reserves left of its first column — the ⋮⋮ grip's
+   * lane (#2997) plus the ⇤/⇥ structural-nudge lane (#3026) — from
+   * `TaskListPanel`, via `resolveOutlineLeftReserve`. Defaults to 0 so the
+   * *empty* variant — the "No tasks yet." line a viewer sees — reserves
    * nothing, matching the rows a viewer gets.
    */
-  gripReserve?: number;
+  leftReserve?: number;
 }
 
 /**
@@ -41,7 +43,7 @@ export interface BlankOutlineDraftRowProps {
 export function BlankOutlineDraftRow({
   onCommit,
   nameWidth,
-  gripReserve = 0,
+  leftReserve = 0,
 }: BlankOutlineDraftRowProps) {
   const rowHeight = useRowHeight();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -115,8 +117,8 @@ export function BlankOutlineDraftRow({
       style={{ height: rowHeight }}
       className="flex items-center border-b border-neutral-border/60"
     >
-      {gripReserve > 0 && (
-        <span aria-hidden="true" className="shrink-0" style={{ width: gripReserve }} />
+      {leftReserve > 0 && (
+        <span aria-hidden="true" className="shrink-0" style={{ width: leftReserve }} />
       )}
       <div role="gridcell" style={{ width: nameWidth }} className="px-2">
         <input
