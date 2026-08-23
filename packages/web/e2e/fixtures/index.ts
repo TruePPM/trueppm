@@ -8,6 +8,7 @@ export {
   type TaskStoreOptions,
 } from './task-store';
 export { delayRoute, COLD_LOAD_DELAY_MS } from './cold-load';
+export { setupScheduleDisplayOptions } from './schedule-display-options';
 export {
   setupApiMocks,
   setupCatchAll,

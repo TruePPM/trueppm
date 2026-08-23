@@ -16,9 +16,11 @@ import { useCurrentUser } from './useCurrentUser';
  */
 export interface ScheduleDisplayOptions {
   /**
-   * Phase / Group / Ungroup in the toolbar. Default off — the keys already do
-   * it. Not yet surfaced in the Display menu: the buttons it governs arrive with
-   * #2955, and a toggle that changes nothing is a dead control.
+   * Phase / Group / Ungroup in the toolbar (#2955). Default off — the keys already
+   * do it (⌥⌘P, ⌥⌘G, ⌥⇧⌘G, and ⇥ makes a phase by indenting). Surfaced in the
+   * Display menu's Outline section, which is both the route back for a planner who
+   * wants them and the way in for a pointer-only user, for whom a chord is not a
+   * path.
    */
   structureButtons: boolean;
   /** The three-line how-to bar above the outline. Default on, dismissible. */

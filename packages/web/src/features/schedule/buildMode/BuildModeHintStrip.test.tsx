@@ -109,3 +109,17 @@ describe('BuildModeHintStrip — multi-select hints (#2987)', () => {
     expect(onShowCheatsheet).toHaveBeenCalled();
   });
 });
+
+describe('BuildModeHintStrip — Group hint (#2955)', () => {
+  it('advertises ⌥⌘G the moment a multi-row selection exists', () => {
+    // The strip is the primary discovery route for the chord while the toolbar buttons
+    // ship off, and it appears at exactly the moment the chord starts meaning something.
+    render(<BuildModeHintStrip mode="RowFocused" selectionCount={3} onShowCheatsheet={vi.fn()} />);
+    expect(screen.getByText('Group into a phase')).toBeInTheDocument();
+  });
+
+  it('does not advertise it with no selection to act on', () => {
+    render(<BuildModeHintStrip mode="RowFocused" selectionCount={0} onShowCheatsheet={vi.fn()} />);
+    expect(screen.queryByText('Group into a phase')).not.toBeInTheDocument();
+  });
+});

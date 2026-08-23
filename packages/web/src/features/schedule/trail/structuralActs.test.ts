@@ -8,6 +8,8 @@ import {
   moveSentence,
   outdentSentence,
   movedIntoSentence,
+  groupSentence,
+  ungroupSentence,
 } from './structuralActs';
 
 describe('indent', () => {
@@ -146,5 +148,37 @@ describe('moved into (#2954)', () => {
     expect(movedIntoSentence({ name: 'X' }, { name: 'Y' })).toContain(
       'does not change any dates',
     );
+  });
+});
+
+describe('group / ungroup (#2955)', () => {
+  it('states the consequence in the short form the trail needs', () => {
+    expect(groupSentence(4)).toBe('4 items are now a phase.');
+    expect(groupSentence(1)).toBe('1 item is now a phase.');
+  });
+
+  it('names what it left alone — the number a user would otherwise count by eye', () => {
+    expect(groupSentence(4, 2)).toBe('4 items are now a phase. 2 rows stayed where they were.');
+    expect(groupSentence(4, 1)).toBe('4 items are now a phase. 1 row stayed where it was.');
+  });
+
+  it('says nothing about left-alone rows when there were none', () => {
+    expect(groupSentence(4, 0)).not.toContain('stayed');
+  });
+
+  it('names what SURVIVED an ungroup, which is the fear dissolving a wrapper raises', () => {
+    expect(ungroupSentence({ name: 'Design' }, 3)).toBe(
+      'Design is no longer a phase. Its 3 items moved up one level, keeping links, owners and estimates.',
+    );
+  });
+
+  it('does not claim a lift that did not happen', () => {
+    expect(ungroupSentence({ name: 'Design' }, 0)).toBe(
+      'Design is no longer a phase. It was empty, so nothing moved.',
+    );
+  });
+
+  it('falls back to Untitled rather than leaving a gap, same as every other act', () => {
+    expect(ungroupSentence({ name: '  ' }, 1)).toContain('Untitled is no longer a phase.');
   });
 });

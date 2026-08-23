@@ -8,6 +8,8 @@ import { FIXTURE_TASKS, FIXTURE_LINKS } from '@/fixtures/tasks';
 import type { Task, TaskLink } from '@/types';
 import { ROLE_VIEWER, ROLE_MEMBER, ROLE_ADMIN } from '@/lib/roles';
 import { useScheduleStore } from '@/stores/scheduleStore';
+import { useTrailStore } from './trail/trailStore';
+import { TaskGroupingRefused } from '@/hooks/useTaskGrouping';
 import { useWbsStore } from '@/stores/wbsStore';
 import { useDragStore } from '@/stores/dragStore';
 
@@ -67,6 +69,63 @@ const createTaskMutateAsync = vi.fn((vars: Record<string, unknown>) => {
 });
 const deleteTaskMutate = vi.fn();
 const reorderTaskMutate = vi.fn();
+// Group / Ungroup (#2955). Each drives its `onSuccess` synchronously with a fixture
+// response so the outcome copy, the trail entry and the ledger binding are all
+// observable without a server.
+// Set to make the next group/ungroup REFUSE instead of succeeding. Without this the
+// six `onError` arms in ScheduleView are unreachable — a mock that only ever calls
+// `onSuccess` makes an error branch look covered because the file around it is.
+let nextGroupingError: unknown = null;
+const groupTasksMutate = vi.fn(
+  (
+    vars: { taskIds: string[]; name?: string | null },
+    opts?: {
+      onSuccess?: (data: Record<string, unknown>) => void;
+      onError?: (error: unknown) => void;
+    },
+  ) => {
+    if (nextGroupingError !== null) {
+      opts?.onError?.(nextGroupingError);
+      return;
+    }
+    opts?.onSuccess?.({
+      container: {
+        id: 'container-1',
+        name: vars.name ?? 'New phase',
+        wbs_path: '1',
+        structure_role: 'container',
+        parent_id: null,
+      },
+      grouped_ids: vars.taskIds,
+      left_alone: [],
+      updated: [],
+      warning: null,
+      operation_id: 'group-op-1',
+    });
+  },
+);
+const ungroupTasksMutate = vi.fn(
+  (
+    taskId: string,
+    opts?: {
+      onSuccess?: (data: Record<string, unknown>) => void;
+      onError?: (error: unknown) => void;
+    },
+  ) => {
+    if (nextGroupingError !== null) {
+      opts?.onError?.(nextGroupingError);
+      return;
+    }
+    opts?.onSuccess?.({
+      container_id: taskId,
+      lifted_ids: ['t4', 't5'],
+      removed_dependency_ids: [],
+      updated: [],
+      warning: null,
+      operation_id: 'ungroup-op-1',
+    });
+  },
+);
 const createBaselineMutate = vi.fn();
 // Drag-to-link create (#1666). Capturable so create-link tests can assert the
 // FS/0-lag payload and drive the onSuccess / onError branches.
@@ -194,6 +253,15 @@ vi.mock('@/hooks/useTaskMutations', async (importOriginal) => {
   };
 });
 
+vi.mock('@/hooks/useTaskGrouping', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useTaskGrouping')>();
+  return {
+    ...actual,
+    useGroupTasks: () => ({ mutate: groupTasksMutate, isPending: false }),
+    useUngroupTasks: () => ({ mutate: ungroupTasksMutate, isPending: false }),
+  };
+});
+
 // Captures the real, fully-wired BuildModeApi that ScheduleView hands to
 // <BuildModeProvider> — same capture-into-module-var pattern as
 // capturedKeyBindings below. TaskListPanel is stubbed out (it has its own
@@ -312,13 +380,18 @@ vi.mock('./TaskListPanel', () => ({
     onCommitDraftRow,
     onAppendTaskAtEnd,
     appendAtEndReadOnly,
+    phaseInWaitingIds,
   }: {
     tasks: Task[];
     onCommitDraftRow?: (name: string, opts?: { onError?: () => void }) => void;
     onAppendTaskAtEnd?: () => void;
     appendAtEndReadOnly?: boolean;
+    phaseInWaitingIds?: Set<string>;
   }) => (
-    <div data-testid="task-list-panel">
+    <div
+      data-testid="task-list-panel"
+      data-phase-in-waiting={[...(phaseInWaitingIds ?? [])].sort().join(',')}
+    >
       {tasks.map((t) => (
         <div key={t.id}>{t.name}</div>
       ))}
@@ -511,6 +584,22 @@ function getScheduleStatus(): HTMLElement {
   return regions[0];
 }
 
+
+/**
+ * Turn on the Phase / Group / Ungroup toolbar buttons (#2955).
+ *
+ * They ship **off** — `⌥⌘G` and `⇥` already make phases, so the #2959 persona panel took
+ * the leaner reading — and the preference is per-user, per-project `localStorage`. A test
+ * that asserts on those buttons therefore opts in the same way a user does through the
+ * Display menu's Outline section. Call before `renderSchedule`: the hook hydrates once.
+ */
+function enableStructureButtons(): void {
+  window.localStorage.setItem(
+    'trueppm.schedule.displayOptions.test-user-1.project-1',
+    JSON.stringify({ structureButtons: true }),
+  );
+}
+
 function renderSchedule(initialEntries: string[] = ['/']) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -544,6 +633,21 @@ beforeEach(() => {
   createTaskMutateAsync.mockClear();
   createTaskCounter = 0;
   deleteTaskMutate.mockReset();
+  groupTasksMutate.mockClear();
+  ungroupTasksMutate.mockClear();
+  nextGroupingError = null;
+  // The trail is a module singleton — a previous test's act would otherwise be
+  // counted as this one's.
+  useTrailStore.getState().clear();
+  // Display options persist per-user per-project (#2955), so `enableStructureButtons`
+  // in one test would otherwise make the default-off assertion in another pass
+  // vacuously — the failure mode that hides a ruling nobody re-checks.
+  window.localStorage.removeItem('trueppm.schedule.displayOptions.test-user-1.project-1');
+  // Author/Read also persists per-user per-project. Three describes already cleared it
+  // in their own `beforeEach`; a test that toggles the pill anywhere else silently put
+  // every LATER test in the file into Read mode, which reads as eight unrelated
+  // failures. Clearing it once here is the version that cannot be forgotten.
+  window.localStorage.removeItem('trueppm.schedule.authorMode.test-user-1.project-1');
   createBaselineMutate.mockReset();
   addDepMutate.mockReset();
   toastInfo.mockReset();
@@ -697,14 +801,31 @@ describe('ScheduleView — populated desktop', () => {
     expect(screen.getByRole('dialog', { name: 'Milestone form' })).toBeInTheDocument();
   });
 
-  it('creates a phase (with a placeholder name) from the "+ Phase" button', async () => {
+  it('creates a task and wraps it into a phase from the "+ Phase" button (#2955)', async () => {
     const user = userEvent.setup();
+    enableStructureButtons();
     renderSchedule();
     await user.click(screen.getByRole('button', { name: '+ Phase' }));
     expect(createTaskMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'New task' }),
+      expect.anything(),
+    );
+    expect(groupTasksMutate).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Untitled phase' }),
       expect.anything(),
     );
+  });
+
+  it('hides the three structure buttons until the Display option turns them on (#2955)', () => {
+    // The default is a ruling, not an omission: ⌥⌘G and ⇥ already make phases, so the
+    // buttons are the discoverable route rather than permanent toolbar width. A ruling
+    // nothing asserts is one the next toolbar change quietly reverses.
+    renderSchedule();
+    expect(screen.queryByRole('button', { name: '+ Phase' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('group-rows-button')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('ungroup-rows-button')).not.toBeInTheDocument();
+    // "+ Task" and "+ Milestone" are NOT part of the gated group.
+    expect(screen.getByRole('button', { name: '+ Milestone' })).toBeInTheDocument();
   });
 
   it('scrolls the engine to today when the Today button is clicked', async () => {
@@ -760,9 +881,20 @@ describe('ScheduleView — read-only vs authoring gates', () => {
 
   it('enables milestone + phase authoring for a member', () => {
     mockRole = ROLE_MEMBER;
+    enableStructureButtons();
     renderSchedule();
     expect(screen.getByRole('button', { name: '+ Milestone' })).toBeEnabled();
     expect(screen.getByRole('button', { name: '+ Phase' })).toBeEnabled();
+  });
+
+  it('gives a viewer no Group / Ungroup even with the Display option on (#2949, rule 302)', () => {
+    // The option governs *chrome*, never rights. Absence, not a disabled control.
+    mockRole = ROLE_VIEWER;
+    enableStructureButtons();
+    renderSchedule();
+    expect(screen.queryByTestId('group-rows-button')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('ungroup-rows-button')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+ Phase' })).not.toBeInTheDocument();
   });
 });
 
@@ -1221,25 +1353,254 @@ describe('ScheduleView — ?cp filter drops non-critical dependency arrows', () 
   });
 });
 
-describe('ScheduleView — mod+p phase authoring binding', () => {
-  it('creates a phase for a member', () => {
+describe('ScheduleView — mod+alt+p phase authoring binding (#2955)', () => {
+  it('creates the first TASK and then wraps it, so no empty phase can be left behind', () => {
     renderSchedule();
     const preventDefault = vi.fn();
     const e = { preventDefault } as unknown as KeyboardEvent;
-    act(() => capturedKeyBindings['mod+p']?.(e));
+    act(() => capturedKeyBindings['mod+alt+p']?.(e));
     expect(preventDefault).toHaveBeenCalled();
+    // The create is a plain task — the container comes from `tasks/group/`, which is
+    // what makes it a *declared* container (#2950) and one undo step (#2974).
     expect(createTaskMutate).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'Untitled phase' }),
+      expect.objectContaining({ name: 'New task' }),
       expect.anything(),
     );
+    expect(groupTasksMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ taskIds: ['new-task-1'], name: 'Untitled phase' }),
+      expect.anything(),
+    );
+  });
+
+  it('no longer claims ⌘P, which is the browser’s Print (ADR-0627)', () => {
+    renderSchedule();
+    expect(capturedKeyBindings['mod+p']).toBeUndefined();
+  });
+
+  it('keeps the task and explains itself when the create lands but the wrap does not', () => {
+    // The branch the create-then-group inversion exists for. A failed wrap leaves an
+    // ordinary task — benign — but only if the user is told, and only if the caret goes
+    // to the row that actually exists rather than to a container that does not.
+    nextGroupingError = new TaskGroupingRefused({ code: 'selection_too_large', detail: 'x' });
+    renderSchedule();
+    act(() => capturedKeyBindings['mod+alt+p']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
+    expect(createTaskMutate).toHaveBeenCalled();
+    expect(useScheduleStore.getState().scheduleActionToast?.message).toContain(
+      'too many rows to wrap',
+    );
+    expect(capturedBuildMode!.focus.state.rowId).toBe('new-task-1');
   });
 
   it('is a no-op for a read-only viewer', () => {
     mockRole = ROLE_VIEWER;
     renderSchedule();
     const e = { preventDefault: vi.fn() } as unknown as KeyboardEvent;
-    act(() => capturedKeyBindings['mod+p']?.(e));
+    act(() => capturedKeyBindings['mod+alt+p']?.(e));
     expect(createTaskMutate).not.toHaveBeenCalled();
+    expect(groupTasksMutate).not.toHaveBeenCalled();
+  });
+});
+
+describe('ScheduleView — phase-in-waiting after #2955', () => {
+  it('reads a DECLARED container with no work in it as a phase-in-waiting', () => {
+    // `+ Phase` no longer writes the client-side marker — it creates the phase *with*
+    // its first task, so there is never a moment of waiting — which would have left the
+    // ghost affordance unreachable. The state is still real and now arrives as a server
+    // fact: delete the last task out of a grouped phase and `structure_role` stays
+    // `container` (`auto_container: false`, #2950) rather than demoting back to work.
+    mockTasks = [
+      {
+        ...FIXTURE_TASKS[0],
+        id: 'emptied-phase',
+        name: 'Emptied phase',
+        wbs: '9',
+        parentId: null,
+        isSummary: false,
+        isPhase: false,
+        structureRole: 'container',
+      },
+    ];
+    renderSchedule();
+    expect(screen.getByTestId('task-list-panel')).toHaveAttribute(
+      'data-phase-in-waiting',
+      'emptied-phase',
+    );
+  });
+
+  it('does not read ordinary work as one', () => {
+    mockTasks = [
+      { ...FIXTURE_TASKS[0], id: 'plain', name: 'Plain', wbs: '9', parentId: null, structureRole: 'work' },
+    ];
+    renderSchedule();
+    expect(screen.getByTestId('task-list-panel')).toHaveAttribute('data-phase-in-waiting', '');
+  });
+});
+
+describe('ScheduleView — Group / Ungroup keybindings (#2955)', () => {
+  it('registers neither chord outside build mode — the selection they act on only exists there', () => {
+    mockMobile = true;
+    renderSchedule();
+    expect(capturedKeyBindings['mod+alt+g']).toBeUndefined();
+    expect(capturedKeyBindings['mod+shift+alt+g']).toBeUndefined();
+  });
+
+  it('⌥⌘G sends the multi-row selection in visible order', () => {
+    renderSchedule();
+    act(() => capturedBuildMode!.focus.focusRow('t1'));
+    act(() => capturedBuildMode!.focus.selectIds(['t3', 't1']));
+    act(() => capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
+    expect(groupTasksMutate).toHaveBeenCalledTimes(1);
+    const [vars] = groupTasksMutate.mock.calls[0] as [{ taskIds: string[]; name?: string | null }];
+    // Visible order, not Set insertion order — the server's majority-parent tie-break
+    // is defined on request order.
+    expect(vars.taskIds).toEqual(['t1', 't3']);
+    // No name: the design names the phase LAST.
+    expect(vars.name).toBeUndefined();
+  });
+
+  it('⌥⌘G falls back to the focused row — wrapping one row is a legal group', () => {
+    renderSchedule();
+    act(() => capturedBuildMode!.focus.focusRow('t2'));
+    act(() => capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
+    expect(groupTasksMutate).toHaveBeenCalledTimes(1);
+    expect(
+      (groupTasksMutate.mock.calls[0] as [{ taskIds: string[] }])[0].taskIds,
+    ).toEqual(['t2']);
+  });
+
+  it('⌥⌘G STATES its refusal with nothing selected rather than doing nothing (rule 311)', () => {
+    renderSchedule();
+    act(() => capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
+    expect(groupTasksMutate).not.toHaveBeenCalled();
+    expect(useScheduleStore.getState().scheduleActionToast?.message).toContain(
+      'select the rows you want to wrap',
+    );
+  });
+
+  it('⌥⇧⌘G refuses on a row that is not a phase, and points at outdent instead', () => {
+    renderSchedule();
+    act(() => capturedBuildMode!.focus.focusRow('t2'));
+    act(() =>
+      capturedKeyBindings['mod+shift+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent),
+    );
+    expect(ungroupTasksMutate).not.toHaveBeenCalled();
+    expect(useScheduleStore.getState().scheduleActionToast?.message).toContain(
+      '⌥← to outdent a single row',
+    );
+  });
+
+  it('explains the refusal to an EDITOR in Read, and stays silent for a viewer (rule 302)', async () => {
+    // The two states rule 302 keeps apart, on the same guard. One key gets the editor
+    // back, so the chord explains itself; the viewer was never offered the control, so
+    // explaining a refusal to them is noise about a button they cannot see.
+    const user = userEvent.setup();
+    renderSchedule();
+    await user.click(screen.getByTestId('author-mode-pill'));
+    act(() => capturedBuildMode!.focus.focusRow('t1'));
+    act(() => capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
+    expect(groupTasksMutate).not.toHaveBeenCalled();
+    expect(useScheduleStore.getState().scheduleActionToast?.message).toContain('press ⌥A to author');
+  });
+
+  it('stays silent for a viewer — no offer, so nothing to explain (rule 302)', () => {
+    mockRole = ROLE_VIEWER;
+    renderSchedule();
+    act(() => capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
+    act(() =>
+      capturedKeyBindings['mod+shift+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent),
+    );
+    expect(groupTasksMutate).not.toHaveBeenCalled();
+    expect(ungroupTasksMutate).not.toHaveBeenCalled();
+    expect(useScheduleStore.getState().scheduleActionToast).toBeNull();
+  });
+
+  it('⌥⇧⌘G dissolves the focused phase and leaves ONE reversible trail entry', () => {
+    renderSchedule();
+    // `t1` is a summary with children in the fixture, so it resolves as a phase.
+    act(() => capturedBuildMode!.focus.focusRow('t1'));
+    act(() =>
+      capturedKeyBindings['mod+shift+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent),
+    );
+    expect(ungroupTasksMutate).toHaveBeenCalledTimes(1);
+    expect((ungroupTasksMutate.mock.calls[0] as [string])[0]).toBe('t1');
+    const entries = useTrailStore.getState().entries;
+    expect(entries).toHaveLength(1);
+    expect(entries[0].text).toContain('is no longer a phase');
+    expect(entries[0].operationId).toBe('ungroup-op-1');
+  });
+
+  it('speaks the FULL outcome to the live region while the trail keeps the short form', () => {
+    // The notice strip is deliberately not a live region, so this channel is the only
+    // one a screen-reader user has. Dropping `flattenOutcome` here would silently strip
+    // `left_alone` and the warning from it and nothing else would notice.
+    renderSchedule();
+    act(() => capturedBuildMode!.focus.focusRow('t1'));
+    act(() => capturedBuildMode!.focus.selectIds(['t1', 't3']));
+    act(() => capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
+    // The outline's polite region is a bare `aria-live="polite"` div, which confers no
+    // implicit `role="status"` — `getScheduleStatus()` finds a different surface's region
+    // and reports zero here, which reads as "nothing was announced".
+    // …and there is more than one polite region on this screen, so read them all rather
+    // than betting on which comes first in the DOM.
+    const spoken = Array.from(document.querySelectorAll('[aria-live="polite"]'))
+      .map((n) => n.textContent ?? '')
+      .join(' ');
+    expect(spoken).toContain('2 items are now a phase.');
+    expect(spoken).toContain('roll up from the work inside');
+    // …and the trail keeps the scannable one.
+    expect(useTrailStore.getState().entries[0].text).toBe('2 items are now a phase.');
+  });
+
+  it('says which RULE a refused group hit, rather than a generic failure', () => {
+    nextGroupingError = new TaskGroupingRefused({
+      code: 'nothing_to_group',
+      detail: 'server sentence the client does not use',
+    });
+    renderSchedule();
+    act(() => capturedBuildMode!.focus.focusRow('t1'));
+    act(() => capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
+    expect(useScheduleStore.getState().scheduleActionToast?.message).toContain(
+      'sits inside another one you selected',
+    );
+    // A refusal wrote nothing, so it must leave no outcome strip claiming otherwise.
+    expect(useTrailStore.getState().entries).toHaveLength(0);
+  });
+
+  it('falls back to a plain sentence when the failure is not a stated refusal', () => {
+    nextGroupingError = new Error('network');
+    renderSchedule();
+    act(() => capturedBuildMode!.focus.focusRow('t1'));
+    act(() => capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
+    expect(useScheduleStore.getState().scheduleActionToast?.message).toBe(
+      'Couldn’t group those rows. Nothing changed.',
+    );
+  });
+
+  it('says the same for a refused ungroup', () => {
+    nextGroupingError = new TaskGroupingRefused({
+      code: 'container_has_subtasks',
+      detail: 'x',
+    });
+    renderSchedule();
+    act(() => capturedBuildMode!.focus.focusRow('t1'));
+    act(() =>
+      capturedKeyBindings['mod+shift+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent),
+    );
+    expect(useScheduleStore.getState().scheduleActionToast?.message).toContain(
+      'carries subtasks',
+    );
+    expect(useTrailStore.getState().entries).toHaveLength(0);
+  });
+
+  it('a group leaves ONE trail entry carrying the ledger handle, so ⌘Z reverses it whole', () => {
+    renderSchedule();
+    act(() => capturedBuildMode!.focus.focusRow('t1'));
+    act(() => capturedBuildMode!.focus.selectIds(['t1', 't3']));
+    act(() => capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
+    const entries = useTrailStore.getState().entries;
+    expect(entries).toHaveLength(1);
+    expect(entries[0].text).toBe('2 items are now a phase.');
+    expect(entries[0].operationId).toBe('group-op-1');
   });
 });
 
@@ -1428,11 +1789,15 @@ describe('ScheduleView — Alt+A Author/Read toggle (#2727, ADR-0776 §5)', () =
 
   it('clicking the pill switches to Read mode and disables create controls', async () => {
     const user = userEvent.setup();
+    enableStructureButtons();
     renderSchedule();
     await user.click(screen.getByTestId('author-mode-pill'));
     expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Read');
     expect(screen.getByRole('button', { name: '+ Milestone' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '+ Phase' })).toBeDisabled();
+    // Present and inert, not absent — one key gets this editor back (#2949).
+    expect(screen.getByTestId('group-rows-button')).toBeDisabled();
+    expect(screen.getByTestId('ungroup-rows-button')).toBeDisabled();
   });
 
   it('Alt+A toggles the same as clicking the pill', () => {

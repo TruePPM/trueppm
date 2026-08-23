@@ -154,11 +154,20 @@ export function ScheduleDisplayMenu({
           {
             id: 'outline-chrome',
             label: 'Outline',
-            // 'structureButtons' is deliberately absent until #2955 ships the
-            // Phase / Group / Ungroup buttons it governs. A toggle that changes
-            // nothing is a dead control, and the correct shipped state for one
-            // is to be hidden — not present and inert (ux-review, live-wiring).
+            // 'structureButtons' is live as of #2955 — it now governs the Phase,
+            // Group and Ungroup buttons in the toolbar. It stays **off by default**:
+            // ⌥⌘G and ⇥ already make phases, so the buttons are the discoverable
+            // route rather than the primary one. This row is also the pointer-only
+            // user's way in, which is why it names the three controls rather than
+            // calling itself something abstract like "Structure".
             items: [
+              {
+                kind: 'checkbox' as const,
+                id: 'structure-buttons',
+                label: 'Phase, Group and Ungroup buttons',
+                checked: displayOptions.structureButtons,
+                activate: () => onToggleDisplayOption('structureButtons'),
+              },
               {
                 kind: 'checkbox' as const,
                 id: 'coach',

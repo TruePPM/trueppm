@@ -36,6 +36,10 @@ const HINTS_BY_MODE: Record<FocusMode, HintEntry[]> = {
  * where it is advertised.
  */
 const SELECTION_HINTS: HintEntry[] = [
+  // First, because it is the act the selection was most likely built FOR (#2955) —
+  // and because with `displayOptions.structureButtons` off by default, this strip is
+  // where the chord is discoverable at the moment it becomes meaningful.
+  { key: '⌥⌘G', label: 'Group into a phase' },
   { key: '⌘⇧K', label: 'Edit all selected' },
   { key: '⌫', label: 'Delete all selected' },
   { key: 'Esc', label: 'Clear selection' },
