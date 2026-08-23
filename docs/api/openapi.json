@@ -39358,7 +39358,7 @@
             },
             "post": {
                 "operationId": "v1_tasks_create",
-                "description": "CRUD for tasks within a project.\n\nCPM output fields (early_start, early_finish, late_start, late_finish,\ntotal_float, free_float, is_critical) are read-only and populated by\nthe auto-scheduling Celery task.\n\nPermission matrix (issue #11):\n  list/retrieve    — any member (IsProjectMember)\n  create           — Team Member+ (IsProjectMemberWrite)\n  update/destroy   — Project Manager+ or assignee (IsProjectMemberWriteOrOwn)",
+                "description": "Create a task.\n\n**Placement.** `parent_id` and `is_subtask` are honored on create only and are read off the request body directly — the server always derives `wbs_path` (ADR-0743). Omit `parent_id` to append at root level. Neither key is honored on PATCH; move an existing task with `POST /api/v1/projects/{project_pk}/tasks/{id}/reparent/`.\n\n**Dependencies** are not part of this body — create each edge with `POST /api/v1/dependencies/`. A body key this endpoint does not write is reported back in the response `warnings` array under the `dropped_fields` rule rather than discarded silently.",
                 "tags": [
                     "tasks"
                 ],
@@ -39366,17 +39366,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/TaskRequest"
+                                "$ref": "#/components/schemas/TaskCreateRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/TaskRequest"
+                                "$ref": "#/components/schemas/TaskCreateRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/TaskRequest"
+                                "$ref": "#/components/schemas/TaskCreateRequest"
                             }
                         }
                     },
@@ -39398,7 +39398,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Task"
+                                    "$ref": "#/components/schemas/TaskWriteResponse"
                                 }
                             }
                         },
@@ -39541,7 +39541,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Task"
+                                    "$ref": "#/components/schemas/TaskWriteResponse"
                                 }
                             }
                         },
@@ -39629,7 +39629,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Task"
+                                    "$ref": "#/components/schemas/TaskWriteResponse"
                                 }
                             }
                         },
@@ -61644,6 +61644,259 @@
                     "body"
                 ]
             },
+            "TaskCreateRequest": {
+                "type": "object",
+                "description": "The task **create** body, including the two placement keys read off raw request data.\n\n``parent_id`` and ``is_subtask`` are deliberately read-only on :class:`TaskSerializer`\n(ADR-0743 / #2585): a writable declaration would reach PATCH and the sync upload, where\nit lets any Member relocate a row past every create-time placement guard. The create\npath therefore reads both straight off ``request.data`` — which left them honored on\nPOST but absent from the published request schema entirely, so an integrator reading\nonly the schema could not discover how to create a child task at all (#2898).\n\nThis subclass exists **for schema generation only** — it is never used to deserialize.\nIt restores the two keys as optional, write-only inputs so ``TaskCreateRequest``\ndocuments the create contract the server actually implements. Neither key is honored on\nPATCH; use ``POST /api/v1/projects/{project_pk}/tasks/{id}/reparent/`` to move an\nexisting task.",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                    },
+                    "assignee": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/TaskStatusEnum"
+                    },
+                    "board_lane": {
+                        "type": "string",
+                        "description": "Named lane within this task's status column. Empty = the column's first lane. Presentation only — never affects scheduling or rollup.",
+                        "maxLength": 32
+                    },
+                    "duration": {
+                        "type": "integer",
+                        "maximum": 36525,
+                        "minimum": 0,
+                        "description": "Duration in working days"
+                    },
+                    "duration_unit": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/DurationUnitEnum"
+                            }
+                        ],
+                        "description": "Unit this task's duration is entered and displayed in. Presentation only — `duration` is always working days.\n\n* `days` - Days\n* `hours` - Hours"
+                    },
+                    "amend_reason": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "description": "Why this change was made. Recorded in plan history and sent to the people assigned to the task when the project is committed. Ignored on a draft — authoring a plan nobody has agreed to yet carries no reason.",
+                        "maxLength": 500
+                    },
+                    "structure_role": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StructureRoleEnum"
+                            }
+                        ],
+                        "description": "What this row is, as declared by its author: work, container or milestone. Presentation and grouping only — rollup still derives from structural child count.\n\n* `work` - Work\n* `container` - Container\n* `milestone` - Milestone"
+                    },
+                    "percent_complete": {
+                        "type": "number",
+                        "format": "double",
+                        "maximum": 100,
+                        "minimum": 0
+                    },
+                    "notes": {
+                        "type": "string"
+                    },
+                    "planned_start": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true,
+                        "description": "Start no earlier than (SNET). CPM floor applied during forward pass."
+                    },
+                    "planned_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "writeOnly": true,
+                        "nullable": true
+                    },
+                    "actual_start": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "actual_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "is_milestone": {
+                        "type": "boolean"
+                    },
+                    "optimistic_duration": {
+                        "type": "integer",
+                        "maximum": 36525,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "most_likely_duration": {
+                        "type": "integer",
+                        "maximum": 36525,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "pessimistic_duration": {
+                        "type": "integer",
+                        "maximum": 36525,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "parent_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "writeOnly": true,
+                        "nullable": true,
+                        "description": "Place the new task as the last child of this task. Omit to append at root level. Honored on create only — a PATCH ignores it and returns a ``dropped_fields`` warning; use the reparent action instead."
+                    },
+                    "owners": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskOwnerWriteRequest"
+                        },
+                        "writeOnly": true
+                    },
+                    "blocked_reason": {
+                        "type": "string",
+                        "description": "Why the task is blocked; empty means not blocked."
+                    },
+                    "blocker_type": {
+                        "description": "Optional structured classification of the blocker (triage signal).\n\n* `dependency` - Waiting on dependency\n* `resource` - Missing resource\n* `vendor` - External vendor\n* `decision` - Decision needed\n* `other` - Other",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/BlockerTypeEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
+                    },
+                    "blocking_task": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "priority_rank": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true,
+                        "description": "Priority rank within the project; lower is higher priority."
+                    },
+                    "sprint": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "story_points": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "remaining_points": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "is_subtask": {
+                        "type": "boolean",
+                        "writeOnly": true,
+                        "description": "Create the task as a drawer subtask of ``parent_id`` rather than a structural WBS node. Requires ``parent_id``, and the parent must not already have a structural child. Honored on create only."
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/TaskTypeEnum"
+                    },
+                    "parent_epic": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "dor": {
+                        "$ref": "#/components/schemas/DorStateEnum"
+                    },
+                    "sprint_rank": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "governance_class": {
+                        "$ref": "#/components/schemas/GovernanceClassEnum"
+                    },
+                    "delivery_mode": {
+                        "$ref": "#/components/schemas/DeliveryModeEnum"
+                    },
+                    "business_value": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "time_criticality": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "risk_reduction": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "job_size": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "reach": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "impact": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "confidence": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "effort": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "value": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "effort_estimate": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "name",
+                    "project"
+                ]
+            },
             "TaskCustomFieldValueWriteRequestRequest": {
                 "type": "object",
                 "properties": {
@@ -63210,6 +63463,730 @@
                     "removed_dependency_ids",
                     "updated",
                     "warning"
+                ]
+            },
+            "TaskWriteResponse": {
+                "type": "object",
+                "description": "A task write response: the task, plus the optional ``warnings`` array.\n\nSchema-only, for the same reason as :class:`TaskCreateSerializer` — the\n``warnings`` key is attached by the viewset after the serializer has run, so without\nthis the published 200/201 shape omits a key the endpoint really returns (#2899).\n``required=False``: warnings are absent on the common clean write.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "short_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "short_id_display": {
+                        "type": "string",
+                        "description": "Compact, in-project task reference — ``T-8`` (#2430).\n\n``short_id`` is stored as 8-character uppercase hex (``_next_short_id``\nformats ``object_sequence`` as ``{seq:08X}``), which leaked onto board cards\nas ``00000008`` / ``0000000A`` — a zero-padded hex string that reads as an\ninternal identifier, not as \"the eighth task\". ``format_short_id_display``\ndecodes the sequence back to the integer it always was and renders it\nunpadded, so task 10 reads ``T-10`` rather than ``0000000A``.\n\nServer-owned so web, mobile, and MCP all render the same reference. #929\nlearned this the hard way on risks: three web formatters independently\nmis-parsed the hex scheme and collapsed every risk to ``R-0000``. The stored\nvalue is unchanged — this is a display projection, so there is no migration\nand existing ids keep their identity.",
+                        "readOnly": true
+                    },
+                    "qualified_id": {
+                        "type": "string",
+                        "description": "Project-qualified task reference — ``ENG-2026-8`` (#2430).\n\nSettings → General collects a ``Project code`` whose own help text promises\nit is \"used as a prefix for task IDs and exports\" — a promise nothing kept.\nThis is the field that keeps it, and the one board cards render. Falls back\nto the compact ``T-8`` form when the project has no code (it is optional,\n#520), so the reference is never empty just because a code is unset.",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string",
+                        "maxLength": 512
+                    },
+                    "assignee": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "wbs_path": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "Server-derived WBS path (ADR-0743). Never client-writable."
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/TaskStatusEnum"
+                    },
+                    "board_lane": {
+                        "type": "string",
+                        "description": "Named lane within this task's status column. Empty = the column's first lane. Presentation only — never affects scheduling or rollup.",
+                        "maxLength": 32
+                    },
+                    "duration": {
+                        "type": "integer",
+                        "maximum": 36525,
+                        "minimum": 0,
+                        "description": "Duration in working days"
+                    },
+                    "duration_unit": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/DurationUnitEnum"
+                            }
+                        ],
+                        "description": "Unit this task's duration is entered and displayed in. Presentation only — `duration` is always working days.\n\n* `days` - Days\n* `hours` - Hours"
+                    },
+                    "structure_role": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StructureRoleEnum"
+                            }
+                        ],
+                        "description": "What this row is, as declared by its author: work, container or milestone. Presentation and grouping only — rollup still derives from structural child count.\n\n* `work` - Work\n* `container` - Container\n* `milestone` - Milestone"
+                    },
+                    "own_status": {
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Status this task had before it became a container. Parked, not used, while it has children; restored when it loses the last one.\n\n* `BACKLOG` - Backlog\n* `NOT_STARTED` - Not started\n* `IN_PROGRESS` - In progress\n* `REVIEW` - Review\n* `ON_HOLD` - On hold\n* `COMPLETE` - Complete",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/TaskStatusEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "own_estimate": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Working-day duration this task had before it became a container. Parked, not used, while it has children."
+                    },
+                    "percent_complete": {
+                        "type": "number",
+                        "format": "double",
+                        "maximum": 100,
+                        "minimum": 0
+                    },
+                    "notes": {
+                        "type": "string"
+                    },
+                    "planned_start": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true,
+                        "description": "Start no earlier than (SNET). CPM floor applied during forward pass."
+                    },
+                    "actual_start": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "actual_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "early_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "early_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "scheduled_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "scheduled_finish": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Mirror of ``early_finish`` under the ADR-0752 ``scheduled_*`` name.\n\nNot a stored column: remaining work always ends when the task ends, so\n``scheduled_finish`` is always identical to ``early_finish``. Exposed\nunder its own name so a consumer never has to mix the\n``scheduled_*``/``early_*`` vocabularies in one expression (ADR-0752 §2).",
+                        "readOnly": true
+                    },
+                    "remaining_duration": {
+                        "type": "integer",
+                        "description": "Working days of REMAINING work (ADR-0752 §2).\n\n``duration - floor(duration * percent_complete / 100)``, mirroring the\nengine's ``_effective_duration_days`` exactly — the same rule that\nmakes ``early_start``/``early_finish`` name the remaining-work window.\nSerializer-computed, not persisted: unlike ``scheduled_start`` (which\nutilization, #2623, needs to filter on in the database), nothing queries\nthis value, so no column is needed for it.",
+                        "readOnly": true
+                    },
+                    "late_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "late_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "total_float": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Total float in working days"
+                    },
+                    "free_float": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Free float in working days"
+                    },
+                    "is_critical": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "is_milestone": {
+                        "type": "boolean"
+                    },
+                    "optimistic_duration": {
+                        "type": "integer",
+                        "maximum": 36525,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "most_likely_duration": {
+                        "type": "integer",
+                        "maximum": 36525,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "pessimistic_duration": {
+                        "type": "integer",
+                        "maximum": 36525,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "estimate_status": {
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Approval state for three-point estimates (suggest_approve mode only).\n\n* `pending` - Pending Approval\n* `accepted` - Accepted",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/EstimateStatusEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "baseline_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "baseline_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "latest_note_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "schedule_variance_days": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Compute schedule variance: actual_finish - baseline_finish in calendar days.\n\nUses the active-baseline snapshot date, not early_finish (CPM). early_finish\ndrifts toward actual_finish on each CPM recompute, making the variance appear\nto shrink even when work is running late. Without an active baseline the\nmetric is undefined — returns None rather than a misleading CPM-relative value.",
+                        "readOnly": true
+                    },
+                    "spi": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true,
+                        "description": "Per-task Schedule Performance Index = earned% / planned% (#990).\n\n``planned%`` is the fraction of the *active baseline* duration elapsed as\nof today; ``earned%`` is ``percent_complete``. SPI > 1 means ahead of the\nbaseline; < 1 means behind. Mirrors the formula the board card used to\nderive in the browser, now server-owned so MCP/headless clients read it.\n\nReturns ``None`` when the task has no active-baseline annotation (the\n``baseline_start``/``baseline_finish`` overlay is null) or has not started\nper baseline (no elapsed time) — the index is undefined, not zero.",
+                        "readOnly": true
+                    },
+                    "spi_band": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Threshold band for ``spi`` — on_track / at_risk / behind, or None.\n\nThresholds (≥0.95 on track, ≥0.85 at risk, else behind) match the\nproject-level SPI rollup (views.py project health) and the board-card chip\nso the verdict is identical wherever it renders. Returned as a plain string\n(not a Django enum) so drf-spectacular emits no shared enum component.",
+                        "readOnly": true
+                    },
+                    "dwell_days": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Days the task has sat in its current status column (#992).\n\nThe raw 'dwell' fact behind the stalled verdict: full calendar days since\n``status_changed_at`` (when the task last entered its current status). None\nwhen the column was never stamped (legacy rows / never moved). Exposed\nalongside ``is_stalled`` so an MCP/headless client can re-threshold rather\nthan inherit the web's 3-day policy (ADR-0115).",
+                        "readOnly": true
+                    },
+                    "is_stalled": {
+                        "type": "boolean",
+                        "description": "Server-owned 'stalled' verdict the board card renders (#992).\n\nA task is stalled when it has sat in its current status for more than 3 days\n*and* is not yet complete (``percent_complete < 100``). A complete task is\nnever stalled regardless of dwell; a task whose column was never stamped\n(``status_changed_at`` is null) is treated as not stalled. Moving the policy\nserver-side stops the web re-deriving it from ``status_changed_at`` and keeps\nthe threshold consistent with ``dwell_days`` for headless clients.",
+                        "readOnly": true
+                    },
+                    "is_summary": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "default": false
+                    },
+                    "is_phase": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "default": false
+                    },
+                    "parent_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "assignments": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskAssignment"
+                        },
+                        "readOnly": true
+                    },
+                    "labels": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskLabelChip"
+                        },
+                        "readOnly": true
+                    },
+                    "readiness": {
+                        "type": "string",
+                        "description": "Derive board-card readiness from available task fields.\n\nResolution order (highest specificity first):\n- baselined: task appears in the active baseline (baseline_start is annotated)\n- idea: no assignee AND still in BACKLOG (unrefined, uncommitted)\n- ready: has assignee + at least one predecessor dependency\n- estimated: has assignee without predecessors, OR promoted out of BACKLOG\n             without an assignee (committed but unowned — ADR-0047)\n\nSemantic boundary: 'idea' only applies while status == BACKLOG. Once a PM\nmoves a card to any working column they have made a commitment decision;\nghost styling is suppressed even if no assignee has been set yet.",
+                        "readOnly": true
+                    },
+                    "predecessor_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "default": 0
+                    },
+                    "is_blocked": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "default": false
+                    },
+                    "blocked_reason": {
+                        "type": "string",
+                        "description": "Why the task is blocked; empty means not blocked."
+                    },
+                    "blocker_type": {
+                        "description": "Optional structured classification of the blocker (triage signal).\n\n* `dependency` - Waiting on dependency\n* `resource` - Missing resource\n* `vendor` - External vendor\n* `decision` - Decision needed\n* `other` - Other",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/BlockerTypeEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
+                    },
+                    "blocking_task": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "blocking_task_detail": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true,
+                        "description": "Lightweight read of the soft ``blocking_task`` link (ADR-0124, #1135).\n\nReturns ``{id, short_id, title}`` for the task this one is waiting on, or\n``None`` when no soft link is set. Reads the ``select_related`` relation so\na list response adds no per-row query. This is a *soft* link — it never\nfeeds CPM (distinct from a ``Dependency`` edge).",
+                        "readOnly": true
+                    },
+                    "blocked_since": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "blocked_by": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true,
+                        "description": "Return the actor who flagged the task blocked as ``{id, username}`` (#1135).\n\nTeam-visible (per the ADR-0121 actor-attribution precedent). ``None`` when\nthe task is not flagged or the actor record was cleared.",
+                        "readOnly": true
+                    },
+                    "blocked_age_seconds": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Whole seconds the task has been blocked, or ``None`` if not blocked (#1135).",
+                        "readOnly": true
+                    },
+                    "is_impediment": {
+                        "type": "boolean",
+                        "description": "True when the task is flagged blocked AND a structured type is recorded.\n\nThe \"impediment vs paused\" split (#1125): an impediment carries a\n``blocker_type`` the SM/PM can triage; a bare flag with no type is a plain\n\"paused\" signal.",
+                        "readOnly": true
+                    },
+                    "linked_risks_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "default": 0
+                    },
+                    "linked_risks_max_severity": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "has_related_links": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "default": false
+                    },
+                    "has_recurrence": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "default": false
+                    },
+                    "external_link_summary": {
+                        "type": "object",
+                        "properties": {
+                            "count": {
+                                "type": "integer"
+                            },
+                            "worst_status": {
+                                "type": "string",
+                                "nullable": true
+                            }
+                        },
+                        "required": [
+                            "count",
+                            "worst_status"
+                        ],
+                        "readOnly": true
+                    },
+                    "status_changed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "When this task last entered its current status column."
+                    },
+                    "priority_rank": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true,
+                        "description": "Priority rank within the project; lower is higher priority."
+                    },
+                    "assignee_is_overallocated": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "default": false
+                    },
+                    "sprint": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "sprint_pending": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "story_points": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "remaining_points": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "is_subtask": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "description": "True for tasks created via the drawer subtask action (ADR-0060)."
+                    },
+                    "sprint_scope_changes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        },
+                        "description": "Return scope-change audit rows for the sprint-scope indicator chip.",
+                        "readOnly": true
+                    },
+                    "milestone_rollup": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true,
+                        "description": "Sprint-driven rollup payload for milestone tasks (ADR-0074).\n\nReturns ``None`` for non-milestone tasks and for milestones with no\nlive targeting sprints — both cases let the manual ``percent_complete``\napply unchanged. Aggregated only — never includes per-assignee task\nlists or raw point counts (Morgan VoC guardrail, ADR-0074 §Broadcast\npayload shape).",
+                        "readOnly": true
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/TaskTypeEnum"
+                    },
+                    "parent_epic": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "dor": {
+                        "$ref": "#/components/schemas/DorStateEnum"
+                    },
+                    "sprint_rank": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "governance_class": {
+                        "$ref": "#/components/schemas/GovernanceClassEnum"
+                    },
+                    "delivery_mode": {
+                        "$ref": "#/components/schemas/DeliveryModeEnum"
+                    },
+                    "parent_governance_inherited": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "business_value": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "time_criticality": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "risk_reduction": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "job_size": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "reach": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "impact": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "confidence": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "effort": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "value": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "effort_estimate": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "acceptance_criteria": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AcceptanceCriterion"
+                        },
+                        "readOnly": true
+                    },
+                    "prioritization_score": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "criteria_met_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "criteria_total": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "dor_blockers": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "readOnly": true
+                    },
+                    "can_edit": {
+                        "type": "boolean",
+                        "description": "Authoritative per-task edit verdict for the requesting user (ADR-0133).\n\nDelegates to the SAME predicate the IsProjectMemberWriteOrOwn permission\nclass enforces, so the client's gate can never drift from the server's.",
+                        "readOnly": true
+                    },
+                    "can_delete": {
+                        "type": "boolean",
+                        "description": "Authoritative per-task delete verdict (ADR-0133).\n\nDiffers from ``can_edit`` only for a Product Owner: the PO facet grooms\n(edits) EPIC/STORY items but may not DELETE them.",
+                        "readOnly": true
+                    },
+                    "can_edit_estimates": {
+                        "type": "boolean",
+                        "description": "Authoritative per-task estimate-write verdict (ADR-0743, #2596).\n\nDelegates to the SAME predicate ``_validate_estimate_write_permitted``\nenforces, so the client control in ``EstimatesTab`` gates off exactly the\nrule the server applies. Under ``PM_ONLY`` this is False for a Member who\nmay otherwise edit the task, which is precisely the case a plain\n``can_edit`` cannot express.",
+                        "readOnly": true
+                    },
+                    "can_log_time": {
+                        "type": "boolean",
+                        "description": "Authoritative per-task time-log verdict for the requesting user (ADR-0185 §3).\n\nDelegates to the SAME predicate the CanLogTime permission class enforces, so the\nclient's \"+ time\" gate can never drift from the server's rule. Fails closed to\n``False`` when serialized without a request (nested serialization, tests).",
+                        "readOnly": true
+                    },
+                    "custom_fields": {
+                        "type": "object",
+                        "additionalProperties": true,
+                        "description": "Per-task custom-field values keyed by field id. Value type follows the field's field_type (string/number/bool/ISO-date/option-key/array/{id,name,initials} person). Unset fields are omitted.",
+                        "readOnly": true
+                    },
+                    "source_kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SourceKindEnum"
+                            }
+                        ],
+                        "readOnly": true,
+                        "description": "What wrote this row (ADR-0786).\n\n* `hand` - Hand-authored\n* `template` - Project template\n* `seed_import` - Native seed import\n* `csv_import` - CSV/Excel import\n* `msproject_import` - MS Project import\n* `jira_import` - Jira import\n* `paste` - Pasted rows"
+                    },
+                    "source_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "source_version": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "Template version this row was seeded from; empty for other sources."
+                    },
+                    "seeded_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "edited_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "is_untouched_seed": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "warnings": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskWriteWarning"
+                        },
+                        "description": "Non-blocking notices about this write, added by the viewset after serialization. Read-only in practice: a value sent by a client is ignored. Present only when a warn-level guardrail tripped or the body carried keys the write did not apply."
+                    }
+                },
+                "required": [
+                    "acceptance_criteria",
+                    "assignee_is_overallocated",
+                    "assignments",
+                    "baseline_finish",
+                    "baseline_start",
+                    "blocked_age_seconds",
+                    "blocked_by",
+                    "blocked_since",
+                    "blocking_task_detail",
+                    "can_delete",
+                    "can_edit",
+                    "can_edit_estimates",
+                    "can_log_time",
+                    "criteria_met_count",
+                    "criteria_total",
+                    "custom_fields",
+                    "dor_blockers",
+                    "dwell_days",
+                    "early_finish",
+                    "early_start",
+                    "edited_at",
+                    "estimate_status",
+                    "external_link_summary",
+                    "free_float",
+                    "has_recurrence",
+                    "has_related_links",
+                    "id",
+                    "is_blocked",
+                    "is_critical",
+                    "is_impediment",
+                    "is_phase",
+                    "is_stalled",
+                    "is_subtask",
+                    "is_summary",
+                    "is_untouched_seed",
+                    "labels",
+                    "late_finish",
+                    "late_start",
+                    "latest_note_at",
+                    "linked_risks_count",
+                    "linked_risks_max_severity",
+                    "milestone_rollup",
+                    "name",
+                    "own_estimate",
+                    "own_status",
+                    "parent_governance_inherited",
+                    "parent_id",
+                    "predecessor_count",
+                    "prioritization_score",
+                    "project",
+                    "qualified_id",
+                    "readiness",
+                    "remaining_duration",
+                    "schedule_variance_days",
+                    "scheduled_finish",
+                    "scheduled_start",
+                    "seeded_at",
+                    "server_version",
+                    "short_id",
+                    "short_id_display",
+                    "source_id",
+                    "source_kind",
+                    "source_version",
+                    "spi",
+                    "spi_band",
+                    "sprint_pending",
+                    "sprint_scope_changes",
+                    "status_changed_at",
+                    "total_float",
+                    "wbs_path"
+                ]
+            },
+            "TaskWriteWarning": {
+                "type": "object",
+                "description": "One entry of the non-blocking ``warnings`` array on a task write (ADR-0101).\n\nSchema-only: the array is assembled in ``TaskViewSet`` from tripped warn-level\nguardrails and from body keys the write ignored (#2899). Declared here so the\npublished contract carries the shape rather than leaving a client to discover it\nfrom a live response.",
+                "properties": {
+                    "rule": {
+                        "type": "string",
+                        "description": "Stable machine identifier for the warning — a guardrail rule id, or ``dropped_fields`` when the request body carried keys the write ignored."
+                    },
+                    "detail": {
+                        "type": "string",
+                        "description": "Human-readable explanation for the client notice."
+                    }
+                },
+                "required": [
+                    "detail",
+                    "rule"
                 ]
             },
             "Team": {

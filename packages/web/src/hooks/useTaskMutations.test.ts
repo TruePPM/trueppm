@@ -929,6 +929,36 @@ describe('parseGuardrailWarnings', () => {
     expect(parseGuardrailWarnings(null)).toEqual([]);
     expect(parseGuardrailWarnings('x')).toEqual([]);
   });
+
+  it('drops a dropped_fields notice — it is not an overridable guardrail (#2899)', () => {
+    // The server's warnings array carries two kinds now. Both call sites render this
+    // result as a sprint assignment the user can Undo, so letting a dropped-key notice
+    // through would offer an Undo for a write that never happened.
+    const data = {
+      warnings: [
+        { rule: 'dropped_fields', detail: 'Ignored key(s) not written: predecessors.' },
+      ],
+    };
+    expect(parseGuardrailWarnings(data)).toEqual([]);
+  });
+
+  it('keeps the guardrail entries when both kinds arrive together', () => {
+    const data = {
+      warnings: [
+        { rule: 'dropped_fields', detail: 'Ignored key(s) not written: parent_id.' },
+        { rule: 'task_outside_sprint_window', detail: 'Outside the sprint window.' },
+      ],
+    };
+    const out = parseGuardrailWarnings(data);
+    expect(out).toHaveLength(1);
+    expect(out[0].rule).toBe('task_outside_sprint_window');
+  });
+
+  it('drops an unrecognized rule rather than assuming it is overridable', () => {
+    expect(parseGuardrailWarnings({ warnings: [{ rule: 'invented_later', detail: 'x' }] })).toEqual(
+      [],
+    );
+  });
 });
 
 describe('parseGuardrailBlockedError', () => {

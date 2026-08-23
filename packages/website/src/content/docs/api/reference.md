@@ -483,6 +483,85 @@ CPM fields (`early_start`, `early_finish`, `late_start`, `late_finish`, `total_f
 
 Assigning a **phase** (a task that rolls up one or more real child tasks) to a sprint is rejected unconditionally with `400` and a standard field error on `sprint` carrying the stable code `phase_in_sprint_forbidden`. This is a hard invariant — it is *not* affected by the project's guardrail policy and cannot be escalated or relaxed by an Owner (assigning a phase to a sprint double-counts velocity). Assign the child tasks inside the phase instead. Other sprint-composition guardrails (`summary_in_sprint`, `task_outside_sprint_window`, `recurring_in_sprint`) remain Warn-by-default and are configurable via the guardrail policy.
 
+#### Placement on create
+
+:::note[Ships in 0.4]
+The request schema below ships in **TruePPM 0.4**. In `v0.3.0-alpha.3` (the latest
+release) the server honors `parent_id` and `is_subtask` on `POST` exactly as
+described, but neither key appears in the published `TaskRequest` schema, and
+sending either on a `PATCH` is a silent no-op with no warning.
+:::
+
+A task's position in the WBS is **server-derived**. `wbs_path` is read-only on every
+path (ADR-0743) — the create body names a *parent*, and the server allocates the
+child number under the same lock as the insert, so two concurrent creates cannot race
+to the same path.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `parent_id` | `uuid` | Place the new task as the last child of this task. Omit to append at root level |
+| `is_subtask` | `boolean` | Create a drawer subtask rather than a structural WBS node. Requires `parent_id` |
+
+Both are **create-only, write-only**. They are accepted on `POST /api/v1/tasks/` and
+ignored on `PUT`/`PATCH`, which report them back under
+[`dropped_fields`](#write-warnings) rather than discarding them. To move an existing
+task, use `POST /api/v1/projects/{project_pk}/tasks/{id}/reparent/`.
+
+`is_subtask` accepts `true`/`false`, `1`/`0`, `yes`/`no` and `on`/`off` in any case,
+plus a JSON boolean. **Anything else is a `400`** — the flag decides whether the row
+becomes a checklist item or a WBS node, which are different objects with different
+rollup and delete semantics, so a value the server cannot interpret is refused rather
+than defaulted.
+
+Three placement guards reject a structurally impossible parent with a `400` on
+`parent_id`: a milestone cannot have children (it is a zero-duration gate, not a
+container); nothing may be created under a subtask (subtasks are leaves, ADR-0060);
+and a phase that already has a structural child will not accept drawer subtasks,
+which would conflate the two decomposition models.
+
+**Dependencies are not part of this body.** There is no `predecessors` field on the
+task serializer — create each edge with `POST /api/v1/dependencies/` after the task
+exists. A `predecessors` key in a task body is reported under `dropped_fields`.
+
+#### Write warnings
+
+:::note[Ships in 0.4]
+The `dropped_fields` rule and the declared `warnings` array on the create/update
+response ship in **TruePPM 0.4**. In `v0.3.0-alpha.3` a `warnings` array is returned
+on `PUT`/`PATCH` for tripped guardrails only, is not part of the published response
+schema, and an unrecognized body key is discarded with no signal at all.
+:::
+
+A successful task write may carry a `warnings` array. Warnings never change the
+status code — the write succeeded; they are non-blocking notices for the client.
+
+```json
+{
+  "id": "…", "name": "Pour foundation",
+  "warnings": [
+    {
+      "rule": "dropped_fields",
+      "detail": "Ignored key(s) not written by this request: predecessors. Dependencies are not part of the task body — create each edge with POST /api/v1/dependencies/."
+    }
+  ]
+}
+```
+
+| Rule | Raised when |
+|---|---|
+| `dropped_fields` | The body carried keys this write did not apply — a key the serializer does not recognize at all, or `parent_id` / `is_subtask` on an update, where placement is create-only |
+| *guardrail rule id* | A Warn-level sprint-composition guardrail tripped (ADR-0101) — e.g. `summary_in_sprint`, `task_outside_sprint_window`, `recurring_in_sprint` |
+
+The array is **absent** on a clean write rather than present-and-empty, so test for
+the key before iterating.
+
+`dropped_fields` deliberately does **not** fire for keys that are declared in the
+schema and marked `readOnly`. A client round-tripping a whole task object sends
+dozens of those, and warning on them would bury the keys that carry no signal
+anywhere — which is the case the notice exists for: an integrator migrating
+dependency-bearing tasks out of Jira or MS Project used to get a `201` for every task
+and no way to learn that not one edge had landed.
+
 #### Seed provenance
 
 :::note[Ships in 0.4]

@@ -9,7 +9,7 @@ import functools
 import logging
 import re
 import uuid
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -215,6 +215,7 @@ from trueppm_api.apps.projects.serializers import (
     TaskClassificationResponseSerializer,
     TaskClassificationSerializer,
     TaskCommentSerializer,
+    TaskCreateSerializer,
     TaskDurationChangeEventSerializer,
     TaskLabelChipSerializer,
     TaskNoteSerializer,
@@ -223,6 +224,7 @@ from trueppm_api.apps.projects.serializers import (
     TaskReorderSerializer,
     TaskScopeRollupSerializer,
     TaskSerializer,
+    TaskWriteResponseSerializer,
 )
 from trueppm_api.apps.projects.structural_operation_services import StructuralCapture
 from trueppm_api.apps.projects.task_bulk import MSG_PROGRESS_NEEDS_ANCHOR, BulkOutcome
@@ -4305,6 +4307,135 @@ def _filter_tasks_by_date_range(qs: QuerySet[Task], params: Any) -> QuerySet[Tas
     return qs
 
 
+# Keys the task create path reads straight off ``request.data`` instead of through the
+# serializer. ``parent_id`` and ``is_subtask`` are read-only on TaskSerializer for the
+# ADR-0743 / #2585 reason (a writable declaration reaches PATCH and the sync upload, where
+# it bypasses every create-time placement guard), so create is the only write that honors
+# them. On any other write they are dropped — silently, until #2898.
+_RAW_CREATE_PLACEMENT_KEYS = ("parent_id", "is_subtask")
+
+# Truthiness accepted for the raw ``is_subtask`` create flag. Deliberately a closed
+# vocabulary rather than the old ``str(raw).lower() in ("true", "1")``: that treated
+# ``"yes"``, ``1.0`` and a typo as *false*, i.e. it silently created a structural WBS node
+# where the caller asked for a checklist subtask, with a 201 and nothing to notice (#2898).
+_IS_SUBTASK_TRUE_TOKENS = frozenset({"true", "1", "yes", "on"})
+_IS_SUBTASK_FALSE_TOKENS = frozenset({"false", "0", "no", "off", ""})
+
+# Why a key was ignored, for the ``dropped_fields`` warning. Naming the working
+# alternative is the point: an integrator who sends ``predecessors`` gets a 201 for every
+# task and believes every edge landed (#2899), and one who sends ``parent_id`` on a PATCH
+# gets a 200 for a move that never happened (#2898).
+_DROPPED_FIELD_HINTS = {
+    "predecessors": (
+        "Dependencies are not part of the task body — create each edge with "
+        "POST /api/v1/dependencies/."
+    ),
+    "parent_id": (
+        "parent_id places a task on create only — move an existing task with "
+        "POST /api/v1/projects/{project_pk}/tasks/{id}/reparent/."
+    ),
+    "is_subtask": (
+        "is_subtask is honored on create only — convert an existing task with "
+        "POST /api/v1/projects/{project_pk}/tasks/{id}/reparent/."
+    ),
+}
+
+
+def _task_body_mapping(data: Any) -> Mapping[str, Any]:
+    """The request body as a mapping, or an empty one.
+
+    A JSON body may legitimately parse to a list or a scalar, in which case ``.get`` does
+    not exist at all and a raw ``request.data.get(...)`` is a 500 rather than the 400 the
+    serializer would have produced (#2795). Every raw-body read below goes through here.
+    """
+    return data if isinstance(data, Mapping) else {}
+
+
+def _parse_create_is_subtask(body: Mapping[str, Any]) -> bool:
+    """Parse the raw ``is_subtask`` create flag, rejecting values it cannot mean.
+
+    This flag decides whether the row becomes a drawer subtask or a structural WBS node —
+    two different objects with different rollup and delete semantics. Guessing wrong is not
+    recoverable from a 201, so an uninterpretable value is a 400 rather than a default.
+    """
+    raw = body.get("is_subtask", "")
+    if isinstance(raw, bool):
+        return raw
+    token = str(raw).strip().lower()
+    if token in _IS_SUBTASK_TRUE_TOKENS:
+        return True
+    if token in _IS_SUBTASK_FALSE_TOKENS:
+        return False
+    raise DRFValidationError(
+        {"is_subtask": "Must be a boolean: true/false, 1/0, yes/no or on/off."}
+    )
+
+
+def _parse_create_parent_id(body: Mapping[str, Any]) -> uuid.UUID | None:
+    """Parse the raw ``parent_id`` create key into a UUID, or None when absent.
+
+    Coerced here rather than left to the ORM: ``Task.objects.get(pk="not-a-uuid")`` raises
+    Django's ValidationError, which DRF does not convert, so a malformed id 500s instead of
+    returning the 400 the declared UUID-typed schema promises (#2785).
+    """
+    raw = body.get("parent_id")
+    if raw in (None, ""):
+        return None
+    if isinstance(raw, uuid.UUID):
+        return raw
+    try:
+        return uuid.UUID(str(raw))
+    except (ValueError, AttributeError, TypeError) as exc:
+        raise DRFValidationError({"parent_id": "Must be a valid UUID."}) from exc
+
+
+def _dropped_task_body_keys(
+    body: Mapping[str, Any], known_fields: Iterable[str], *, created: bool
+) -> list[str]:
+    """Body keys this write ignored: unknown to the serializer, or create-only on a PATCH.
+
+    Keys that ARE declared on the serializer but read-only are excluded on purpose — they
+    are marked ``readOnly`` in the published schema, so a client round-tripping a full task
+    object can already know they will not be written, and warning on them would bury the
+    keys that carry no signal at all.
+    """
+    known = set(known_fields)
+    dropped = {key for key in body if key not in known}
+    if not created:
+        dropped |= {key for key in _RAW_CREATE_PLACEMENT_KEYS if key in body}
+    return sorted(dropped)
+
+
+def _task_serializer_field_names(serializer: BaseSerializer[Any]) -> Iterable[str]:
+    """Declared field names on a bound task serializer.
+
+    ``get_serializer()`` is typed as the ``BaseSerializer`` base, which carries no
+    ``fields``; every serializer this viewset builds is a concrete ``Serializer``.
+    """
+    return cast("serializers.Serializer[Any]", serializer).fields
+
+
+def _attach_dropped_field_warnings(
+    request: Request, response: Response, known_fields: Iterable[str], *, created: bool
+) -> None:
+    """Append a ``dropped_fields`` entry to the response ``warnings`` array, if any apply.
+
+    Appends rather than assigns: a write can trip a guardrail warning and drop a key in the
+    same request, and neither should erase the other.
+    """
+    if response.status_code >= 400 or not isinstance(response.data, dict):
+        return
+    body = _task_body_mapping(request.data)
+    dropped = _dropped_task_body_keys(body, known_fields, created=created)
+    if not dropped:
+        return
+    parts = ["Ignored key(s) not written by this request: " + ", ".join(dropped) + "."]
+    parts.extend(_DROPPED_FIELD_HINTS[key] for key in dropped if key in _DROPPED_FIELD_HINTS)
+    response.data.setdefault("warnings", []).append(
+        {"rule": "dropped_fields", "detail": " ".join(parts)}
+    )
+
+
 def _resolve_create_parent(project: Any, parent_id: Any, *, is_subtask: bool) -> tuple[Task, str]:
     """Lock the requested parent, enforce the placement guards, and pick the child path.
 
@@ -4753,8 +4884,13 @@ class ScheduleFetchPagination(pagination.PageNumberPagination):
 
 @extend_schema_view(
     update=extend_schema(
+        # TaskWriteResponse, not Task: a successful write can carry a ``warnings`` array
+        # (ADR-0101 guardrails, plus the dropped-key notice added for #2899) that the bare
+        # Task schema does not declare. Neither ``parent_id`` nor ``is_subtask`` is honored
+        # here — placement is create-only, and sending either is reported back as a dropped
+        # field rather than discarded silently (#2898).
         responses={
-            200: TaskSerializer,
+            200: TaskWriteResponseSerializer,
             409: OpenApiResponse(
                 response=StructureRoleConflictSerializer,
                 description=(
@@ -4773,7 +4909,7 @@ class ScheduleFetchPagination(pagination.PageNumberPagination):
     ),
     partial_update=extend_schema(
         responses={
-            200: TaskSerializer,
+            200: TaskWriteResponseSerializer,
             409: OpenApiResponse(
                 response=StructureRoleConflictSerializer,
                 description=(
@@ -5054,6 +5190,29 @@ class TaskViewSet(
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
+    @extend_schema(
+        request=TaskCreateSerializer,
+        responses={201: TaskWriteResponseSerializer},
+        description=(
+            "Create a task.\n\n"
+            "**Placement.** `parent_id` and `is_subtask` are honored on create only and are "
+            "read off the request body directly — the server always derives `wbs_path` "
+            "(ADR-0743). Omit `parent_id` to append at root level. Neither key is honored on "
+            "PATCH; move an existing task with "
+            "`POST /api/v1/projects/{project_pk}/tasks/{id}/reparent/`.\n\n"
+            "**Dependencies** are not part of this body — create each edge with "
+            "`POST /api/v1/dependencies/`. A body key this endpoint does not write is "
+            "reported back in the response `warnings` array under the `dropped_fields` rule "
+            "rather than discarded silently."
+        ),
+    )
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        response: Response = super().create(request, *args, **kwargs)
+        _attach_dropped_field_warnings(
+            request, response, _task_serializer_field_names(self.get_serializer()), created=True
+        )
+        return response
+
     def perform_create(self, serializer: BaseSerializer[Task]) -> None:
         # H1 fix: DRF does not call has_object_permission on create actions,
         # so we must enforce project membership explicitly before saving.
@@ -5077,12 +5236,13 @@ class TaskViewSet(
         #
         # The count + save share one atomic block so the SELECT FOR UPDATE lock
         # covers the INSERT and prevents concurrent creates racing to the same path.
-        is_subtask = str(self.request.data.get("is_subtask", "")).lower() in ("true", "1")
+        body = _task_body_mapping(self.request.data)
+        is_subtask = _parse_create_is_subtask(body)
         parent: Task | None = None
 
         with transaction.atomic():
             if project is not None:
-                parent_id = self.request.data.get("parent_id")
+                parent_id = _parse_create_parent_id(body)
                 if parent_id:
                     parent, wbs_path = _resolve_create_parent(
                         project, parent_id, is_subtask=is_subtask
@@ -5268,8 +5428,16 @@ class TaskViewSet(
             response.data["warnings"] = [
                 {"rule": rule, "detail": GUARDRAIL_WARNING_COPY.get(rule, "")} for rule in tripped
             ]
+
+        # Body keys this write ignored (#2898/#2899) — including parent_id / is_subtask,
+        # which a PATCH drops entirely because placement is create-only.
+        _attach_dropped_field_warnings(
+            request, response, _task_serializer_field_names(self.get_serializer()), created=False
+        )
         return response
 
+    # The 200 shape for both write paths is declared on the class-level
+    # @extend_schema_view above, which takes precedence over a method decorator (#2455).
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._handle_task_write(super().update, request, *args, **kwargs)
 

@@ -1064,6 +1064,24 @@ export type GuardrailRule =
   | 'recurring_in_sprint'
   | 'subtasks_split';
 
+/**
+ * The runtime form of {@link GuardrailRule}, so the parser below can reject a
+ * `warnings` entry that is not a guardrail at all.
+ *
+ * The server's `warnings` array is no longer single-purpose: it also carries a
+ * `dropped_fields` notice naming body keys a write ignored (#2899). Both consumers of
+ * `parseGuardrailWarnings` render their result as an *overridable sprint assignment*
+ * with an Undo, which is meaningless for a dropped key — so the filter is by rule
+ * identity rather than by shape.
+ */
+const GUARDRAIL_RULES = new Set<string>([
+  'summary_in_sprint',
+  'phase_in_sprint',
+  'task_outside_sprint_window',
+  'recurring_in_sprint',
+  'subtasks_split',
+]);
+
 /** One warn-level guardrail the server flagged on a successful task write. */
 export interface GuardrailWarning {
   rule: GuardrailRule;
@@ -1071,10 +1089,14 @@ export interface GuardrailWarning {
 }
 
 /**
- * Extract the `warnings` array from a successful task PATCH response.
+ * Extract the **guardrail** entries from a successful task PATCH response.
  *
- * Returns `[]` when the response carries no warnings (the common, clean case),
- * so callers can treat the result uniformly without a null check.
+ * Returns `[]` when the response carries no guardrail warnings (the common, clean
+ * case), so callers can treat the result uniformly without a null check. Entries with
+ * any other rule — `dropped_fields` (#2899) and anything added later — are filtered
+ * out: every caller renders the result as an overridable sprint assignment, so
+ * admitting a non-guardrail notice would offer an Undo for something that never
+ * happened.
  */
 export function parseGuardrailWarnings(data: unknown): GuardrailWarning[] {
   if (typeof data !== 'object' || data === null) return [];
@@ -1085,6 +1107,7 @@ export function parseGuardrailWarnings(data: unknown): GuardrailWarning[] {
       typeof w === 'object' &&
       w !== null &&
       typeof (w as { rule?: unknown }).rule === 'string' &&
+      GUARDRAIL_RULES.has((w as { rule: string }).rule) &&
       typeof (w as { detail?: unknown }).detail === 'string',
   );
 }
