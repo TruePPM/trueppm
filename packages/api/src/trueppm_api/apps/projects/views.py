@@ -16102,10 +16102,22 @@ class ProjectVelocityView(APIView):
         self.check_object_permissions(request, project)
         summary = velocity_summary(project.pk)
         # ADR-0104 §2.1: strip the team-private velocity detail (series + rolling
-        # points) when the requester's tier is below the velocity audience. At the
-        # TEAM default every member passes, so the payload is byte-for-byte
-        # unchanged from before this gate existed — only a non-member, or a team
-        # that opted velocity up, triggers suppression.
+        # points) when the requester's band is outside the velocity audience.
+        #
+        # The gate is an INVERSION of the usual role ordering, and reading it as
+        # "higher role sees more" gets it backwards (#2915). The ladder measures
+        # management *distance*, and the test is ``tier <= audience``:
+        #
+        #   Viewer / Member / Scheduler -> TEAM        -> reads at the TEAM default
+        #   Admin / Owner               -> TEAM_SM_PM  -> SUPPRESSED at that default
+        #   non-member                  -> None        -> denied outright
+        #
+        # So a PM being denied velocity is this gate working, not breaking — that is
+        # ADR-0104 Decision 1, and a delivery lead's adoption case rests on it
+        # ("velocity automatically exposed as a productivity metric on PMO or
+        # executive dashboards" is a documented hard NO). Raising the audience WIDENS
+        # the readership rather than narrowing it, and takes majority team
+        # ratification with no management bypass.
         if not can_read_signal(request, project.pk, "velocity"):
             summary = suppress_velocity_summary(summary)
         return Response(summary, status=status.HTTP_200_OK)
