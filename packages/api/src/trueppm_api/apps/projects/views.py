@@ -141,6 +141,7 @@ from trueppm_api.apps.projects.models import (
     TaskStatus,
     TaskType,
     format_short_id_display,
+    resync_container_declarations,
     structural_parent,
     sync_structure_shadow_values,
 )
@@ -7870,6 +7871,17 @@ class TaskReorderView(IdempotencyMixin, APIView):
             # Root-level siblings have no dot in their path.
             siblings_qs = siblings_qs.filter(wbs_path__regex=_ROOT_WBS_RE)
 
+        # Parent before children (#3010): the level's parent is written at the end of
+        # this handler, and every restructure endpoint claims the row above before the
+        # rows below so two of them cannot deadlock on the same pair.
+        parent_row = (
+            Task.objects.select_for_update()
+            .filter(project_id=pk, wbs_path=parent_path, is_deleted=False, is_subtask=False)
+            .first()
+            if parent_path
+            else None
+        )
+
         siblings_by_id = {t.pk: t for t in siblings_qs}
 
         # Validate: every supplied ID must be a live sibling.
@@ -7910,6 +7922,14 @@ class TaskReorderView(IdempotencyMixin, APIView):
                     task.wbs_path = new_path
                     task.save(update_fields=["wbs_path"])
                 updated.append({"id": str(task_id), "wbs_path": new_path})
+
+            # Reorder is the one restructure that provably cannot change any parent's
+            # child SET — it permutes one level in place — so this is convergence only:
+            # it repairs a parent whose declaration drifted on an earlier act, and it
+            # keeps the four structural endpoints from disagreeing about whether
+            # declaring a container is part of restructuring (#3010). One row, so the
+            # cost is a refresh and, almost always, no UPDATE at all.
+            resync_container_declarations(parent_row, already_locked=True)
 
             # Reorder is the one structural endpoint that already gates every sibling
             # (the complete-set invariant makes that exact), so all of them are anchors.
@@ -8050,6 +8070,12 @@ class TaskIndentView(IdempotencyMixin, APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+            # Claim the level ABOVE first. Every restructure endpoint locks
+            # parent-then-children so two of them cannot take the same two rows in
+            # opposite orders and deadlock (#3010); the parent is written at the end
+            # of this block, so it has to be held for the whole act anyway.
+            former_parent = structural_parent(task, lock=True)
+
             parent_path = _get_parent_path(task.wbs_path)
             siblings = _get_siblings(str(project.pk), parent_path, lock=True)
 
@@ -8093,6 +8119,17 @@ class TaskIndentView(IdempotencyMixin, APIView):
             # Renumber old siblings (remove the gap left by the moved task).
             remaining_siblings = [s for s in siblings if s.pk != task.pk]
             all_updated.extend(_renumber_siblings(remaining_siblings, parent_path))
+
+            # Indent is the most common way a user creates a phase, so it is the most
+            # important place for the row above to be *declared* a container rather
+            # than left to be re-derived from child count on every read (#3010, #2950).
+            # Without this the previous sibling's authored status and duration are
+            # never parked, and the first rollup overwrites them irrecoverably.
+            #
+            # `former_parent` cannot lose its last child here — `prev_sibling` stays
+            # under it — so that half is convergence only: it repairs a row whose
+            # declaration drifted before this call existed.
+            resync_container_declarations(prev_sibling, former_parent)
 
             # Check if previous sibling just became a summary task with assignments.
             warning: str | None = None
@@ -8166,6 +8203,10 @@ class TaskOutdentView(IdempotencyMixin, APIView):
                     {"detail": _TASK_NO_WBS_PATH_DETAIL},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+
+            # Parent before children — see the note in TaskIndentView (#3010). Outdent
+            # is the path where this row can lose its last child, so it is written here.
+            former_parent = structural_parent(task, lock=True)
 
             parent_path = _get_parent_path(task.wbs_path)
             if not parent_path:
@@ -8249,6 +8290,13 @@ class TaskOutdentView(IdempotencyMixin, APIView):
             # Step 4: Renumber siblings at the new level (insert task after parent).
             refreshed_new_siblings = _get_siblings(str(project.pk), grandparent_path, lock=True)
             all_updated.extend(_renumber_siblings(refreshed_new_siblings, grandparent_path))
+
+            # Outdent moves both ways at once (#3010): the task ADOPTS its following
+            # siblings, so it can become a container; its former parent LOSES them all,
+            # so it can stop being one. Calling for only the promoted side would leave
+            # an emptied accidental container declared, which is the identity change
+            # `auto_container` exists to make reversible.
+            resync_container_declarations(task, former_parent)
 
             # Assignment warning if the task gained children (adopted followers).
             warning: str | None = None
@@ -8436,6 +8484,11 @@ class TaskReparentView(IdempotencyMixin, APIView):
                     status=status.HTTP_200_OK,
                 )
 
+            # Parent before children — `_resolve_reparent_target` above already locked
+            # `new_parent`, so claiming the former parent here keeps both levels held
+            # before any descendant lock is taken (#3010).
+            former_parent = structural_parent(task, lock=True)
+
             descendants = _get_descendants(str(project.pk), old_path, lock=True)
             old_siblings = _get_siblings(str(project.pk), old_parent_path, lock=True)
             new_children = _get_siblings(str(project.pk), new_parent_path, lock=True)
@@ -8456,6 +8509,11 @@ class TaskReparentView(IdempotencyMixin, APIView):
 
             remaining_old = [s for s in old_siblings if s.pk != task.pk]
             all_updated.extend(_renumber_siblings(remaining_old, old_parent_path))
+
+            # Both sides move (#3010): `new_parent` may have gained its first child and
+            # `former_parent` may have lost its last. A move to root has no new parent
+            # and a move out of root has no former one — the helper skips the None.
+            resync_container_declarations(new_parent, former_parent)
 
             # Warning: new parent just became a summary and has resource assignments.
             warning: str | None = None

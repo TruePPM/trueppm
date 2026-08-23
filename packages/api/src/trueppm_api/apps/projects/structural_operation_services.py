@@ -27,8 +27,10 @@ same act as restoring a task. That helper resurrects earlier-deleted subtasks �
 docstring concedes the tradeoff, which was accepted for a user who explicitly clicked
 Restore on a row they deleted, not for someone reversing a *grouping*. ``perform_ungroup``
 only refuses on *live* subtasks, so a container carrying tombstones ungroups cleanly and a
-cascade on undo would silently un-delete them. (It is also not project-scoped, which is
-filed separately.) Undo restores exactly the ids it recorded.
+cascade on undo would silently un-delete them. Undo restores exactly the ids it recorded.
+(Its missing project scope — an unscoped ``wbs_path__startswith`` that matched the same
+path in every other project — was fixed in #3010; the reuse is still wrong for the reason
+above.)
 """
 
 from __future__ import annotations
@@ -423,7 +425,6 @@ def undo_structural_operation(
         StructuralOperation,
         SyncBatchOperationStatus,
         Task,
-        sync_structure_shadow_values,
     )
     from trueppm_api.apps.projects.task_grouping import assert_graph_feasible, capture_graph_state
 
@@ -555,7 +556,7 @@ def undo_structural_operation(
         #    distinct parent path on either side of the restore is a candidate; reading
         #    from current state (not replaying the act) means this converges even on the
         #    paths where the forward endpoints skip it.
-        _resync_shadow_values(locked, sync_structure_shadow_values)
+        _resync_shadow_values(locked)
 
         assert_graph_feasible(locked.project_id, graph_before)
 
@@ -578,9 +579,16 @@ def undo_structural_operation(
         return summary
 
 
-def _resync_shadow_values(operation: StructuralOperation, sync: Any) -> None:
-    """Re-park own_status/own_estimate and structure_role on every affected parent."""
-    from trueppm_api.apps.projects.models import Task
+def _resync_shadow_values(operation: StructuralOperation) -> None:
+    """Re-park own_status/own_estimate and structure_role on every affected parent.
+
+    Persists through :func:`resync_container_declarations`. The earlier version called
+    ``sync_structure_shadow_values`` and stopped there — which mutates the instance and
+    returns whether a write is needed, so the whole pass converged in memory and was
+    discarded at the end of the loop (#3010). Undo's own tests could not see it: they
+    assert the restored tree shape, and the shape was always right.
+    """
+    from trueppm_api.apps.projects.models import Task, resync_container_declarations
 
     parent_paths = {
         path.rsplit(".", 1)[0]
@@ -590,10 +598,19 @@ def _resync_shadow_values(operation: StructuralOperation, sync: Any) -> None:
     }
     if not parent_paths:
         return
-    for row in Task.objects.filter(
-        project_id=operation.project_id, is_deleted=False, wbs_path__in=sorted(parent_paths)
-    ):
-        sync(row)
+    # Lock and read all N parents in ONE statement, then tell the helper not to
+    # re-read them. Letting it re-SELECT each row it was just handed made this pass
+    # O(N) round trips, and `STRUCTURAL_OPERATION_MAX_REGION` bounds N at 2000.
+    # Ordered by wbs_path so concurrent undos in the same region queue rather than
+    # deadlock.
+    resync_container_declarations(
+        *Task.objects.select_for_update()
+        .filter(
+            project_id=operation.project_id, is_deleted=False, wbs_path__in=sorted(parent_paths)
+        )
+        .order_by("wbs_path"),
+        already_locked=True,
+    )
 
 
 def _broadcast_and_recalc(project_id: Any) -> None:

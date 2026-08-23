@@ -112,7 +112,18 @@ async function setupStructuralStore(page: Page): Promise<UndoStore> {
     const idx = rows.findIndex((r) => r.id === taskId);
     const above = rows[idx - 1];
     rows[idx] = { ...rows[idx], parent_id: above.id, wbs_path: `${above.wbs_path}.1` };
-    rows[idx - 1] = { ...above, is_summary: true };
+    // The server DECLARES the row above a container and parks its own estimate
+    // (#3010) — not just `is_summary`. Mirrored here because `ConversionNotice`
+    // keys on `auto_container` / `own_estimate`, so a mock that sets only
+    // `is_summary` renders a screen the real server never produces.
+    rows[idx - 1] = {
+      ...above,
+      is_summary: true,
+      structure_role: 'container',
+      auto_container: true,
+      own_status: above.status,
+      own_estimate: above.duration,
+    };
     await route.fulfill({
       json: {
         updated: [{ id: taskId, wbs_path: rows[idx].wbs_path }],
@@ -256,6 +267,26 @@ test.describe('Schedule outline — structural undo (#2974)', () => {
     await expect
       .poll(async () => await outlineShape(page), { timeout: 20_000 })
       .toEqual(before);
+  });
+
+  test('indenting a row tells the user the row above just became a phase', async ({ page }) => {
+    // `ConversionNotice` keys on `auto_container`, which only
+    // `sync_structure_shadow_values` sets — and until #3010 the indent endpoint never
+    // called it. So the notice existed, and the most common way to create a phase
+    // could not raise it. This is the user-visible half of that fix.
+    const store = await setupStructuralStore(page);
+    await page.goto(BASE_URL);
+    await outlineReady(page);
+
+    await expect(page.getByRole('status').filter({ hasText: 'became a phase' })).toHaveCount(0);
+
+    await indentSurvey(page, store);
+
+    const notice = page.getByRole('status').filter({ hasText: 'became a phase' });
+    await expect(notice).toBeVisible({ timeout: 20_000 });
+    await expect(notice).toContainText('Mobilization');
+    // The parked estimate is the point: it says what happened to the number.
+    await expect(notice).toContainText('5d');
   });
 
   test('⌘Z reverses the same act the trail button targets', async ({ page }) => {
