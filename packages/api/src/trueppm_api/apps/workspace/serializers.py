@@ -345,7 +345,13 @@ class WorkspaceMemberUpdateSerializer(serializers.Serializer[Any]):
 
 
 class WorkspaceInviteSerializer(serializers.Serializer[Any]):
-    """Read serializer for a pending invite (#518)."""
+    """Read serializer for one workspace invite (#518, #2911).
+
+    Not "a pending invite" any more: ``GET /workspace/invites/?status=`` reads
+    terminal rows too, so ``accepted_at``/``accepted_by`` carry the outcome. Both
+    are null on a row that was never accepted, which is every ``pending``,
+    ``revoked``, ``expired`` and ``failed`` invite.
+    """
 
     id = serializers.CharField()
     email = serializers.EmailField()
@@ -355,6 +361,10 @@ class WorkspaceInviteSerializer(serializers.Serializer[Any]):
     invited_by = serializers.CharField(allow_null=True)  # initials
     created_at = serializers.DateTimeField()
     expires_at = serializers.DateTimeField()
+    accepted_at = serializers.DateTimeField(allow_null=True)
+    # Initials, matching invited_by — the outcome column has no reason to widen
+    # the PII this already-sensitive admin list carries.
+    accepted_by = serializers.CharField(allow_null=True)
 
 
 class WorkspaceInviteCreateSerializer(serializers.Serializer[Any]):

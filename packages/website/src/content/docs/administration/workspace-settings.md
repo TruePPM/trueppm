@@ -312,9 +312,23 @@ Workspace Admins send email invitations to bring new users into the workspace.
    - provisions a new `User` account **or** links the invite to an existing
      account if the invite email matches,
    - creates a `WorkspaceMembership` at the invited role,
-   - marks the invite `accepted`.
+   - marks the invite `accepted`, stamping `accepted_at` and the accepting user.
 5. Error responses are **generic** ("invalid or expired token") to prevent
    token enumeration.
+
+### Reading the invite history
+
+`GET /api/v1/workspace/invites/` defaults to `?status=pending` — the working set
+the Members page shows. Pass a terminal status (`accepted`, `revoked`, `expired`,
+`failed`) or `status=all` to read the history, including rows the default hides.
+Every row carries `accepted_at` and `accepted_by` (initials), both `null` unless
+the invite was actually taken up.
+
+Each of the three invite transitions also writes an
+[audit-log](/administration/audit-log/) entry — `invite_sent`, `invite_accepted`,
+`invite_revoked`. `invite_accepted` is the one that records **who sent the
+invite**: because the accept endpoint is unauthenticated, the `member_added` row
+written at the same moment has the *invitee* as its actor and cannot answer that.
 
 ### Token security
 

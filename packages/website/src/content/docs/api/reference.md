@@ -1178,7 +1178,7 @@ can never be allowed.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/api/v1/workspace/invites/` | Admin+ | List pending invites. |
+| GET | `/api/v1/workspace/invites/` | Admin+ | List invites. Defaults to `?status=pending`; pass a terminal status (`accepted`, `revoked`, `expired`, `failed`) or `all` to read the invite history. Rows carry `accepted_at` / `accepted_by`, both null unless the invite was taken up. |
 | POST | `/api/v1/workspace/invites/` | Admin+ | Create an invite (email queued asynchronously). |
 | DELETE | `/api/v1/workspace/invites/{id}/` | Admin+ | Revoke a pending invite. |
 | POST | `/api/v1/workspace/invites/accept/` | **Public** | Accept an invite with a one-time token. Rate-limited: 20 req/min. |
