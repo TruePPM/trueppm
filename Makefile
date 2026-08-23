@@ -55,7 +55,7 @@ wt-doctor: ## Verify worktree symlinks + shared Docker stack are healthy
 	@bash scripts/wt doctor
 
 # ─── Lint ─────────────────────────────────────────────────────────────────────
-lint: lint-scheduler lint-api lint-web ## Lint all packages
+lint: lint-scheduler lint-api web-lint design-system-check ## Lint all packages
 
 lint-scheduler: ## Lint packages/scheduler (ruff)
 	cd packages/scheduler && ruff check src/ tests/ && ruff format --check src/ tests/
@@ -63,9 +63,10 @@ lint-scheduler: ## Lint packages/scheduler (ruff)
 lint-api: ## Lint packages/api (ruff)
 	cd packages/api && ruff check src/ tests/ && ruff format --check src/ tests/
 
-lint-web: ## Lint packages/web (eslint + design-system v2 gate)
-	cd packages/web && npm run lint
-	bash scripts/check-design-system-v2.sh
+# `lint-web` used to live here, one character from `web-lint` and differing in what it
+# enforced: it ran the design-system gate, `web-lint` did not, and `pre-push` called the
+# one that did not (#2941). Both halves are now named targets, so there is nothing left
+# to pick the wrong one of.
 
 # ─── Type-check ───────────────────────────────────────────────────────────────
 typecheck: typecheck-scheduler typecheck-api typecheck-web ## Type-check all packages
@@ -318,6 +319,43 @@ helm-metric-names-check: ## Fail if the Helm chart's PromQL names a series the a
 	@# publishes. Stdlib Python over two chart files, milliseconds.
 	@python3 scripts/check-helm-metric-names.py .
 
+design-system-check: ## Run the lint:design-system-v2 CI job locally (#2941)
+	@# The gate that polices hardcoded hex against the DS-v2 token ratchet. It was
+	@# the one bespoke CI check with no pre-push mirror, so a breach passed locally
+	@# and failed the pipeline — the exact round trip pre-push exists to prevent.
+	@bash scripts/check-design-system-v2.sh
+
+adr-status-check: ## Run the docs:adr-status CI job locally (#2941)
+	@# An ADR cited from shipped source must not say "Proposed", and the ADR index
+	@# statistics on the website must match the tree. Adding any ADR breaks four
+	@# hard-coded figures in architecture/decisions.md, which is a guaranteed red
+	@# pipeline on every branch that writes one. ~3s, no network.
+	@bash scripts/check-adr-status.sh
+
+version-status-check: ## Run the docs:version-accuracy CI job locally (#2941)
+	@# Past/present-tense claims about unshipped versions, plus the
+	@# declaration-coverage ratchet over features/, administration/ and
+	@# getting-started/. Editing a non-declaring page breaks its baseline hash, so
+	@# any docs branch can trip this. ~3s, no network.
+	@bash scripts/check-version-status.sh
+
+ws-event-reachability-check: ## Run the docs:ws-event-reachability CI job locally (#2941)
+	@# Every WS event named in the published taxonomy must be deliverable to a
+	@# client, or carry a `not deliverable` marker. 50ms.
+	@bash scripts/check-ws-event-reachability.sh
+
+e2e-catchall-check: ## Run the lint:e2e-catchall CI job locally (#2941)
+	@bash scripts/check-e2e-catchall.sh
+
+demo-nginx-allowlist-check: ## Run the demo nginx allowlist CI job locally (#2941)
+	@bash scripts/check-demo-nginx-allowlist.sh
+
+prepush-parity-check: ## Fail if a CI check script has no pre-push mirror and no opt-out (#2941)
+	@# The durable half of #2941. The pre-push list was a historical accretion —
+	@# each gate added by hand as it was written, and nothing checking the list
+	@# stayed complete. This derives the CI set instead of restating it.
+	@bash scripts/check-prepush-parity.sh
+
 nginx-headers-check: ## Fail if the five nginx configs disagree on the hardening baseline (#2849)
 	@# The SPA is served from five separate nginx configs across three trees, and
 	@# nothing compared them until #2849: the Helm production branch — the path
@@ -328,7 +366,7 @@ nginx-headers-check: ## Fail if the five nginx configs disagree on the hardening
 	@# are skipped (loudly) when helm is not on PATH — CI always has it.
 	@bash scripts/check-nginx-security-headers.sh
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check playwright-pins-check web-rule-numbers-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check playwright-pins-check web-rule-numbers-check design-system-check adr-status-check version-status-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check prepush-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/
