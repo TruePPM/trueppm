@@ -34,10 +34,11 @@ from __future__ import annotations
 
 import abc
 import base64
+import email.utils
 import re
 import urllib.parse
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any, ClassVar
 
 from . import http
@@ -502,6 +503,8 @@ class _JiraBackend(abc.ABC):
 
         Raises:
             ExternalSourceAuthError: 401/403 — token expired or revoked.
+            ExternalSourceRateLimited: 429 — carries ``Retry-After`` when Jira
+                sent one, so the caller can re-queue instead of dead-lettering.
             ExternalSourceError: any other non-200, a transport failure, or a
                 stored project key that is not a valid Jira project key.
         """
@@ -530,6 +533,11 @@ class _JiraBackend(abc.ABC):
 
         if response.status in (401, 403):
             raise ExternalSourceAuthError("Jira rejected the credential (expired or revoked)")
+        if response.status == 429:
+            # Must precede the generic non-200 arm: a rate limit is the provider
+            # telling us when to come back, not a failure to reach it (#2924).
+            retry_after = parse_retry_after(response.headers)
+            raise ExternalSourceRateLimited("Jira rate-limited the search (HTTP 429)", retry_after)
         if response.status != 200:
             raise ExternalSourceError(f"Jira search returned HTTP {response.status}")
 
@@ -631,6 +639,45 @@ def _parse_iso_date(value: Any) -> date | None:
         return None
 
 
+def parse_retry_after(headers: dict[str, str], *, now: datetime | None = None) -> float | None:
+    """Seconds to wait from a ``Retry-After`` header, or ``None`` if unusable.
+
+    RFC 9110 permits delta-seconds (``Retry-After: 30``) or an absolute HTTP-date;
+    Jira Cloud sends the former and a fronting proxy may rewrite it to the latter,
+    so both are read. Header lookup is case-insensitive because ``EgressResponse``
+    carries a plain ``dict``, not a case-folding mapping.
+
+    Total by design: anything unparseable or negative yields ``None``, so a
+    malformed header degrades to "no hint" rather than raising inside the failure
+    path it is trying to describe.
+    """
+
+    raw = ""
+    for key, value in headers.items():
+        if key.lower() == "retry-after":
+            raw = (value or "").strip()
+            break
+    if not raw:
+        return None
+    try:
+        seconds = float(int(raw))
+    except ValueError:
+        # parsedate_to_datetime RAISES on an unparseable value (it does not return
+        # None), so this has to be caught or a junk header crashes the 429 path.
+        try:
+            parsed = email.utils.parsedate_to_datetime(raw)
+        except (TypeError, ValueError):
+            return None
+        if parsed is None:  # pragma: no cover — defensive across versions
+            return None
+        reference = now or datetime.now(UTC)
+        try:
+            seconds = (parsed - reference).total_seconds()
+        except (TypeError, ValueError):
+            return None
+    return seconds if seconds >= 0 else None
+
+
 class ExternalSourceError(Exception):
     """A source could not complete a read (transport, non-200, or bad body).
 
@@ -646,6 +693,29 @@ class ExternalSourceAuthError(ExternalSourceError):
     retries and flip the connection to ``auth_failed`` (ADR-0097 §5) instead of
     backing off and retrying a dead token.
     """
+
+
+class ExternalSourceRateLimited(ExternalSourceError):
+    """The source rate-limited the read (HTTP 429) — #2924.
+
+    Distinct from :class:`ExternalSourceError` because the two need opposite
+    handling and conflating them produced the wrong belief. The generic case means
+    "the provider is having a moment"; the worker retires the attempt and the user
+    (or the next poll) re-triggers. A 429 is not that: it is the provider
+    explicitly saying *when* to come back, so the pull is re-queued against that
+    clock instead of dead-lettered as "unreachable" — which is what made a
+    transient Jira rate limit read to the owner as a broken connection.
+
+    Attributes:
+        retry_after: Seconds until the source will accept another request, parsed
+            from ``Retry-After``, or ``None`` when the header was absent or
+            unparseable. ``None`` means "no hint" and the caller applies its own
+            default backoff — never "do not retry".
+    """
+
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 class ExternalSourceConfigError(ExternalSourceError):

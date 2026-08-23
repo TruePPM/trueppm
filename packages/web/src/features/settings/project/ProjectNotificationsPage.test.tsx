@@ -43,6 +43,18 @@ function renderPage() {
 }
 
 const SEED: ProjectNotificationPreferences = {
+  // Mirrors the server's #2904 classification: only comment_mention is wired.
+  eventDelivery: {
+    task_assigned: false,
+    task_overdue: false,
+    comment_mention: true,
+    status_change: false,
+    budget_alert: false,
+    risk_created: false,
+    milestone_reached: false,
+    sprint_start: false,
+    sprint_end: false,
+  },
   matrix: {
     task_assigned: { in_app: true, email: true, slack: true, mobile_push: true },
     task_overdue: { in_app: true, email: true, slack: true, mobile_push: true },
@@ -162,6 +174,64 @@ describe('ProjectNotificationsPage', () => {
     expect(screen.getByText(/^Paused —/i)).toBeInTheDocument();
     const pause = screen.getByRole('switch', { name: /pause all project notifications/i });
     expect(pause).toHaveAttribute('aria-checked', 'true');
+  });
+
+  // #2904 — eight of the nine rows are dispatched by nothing. They render, and
+  // toggling one has no effect in either direction. The page must say so rather
+  // than presenting them identically to the one that works.
+  it('labels the rows the server reports as not dispatched', () => {
+    renderPage();
+
+    // By title, not text: the explanatory banner repeats the badge wording, so a
+    // text query would count 9 (8 badges + the banner's inline reference).
+    expect(screen.getAllByTitle(/not dispatched yet/i)).toHaveLength(8);
+    expect(
+      screen.getByText(/are not\s+dispatched by TruePPM yet/i),
+    ).toBeInTheDocument();
+  });
+
+  it('leaves an undispatched row fully interactive', () => {
+    renderPage();
+
+    // De-emphasis must never remove function: the preference is still saved, and
+    // applies once the dispatcher lands. A disabled toggle would discard intent.
+    const toggle = screen.getByRole('switch', { name: /Sprint started via email/i });
+    expect(toggle).not.toBeDisabled();
+    fireEvent.click(toggle);
+    expect(mutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows no labels or banner when every row is dispatched', () => {
+    useProjectNotificationPreferences.mockReturnValue({
+      preferences: {
+        ...SEED,
+        eventDelivery: Object.fromEntries(
+          Object.keys(SEED.eventDelivery).map((event) => [event, true]),
+        ),
+      },
+      isLoading: false,
+      error: null,
+      update: { mutate },
+    });
+    renderPage();
+
+    expect(screen.queryByTitle(/not dispatched yet/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/not delivered yet/i)).not.toBeInTheDocument();
+  });
+
+  it('shows no labels when an older server sends no classification', () => {
+    // Absence is "no claim made", never "nothing is delivered" — an older API
+    // must not make the whole matrix look broken.
+    useProjectNotificationPreferences.mockReturnValue({
+      preferences: { ...SEED, eventDelivery: {} },
+      isLoading: false,
+      error: null,
+      update: { mutate },
+    });
+    renderPage();
+
+    expect(screen.queryByTitle(/not dispatched yet/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/not delivered yet/i)).not.toBeInTheDocument();
   });
 
   it('renders an error state on API failure', () => {

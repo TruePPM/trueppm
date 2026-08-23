@@ -1,4 +1,12 @@
-"""Tests for Workspace invites: CRUD, public acceptance, and the email drain (#518)."""
+"""Tests for Workspace invites: CRUD, public acceptance, and the email drain (#518).
+
+Also covers the durability half (#2911): the admin list hard-filtered to PENDING, so
+accepting or revoking an invite erased it from the only surface that showed it, and no
+audit verb replaced it. ``accepted_at``/``accepted_user`` were written by the accept
+path and exposed by nothing. And the ``MEMBER_ADDED`` row written on accept has the
+*invitee* as its actor — the endpoint is unauthenticated — so the log could say "X
+joined via invite" and never who sent it.
+"""
 
 from __future__ import annotations
 
@@ -7,11 +15,15 @@ from datetime import timedelta
 import pytest
 from django.contrib.auth import get_user_model
 from django.core import mail
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.workspace import services
 from trueppm_api.apps.workspace.models import (
+    AuditEvent,
+    AuditEventType,
     InviteStatus,
     MemberStatus,
     Workspace,
@@ -139,6 +151,195 @@ def test_non_admin_cannot_list_invites(admin: object) -> None:
     member = User.objects.create_user(username="peeker", password="pw")
     assert _client(member).get(LIST_URL).status_code == 403
     assert _client(admin).get(LIST_URL).status_code == 200
+
+
+# --- #2911: the invite record is durable, and keeps its inviter ---------------
+
+
+@pytest.mark.django_db
+def test_creating_an_invite_records_who_offered_which_role(admin: object) -> None:
+    """An invite grants a role to an address nobody has verified — record the grant."""
+    resp = _client(admin).post(
+        LIST_URL, {"email": "audit-sent@x.io", "role": WorkspaceRole.MEMBER}, format="json"
+    )
+    assert resp.status_code == 201
+
+    event = AuditEvent.objects.get(event_type=AuditEventType.INVITE_SENT)
+    assert event.actor_id == admin.pk  # type: ignore[attr-defined]
+    assert event.target_label == "audit-sent@x.io"
+    assert event.metadata["role"] == WorkspaceRole(WorkspaceRole.MEMBER).label
+
+
+@pytest.mark.django_db
+def test_accepting_an_invite_records_the_inviter(admin: object) -> None:
+    """The point of the issue: "who let them in" must survive the accept.
+
+    ``MEMBER_ADDED`` cannot answer it — its actor is the invitee, because the accept
+    endpoint is unauthenticated and the invitee provisions themselves. So the inviter
+    is asserted on the INVITE_ACCEPTED row, and asserted to be a *different* person
+    from that row's actor, which is exactly the distinction that was missing.
+    """
+    invite = services.create_invite(
+        workspace=Workspace.load(), email="joiner@x.io", role=WorkspaceRole.MEMBER, invited_by=admin
+    )
+    resp = APIClient().post(
+        ACCEPT_URL,
+        {"token": invite.email_token, "username": "newjoiner", "password": "s3cretpw123"},
+        format="json",
+    )
+    assert resp.status_code == 200
+
+    joined = User.objects.get(username="newjoiner")
+    event = AuditEvent.objects.get(event_type=AuditEventType.INVITE_ACCEPTED)
+    assert event.actor_id == joined.pk
+    assert event.metadata["invited_by_id"] == str(admin.pk)  # type: ignore[attr-defined]
+    assert event.metadata["invited_by"] == services._actor_label(admin)
+    assert event.metadata["invited_at"]
+
+    # The pre-existing MEMBER_ADDED row is the one that cannot answer it — pinned so
+    # a future change cannot quietly make INVITE_ACCEPTED redundant with it.
+    member_added = AuditEvent.objects.get(event_type=AuditEventType.MEMBER_ADDED)
+    assert member_added.actor_id == joined.pk
+    assert "invited_by" not in member_added.metadata
+
+
+@pytest.mark.django_db
+def test_the_inviter_is_readable_after_the_inviter_is_gone(admin: object) -> None:
+    """A denormalized label, not just an id — off-boarding the inviter must not erase them.
+
+    ``invited_by`` is ``SET_NULL`` on the invite and ``AuditEvent.actor`` is too, so an
+    id alone would dangle exactly when the question ("who was provisioning accounts?")
+    is most likely to be asked.
+    """
+    invite = services.create_invite(
+        workspace=Workspace.load(), email="j2@x.io", role=WorkspaceRole.MEMBER, invited_by=admin
+    )
+    label_at_invite_time = services._actor_label(admin)
+    APIClient().post(
+        ACCEPT_URL,
+        {"token": invite.email_token, "username": "j2", "password": "s3cretpw123"},
+        format="json",
+    )
+
+    admin.delete()  # type: ignore[attr-defined]
+
+    event = AuditEvent.objects.get(event_type=AuditEventType.INVITE_ACCEPTED)
+    assert event.metadata["invited_by"] == label_at_invite_time
+
+
+@pytest.mark.django_db
+def test_revoking_an_invite_is_audited_once(admin: object) -> None:
+    """A repeat DELETE is a no-op and must not claim a second revocation."""
+    invite = services.create_invite(
+        workspace=Workspace.load(),
+        email="revoked@x.io",
+        role=WorkspaceRole.MEMBER,
+        invited_by=admin,
+    )
+    assert _client(admin).delete(f"{LIST_URL}{invite.pk}/").status_code == 204
+    assert _client(admin).delete(f"{LIST_URL}{invite.pk}/").status_code == 204
+
+    events = AuditEvent.objects.filter(event_type=AuditEventType.INVITE_REVOKED)
+    assert events.count() == 1
+    assert events.first().target_label == "revoked@x.io"  # type: ignore[union-attr]
+
+
+@pytest.mark.django_db
+def test_accepted_invite_is_still_readable_through_the_status_filter(admin: object) -> None:
+    """The defect: accepting made the row vanish from the only admin surface."""
+    invite = services.create_invite(
+        workspace=Workspace.load(), email="gone@x.io", role=WorkspaceRole.MEMBER, invited_by=admin
+    )
+    APIClient().post(
+        ACCEPT_URL,
+        {"token": invite.email_token, "username": "gonejoiner", "password": "s3cretpw123"},
+        format="json",
+    )
+
+    # The default is unchanged — the Members page's "Pending invites" section must
+    # not silently start listing terminal rows.
+    default_ids = {r["id"] for r in _client(admin).get(LIST_URL).data["results"]}
+    assert str(invite.pk) not in default_ids
+
+    for query in ("?status=accepted", "?status=all"):
+        rows = _client(admin).get(f"{LIST_URL}{query}").data["results"]
+        row = next(r for r in rows if r["id"] == str(invite.pk))
+        assert row["status"] == InviteStatus.ACCEPTED
+        assert row["accepted_at"] is not None
+        assert row["accepted_by"] is not None
+
+
+@pytest.mark.django_db
+def test_pending_row_reports_no_acceptance(admin: object) -> None:
+    """Both outcome fields are null on every row that was never accepted."""
+    services.create_invite(
+        workspace=Workspace.load(), email="still@x.io", role=WorkspaceRole.MEMBER, invited_by=admin
+    )
+    row = _client(admin).get(LIST_URL).data["results"][0]
+    assert row["accepted_at"] is None
+    assert row["accepted_by"] is None
+
+
+@pytest.mark.django_db
+def test_unknown_status_filter_is_a_400(admin: object) -> None:
+    """A typo'd status must not silently fall back to "everything"."""
+    resp = _client(admin).get(f"{LIST_URL}?status=acepted")
+    assert resp.status_code == 400
+    assert "status" in resp.data
+
+
+@pytest.mark.django_db
+def test_invite_history_does_not_n_plus_one_on_the_accepting_user(admin: object) -> None:
+    """``accepted_by`` renders initials, which needs the user row — prefetch it.
+
+    ``_invite_dict`` already resolved ``invited_by`` through ``select_related``; the
+    outcome column added a **second** user relation, and rendering it per row without
+    widening the prefetch makes an admin history page cost one extra query per
+    accepted invite.
+
+    Asserted as an absolute budget rather than by comparing two page sizes: this view
+    uses stock ``PageNumberPagination``, whose ``page_size_query_param`` is ``None``,
+    so ``?page_size=`` is ignored and a two-request comparison silently compares two
+    identical requests and passes no matter what. Verified by removing
+    ``accepted_user`` from ``select_related`` and confirming this fails.
+    """
+    accepted_count = 6
+    for i in range(accepted_count):
+        invite = services.create_invite(
+            workspace=Workspace.load(),
+            email=f"n{i}@x.io",
+            role=WorkspaceRole.MEMBER,
+            invited_by=admin,
+        )
+        APIClient().post(
+            ACCEPT_URL,
+            {"token": invite.email_token, "username": f"nuser{i}", "password": "s3cretpw123"},
+            format="json",
+        )
+
+    with CaptureQueriesContext(connection) as ctx:
+        resp = _client(admin).get(f"{LIST_URL}?status=accepted")
+    assert resp.status_code == 200
+    assert len(resp.data["results"]) == accepted_count
+
+    # Budget, not a golden number: permission/session/count/page queries plus the one
+    # joined row fetch. Set below `accepted_count` extra so an unprefetched relation
+    # cannot hide inside the headroom.
+    assert len(ctx) < 10, (
+        f"{len(ctx)} queries for {accepted_count} rows — a user relation is being "
+        f"resolved per row: {[q['sql'][:90] for q in ctx.captured_queries]}"
+    )
+
+
+@pytest.mark.django_db
+def test_invite_history_is_admin_only(admin: object) -> None:
+    """The history is at least as sensitive as the pending list #1724 gated."""
+    invite = services.create_invite(
+        workspace=Workspace.load(), email="hist@x.io", role=WorkspaceRole.MEMBER, invited_by=admin
+    )
+    _client(admin).delete(f"{LIST_URL}{invite.pk}/")
+    member = User.objects.create_user(username="hist_peeker", password="pw")
+    assert _client(member).get(f"{LIST_URL}?status=all").status_code == 403
 
 
 # --- acceptance (public) ----------------------------------------------------

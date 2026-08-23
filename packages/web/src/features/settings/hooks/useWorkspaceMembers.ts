@@ -33,6 +33,9 @@ interface WorkspaceInviteRaw {
   invited_by: string | null;
   created_at: string;
   expires_at: string;
+  /** Populated only on an accepted row; null on pending/revoked/expired (#2911). */
+  accepted_at: string | null;
+  accepted_by: string | null;
 }
 
 function mapMember(raw: WorkspaceMemberRaw): WorkspaceMember {
@@ -63,6 +66,11 @@ function mapInviteToWorkspaceInvite(raw: WorkspaceInviteRaw): WorkspaceInvite {
     invitedBy: raw.invited_by,
     createdAt: raw.created_at,
     expiresAt: raw.expires_at,
+    // `?? null` rather than a bare read: the fields were added in #2911, so a
+    // client talking to an older API sees them absent rather than null, and
+    // `undefined` would leak through a `string | null` field.
+    acceptedAt: raw.accepted_at ?? null,
+    acceptedBy: raw.accepted_by ?? null,
   };
 }
 

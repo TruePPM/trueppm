@@ -128,13 +128,41 @@ def enqueue_sprint_close(
     carry_over_to: str = "backlog",
     pending_disposition: str = "carry",
     requested_by: Any | None = None,
-) -> Any:
-    """Insert a SprintCloseRequest outbox row and best-effort dispatch.
+) -> tuple[Any, bool]:
+    """Return this sprint's live close request, creating and dispatching one if none exists.
+
+    Deduplicating (#2996). The sprint stays ACTIVE until the async close lands,
+    so ``POST /sprints/{id}/close/`` keeps accepting repeat requests; before this
+    each one wrote a row and fired ``close_sprint.delay()``, and since #2894 each
+    of those buys up to three attempts, every attempt taking ``select_for_update``
+    on the sprint plus a full task-outcome snapshot. Neither ``_DISPATCH_BUDGET``
+    nor ``_RETRY_DISPATCH_BUDGET`` bounds it — both bound *drain-initiated*
+    dispatch, and the POST-time ``.delay()`` bypasses them — so N POSTs bought 3N
+    heavy serialized transactions.
+
+    The same duplication also made the ``close-request`` read route misreport:
+    it answers with the most recent row, so with two concurrent requests where
+    the loser hits a serialization error the endpoint says FAILED ("the close
+    failed and will be retried") for a sprint that is already COMPLETED. One
+    live row per sprint fixes both at once, because there is only ever one row
+    to report on.
+
+    Concurrency: the sprint row is locked with ``select_for_update`` before the
+    lookup, which is what makes the check-then-create safe. The per-request Redis
+    lock cannot serialize this — it is keyed ``sprint_close_lock:{request_id}``,
+    i.e. per row rather than per sprint, so two concurrent POSTs hold two
+    different locks. Without the row lock both would find no live request and
+    both would insert.
 
     Safe to call from inside an HTTP request transaction — Celery dispatch is
     deferred via ``transaction.on_commit`` so a rolled-back request never
     fires the worker. If immediate dispatch fails (broker down) the row
     remains PENDING and the drain Beat task processes it within 30 seconds.
+
+    A deduplicated call deliberately does **not** re-dispatch: the existing row
+    is already PENDING (dispatched, or drain-eligible within 30 s), IN_FLIGHT, or
+    FAILED with a live retry clock. Re-dispatching would reintroduce exactly the
+    amplification this exists to remove.
 
     Args:
         sprint_id: UUID of the sprint to close.
@@ -146,31 +174,47 @@ def enqueue_sprint_close(
         requested_by: User instance who initiated the close (nullable).
 
     Returns:
-        The created ``SprintCloseRequest`` instance.
+        ``(request, created)`` in the shape of ``get_or_create``. When ``created``
+        is False the returned row is a pre-existing live request and **the
+        caller's ``carry_over_to`` / ``pending_disposition`` were not applied** —
+        the in-flight close keeps the disposition it was created with. Callers
+        that surface the result to a user must say so rather than implying the
+        new arguments took effect.
     """
-    from trueppm_api.apps.projects.models import SprintCloseRequest
+    from trueppm_api.apps.projects.models import Sprint, SprintCloseRequest
 
-    req = SprintCloseRequest.objects.create(
-        sprint_id=sprint_id,
-        carry_over_to=carry_over_to,
-        pending_disposition=pending_disposition,
-        requested_by=requested_by,
-    )
+    with transaction.atomic():
+        # Serializes concurrent enqueues for this sprint so the lookup below
+        # cannot race another inserting request. Nested atomic() is a savepoint
+        # under ATOMIC_REQUESTS; select_for_update requires a transaction, and
+        # this makes the function correct when called outside one too.
+        Sprint.objects.select_for_update().filter(pk=sprint_id).first()
 
-    def _dispatch() -> None:
-        from trueppm_api.apps.projects.tasks import close_sprint
+        existing = SprintCloseRequest.live_for_sprint(sprint_id).order_by("requested_at").first()
+        if existing is not None:
+            return existing, False
 
-        try:
-            close_sprint.delay(str(req.id))
-        except Exception:
-            logger.warning(
-                "enqueue_sprint_close: could not immediately dispatch sprint=%s "
-                "— drain task will pick it up within 30 s",
-                sprint_id,
-            )
+        req = SprintCloseRequest.objects.create(
+            sprint_id=sprint_id,
+            carry_over_to=carry_over_to,
+            pending_disposition=pending_disposition,
+            requested_by=requested_by,
+        )
 
-    transaction.on_commit(_dispatch)
-    return req
+        def _dispatch() -> None:
+            from trueppm_api.apps.projects.tasks import close_sprint
+
+            try:
+                close_sprint.delay(str(req.id))
+            except Exception:
+                logger.warning(
+                    "enqueue_sprint_close: could not immediately dispatch sprint=%s "
+                    "— drain task will pick it up within 30 s",
+                    sprint_id,
+                )
+
+        transaction.on_commit(_dispatch)
+    return req, True
 
 
 def enqueue_project_cascade_soft_delete(project_id: str | uuid.UUID) -> None:
@@ -1365,12 +1409,14 @@ def me_work_signals(
     user: Any,
     active_sprints: Iterable[Any],
     today: date | None = None,
+    mcp_excluded: Any | None = None,
 ) -> dict[str, Any]:
     """Cross-program aggregate signals for the My Work focus cards (#1236, ADR-0221).
 
     Rolls up, over the requesting user's *own* member projects (the same scope as
-    the ``/me/work/`` task queryset), the signals for which a real server-side
-    computation already exists — and honestly omits the rest (rule 120: never
+    the ``/me/work/`` task queryset), minus any project that opted out of agent
+    reads when the caller is an agent token, the signals for which a real
+    server-side computation already exists — and honestly omits the rest (rule 120: never
     fabricate a number). Each key below is present **only** when it has real data;
     an absent key tells the web to render that card as-is.
 
@@ -1410,11 +1456,18 @@ def me_work_signals(
     # Excludes soft-deleted projects so the signal scope mirrors the /me/work/
     # task queryset exactly (a project dropped from the task list must not linger
     # in its schedule-health / forecast rollup).
-    member_project_ids = list(
-        ProjectMembership.objects.filter(user=user, is_deleted=False, project__is_deleted=False)
-        .values_list("project_id", flat=True)
-        .distinct()
+    membership = ProjectMembership.objects.filter(
+        user=user, is_deleted=False, project__is_deleted=False
     )
+    # ADR-0678 (#3001): ``schedule_health`` and ``forecast`` reduce over the
+    # membership set directly, NOT over ``active_sprints`` — so scoping the sprint
+    # list upstream does not scope them, and an opted-out project would still steer
+    # the worst-first health band and could supply the literal P80 date the forecast
+    # reports. An aggregate is still that project's data: ``due_today_count`` on the
+    # same response is scoped for exactly this reason.
+    if mcp_excluded is not None:
+        membership = membership.exclude(project_id__in=mcp_excluded)
+    member_project_ids = list(membership.values_list("project_id", flat=True).distinct())
     if not member_project_ids:
         return signals
 
@@ -4565,9 +4618,13 @@ def notify_sprint_membership_change(
     a no-op PATCH (``old == new``) fans out nothing, and a change touching only
     ``PLANNED`` / ``COMPLETED`` / ``CANCELLED`` sprints is not a live-commitment change so
     it is ignored (honoring ADR-0102 §6 — board mechanics on a non-active sprint carry no
-    accountability signal). Recipients are the project's lead cohort (``role >= ADMIN`` —
-    the interim stand-in until ADR-0078 PO/SM facets exist), minus the actor (they made the
-    change). Per-user ``NotificationPreference`` (in-app ON, email OFF by default) governs
+    accountability signal). Recipients are everyone ``assert_scope_gate_for_project``
+    authorizes to rule on the change — ``role >= ADMIN`` plus the ADR-0078 Scrum Master and
+    Product Owner facet holders — minus the actor (they made the change). See
+    ``_sprint_lead_recipient_ids``: the facet half was missing until #2897, so the two roles
+    this notification was built for were the two it never reached.
+
+    Per-user ``NotificationPreference`` (in-app ON, email OFF by default) governs
     delivery so any lead can mute it; DND holds email but never the durable inbox row
     (ADR-0292). Dispatch is deferred to ``transaction.on_commit`` and wrapped in try/except
     so a notification failure can never fail or revert the (already-committed) task update
@@ -4636,22 +4693,44 @@ def _resolve_active_sprint_change(
 
 
 def _sprint_lead_recipient_ids(project_id: Any, actor_id: Any) -> list[Any]:
-    """Project leads (``role >= ADMIN``) minus the actor, who made the change.
+    """Everyone authorized to rule on this scope change, minus the actor.
 
-    ``is_deleted=False`` is load-bearing for privacy: a revoked lead's membership
-    row survives the soft delete with its role, so without this filter they would
-    keep receiving scope-change notices for a project they no longer belong to
-    (rbac-check).
+    **The cohort is defined as the set** :func:`assert_scope_gate_for_project`
+    **authorizes**: ``role >= ADMIN`` ∪ {Scrum Master facet} ∪ {Product Owner facet}.
+    The two must not be allowed to drift — a person who can accept or reject an
+    injected scope change and is never told one arrived has an authority they cannot
+    exercise, which is worse than not having it.
+
+    They *did* drift (#2897). This query was ADMIN+ only, justified by a comment
+    calling it "the interim stand-in until ADR-0078 PO/SM facets exist" — while the
+    facets existed and were consumed 1,900 lines earlier in this same file. The
+    authorized-but-unnotified set was exactly the SM and PO facet holders seated
+    below role 300, which is how a Product Owner is normally seated. The notification
+    whose docstring says it exists to close a PO's and an SM's hard-NOs excluded
+    precisely those two people.
+
+    The facet half reads :func:`~trueppm_api.apps.teams.services.facet_holder_user_ids`
+    — the gate's own source — rather than reimplementing the team lookup here, and
+    ``test_notified_set_covers_authorized_set`` pins the relationship across the whole
+    role × facet matrix so a future widening of either side cannot silently split them
+    again.
+
+    ``is_deleted=False`` is load-bearing for privacy on both halves: a revoked lead's
+    membership row survives the soft delete with its role, so without this filter they
+    would keep receiving scope-change notices for a project they no longer belong to
+    (rbac-check). ``facet_holder_user_ids`` applies the same filter to the team row.
     """
     from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.teams.services import facet_holder_user_ids
 
-    return list(
+    admin_ids = set(
         ProjectMembership.objects.filter(
             project_id=project_id, role__gte=Role.ADMIN, is_deleted=False
-        )
-        .exclude(user_id=actor_id)
-        .values_list("user_id", flat=True)
+        ).values_list("user_id", flat=True)
     )
+    recipients = admin_ids | facet_holder_user_ids(project_id)
+    recipients.discard(actor_id)
+    return list(recipients)
 
 
 def _sprint_change_body(

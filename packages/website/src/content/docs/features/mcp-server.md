@@ -242,6 +242,16 @@ is a pure read/compute modeled as a `GET`.
   both describe **your own token** and reveal nothing about the plan. Constraints
   that would name a resource you are not allowed to read are deliberately
   withheld — you still get the reason, just not the detail that would leak.
+- **A rate limit says how long to wait.** The compute-heavy tools — `whatif`,
+  the latest Monte Carlo, and the two forecast tools — share a tighter per-token
+  bucket (`TRUEPPM_THROTTLE_MCP_READ_COMPUTE_RATE`, default **12/min**) than the
+  general read bucket (`TRUEPPM_THROTTLE_MCP_READ_RATE`, default 120/min),
+  because each one runs the engine. Exploring a schedule in a burst can reach it.
+  When it does, the server raises a distinct rate-limit error carrying the wait
+  from the API's `Retry-After` header, phrased so the model can simply wait and
+  repeat the same call — rather than an opaque `HTTP 429` it has no way to act
+  on. If no `Retry-After` is sent, the error still says to wait a few seconds and
+  retry. Raise the limit in your instance config if your agent workload needs it.
 - **Read-only.** The server defines only read tools and issues only `GET`
   requests. The write surface is held to a later release.
 - **Self-hosted.** All traffic stays between your AI client, the server, and

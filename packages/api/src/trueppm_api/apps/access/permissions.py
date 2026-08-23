@@ -1871,6 +1871,11 @@ class McpReadableViewMixin(_McpViewBase):
             # A program is withheld only when the program itself denied; its
             # projects are filtered on their own endpoints. Reading the program row
             # is not reading a project's data.
+            #
+            # The one route where that reasoning does not hold is
+            # ``ProgramViewSet.export_job_download``, which streams a pre-built
+            # archive of child-project data that cannot be narrowed here. See its
+            # docstring and #3014 — this branch is not a ruling on that case.
             filtered = qs.exclude(mcp_enabled=False)
         elif "program" in field_names:
             # Program-owned rows with no project FK (the program backlog pool).

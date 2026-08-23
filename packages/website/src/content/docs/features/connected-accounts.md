@@ -151,9 +151,12 @@ field limits (custom fields are excluded there too).
     must first be **allow-listed by your TruePPM operator** (see
     `TRUEPPM_INTEGRATION_ALLOWED_HOSTS` in
     [Configuration](/administration/configuration/)); if it isn't, the wizard says
-    so and names the setting — ask your operator to add the host. The instance must
-    also be reachable from the TruePPM server over the public internet (an internal
-    / private-network-only Data Center host is not yet supported).
+    so and names the setting — ask your operator to add the host. If your instance is
+    reachable only on a private / internal network, your operator must **also** add
+    the host to `TRUEPPM_EGRESS_ALLOWLISTED_HOSTS` — the allow-list above controls
+    where your token may be sent, while a separate SSRF guard blocks private
+    addresses unless the host is explicitly trusted. A publicly-reachable instance
+    needs only the first setting.
 
   Then choose **what to pull** — the issues assigned to you (recommended) or a
   specific **JQL** filter — and, optionally, limit it to named **projects**. The
@@ -182,6 +185,12 @@ field limits (custom fields are excluded there too).
   than pull wider than you asked for. Both are fixed by reopening the connect
   wizard, and in both cases the items already in My Work are kept until the next
   successful pull.
+- **When the source is busy** — if Jira rate-limits the pull, nothing is flagged
+  and you are not asked to do anything. TruePPM reads the `Retry-After` the source
+  sends and re-queues the same pull behind that clock, so it completes on its own
+  shortly after. The connection stays **Active** and your existing items stay in
+  My Work throughout — a rate limit is the source asking for a moment, not a
+  broken connection, and it is deliberately not reported as one.
 - Enterprise sources appear here automatically when the Enterprise edition is
   installed — the OSS build shows only OSS sources.
 

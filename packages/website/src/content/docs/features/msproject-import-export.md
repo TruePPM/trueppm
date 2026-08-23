@@ -197,8 +197,8 @@ curl -H "Authorization: Bearer $JWT" \
 
 ```bash
 # GET recent imports for a project, newest first. Member+ read.
-# Returns at most ~14 days' worth of activity; rows older than the configured
-# TRUEPPM_IMPORT_RETENTION_DAYS (default 7) are purged.
+# Rows older than TRUEPPM_IMPORT_RETENTION_DAYS (default 7) are purged, so this
+# returns at most that many days' worth of activity.
 curl -H "Authorization: Bearer $JWT" \
   https://trueppm.example.com/api/v1/projects/$PROJECT_ID/imports/
 # 200 OK:

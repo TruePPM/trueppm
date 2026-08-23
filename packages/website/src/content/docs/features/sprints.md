@@ -10,7 +10,9 @@ The Sprints workspace is the agile-side surface — Maya the Scrum Master and To
 Two items on this page are not in the latest release. The
 `GET /api/v1/sprints/{id}/close-request/` endpoint, and the retry behavior it
 reports, land in **TruePPM 0.4** — before 0.4 a close that fails is not retried
-and reports nothing, and the sprint simply stays open. The **cadence generator**
+and reports nothing, and the sprint simply stays open. Close **deduplication**
+(one live close per sprint) also lands in 0.4; before it, each repeat POST
+started an independent close. The **cadence generator**
 described under [Standing up a run of sprints](#standing-up-a-run-of-sprints-ships-in-04)
 also lands in 0.4; on the latest release you create sprints one at a time from
 the [Plan Sprint dialog](/features/plan-sprint/). Everything else on this page
@@ -139,7 +141,7 @@ A read-only sidebar lists the unfinished tasks from the **previous closed sprint
 | `GET`  | `/api/v1/sprints/{id}/` | Sprint detail with `target_milestone_detail` nested |
 | `GET`  | `/api/v1/sprints/{id}/incoming_carryover/` | Unfinished tasks that rolled forward from the previous closed sprint, with points carried (added in 0.3) |
 | `POST` | `/api/v1/sprints/{id}/activate/` | PLANNED → ACTIVE; returns capacity warnings |
-| `POST` | `/api/v1/sprints/{id}/close/` | Async close via outbox; returns 202 + request id |
+| `POST` | `/api/v1/sprints/{id}/close/` | Async close via outbox; returns 202 + request id. **At most one close is live per sprint (0.4)** — if one is already running, a repeat POST returns that close's existing `request_id` with `deduplicated: true` rather than starting a second one |
 | `GET`  | `/api/v1/sprints/{id}/close-request/` | Outcome of the most recent close attempt — status, `failure_reason`, and whether it will be retried (Viewer+, ships in 0.4). The raw error text is shown to project admins only, and never to an API token; everyone else sets the reason plus a fixed summary. Branch on `terminal`, not on `status` — a failed close may still be retried automatically |
 | `POST` | `/api/v1/sprints/{id}/cancel/` | PLANNED → CANCELLED |
 | `GET`  | `/api/v1/sprints/{id}/outcome/` | Consolidated review read — commitment, goal, velocity, the "didn't ship" list, and the review breakdown (added in 0.3) |

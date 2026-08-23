@@ -12,8 +12,10 @@ The bearer token is set as a request header and is never logged.
 
 from __future__ import annotations
 
+import email.utils
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from types import TracebackType
 from typing import Any
 
@@ -93,6 +95,87 @@ class AuthError(TruePPMError):
     """Raised when the API rejects the configured bearer token (HTTP 401)."""
 
 
+class RateLimitError(ApiError):
+    """Raised when the API rate-limits the call (HTTP 429) — #2924.
+
+    A subclass of :class:`ApiError` so existing ``except ApiError`` handlers keep
+    working, but distinguishable for anything that wants to wait and retry.
+
+    This matters because it is not a rare edge: ``MCP_TOKEN_COMPUTE_RATE`` is
+    **12/min** and covers ``whatif``, ``monte-carlo/latest``, ``forecast`` and
+    ``sprint-forecast`` — exactly the tools an agent exercises in a burst while
+    exploring a schedule. Folding that into a generic "Unexpected response …
+    HTTP 429." told the model a sentence it could not act on: it had no way to
+    know the call would succeed shortly, so it reported a nonspecific failure.
+
+    Attributes:
+        retry_after: Seconds to wait, parsed from the ``Retry-After`` header, or
+            ``None`` when the header was absent or unparseable. ``None`` means
+            "no hint given" — never treat it as "do not retry".
+    """
+
+    def __init__(
+        self,
+        message: str,
+        refusal: Refusal | None = None,
+        retry_after: float | None = None,
+    ) -> None:
+        super().__init__(message, refusal)
+        self.retry_after = retry_after
+
+
+def parse_retry_after(response: httpx.Response) -> float | None:
+    """Seconds to wait from a ``Retry-After`` header, or ``None`` if unusable.
+
+    RFC 9110 allows two forms and DRF sends the first, but a reverse proxy or CDN
+    in front of the instance may rewrite it to the second, so both are handled:
+
+    * delta-seconds — a non-negative integer (``Retry-After: 30``)
+    * an HTTP-date — absolute (``Retry-After: Wed, 21 Oct 2026 07:28:00 GMT``),
+      converted to a delta against the response's own ``Date`` header when it has
+      one, and against local time otherwise. Using the server's ``Date`` avoids
+      turning client clock skew into a wildly wrong wait.
+
+    Total by design: anything unparseable, negative, or absurd yields ``None``.
+    A malformed header must degrade to "no hint", never crash the call that is
+    already failing.
+    """
+
+    raw = response.headers.get("Retry-After")
+    if not raw:
+        return None
+    raw = raw.strip()
+    try:
+        seconds = float(int(raw))
+    except ValueError:
+        # parsedate_to_datetime RAISES on an unparseable value (it does not return
+        # None), so this has to be caught or a junk header crashes the 429 path.
+        try:
+            parsed = email.utils.parsedate_to_datetime(raw)
+        except (TypeError, ValueError):
+            return None
+        if parsed is None:  # pragma: no cover — defensive across versions
+            return None
+        now = None
+        date_header = response.headers.get("Date")
+        if date_header:
+            # Same trap as above — a malformed Date header raises rather than
+            # returning None, and it must not crash the 429 path either.
+            try:
+                now = email.utils.parsedate_to_datetime(date_header)
+            except (TypeError, ValueError):
+                now = None
+        if now is None:
+            now = datetime.now(UTC)
+        try:
+            seconds = (parsed - now).total_seconds()
+        except (TypeError, ValueError):
+            return None
+    if seconds < 0:
+        return None
+    return seconds
+
+
 def parse_refusal(response: httpx.Response) -> Refusal | None:
     """Extract the refusal envelope from an error response, if it carries one.
 
@@ -120,6 +203,25 @@ def parse_refusal(response: httpx.Response) -> Refusal | None:
         verdict=verdict if isinstance(verdict, str) else "refused",
         reason=reason,
         constraint=constraint if isinstance(constraint, str) else "",
+    )
+
+
+def _rate_limit_message(path: str, retry_after: float | None) -> str:
+    """The one sentence the model acts on: that it is rate-limited, and for how long.
+
+    The wait is stated explicitly rather than left for the model to infer, because
+    "HTTP 429" alone reads as a failure and the correct response — wait a moment
+    and repeat the same call — is not derivable from it.
+    """
+
+    if retry_after is None:
+        return (
+            f"Rate limited by the TruePPM API on {path} (HTTP 429). No Retry-After "
+            "header was sent; wait a few seconds and retry the same call."
+        )
+    return (
+        f"Rate limited by the TruePPM API on {path} (HTTP 429). Retry the same call "
+        f"in {retry_after:.0f} second(s)."
     )
 
 
@@ -179,6 +281,13 @@ class TruePPMClient:
                 f"{_refusal_suffix(refusal)}.",
                 refusal,
             )
+        if response.status_code == httpx.codes.TOO_MANY_REQUESTS:
+            retry_after = parse_retry_after(response)
+            raise RateLimitError(
+                _rate_limit_message(AUTH_VERIFY_PATH, retry_after),
+                parse_refusal(response),
+                retry_after,
+            )
         if response.is_error:
             refusal = parse_refusal(response)
             raise ApiError(
@@ -222,6 +331,16 @@ class TruePPMClient:
                 "The TruePPM API rejected the configured token (HTTP 401)"
                 f"{_refusal_suffix(refusal)}.",
                 refusal,
+            )
+        if response.status_code == httpx.codes.TOO_MANY_REQUESTS:
+            # Not folded into the generic branch below: the compute bucket is
+            # 12/min, so this is the routine outcome of an exploratory burst and
+            # the model needs a wait hint rather than an opaque status (#2924).
+            retry_after = parse_retry_after(response)
+            raise RateLimitError(
+                _rate_limit_message(path, retry_after),
+                parse_refusal(response),
+                retry_after,
             )
         if response.is_error:
             refusal = parse_refusal(response)

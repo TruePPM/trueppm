@@ -52,6 +52,17 @@ export type ProjectNotificationMatrix = Record<
 
 export interface ProjectNotificationPreferences {
   matrix: ProjectNotificationMatrix;
+  /**
+   * Per event: is a dispatcher actually wired server-side (#2904). Eight of the
+   * nine rows are not — they were rendered, defaulted ON across in-app, email and
+   * Slack, and toggling one had no effect in either direction. Read this rather
+   * than hard-coding the list here: the server owns the classification, and a
+   * client-side copy would drift the moment #3016 wires one.
+   *
+   * An older server that does not send it yields an empty record, which the UI
+   * treats as "no claim made" — never as "nothing is delivered".
+   */
+  eventDelivery: Partial<Record<ProjectNotificationEventType, boolean>>;
   /** Per-user-per-project kill-switch (#589). When true, no notifications
    * fire for this user on this project regardless of the matrix. */
   paused: boolean;
@@ -63,6 +74,7 @@ export interface ProjectNotificationPreferences {
 
 interface ApiPreferences {
   matrix: ProjectNotificationMatrix;
+  event_delivery?: Partial<Record<ProjectNotificationEventType, boolean>>;
   paused: boolean;
   quiet_hours_enabled: boolean;
   quiet_hours_from: string;
@@ -73,6 +85,7 @@ interface ApiPreferences {
 function fromApi(payload: ApiPreferences): ProjectNotificationPreferences {
   return {
     matrix: payload.matrix,
+    eventDelivery: payload.event_delivery ?? {},
     paused: payload.paused ?? false,
     quietHoursEnabled: payload.quiet_hours_enabled,
     quietHoursFrom: payload.quiet_hours_from,

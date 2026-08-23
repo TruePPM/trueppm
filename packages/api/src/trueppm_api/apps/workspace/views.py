@@ -18,6 +18,7 @@ from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
@@ -226,7 +227,17 @@ def _build_group_dicts(groups: list[Group]) -> list[dict[str, Any]]:
 
 
 def _invite_dict(invite: WorkspaceInvite) -> dict[str, Any]:
+    """Shape one invite row for the admin list.
+
+    ``accepted_at`` / ``accepted_by`` are the outcome half (#2911): both were
+    written by the accept path and read by nothing, so the endpoint could show that
+    an invite existed but never that it had been taken up, or by whom. ``accepted_by``
+    is initials rather than an email or a name, matching ``invited_by`` — this list
+    is already the workspace's PII-heaviest admin surface and there is no reason for
+    the outcome column to widen it.
+    """
     inviter = invite.invited_by
+    accepted_user = invite.accepted_user
     return {
         "id": str(invite.pk),
         "email": invite.email,
@@ -236,6 +247,8 @@ def _invite_dict(invite: WorkspaceInvite) -> dict[str, Any]:
         "invited_by": _initials(inviter) if inviter is not None else None,
         "created_at": invite.created_at,
         "expires_at": invite.expires_at,
+        "accepted_at": invite.accepted_at,
+        "accepted_by": _initials(accepted_user) if accepted_user is not None else None,
     }
 
 
@@ -739,11 +752,54 @@ class WorkspaceInviteListView(IdempotencyMixin, APIView):
     # drf-spectacular documents the envelope in the OpenAPI schema too.
     pagination_class = PageNumberPagination
 
-    @extend_schema(responses={200: WorkspaceInviteSerializer(many=True)})
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="status",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=[*InviteStatus.values, "all"],
+                description=(
+                    "Which invites to list. Defaults to `pending` — the working set the "
+                    "Members page shows. Pass a terminal status (`accepted`, `revoked`, "
+                    "`expired`, `failed`) or `all` to read the invite history, including "
+                    "rows the default hides. Unknown value → 400."
+                ),
+            )
+        ],
+        responses={200: WorkspaceInviteSerializer(many=True)},
+    )
     def get(self, request: Request) -> Response:
-        invites = WorkspaceInvite.objects.filter(status=InviteStatus.PENDING).select_related(
-            "invited_by"
-        )
+        """List workspace invites, defaulting to the pending working set (#518, #2911).
+
+        ``?status=`` exists because the default was previously the *only* view: the
+        query was hard-filtered to PENDING, so accepting or revoking an invite erased
+        it from the one admin surface that showed it and nothing replaced it — an
+        admin could not answer "who was invited last month, and did they join?"
+        ``accepted_at`` and ``accepted_user`` were written by the accept path and
+        exposed by no endpoint at all.
+
+        The default stays ``pending`` rather than widening to everything: the Members
+        page's pending-invite section reads this endpoint, and a silent change to what
+        an unparameterized GET returns would put revoked and expired rows into a list
+        captioned "Pending invites". Reading the history is an explicit ask.
+
+        ``accepted_user`` joins ``invited_by`` in ``select_related`` because
+        ``_invite_dict`` renders initials for both, which needs the user row — without
+        it the history page costs one extra query per accepted invite.
+        """
+        requested = (request.query_params.get("status") or InviteStatus.PENDING).strip().lower()
+        if requested != "all" and requested not in InviteStatus.values:
+            raise ValidationError(
+                {"status": f"Must be one of {', '.join([*InviteStatus.values, 'all'])}."}
+            )
+
+        invites = WorkspaceInvite.objects.select_related("invited_by", "accepted_user")
+        if requested != "all":
+            invites = invites.filter(status=requested)
+        # Newest first, so the history reads like a log rather than in insertion order.
+        invites = invites.order_by("-created_at")
         # Paginate the queryset first, then build dicts only for the page.
         paginator = self.pagination_class()
         page = paginator.paginate_queryset(invites, request, view=self)
@@ -784,6 +840,18 @@ class WorkspaceInviteListView(IdempotencyMixin, APIView):
             role=serializer.validated_data["role"],
             invited_by=request.user,
         )
+        # #2911: an invite grants a role to an address nobody has verified yet, and
+        # the row it creates is no longer visible once accepted or revoked. Record
+        # the grant at the moment it is made, so "who offered this role, and which
+        # role" survives independently of the invite row's lifecycle.
+        services.record_audit_event(
+            event_type=AuditEventType.INVITE_SENT,
+            actor=request.user,
+            target_type="invite",
+            target_id=invite.pk,
+            target_label=invite.email,
+            metadata={"role": WorkspaceRole(invite.role).label},
+        )
         return Response(_invite_dict(invite), status=status.HTTP_201_CREATED)
 
 
@@ -799,6 +867,21 @@ class WorkspaceInviteDetailView(IdempotencyMixin, APIView):
             invite.email_pending = False
             invite.email_token = ""
             invite.save(update_fields=["status", "email_pending", "email_token"])
+            # Only on a real state change (#2911). A repeat DELETE of an already
+            # revoked or accepted invite is a no-op and must not write a second row
+            # claiming a revocation that did not occur — the guard above is what
+            # makes the audit count match the number of revocations.
+            services.record_audit_event(
+                event_type=AuditEventType.INVITE_REVOKED,
+                actor=request.user,
+                target_type="invite",
+                target_id=invite.pk,
+                target_label=invite.email,
+                metadata={
+                    "role": WorkspaceRole(invite.role).label,
+                    "invited_by": services._actor_label(invite.invited_by),
+                },
+            )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

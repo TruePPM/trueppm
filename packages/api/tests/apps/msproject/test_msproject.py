@@ -1738,6 +1738,61 @@ class TestImportProvenanceList:
         assert rows[0]["task_count"] is None
         assert rows[0]["creates_project"] is False
 
+    def test_declared_schema_matches_what_the_endpoint_returns(
+        self, admin_client: APIClient, project: Project, user: object
+    ) -> None:
+        """The check no CI job performs: declared response shape vs the real one (#2942).
+
+        ``api:schema-drift`` proves only that the committed ``openapi.json`` matches
+        the current code's *declarations* — a declaration that lies about the response
+        is self-consistent and passes. This endpoint declared
+        ``OpenApiTypes.OBJECT`` (``{"type": "object", "additionalProperties": {}}``)
+        for its entire life, so there was nothing for a drift check to disagree with.
+
+        Generating the schema in-process rather than reading the committed file keeps
+        this a test of the code, not of whether someone remembered to regenerate.
+        """
+        from drf_spectacular.generators import SchemaGenerator
+
+        from trueppm_api.apps.msproject.models import ImportRequest
+
+        ImportRequest.objects.create(
+            project=project,
+            filename="shape.xml",
+            file_content_b64="",
+            initiated_by=user,  # type: ignore[arg-type]
+        )
+        body = admin_client.get(self._url(project)).json()
+
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        operation = schema["paths"]["/api/v1/projects/{project_pk}/imports/"]["get"]
+
+        # The operationId is pinned: tightening the 200 to a serializer makes
+        # drf-spectacular re-derive it as `..._list`, and an operationId rename is a
+        # Breaking change under stability.md.
+        assert operation["operationId"] == "v1_projects_imports_retrieve"
+
+        # Both reachable auth failures are declared (permission_classes are
+        # IsAuthenticated + IsProjectMember), which they were not.
+        assert {"200", "401", "403", "404"} <= set(operation["responses"])
+
+        components = schema["components"]["schemas"]
+        envelope = components[
+            operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].rsplit(
+                "/", 1
+            )[-1]
+        ]
+        assert set(envelope["properties"]) == set(body), (
+            "declared envelope keys do not match the response: "
+            f"{sorted(envelope['properties'])} vs {sorted(body)}"
+        )
+
+        row_ref = envelope["properties"]["results"]["items"]["$ref"].rsplit("/", 1)[-1]
+        assert set(components[row_ref]["properties"]) == set(body["results"][0]), (
+            "declared row keys do not match the response: "
+            f"{sorted(components[row_ref]['properties'])} vs {sorted(body['results'][0])}"
+        )
+
     def test_task_count_comes_from_linked_taskrun_summary(
         self, admin_client: APIClient, project: Project, user: object
     ) -> None:

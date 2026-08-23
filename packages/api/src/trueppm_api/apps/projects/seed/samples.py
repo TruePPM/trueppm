@@ -27,6 +27,8 @@ from trueppm_api.apps.projects.models import (
     Task,
 )
 from trueppm_api.apps.projects.seed.importer import import_seed
+from trueppm_api.apps.resources.models import Resource, TaskResource
+from trueppm_api.apps.resources.services import ensure_project_resource
 
 _SEEDS_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "seeds"
 
@@ -344,4 +346,66 @@ def prepare_sample_for_user(program: Program, user: Any) -> Project | None:
         # just created and has no live subscribers, and Task has no post_save
         # broadcast signal — board events are emitted explicitly at the view layer.
         task.save(update_fields=["assignee"])
+
+    _move_allocation_to_user(tasks, user, sprint.project)
     return sprint.project
+
+
+def _move_allocation_to_user(tasks: list[Task], user: Any, project: Project) -> None:
+    """Re-point the reassigned tasks' allocation at the loading user (#2900).
+
+    Reassigning ``assignee`` alone leaves ``TaskResource`` pointing at the demo
+    persona, so the two disagree: the board shows the evaluator owning the work
+    while every capacity surface still bills it to somebody else. That is the same
+    split this issue exists to close, reintroduced one layer up — capacity,
+    utilization and the heatmap read ``TaskResource.units`` and never
+    ``Task.assignee``.
+
+    The loading user needs a ``Resource`` of their own to receive it. One is
+    created on demand and reused on a reload (matched on the ``user`` FK, which is
+    the identity link — ``name``/``email`` are not unique on ``Resource``).
+
+    Allocation is *moved*, not added: the units the persona held on that task
+    transfer, so a task never ends up double-billed to two people. Tasks the seed
+    left unallocated stay unallocated — there is nothing to move.
+    """
+    if not tasks:
+        return
+
+    rows = list(TaskResource.objects.filter(task__in=tasks))
+    if not rows:
+        return
+
+    resource = Resource.objects.filter(user=user).first()
+    if resource is None:
+        display = (user.get_full_name() or "").strip() or user.get_username()
+        resource = Resource.objects.create(name=display, email=user.email or "", user=user)
+
+    moved: list[TaskResource] = []
+    for row in rows:
+        if row.resource_id == resource.pk:
+            # Idempotent: a reload finds the allocation already moved.
+            continue
+        # A task can legitimately carry several people. Only the row that was
+        # billed to the previous assignee moves; a genuine co-assignment stays.
+        row.resource = resource
+        moved.append(row)
+
+    if moved:
+        # The unique (task, resource) constraint makes a collision possible if the
+        # loading user was ALREADY allocated to one of these tasks. Drop the
+        # duplicate rather than fail the whole demo load — the user keeps one
+        # allocation on that task either way.
+        existing = set(
+            TaskResource.objects.filter(task__in=tasks, resource=resource).values_list(
+                "task_id", flat=True
+            )
+        )
+        keep = [row for row in moved if row.task_id not in existing]
+        drop = [row.pk for row in moved if row.task_id in existing]
+        if drop:
+            TaskResource.objects.filter(pk__in=drop).delete()
+        if keep:
+            TaskResource.objects.bulk_update(keep, ["resource"])
+
+    ensure_project_resource(project, resource)

@@ -431,6 +431,16 @@ What the control does guarantee is that a credential minted *as an agent* is
 bound, always, by whichever scope objects. Treat it as the answer to "may an agent
 be pointed at this team's data," not as a data-loss-prevention boundary.
 
+One route is a known exception to "every collection withholds that project's rows":
+**a program export archive is governed by the program's own setting, not by its
+member projects'**. `GET /programs/{id}/export-jobs/{job_id}/download/` streams a
+bundle that was built asynchronously and is served as opaque bytes, so unlike every
+other read it cannot have one project's rows removed from it — honoring a child's
+block would mean withholding the whole archive. The route already requires program
+Admin or above. Which of the two behaviors is correct is an open decision
+([#3014](https://gitlab.com/trueppm/trueppm/-/issues/3014)); it is listed here so
+nobody reads the current one as settled.
+
 Today `trueppm-mcp` will start on a `legacy:full` token without complaint, because
 `GET /api/v1/auth/me/` does not report the token's scope back to it. A later
 release makes that boot fail with an explanation instead, so the *accidental* case

@@ -645,7 +645,10 @@ export interface WorkspaceMember {
 }
 
 /**
- * Pending workspace invite row returned by GET /workspace/invites/.
+ * One workspace invite row returned by GET /workspace/invites/.
+ *
+ * The endpoint defaults to `?status=pending`; pass a terminal status or `all` to
+ * read the invite history, where `acceptedAt`/`acceptedBy` are populated (#2911).
  */
 export interface WorkspaceInvite {
   id: string;
@@ -659,6 +662,10 @@ export interface WorkspaceInvite {
   invitedBy: string | null;
   createdAt: string;
   expiresAt: string;
+  /** When the invite was taken up; null on every non-accepted row. */
+  acceptedAt: string | null;
+  /** Initials of whoever accepted it, or null when it was never accepted. */
+  acceptedBy: string | null;
 }
 
 /**

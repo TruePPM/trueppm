@@ -133,6 +133,16 @@ interface CloseSprintResponse {
   queued: true;
   request_id: string;
   /**
+   * True when a close was already live for this sprint and this request joined it
+   * instead of starting a second one (#2996). `request_id` is then the existing
+   * request's id, and the two fields below carry the disposition that close is
+   * ACTUALLY using — this request's own `carry_over_to` / `pending_disposition`
+   * were not applied. Absent (not `false`) on the request that created the close.
+   */
+  deduplicated?: true;
+  carry_over_to?: string;
+  pending_disposition?: 'carry' | 'reject';
+  /**
    * Advisory present only when the sprint had pending scope changes at close
    * (ADR-0102 §7). Close is NEVER blocked by this. */
   scope_pending_on_close?: {

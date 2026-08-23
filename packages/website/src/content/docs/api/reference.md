@@ -1178,7 +1178,7 @@ can never be allowed.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/api/v1/workspace/invites/` | Admin+ | List pending invites. |
+| GET | `/api/v1/workspace/invites/` | Admin+ | List invites. Defaults to `?status=pending`; pass a terminal status (`accepted`, `revoked`, `expired`, `failed`) or `all` to read the invite history. Rows carry `accepted_at` / `accepted_by`, both null unless the invite was taken up. |
 | POST | `/api/v1/workspace/invites/` | Admin+ | Create an invite (email queued asynchronously). |
 | DELETE | `/api/v1/workspace/invites/{id}/` | Admin+ | Revoke a pending invite. |
 | POST | `/api/v1/workspace/invites/accept/` | **Public** | Accept an invite with a one-time token. Rate-limited: 20 req/min. |
@@ -1571,6 +1571,27 @@ Throttled at `user_search` (60/min per user — see
 `GET /api/v1/import-templates/csv/` serves the same downloadable CSV template
 used by the in-app import wizard, for scripted use — see
 [CSV import](/features/csv-import-export/#download-the-template).
+
+### Import provenance
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/v1/projects/{project_pk}/imports/` | Member+ | Recent imports for the project, newest first — who imported what, when, the outcome, and what the import did not carry over. |
+
+Page-number paginated (`{count, next, previous, results}`; `page`, `page_size`,
+default 50, max 200). Each row carries `id`, `filename`, `status`
+(`pending` / `dispatched` / `done` / `dead`), `creates_project`, `requested_at`,
+`initiated_by` (integer user id), `initiated_by_username` (null once that user is
+deleted), `task_count` (null until the import worker writes its summary), and
+`warnings`.
+
+Readable while the project is archived — it is a read-only provenance surface, so
+unlike most project routes it is not gated on `IsProjectNotArchived`.
+
+Rows are purged after `TRUEPPM_IMPORT_RETENTION_DAYS` (**default 7**), so this is a
+recent-activity view rather than durable audit history. Full field semantics and the
+warning-marker contract are on
+[MS Project import & export](/features/msproject-import-export/#list-recent-imports-project-history).
 
 ### Integrations
 
