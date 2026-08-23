@@ -616,6 +616,41 @@ class ProjectNotificationEventType(models.TextChoices):
     SPRINT_END = "sprint_end", "Sprint closed"
 
 
+#: Project-scoped events that a delivery path actually consults (#2904).
+#: ``COMMENT_MENTION`` is the only one: ``notifications/services.py`` gates the
+#: mention fan-out on it. Everything else in the enum is declared below.
+PROJECT_NOTIFICATION_DISPATCHED_EVENTS: frozenset[str] = frozenset(
+    {ProjectNotificationEventType.COMMENT_MENTION.value}
+)
+
+#: Members that exist in the matrix but that **nothing dispatches** — the settings
+#: page renders them, and toggling one has no effect in either direction
+#: (TODO(#3016) wire the dispatchers).
+#:
+#: They are kept rather than deleted because they are a stated product intent, and
+#: the API reports them with ``delivered: false`` so a client can say so instead of
+#: implying a delivery that never happens. Crucially they now default **OFF** on
+#: every channel: eight events defaulting ON across in-app, email and Slack told an
+#: admin that eight kinds of notification were being delivered, which made turning
+#: one *off* the only action with any apparent meaning — and it had none either.
+#:
+#: This set and :data:`PROJECT_NOTIFICATION_DISPATCHED_EVENTS` must together cover
+#: the enum exactly; ``test_project_notification_dispatch_coverage`` enforces it, so
+#: a member cannot be added without someone deciding which side it is on.
+PROJECT_NOTIFICATION_UNDISPATCHED_EVENTS: frozenset[str] = frozenset(
+    {
+        ProjectNotificationEventType.TASK_ASSIGNED.value,
+        ProjectNotificationEventType.TASK_OVERDUE.value,
+        ProjectNotificationEventType.STATUS_CHANGE.value,
+        ProjectNotificationEventType.BUDGET_ALERT.value,
+        ProjectNotificationEventType.RISK_CREATED.value,
+        ProjectNotificationEventType.MILESTONE_REACHED.value,
+        ProjectNotificationEventType.SPRINT_START.value,
+        ProjectNotificationEventType.SPRINT_END.value,
+    }
+)
+
+
 class ProjectNotificationChannel(models.TextChoices):
     """Delivery channels for project-scoped notifications.
 
@@ -637,41 +672,33 @@ class ProjectNotificationChannel(models.TextChoices):
 _T = ProjectNotificationEventType
 _C = ProjectNotificationChannel
 
+
+def _ALL_OFF() -> dict[str, bool]:
+    """Every channel off — the default for an event nothing dispatches (#2904)."""
+    return {_C.IN_APP: False, _C.EMAIL: False, _C.SLACK: False, _C.MOBILE_PUSH: False}
+
+
 PROJECT_NOTIFICATION_DEFAULT_MATRIX: dict[str, dict[str, bool]] = {
-    _T.TASK_ASSIGNED: {_C.IN_APP: True, _C.EMAIL: True, _C.SLACK: True, _C.MOBILE_PUSH: True},
-    _T.TASK_OVERDUE: {_C.IN_APP: True, _C.EMAIL: True, _C.SLACK: True, _C.MOBILE_PUSH: True},
+    # Only COMMENT_MENTION has a dispatch path, so it is the only row that may
+    # default ON — a default of True is a claim that something will be delivered.
     _T.COMMENT_MENTION: {
         _C.IN_APP: True,
         _C.EMAIL: True,
         _C.SLACK: True,
         _C.MOBILE_PUSH: True,
     },
-    _T.STATUS_CHANGE: {
-        _C.IN_APP: True,
-        _C.EMAIL: False,
-        _C.SLACK: False,
-        _C.MOBILE_PUSH: False,
-    },
-    _T.BUDGET_ALERT: {_C.IN_APP: True, _C.EMAIL: True, _C.SLACK: True, _C.MOBILE_PUSH: True},
-    _T.RISK_CREATED: {_C.IN_APP: True, _C.EMAIL: True, _C.SLACK: True, _C.MOBILE_PUSH: True},
-    _T.MILESTONE_REACHED: {
-        _C.IN_APP: True,
-        _C.EMAIL: True,
-        _C.SLACK: True,
-        _C.MOBILE_PUSH: False,
-    },
-    _T.SPRINT_START: {
-        _C.IN_APP: True,
-        _C.EMAIL: True,
-        _C.SLACK: True,
-        _C.MOBILE_PUSH: False,
-    },
-    _T.SPRINT_END: {
-        _C.IN_APP: True,
-        _C.EMAIL: True,
-        _C.SLACK: True,
-        _C.MOBILE_PUSH: False,
-    },
+    # TODO(#3016): every row below is dispatched by nothing. They default OFF on
+    # every channel so the settings matrix does not promise a delivery that never
+    # comes; the API reports them with delivered=false so a client can label them.
+    # Flip a row back to True in the same change that wires its dispatcher.
+    _T.TASK_ASSIGNED: _ALL_OFF(),
+    _T.TASK_OVERDUE: _ALL_OFF(),
+    _T.STATUS_CHANGE: _ALL_OFF(),
+    _T.BUDGET_ALERT: _ALL_OFF(),
+    _T.RISK_CREATED: _ALL_OFF(),
+    _T.MILESTONE_REACHED: _ALL_OFF(),
+    _T.SPRINT_START: _ALL_OFF(),
+    _T.SPRINT_END: _ALL_OFF(),
 }
 
 

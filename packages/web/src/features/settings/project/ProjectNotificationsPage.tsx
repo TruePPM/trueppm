@@ -128,6 +128,16 @@ export function ProjectNotificationsPage() {
             ))}
           </div>
 
+          {PROJECT_NOTIFICATION_EVENTS.some(
+            (evt) => preferences.eventDelivery[evt.type] === false,
+          ) && (
+            <p className="px-4 py-2 text-[12px] text-neutral-text-secondary border-b border-neutral-border/55">
+              Rows marked <span className="font-medium">not delivered yet</span> are not
+              dispatched by TruePPM yet, so changing them has no effect today. Your choice is
+              saved and will apply once the event ships.
+            </p>
+          )}
+
           {PROJECT_NOTIFICATION_EVENTS.map((evt, ri) => (
             <div
               key={evt.type}
@@ -137,7 +147,17 @@ export function ProjectNotificationsPage() {
               ].join(' ')}
               style={{ gridTemplateColumns: `2fr repeat(${PROJECT_NOTIFICATION_CHANNELS.length}, 110px)` }}
             >
-              <span className="text-neutral-text-primary">{evt.label}</span>
+              <span className="flex items-baseline gap-2 flex-wrap min-w-0">
+                <span className="text-neutral-text-primary">{evt.label}</span>
+                {preferences.eventDelivery[evt.type] === false && (
+                  <span
+                    className="text-[11px] text-neutral-text-secondary whitespace-nowrap"
+                    title="This event is not dispatched yet — your setting is saved and will apply once it is."
+                  >
+                    not delivered yet
+                  </span>
+                )}
+              </span>
               {PROJECT_NOTIFICATION_CHANNELS.map(({ channel }) => {
                 const on = preferences.matrix[evt.type]?.[channel] ?? false;
                 return (

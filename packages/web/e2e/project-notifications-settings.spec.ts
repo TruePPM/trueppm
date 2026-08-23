@@ -58,6 +58,20 @@ const FIXTURE_PREFERENCES = {
     sprint_start: { in_app: true, email: true, slack: true, mobile_push: false },
     sprint_end: { in_app: true, email: true, slack: true, mobile_push: false },
   },
+  // #2904 — the server reports which rows a dispatcher is actually wired for.
+  // Only comment_mention is; the matrix above is a user's STORED preferences, which
+  // may legitimately still hold ON values written before the defaults changed.
+  event_delivery: {
+    task_assigned: false,
+    task_overdue: false,
+    comment_mention: true,
+    status_change: false,
+    budget_alert: false,
+    risk_created: false,
+    milestone_reached: false,
+    sprint_start: false,
+    sprint_end: false,
+  },
   paused: false,
   quiet_hours_enabled: true,
   quiet_hours_from: '20:00:00',
@@ -170,6 +184,37 @@ test.describe('Project Settings → Notifications (#522)', () => {
 
     await expect.poll(() => captures.patches.length).toBeGreaterThan(0);
     expect(captures.patches[0]).toEqual({ matrix: { task_assigned: { email: false } } });
+  });
+
+  test('labels rows with no dispatcher, and keeps them interactive (#2904)', async ({ page }) => {
+    const captures: Captures = { patches: [] };
+    await setup(page, captures);
+    await page.goto(`/projects/${PROJECT_ID}/settings/notifications`);
+
+    // Scope to this section: the consolidated page (ADR-0146) mounts every section
+    // at once, so an unscoped query would reach into the others.
+    const section = page.locator('[data-settings-section="notifications"]');
+    await expect(
+      section.getByRole('heading', { name: 'Notifications', exact: true }),
+    ).toBeVisible();
+
+    // Eight of the nine rows are dispatched by nothing. Located by title rather
+    // than text because the explanatory banner repeats the badge wording.
+    await expect(section.getByTitle(/not dispatched yet/i)).toHaveCount(8);
+
+    // The one wired row carries no label.
+    await expect(
+      section.getByRole('switch', { name: /mention \(@\) in a comment via email/i }),
+    ).toBeVisible();
+
+    // De-emphasis must never remove function: the preference is still saved and
+    // applies once the dispatcher lands, so the toggle stays live.
+    const sprintStart = section.getByRole('switch', {
+      name: /sprint started via email/i,
+    });
+    await sprintStart.click();
+    await expect.poll(() => captures.patches.length).toBeGreaterThan(0);
+    expect(captures.patches[0]).toEqual({ matrix: { sprint_start: { email: false } } });
   });
 
   test('pauses all notifications and persists the kill-switch across reload (#589)', async ({ page }) => {

@@ -16,6 +16,8 @@ import {
 /** The wire payload — `paused` is optional so the ?? default can be exercised. */
 interface ApiPayload {
   matrix: ProjectNotificationMatrix;
+  /** #2904 — which rows have a dispatcher wired server-side. */
+  event_delivery?: Partial<Record<ProjectNotificationEventType, boolean>>;
   paused?: boolean;
   quiet_hours_enabled: boolean;
   quiet_hours_from: string;
@@ -53,6 +55,7 @@ function makeMatrix(
 function payload(overrides: Partial<ApiPayload> = {}): ApiPayload {
   return {
     matrix: makeMatrix({ task_assigned: { email: true } }),
+    event_delivery: { comment_mention: true },
     paused: false,
     quiet_hours_enabled: false,
     quiet_hours_from: '22:00:00',
@@ -66,6 +69,7 @@ function cachedPreferences(
 ): ProjectNotificationPreferences {
   return {
     matrix: makeMatrix({ task_assigned: { email: true } }),
+    eventDelivery: { comment_mention: true },
     paused: false,
     quietHoursEnabled: false,
     quietHoursFrom: '22:00:00',
@@ -109,6 +113,7 @@ describe('useProjectNotificationPreferences — loading', () => {
     expect(getMock).toHaveBeenCalledWith('/projects/p1/notification-preferences/');
     expect(result.current.preferences).toEqual({
       matrix: payload().matrix,
+      eventDelivery: { comment_mention: true },
       paused: false,
       quietHoursEnabled: false,
       quietHoursFrom: '22:00:00',

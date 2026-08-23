@@ -40,6 +40,7 @@ from .categories import CATEGORIES, CATEGORY_MENTIONS, event_types_for_category
 from .models import (
     DEFAULT_PREFERENCES,
     PROJECT_NOTIFICATION_DEFAULT_MATRIX,
+    PROJECT_NOTIFICATION_DISPATCHED_EVENTS,
     SIGNAL_ONLY_EVENTS,
     EmailTransportMode,
     Notification,
@@ -508,6 +509,18 @@ def _merge_matrix(
     return merged
 
 
+def _event_delivery() -> dict[str, bool]:
+    """``{event_type: is a dispatcher wired}`` for every matrix row (#2904).
+
+    Derived from the model's classification rather than restated here, so the
+    coverage test that pins the classification also pins this response.
+    """
+    return {
+        event: event in PROJECT_NOTIFICATION_DISPATCHED_EVENTS
+        for event in PROJECT_NOTIFICATION_DEFAULT_MATRIX
+    }
+
+
 class ProjectNotificationPreferenceView(IdempotencyMixin, APIView):
     """GET/PATCH per-project notification preferences for the current user.
 
@@ -541,6 +554,13 @@ class ProjectNotificationPreferenceView(IdempotencyMixin, APIView):
         merged = _merge_matrix(pref.matrix or {}, {})
         payload = ProjectNotificationPreferenceSerializer(pref).data
         payload["matrix"] = merged
+        # Which rows are actually wired to a dispatcher (#2904). Eight of the nine
+        # are not: the matrix rendered them, they defaulted ON across in-app, email
+        # and Slack, and toggling one had no effect in either direction. Reporting
+        # it as a server fact lets a client label those rows instead of implying a
+        # delivery that never happens — the alternative is every client
+        # hard-coding the same list and drifting from it (TODO(#3016)).
+        payload["event_delivery"] = _event_delivery()
         return Response(payload, status=status.HTTP_200_OK)
 
     def patch(self, request: Request, pk: str) -> Response:
@@ -562,6 +582,10 @@ class ProjectNotificationPreferenceView(IdempotencyMixin, APIView):
 
         payload = ProjectNotificationPreferenceSerializer(pref).data
         payload["matrix"] = _merge_matrix(pref.matrix or {}, {})
+        # Same shape as GET. The web hook maps the PATCH response through the same
+        # deserializer and writes it to the query cache, so omitting this here would
+        # drop the "not delivered yet" labels the moment a user toggled anything.
+        payload["event_delivery"] = _event_delivery()
         return Response(payload, status=status.HTTP_200_OK)
 
 

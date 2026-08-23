@@ -675,7 +675,12 @@ class TestGetOrCreateDefaultPreferences:
 
 @pytest.mark.django_db
 class TestShouldDeliver:
-    _EVENT = ProjectNotificationEventType.TASK_ASSIGNED.value
+    # COMMENT_MENTION deliberately: it is the only event with a dispatcher, and so
+    # the only one that may default ON (#2904). These tests are about quiet hours,
+    # lazy row creation and channel semantics — the event is incidental — but they
+    # need one whose default is True, or every assertion here reads False for the
+    # wrong reason. Do not swap this back to an undispatched event.
+    _EVENT = ProjectNotificationEventType.COMMENT_MENTION.value
     _IN_APP = ProjectNotificationChannel.IN_APP.value
     _EMAIL = ProjectNotificationChannel.EMAIL.value
 
