@@ -129,6 +129,39 @@ describe('syncComfortableRows — the second input, latched separately', () => {
     constants.syncComfortableRows(true);
     expect(notified).toBe(2);
   });
+
+  it('returns the resolved height on both the changed and the unchanged path', () => {
+    // The early return hands back `ROW_HEIGHT` rather than falling through, so a
+    // caller cannot read a different number depending on whether its write was
+    // the one that moved the value.
+    expect(constants.syncComfortableRows(true)).toBe(44);
+    expect(constants.syncComfortableRows(true)).toBe(44);
+    expect(constants.syncComfortableRows(false)).toBe(28);
+  });
+
+  it('survives a listener that unsubscribes while being notified', () => {
+    // The notify loop iterates a *copy* of the set for exactly this reason:
+    // mutating a Set mid-iteration would skip the next listener, so the second
+    // subscriber below would silently never fire.
+    let first = 0;
+    let second = 0;
+    const off = constants.subscribeComfortableRows(() => {
+      first += 1;
+      off();
+    });
+    const offSecond = constants.subscribeComfortableRows(() => {
+      second += 1;
+    });
+
+    constants.syncComfortableRows(true);
+    expect(first).toBe(1);
+    expect(second).toBe(1);
+
+    constants.syncComfortableRows(false);
+    expect(first).toBe(1);
+    expect(second).toBe(2);
+    offSecond();
+  });
 });
 
 describe('resolveBarTopOffset — derived, so the bar stays centered at both heights', () => {

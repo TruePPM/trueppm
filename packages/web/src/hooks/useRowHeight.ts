@@ -106,16 +106,25 @@ export function useRowMetrics(): {
     rowHeight,
     barTopOffset: resolveBarTopOffset(rowHeight),
     // The grip's *lane* stays keyed on the pointer class, not on the resolved
-    // height, and that is not a special case — it is the same rule read
-    // carefully. Every control that grows with Comfortable rows grows because it
-    // is sized from `rowHeight` (the grip's own height, the row box, the append
-    // footer, the draft row, the overlay rects, the canvas bands), so it follows
-    // the resolution automatically with nothing to opt in. `gripWidth` and
+    // height, and that is deliberate rather than an oversight. `gripWidth` and
     // `gripReserve` answer a different question — *can this pointer aim?* — and
     // their 44px answer exists because a finger cannot hit a 14px target
-    // (WCAG 2.5.5), not because the row is tall. A mouse user who asked for
-    // roomier rows can still aim, still has hover, and should not silently lose
-    // 44px of the name column to a lane they do not need.
+    // (WCAG 2.5.5), not because the row is tall. The lane is also binary (0 or
+    // 44, see `resolveGripReserve`), so the only alternative is surrendering a
+    // fifth of the name column at the Timeline's ~268px outline to an affordance
+    // that is `opacity-0` until hover and `aria-hidden` throughout. A mouse user
+    // can still aim and still has hover, so they lose nothing.
+    //
+    // What DOES follow the resolved height is everything sized from `rowHeight`:
+    // the grip's own height, the row box, the append footer, the draft row, the
+    // overlay rects and the canvas bands. That list is exhaustive, and stating
+    // it as "every control" would be false — the `+` insert disc and the WBS
+    // ⇤/⇥ nudges are fixed 16px marks whose 44px hit box is expanded (for the
+    // disc) or absent (for the nudges) on the pointer class. Widening those at a
+    // fine pointer is NOT a free change: the disc is invisible until hover, so a
+    // 44px `before:` box around it would put an unseen z-10 click target over
+    // the row's own name cell. It needs a visibility decision, not a predicate
+    // swap — tracked separately rather than smuggled in here.
     gripWidth: resolveGripWidth(coarse),
     gripReserve: resolveGripReserve(coarse),
     coarse,

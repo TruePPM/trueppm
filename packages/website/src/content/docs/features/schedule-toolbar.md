@@ -94,7 +94,7 @@ Ships in 0.4 (Schedule/Gantt only — a phase-authoring action never appears on 
 
 A **phase** is a WBS summary row — a non-subtask task with at least one structural child. It isn't a new task type: any summary task with a "real" (non-subtask) child under it is automatically a phase, the same way a task with subtasks is automatically a summary.
 
-There are two ways to end up with one, and they suit opposite ways of working. **Top-down**, you create the phase first and then fill it — that is `+ Phase`, or indenting a row under the one above it with `⇥` / `⌥→`. **Bottom-up**, you type the work first, look at it, and *then* see the phases in it — that is **Group**, which puts a phase around rows that already exist.
+There are two ways to end up with one, and they suit opposite ways of working. **Top-down**, you create the phase first and then fill it — that is `+ Phase`, or indenting a row under the one above it with `⌥→`. **Bottom-up**, you type the work first, look at it, and *then* see the phases in it — that is **Group**, which puts a phase around rows that already exist.
 
 ### The three structure controls are off by default
 

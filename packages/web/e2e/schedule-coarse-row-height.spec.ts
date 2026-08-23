@@ -372,6 +372,37 @@ test.describe('Comfortable rows lifts a fine pointer to the 44px floor (#3019)',
     }
   });
 
+  test('the canvas repaints when the option is toggled live, with no reload', async ({ page }) => {
+    // Every other case here seeds `localStorage` and loads into the on state,
+    // which proves hydration and proves nothing about the flip. This is the one
+    // that exercises the subscription: the preference is not React state that
+    // the canvas happens to be under, it is an input to a module the canvas
+    // reads through a live binding, so "the outline re-rendered" and "the engine
+    // repainted at the new pitch" are genuinely separate claims.
+    await page
+      .getByRole('toolbar', { name: 'Schedule toolbar' })
+      .getByRole('button', { name: 'Display' })
+      .click();
+    const menu = page.getByRole('menu', { name: 'Display options' });
+    await menu.getByRole('menuitemcheckbox', { name: 'Comfortable rows' }).click();
+    await page.keyboard.press('Escape');
+
+    // Back to the compact height — the option was already on from the fixture,
+    // so this click turned it OFF.
+    await expect
+      .poll(async () => (await boxOf(outlineRow(page, 'Mobilization'))).height)
+      .toBeCloseTo(28, 0);
+
+    for (const name of NAMES) {
+      const row = await boxOf(outlineRow(page, name));
+      const bar = await boxOf(barOption(page, name));
+      expect(bar.y + bar.height / 2, `bar for "${name}" after the toggle`).toBeCloseTo(
+        row.y + row.height / 2,
+        0,
+      );
+    }
+  });
+
   test('the grip grows taller but does not take a 44px lane a mouse never needed', async ({
     page,
   }) => {

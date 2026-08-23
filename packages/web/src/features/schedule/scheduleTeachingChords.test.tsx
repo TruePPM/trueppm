@@ -87,9 +87,14 @@ const MODIFIER_TESTS: ReadonlyArray<readonly [RegExp, string]> = [
 function rowScopedBindings(source: string): string[] {
   const bindings: string[] = [];
   for (const statement of source.split('\n')) {
-    const keys = [...statement.matchAll(/e\.key\s*(?:===|!==)\s*'([^']+)'/g)].map((m) =>
-      m[1].toLowerCase(),
-    );
+    // `e.key.toLowerCase() === 'd'` is how the ⌘D binding is written, and a
+    // pattern that missed it would derive a set that is too NARROW — a teaching
+    // surface adding a ⌘D chip would then fail this gate and be "fixed" to
+    // remove a correct claim, which is the inverse of the error this file
+    // exists to catch. The optional group is what keeps the derivation wide.
+    const keys = [
+      ...statement.matchAll(/e\.key(?:\.toLowerCase\(\))?\s*(?:===|!==)\s*'([^']+)'/g),
+    ].map((m) => m[1].toLowerCase());
     if (keys.length === 0) continue;
     const modifiers = MODIFIER_TESTS.filter(([re]) => re.test(statement)).map(([, name]) => name);
     for (const key of keys) bindings.push([...modifiers, key].join('+'));
@@ -162,7 +167,7 @@ function parseChord(text: string): string | null {
 }
 
 /** Prose spells a chord only when it carries a modifier glyph. */
-const PROSE_CHORD = /[⌘⌃⌥⇧]+[A-Za-z0-9→←↑↓⏎⇥⌫⎋?]/g;
+const PROSE_CHORD = /[⌘⌃⌥⇧]+[A-Za-z0-9→←↑↓⏎⇥⇤⌫⎋?]/g;
 
 function keystrokeClaims(container: HTMLElement): string[] {
   const claims: string[] = [];
@@ -188,6 +193,9 @@ describe('the keyboard layers the guard derives from', () => {
     expect(live.has('mod+z')).toBe(true); // ScheduleView, undo
     expect(live.has('?')).toBe(true); // ScheduleView, cheatsheet
     expect(live.has('alt+arrowright')).toBe(true); // TaskListRow, indent
+    // Written as `e.key.toLowerCase() === 'd'`, so it pins that the row-layer
+    // pattern reaches the normalized form and not just the bare comparison.
+    expect(live.has('mod+d')).toBe(true); // TaskListRow, duplicate
     expect(live.size).toBeGreaterThan(15);
   });
 
