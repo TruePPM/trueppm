@@ -1365,12 +1365,14 @@ def me_work_signals(
     user: Any,
     active_sprints: Iterable[Any],
     today: date | None = None,
+    mcp_excluded: Any | None = None,
 ) -> dict[str, Any]:
     """Cross-program aggregate signals for the My Work focus cards (#1236, ADR-0221).
 
     Rolls up, over the requesting user's *own* member projects (the same scope as
-    the ``/me/work/`` task queryset), the signals for which a real server-side
-    computation already exists — and honestly omits the rest (rule 120: never
+    the ``/me/work/`` task queryset), minus any project that opted out of agent
+    reads when the caller is an agent token, the signals for which a real
+    server-side computation already exists — and honestly omits the rest (rule 120: never
     fabricate a number). Each key below is present **only** when it has real data;
     an absent key tells the web to render that card as-is.
 
@@ -1410,11 +1412,18 @@ def me_work_signals(
     # Excludes soft-deleted projects so the signal scope mirrors the /me/work/
     # task queryset exactly (a project dropped from the task list must not linger
     # in its schedule-health / forecast rollup).
-    member_project_ids = list(
-        ProjectMembership.objects.filter(user=user, is_deleted=False, project__is_deleted=False)
-        .values_list("project_id", flat=True)
-        .distinct()
+    membership = ProjectMembership.objects.filter(
+        user=user, is_deleted=False, project__is_deleted=False
     )
+    # ADR-0678 (#3001): ``schedule_health`` and ``forecast`` reduce over the
+    # membership set directly, NOT over ``active_sprints`` — so scoping the sprint
+    # list upstream does not scope them, and an opted-out project would still steer
+    # the worst-first health band and could supply the literal P80 date the forecast
+    # reports. An aggregate is still that project's data: ``due_today_count`` on the
+    # same response is scoped for exactly this reason.
+    if mcp_excluded is not None:
+        membership = membership.exclude(project_id__in=mcp_excluded)
+    member_project_ids = list(membership.values_list("project_id", flat=True).distinct())
     if not member_project_ids:
         return signals
 
