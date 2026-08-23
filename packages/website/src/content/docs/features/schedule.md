@@ -365,6 +365,27 @@ The **picker** — a search-and-pick dialog for the same result, and the way to 
 
 For a standalone project, the picker searches only that project's tasks. For a project that belongs to a program, it gains a **This project / Program** toggle: Program scope searches every sibling project in the program and groups the results by project, so you can gate a task against work owned by another team. A cross-project link you create may land as **pending** rather than immediately active — see [Program schedule](/features/program-schedule/) for how the counterpart team accepts it and how the link is drawn once accepted.
 
+:::note[Ships in 0.4]
+The picker's match highlighting, its `N of M matches` count and its `Space` multi-add — everything in the two subsections below — ship in 0.4. On 0.3 the picker searches and links one task per visit: `↑` / `↓` move a highlight, `Enter` adds the highlighted task and closes, `Esc` cancels, and nothing marks why a row matched.
+:::
+
+**Searching the picker.** Type to narrow the list. A term starting with a **digit** is read as a **WBS prefix** — `1.` returns everything in phase 1 — and anything else as a **name substring**. Whichever part of the row matched is highlighted, so you can see at a glance *why* a row is in the list. A `3 of 4 matches` count sits above the list in both scopes; when more rows match than the list can show, it says so and asks you to keep typing.
+
+**Working the picker from the keyboard.** The search field keeps the cursor the whole time, so you never have to tab into the results:
+
+| Key | What it does |
+| --- | --- |
+| `↓` | Steps into the results list, landing on the **first** row; press again to move down |
+| `↑` | Moves up; from the first row it hands the cursor back to the search field |
+| `Space` | **Adds the highlighted row and keeps the picker open**, so you can link several predecessors in one visit |
+| `Enter` | Adds the highlighted row and closes |
+| `←` / `→` | Switches between This project and Program scope |
+| `Esc` | Closes without linking |
+
+`Space` only adds once `↓` has moved you into the list — before that it types a space, so you can search for `site plan` without creating anything. The footer hint tracks which of the two you are in. Each row you add leaves the list as it lands, and a line above the results counts what you have linked so far. Clicking a row still adds that one link and closes the picker; adding several in one visit is a keyboard gesture.
+
+In Program scope the search runs on the server and matches a task's **name or its notes**, so a match found only in the notes highlights nothing in the row — and a term starting with a digit is matched as a name substring there rather than as a WBS prefix. That search returns at most 200 rows; when it hits that ceiling the count says so and asks you to narrow.
+
 ## Zoom
 
 You can zoom smoothly from hour-level detail all the way out to a multi-year overview — there are no fixed steps to click through. As you zoom, the two-row date header automatically changes the unit it emphasizes (day → week → month → quarter → year) so the timeline always stays readable.

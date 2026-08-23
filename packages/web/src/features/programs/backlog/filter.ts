@@ -8,6 +8,7 @@
  * for the cases users hit, swappable later without touching callers.
  */
 
+import { normalizeForSearch } from '@/lib/searchHighlight';
 import type { BacklogItem, BacklogItemStatus, BacklogItemType } from './types';
 
 export interface BacklogFilters {
@@ -20,13 +21,15 @@ export interface BacklogFilters {
   tags: string[];
 }
 
-/** Lowercase + strip diacritics so "Polaris" matches "Pólaris". */
-export function normalize(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-}
+/**
+ * Lowercase + strip diacritics so "Polaris" matches "Pólaris".
+ *
+ * The comparison form is shared with every other search surface
+ * (`@/lib/searchHighlight`) rather than re-derived here: the highlighter that
+ * marks a hit has to agree with the filter that produced the row, or a row
+ * arrives with nothing marked in it.
+ */
+export const normalize = normalizeForSearch;
 
 /** Title-only substring match, case- and accent-insensitive. */
 export function matchesSearch(item: BacklogItem, query: string): boolean {

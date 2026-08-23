@@ -185,6 +185,56 @@ function selectedIndex(): number {
   return screen.queryAllByRole('option').findIndex((o) => o.getAttribute('aria-selected') === 'true');
 }
 
+function searchInput(): HTMLElement {
+  return screen.getByLabelText('Search tasks');
+}
+
+/**
+ * The option element the search field's `aria-activedescendant` points at, or
+ * `null` when the caret still owns the keyboard.
+ *
+ * Resolved through the DOM rather than compared to a computed id string on
+ * purpose: a dangling `aria-activedescendant` (pointing at an id nothing renders)
+ * is exactly as broken as a missing one, and only a lookup can tell them apart.
+ */
+function activeDescendantOption(): HTMLElement | null {
+  const id = searchInput().getAttribute('aria-activedescendant');
+  if (id === null) return null;
+  return document.getElementById(id);
+}
+
+/**
+ * Press a key the way a browser does: from the focused search input, bubbling up
+ * to the window listener.
+ *
+ * Dispatching on `window` directly sets `e.target` to the window, which is a
+ * state no real keystroke produces here — and both Space and Enter are guarded
+ * on the target so a Tabbed-to button keeps its native activation. A test that
+ * bypasses that guard cannot see it break.
+ */
+function pressKey(key: string) {
+  fireEvent.keyDown(searchInput(), { key });
+}
+
+/** The text a row's `<mark>` elements carry, in order. */
+function markedText(row: HTMLElement): string[] {
+  return [...row.querySelectorAll('mark')].map((m) => m.textContent ?? '');
+}
+
+/**
+ * Assert that Space is still a character, not a command.
+ *
+ * `fireEvent.keyDown` never mutates an input's value, so "Space typed" cannot be
+ * observed from the field. What it CAN prove is that the picker did not treat the
+ * key as a commit — the failure this guards is a Space that adds a dependency
+ * while the user is composing a two-word query.
+ */
+function expectSpaceTypes() {
+  mutateSpy.mockClear();
+  fireEvent.keyDown(searchInput(), { key: ' ' });
+  expect(mutateSpy).not.toHaveBeenCalled();
+}
+
 describe('ScheduleDependencyPicker — single-project (no regression)', () => {
   it('hides the scope toggle when the project has no program', () => {
     wrap(
@@ -215,7 +265,7 @@ describe('ScheduleDependencyPicker — single-project (no regression)', () => {
         onClose={onClose}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: /Design review/ }));
+    fireEvent.click(screen.getByRole('option', { name: /Design review/ }));
     expect(mutateSpy).toHaveBeenCalledWith(
       { predecessor: 't-local-1', successor: 't-source' },
       expect.any(Object),
@@ -241,7 +291,7 @@ describe('ScheduleDependencyPicker — single-project (no regression)', () => {
         onClose={vi.fn()}
       />,
     );
-    const cls = screen.getByRole('button', { name: /Design review/ }).className;
+    const cls = screen.getByRole('option', { name: /Design review/ }).className;
     expect(cls).toContain('min-h-11');
     expect(cls).toContain('md:h-9');
     expect(cls).not.toContain('sm:h-9');
@@ -305,7 +355,7 @@ describe('ScheduleDependencyPicker — cross-project (ADR-0120)', () => {
     );
     fireEvent.click(screen.getByRole('tab', { name: 'Program' }));
     fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: 'sec' } });
-    fireEvent.click(await screen.findByRole('button', { name: /Security sign-off/ }));
+    fireEvent.click(await screen.findByRole('option', { name: /Security sign-off/ }));
 
     // successor mode: source → picked
     expect(mutateSpy).toHaveBeenCalledWith(
@@ -333,7 +383,7 @@ describe('ScheduleDependencyPicker — cross-project (ADR-0120)', () => {
     );
     fireEvent.click(screen.getByRole('tab', { name: 'Program' }));
     fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: 'leg' } });
-    fireEvent.click(await screen.findByRole('button', { name: /Legal go-ahead/ }));
+    fireEvent.click(await screen.findByRole('option', { name: /Legal go-ahead/ }));
 
     expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining('Legal'));
     expect(successSpy).not.toHaveBeenCalled();
@@ -495,14 +545,14 @@ describe('ScheduleDependencyPicker — project-scope filtering', () => {
 
   it('falls back to an em dash when a task has no WBS code', () => {
     renderPicker({ allTasks: [makeTask({ id: 't-nowbs', name: 'Unnumbered', wbs: '' })] });
-    expect(screen.getByRole('button', { name: /Unnumbered/ })).toHaveTextContent('—');
+    expect(screen.getByRole('option', { name: /Unnumbered/ })).toHaveTextContent('—');
   });
 
   it('renders a humanized status chip for a normal task', () => {
     renderPicker({
       allTasks: [makeTask({ id: 't-ip', name: 'Wiring', wbs: '3.1', status: 'IN_PROGRESS' })],
     });
-    expect(screen.getByRole('button', { name: /Wiring/ })).toHaveTextContent('in progress');
+    expect(screen.getByRole('option', { name: /Wiring/ })).toHaveTextContent('in progress');
   });
 
   it('renders a milestone marker instead of a status chip for a milestone', () => {
@@ -511,37 +561,54 @@ describe('ScheduleDependencyPicker — project-scope filtering', () => {
         makeTask({ id: 't-ms', name: 'Go live', wbs: '4', isMilestone: true, status: 'NOT_STARTED' }),
       ],
     });
-    const row = screen.getByRole('button', { name: /Go live/ });
+    const row = screen.getByRole('option', { name: /Go live/ });
     expect(row).toHaveTextContent('— milestone');
     expect(row).not.toHaveTextContent('not started');
   });
 });
 
 describe('ScheduleDependencyPicker — keyboard navigation', () => {
-  it('moves the active row down and up with the arrow keys', () => {
+  it('lands the FIRST ArrowDown on the FIRST row, then walks down (#3024)', () => {
     renderPicker();
+    // Row 0 carries the resting highlight so `Enter` can take a sole match with
+    // no keypresses — but the first ↓ must ENTER the list on that row, not step
+    // past it. The shipped picker advanced unconditionally and skipped row 1.
     expect(selectedIndex()).toBe(0);
 
-    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    pressKey('ArrowDown');
+    expect(selectedIndex()).toBe(0);
+    expect(activeDescendantOption()).toBe(screen.getAllByRole('option')[0]);
+
+    pressKey('ArrowDown');
     expect(selectedIndex()).toBe(1);
 
     // Already on the last row — ArrowDown clamps rather than wrapping.
-    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    pressKey('ArrowDown');
     expect(selectedIndex()).toBe(1);
 
-    fireEvent.keyDown(window, { key: 'ArrowUp' });
+    pressKey('ArrowUp');
     expect(selectedIndex()).toBe(0);
+  });
 
-    // Already on the first row — ArrowUp clamps at 0.
-    fireEvent.keyDown(window, { key: 'ArrowUp' });
+  it('ArrowUp off the first row steps back OUT to the search field', () => {
+    renderPicker();
+    pressKey('ArrowDown');
+    expect(searchInput()).toHaveAttribute('aria-activedescendant');
+
+    pressKey('ArrowUp');
+    // The visual highlight stays on row 0, but the caret owns the keyboard
+    // again — which is what makes Space typable without reaching for the mouse.
     expect(selectedIndex()).toBe(0);
+    expect(searchInput()).not.toHaveAttribute('aria-activedescendant');
+    expectSpaceTypes();
   });
 
   it('adds the active row on Enter', () => {
     const onClose = vi.fn();
     renderPicker({ onClose });
-    fireEvent.keyDown(window, { key: 'ArrowDown' });
-    fireEvent.keyDown(window, { key: 'Enter' });
+    pressKey('ArrowDown');
+    pressKey('ArrowDown');
+    pressKey('Enter');
     expect(mutateSpy).toHaveBeenCalledWith(
       { predecessor: 't-local-2', successor: 't-source' },
       expect.any(Object),
@@ -552,7 +619,7 @@ describe('ScheduleDependencyPicker — keyboard navigation', () => {
   it('Enter is inert when the result list is empty', () => {
     renderPicker();
     fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: 'nope' } });
-    fireEvent.keyDown(window, { key: 'Enter' });
+    pressKey('Enter');
     expect(mutateSpy).not.toHaveBeenCalled();
   });
 
@@ -560,19 +627,19 @@ describe('ScheduleDependencyPicker — keyboard navigation', () => {
     renderPicker({ programId: 'prog-1' });
     expect(screen.getByRole('tab', { name: 'This project', selected: true })).toBeInTheDocument();
 
-    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    pressKey('ArrowRight');
     expect(screen.getByRole('tab', { name: 'Program', selected: true })).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Search tasks in this program…')).toBeInTheDocument();
 
-    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    pressKey('ArrowLeft');
     expect(screen.getByRole('tab', { name: 'This project', selected: true })).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Search tasks…')).toBeInTheDocument();
   });
 
   it('ignores ← and → for a standalone project (no program scope to reach)', () => {
     renderPicker({ programId: null });
-    fireEvent.keyDown(window, { key: 'ArrowRight' });
-    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    pressKey('ArrowRight');
+    pressKey('ArrowLeft');
     // Still the local list, still the single-project placeholder.
     expect(screen.getByPlaceholderText('Search tasks…')).toBeInTheDocument();
     expect(screen.getByRole('option', { name: /Design review/ })).toBeInTheDocument();
@@ -580,7 +647,8 @@ describe('ScheduleDependencyPicker — keyboard navigation', () => {
 
   it('clamps the active row when the list shrinks underneath it', () => {
     const view = renderPicker();
-    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    pressKey('ArrowDown');
+    pressKey('ArrowDown');
     expect(selectedIndex()).toBe(1);
 
     // The schedule dropped a task while the picker was open.
@@ -591,7 +659,7 @@ describe('ScheduleDependencyPicker — keyboard navigation', () => {
 
   it('hovering a row makes it the active row', () => {
     renderPicker();
-    fireEvent.mouseEnter(screen.getByRole('button', { name: /Build feature/ }));
+    fireEvent.mouseEnter(screen.getByRole('option', { name: /Build feature/ }));
     expect(selectedIndex()).toBe(1);
   });
 
@@ -602,7 +670,7 @@ describe('ScheduleDependencyPicker — keyboard navigation', () => {
 
     renderPicker({ programId: null });
     expect(screen.queryByText(/←→ scope/)).not.toBeInTheDocument();
-    expect(screen.getByText(/↑↓ navigate · Enter add · Esc cancel/)).toBeInTheDocument();
+    expect(screen.getByText('↓ into list · Enter add & close · Esc cancel')).toBeInTheDocument();
   });
 });
 
@@ -624,7 +692,7 @@ describe('ScheduleDependencyPicker — failure surfaces', () => {
     const onClose = vi.fn();
     renderPicker({ onClose });
 
-    fireEvent.click(screen.getByRole('button', { name: /Design review/ }));
+    fireEvent.click(screen.getByRole('option', { name: /Design review/ }));
     expect(screen.getByRole('alert')).toHaveTextContent(
       /circular dependency: Design review → Source task/,
     );
@@ -635,14 +703,14 @@ describe('ScheduleDependencyPicker — failure surfaces', () => {
   it('falls back to a generic retry message for a non-cycle failure', () => {
     mutateOutcome.error = new Error('network down');
     renderPicker();
-    fireEvent.click(screen.getByRole('button', { name: /Design review/ }));
+    fireEvent.click(screen.getByRole('option', { name: /Design review/ }));
     expect(screen.getByRole('alert')).toHaveTextContent('Failed to add dependency. Retry?');
   });
 
   it('clears the inline error as soon as the user edits the search term', () => {
     mutateOutcome.error = new Error('network down');
     renderPicker();
-    fireEvent.click(screen.getByRole('button', { name: /Design review/ }));
+    fireEvent.click(screen.getByRole('option', { name: /Design review/ }));
     expect(screen.getByRole('alert')).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: 'b' } });
@@ -652,7 +720,7 @@ describe('ScheduleDependencyPicker — failure surfaces', () => {
   it('clears the inline error when the user switches scope', () => {
     mutateOutcome.error = new Error('network down');
     renderPicker({ programId: 'prog-1' });
-    fireEvent.click(screen.getByRole('button', { name: /Design review/ }));
+    fireEvent.click(screen.getByRole('option', { name: /Design review/ }));
     expect(screen.getByRole('alert')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('tab', { name: 'Program' }));
@@ -663,11 +731,11 @@ describe('ScheduleDependencyPicker — failure surfaces', () => {
     mutateOutcome.error = new Error('network down');
     const onClose = vi.fn();
     renderPicker({ onClose });
-    fireEvent.click(screen.getByRole('button', { name: /Design review/ }));
+    fireEvent.click(screen.getByRole('option', { name: /Design review/ }));
     expect(screen.getByRole('alert')).toBeInTheDocument();
 
     mutateOutcome.error = null;
-    fireEvent.click(screen.getByRole('button', { name: /Design review/ }));
+    fireEvent.click(screen.getByRole('option', { name: /Design review/ }));
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -705,7 +773,7 @@ describe('ScheduleDependencyPicker — program-scope states', () => {
     renderPicker({ programId: 'prog-1', initialScope: 'program' });
     fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: 'sec' } });
 
-    const row = await screen.findByRole('button', { name: /Security sign-off/ });
+    const row = await screen.findByRole('option', { name: /Security sign-off/ });
     // qualified_id ("SEC-3") is what cross-project rows must render — it is
     // the one #2671 site where the project-code prefix disambiguates two
     // sibling projects' task 3 from each other.
@@ -739,7 +807,7 @@ describe('ScheduleDependencyPicker — program-scope states', () => {
     renderPicker({ programId: 'prog-1', initialScope: 'program' });
     fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: 'un' } });
 
-    const row = await screen.findByRole('button', { name: /Unlabeled work/ });
+    const row = await screen.findByRole('option', { name: /Unlabeled work/ });
     expect(row).toHaveTextContent('—');
     // Cross-project rows carry no status chip — the sibling project owns status.
     expect(row).not.toHaveTextContent('not started');
@@ -753,7 +821,7 @@ describe('ScheduleDependencyPicker — program-scope states', () => {
     await screen.findByRole('listbox', { name: 'Program task results' });
     // "Legal go-ahead" is the third flat row (second group) — hovering it must
     // select index 2, proving the group→flat index mapping.
-    fireEvent.mouseEnter(screen.getByRole('button', { name: /Legal go-ahead/ }));
+    fireEvent.mouseEnter(screen.getByRole('option', { name: /Legal go-ahead/ }));
     expect(selectedIndex()).toBe(2);
   });
 
@@ -764,8 +832,9 @@ describe('ScheduleDependencyPicker — program-scope states', () => {
     fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: 'e' } });
     await screen.findByRole('listbox', { name: 'Program task results' });
 
-    fireEvent.keyDown(window, { key: 'ArrowDown' });
-    fireEvent.keyDown(window, { key: 'Enter' });
+    pressKey('ArrowDown');
+    pressKey('ArrowDown');
+    pressKey('Enter');
     expect(mutateSpy).toHaveBeenCalledWith(
       { predecessor: 'x2', successor: 't-source' },
       expect.any(Object),
@@ -806,5 +875,385 @@ describe('ScheduleDependencyPicker — scope tabs', () => {
     expect(screen.queryByRole('listbox', { name: 'Program task results' })).not.toBeInTheDocument();
     // Scope change resets the highlight to the first local row.
     expect(selectedIndex()).toBe(0);
+  });
+});
+
+describe('ScheduleDependencyPicker — Space adds without closing (#3024)', () => {
+  it('Space types while the caret owns the keyboard, and adds once ↓ enters the list', () => {
+    const onClose = vi.fn();
+    renderPicker({ onClose });
+
+    // Before any ↓: the field is a SEARCH field, so Space belongs to the query.
+    // This is the whole disambiguation — a planner composing "site plan" must
+    // not create a dependency halfway through the phrase.
+    expectSpaceTypes();
+
+    pressKey('ArrowDown');
+    fireEvent.keyDown(searchInput(), { key: ' ' });
+
+    expect(mutateSpy).toHaveBeenCalledWith(
+      { predecessor: 't-local-1', successor: 't-source' },
+      expect.any(Object),
+    );
+    // The picker STAYS OPEN — that is what makes it multi-add. `Enter` is the
+    // only commit that closes.
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: /Add predecessor/ })).toBeInTheDocument();
+  });
+
+  it('adds two links in one open, dropping each row as it lands', () => {
+    const onClose = vi.fn();
+    renderPicker({ onClose });
+    expect(optionNames()).toHaveLength(2);
+
+    pressKey('ArrowDown');
+    fireEvent.keyDown(searchInput(), { key: ' ' });
+    // The added row leaves the list on its own: `excludedIds` is a prop that
+    // cannot refresh until the parent's dependency query refetches, and a second
+    // Space on a still-listed row would post a duplicate edge.
+    expect(optionNames()).toHaveLength(1);
+    expect(optionNames()[0]).toContain('Build feature');
+
+    fireEvent.keyDown(searchInput(), { key: ' ' });
+    expect(mutateSpy).toHaveBeenCalledTimes(2);
+    expect(mutateSpy.mock.calls[1][0]).toEqual({
+      predecessor: 't-local-2',
+      successor: 't-source',
+    });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('states a running tally, which is the only feedback a same-project add produces', () => {
+    renderPicker();
+    pressKey('ArrowDown');
+    fireEvent.keyDown(searchInput(), { key: ' ' });
+    expect(screen.getByText('Added “Design review” — 1 link added')).toBeInTheDocument();
+
+    fireEvent.keyDown(searchInput(), { key: ' ' });
+    expect(screen.getByText('Added “Build feature” — 2 links added')).toBeInTheDocument();
+  });
+
+  it('leaves Space alone on a control the user tabbed to (native activation)', () => {
+    renderPicker();
+    pressKey('ArrowDown');
+    // Target is the Close button, not the search field: the window listener must
+    // not swallow the key, or Tab-to-Close + Space stops closing the dialog.
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Close' }), { key: ' ' });
+    expect(mutateSpy).not.toHaveBeenCalled();
+  });
+
+  it('typing hands the keyboard back to the caret', () => {
+    renderPicker();
+    pressKey('ArrowDown');
+    expect(activeDescendantOption()).not.toBeNull();
+
+    fireEvent.change(searchInput(), { target: { value: 'e' } });
+    expect(activeDescendantOption()).toBeNull();
+    expectSpaceTypes();
+  });
+
+  it('switching scope hands the keyboard back to the caret', () => {
+    renderPicker({ programId: 'prog-1' });
+    pressKey('ArrowDown');
+    expect(activeDescendantOption()).not.toBeNull();
+
+    pressKey('ArrowRight');
+    expect(activeDescendantOption()).toBeNull();
+  });
+
+  it('Space is inert when nothing is listed', () => {
+    renderPicker();
+    pressKey('ArrowDown');
+    fireEvent.change(searchInput(), { target: { value: 'nope' } });
+    fireEvent.keyDown(searchInput(), { key: ' ' });
+    expect(mutateSpy).not.toHaveBeenCalled();
+  });
+
+  it('keeps the modal open on a failed Space-add and surfaces the reason', () => {
+    mutateOutcome.error = { response: { data: { detail: 'cyclic_dependency', cycle: [] } } };
+    const onClose = vi.fn();
+    renderPicker({ onClose });
+    pressKey('ArrowDown');
+    fireEvent.keyDown(searchInput(), { key: ' ' });
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    // The row did NOT leave the list — nothing was linked.
+    expect(optionNames()).toHaveLength(2);
+  });
+});
+
+describe('ScheduleDependencyPicker — aria-activedescendant over a listbox (#3024)', () => {
+  it('announces nothing until ↓ walks in', () => {
+    renderPicker();
+    const input = searchInput();
+    expect(input).toHaveAttribute('role', 'combobox');
+    expect(input).toHaveAttribute('aria-expanded', 'true');
+    expect(input.getAttribute('aria-controls')).toBe(
+      screen.getByRole('listbox', { name: 'Task results' }).id,
+    );
+    // A roving VISUAL highlight with no activedescendant is exactly the defect:
+    // the row is styled, and a screen reader is told nothing.
+    expect(activeDescendantOption()).toBeNull();
+  });
+
+  it('tracks the active row as the arrows move it', () => {
+    renderPicker();
+    pressKey('ArrowDown');
+    const rows = screen.getAllByRole('option');
+    expect(activeDescendantOption()).toBe(rows[0]);
+
+    pressKey('ArrowDown');
+    expect(activeDescendantOption()).toBe(screen.getAllByRole('option')[1]);
+  });
+
+  it('names the row explicitly, so a highlighted name is not read as one word', () => {
+    renderPicker();
+    fireEvent.change(searchInput(), { target: { value: 'design' } });
+    // Accessible-name computation trims each text node before joining, so a name
+    // split across <mark>/<span> would announce "Designreview". This is what
+    // `aria-activedescendant` makes a screen reader read on every arrow press.
+    expect(screen.getByRole('option', { name: '1.1 Design review not started' })).toBeInTheDocument();
+  });
+
+  it('tracks a cross-project row across groups', async () => {
+    searchState.data = CROSS_ROWS;
+    renderPicker({ programId: 'prog-1', initialScope: 'program' });
+    fireEvent.change(searchInput(), { target: { value: 'e' } });
+    await screen.findByRole('listbox', { name: 'Program task results' });
+
+    pressKey('ArrowDown');
+    pressKey('ArrowDown');
+    pressKey('ArrowDown');
+    expect(activeDescendantOption()).toBe(screen.getAllByRole('option')[2]);
+    // The project header is a group name, not an option — a bare <div> is not a
+    // legal listbox child and would announce the project twice.
+    expect(screen.getByRole('group', { name: 'Legal' })).toBeInTheDocument();
+  });
+
+  it('drops the pointer when the list empties underneath the caret', () => {
+    renderPicker();
+    pressKey('ArrowDown');
+    fireEvent.change(searchInput(), { target: { value: 'nope' } });
+    expect(activeDescendantOption()).toBeNull();
+    expect(searchInput()).toHaveAttribute('aria-expanded', 'false');
+  });
+});
+
+describe('ScheduleDependencyPicker — the match is marked (#3024)', () => {
+  it('marks the WBS PREFIX for a leading-digit query, and leaves the name alone', () => {
+    renderPicker({
+      allTasks: [
+        makeTask({ id: 'a', wbs: '1.1', name: 'Design review' }),
+        makeTask({ id: 'b', wbs: '1.2', name: 'Build feature' }),
+      ],
+    });
+    fireEvent.change(searchInput(), { target: { value: '1.' } });
+
+    const rows = screen.getAllByRole('option');
+    expect(markedText(rows[0])).toEqual(['1.']);
+    expect(markedText(rows[1])).toEqual(['1.']);
+  });
+
+  it('marks the name SUBSTRING for a non-digit query, and leaves the WBS alone', () => {
+    renderPicker({
+      allTasks: [makeTask({ id: 'a', wbs: '1.1', name: 'Lay-down area survey' })],
+    });
+    fireEvent.change(searchInput(), { target: { value: 'lay' } });
+
+    const row = screen.getAllByRole('option')[0];
+    // The original casing survives — the mark states where the hit was, it does
+    // not restate the query.
+    expect(markedText(row)).toEqual(['Lay']);
+  });
+
+  it('marks nothing when there is no query', () => {
+    renderPicker();
+    expect(markedText(screen.getAllByRole('option')[0])).toEqual([]);
+  });
+
+  it('a WBS-prefix hit and a name-substring hit are distinguishable', () => {
+    // The pairing is the design's stated reason for having both match modes: a
+    // planner has to be able to see WHY a row is in the list.
+    renderPicker({ allTasks: [makeTask({ id: 'a', wbs: '1.1', name: 'Phase 1 kickoff' })] });
+
+    fireEvent.change(searchInput(), { target: { value: '1.' } });
+    const wbsHit = screen.getAllByRole('option')[0];
+    expect(within(wbsHit).getByText('1.').tagName).toBe('MARK');
+
+    fireEvent.change(searchInput(), { target: { value: 'kick' } });
+    const nameHit = screen.getAllByRole('option')[0];
+    expect(within(nameHit).getByText('kick').tagName).toBe('MARK');
+    // …and the WBS column carries no mark this time.
+    expect(markedText(nameHit)).toEqual(['kick']);
+  });
+
+  it('never marks a cross-project row\'s server-formatted reference', async () => {
+    searchState.data = CROSS_ROWS;
+    renderPicker({ programId: 'prog-1', initialScope: 'program' });
+    // `SEC-3` is a server id, not a WBS code — prefix semantics do not apply.
+    fireEvent.change(searchInput(), { target: { value: '3' } });
+    await screen.findByRole('listbox', { name: 'Program task results' });
+    for (const row of screen.getAllByRole('option')) expect(markedText(row)).toEqual([]);
+  });
+});
+
+describe('ScheduleDependencyPicker — the count reads N of M in every scope (#3024)', () => {
+  it('reads N of M in project scope when nothing is capped', () => {
+    renderPicker();
+    expect(screen.getByText('2 of 2 matches')).toBeInTheDocument();
+  });
+
+  it('still reads N of M when the 12-row cap bites, and says to narrow', () => {
+    renderPicker({
+      allTasks: Array.from({ length: 20 }, (_, i) =>
+        makeTask({ id: `t${i}`, name: `Task ${i}`, wbs: `1.${i}` }),
+      ),
+    });
+    expect(screen.getByText('12 of 20 matches — keep typing to narrow')).toBeInTheDocument();
+  });
+
+  it('singularizes a sole match', () => {
+    renderPicker({ allTasks: [makeTask({ id: 'a', name: 'Only one' })] });
+    expect(screen.getByText('1 of 1 match')).toBeInTheDocument();
+  });
+
+  it('reads N of M in PROGRAM scope, which rendered no count at all', async () => {
+    searchState.data = CROSS_ROWS;
+    renderPicker({ programId: 'prog-1', initialScope: 'program' });
+    fireEvent.change(searchInput(), { target: { value: 'e' } });
+    await screen.findByRole('listbox', { name: 'Program task results' });
+    expect(screen.getByText('3 of 3 matches')).toBeInTheDocument();
+  });
+
+  it('counts only linkable rows — an already-linked sibling is not a match', async () => {
+    searchState.data = CROSS_ROWS;
+    renderPicker({
+      programId: 'prog-1',
+      initialScope: 'program',
+      excludedIds: new Set(['x1']),
+    });
+    fireEvent.change(searchInput(), { target: { value: 'e' } });
+    await screen.findByRole('listbox', { name: 'Program task results' });
+    expect(screen.getByText('2 of 2 matches')).toBeInTheDocument();
+  });
+
+  it('drops the count with the list once a Space-add empties it', () => {
+    renderPicker({ allTasks: [makeTask({ id: 'a', name: 'Only one' })] });
+    pressKey('ArrowDown');
+    fireEvent.keyDown(searchInput(), { key: ' ' });
+    expect(screen.queryByText(/ of /)).not.toBeInTheDocument();
+    expect(screen.getByText('No matching tasks. Try a different search.')).toBeInTheDocument();
+  });
+});
+
+describe('ScheduleDependencyPicker — a commit key is a commit only from the field (#3024)', () => {
+  it('Enter on the Tabbed-to Close button closes, and does NOT link', () => {
+    // The focus trap's Tab cycle reaches ×. Without a target guard the window
+    // listener preventDefault()s the native activation and submits the
+    // highlighted row instead — the dialog closes either way, so the user sees
+    // "Close worked" and a dependency they never asked for.
+    const onClose = vi.fn();
+    renderPicker({ onClose });
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Close' }), { key: 'Enter' });
+    expect(mutateSpy).not.toHaveBeenCalled();
+  });
+
+  it('Enter is inert on an empty list for the right reason', () => {
+    // Fired from the field, so the target guard is satisfied and the emptiness
+    // is what makes it inert — otherwise this passes without exercising it.
+    renderPicker();
+    fireEvent.change(searchInput(), { target: { value: 'nope' } });
+    expect(screen.queryAllByRole('option')).toHaveLength(0);
+    pressKey('Enter');
+    expect(mutateSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('ScheduleDependencyPicker — the footer states which mode you are in (#3024)', () => {
+  it('does not promise Space while the caret still owns the keyboard', () => {
+    renderPicker();
+    expect(screen.getByText('↓ into list · Enter add & close · Esc cancel')).toBeInTheDocument();
+  });
+
+  it('promises Space once ↓ has entered the list', () => {
+    renderPicker();
+    pressKey('ArrowDown');
+    expect(screen.getByText('↑↓ move · Space add · Enter add & close · Esc cancel')).toBeInTheDocument();
+  });
+
+  it('keeps the scope hint in both modes for a programmed project', () => {
+    renderPicker({ programId: 'prog-1' });
+    expect(screen.getByText('←→ scope · ↓ into list · Enter add & close · Esc cancel')).toBeInTheDocument();
+    pressKey('ArrowDown');
+    expect(
+      screen.getByText('←→ scope · ↑↓ move · Space add · Enter add & close · Esc cancel'),
+    ).toBeInTheDocument();
+  });
+});
+
+describe('ScheduleDependencyPicker — program scope marks what the SERVER matched (#3024)', () => {
+  it('marks a digit query as a name substring, because the server has no WBS prefix', async () => {
+    // `task_search` runs `name__icontains` — never a prefix, and a cross-project
+    // row has no WBS to prefix. Deriving `wbs-prefix` from the leading digit
+    // marked nothing at all, on a query that really did match a name.
+    searchState.data = [
+      {
+        id: 'x9',
+        name: 'Phase 2 handover',
+        short_id: '00000009',
+        short_id_display: 'T-9',
+        qualified_id: 'OPS-9',
+        project_id: 'p-ops',
+        project_name: 'Ops',
+      },
+    ];
+    renderPicker({ programId: 'prog-1', initialScope: 'program' });
+    fireEvent.change(searchInput(), { target: { value: '2' } });
+    await screen.findByRole('listbox', { name: 'Program task results' });
+    expect(markedText(screen.getAllByRole('option')[0])).toEqual(['2']);
+  });
+
+  it('says to narrow when the server hit its 200-row ceiling', async () => {
+    // At the cap the count would otherwise read "200 of 200 matches" — stating a
+    // completeness the endpoint never claimed.
+    searchState.data = Array.from({ length: 200 }, (_, i) => ({
+      id: `x${i}`,
+      name: `Handover ${i}`,
+      short_id: `0000${i}`,
+      short_id_display: `T-${i}`,
+      qualified_id: `OPS-${i}`,
+      project_id: 'p-ops',
+      project_name: 'Ops',
+    }));
+    renderPicker({ programId: 'prog-1', initialScope: 'program' });
+    fireEvent.change(searchInput(), { target: { value: 'handover' } });
+    await screen.findByRole('listbox', { name: 'Program task results' });
+    expect(screen.getByText('200 of 200 matches — keep typing to narrow')).toBeInTheDocument();
+  });
+});
+
+describe('ScheduleDependencyPicker — the count describes, it does not shout (#3024)', () => {
+  it('reaches a screen reader through aria-describedby, not a live region', () => {
+    // It changes on every keystroke. As `role="status"` it would speak over the
+    // field's own typing echo and over the row announcement the planner is
+    // navigating by (web rule 316).
+    renderPicker();
+    const count = screen.getByText('2 of 2 matches');
+    expect(count).not.toHaveAttribute('role', 'status');
+    expect(searchInput().getAttribute('aria-describedby')).toBe(count.id);
+  });
+
+  it('drops the description with the count', () => {
+    renderPicker();
+    fireEvent.change(searchInput(), { target: { value: 'nope' } });
+    expect(searchInput()).not.toHaveAttribute('aria-describedby');
+  });
+
+  it('keeps the added-links tally as a live region — that one IS an event', () => {
+    renderPicker();
+    pressKey('ArrowDown');
+    pressKey(' ');
+    expect(screen.getByRole('status')).toHaveTextContent('Added “Design review” — 1 link added');
   });
 });
