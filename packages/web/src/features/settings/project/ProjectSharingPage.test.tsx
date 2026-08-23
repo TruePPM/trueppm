@@ -19,6 +19,15 @@ vi.mock('@/components/Toast', () => ({
 
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'p-1' }));
 
+// This page mounts ShareViewDialog, which since #2910 reads the server-resolved
+// sharing flag and the workspace-admin role. Both reach useQuery, and this file
+// renders without a QueryClientProvider by design, so they are mocked on the
+// unblocked path — these specs are about the page's own create/revoke flow.
+vi.mock('@/hooks/useProject', () => ({
+  useProject: () => ({ data: { effective_public_sharing: true } }),
+}));
+vi.mock('@/hooks/useIsWorkspaceAdmin', () => ({ useIsWorkspaceAdmin: () => true }));
+
 // Distinctive sentinel so a spec can prove the reveal's "Expires …" string is
 // rendered through the user date-format preference (rule 257 / #2059) and not a
 // bare `toLocaleDateString()`.
