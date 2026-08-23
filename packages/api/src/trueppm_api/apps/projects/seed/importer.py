@@ -32,6 +32,7 @@ import logging
 import uuid
 from collections import defaultdict
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from functools import partial
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -90,6 +91,19 @@ logger = logging.getLogger(__name__)
 #: statement (twice, row + history) before Postgres ever sees it. Worker memory
 #: is the binding resource once the import is async, so the batch is capped.
 _BULK_BATCH_SIZE = 500
+
+# Ceiling for a TaskResource synthesized from a bare ``assignee`` (#2900). The
+# actual units are ``min(this, resource.max_units)`` — a bare assignee means "this
+# person is on this task at their normal availability", so a half-time engineer
+# lands at 0.5 and a 10% advisor at 0.1 rather than all of them at 1.0.
+#
+# That distinction is load-bearing for the demo the packs exist to give: they
+# deliberately staff part-timers and 10% advisors ("not everyone is at 100%", per
+# the sample-projects docs), and billing an advisor a full unit would put her at
+# 1000% on every task she owns — an all-red heatmap misrepresenting the very
+# capacity story the fixture was authored to tell. A seed that wants some other
+# split says so with an explicit ``assignments`` array, which always wins.
+_ASSIGNEE_MAX_UNITS = Decimal("1.0")
 
 
 class SeedReplaceRequired(Exception):
@@ -249,6 +263,10 @@ class _SeedImporter:
         self.users: dict[str, Any] = {}
         self.calendars: dict[str, Calendar] = {}
         self.resources: dict[str, Resource] = {}
+        # account slug -> Resource, so a task carrying only ``assignee`` (an
+        # ACCOUNT slug) can still be given the TaskResource row that capacity,
+        # utilization and the heatmap actually read (#2900).
+        self.resources_by_account: dict[str, Resource] = {}
         self.projects: dict[str, Project] = {}
         # global task / sprint indices keyed by (project_slug, local_id)
         self.tasks: dict[tuple[str, str], Task] = {}
@@ -725,6 +743,9 @@ class _SeedImporter:
                 # seed cannot pull a real user's resource into their program.
                 obj = Resource.objects.create(**defaults)
             self.resources[res["slug"]] = obj
+            account = res.get("account")
+            if account:
+                self.resources_by_account[account] = obj
 
     def _create_program(self) -> Program:
         """Mint the program, or adopt the shell the caller pre-created (ADR-0726 §4).
@@ -1142,6 +1163,31 @@ class _SeedImporter:
             self._bulk_insert(TaskRelation, rows, project_ids=[project_id])
 
     def _assign_resources(self, project: Project, data: dict[str, Any]) -> None:
+        """Create the ``TaskResource`` rows, from ``assignments`` or from ``assignee``.
+
+        The fallback is the load-bearing half (#2900). Capacity, utilization and
+        the heatmap sum ``TaskResource.units`` and never read ``Task.assignee``, so
+        a task carrying only an assignee contributes **zero** load. Every bundled
+        seed pack authors assignees and no ``assignments`` array at all, which made
+        this whole method dead code for every sample that ships — an evaluator
+        clicking "Load demo data" saw an owner on every board card and a completely
+        empty heatmap, and concluded the capacity features do not work.
+
+        Synthesizing the row here rather than adding ``assignments`` to the four
+        fixtures is deliberate: it also covers any future fixture that authors an
+        assignee and forgets the allocation, which is the mistake all four made.
+
+        An explicit ``assignments`` array always wins — it can express partial
+        units and several people on one task, which a bare assignee cannot. The
+        fallback fires only when a task has no assignments at all, and resolves
+        the assignee (an **account** slug) through the resource that declares that
+        account. A task whose assignee has no corresponding resource is skipped:
+        there is no defensible units figure for a person the seed never staffed.
+
+        Units are the resource's own availability, capped at one full unit — see
+        :data:`_ASSIGNEE_MAX_UNITS` for why a flat 1.0 would misrepresent the
+        part-time staffing the packs deliberately author.
+        """
         slug = data["slug"]
         rows = []
         # ``ensure_project_resource`` is idempotent but costs a round-trip, so it
@@ -1149,16 +1195,35 @@ class _SeedImporter:
         # resource rather than once per assignment.
         used: dict[Any, Any] = {}
         for task_data in data.get("tasks", []):
+            task_key = (slug, task_data["wbs_path"])
             assignments = task_data.get("assignments", [])
-            if not assignments:
+            if assignments:
+                task = self.tasks[task_key]
+                for assignment in assignments:
+                    resource = self.resources[assignment["resource"]]
+                    used[resource.pk] = resource
+                    rows.append(
+                        TaskResource(
+                            task=task, resource=resource, units=assignment.get("units", 1.0)
+                        )
+                    )
                 continue
-            task = self.tasks[(slug, task_data["wbs_path"])]
-            for assignment in assignments:
-                resource = self.resources[assignment["resource"]]
-                used[resource.pk] = resource
-                rows.append(
-                    TaskResource(task=task, resource=resource, units=assignment.get("units", 1.0))
-                )
+
+            assignee = task_data.get("assignee")
+            if not assignee:
+                continue
+            owner = self.resources_by_account.get(assignee)
+            if owner is None:
+                continue
+            # A milestone is a gate, not work somebody performs, so it carries no
+            # load even when the seed names an owner on it. Giving one units would
+            # inflate every heatmap cell it lands in with effort nobody spends.
+            task = self.tasks[task_key]
+            if task.is_milestone:
+                continue
+            used[owner.pk] = owner
+            units = min(_ASSIGNEE_MAX_UNITS, owner.max_units)
+            rows.append(TaskResource(task=task, resource=owner, units=units))
         self._bulk_insert(TaskResource, rows)
         for resource in used.values():
             ensure_project_resource(project, resource)

@@ -27,6 +27,7 @@ from trueppm_api.apps.projects.seed.samples import (
     _first_open_sprint,
     prepare_sample_for_user,
 )
+from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
 
 pytestmark = pytest.mark.django_db
 
@@ -190,3 +191,106 @@ def test_load_sample_waterfall_sample_has_no_landing(user: Any) -> None:
     # The waterfall-only sample has no open sprint → no board to land on; the
     # client falls back to the program overview.
     assert resp.json()["landing_project_id"] is None
+
+
+# --- allocation moves with the assignee (#2900) -----------------------------
+#
+# Reassigning `assignee` alone leaves TaskResource pointing at the demo persona,
+# so the board shows the evaluator owning the work while every capacity surface
+# still bills it to somebody else — the same assignee/allocation split #2900 fixes
+# one layer down, reintroduced here.
+
+
+def _resource(name: str, user: Any = None) -> Resource:
+    return Resource.objects.create(name=name, user=user)
+
+
+def test_allocation_moves_to_the_loading_user(user: Any, calendar: Calendar) -> None:
+    program = Program.objects.create(name="GA")
+    project = _project(program, calendar)
+    sprint = _sprint(project, "Active", SprintState.ACTIVE, date(2026, 7, 6))
+    task = _task(project, "Story A", sprint)
+    persona = _resource("Mei Tanaka")
+    TaskResource.objects.create(task=task, resource=persona, units=1.0)
+
+    prepare_sample_for_user(program, user)
+
+    rows = list(TaskResource.objects.filter(task=task))
+    assert len(rows) == 1, "allocation must MOVE, not be duplicated across two people"
+    assert rows[0].resource.user_id == user.pk
+    task.refresh_from_db()
+    assert task.assignee_id == user.pk, "assignee and allocation must agree"
+
+
+def test_the_loading_user_lands_on_the_project_roster(user: Any, calendar: Calendar) -> None:
+    """Units nobody is rostered for do not show on the heatmap (#241)."""
+    program = Program.objects.create(name="GA")
+    project = _project(program, calendar)
+    sprint = _sprint(project, "Active", SprintState.ACTIVE, date(2026, 7, 6))
+    task = _task(project, "Story A", sprint)
+    TaskResource.objects.create(task=task, resource=_resource("Mei Tanaka"), units=1.0)
+
+    prepare_sample_for_user(program, user)
+
+    resource = Resource.objects.get(user=user)
+    assert ProjectResource.objects.filter(project=project, resource=resource).exists()
+
+
+def test_reload_reuses_the_users_resource(user: Any, calendar: Calendar) -> None:
+    """A second demo load must not mint a second Resource for the same person —
+    `name`/`email` are not unique on Resource, so the `user` FK is the identity."""
+    program = Program.objects.create(name="GA")
+    project = _project(program, calendar)
+    sprint = _sprint(project, "Active", SprintState.ACTIVE, date(2026, 7, 6))
+    task = _task(project, "Story A", sprint)
+    TaskResource.objects.create(task=task, resource=_resource("Mei Tanaka"), units=1.0)
+
+    prepare_sample_for_user(program, user)
+    prepare_sample_for_user(program, user)
+
+    assert Resource.objects.filter(user=user).count() == 1
+    assert TaskResource.objects.filter(task=task).count() == 1
+
+
+def test_units_are_preserved_when_the_allocation_moves(user: Any, calendar: Calendar) -> None:
+    program = Program.objects.create(name="GA")
+    project = _project(program, calendar)
+    sprint = _sprint(project, "Active", SprintState.ACTIVE, date(2026, 7, 6))
+    task = _task(project, "Story A", sprint)
+    TaskResource.objects.create(task=task, resource=_resource("Mei Tanaka"), units=0.5)
+
+    prepare_sample_for_user(program, user)
+
+    assert float(TaskResource.objects.get(task=task).units) == 0.5
+
+
+def test_an_existing_allocation_for_the_user_is_not_duplicated(
+    user: Any, calendar: Calendar
+) -> None:
+    """The (task, resource) unique constraint must not 500 the demo load when the
+    loading user was already allocated to one of the reassigned tasks."""
+    program = Program.objects.create(name="GA")
+    project = _project(program, calendar)
+    sprint = _sprint(project, "Active", SprintState.ACTIVE, date(2026, 7, 6))
+    task = _task(project, "Story A", sprint)
+    mine = _resource("Evaluator", user=user)
+    TaskResource.objects.create(task=task, resource=mine, units=1.0)
+    TaskResource.objects.create(task=task, resource=_resource("Mei Tanaka"), units=1.0)
+
+    prepare_sample_for_user(program, user)
+
+    rows = list(TaskResource.objects.filter(task=task))
+    assert len(rows) == 1
+    assert rows[0].resource_id == mine.pk
+
+
+def test_tasks_with_no_allocation_stay_unallocated(user: Any, calendar: Calendar) -> None:
+    program = Program.objects.create(name="GA")
+    project = _project(program, calendar)
+    sprint = _sprint(project, "Active", SprintState.ACTIVE, date(2026, 7, 6))
+    task = _task(project, "Story A", sprint)
+
+    prepare_sample_for_user(program, user)
+
+    assert TaskResource.objects.filter(task=task).count() == 0
+    assert Resource.objects.filter(user=user).count() == 0, "no allocation, no resource needed"
