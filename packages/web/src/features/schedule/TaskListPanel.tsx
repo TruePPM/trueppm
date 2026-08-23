@@ -15,6 +15,7 @@ import { BlankOutlineDraftRow } from './buildMode/BlankOutlineDraftRow';
 import { ScheduleAppendTaskFooter } from './ScheduleAppendTaskFooter';
 import type { PhasePlannedBadge } from './plannedByPhase';
 import type { RowMode } from './deliveryModePresentation';
+import type { TaskDepChips } from './deps/depFlag';
 import { OutlineDropIndicator } from './OutlineDropIndicator';
 import { useOutlineDrag } from './useOutlineDrag';
 import type { OutlineDragRow, OutlineMovePlan } from './outlineDrag';
@@ -149,13 +150,12 @@ function PendingTaskRow({ name, leftReserve }: { name: string; leftReserve: numb
   );
 }
 
-/** Per-task dep-chip data — computed in ScheduleView, passed down for focus mode. */
-export interface TaskDepChips {
-  predsCount: number;
-  succsCount: number;
-  predsCritical: boolean;
-  succsCritical: boolean;
-}
+/**
+ * Re-exported so every consumer of the panel keeps one import site for the row
+ * model's dependency data; the type itself lives with the flag it feeds
+ * (`deps/depFlag.ts`) so the row and the panel need not import each other.
+ */
+export type { TaskDepChips };
 
 interface Props {
   tasks: Task[];

@@ -173,6 +173,20 @@ export function TaskListHeader({
         />
       </span>
 
+      {/* Links column (#3023) — immediately right of the name, where the design
+          puts it, so the flag and the name a planner is reading are adjacent. */}
+      {visible.links && (
+        <span
+          className="relative pl-2 shrink-0"
+          style={{ width: widths.links }}
+          role="columnheader"
+          aria-label="Dependency links"
+        >
+          Links
+          <ResizeHandle colKey="links" setWidth={setWidth} currentWidth={widths.links} />
+        </span>
+      )}
+
       {visible.dur && (
         <span
           className="relative text-right shrink-0 pr-2"

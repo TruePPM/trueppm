@@ -545,10 +545,11 @@ function PanelSplitter({ currentTaskWidth, setWidth, maxTaskWidth }: PanelSplitt
 // Display-menu labels for the toggleable task-list columns (#2097). The `task`
 // column is always visible (locked) so it is deliberately absent.
 const COLUMN_MENU_LABELS: Record<
-  'wbs' | 'dur' | 'start' | 'finish' | 'progress' | 'owner',
+  'wbs' | 'links' | 'dur' | 'start' | 'finish' | 'progress' | 'owner',
   string
 > = {
   wbs: 'WBS',
+  links: 'Links',
   dur: 'Duration',
   start: 'Start',
   finish: 'Finish',
@@ -1063,24 +1064,27 @@ export function ScheduleView() {
     const c = new Map<string, TaskDepChips>();
     const s = new Map<string, string[]>();
     const p = new Map<string, string[]>();
+    // One pass over the whole link graph, not one per row: the Links cell
+    // (#3023) renders on every row of a virtualised list, so anything it needs
+    // has to be indexed by task id here rather than derived per render.
     for (const link of allLinks) {
       const srcChip = c.get(link.sourceId) ?? {
-        predsCount: 0,
-        succsCount: 0,
+        preds: [],
+        succs: [],
         predsCritical: false,
         succsCritical: false,
       };
-      srcChip.succsCount++;
+      srcChip.succs.push({ type: link.type, lag: link.lag });
       if (link.isCritical) srcChip.succsCritical = true;
       c.set(link.sourceId, srcChip);
 
       const tgtChip = c.get(link.targetId) ?? {
-        predsCount: 0,
-        succsCount: 0,
+        preds: [],
+        succs: [],
         predsCritical: false,
         succsCritical: false,
       };
-      tgtChip.predsCount++;
+      tgtChip.preds.push({ type: link.type, lag: link.lag });
       if (link.isCritical) tgtChip.predsCritical = true;
       c.set(link.targetId, tgtChip);
 

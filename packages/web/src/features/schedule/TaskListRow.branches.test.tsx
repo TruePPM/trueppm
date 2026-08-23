@@ -96,10 +96,10 @@ type BuildModeApi = import('./buildMode').BuildModeApi;
 type FocusApi = import('./buildMode').UseScheduleFocusReturn;
 
 const widths: ColumnWidths['widths'] = {
-  wbs: 48, task: 220, dur: 60, start: 80, finish: 80, progress: 50, owner: 72,
+  wbs: 48, task: 220, links: 76, dur: 60, start: 80, finish: 80, progress: 50, owner: 72,
 };
 const visible: ColumnWidths['visible'] = {
-  wbs: true, task: true, dur: true, start: true, finish: true, progress: true, owner: true,
+  wbs: true, task: true, links: true, dur: true, start: true, finish: true, progress: true, owner: true,
 };
 
 const base: Task = {
@@ -552,10 +552,10 @@ describe('TaskListRow — planned badge copy', () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────────
-// Dependency chips — singular / non-critical arms.
+// Links cell — the typed flag (#3023).
 // ───────────────────────────────────────────────────────────────────────────
-describe('TaskListRow — dependency chips', () => {
-  it('uses singular copy and neutral styling for one non-critical predecessor', () => {
+describe('TaskListRow — Links cell flag', () => {
+  it('names the type on a single non-critical predecessor, in neutral tone', () => {
     useScheduleStore.setState({ selectedTaskId: 't1' });
     renderPlain(
       <TaskListRow
@@ -563,15 +563,20 @@ describe('TaskListRow — dependency chips', () => {
         level={1}
         widths={widths}
         visible={visible}
-        depChips={{ predsCount: 1, succsCount: 1, predsCritical: false, succsCritical: false }}
+        depChips={{
+          preds: [{ type: 'FS', lag: 0 }],
+          succs: [{ type: 'FS', lag: 0 }],
+          predsCritical: false,
+          succsCritical: false,
+        }}
       />,
     );
-    expect(screen.getByTitle('1 predecessor')).toBeInTheDocument();
-    expect(screen.getByTitle('1 successor')).toBeInTheDocument();
-    expect(screen.getByTitle('1 predecessor').className).not.toMatch(/semantic-critical/);
+    expect(screen.getByTestId('dep-flag-predecessor')).toHaveTextContent('←FS');
+    expect(screen.getByTestId('dep-flag-successor')).toHaveTextContent('→FS');
+    expect(screen.getByTestId('dep-flag-predecessor').className).not.toMatch(/semantic-critical/);
   });
 
-  it('uses plural copy and the critical tone when the chain is critical', () => {
+  it('carries the critical tone when the chain is critical, and states the count', () => {
     useScheduleStore.setState({ selectedTaskId: 't1' });
     renderPlain(
       <TaskListRow
@@ -579,11 +584,26 @@ describe('TaskListRow — dependency chips', () => {
         level={1}
         widths={widths}
         visible={visible}
-        depChips={{ predsCount: 3, succsCount: 2, predsCritical: true, succsCritical: true }}
+        depChips={{
+          preds: [
+            { type: 'FS', lag: 0 },
+            { type: 'FS', lag: 0 },
+            { type: 'FS', lag: 0 },
+          ],
+          succs: [
+            { type: 'FS', lag: 0 },
+            { type: 'SS', lag: 0 },
+          ],
+          predsCritical: true,
+          succsCritical: true,
+        }}
       />,
     );
-    expect(screen.getByTitle('3 predecessors').className).toMatch(/semantic-critical/);
-    expect(screen.getByTitle('2 successors').className).toMatch(/semantic-critical/);
+    expect(screen.getByTestId('dep-flag-predecessor')).toHaveTextContent('←FS×3');
+    expect(screen.getByTestId('dep-flag-predecessor').className).toMatch(/semantic-critical/);
+    // Two types that DIFFER — an overlap, which a bare count could not say.
+    expect(screen.getByTestId('dep-flag-successor')).toHaveTextContent('→FS·SS');
+    expect(screen.getByTestId('dep-flag-successor').className).toMatch(/semantic-critical/);
   });
 });
 

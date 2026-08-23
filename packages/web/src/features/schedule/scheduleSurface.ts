@@ -29,11 +29,19 @@ import type { ScheduleViewMode } from '@/stores/scheduleStore';
  *
  * | Surface | Columns | The rest of the width |
  * |---|---|---|
- * | Grid | WBS · Task · Dur · Start · Finish · % · Owner | canvas bar track |
+ * | Grid | WBS · Task · Links · Dur · Start · Finish · % · Owner | canvas bar track |
  * | Timeline | WBS · Task | canvas bar track |
  *
- * Timeline is Grid with Dur / Start / Finish / % / Owner **swapped for the bar
- * track** — the row keeps its WBS number, its name, its fold caret, its depth
+ * `Links` (#3023) is a Grid column and deliberately not a Timeline one: the
+ * design has the Timeline swap "Mode / Links / Start / Finish / Est" for the
+ * bar, and on the Timeline the edges are *drawn* — a cell restating them beside
+ * the arrows that already show them is the same fact twice, in the surface with
+ * the least width to spare. This needed no change to the predicate below, which
+ * is the point of having one: a new column is Grid-only by construction unless
+ * somebody adds it to the Timeline set on purpose.
+ *
+ * Timeline is Grid with Links / Dur / Start / Finish / % / Owner **swapped for
+ * the bar track** — the row keeps its WBS number, its name, its fold caret, its depth
  * guides, its phase band, its mode gutter and every control that authors it,
  * because they are literally the same markup. A gate's name is therefore two
  * cells to the left of the track on both surfaces, which is why the canvas no

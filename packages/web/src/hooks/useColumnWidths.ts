@@ -1,13 +1,30 @@
 import { useState, useCallback } from 'react';
 
 // v5: add wbs (#248) and owner (#248) columns
+//
+// NOT bumped for the `links` column (#3023). Both loaders below already fall
+// back to the default for a key the stored payload does not carry, so a v5
+// payload written before `links` existed reads back as "links at its default,
+// every other column at the width you set". Bumping the key would have thrown
+// away every user's persisted widths to add one column — a reset nobody asked
+// for, to fix a migration that does not need fixing.
 const WIDTHS_KEY = 'trueppm.schedule.columnWidths.v5';
 // v1: per-column visibility (task is always locked visible)
 const VISIBILITY_KEY = 'trueppm.schedule.columnVisibility.v1';
 
+/**
+ * Key order here is the Display menu's Columns order (`surfaceToggleableColumns`
+ * filters `Object.keys`), so it is kept in the same order the header and the row
+ * draw: WBS · Task · Links · Dur · Start · Finish · % · Owner.
+ */
 export const MIN_COL_WIDTHS = {
   wbs: 40,
   task: 120,
+  // One flag (`←Mixed×4`, the widest the token can get) fits at 52 with its
+  // padding; a row showing BOTH directions truncates below the 104 default, and
+  // the chips carry `truncate` so it reads as clipped rather than as a shorter,
+  // wrong shape (#3023).
+  links: 52,
   dur: 40,
   start: 60,
   finish: 60,
@@ -20,6 +37,7 @@ export type ColumnKey = keyof typeof MIN_COL_WIDTHS;
 const DEFAULTS: Record<ColumnKey, number> = {
   wbs: 48,
   task: 220,
+  links: 104,
   dur: 52,
   start: 74,
   finish: 74,
@@ -30,6 +48,7 @@ const DEFAULTS: Record<ColumnKey, number> = {
 const DEFAULT_VISIBILITY: Record<ColumnKey, boolean> = {
   wbs: true,
   task: true,
+  links: true,
   dur: true,
   start: true,
   finish: true,

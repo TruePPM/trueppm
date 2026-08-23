@@ -18,6 +18,7 @@ const VISIBILITY_KEY = 'trueppm.schedule.columnVisibility.v1';
 const DEFAULT_WIDTHS: Record<ColumnKey, number> = {
   wbs: 48,
   task: 220,
+  links: 104,
   dur: 52,
   start: 74,
   finish: 74,
@@ -51,6 +52,22 @@ describe('useColumnWidths — initial load', () => {
     expect(result.current.widths.owner).toBe(MIN_COL_WIDTHS.owner); // clamped up
     // Keys absent from storage fall back to their default.
     expect(result.current.widths.start).toBe(DEFAULT_WIDTHS.start);
+  });
+
+  it('adds Links to a v5 payload written before it existed, without resetting the rest', () => {
+    // #3023 kept WIDTHS_KEY at v5 rather than bumping it: the loader already
+    // falls back per key, so an older payload reads back as "links at its
+    // default, every other column at the width you set". Bumping would have
+    // discarded every user's persisted widths to add one column.
+    localStorage.setItem(
+      WIDTHS_KEY,
+      JSON.stringify({ wbs: 60, task: 300, dur: 52, start: 74, finish: 74, progress: 60, owner: 90 }),
+    );
+    const { result } = renderHook(() => useColumnWidths());
+    expect(result.current.widths.links).toBe(DEFAULT_WIDTHS.links);
+    expect(result.current.widths.task).toBe(300);
+    expect(result.current.widths.owner).toBe(90);
+    expect(result.current.visible.links).toBe(true);
   });
 
   it('falls back to the default for a non-numeric persisted width', () => {

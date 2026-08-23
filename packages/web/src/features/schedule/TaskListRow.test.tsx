@@ -8,11 +8,11 @@ import type { Task } from '@/types';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
 
 const defaultWidths: ColumnWidths['widths'] = {
-  wbs: 48, task: 180, dur: 52, start: 74, finish: 74, progress: 52, owner: 72,
+  wbs: 48, task: 180, links: 76, dur: 52, start: 74, finish: 74, progress: 52, owner: 72,
 };
 
 const defaultVisible: ColumnWidths['visible'] = {
-  wbs: true, task: true, dur: true, start: true, finish: true, progress: true, owner: true,
+  wbs: true, task: true, links: true, dur: true, start: true, finish: true, progress: true, owner: true,
 };
 
 const base: Task = {
