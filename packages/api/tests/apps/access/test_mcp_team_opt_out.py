@@ -214,6 +214,174 @@ def test_get_permissions_overrides_still_append_the_mcp_guards() -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# #3001 — the general @action seam rule (replaces the grep-and-review obligation)
+# ---------------------------------------------------------------------------
+#
+# ADR-0678 T3 records that the conformance test above cannot see `@action` routes
+# and calls this "a grep + review obligation". That obligation failed twice:
+# eleven SprintViewSet actions (#2995) and three more (#3001). A control that has
+# failed twice is not a control, so the obligation is replaced by this rule.
+#
+# The rule is a POSITIVE one — every GET-capable `@action` on a QUERYSET- or
+# AGGREGATE-scoped view must reach its rows through a seam that carries the
+# opt-out — rather than a negative "no bare manager" one. A negative rule cannot
+# be written accurately: `working_calendars_preview` legitimately re-fetches with
+# `Project.objects...get(pk=obj.pk)` *after* `self.get_object()` gated it, and two
+# other actions merely name `Project.objects` inside prose warning against it.
+# Absence of a seam, by contrast, is unambiguous: it is exactly the shape all
+# fourteen drifted sites had.
+
+_MCP_SEAMS = (
+    "self.get_object()",
+    "self.get_queryset()",
+    "super().get_queryset()",
+    "self.filter_queryset(",
+    "self._mcp_filter_queryset(",
+)
+
+# Actions that read no project-scoped rows at all, so no seam applies. Each entry
+# is a security decision and must carry its reason — this list is the one place a
+# route can leave the rule, so it has to be readable as a claim someone made.
+_NO_PROJECT_ROWS: dict[str, str] = {
+    "ProgramViewSet.samples": (
+        "Reads the bundled seed fixtures shipped in the package directory "
+        "(projects.seed.samples), not the database. No project row is touched."
+    ),
+    "ProgramViewSet.download_sample": (
+        "Streams a bundled fixture file's bytes by registry key. Same source as "
+        "`samples`; the key never becomes a path and never reaches the ORM."
+    ),
+}
+
+
+def _code_without_prose(src: str) -> str:
+    """``src`` with comments and docstrings removed.
+
+    Needed because three actions *name* ``Project.objects`` in a comment or
+    docstring explaining why they do not use it, and one names a seam it does not
+    call. A text rule that reads prose as code gets both directions wrong.
+    """
+    import io
+    import token as token_mod
+    import tokenize
+
+    out: list[str] = []
+    prev_type = token_mod.INDENT
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(src).readline))
+    except (tokenize.TokenError, IndentationError):
+        # An action's source is a dedented fragment; if it will not tokenize,
+        # fall back to the raw text rather than skipping the check entirely.
+        return src
+    for tok in tokens:
+        if tok.type == tokenize.COMMENT:
+            continue
+        # A STRING in statement position (after NEWLINE/INDENT/DEDENT) is a
+        # docstring, not a value.
+        if tok.type == tokenize.STRING and prev_type in (
+            tokenize.NEWLINE,
+            tokenize.NL,
+            token_mod.INDENT,
+            token_mod.DEDENT,
+        ):
+            prev_type = tok.type
+            continue
+        # Joined without separators so a seam survives the tokenizer intact
+        # (``self`` ``.`` ``get_object`` ``(`` ``)`` → ``self.get_object()``), with a
+        # newline at each *logical* statement break so two adjacent statements cannot
+        # be spliced into a seam neither of them contains. NL — a physical line break
+        # inside brackets — is dropped rather than kept, because black wraps
+        # ``super().get_queryset()`` across lines and a kept NL would split the seam.
+        if tok.type == tokenize.NEWLINE:
+            out.append("\n")
+        elif tok.type != tokenize.NL:
+            out.append(tok.string)
+        prev_type = tok.type
+    return "".join(out)
+
+
+def _reaches_a_seam(view: type, func: Any, _depth: int = 1) -> bool:
+    """True when ``func`` reaches its rows through an opt-out-carrying seam.
+
+    Resolution is transitive by one level through ``self._helper()`` calls, because
+    that is how the two viewsets that got this right actually spell it:
+    ``SprintViewSet`` funnels fifteen actions through ``self._sprint_or_404()`` and
+    ``TaskViewSet.trash`` re-applies the filter around ``self._trashed_task_queryset()``.
+    A rule that only read the action body would fail every one of them and be
+    switched off within a week.
+    """
+    import inspect
+    import re as _re
+
+    code = _code_without_prose(inspect.getsource(func))
+    if any(seam in code for seam in _MCP_SEAMS):
+        return True
+    if _depth <= 0:
+        return False
+    for helper_name in set(_re.findall(r"self\.(_\w+)\s*\(", code)):
+        helper = getattr(view, helper_name, None)
+        if helper is None or not callable(helper):
+            continue
+        try:
+            if _reaches_a_seam(view, helper, _depth - 1):
+                return True
+        except (TypeError, OSError):
+            continue
+    return False
+
+
+def _get_actions(view: type) -> list[tuple[str, Any]]:
+    """Every ``@action``-decorated method on ``view`` that answers GET."""
+    found: list[tuple[str, Any]] = []
+    for name in dir(view):
+        func = getattr(view, name, None)
+        mapping = getattr(func, "mapping", None)
+        if mapping and "get" in mapping:
+            found.append((name, func))
+    return found
+
+
+def test_every_mcp_action_read_reaches_a_filtered_seam() -> None:
+    """No GET ``@action`` on a QUERYSET/AGGREGATE view may resolve rows unfiltered.
+
+    For these two scopes ``McpProjectEnabled.has_permission`` returns ``True``
+    unconditionally — the queryset is the *only* enforcement point — so an action
+    that resolves from a bare manager serves a project that opted out of agent
+    reads. That is a consent bypass, not an access-control slip, and
+    ``check_object_permissions`` cannot catch it because ``McpProjectEnabled``
+    defines no ``has_object_permission``.
+    """
+    offenders: list[str] = []
+    for view in _all_mcp_views():
+        if getattr(view, "mcp_scope", None) not in (McpScope.QUERYSET, McpScope.AGGREGATE):
+            continue
+        for name, func in _get_actions(view):
+            route = f"{view.__name__}.{name}"
+            if route in _NO_PROJECT_ROWS:
+                continue
+            if not _reaches_a_seam(view, func):
+                offenders.append(route)
+    assert not offenders, (
+        "These GET @action routes resolve their rows without passing through a seam "
+        f"that carries the ADR-0678 agent opt-out: {sorted(offenders)}. Resolve through "
+        "self.get_object() / self.get_queryset() / super().get_queryset(), or — when the "
+        "action deliberately bypasses get_queryset() to reach rows it hides (trash, "
+        "tombstones) — re-apply self._mcp_filter_queryset() explicitly, as "
+        "TaskViewSet.trash and ProjectViewSet.trash do. If the action reads no "
+        "project-scoped rows at all, add it to _NO_PROJECT_ROWS with the reason."
+    )
+
+
+def test_no_project_rows_allowlist_has_no_stale_entries() -> None:
+    """An allowlisted route that no longer exists is a claim nobody is checking."""
+    live = {
+        f"{view.__name__}.{name}" for view in _all_mcp_views() for name, _ in _get_actions(view)
+    }
+    stale = sorted(set(_NO_PROJECT_ROWS) - live)
+    assert not stale, f"_NO_PROJECT_ROWS names routes that no longer exist: {stale}"
+
+
 @pytest.mark.django_db
 def test_undeclared_view_fails_closed(project: Project, owner: Any) -> None:
     """The property the conformance test protects: forgetting denies, never admits."""
@@ -497,6 +665,199 @@ def test_me_work_excludes_opted_out_rows(
     names = {r["name"] for r in resp.data["results"]}
     assert "mine-secret" not in names
     assert "mine-open" in names
+
+
+# ---------------------------------------------------------------------------
+# #3001 — the three routes the T3 grep-and-review obligation missed
+# ---------------------------------------------------------------------------
+
+
+def _retro_action_item(project: Project, owner: Any, text: str) -> Any:
+    """A COMPLETED sprint carrying a retro with one unresolved action item.
+
+    Built through the real models rather than a factory so the shape the two
+    endpoints under test actually read (``retro__sprint__project``) is the shape
+    the assertions exercise.
+    """
+    from trueppm_api.apps.projects.models import (
+        RetroActionItem,
+        Sprint,
+        SprintRetro,
+        SprintState,
+    )
+
+    sprint = Sprint.objects.create(
+        project=project,
+        name="S-done",
+        start_date=date(2026, 3, 1),
+        finish_date=date(2026, 3, 14),
+        state=SprintState.COMPLETED,
+    )
+    retro = SprintRetro.objects.create(sprint=sprint, created_by=owner)
+    return RetroActionItem.objects.create(retro=retro, text=text)
+
+
+def _suggest(task: Any, user: Any) -> Any:
+    """A PENDING retro suggestion for ``user`` on ``task``.
+
+    Exercises ``_retro_suggested_rows`` — the *other* of the two row sources the
+    payload merges. Both needed their own exclusion: the suggested pass resolves
+    the project through ``task__project``, the owned pass through
+    ``retro__sprint__project``, so one filter could never have covered both.
+    """
+    from trueppm_api.apps.projects.models import SuggestionState, TaskSuggestedAssignee
+
+    return TaskSuggestedAssignee.objects.create(
+        task=task,
+        suggested_user=user,
+        suggested_by=user,
+        state=SuggestionState.PENDING,
+    )
+
+
+@pytest.mark.django_db
+def test_retro_carryover_respects_the_opt_out(project: Project, owner: Any) -> None:
+    """``retrospective/carryover`` resolved with the bare manager until #3001.
+
+    It was the last ``get_object_or_404(<own model>, ...)`` on a GET across any
+    QUERYSET-scoped viewset — every sibling read already used ``self.get_object()``,
+    which is precisely what made it easy to miss by eye.
+    """
+    _retro_action_item(project, owner, "carryover-secret")
+    _opt_out(project)
+    resp = _agent(owner).get(f"/api/v1/projects/{project.pk}/retrospective/carryover/")
+    assert resp.status_code == 404, resp.status_code
+    assert "carryover-secret" not in str(resp.data)
+
+
+@pytest.mark.django_db
+def test_retro_carryover_unaffected_for_humans(project: Project, owner: Any) -> None:
+    """The opt-out governs agents. A human reading their own project still sees it."""
+    _retro_action_item(project, owner, "carryover-secret")
+    _opt_out(project)
+    resp = _human(owner).get(f"/api/v1/projects/{project.pk}/retrospective/carryover/")
+    assert resp.status_code == 200, resp.data
+    assert [i["text"] for i in resp.data["items"]] == ["carryover-secret"]
+
+
+@pytest.mark.django_db
+def test_project_trash_collection_cannot_bypass(project: Project, owner: Any) -> None:
+    """``/projects/trash/`` is the peer of ``/tasks/trash/`` and had the same hole.
+
+    ``_trashed_queryset`` bypasses ``get_queryset()`` on purpose to reach tombstoned
+    rows — and so bypassed both opt-out hooks. The recovery surface would otherwise
+    report an opted-out team's project name, code and who deleted it.
+    """
+    project.name = "trashed-secret"
+    project.save(update_fields=["name"])
+    project.soft_delete()
+    _opt_out(project)
+
+    resp = _agent(owner).get("/api/v1/projects/trash/")
+    assert resp.status_code == 200, resp.data
+    assert resp.data == []
+
+    human = _human(owner).get("/api/v1/projects/trash/")
+    assert [r["name"] for r in human.data] == ["trashed-secret"]
+
+
+@pytest.mark.django_db
+def test_me_work_retro_action_items_exclude_opted_out_project(
+    project: Project, other_project: Project, owner: Any
+) -> None:
+    """``AGGREGATE`` scope gets no automatic row filter — the view must scope by hand.
+
+    ``MeWorkView`` already scoped its paginated rows, ``active_sprints`` and
+    ``due_today_count``, but handed ``_me_work_retro_action_items`` only the user, so
+    the retro block stayed unfiltered next to three filtered siblings.
+    """
+    from trueppm_api.apps.projects.models import Task, TaskStatus
+
+    for proj, text in ((project, "retro-secret"), (other_project, "retro-open")):
+        item = _retro_action_item(proj, owner, text)
+        task = Task.objects.create(
+            project=proj,
+            name=f"promoted-{text}",
+            duration=1,
+            assignee=owner,
+            status=TaskStatus.NOT_STARTED,
+        )
+        # `promoted_task_id` is a bare UUIDField, not a FK (no `promoted_task`
+        # descriptor exists), so the pk is assigned directly.
+        item.promoted_task_id = task.pk
+        item.save(update_fields=["promoted_task_id"])
+        _suggest(task, owner)
+
+    _opt_out(project)
+    resp = _agent(owner).get("/api/v1/me/work/")
+    assert resp.status_code == 200, resp.data
+    texts = {r["text"] for r in resp.data["retro_action_items"]}
+    assert "retro-secret" not in texts, "opted-out project's retro text reached an agent token"
+    assert "retro-open" in texts, "the opt-out withheld a project that never opted out"
+
+
+@pytest.mark.django_db
+def test_me_work_signals_exclude_opted_out_project(
+    project: Project, other_project: Project, owner: Any
+) -> None:
+    """``signals.forecast`` reduces over membership, not over the scoped sprint list.
+
+    Found by the `security-review` gate on the #3001 diff, in the same view as the
+    retro block. ``MeWorkView`` scoped its rows, ``active_sprints`` and
+    ``due_today_count``, and a comment asserted the signals aggregates were scoped
+    too "because they derive from active_sprints_list". Two of the four do —
+    ``sprint_burndown`` and ``utilization`` take the lead sprint. ``schedule_health``
+    and ``forecast`` build their own membership set and never see that list.
+
+    This is not merely an aggregate leak: ``_forecast_signal`` returns the winning
+    run's ``project_id`` and ``project_name`` verbatim, so an opted-out project's
+    name reached an ``mcp:read`` token whenever its P80 was the latest.
+    """
+    from trueppm_api.apps.scheduling.models import MonteCarloRun
+
+    MonteCarloRun.objects.create(project=project, n_simulations=100, p80=date(2027, 6, 30))
+    MonteCarloRun.objects.create(project=other_project, n_simulations=100, p80=date(2026, 2, 28))
+
+    # Before the opt-out, the agent legitimately sees the later (opted-out) project.
+    baseline = _agent(owner).get("/api/v1/me/work/")
+    assert baseline.status_code == 200, baseline.data
+    assert baseline.data["signals"]["forecast"]["project_name"] == "ZebraOptedOutProj"
+
+    _opt_out(project)
+    resp = _agent(owner).get("/api/v1/me/work/")
+    assert resp.status_code == 200, resp.data
+    forecast = resp.data["signals"].get("forecast")
+    assert forecast is not None, "the opt-out blanked a project that never opted out"
+    assert forecast["project_name"] == "QuokkaOpenProj", (
+        "an opted-out project's name and Monte Carlo P80 reached an agent token"
+    )
+    assert "ZebraOptedOutProj" not in str(resp.data["signals"])
+
+    # Humans are untouched, as everywhere else in this control.
+    human = _human(owner).get("/api/v1/me/work/")
+    assert human.data["signals"]["forecast"]["project_name"] == "ZebraOptedOutProj"
+
+
+@pytest.mark.django_db
+def test_me_work_retro_action_items_unaffected_for_humans(project: Project, owner: Any) -> None:
+    """The same block stays whole for the human whose token it is."""
+    from trueppm_api.apps.projects.models import Task, TaskStatus
+
+    item = _retro_action_item(project, owner, "retro-secret")
+    task = Task.objects.create(
+        project=project,
+        name="promoted",
+        duration=1,
+        assignee=owner,
+        status=TaskStatus.NOT_STARTED,
+    )
+    item.promoted_task_id = task.pk
+    item.save(update_fields=["promoted_task_id"])
+
+    _opt_out(project)
+    resp = _human(owner).get("/api/v1/me/work/")
+    assert resp.status_code == 200, resp.data
+    assert "retro-secret" in {r["text"] for r in resp.data["retro_action_items"]}
 
 
 # ---------------------------------------------------------------------------

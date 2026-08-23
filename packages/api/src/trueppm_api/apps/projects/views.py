@@ -1970,7 +1970,12 @@ class ProjectViewSet(
 
         retention_days = resolve_retention("TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS")
         now = timezone.now()
-        qs = self._trashed_queryset().order_by("-deleted_at")
+        # `_trashed_queryset` deliberately bypasses get_queryset()/filter_queryset()
+        # to reach tombstoned rows — which also bypasses the ADR-0678 MCP opt-out those
+        # hooks carry. Re-apply it explicitly, exactly as TaskViewSet.trash does: a team
+        # that switched agent reads off must not have its deleted project names and
+        # deleter identities readable through the recovery surface (#3001).
+        qs = self._mcp_filter_queryset(self._trashed_queryset()).order_by("-deleted_at")
         if retention_days is not None:
             cutoff = now - timedelta(days=retention_days)
             qs = qs.filter(Q(deleted_at__isnull=True) | Q(deleted_at__gt=cutoff))
@@ -3531,7 +3536,11 @@ class ProjectViewSet(
             TaskStatus,
         )
 
-        project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        # ``self.get_object()``, not a bare ``Project.objects`` lookup: it resolves
+        # through the membership-scoped queryset *and* through McpReadableViewMixin's
+        # ADR-0678 filter, so a project whose team opted out of agent reads 404s for a
+        # token caller instead of serving retro text and promoted task rows (#3001).
+        project = self.get_object()
         self.check_object_permissions(request, project)
 
         # Last two COMPLETED sprints with a retro.
@@ -15482,8 +15491,10 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
         # ADR-0678 (#2482): the paginated task rows are filtered centrally by the
         # mixin, but this side block is built by hand and would otherwise name
         # sprints (and, through them, projects) that opted out of agent reads.
-        # ``me_work_signals`` below derives from ``active_sprints_list``, so scoping
-        # here also scopes the signals aggregates.
+        # ``me_work_signals`` takes the same exclusion set: two of its four signals
+        # (``sprint_burndown``, ``utilization``) do derive from ``active_sprints_list``
+        # and are scoped by this block, but ``schedule_health`` and ``forecast`` reduce
+        # over the membership set independently and are not (#3001).
         from trueppm_api.apps.projects.mcp_settings import mcp_excluded_project_ids
 
         mcp_excluded = mcp_excluded_project_ids(request)
@@ -15582,13 +15593,19 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
             from trueppm_api.apps.integrations.me_work import me_work_external_blocks
             from trueppm_api.apps.projects.services import me_work_signals
 
-            me_work_signals_payload = me_work_signals(request.user, active_sprints_list, today)
+            me_work_signals_payload = me_work_signals(
+                request.user, active_sprints_list, today, mcp_excluded
+            )
             external_blocks = me_work_external_blocks(request.user)
 
         # Retro action items relevant to this user (ADR-0071 §4c):
         #   - Suggestions PENDING for this user
         #   - Action items whose promoted Task is assigned to this user AND not COMPLETE
-        retro_items_payload = _me_work_retro_action_items(request.user)
+        # ADR-0678 (#3001): AGGREGATE scope gets no automatic row filter, and this
+        # block is built by hand like ``active_sprints`` above — pass the exclusion set
+        # through or an opted-out project's action-item text, task short ids and source
+        # sprint reach an ``mcp:read`` token.
+        retro_items_payload = _me_work_retro_action_items(request.user, mcp_excluded)
 
         if page is not None:
             paginated = self.get_paginated_response(serializer.data).data
@@ -15622,7 +15639,7 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
         )
 
 
-def _me_work_retro_action_items(user: Any) -> list[dict[str, Any]]:
+def _me_work_retro_action_items(user: Any, mcp_excluded: Any | None = None) -> list[dict[str, Any]]:
     """Build the ``retro_action_items`` payload for ``GET /me/work/`` (ADR-0071 §4c).
 
     Two row sources merged into a single ordered list (most recent retro first):
@@ -15634,20 +15651,30 @@ def _me_work_retro_action_items(user: Any) -> list[dict[str, Any]]:
     Items appear at most once (suggestion takes precedence over owned). Owned
     items whose Task is in a sprint do not show here — those already appear in
     the user's My Work sprint groups.
+
+    ``mcp_excluded`` is the ADR-0678 opt-out set from
+    :func:`~trueppm_api.apps.projects.mcp_settings.mcp_excluded_project_ids` —
+    ``None`` for every human caller, and for a token caller on an instance where no
+    team opted out. ``MeWorkView`` declares ``McpScope.AGGREGATE``, which gets no
+    automatic row filter, so both row sources drop it into their own query rather
+    than inheriting one (#3001).
     """
     today = timezone.now().date()
-    suggested_rows, seen_task_ids = _retro_suggested_rows(user, today)
-    return suggested_rows + _retro_owned_rows(user, today, seen_task_ids)
+    suggested_rows, seen_task_ids = _retro_suggested_rows(user, today, mcp_excluded)
+    return suggested_rows + _retro_owned_rows(user, today, seen_task_ids, mcp_excluded)
 
 
 def _retro_suggested_rows(
-    user: Any, today: datetime.date
+    user: Any, today: datetime.date, mcp_excluded: Any | None = None
 ) -> tuple[list[dict[str, Any]], set[uuid.UUID]]:
     """PENDING retro suggestions addressed to ``user``, newest retro first.
 
     Returns the rows together with the task ids they covered, so the owned pass
     can skip them — a task appears at most once and a suggestion outranks
     ownership.
+
+    ``mcp_excluded`` withholds suggestions on a project that opted out of agent
+    reads (ADR-0678, #3001).
     """
     from trueppm_api.apps.projects.models import (
         RetroActionItem,
@@ -15670,6 +15697,8 @@ def _retro_suggested_rows(
         .select_related("task", "suggested_by", "suggested_user")
         .order_by("-created_at")
     )
+    if mcp_excluded is not None:
+        suggestion_rows = suggestion_rows.exclude(task__project_id__in=mcp_excluded)
     # Resolve action items via reverse lookup on promoted_task_id (one query).
     suggested_task_ids = [s.task_id for s in suggestion_rows]
     items_by_task_id: dict[uuid.UUID, RetroActionItem] = {}
@@ -15712,7 +15741,10 @@ def _retro_suggested_rows(
 
 
 def _retro_owned_rows(
-    user: Any, today: datetime.date, seen_task_ids: set[uuid.UUID]
+    user: Any,
+    today: datetime.date,
+    seen_task_ids: set[uuid.UUID],
+    mcp_excluded: Any | None = None,
 ) -> list[dict[str, Any]]:
     """Retro action items whose promoted Task ``user`` owns and has not completed.
 
@@ -15720,6 +15752,9 @@ def _retro_owned_rows(
     Work sprint groups, so surfacing only the orphan-backlog ones here avoids
     double-counting. Tasks already covered by ``seen_task_ids`` (the suggestion
     pass) are skipped for the same reason.
+
+    ``mcp_excluded`` withholds items sourced from a project that opted out of agent
+    reads (ADR-0678, #3001).
     """
     from trueppm_api.apps.projects.models import RetroActionItem, Task, TaskStatus
 
@@ -15745,6 +15780,8 @@ def _retro_owned_rows(
         is_deleted=False,
         retro__sprint__project_id__in=member_project_ids,
     ).select_related("retro__sprint")
+    if mcp_excluded is not None:
+        owned_items = owned_items.exclude(retro__sprint__project_id__in=mcp_excluded)
     owned_task_ids = [it.promoted_task_id for it in owned_items if it.promoted_task_id]
     owned_tasks: dict[uuid.UUID, Task] = {}
     if owned_task_ids:

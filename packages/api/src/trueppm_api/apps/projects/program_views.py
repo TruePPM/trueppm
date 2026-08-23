@@ -1265,6 +1265,17 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         history, so it is never served from a raw, unauthenticated storage URL.
         ``409`` if not ready, ``410 Gone`` once the link has expired. The job is
         program-scoped so a ``job_id`` from another program 404s (IDOR guard).
+
+        **ADR-0678 agent opt-out: a child project's "off" does NOT withhold this
+        archive today, and that is recorded here rather than left implicit (#3001).**
+        The mixin's ``Program`` branch governs this route on ``program.mcp_enabled``
+        alone, so an ``mcp:read`` token at Admin+ can download a bundle carrying the
+        tasks of a member project whose team switched agent reads off. Unlike every
+        other read on this viewset the archive cannot be *narrowed*: it is built
+        asynchronously and streamed from storage as bytes, so honoring the child's
+        opt-out means withholding the whole artifact or nothing. That is a behavior
+        change on an export route, not a filter, and is tracked separately as #3014 —
+        do not read this comment as a decision that the current behavior is right.
         """
         from django.core.files.storage import default_storage
 

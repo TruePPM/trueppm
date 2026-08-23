@@ -268,12 +268,37 @@ T1. Row-level filtering is therefore sufficient for Task/Risk/Label/Sprint.
 Recorded as a negative finding.
 
 **T3 — 🟠 `@action` routes that re-query instead of going through
-`get_object()`/`get_queryset()`. Checked during implementation.** 85 `@action`
-routes exist across the seven MCP-readable viewsets. Detail actions resolving via
-`get_object()` inherit the filtered queryset (opted-out → 404) and are covered. Any
-action reaching for `Task.objects` / `Project.objects` directly bypasses it. The
-conformance test cannot see this; it is a grep + review obligation, noted here so
-it stays one.
+`get_object()`/`get_queryset()`. Checked during implementation; the obligation
+failed twice and is now a test (#3001).** 85 `@action` routes exist across the
+seven MCP-readable viewsets. Detail actions resolving via `get_object()` inherit
+the filtered queryset (opted-out → 404) and are covered. Any action reaching for
+`Task.objects` / `Project.objects` directly bypasses it.
+
+This was originally recorded as "a grep + review obligation, noted here so it stays
+one". It did not stay one. Eleven `SprintViewSet` actions drifted past it (#2995),
+then three more — `ProjectViewSet.retro_carryover`, `ProjectViewSet.trash` and
+`MeWorkView`'s `retro_action_items` block (#3001). A control that has failed twice
+is not a control, so the obligation is superseded by
+`test_every_mcp_action_read_reaches_a_filtered_seam`
+(`tests/apps/access/test_mcp_team_opt_out.py`).
+
+The test asserts a **positive** property — every GET `@action` on a `QUERYSET`- or
+`AGGREGATE`-scoped view reaches its rows through `self.get_object()`,
+`self.get_queryset()`, `super().get_queryset()`, `self.filter_queryset()` or an
+explicitly re-applied `self._mcp_filter_queryset()`, resolved transitively by one
+level through `self._helper()` calls. The negative form ("no bare manager") was
+tried first and cannot be written accurately: `working_calendars_preview`
+legitimately re-fetches with `Project.objects…get(pk=obj.pk)` *after*
+`self.get_object()` has gated it, and two other actions name `Project.objects` only
+inside prose warning against it. Absence of a seam has no such false positives — it
+is exactly the shape all fourteen drifted sites had. An action that reads no
+project-scoped rows at all leaves the rule through a named allowlist that must carry
+its reason.
+
+`AGGREGATE` views remain outside what any static rule can prove — the scope assembles
+its response by hand, so the test can see that a seam is reached but not that every
+hand-built block reached it. Those still need direct per-block tests, which is how
+the `MeWorkView` half of #3001 was found and is how it is now covered.
 
 **T4 — 🟡 Filter backends re-widening after `get_queryset()`. Accepted.** DRF
 applies filter/search/ordering backends *to* the queryset returned by
