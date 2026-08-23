@@ -2957,7 +2957,7 @@ export function ScheduleView() {
         // 316). It returns null for an act with no ledger row — duplicate,
         // convert-to-milestone, single-row insert — and ⌘Z then falls through to the
         // browser rather than silently doing nothing to the outline. That fall-through
-        // is the honest outcome: #2974's whole point is that an undo which quietly
+        // is the honest outcome — the whole point of #2974 is that an undo which quietly
         // fails to reverse something is worse than no undo at all.
         out['mod+z'] = (e) => {
           if (isUndoShortcutClaimed()) return;

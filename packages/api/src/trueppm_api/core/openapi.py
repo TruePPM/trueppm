@@ -82,6 +82,10 @@ _TOP_TAG: dict[str, str] = {
     "slip-conflicts": "scheduling",
     "sprint-task-outcomes": "sprints",
     "sprints": "sprints",
+    # ADR-0880 (#2974): the structural undo ledger, folded under `projects` with its
+    # ADR-0810 siblings (`paste-many-operations`, `cascade-classification-operations`)
+    # rather than minting a top-level tag for one read-only ledger.
+    "structural-operations": "projects",
     "task-resources": "resources",
     "task-runs": "tasks",
     "task-skill-requirements": "resources",
