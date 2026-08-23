@@ -220,6 +220,60 @@ describe('ResourceView permission gate (rule 94)', () => {
     ).not.toBeInTheDocument();
     expect(screen.getByRole('toolbar', { name: 'Resource toolbar' })).toBeInTheDocument();
   });
+
+  // #2998 — role === null means two different things, and this component renders one
+  // of them as a permission wall. A wall is *actionable*: told they lack access, a
+  // Scheduler goes and asks a colleague for a role they already hold.
+  it('does not claim a permission denial when the role read failed', () => {
+    roleMock.mockReturnValue({ role: null, roleLabel: null, isLoading: false, isError: true });
+    render(<ResourceView projectId="proj-1" />);
+    expect(
+      screen.queryByText('Resource utilization is only visible to Schedulers, Admins, and Owners.'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('says the read failed, and offers a way out', () => {
+    // `retry: false` on the hook makes one blip terminal, so without a retry the only
+    // escape is a full page reload.
+    const refetch = vi.fn();
+    roleMock.mockReturnValue({
+      role: null,
+      roleLabel: null,
+      isLoading: false,
+      isError: true,
+      refetch,
+    });
+    render(<ResourceView projectId="proj-1" />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      /Couldn’t check your role on this project/,
+    );
+    expect(screen.getByText(/not a permission decision/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('still denies a genuine below-Scheduler role when the read succeeded', () => {
+    // The regression guard on the fix: isError must not become a blanket bypass.
+    roleMock.mockReturnValue({
+      role: ROLE_MEMBER,
+      roleLabel: 'Member',
+      isLoading: false,
+      isError: false,
+    });
+    allocationSuccess(allocation([allocResource()]));
+    render(<ResourceView projectId="proj-1" />);
+    expect(
+      screen.getByText('Resource utilization is only visible to Schedulers, Admins, and Owners.'),
+    ).toBeInTheDocument();
+  });
+
+  it('prefers the loading state over the failed-read state', () => {
+    roleMock.mockReturnValue({ role: null, roleLabel: null, isLoading: true, isError: true });
+    allocationSuccess(allocation([allocResource()]));
+    render(<ResourceView projectId="proj-1" />);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
 });
 
 describe('ResourceView project resolution', () => {

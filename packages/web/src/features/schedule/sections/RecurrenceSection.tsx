@@ -639,7 +639,7 @@ function describeRule(rule: TaskRecurrenceRule): string {
 
 export function RecurrenceSection({ taskId, projectId, userRole, canEdit }: DrawerSectionProps) {
   const { rule, isLoading, error } = useRecurrenceRule(projectId, taskId);
-  const { role, isLoading: roleLoading } = useCurrentUserRole(projectId);
+  const { role, isLoading: roleLoading, isError: roleError } = useCurrentUserRole(projectId);
   const [editing, setEditing] = useState(false);
 
   // ADR-0133/1142: gate write controls off the server-derived verdict; fall back to the client role rule only when absent.
@@ -649,7 +649,16 @@ export function RecurrenceSection({ taskId, projectId, userRole, canEdit }: Draw
   // verdict for this task. Pessimistic while the role loads: hide write
   // affordances to avoid a flash of controls the user can't use (they'd 403 on
   // save anyway). Members and Viewers see a read-only summary.
-  const editable = verdict && role !== null && role >= ROLE_SCHEDULER;
+  //
+  // A **failed** role read is not the same as "no role", and must not be spent as
+  // one (#2998). `role === null` covers both, and `retry: false` makes one blip
+  // terminal, so treating it as denial silently strips a Scheduler's own controls
+  // with nothing on screen to explain it. An unknown role is *unsettled*: fall back
+  // to `verdict`, which is the server-derived per-task answer, and let the server
+  // refuse on save if the role really was too low. Assuming rights on an unknown
+  // costs at worst one refusal; assuming denial removes a working control (#2961).
+  const roleUnknown = (roleError ?? false) && role === null;
+  const editable = verdict && (roleUnknown || (role !== null && role >= ROLE_SCHEDULER));
 
   if (isLoading || roleLoading) {
     return (

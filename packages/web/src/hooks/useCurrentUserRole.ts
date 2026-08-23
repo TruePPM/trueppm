@@ -43,6 +43,15 @@ export interface UseCurrentUserRoleResult {
    * `isError ?? false`.
    */
   isError?: boolean;
+  /**
+   * Re-run the membership read after a failure.
+   *
+   * `retry: false` makes a single failed request terminal, so without this the only
+   * escape from the `isError` state is a full page reload. Optional in the type for
+   * the same reason as `isError` — the existing mocks supply neither, and a caller
+   * must treat `undefined` as "no retry available", not as a third state (#2998).
+   */
+  refetch?: () => void;
 }
 
 /**
@@ -89,5 +98,7 @@ export function useCurrentUserRole(
     // only signal a caller gets that the null role is "unknown" rather than
     // "not a member" (#2961).
     isError: query.isError,
+    // …and the only way back out of it short of a page reload (#2998).
+    refetch: () => void query.refetch(),
   };
 }
