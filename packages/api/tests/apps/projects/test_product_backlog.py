@@ -483,6 +483,209 @@ def test_split_endpoint_ok_for_owner(owner_client: APIClient, project: Project) 
 
 
 # --------------------------------------------------------------------------- #
+# #3002 — field parity across the Task -> Task split
+# --------------------------------------------------------------------------- #
+#
+# `priority_rank` was dropped here for the same reason it was dropped at the
+# program-backlog pull (#2906) and story points / tags / type before it (#1991,
+# #1992, #1995): a cross-entity copy names the fields it carries, and every field
+# nobody named defaults to "dropped" without anyone deciding that. #2906 answered
+# that for `BacklogItem -> Task` with a classification test; this is the same
+# instrument for the `Task -> Task` derivation it does not cover.
+#
+# `split_story` is one of four Task-deriving sites in `apps/projects/` (the pull,
+# the recurring-task spawn #2902, this, and the retro action-item create). This
+# test covers this one; the others are not in scope here.
+
+# Fields the split copies from the parent, and why the copy is right. A short
+# reason, not a restatement of the assignment.
+_SPLIT_CARRIES = {
+    "project": "a split is a sibling in the same project",
+    "type": "the split of a story is a story",
+    "parent_epic": "so the split stays grouped under the same epic (#493)",
+    "priority_rank": "where the work sits is known; null sorts it below every ranked item (#3002)",
+    "name": "derived from the parent's, with a ' (split)' suffix",
+    "notes": "derived: a 'Split from <short_id>' provenance line",
+}
+
+# Reasons shared by whole groups of fields, named so the classification below
+# reads as a decision rather than 69 near-identical strings.
+_RESET = "reset by design: the child is new, unstarted work re-entering the backlog"
+_RE_ESTIMATED = "the PO re-estimates both halves; carrying it would double-count velocity"
+_ROW_IDENTITY = "row identity/provenance: the child is a new row with its own"
+_CPM_OUTPUT = "CPM engine output, recomputed for the child from its own inputs"
+_SYNC = "VersionedModel sync plumbing, per-row"
+_PARENT_STATE = "state of the parent's own execution, which the child has not begun"
+
+_SPLIT_DOES_NOT_CARRY = {
+    # Identity, provenance, plumbing.
+    "id": f"{_ROW_IDENTITY} pk",
+    "short_id": f"{_ROW_IDENTITY} short id",
+    "wbs_path": f"{_ROW_IDENTITY} WBS position",
+    "server_version": _SYNC,
+    "sync_seq": _SYNC,
+    "is_deleted": "soft-delete state of the parent row, not of the work",
+    "deleted_at": "soft-delete plumbing",
+    "deleted_version": "soft-delete plumbing",
+    "edited_at": f"{_ROW_IDENTITY} timestamps",
+    "seeded_at": "seed provenance of the parent row",
+    "source_kind": "import provenance of the parent row; the child is authored here",
+    "source_id": "import provenance of the parent row",
+    "source_version": "import provenance of the parent row",
+    # Deliberately reset.
+    "status": f"{_RESET} (BACKLOG)",
+    "dor": f"{_RESET} (IDEA — the child has not been refined)",
+    "sprint": f"{_RESET}: a split is not committed to the parent's sprint",
+    "sprint_pending": f"{_RESET}: no sprint, so no pending-acceptance state",
+    "sprint_rank": f"{_RESET}: seeded at commit, and the child is not committed",
+    "status_changed_at": f"{_RESET}: the child's status clock starts now",
+    "assignee": f"{_RESET}: the split is unassigned work for the PO to place",
+    "board_lane": f"{_RESET}: lane follows from status, which is reset",
+    # Re-estimated rather than divided.
+    "story_points": _RE_ESTIMATED,
+    "remaining_points": _RE_ESTIMATED,
+    "effort": _RE_ESTIMATED,
+    "effort_estimate": _RE_ESTIMATED,
+    "own_estimate": _RE_ESTIMATED,
+    "estimate_status": _RE_ESTIMATED,
+    "own_status": _RE_ESTIMATED,
+    "confidence": _RE_ESTIMATED,
+    "duration": _RE_ESTIMATED,
+    "duration_unit": _RE_ESTIMATED,
+    "optimistic_duration": _RE_ESTIMATED,
+    "most_likely_duration": _RE_ESTIMATED,
+    "pessimistic_duration": _RE_ESTIMATED,
+    # Scoring inputs — the PO re-scores the half, same argument as points.
+    "business_value": _RE_ESTIMATED,
+    "time_criticality": _RE_ESTIMATED,
+    "risk_reduction": _RE_ESTIMATED,
+    "job_size": _RE_ESTIMATED,
+    "reach": _RE_ESTIMATED,
+    "impact": _RE_ESTIMATED,
+    "value": _RE_ESTIMATED,
+    # Parent's execution state.
+    "percent_complete": _PARENT_STATE,
+    "actual_start": _PARENT_STATE,
+    "actual_finish": _PARENT_STATE,
+    "blocked_by": _PARENT_STATE,
+    "blocked_reason": _PARENT_STATE,
+    "blocked_since": _PARENT_STATE,
+    "blocker_type": _PARENT_STATE,
+    "blocking_task": _PARENT_STATE,
+    # CPM output.
+    "early_start": _CPM_OUTPUT,
+    "early_finish": _CPM_OUTPUT,
+    "late_start": _CPM_OUTPUT,
+    "late_finish": _CPM_OUTPUT,
+    "total_float": _CPM_OUTPUT,
+    "free_float": _CPM_OUTPUT,
+    "is_critical": _CPM_OUTPUT,
+    "scheduled_start": _CPM_OUTPUT,
+    "planned_start": "a scheduling constraint on the parent, not a property of the work",
+    # Structure and kind flags that a backlog split must not inherit.
+    "is_subtask": "the child is a sibling story, never a subtask of the parent",
+    "auto_container": "container-ness is a structural fact of the parent's own subtree",
+    "structure_role": "structural role in the parent's subtree",
+    "is_milestone": "a milestone is a zero-duration marker; a split story is not one",
+    "is_recurring": "recurrence is a template property; a split is a one-off derivation",
+    "recurrence_rule": "template property of the parent",
+    "recurrence_occurrence_date": "an occurrence stamp on a spawned row",
+    "governance_class": "assigned by the project's governance rules for the child's own state",
+    "parent_governance_inherited": "derived from governance_class, which is not carried",
+    "delivery_mode": "resolved from the project/epic for the child, not copied",
+    "color": "a per-row display choice, not a property of the work",
+}
+
+
+def test_every_task_field_is_classified_for_the_split() -> None:
+    """A new Task field must be explicitly carried by the split, or explicitly not.
+
+    The forcing function, and the actual fix for #3002 — copying one field is a point
+    fix for the fourth instance of this class. Adding a field to ``Task`` now fails
+    here until someone decides whether a split should carry it, which is the decision
+    that was silently skipped every previous time.
+    """
+    concrete = {f.name for f in Task._meta.get_fields() if getattr(f, "concrete", False)}
+    classified = set(_SPLIT_CARRIES) | set(_SPLIT_DOES_NOT_CARRY)
+
+    assert concrete - classified == set(), (
+        "Task grew a field that split_story neither carries nor documents as excluded. "
+        "Decide which, and add it to _SPLIT_CARRIES or _SPLIT_DOES_NOT_CARRY: "
+        f"{sorted(concrete - classified)}"
+    )
+    assert classified - concrete == set(), (
+        "These names are classified but are no longer Task fields; the classification "
+        f"has gone stale: {sorted(classified - concrete)}"
+    )
+    # An overlap would make a field both carried and excluded, silently passing.
+    assert set(_SPLIT_CARRIES) & set(_SPLIT_DOES_NOT_CARRY) == set()
+
+
+@pytest.mark.django_db
+def test_split_carries_the_parents_priority_rank(project: Project) -> None:
+    """The #3002 defect: a split of a ranked story landed at the bottom of the backlog."""
+    parent = _story(project, name="ranked story", priority_rank=3)
+    child = split_story(parent, None)
+    assert child.priority_rank == 3
+
+
+@pytest.mark.django_db
+def test_split_of_an_unranked_story_stays_unranked(project: Project) -> None:
+    """Null carries as null — the fix copies the parent's answer, it does not invent one."""
+    parent = _story(project, name="unranked story")
+    assert parent.priority_rank is None
+    assert split_story(parent, None).priority_rank is None
+
+
+@pytest.mark.django_db
+def test_split_lands_beside_its_parent_not_below_the_backlog(project: Project) -> None:
+    """The property a PO loses, asserted as ordering rather than as the integer.
+
+    Mirrors ``test_pull_preserves_relative_intake_order`` (#2906): the literal value is
+    an implementation detail, "the split is not below every ranked item" is the intent.
+    A tie with the parent is fine and expected — ranks are not unique.
+    """
+    _story(project, name="first", priority_rank=1)
+    parent = _story(project, name="second", priority_rank=2)
+    _story(project, name="third", priority_rank=3)
+
+    child = split_story(parent, None)
+
+    ranked = list(
+        Task.objects.filter(project=project, priority_rank__isnull=False)
+        .order_by("priority_rank")
+        .values_list("name", flat=True)
+    )
+    # Checked before the ordering comparison: pre-fix the child had a NULL rank and
+    # was absent from the ranked list entirely, which is a clearer statement of the
+    # defect than an IndexError from the comparison below.
+    assert child.name in ranked, (
+        f"the split is unranked, so it sorts below every ranked item: {ranked}"
+    )
+    assert ranked.index(child.name) < ranked.index("third"), (
+        f"the split of the #2 story sorted below the #3 story: {ranked}"
+    )
+
+
+@pytest.mark.django_db
+def test_split_does_not_renumber_its_neighbors(project: Project) -> None:
+    """Copying the rank must not disturb the rank space ``auto_rank``/``reorder`` own.
+
+    This is the reason option 2 ("rank immediately after the parent") was rejected: it
+    would make ``split_story`` a third writer of ``priority_rank``.
+    """
+    first = _story(project, name="first", priority_rank=1)
+    parent = _story(project, name="second", priority_rank=2)
+    third = _story(project, name="third", priority_rank=3)
+
+    split_story(parent, None)
+
+    for task, expected in ((first, 1), (parent, 2), (third, 3)):
+        task.refresh_from_db()
+        assert task.priority_rank == expected
+
+
+# --------------------------------------------------------------------------- #
 # Dual ordering (#365)
 # --------------------------------------------------------------------------- #
 

@@ -399,9 +399,27 @@ def reorder_sprint(sprint: Any, ordered: list[tuple[str, int]], actor: Any) -> i
 def split_story(parent: Task, actor: Any, *, name: str | None = None) -> Task:
     """Create a sibling story under the same epic, carrying over unmet criteria.
 
-    The child inherits the parent's ``parent_epic`` so the split stays grouped; only *unmet*
-    acceptance criteria are copied (the remaining work); points are NOT auto-divided (the PO
-    re-estimates both halves, so velocity is never double-counted).
+    What the child inherits, and why each answer is what it is:
+
+    * ``parent_epic`` — so the split stays grouped under the same epic.
+    * ``priority_rank`` — the parent's position, verbatim (#3002). A split of the #3
+      story is still the #3 story's work; leaving it null sorts the child **below every
+      ranked item** (the client's 9999 sentinel for "unranked"), which is close to the
+      opposite of where the work belongs. Ranks are not unique and ties already break on
+      a secondary sort, so both halves sitting at the parent's position is harmless.
+      Ranking *after* the parent was rejected: it renumbers neighbors, and ``auto_rank``
+      / ``reorder`` already own the rank space — a third writer of it is a worse problem
+      than a tie. This matches what #2906 decided for the program-backlog pull.
+    * Only **unmet** acceptance criteria are copied — the remaining work.
+    * Story points are **not** divided, and no estimate field carries: the PO re-estimates
+      both halves, so velocity is never double-counted. This is the deliberate asymmetry
+      with ``priority_rank`` — *where* the work sits is known and worth preserving, *how
+      big* it is has to be answered again.
+
+    ``test_every_task_field_is_classified_for_the_split`` holds the rest of the field set
+    to the same standard: every concrete ``Task`` field is classified as carried or
+    explicitly not, so adding one to the model forces the decision rather than defaulting
+    it to "dropped" the way ``priority_rank`` was.
     """
     from trueppm_api.apps.projects.models import AcceptanceCriterion
 
@@ -412,6 +430,7 @@ def split_story(parent: Task, actor: Any, *, name: str | None = None) -> Task:
             name=name or f"{parent.name} (split)",
             type=parent.type,
             parent_epic=parent.parent_epic,
+            priority_rank=parent.priority_rank,
             status=TaskStatus.BACKLOG,
             sprint=None,
             dor=DorState.IDEA,

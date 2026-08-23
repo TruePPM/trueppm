@@ -116,6 +116,28 @@ The review trail stays on the team's product surface for the sprint review. It i
 rolled up to a portfolio or PMO dashboard**, and it is shown as the criterion's status
 with author attribution on drill-down — never as a per-person scoreboard.
 
+## Splitting a story
+
+A story that is too big for one sprint can be **split** into a sibling under the
+same epic. What the new half inherits is a deliberate set, not a copy:
+
+- **Its position in the backlog carries.** A split of the #3 story sits at #3
+  alongside its parent — a tie, which the backlog already breaks on a secondary
+  sort. The alternative, leaving it unranked, drops it below every ranked item,
+  which is the opposite of where the remaining work belongs.
+- **The epic carries**, so the split stays grouped with the work it came from.
+- **Only the criteria you have not met yet carry** — the remaining work — so the
+  new half reads as what is left rather than as a duplicate.
+- **Estimates do not carry, and points are never auto-divided.** Both halves come
+  back unestimated on purpose: splitting is the moment to re-estimate, and halving
+  a number nobody re-checked is how velocity ends up double-counted.
+- **The split does not join a sprint**, and it starts back at **Idea** — it is new
+  work that has not been refined or committed to.
+
+Splitting never renumbers the stories around it: the backlog's order is owned by
+auto-rank and by your own drag-reorder, and a split does not quietly become a third
+thing that rewrites it.
+
 ## Definition of Ready
 
 Each story will carry a Definition-of-Ready signal the Product Owner sets explicitly:
