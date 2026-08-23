@@ -26,7 +26,7 @@ import type { GanttEngine, GanttScaleData } from './engine';
 import { dateToLeft, leftToDate, ZOOM_STEP_FACTOR } from './engine';
 import { computeInitialFraming, type RowBar } from './scheduleUtils';
 import { resolveOutlineGripReserve, HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
-import { useRowHeight, useRowMetrics } from '@/hooks/useRowHeight';
+import { useRowHeight, useRowMetrics, useComfortableRows } from '@/hooks/useRowHeight';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useProjectResourcePool } from '@/hooks/useProjectResourcePool';
@@ -1601,6 +1601,12 @@ export function ScheduleView() {
   const authorMode = useScheduleAuthorMode(projectIdUndef);
   const { options: displayOptions, toggle: toggleDisplayOption } =
     useScheduleDisplayOptions(projectIdUndef);
+  // Comfortable rows (#3019). The Display menu's toggle persisted this and
+  // nothing read it — the row model has one owner, so the preference is fed to
+  // that owner as a second input here rather than resolved anywhere else. The
+  // `useRowMetrics()` call at the top of this component subscribes, so this
+  // flipping re-renders the outline and the canvas in the same commit.
+  useComfortableRows(displayOptions.comfortableRows);
   const { toggle: toggleAuthorMode } = authorMode;
   //
   // Two states that must never collapse into one (#2949, design handoff

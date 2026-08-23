@@ -15,7 +15,12 @@
  * (the trap `programs.spec.ts` records for the same reason).
  */
 import { test, expect } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import {
+  setupAuth,
+  setupApiMocks,
+  setupCatchAll,
+  setupScheduleDisplayOptions,
+} from './fixtures';
 
 const PROJECT_ID = 'e2e-rowh-00000000-0000-0000-0000-000000002997';
 const BASE_URL = `/projects/${PROJECT_ID}/schedule`;
@@ -301,5 +306,120 @@ test.describe('Schedule rows on a fine pointer are unchanged (#2997)', () => {
       await tapCanvasAt(page, bar.x + bar.width / 2, row.y + row.height / 2);
       await expect(barOption(page, name)).toHaveAttribute('aria-selected', 'true');
     }
+  });
+});
+
+/**
+ * Comfortable rows at a **fine** pointer (#3019).
+ *
+ * The option shipped as a dead control: the Display menu toggled it, it
+ * persisted to localStorage, and nothing read it — row height came from the
+ * pointer class alone. The people it exists for are precisely the ones a
+ * coarse-pointer heuristic cannot reach, so a mouse is the only configuration
+ * that can prove it now works.
+ *
+ * Seeded through `localStorage` rather than by driving the menu, per the
+ * fixture's own contract: this is the honest reproduction of "this planner
+ * turned it on last week", and `schedule-display-menu.spec` owns the toggle.
+ */
+test.describe('Comfortable rows lifts a fine pointer to the 44px floor (#3019)', () => {
+  test.use({ viewport: { width: 1280, height: 900 } });
+
+  test.beforeEach(async ({ page }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, { projects: PROJECTS, projectId: PROJECT_ID, tasks: TASKS });
+    await mockBaselines(page);
+    await setupScheduleDisplayOptions(page, PROJECT_ID, { comfortableRows: true });
+    await page.goto(BASE_URL);
+    await expect(page.getByText('Mobilization').first()).toBeVisible();
+  });
+
+  test('rows and the pitch between them are 44px on a mouse', async ({ page }) => {
+    const boxes = [];
+    for (const name of NAMES) boxes.push(await boxOf(outlineRow(page, name)));
+
+    for (const [i, box] of boxes.entries()) {
+      expect(box.height, `row ${i} ("${NAMES[i]}") height`).toBeGreaterThanOrEqual(44);
+    }
+    for (let i = 1; i < boxes.length; i++) {
+      expect(boxes[i].y - boxes[i - 1].y, `pitch between rows ${i - 1} and ${i}`).toBeCloseTo(
+        44,
+        0,
+      );
+    }
+  });
+
+  test('the canvas follows the preference, not just the outline', async ({ page }) => {
+    // The failure mode a DOM-only assertion cannot see: the preference reaches
+    // the row model's single owner, so the non-React readers — renderer, hit
+    // index, virtualization — resolve the same 44 the outline did.
+    //
+    // The absolute height assertion is load-bearing and not redundant with the
+    // test above. Bar-center ≈ row-center is a *relative* claim that holds just
+    // as well at 28px, so on its own it would pass with the preference ignored
+    // entirely — which is exactly what happened against a stale bundle during
+    // review. Pinning the height first is what makes the alignment check mean
+    // "aligned AT the comfortable height".
+    for (const name of NAMES) {
+      const row = await boxOf(outlineRow(page, name));
+      const bar = await boxOf(barOption(page, name));
+      expect(row.height, `outline row for "${name}"`).toBeGreaterThanOrEqual(44);
+      expect(bar.y + bar.height / 2, `bar for "${name}"`).toBeCloseTo(row.y + row.height / 2, 0);
+    }
+  });
+
+  test('a click lands on the row it covers at the comfortable height', async ({ page }) => {
+    for (const name of NAMES) {
+      const row = await boxOf(outlineRow(page, name));
+      const bar = await boxOf(barOption(page, name));
+      // Same reasoning as above: hit-testing self-consistently at 28px would
+      // satisfy the rest of this test, so the height is pinned before the tap.
+      expect(row.height, `outline row for "${name}"`).toBeGreaterThanOrEqual(44);
+      await tapCanvasAt(page, bar.x + bar.width / 2, row.y + row.height / 2);
+      await expect(barOption(page, name)).toHaveAttribute('aria-selected', 'true');
+    }
+  });
+
+  test('the canvas repaints when the option is toggled live, with no reload', async ({ page }) => {
+    // Every other case here seeds `localStorage` and loads into the on state,
+    // which proves hydration and proves nothing about the flip. This is the one
+    // that exercises the subscription: the preference is not React state that
+    // the canvas happens to be under, it is an input to a module the canvas
+    // reads through a live binding, so "the outline re-rendered" and "the engine
+    // repainted at the new pitch" are genuinely separate claims.
+    await page
+      .getByRole('toolbar', { name: 'Schedule toolbar' })
+      .getByRole('button', { name: 'Display' })
+      .click();
+    const menu = page.getByRole('menu', { name: 'Display options' });
+    await menu.getByRole('menuitemcheckbox', { name: 'Comfortable rows' }).click();
+    await page.keyboard.press('Escape');
+
+    // Back to the compact height — the option was already on from the fixture,
+    // so this click turned it OFF.
+    await expect
+      .poll(async () => (await boxOf(outlineRow(page, 'Mobilization'))).height)
+      .toBeCloseTo(28, 0);
+
+    for (const name of NAMES) {
+      const row = await boxOf(outlineRow(page, name));
+      const bar = await boxOf(barOption(page, name));
+      expect(bar.y + bar.height / 2, `bar for "${name}" after the toggle`).toBeCloseTo(
+        row.y + row.height / 2,
+        0,
+      );
+    }
+  });
+
+  test('the grip grows taller but does not take a 44px lane a mouse never needed', async ({
+    page,
+  }) => {
+    // "Larger controls" arrives through the resolved height, which the grip's own
+    // height is. Its *width* answers a different question — can this pointer aim?
+    // — and a mouse still can, so the name column is not surrendered.
+    const grip = await boxOf(outlineRow(page, 'Survey').getByTestId('row-reorder-grip'));
+    expect(grip.height, 'grip height follows the row').toBeGreaterThanOrEqual(44);
+    expect(grip.width, 'grip lane stays on the pointer class').toBeLessThan(44);
   });
 });

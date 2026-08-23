@@ -10,6 +10,12 @@ describe('ScheduleCoachBar', () => {
     render(<ScheduleCoachBar onDismiss={() => {}} onShowCheatsheet={() => {}} />);
     // The row controls only appear on hover, so nothing else can announce them.
     expect(screen.getByText('+ ⇤ ⇥ ◆')).toBeInTheDocument();
+    // #3020: the indent chip names ⌥→, the key that is actually bound. It
+    // shipped as ⇥, and Tab is bound to nothing on purpose — binding it
+    // reproduces the WCAG 2.1.2 keyboard trap fixed in #2192/#2727. The
+    // liveness property is gated in scheduleTeachingChords.test.tsx; this pins
+    // the specific string a reader sees.
+    expect(screen.getByText('⌥→')).toBeInTheDocument();
     expect(screen.getByText('the one above becomes a phase')).toBeInTheDocument();
     expect(screen.getByText('wrap them in a phase')).toBeInTheDocument();
   });

@@ -501,6 +501,35 @@ describe('ScheduleDisplayMenu — Outline chrome section (#2959, #2955)', () => 
     expect(onToggle).toHaveBeenCalledWith('structureButtons');
   });
 
+  /**
+   * #3019 — this row had no test of its own, which is half of why it shipped as
+   * a dead control: nothing asserted the entry point, and nothing asserted an
+   * effect, so the toggle could be renamed or unwired in complete silence. The
+   * downstream half (the height actually moving) lives in
+   * `hooks/useRowHeight.test.ts` and `e2e/schedule-coarse-row-height.spec.ts`.
+   */
+  it('offers the Comfortable rows toggle and reports it by its key (#3019)', () => {
+    const onToggle = vi.fn();
+    setup({ ...OUTLINE_OPTIONS, onToggleDisplayOption: onToggle });
+    const menu = openMenu();
+    const item = within(menu).getByRole('menuitemcheckbox', { name: 'Comfortable rows' });
+    expect(item).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(item);
+    expect(onToggle).toHaveBeenCalledWith('comfortableRows');
+  });
+
+  it('reflects the Comfortable rows on state', () => {
+    setup({
+      displayOptions: { structureButtons: false, coach: true, comfortableRows: true },
+      onToggleDisplayOption: vi.fn(),
+    });
+    const menu = openMenu();
+    expect(within(menu).getByRole('menuitemcheckbox', { name: 'Comfortable rows' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+  });
+
   it('reflects the on state', () => {
     setup({
       displayOptions: { structureButtons: true, coach: true, comfortableRows: false },
