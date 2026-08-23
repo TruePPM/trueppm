@@ -95,10 +95,12 @@ def test_close_sprint_completes_request(_broadcast: object, user: object, projec
     assert s.completed_points == 5
     assert s.completed_task_count == 1
     assert s.closed_at is not None
-    # Carry-over moved the open task back to backlog
+    # Carry-over took the open task out of the sprint. Its status is NOT rewritten:
+    # IN_PROGRESS is what a person is doing, not a commitment level, and sprint
+    # housekeeping they did not perform must not discard it (#2913).
     open_task = Task.objects.get(name="Open")
     assert open_task.sprint_id is None
-    assert open_task.status == TaskStatus.BACKLOG
+    assert open_task.status == TaskStatus.IN_PROGRESS
 
 
 @patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
@@ -231,7 +233,9 @@ def test_carry_over_to_backlog_bumps_server_version(
 
     task.refresh_from_db()
     assert task.sprint is None
-    assert task.status == TaskStatus.BACKLOG
+    # Status survives the move (#2913) — the bump under test is the FK write, and it
+    # must still happen on the branch that no longer also writes status.
+    assert task.status == TaskStatus.IN_PROGRESS
     assert task.server_version > version_before, (
         "server_version must be incremented so mobile sync clients see the carry-over"
     )
