@@ -14,7 +14,10 @@ const mockRecurrence: { rule: TaskRecurrenceRule | null; isLoading: boolean; err
   isLoading: false,
   error: null,
 };
-const mockRole: { role: number | null; isLoading: boolean } = { role: 400, isLoading: false };
+const mockRole: { role: number | null; isLoading: boolean; isError?: boolean } = {
+  role: 400,
+  isLoading: false,
+};
 type MutateOptions = { onSuccess?: () => void; onError?: (error: unknown) => void };
 const mockMutate = vi.fn<(vars: unknown, opts?: MutateOptions) => void>();
 const mockCreate = { mutate: mockMutate, isPending: false };
@@ -76,6 +79,7 @@ beforeEach(() => {
   mockRecurrence.error = null;
   mockRole.role = ROLE_OWNER;
   mockRole.isLoading = false;
+  mockRole.isError = false;
   mockMutate.mockReset();
   mockCreate.isPending = false;
   mockUpdate.isPending = false;
@@ -526,6 +530,36 @@ describe('RecurrenceSection — role gating edge cases', () => {
     mockRole.role = ROLE_OWNER;
     mockRecurrence.rule = fixtureRule();
     render(false);
+    expect(screen.queryByRole('button', { name: 'Edit recurrence' })).not.toBeInTheDocument();
+  });
+
+  // #2998 — a FAILED role read is not "no role". `retry: false` makes one blip
+  // terminal, so treating it as denial silently strips a Scheduler's own controls
+  // with nothing on screen to explain it. Unknown is unsettled, not denied (#2961):
+  // the server-derived verdict still gates, and the server refuses on save if the
+  // role really was too low.
+  it('keeps the edit control when the role read failed and the server verdict allows', () => {
+    mockRole.role = null;
+    mockRole.isError = true;
+    mockRecurrence.rule = fixtureRule();
+    render(true);
+    expect(screen.getByRole('button', { name: 'Edit recurrence' })).toBeInTheDocument();
+  });
+
+  it('a failed role read does not override a server verdict of canEdit=false', () => {
+    // The regression guard: unknown-is-unsettled must not become a blanket bypass.
+    mockRole.role = null;
+    mockRole.isError = true;
+    mockRecurrence.rule = fixtureRule();
+    render(false);
+    expect(screen.queryByRole('button', { name: 'Edit recurrence' })).not.toBeInTheDocument();
+  });
+
+  it('still gates on the ordinal when the role read succeeded', () => {
+    mockRole.role = ROLE_MEMBER;
+    mockRole.isError = false;
+    mockRecurrence.rule = fixtureRule();
+    render(true);
     expect(screen.queryByRole('button', { name: 'Edit recurrence' })).not.toBeInTheDocument();
   });
 });

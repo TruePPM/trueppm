@@ -16,6 +16,7 @@ import { ResourceToolbar, type ViewMode } from './ResourceToolbar';
 import { ResourceGrid } from './ResourceGrid';
 import { ResourceEmptyState } from './ResourceEmptyState';
 import { PermissionDeniedNotice } from './PermissionDeniedNotice';
+import { RoleReadFailedNotice } from './RoleReadFailedNotice';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { ResourceOverallocationDrawer } from './ResourceOverallocationDrawer';
 import { ResourceAllocationTimeline } from './ResourceAllocationTimeline';
@@ -76,9 +77,18 @@ function persistViewMode(mode: ViewMode): void {
   }
 }
 
-/** Permission gate (rule 94): SCHEDULER (role ≥ 2) required; a loading role defers the decision. */
-function roleIsDenied(roleLoading: boolean, role: number | null): boolean {
-  return !roleLoading && (role === null || role < ROLE_SCHEDULER);
+/**
+ * Permission gate (rule 94): SCHEDULER (role ≥ 2) required; a loading role defers the
+ * decision, and so does a **failed** role read.
+ *
+ * `roleError` is a parameter rather than something inferred from `role === null`,
+ * because null means two different things — "no membership" and "the request failed"
+ * — and this function's answer is rendered as a permission wall. Stating the wrong one
+ * as fact sends a Scheduler off to ask for access they already hold (#2998).
+ */
+function roleIsDenied(roleLoading: boolean, roleError: boolean, role: number | null): boolean {
+  if (roleLoading || roleError) return false;
+  return role === null || role < ROLE_SCHEDULER;
 }
 
 /** "My allocation" resource filter, or undefined when the shortcut is off or no user resource exists. */
@@ -364,8 +374,23 @@ export function ResourceView({
   }, [viewMode]);
 
   // --- Permission gate (rule 94) ---
-  const { role, isLoading: roleLoading } = useCurrentUserRole(projectId);
-  if (roleIsDenied(roleLoading, role)) {
+  const {
+    role,
+    isLoading: roleLoading,
+    isError: roleError,
+    refetch: refetchRole,
+  } = useCurrentUserRole(projectId);
+  // A failed read is its own state, rendered before the denial branch: the hook sets
+  // `retry: false`, so one blip would otherwise put a permission wall in front of an
+  // Owner with no way to tell it from a real refusal (#2998).
+  if (!roleLoading && roleError) {
+    return (
+      <div className="flex flex-col h-full overflow-hidden">
+        <RoleReadFailedNotice onRetry={() => void refetchRole?.()} />
+      </div>
+    );
+  }
+  if (roleIsDenied(roleLoading, roleError ?? false, role)) {
     return (
       <div className="flex flex-col h-full overflow-hidden">
         <PermissionDeniedNotice />

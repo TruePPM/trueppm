@@ -103,4 +103,20 @@ describe('useCurrentUserRole', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.role).toBeNull();
   });
+
+  it('exposes refetch so a failed read is escapable without a page reload (#2998)', async () => {
+    // `retry: false` makes one failed request terminal. Without a retry the only way
+    // out of the isError state is reloading the whole app.
+    getMock.mockRejectedValueOnce(new Error('network'));
+    const { result } = renderHook(() => useCurrentUserRole('proj-1'), {
+      wrapper: makeWrapper(freshClient()),
+    });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    getMock.mockResolvedValue({ data: [{ id: 'm1', role: 300, role_label: 'Project Manager' }] });
+    result.current.refetch?.();
+
+    await waitFor(() => expect(result.current.role).toBe(300));
+    expect(result.current.isError).toBe(false);
+  });
 });
