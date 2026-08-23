@@ -2,7 +2,7 @@
 # Run `make help` for a list of targets.
 
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod \
-        migrations-check migrations-numbering schema-check web-lint web-typecheck pre-push pre-push-checks \
+        migrations-check migrations-numbering schema-check web-lint web-typecheck web-rule-numbers-check pre-push pre-push-checks \
         pre-push-behind-warn pre-push-collision-check pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web sonar \
         release-smoke screenshots wt-new wt-list wt-remove wt-prune wt-doctor
@@ -293,6 +293,15 @@ boundary-doc-check: ## Fail if a doc instructs the stale naive boundary grep (#2
 	@# invariant as violated on a clean tree. Grep over five doc roots, ~1s.
 	@bash scripts/check-boundary-doc-command.sh
 
+web-rule-numbers-check: ## Fail if two packages/web/CLAUDE.md rules share a number (#2933)
+	@# Rule numbers are the file's addressing scheme — code comments, ADRs and MR
+	@# descriptions cite "rule NNN" and expect one answer. A duplicate exists only
+	@# on the MERGED tree (each branch picked the next free number and was locally
+	@# right), so neither branch's own pipeline can see it. 295 meant two different
+	@# things for months as a result.
+	@bash scripts/check-web-rule-numbers.sh --self-test
+	@bash scripts/check-web-rule-numbers.sh
+
 playwright-pins-check: ## Fail if a Playwright npm pin drifts from the CI image tag (#2797)
 	@# A version mismatch means the browsers baked into the image are at a path
 	@# the npm package never looks in, so the launch fails outright. In web:e2e
@@ -319,7 +328,7 @@ nginx-headers-check: ## Fail if the five nginx configs disagree on the hardening
 	@# are skipped (loudly) when helm is not on PATH — CI always has it.
 	@bash scripts/check-nginx-security-headers.sh
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check playwright-pins-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check playwright-pins-check web-rule-numbers-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/

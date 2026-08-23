@@ -1392,6 +1392,33 @@ web:playwright-pins:
     - bash scripts/check-playwright-pins.sh --self-test
     - bash scripts/check-playwright-pins.sh
 
+web:rule-numbers:
+  extends: .fast-job
+  # Two rules in packages/web/CLAUDE.md sharing a number (#2933).
+  #
+  # Rule numbers are that file's addressing scheme: GanttRenderer.ts and
+  # ADR-0803 both cite "rule 295" and expect one answer. For months there were
+  # two, because two branches in flight each took the next free number, each was
+  # locally correct, and nothing compared them.
+  #
+  # That is the whole reason this is a CI job rather than a review habit: the
+  # duplicate does not exist on either branch — it comes into being on the
+  # MERGED tree, which is the one tree neither author's pipeline ever built.
+  #
+  # Runs in the lint stage: no install, no build, no network. ~1s.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash grep
+  script:
+    # Self-test first: a passing run looks the same whether the gate works or
+    # its pattern has drifted to match nothing.
+    - bash scripts/check-web-rule-numbers.sh --self-test
+    - bash scripts/check-web-rule-numbers.sh
+
 helm:metric-names:
   extends: .fast-job
   # The chart's PromQL must only name series the application emits (#2805).
