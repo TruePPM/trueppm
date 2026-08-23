@@ -131,14 +131,21 @@ of scanning the whole project's history. The sprint-transition filter chip is la
 **"Scope changes"** to make those events easy to find. A removal stays visible in the
 sprint it left, even after the task moves on.
 
-Separately, when a task actually **enters or leaves an ACTIVE sprint**, the project's
-**leads** (Owner / Admin / Scheduler — everyone but whoever made the change) get an
-**in-app notification**. This closes the "someone silently added a task to our active
-sprint" gap: the change is now both auditable in the rail *and* actively surfaced to
-the accountable roles. The notice is **in-app by default with email opt-in**, fully
-mutable per person in [Notification settings](/features/settings/project-notifications),
-and honors Do-Not-Disturb. It never fires for planned, completed, or cancelled
-sprints, or for a no-op edit.
+Separately, when a task actually **enters or leaves an ACTIVE sprint**, everyone who
+can rule on that change gets an **in-app notification** — the same set that may accept
+or decline an injection: **Project Manager and Project Admin**, plus the team's
+**Scrum Master** and **Product Owner** whatever project role they hold, minus whoever
+made the change. The facet half matters in practice: a Product Owner is normally seated
+as a Team Member, so a recipient list keyed on project role alone would leave out the
+person the notice exists for. (Resource Manager is *not* on the list — that role cannot
+accept or decline scope, so it gets no notice it could not act on.)
+
+This closes the "someone silently added a task to our active sprint" gap: the change is
+now both auditable in the rail *and* actively surfaced to the accountable roles. The
+notice is **in-app by default with email opt-in**, fully mutable per person in
+[Notification settings](/features/settings/project-notifications), and honors
+Do-Not-Disturb. It never fires for planned, completed, or cancelled sprints, or for a
+no-op edit.
 
 ## Where to find it in the app
 
@@ -160,7 +167,7 @@ The `scope-changes` endpoint is the one new addition (added in 0.3); the rest
 of the panel is a UI composition over existing data. 0.4 will add an optional
 `sprint` scope parameter to the board activity feed, and a change that enters
 or leaves an ACTIVE sprint will emit a `sprint.membership_changed` notification
-to the project leads.
+to everyone authorized to accept or decline it.
 
 ## Related
 
