@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import asdict, dataclass
+from functools import partial
 from typing import Any, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -476,6 +477,20 @@ class LoadSampleResponseSerializer(serializers.Serializer[Any]):
     program = ProgramSerializer()
     landing_project_id = serializers.UUIDField(allow_null=True)
     sample_key = serializers.CharField()
+
+
+def _broadcast_projects_updated(project_ids: list[str]) -> None:
+    """Fan ``project_updated`` out to each project's own channel group.
+
+    One deferred callback for a whole bulk apply. The sends themselves stay
+    per-project because each is a distinct channel group — there is no group to
+    collapse them into — but the callback registration, and any future batching of
+    the replay-buffer write, has a single place to live.
+    """
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    for project_id in project_ids:
+        broadcast_board_event(project_id, "project_updated", {"id": project_id})
 
 
 class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewSet[Program]):
@@ -2539,16 +2554,65 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         two benign, non-schedule inherited fields (methodology, iteration_label) ship in
         this slice; ``calendar`` is deferred (schedule-affecting, no bulk recalc path yet).
         """
+        from trueppm_api.apps.projects.config_notice import (
+            capture_project_surface,
+            collect_project_surface_change,
+            notify_surface_changes,
+        )
+        from trueppm_api.apps.workspace.models import Workspace
+
         program = self.get_object()
         envelope = BulkFieldsRequestSerializer(data=request.data)
         envelope.is_valid(raise_exception=True)
+        targets = Project.objects.filter(program_id=program.pk, is_deleted=False, is_archived=False)
         with transaction.atomic():
+            # Snapshot the preset/visibility of every target BEFORE the apply.
+            # This route is the *other* way a methodology preset gets switched
+            # (ADR-0161's settings matrix), and a team whose board was re-shaped
+            # from the program matrix has exactly the same right to be told as one
+            # whose PM used the project settings page (#2972). The extra read is
+            # bounded by MAX_BULK_TARGETS and hoists the workspace singleton so it
+            # is not reloaded per row.
+            #
+            # Locked on the way in, for the same reason the board PUT locks its
+            # baseline: `apply_bulk_fields` takes `select_for_update` on these rows
+            # a moment later, so an unlocked read here could snapshot a preset a
+            # concurrent write is about to replace — and the notice would then name
+            # a "from" preset that was never the one this call changed.
+            workspace = Workspace.load()
+            before = {
+                row.pk: capture_project_surface(row, workspace=workspace)
+                for row in targets.filter(
+                    pk__in=[str(i) for i in envelope.validated_data["ids"]]
+                ).select_for_update()
+            }
             rows = apply_bulk_fields(
                 field_serializer_cls=ProjectBulkFieldsSerializer,
-                queryset=Project.objects.filter(
-                    program_id=program.pk, is_deleted=False, is_archived=False
-                ),
+                queryset=targets,
                 ids=envelope.validated_data["ids"],
                 fields=envelope.validated_data["fields"],
             )
+            changes = []
+            for row in rows:
+                snapshot = before.get(row.pk)
+                if snapshot is None:
+                    continue
+                change = collect_project_surface_change(row, before=snapshot, workspace=workspace)
+                if change is None:
+                    continue
+                changes.append(change)
+            # This path has never broadcast, which was survivable while it was only
+            # a settings write. It is not survivable now: the notice tells the team
+            # their views moved, so an open client that never hears `project_updated`
+            # keeps rendering the old surface and makes the notice look wrong
+            # (#2972). Only projects whose surface actually moved are broadcast — a
+            # pure `iteration_label` edit stays silent on both channels.
+            #
+            # ONE callback for the whole batch, on both channels. Registering a
+            # callback per project would put up to MAX_BULK_TARGETS separate
+            # entries on the on-commit queue for one request.
+            broadcast_ids = [change.project_id for change in changes]
+            if broadcast_ids:
+                transaction.on_commit(partial(_broadcast_projects_updated, broadcast_ids))
+            notify_surface_changes(changes, actor=request.user)
         return Response(build_bulk_response(rows, envelope.validated_data["fields"]))

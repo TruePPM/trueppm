@@ -140,6 +140,28 @@ class NotificationEventType(models.TextChoices):
     # change is visible where decisions get argued about; email opt-in OFF, the
     # same un-opted-email floor every contributor signal keeps.
     PLAN_AMENDED = "plan.amended", "A committed plan I work on was changed"
+    # Project configuration change that moves the surface everyone works on
+    # (#2972, epic #2743). Removing a board lane, hiding a board column, hiding a
+    # leaf surface, or switching the methodology preset re-arranges where every
+    # assignee's work appears — and before this, only the person who clicked knew.
+    #
+    # Two properties this event exists to hold, both easy to erode later:
+    #   1. It fires ONLY on a change that moves or hides work. A rename, a color,
+    #      a WIP limit, an added lane — nothing. "A setting was saved" is exactly
+    #      the notification the issue exists to refuse, so the trigger is the
+    #      consequence, not the write.
+    #   2. Its body names what the change did to THIS recipient's own items
+    #      (rendered per recipient via create_event_notifications_batch), which is
+    #      why the notice is worth an inbox row at all.
+    # Reaches everyone with work in the project rather than the whole membership:
+    # the claim it makes is about the recipient's own items, and a member with no
+    # items has nothing to be told about. In-app ON, email opt-in OFF (Priya's
+    # un-opted-email hard-NO). Deliberately NOT in DND_BYPASS_EVENTS — a
+    # re-arranged board needs to be seen, not to interrupt.
+    PROJECT_CONFIG_CHANGED = (
+        "project.config_changed",
+        "The board or views I work on were reconfigured",
+    )
     # Scheduled digests (ADR-0663, #2407) — the first CLOCK-driven events in this
     # enum. Every other member fires from a domain event; these two fire from Beat
     # on the recipient's own weekly slot (UserNotificationSettings.digest_*), which
@@ -503,6 +525,12 @@ DEFAULT_PREFERENCES: list[tuple[str, str, bool]] = [
     # matching every other schedule-drift signal in this table.
     (NotificationEventType.PROJECT_END_DATE_SHIFTED, NotificationChannel.IN_APP, True),
     (NotificationEventType.PROJECT_END_DATE_SHIFTED, NotificationChannel.EMAIL, False),
+    # #2972 — a board lane removed, a column or view hidden, or the methodology
+    # preset switched. In-app ON so the people whose work moved learn it moved
+    # without waiting to notice; email opt-in OFF, the same un-opted-email floor
+    # every contributor signal in this table keeps.
+    (NotificationEventType.PROJECT_CONFIG_CHANGED, NotificationChannel.IN_APP, True),
+    (NotificationEventType.PROJECT_CONFIG_CHANGED, NotificationChannel.EMAIL, False),
     # ADR-0663 (#2407) — the scheduled digests are the ONLY rows in this table that
     # default OFF on both channels, and deliberately so. Every entry above fires
     # from something the user did or something that happened to their work, so an

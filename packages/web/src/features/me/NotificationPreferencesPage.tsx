@@ -86,6 +86,14 @@ const EVENT_LABELS: Record<string, { title: string; example: string }> = {
     title: 'When a task you own is carried to another sprint',
     example: '“Foundation pour” carries from Sprint 7 to Sprint 8 at close',
   },
+  // Project config change (#2972). Fires only when a change actually moves or
+  // hides work — a lane removed, a column or view hidden, the preset switched.
+  // The example names a consequence rather than a setting, because that is the
+  // whole difference between this row and "board configuration updated".
+  'project.config_changed': {
+    title: 'When the board or views you work on are reconfigured',
+    example: 'The “QA” lane is removed — your 3 items in it move to “Dev”',
+  },
   // Scheduled digests (ADR-0663, #2407) — the only clock-driven rows in the
   // matrix, and the only pair defaulting OFF on both channels. Both are worded as
   // a recurring send rather than an event so the distinction is legible here.
@@ -307,6 +315,7 @@ export function NotificationPreferencesPage() {
           'signal.ceiling_proposal_opened',
           'signal.ceiling_proposal_resolved',
           'project.deleted',
+          'project.config_changed',
         ],
         DIGEST_EVENT_TYPES,
       ),
