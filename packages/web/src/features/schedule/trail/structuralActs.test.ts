@@ -79,6 +79,33 @@ describe('insert', () => {
       'New item added below Permits, at the same level.',
     );
   });
+
+  it('distinguishes above from below — the two ⏎ variants land in different places', () => {
+    // ⏎ and ⇧⏎ leave the caret in an identical-looking blank Name cell, so the
+    // sentence is the only thing that tells them apart (#3018).
+    expect(insertSentence('above', { name: 'Permits' })).toBe(
+      'New item added above Permits, at the same level.',
+    );
+  });
+
+  it('names the level when there is no anchor row, rather than inventing a neighbour', () => {
+    // The footer appends at the end of the plan, which is not inside anything.
+    expect(insertSentence('end', null)).toBe(
+      'New item added at the end of the plan, at the top level.',
+    );
+    // …and a missing anchor on a placed insert degrades to the same honest form
+    // instead of announcing "below Untitled", which names a row that isn't there.
+    expect(insertSentence('below', null)).toBe(
+      'New item added at the end of the plan, at the top level.',
+    );
+  });
+
+  it('falls back to Untitled for an anchor the user has not named yet', () => {
+    // Consecutive ⏎ is the common case: the row you just made is still blank.
+    expect(insertSentence('below', { name: '   ' })).toBe(
+      'New item added below Untitled, at the same level.',
+    );
+  });
 });
 
 describe('milestone', () => {

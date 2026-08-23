@@ -69,6 +69,7 @@ import {
 import {
   deriveInsertTarget,
   describeInsertTarget,
+  landingSiblingOf,
   type InsertTarget,
 } from './buildMode/insertTarget';
 import { MilestonePulseOverlay } from './MilestonePulseOverlay';
@@ -187,6 +188,8 @@ import {
   indentSentence,
   outdentSentence,
   deleteSentence,
+  insertSentence,
+  insertMisplacedSentence,
   milestoneSentence,
   movedIntoSentence,
   groupSentence,
@@ -279,6 +282,12 @@ function ScheduleActionToastRenderer() {
   if (!toast) return null;
   return (
     <div
+      // Named so a spec can reach THIS status region rather than whichever one
+      // happens to share a word with it. The Schedule now carries three
+      // (#3018): the reconciliation region, the structural-act region, and this
+      // toast — and a `getByRole('status').filter({ hasText: 'Deleted' })` picks
+      // up both this and the sentence the same act spoke.
+      data-testid="schedule-action-toast"
       role="status"
       aria-live="polite"
       className="fixed bottom-14 left-1/2 -translate-x-1/2 z-[60] min-w-[280px] max-w-[420px] px-4 py-2 rounded-card border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary flex items-center gap-3"
@@ -1918,8 +1927,19 @@ export function ScheduleView() {
    * the failure this is meant to prevent.
    */
   const recordAct = useCallback(
-    (sentence: string, trailText?: string): number | null => {
-      if (ariaLiveRef.current) ariaLiveRef.current.textContent = sentence;
+    (sentence: string, trailText?: string, blocksUndo = true): number | null => {
+      if (ariaLiveRef.current) {
+        // Rewriting a live region with the SAME string is not a mutation, and most
+        // screen readers do not re-announce it (#3018). That is not an edge case
+        // here: the footer's sentence never varies, and repeated ⌘⏎ under one parent
+        // produces an identical one — so a user adding five rows in a row would hear
+        // the first and nothing after it, on the very act this channel exists for.
+        // A trailing zero-width space, alternated, makes each write a real change
+        // while remaining inaudible and invisible to `toHaveTextContent`.
+        const alternated =
+          ariaLiveRef.current.textContent === sentence ? `${sentence}\u200B` : sentence;
+        ariaLiveRef.current.textContent = alternated;
+      }
       // Returns the trail entry's id so a structural act can bind its server
       // `operation_id` on response — the sentence is announced before the request
       // lands, and waiting for the ledger handle would delay the announcement.
@@ -1933,7 +1953,11 @@ export function ScheduleView() {
       // is the property this helper exists for: an act that announces but leaves no
       // trail entry (or the reverse) is what it prevents, not one that says the same
       // thing at two lengths.
-      return projectId ? recordTrailAct(projectId, trailText ?? sentence) : null;
+      //
+      // `blocksUndo` is the third narrow case (#3018): an insert appends a row that did
+      // not exist when any older act ran, so it must not become an undo barrier the way
+      // an unreversible edit to an EXISTING row does. See `TrailEntry.blocksUndo`.
+      return projectId ? recordTrailAct(projectId, trailText ?? sentence, undefined, blocksUndo) : null;
     },
     [projectId, recordTrailAct],
   );
@@ -2179,10 +2203,19 @@ export function ScheduleView() {
   // mode so the new row doesn't silently fall back to the server default; a
   // per-task calendar override doesn't exist on the wire today, so there is
   // nothing to inherit there (ADR-0776).
+  //
+  // `sentence` is REQUIRED, not optional, and that is the fix for #3018 rather
+  // than a style preference. Insert is the most frequent structural act on this
+  // surface and was the only silent one: `insertSentence` had been written and
+  // imported by nothing, so a screen-reader user heard nothing and the row never
+  // reached the session trail. An optional argument would have left the next
+  // insert path free to reintroduce exactly that. Every caller must now say what
+  // it did to get a row created.
   const createNewTask = useCallback(
     (
       parentId: string | null,
       sourceTask: Task | undefined,
+      sentence: string,
       onCreated?: (created: { id: string }) => void,
     ) => {
       createTaskMut.mutate(
@@ -2201,13 +2234,22 @@ export function ScheduleView() {
             focus.focusRow(created.id);
             focus.enterCellEdit(created.id, 'name');
             setPristineNewRowId(created.id);
+            // Announced and recorded on SUCCESS, not on the keystroke — same rule
+            // delete follows: a create the server refused must not leave a trail
+            // entry claiming a row exists (#2948, #3018). No `operation_id` to
+            // attach; a single-row insert has no ledger row, so the entry renders
+            // without an Undo control rather than offering one it cannot honour —
+            // and `blocksUndo: false` keeps it from becoming an undo BARRIER for the
+            // reversible acts behind it, which for the surface's most frequent
+            // gesture would mean ⌘Z dies the moment anyone adds a row.
+            recordAct(sentence, undefined, false);
             onCreated?.(created);
           },
           onError: () => toast.error("Couldn't add a new task — try again."),
         },
       );
     },
-    [createTaskMut, focus],
+    [createTaskMut, focus, recordAct],
   );
 
   const buildModeApi = useMemo<BuildModeApi>(
@@ -2250,7 +2292,17 @@ export function ScheduleView() {
         if (!projectId) return;
         const focused = allTasks.find((t) => t.id === taskId);
         const parentId = focused?.parentId ?? null;
-        createNewTask(parentId, focused);
+        // The sentence names the row the new one actually FOLLOWS, which is the
+        // last sibling — not the focused row, except on the common path of typing
+        // down a list where they are the same. Same derivation the toolbar's own
+        // statement uses (#2957), so the trail entry cannot contradict the sentence
+        // the user read beside the button before they pressed it (#3018).
+        const anchor = focused ? landingSiblingOf(allTasks, focused) : null;
+        createNewTask(
+          parentId,
+          focused,
+          insertSentence('below', anchor ? { name: anchor.name } : null),
+        );
       },
       insertAbove: (taskId) => {
         // Shift+Enter (#2727): same depth as insertBelow, but the new row must
@@ -2263,7 +2315,7 @@ export function ScheduleView() {
         if (!focused) return;
         const parentId = focused.parentId ?? null;
         const siblingIdsBeforeCreate = siblingIdsOf(allTasks, parentId);
-        createNewTask(parentId, focused, (created) => {
+        createNewTask(parentId, focused, insertSentence('above', actRow(taskId)), (created) => {
           const idx = siblingIdsBeforeCreate.indexOf(taskId);
           const ordered =
             idx === -1
@@ -2273,7 +2325,24 @@ export function ScheduleView() {
                   created.id,
                   ...siblingIdsBeforeCreate.slice(idx),
                 ];
-          reorderTaskMut.mutate({ parent_path: wbsParentPath(focused.wbs), ordered_ids: ordered });
+          reorderTaskMut.mutate(
+            { parent_path: wbsParentPath(focused.wbs), ordered_ids: ordered },
+            {
+              // "Added above X" is only true once THIS request lands — the create
+              // endpoint appended at the end of the level. A failure here used to be
+              // silent (the row simply sat in the wrong place); now that the act also
+              // announces itself, silence would leave a spoken claim and a permanent
+              // trail entry that are both false. So the correction is announced and
+              // recorded beside the claim rather than replacing it — the trail is a
+              // log, and a user who heard the first sentence needs to hear the second
+              // (#3018).
+              onError: () => {
+                const sentence = insertMisplacedSentence(actRow(taskId));
+                recordAct(sentence, undefined, false);
+                setScheduleActionToast({ message: sentence });
+              },
+            },
+          );
         });
       },
       insertChild: (taskId) => {
@@ -2283,7 +2352,7 @@ export function ScheduleView() {
         // having children, not a settable flag, so nothing else to toggle.
         if (!projectId) return;
         const focused = allTasks.find((t) => t.id === taskId);
-        createNewTask(taskId, focused);
+        createNewTask(taskId, focused, insertSentence('child', actRow(taskId)));
       },
       isPristineNewRow: (taskId) => taskId === pristineNewRowId,
       clearPristineNewRow: (taskId) => setPristineNewRowId((cur) => (cur === taskId ? null : cur)),
@@ -2555,7 +2624,9 @@ export function ScheduleView() {
    */
   const handleAppendTaskAtEnd = useCallback(() => {
     if (!projectId || readOnly) return;
-    createNewTask(null, undefined);
+    // No anchor row: the end of the plan is not inside anything, so the sentence
+    // names the level rather than a neighbour it would have to invent.
+    createNewTask(null, undefined, insertSentence('end', null));
   }, [projectId, readOnly, createNewTask]);
 
   // Open the milestone-create dialog. The dialog handles the actual POST and
@@ -2962,11 +3033,17 @@ export function ScheduleView() {
             focus.focusRow(data.id);
             focus.enterCellEdit(data.id, 'name');
             if (!buildModeActive) setPendingAutoEditId(data.id);
+            // Structurally the same act as `⌘⏎` — a first child nested under a phase
+            // — reached by a different affordance, so it says the same thing (#3018).
+            // This path does not go through `createNewTask`, which is exactly why it
+            // was missed: the required-`sentence` argument only binds that helper's
+            // callers, so a direct `createTaskMut.mutate` sits outside the guard.
+            recordAct(insertSentence('child', actRow(phaseTaskId)), undefined, false);
           },
         },
       );
     },
-    [projectId, createTaskMut, focus, buildModeActive],
+    [projectId, createTaskMut, focus, buildModeActive, recordAct, actRow],
   );
 
   // `?author=task|milestone` deep link (#2952, design case 18). The demotion of
@@ -3012,7 +3089,26 @@ export function ScheduleView() {
     // `under` when the caller named a container, otherwise the outline's own
     // insertion point — the shell's context-free "+ New task" states intent, it
     // does not override where a row belongs.
-    createNewTask(searchParams.get(AUTHOR_PARENT_PARAM) ?? inferredParentId, undefined);
+    const authorParentId = searchParams.get(AUTHOR_PARENT_PARAM) ?? inferredParentId;
+    // A link that arrives from the shell creates a row the user did not watch land,
+    // so it needs the sentence at least as much as a keystroke does (#3018).
+    //
+    // Resolved against `allTasks`, and the sentence falls back to the anchorless form
+    // when the lookup MISSES. `actRow` returns `{ name: '' }` for an id it cannot find,
+    // which reads as "under Untitled" — and the two ways to miss here are both live: a
+    // stale or foreign `?under=` id, and the tasks query not having resolved when the
+    // role query settled. Naming a row that is not there is the one failure this
+    // path cannot afford, since it is the only insert the user did not watch happen.
+    const authorParent = authorParentId
+      ? allTasks.find((t) => t.id === authorParentId)
+      : undefined;
+    createNewTask(
+      authorParentId,
+      undefined,
+      authorParent
+        ? insertSentence('child', { name: authorParent.name })
+        : insertSentence('end', null),
+    );
   }, [
     searchParams,
     roleLoading,
@@ -3021,6 +3117,7 @@ export function ScheduleView() {
     createNewTask,
     inferredParentId,
     setShowAddMilestone,
+    allTasks,
   ]);
 
   // Strip in a LATER commit, and both keys in ONE updater. Two traps, both live:
@@ -3547,6 +3644,23 @@ export function ScheduleView() {
       createTaskMut.mutate(
         { name, duration: 1, parent_id: inferredParentId },
         {
+          onSuccess: () => {
+            // The blank-project draft row is an insert too, and on that screen it is
+            // the ONLY act available — so a screen-reader user who types the first
+            // task and presses ⏎ would otherwise get no confirmation that anything
+            // happened at all (#3018). The parent comes from the outline's own
+            // insertion point, which on a blank project is the root.
+            const parent = inferredParentId
+              ? allTasks.find((t) => t.id === inferredParentId)
+              : undefined;
+            recordAct(
+              parent
+                ? insertSentence('child', { name: parent.name })
+                : insertSentence('end', null),
+              undefined,
+              false,
+            );
+          },
           onError: () => {
             toast.error(`Couldn't add "${name}" — try again.`);
             opts?.onError?.();
@@ -3554,7 +3668,7 @@ export function ScheduleView() {
         },
       );
     },
-    [projectId, readOnly, createTaskMut, inferredParentId],
+    [projectId, readOnly, createTaskMut, inferredParentId, recordAct, allTasks],
   );
 
   // The project's stated facts, shown beside the horizon so the ruler is legible
@@ -4177,8 +4291,18 @@ function ScheduleOverlayLayer({
         onClose={onDatePopoverClose}
       />
 
-      {/* aria-live (polite) — drag milestone announcements via DOM ref (rule 30) */}
-      <div ref={ariaLiveRef} aria-live="polite" aria-atomic="true" className="sr-only" />
+      {/* aria-live (polite) — structural-act and drag announcements via DOM ref (rule 30).
+          `role="status"` is the declared contract (#3018) and is kept alongside the
+          explicit `aria-live`: the role implies `polite`, but stating both is what lets
+          a test find this region by role instead of by a bare attribute selector. */}
+      <div
+        ref={ariaLiveRef}
+        data-testid="schedule-act-live"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+      />
 
       {/* aria-live (assertive) — keyboard nudge announcements (rule 53) */}
       <div ref={ariaAssertiveRef} aria-live="assertive" aria-atomic="true" className="sr-only" />

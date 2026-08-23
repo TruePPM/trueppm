@@ -38,13 +38,29 @@ export interface TrailEntry {
   operationId?: string;
   /** Set once its undo succeeds, so the entry reads as spent rather than vanishing. */
   undone?: boolean;
+  /**
+   * Whether this act sits ON the undo stack, or merely beside it (#3018).
+   *
+   * Defaults to `true`, which is the safe reading: an act this tree cannot reverse
+   * blocks the ones behind it, because undoing an older act underneath a newer
+   * irreversible one leaves the outline in a state the user never produced.
+   *
+   * `false` is for an act that touches **only rows that did not exist** when the
+   * older act ran, so reversing that older act cannot interact with it. A single-row
+   * insert is the case this exists for, and it needs to be: insert is the most
+   * frequent gesture on the surface, so treating it as a barrier would mean ⌘Z dies
+   * the moment a user adds a row — which is exactly when they are most likely to want
+   * it. Before insert was recorded at all this was the behavior by omission; the flag
+   * keeps it deliberate rather than accidental.
+   */
+  blocksUndo?: boolean;
 }
 
 interface TrailState {
   projectId: string | null;
   entries: TrailEntry[];
   /** Returns the new entry's id so a caller can attach a ledger handle later. */
-  record: (projectId: string, text: string, operationId?: string) => number;
+  record: (projectId: string, text: string, operationId?: string, blocksUndo?: boolean) => number;
   /** Late-bind a ledger handle once the mutation that earned it has responded. */
   attachOperation: (entryId: number, operationId: string | null) => void;
   markUndone: (entryId: number) => void;
@@ -56,7 +72,7 @@ let seq = 0;
 export const useTrailStore = create<TrailState>((set) => ({
   projectId: null,
   entries: [],
-  record: (projectId, text, operationId) => {
+  record: (projectId, text, operationId, blocksUndo = true) => {
     // The id is minted here rather than inside `set` so it can be returned: the
     // structural endpoints only reveal their `operation_id` when they respond, which
     // is after the sentence has already been announced and recorded.
@@ -65,7 +81,7 @@ export const useTrailStore = create<TrailState>((set) => ({
       // A project switch resets rather than appends: "3 changes this session"
       // must never count acts performed on a different plan.
       const base = s.projectId === projectId ? s.entries : [];
-      const next = [...base, { id, text, at: new Date(), operationId }];
+      const next = [...base, { id, text, at: new Date(), operationId, blocksUndo }];
       return {
         projectId,
         entries: next.length > TRAIL_CAP ? next.slice(next.length - TRAIL_CAP) : next,
@@ -102,10 +118,15 @@ export function newestUndoableEntry(entries: TrailEntry[]): TrailEntry | null {
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const entry = entries[i];
     if (entry.undone) continue;
-    // An entry with no ledger handle is an act this tree cannot reverse. It does not
-    // just fail to be the target — it blocks the ones behind it, because undoing an
-    // older act while a newer unreversible one sits on top would leave the outline in
-    // a state the user never produced.
+    // An act that sits beside the stack rather than on it is stepped OVER, not
+    // stopped at (#3018) — see `blocksUndo`. Skipping it is only sound because the
+    // rows it touched did not exist when the older act ran, so reversing that older
+    // act cannot interact with what this one did.
+    if (entry.blocksUndo === false) continue;
+    // Otherwise an entry with no ledger handle is an act this tree cannot reverse. It
+    // does not just fail to be the target — it blocks the ones behind it, because
+    // undoing an older act while a newer unreversible one sits on top would leave the
+    // outline in a state the user never produced.
     return entry.operationId ? entry : null;
   }
   return null;

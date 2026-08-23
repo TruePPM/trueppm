@@ -76,16 +76,36 @@ export function deriveInsertTarget(
   if (untouched || focused.name.trim() === '') {
     return { kind: 'unnamed', taskId: focused.id, wbs };
   }
-  // Ordered by WBS rather than by array position: the caller's list is filtered
-  // and re-sorted by several display options, and where a create lands is a
-  // property of the tree, not of what is currently on screen.
-  const landsAfterWbs = tasks
+  return {
+    kind: 'after',
+    taskId: focused.id,
+    wbs,
+    landsAfterWbs: landingSiblingOf(tasks, focused).wbs || '',
+  };
+}
+
+/**
+ * The row a plain "insert below" will actually land after — the LAST of the
+ * focused row's siblings, which is the focused row itself only on the common
+ * path of typing down a list.
+ *
+ * Extracted from `deriveInsertTarget` so the trail's sentence and the toolbar's
+ * statement are the same derivation (#3018). They describe one mutation, and the
+ * failure mode of writing the sentence beside the handler is not that it is
+ * vague — it is that it is confidently wrong, and a trail entry naming a row the
+ * new one did not land beside is a record a user would check and find false.
+ *
+ * Ordered by WBS rather than by array position: the caller's list is filtered
+ * and re-sorted by several display options, and where a create lands is a
+ * property of the tree, not of what is currently on screen.
+ */
+export function landingSiblingOf(tasks: Task[], focused: Task): Task {
+  return tasks
     .filter((t) => (t.parentId ?? null) === (focused.parentId ?? null))
     .reduce(
-      (best, t) => (trailingSegment(t.wbs || '') > trailingSegment(best) ? t.wbs || '' : best),
-      wbs,
+      (best, t) => (trailingSegment(t.wbs || '') > trailingSegment(best.wbs || '') ? t : best),
+      focused,
     );
-  return { kind: 'after', taskId: focused.id, wbs, landsAfterWbs };
 }
 
 /**

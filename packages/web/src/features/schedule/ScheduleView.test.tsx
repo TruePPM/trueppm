@@ -8,7 +8,8 @@ import { FIXTURE_TASKS, FIXTURE_LINKS } from '@/fixtures/tasks';
 import type { Task, TaskLink } from '@/types';
 import { ROLE_VIEWER, ROLE_MEMBER, ROLE_ADMIN } from '@/lib/roles';
 import { useScheduleStore } from '@/stores/scheduleStore';
-import { useTrailStore } from './trail/trailStore';
+import { useTrailStore, newestUndoableEntry } from './trail/trailStore';
+import { AUTHOR_PARENT_PARAM } from './authorParam';
 import { TaskGroupingRefused } from '@/hooks/useTaskGrouping';
 import { useWbsStore } from '@/stores/wbsStore';
 import { useDragStore } from '@/stores/dragStore';
@@ -54,8 +55,21 @@ let mockEffectiveMethodology: string | undefined;
 
 const exportProjectMock = vi.fn();
 let createTaskCounter = 0;
+// Set to make the next create REFUSE instead of succeeding. Without it the
+// `onError` arm is unreachable and, worse, the property #3018 turns on —
+// announce and record on SUCCESS, never on the keystroke — is untestable: a mock
+// that only ever succeeds cannot tell a create-time recordAct from a
+// success-time one.
+let nextCreateTaskFails = false;
 const createTaskMutate = vi.fn(
-  (vars: Record<string, unknown>, opts?: { onSuccess?: (created: { id: string }) => void }) => {
+  (
+    vars: Record<string, unknown>,
+    opts?: { onSuccess?: (created: { id: string }) => void; onError?: (e: unknown) => void },
+  ) => {
+    if (nextCreateTaskFails) {
+      opts?.onError?.(new Error('create refused'));
+      return;
+    }
     opts?.onSuccess?.({ id: 'new-task-1', ...(vars as object) });
   },
 );
@@ -379,12 +393,14 @@ vi.mock('./TaskListPanel', () => ({
     tasks,
     onCommitDraftRow,
     onAppendTaskAtEnd,
+    onAddPhaseFirstChild,
     appendAtEndReadOnly,
     phaseInWaitingIds,
   }: {
     tasks: Task[];
     onCommitDraftRow?: (name: string, opts?: { onError?: () => void }) => void;
     onAppendTaskAtEnd?: () => void;
+    onAddPhaseFirstChild?: (taskId: string) => void;
     appendAtEndReadOnly?: boolean;
     phaseInWaitingIds?: Set<string>;
   }) => (
@@ -410,6 +426,15 @@ vi.mock('./TaskListPanel', () => ({
           onClick={onAppendTaskAtEnd}
         >
           append-at-end
+        </button>
+      )}
+      {/* The ghost "⊕ Add first task to this phase" affordance lives on
+          `TaskListRow`; this stub covers ScheduleView's half — that the create it
+          fires announces itself like every other insert (#3018). `t1` is the
+          fixture's phase row. */}
+      {onAddPhaseFirstChild && (
+        <button type="button" onClick={() => onAddPhaseFirstChild('t1')}>
+          add-phase-first-child
         </button>
       )}
     </div>
@@ -572,16 +597,34 @@ import { ScheduleView, schedulePanelWidth, scheduleOutlineRendered } from './Sch
  * The Schedule's transient status surface (toast / export progress).
  *
  * ScheduleView legitimately holds more than one `role="status"` node since
- * ADR-0784 added the always-mounted reconciliation live region, so a bare
- * `getByRole('status')` is ambiguous. Exclude the reconciliation region rather
- * than loosening the assertion.
+ * ADR-0784 added the always-mounted reconciliation live region — and a second
+ * since #3018 gave the outline's structural-act region its declared `role`.
+ * A bare `getByRole('status')` is therefore ambiguous. Exclude the other two by
+ * testid rather than loosening the assertion; `getActLiveRegion` below is how a
+ * test reaches the structural-act one on purpose.
  */
 function getScheduleStatus(): HTMLElement {
   const regions = screen
     .getAllByRole('status')
-    .filter((n) => n.getAttribute('data-testid') !== 'reconcile-live');
+    .filter(
+      (n) =>
+        n.getAttribute('data-testid') !== 'reconcile-live' &&
+        n.getAttribute('data-testid') !== 'schedule-act-live',
+    );
   expect(regions).toHaveLength(1);
   return regions[0];
+}
+
+/**
+ * The outline's structural-act live region (#2948, #3018).
+ *
+ * Every structural gesture routes one sentence through here. Located by its
+ * declared `role="status"` — which is the contract #3018 restored — rather than
+ * by scraping every `[aria-live="polite"]` node on the screen, which is what a
+ * test had to do while the role was missing.
+ */
+function getActLiveRegion(): HTMLElement {
+  return screen.getByTestId('schedule-act-live');
 }
 
 
@@ -631,6 +674,12 @@ beforeEach(() => {
   exportProjectMock.mockReset();
   createTaskMutate.mockClear();
   createTaskMutateAsync.mockClear();
+  // Never cleared before #3018, so `reorderTaskMutate.mock.calls[0]` in one test was
+  // an EARLIER test's call — whose captured `onError` closes over an unmounted
+  // render's live-region ref. The trail (a module singleton) still recorded, so the
+  // leak read as "the sentence reached the trail but not the screen reader".
+  reorderTaskMutate.mockClear();
+  nextCreateTaskFails = false;
   createTaskCounter = 0;
   deleteTaskMutate.mockReset();
   groupTasksMutate.mockClear();
@@ -1537,14 +1586,10 @@ describe('ScheduleView — Group / Ungroup keybindings (#2955)', () => {
     act(() => capturedBuildMode!.focus.focusRow('t1'));
     act(() => capturedBuildMode!.focus.selectIds(['t1', 't3']));
     act(() => capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
-    // The outline's polite region is a bare `aria-live="polite"` div, which confers no
-    // implicit `role="status"` — `getScheduleStatus()` finds a different surface's region
-    // and reports zero here, which reads as "nothing was announced".
-    // …and there is more than one polite region on this screen, so read them all rather
-    // than betting on which comes first in the DOM.
-    const spoken = Array.from(document.querySelectorAll('[aria-live="polite"]'))
-      .map((n) => n.textContent ?? '')
-      .join(' ');
+    // The outline's region carries `role="status"` since #3018, so it can be reached
+    // directly instead of by scraping every polite region on the screen and hoping the
+    // right one comes first in the DOM.
+    const spoken = getActLiveRegion().textContent ?? '';
     expect(spoken).toContain('2 items are now a phase.');
     expect(spoken).toContain('roll up from the work inside');
     // …and the trail keeps the scannable one.
@@ -1601,6 +1646,228 @@ describe('ScheduleView — Group / Ungroup keybindings (#2955)', () => {
     expect(entries).toHaveLength(1);
     expect(entries[0].text).toBe('2 items are now a phase.');
     expect(entries[0].operationId).toBe('group-op-1');
+  });
+});
+
+/**
+ * Insert — the fourth structural act, and the one that announced nothing (#3018).
+ *
+ * The suite above covered indent, outdent, drag and delete and was green while
+ * insert — the most frequent gesture on this surface — routed no sentence and left
+ * no trail entry, because `insertSentence` was written and imported by nothing.
+ * These cases exist so that a path which creates a row without saying so fails here
+ * rather than shipping. All four are asserted individually on purpose: the four
+ * gestures land a row in four different places, and a shared assertion would let
+ * three of them regress behind the one that still passes.
+ */
+describe('ScheduleView — insert announces and is recorded (#3018)', () => {
+  it('names where an ⏎ sibling landed, to both audiences', () => {
+    // `t2` (1.1) is focused, but the create endpoint appends at the END of the
+    // parent's children — so the row follows `t6` (1.5), and naming the focused
+    // row would be the more flattering claim and a false one. Same rule the
+    // toolbar's own statement already follows (#2957).
+    renderSchedule();
+    act(() => capturedBuildMode!.insertBelow('t2'));
+    const sentence = 'New item added below Go-Live, at the same level.';
+    // Trail first, then the live region: the trail assertion needs no locator, so
+    // when this regresses the failure names the missing record rather than a
+    // missing test id.
+    const entries = useTrailStore.getState().entries;
+    expect(entries).toHaveLength(1);
+    expect(entries[0].text).toBe(sentence);
+    expect(getActLiveRegion()).toHaveTextContent(sentence);
+  });
+
+  it('says ABOVE for ⇧⏎ — the half of the act the user cannot infer from the caret', () => {
+    // insertAbove composes create + reorder; "below" here would describe the
+    // wrong neighbour and be a sentence a user could check and find false.
+    renderSchedule();
+    act(() => capturedBuildMode!.insertAbove('t2'));
+    const sentence = 'New item added above Discovery & Design, at the same level.';
+    expect(useTrailStore.getState().entries.map((e) => e.text)).toEqual([sentence]);
+    expect(getActLiveRegion()).toHaveTextContent(sentence);
+  });
+
+  it('names the new parent for ⌘⏎, not a sibling', () => {
+    renderSchedule();
+    act(() => capturedBuildMode!.insertChild('t1'));
+    const sentence = 'New item added under Alpha Platform Upgrade.';
+    expect(useTrailStore.getState().entries.map((e) => e.text)).toEqual([sentence]);
+    expect(getActLiveRegion()).toHaveTextContent(sentence);
+  });
+
+  it('names the LEVEL for the footer append, which has no anchor row', async () => {
+    // The foot of the plan is not inside anything, so there is no neighbour to
+    // name — and inventing one from the cursor is the #2957 defect.
+    const user = userEvent.setup();
+    mockRole = ROLE_MEMBER;
+    renderSchedule();
+    act(() => {
+      useScheduleStore.setState({ selectedTaskId: 't3' });
+    });
+    await user.click(screen.getByRole('button', { name: 'append-at-end' }));
+    const sentence = 'New item added at the end of the plan, at the top level.';
+    expect(useTrailStore.getState().entries.map((e) => e.text)).toEqual([sentence]);
+    expect(getActLiveRegion()).toHaveTextContent(sentence);
+  });
+
+  it('writes nothing when the server refuses the create', () => {
+    // The property the four cases above cannot prove on their own: the sentence
+    // is bound to SUCCESS, not to the keystroke. A trail entry for a row that was
+    // never created is worse than no entry — it is a record that is wrong.
+    nextCreateTaskFails = true;
+    renderSchedule();
+    act(() => capturedBuildMode!.insertBelow('t2'));
+    expect(createTaskMutate).toHaveBeenCalled();
+    expect(useTrailStore.getState().entries).toHaveLength(0);
+    expect(getActLiveRegion()).toHaveTextContent('');
+  });
+
+  it('carries the declared role="status" on the region every structural act speaks through', () => {
+    renderSchedule();
+    expect(getActLiveRegion()).toHaveAttribute('role', 'status');
+    expect(getActLiveRegion()).toHaveAttribute('aria-live', 'polite');
+  });
+
+  it('tells the user when the create itself failed, rather than failing silently', () => {
+    // The complement to the case above: "nothing was recorded" is only correct if the
+    // user is told SOMETHING. Without this, reducing `onError` to a no-op keeps the
+    // trail assertion green while the create fails in silence.
+    nextCreateTaskFails = true;
+    renderSchedule();
+    act(() => capturedBuildMode!.insertBelow('t2'));
+    expect(toastError).toHaveBeenCalledWith("Couldn't add a new task — try again.");
+  });
+
+  it('re-announces an identical sentence, which a repeated insert always produces', () => {
+    // A live region rewritten with the SAME string is not a mutation and most screen
+    // readers stay silent. Repetition is insert's NORMAL usage — the footer's sentence
+    // never varies at all — so without this the fix's whole benefit stops at row one.
+    const user = userEvent.setup();
+    mockRole = ROLE_MEMBER;
+    renderSchedule();
+    return (async () => {
+      await user.click(screen.getByRole('button', { name: 'append-at-end' }));
+      const first = getActLiveRegion().textContent;
+      await user.click(screen.getByRole('button', { name: 'append-at-end' }));
+      const second = getActLiveRegion().textContent;
+      // Both say the same thing to a reader…
+      expect(first).toContain('New item added at the end of the plan');
+      expect(second).toContain('New item added at the end of the plan');
+      // …and are different NODES to the accessibility tree, which is what makes the
+      // second one audible.
+      expect(second).not.toBe(first);
+      expect(useTrailStore.getState().entries).toHaveLength(2);
+    })();
+  });
+
+  it('does not become an undo BARRIER for the reversible act behind it', () => {
+    // The regression this exists to stop: `newestUndoableEntry` walks back from the
+    // newest entry and STOPS at the first one with no ledger handle. An insert has no
+    // ledger row, so recording it naively would kill ⌘Z — and the trail's Undo button
+    // with it — for the whole session, from the surface's most frequent gesture.
+    renderSchedule();
+    act(() => capturedBuildMode!.focus.focusRow('t1'));
+    act(() => capturedBuildMode!.focus.selectIds(['t1', 't3']));
+    act(() => capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
+    act(() => capturedBuildMode!.insertBelow('t2'));
+
+    const entries = useTrailStore.getState().entries;
+    expect(entries).toHaveLength(2);
+    expect(entries[1].blocksUndo).toBe(false);
+    // The group behind it is still what ⌘Z would reverse.
+    expect(newestUndoableEntry(entries)?.operationId).toBe('group-op-1');
+  });
+
+  it('corrects itself out loud when ⇧⏎ created the row but could not place it', () => {
+    // "Added above X" is two requests; only the reorder makes it true. A silent
+    // failure would leave a spoken claim and a permanent trail entry that are both
+    // false — worse than the pre-#3018 silence, not better.
+    renderSchedule();
+    act(() => capturedBuildMode!.insertAbove('t2'));
+    const reorderOpts = reorderTaskMutate.mock.calls[0]?.[1] as
+      | { onError?: (e: unknown) => void }
+      | undefined;
+    expect(reorderOpts?.onError).toBeTypeOf('function');
+    act(() => reorderOpts!.onError!(new Error('reorder refused')));
+
+    const texts = useTrailStore.getState().entries.map((e) => e.text);
+    expect(texts[0]).toBe('New item added above Discovery & Design, at the same level.');
+    expect(texts[1]).toContain('couldn’t place it above Discovery & Design');
+    expect(getActLiveRegion()).toHaveTextContent('couldn’t place it above');
+    expect(useScheduleStore.getState().scheduleActionToast?.message).toContain(
+      'end of that level',
+    );
+  });
+});
+
+/**
+ * The two row-creating paths that do NOT go through `createNewTask` (#3018).
+ *
+ * They are the reason the required-`sentence` argument is a guard and not a proof:
+ * it binds that helper's callers, and a direct `createTaskMut.mutate` sits outside
+ * it. Both create a structural row, so both say so.
+ */
+describe('ScheduleView — the creates that bypass createNewTask still announce (#3018)', () => {
+  it('announces the ghost "add first task to this phase" affordance', async () => {
+    const user = userEvent.setup();
+    mockRole = ROLE_MEMBER;
+    renderSchedule();
+    await user.click(screen.getByRole('button', { name: 'add-phase-first-child' }));
+    const sentence = 'New item added under Alpha Platform Upgrade.';
+    expect(useTrailStore.getState().entries.map((e) => e.text)).toEqual([sentence]);
+    expect(getActLiveRegion()).toHaveTextContent(sentence);
+  });
+
+  it('announces the blank-project draft row, the one screen with no other act', async () => {
+    const user = userEvent.setup();
+    mockTasks = [];
+    mockLinks = [];
+    mockRole = ROLE_MEMBER;
+    renderSchedule();
+    await user.click(screen.getByRole('button', { name: 'commit-draft' }));
+    const sentence = 'New item added at the end of the plan, at the top level.';
+    expect(useTrailStore.getState().entries.map((e) => e.text)).toEqual([sentence]);
+    expect(getActLiveRegion()).toHaveTextContent(sentence);
+  });
+
+  it('records nothing for a draft row the server refused', () => {
+    nextCreateTaskFails = true;
+    mockTasks = [];
+    mockLinks = [];
+    mockRole = ROLE_MEMBER;
+    renderSchedule();
+    act(() => {
+      screen.getByRole('button', { name: 'commit-draft' }).click();
+    });
+    expect(useTrailStore.getState().entries).toHaveLength(0);
+  });
+});
+
+/**
+ * `?author=task` (#2952) is the fifth caller of `createNewTask` and the only one whose
+ * sentence branches at runtime — so it is the one most likely to be wrong, and it was
+ * asserted by nothing (#3018). It is also the only insert the user did not watch land,
+ * which is why naming a row that is not there would be the worst failure here.
+ */
+describe('ScheduleView — the ?author=task deep link announces where it landed (#3018)', () => {
+  it('names the container when the link names one', () => {
+    mockRole = ROLE_MEMBER;
+    renderSchedule([`/?author=task&${AUTHOR_PARENT_PARAM}=t1`]);
+    expect(useTrailStore.getState().entries.map((e) => e.text)).toEqual([
+      'New item added under Alpha Platform Upgrade.',
+    ]);
+  });
+
+  it('falls back to the anchorless sentence rather than naming "Untitled"', () => {
+    // A stale or foreign `parent` id — and the same shape as the tasks query not
+    // having resolved. `actRow` would render `{ name: '' }` as "Untitled", which
+    // names a row that is not there.
+    mockRole = ROLE_MEMBER;
+    renderSchedule([`/?author=task&${AUTHOR_PARENT_PARAM}=no-such-row`]);
+    const texts = useTrailStore.getState().entries.map((e) => e.text);
+    expect(texts).toEqual(['New item added at the end of the plan, at the top level.']);
+    expect(texts[0]).not.toContain('Untitled');
   });
 });
 
