@@ -5757,21 +5757,32 @@ def _occurrence_matches(rule: Any, anchor: date, d: date) -> bool:
     return False
 
 
-def _spawn_occurrence(rule: Any, template: Any, d: date, template_attachments: list[Any]) -> Any:
+def _spawn_occurrence(
+    rule: Any,
+    template: Any,
+    d: date,
+    template_attachments: list[Any],
+    template_owners: list[dict[str, object]],
+) -> Any:
     """Create one task occurrence for date ``d``, honoring the inheritance toggles.
 
     Occurrences carry ``is_recurring=True`` (the load-bearing CPM-exclusion key,
     ADR-0090) and ``wbs_path=None`` — they are standalone calendar tasks, not WBS
     nodes, so they never enter summary rollups or the scheduling engine.
 
-    ``template_attachments`` is the template's attachment rows, fetched once by the
-    caller (constant across a rule's sweep) and copied per occurrence when
-    ``inherit_attachments`` is set.
+    ``template_attachments`` and ``template_owners`` are the template's attachment and
+    assignment rows, fetched once by the caller (constant across a rule's sweep) and
+    copied per occurrence when the matching inheritance toggle is set.
     """
     from trueppm_api.apps.projects.models import Task, TaskAttachment, TaskStatus
+    from trueppm_api.apps.resources.services import apply_task_owners
 
     occurrence = Task.objects.create(
-        project_id=template.project_id,
+        # ``project=`` rather than ``project_id=`` so the occurrence carries the
+        # template's already-loaded Project instance in its FK cache. apply_task_owners
+        # auto-rosters through ``task.project``, which on a ``project_id``-only create
+        # is a fresh SELECT per occurrence inside the sweep loop.
+        project=template.project,
         name=template.name,
         duration=template.duration,
         is_milestone=template.is_milestone,
@@ -5786,6 +5797,24 @@ def _spawn_occurrence(rule: Any, template: Any, d: date, template_attachments: l
         recurrence_rule=rule,
         recurrence_occurrence_date=d,
     )
+    # Copy the template's TaskResource rows. Without this the occurrence carries a
+    # bare ``assignee`` and nothing else: capacity, utilization and the heat map all
+    # sum ``TaskResource.units`` and never read ``assignee``, so a correctly-staffed
+    # recurring template emitted a permanently zero-load child once per interval,
+    # forever, looking staffed on every board while contributing nothing to any
+    # allocation view (#2902). Gated on ``inherit_assignee`` — the same toggle that
+    # governs the assignee — because the alternative is worse than the bug: an
+    # occurrence that reads as unassigned in the UI while silently carrying load.
+    #
+    # broadcast=False because the sweep's caller already emits one bulk
+    # ``tasks_bulk_mutated`` per project (deliberately, instead of one event per row),
+    # and on the client both that and ``assignment_*`` funnel to the same
+    # ``scheduleInvalidate('tasks')`` — so per-assignment events here would be pure
+    # duplicate load inside a Beat task that runs in autocommit, where every
+    # ``on_commit`` callback fires immediately.
+    if template_owners:
+        apply_task_owners(occurrence, template_owners, actor=None, broadcast=False)
+
     # Copy attachment rows referencing the SAME stored file — no blob duplication.
     # Each occurrence owns its row, so soft-deleting one occurrence never orphans
     # another's attachment.
@@ -5822,6 +5851,7 @@ def _generate_due_occurrences(
     unique constraint plus an existence check prevent duplicates.
     """
     from trueppm_api.apps.projects.models import TaskAttachment
+    from trueppm_api.apps.resources.models import TaskResource
 
     template = rule.task
     if template is None or template.is_deleted or rule.is_deleted:
@@ -5832,6 +5862,17 @@ def _generate_due_occurrences(
     template_attachments = (
         list(TaskAttachment.objects.filter(task=template, is_deleted=False))
         if rule.inherit_attachments
+        else []
+    )
+    # Same for the template's assignments, in the shape apply_task_owners expects.
+    # ``select_related`` because that helper reads ``resource.project_id`` when it
+    # auto-rosters, which would otherwise be one extra query per owner per occurrence.
+    template_owners: list[dict[str, object]] = (
+        [
+            {"resource": tr.resource, "units": tr.units}
+            for tr in TaskResource.objects.filter(task=template).select_related("resource")
+        ]
+        if rule.inherit_assignee
         else []
     )
 
@@ -5850,7 +5891,14 @@ def _generate_due_occurrences(
         cursor = max(anchor, today)
 
     created = _scan_occurrences(
-        rule, template, anchor, cursor, horizon_end, remaining, template_attachments
+        rule,
+        template,
+        anchor,
+        cursor,
+        horizon_end,
+        remaining,
+        template_attachments,
+        template_owners,
     )
     _advance_generated_through(rule, horizon_end)
     return created
@@ -5887,6 +5935,7 @@ def _scan_occurrences(
     horizon_end: date,
     remaining: int | None,
     template_attachments: list[Any],
+    template_owners: list[dict[str, object]],
 ) -> list[Any]:
     """Walk cursor..horizon_end one day at a time, spawning each matching date.
 
@@ -5900,7 +5949,9 @@ def _scan_occurrences(
             if remaining is not None and len(created) >= remaining:
                 break
             if not rule.occurrences.filter(recurrence_occurrence_date=d).exists():
-                created.append(_spawn_occurrence(rule, template, d, template_attachments))
+                created.append(
+                    _spawn_occurrence(rule, template, d, template_attachments, template_owners)
+                )
         d += timedelta(days=1)
     return created
 
