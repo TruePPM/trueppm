@@ -7871,6 +7871,17 @@ class TaskReorderView(IdempotencyMixin, APIView):
             # Root-level siblings have no dot in their path.
             siblings_qs = siblings_qs.filter(wbs_path__regex=_ROOT_WBS_RE)
 
+        # Parent before children (#3010): the level's parent is written at the end of
+        # this handler, and every restructure endpoint claims the row above before the
+        # rows below so two of them cannot deadlock on the same pair.
+        parent_row = (
+            Task.objects.select_for_update()
+            .filter(project_id=pk, wbs_path=parent_path, is_deleted=False, is_subtask=False)
+            .first()
+            if parent_path
+            else None
+        )
+
         siblings_by_id = {t.pk: t for t in siblings_qs}
 
         # Validate: every supplied ID must be a live sibling.
@@ -7918,10 +7929,7 @@ class TaskReorderView(IdempotencyMixin, APIView):
             # keeps the four structural endpoints from disagreeing about whether
             # declaring a container is part of restructuring (#3010). One row, so the
             # cost is a refresh and, almost always, no UPDATE at all.
-            if parent_path and siblings_by_id:
-                resync_container_declarations(
-                    structural_parent(next(iter(siblings_by_id.values())))
-                )
+            resync_container_declarations(parent_row, already_locked=True)
 
             # Reorder is the one structural endpoint that already gates every sibling
             # (the complete-set invariant makes that exact), so all of them are anchors.
@@ -8062,6 +8070,12 @@ class TaskIndentView(IdempotencyMixin, APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+            # Claim the level ABOVE first. Every restructure endpoint locks
+            # parent-then-children so two of them cannot take the same two rows in
+            # opposite orders and deadlock (#3010); the parent is written at the end
+            # of this block, so it has to be held for the whole act anyway.
+            former_parent = structural_parent(task, lock=True)
+
             parent_path = _get_parent_path(task.wbs_path)
             siblings = _get_siblings(str(project.pk), parent_path, lock=True)
 
@@ -8094,9 +8108,6 @@ class TaskIndentView(IdempotencyMixin, APIView):
             new_position = len(prev_children) + 1
             old_path = task.wbs_path
             new_path = _build_wbs_path(prev_sibling.wbs_path, new_position)
-            # Read the former parent before the move — `structural_parent` derives it
-            # from `task.wbs_path`, which is about to change.
-            former_parent = structural_parent(task)
 
             # Move the task under previous sibling.
             task.wbs_path = new_path
@@ -8193,6 +8204,10 @@ class TaskOutdentView(IdempotencyMixin, APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+            # Parent before children — see the note in TaskIndentView (#3010). Outdent
+            # is the path where this row can lose its last child, so it is written here.
+            former_parent = structural_parent(task, lock=True)
+
             parent_path = _get_parent_path(task.wbs_path)
             if not parent_path:
                 return Response(
@@ -8231,10 +8246,6 @@ class TaskOutdentView(IdempotencyMixin, APIView):
                 )
 
             old_path = task.wbs_path
-            # Read before the move: `structural_parent` derives the former parent from
-            # `task.wbs_path`, and outdent is the one path where that row can lose its
-            # last child — the reverse branch un-parks its own status and estimate.
-            former_parent = structural_parent(task)
 
             # The task moves up to the grandparent level and adopts its following
             # siblings, so the grandparent's subtree bounds both levels at once.
@@ -8473,8 +8484,10 @@ class TaskReparentView(IdempotencyMixin, APIView):
                     status=status.HTTP_200_OK,
                 )
 
-            # Read before the move — `structural_parent` derives it from `task.wbs_path`.
-            former_parent = structural_parent(task)
+            # Parent before children — `_resolve_reparent_target` above already locked
+            # `new_parent`, so claiming the former parent here keeps both levels held
+            # before any descendant lock is taken (#3010).
+            former_parent = structural_parent(task, lock=True)
 
             descendants = _get_descendants(str(project.pk), old_path, lock=True)
             old_siblings = _get_siblings(str(project.pk), old_parent_path, lock=True)

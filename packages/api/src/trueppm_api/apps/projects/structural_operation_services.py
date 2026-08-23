@@ -598,10 +598,18 @@ def _resync_shadow_values(operation: StructuralOperation) -> None:
     }
     if not parent_paths:
         return
+    # Lock and read all N parents in ONE statement, then tell the helper not to
+    # re-read them. Letting it re-SELECT each row it was just handed made this pass
+    # O(N) round trips, and `STRUCTURAL_OPERATION_MAX_REGION` bounds N at 2000.
+    # Ordered by wbs_path so concurrent undos in the same region queue rather than
+    # deadlock.
     resync_container_declarations(
-        *Task.objects.filter(
+        *Task.objects.select_for_update()
+        .filter(
             project_id=operation.project_id, is_deleted=False, wbs_path__in=sorted(parent_paths)
         )
+        .order_by("wbs_path"),
+        already_locked=True,
     )
 
 

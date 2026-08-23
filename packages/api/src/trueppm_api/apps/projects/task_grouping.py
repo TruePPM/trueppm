@@ -486,7 +486,7 @@ def perform_group(project: Project, request: Request, raw_ids: Any, name: Any) -
     on any refusal, both of which unwind the caller's transaction so a rejection after
     a partial move leaves nothing written.
     """
-    from trueppm_api.apps.projects.models import StructureRole, sync_structure_shadow_values
+    from trueppm_api.apps.projects.models import StructureRole, resync_container_declarations
     from trueppm_api.apps.projects.views import (
         _build_wbs_path,
         _get_siblings,
@@ -566,17 +566,7 @@ def perform_group(project: Project, request: Request, raw_ids: Any, name: Any) -
     # estimate the same way any row promoted over the container line does. Without this
     # the placeholder duration would read as the phase's own estimate rather than as a
     # parked value the rollup shadows.
-    container.refresh_from_db()
-    if sync_structure_shadow_values(container):
-        container.save(
-            update_fields=[
-                "structure_role",
-                "auto_container",
-                "own_status",
-                "own_estimate",
-                "server_version",
-            ]
-        )
+    resync_container_declarations(container)
 
     assert_graph_feasible(project_id, graph_before)
 
@@ -631,7 +621,7 @@ def perform_ungroup(project: Project, request: Request, raw_id: Any) -> dict[str
     from trueppm_api.apps.access.permissions import can_user_edit_task
     from trueppm_api.apps.projects.models import (
         Dependency,
-        sync_structure_shadow_values,
+        resync_container_declarations,
     )
     from trueppm_api.apps.projects.models import (
         Task as TaskModel,
@@ -724,16 +714,12 @@ def perform_ungroup(project: Project, request: Request, raw_id: Any) -> dict[str
         )
         # Dissolving an *empty* phase can take its parent's last structural child, which
         # is the transition that restores the parent's parked status and estimate.
-        if parent is not None and sync_structure_shadow_values(parent):
-            parent.save(
-                update_fields=[
-                    "structure_role",
-                    "auto_container",
-                    "own_status",
-                    "own_estimate",
-                    "server_version",
-                ]
-            )
+        # Through the shared helper, which picks the update_fields the transition
+        # actually needs. This site hand-listed the PROMOTION columns on a branch that
+        # only ever DE-promotes, so `status` and `duration` were restored in memory and
+        # dropped by the save while `own_status` / `own_estimate` were cleared — the
+        # parked values were destroyed rather than handed back (#3010).
+        resync_container_declarations(parent)
 
     assert_graph_feasible(project_id, graph_before)
 

@@ -308,6 +308,62 @@ class TestReorderConverges:
         assert r.status_code == 200
 
 
+# ── Ungroup: the same half-written transition, found via the shared helper ──────
+
+
+class TestUngroupHandsBackTheParkedValues:
+    def test_dissolving_an_empty_phase_restores_its_parents_own_estimate(
+        self, owner_client: APIClient, project: Project
+    ) -> None:
+        """The ungroup site hand-listed the PROMOTION columns on a DE-promotion branch.
+
+        `status` and `duration` were restored in memory and dropped by the save, while
+        `own_status` / `own_estimate` were cleared — so the parked values were destroyed
+        rather than handed back. Routing it through the shared helper fixes it, because
+        the helper picks the field list from the transition that actually fired.
+        """
+        grandparent = _task(project, "Mobilization", "1", duration=7, status="IN_PROGRESS")
+        inner = _task(project, "Permits", "2")
+        # Indent parks the grandparent's authored values — the state under test.
+        owner_client.post(f"/api/v1/projects/{project.id}/tasks/{inner.id}/indent/")
+        inner.refresh_from_db()
+
+        # Wrap the only child in a phase, so the grandparent's sole structural child is
+        # the new container; then dissolve that container's last row out from under it.
+        grouped = owner_client.post(
+            f"/api/v1/projects/{project.id}/tasks/group/",
+            {"task_ids": [str(inner.id)], "name": "Inner phase"},
+            format="json",
+        )
+        assert grouped.status_code == 200, grouped.data
+        container_id = grouped.data["container"]["id"]
+
+        grandparent.refresh_from_db()
+        assert grandparent.own_estimate == 7, "parked when it gained the container"
+        grandparent.duration = 1  # what the rollup writes while it is a phase
+        grandparent.save(update_fields=["duration"])
+
+        # Empty the container, then dissolve it — the grandparent loses its last child.
+        inner.refresh_from_db()
+        owner_client.post(
+            f"/api/v1/projects/{project.id}/tasks/{inner.id}/reparent/",
+            {"new_parent_id": None},
+            format="json",
+        )
+        ungrouped = owner_client.post(
+            f"/api/v1/projects/{project.id}/tasks/ungroup/",
+            {"task_id": container_id},
+            format="json",
+        )
+        assert ungrouped.status_code == 200, ungrouped.data
+
+        grandparent.refresh_from_db()
+        assert grandparent.structure_role == StructureRole.WORK
+        assert grandparent.duration == 7, "the author's estimate is handed back, not dropped"
+        assert grandparent.status == "IN_PROGRESS"
+        assert grandparent.own_estimate is None
+
+
 # ── The Board invariant the declaration exists to serve ─────────────────────────
 
 
@@ -389,8 +445,12 @@ class TestCascadeRestoreIsProjectScoped:
         their_parent = _task(theirs, "Parent", "1")
         their_subtask = _task(theirs, "Their check", "1.1", is_subtask=True)
 
-        my_parent.soft_delete()
+        # Tombstone theirs FIRST. The other order lets the delete cascade's own missing
+        # scope (fixed alongside, see below) manufacture the tombstone this test is
+        # supposed to find already there — the assertion would then pass for the
+        # wrong reason.
         their_subtask.soft_delete()
+        my_parent.soft_delete()
         assert Task.objects.get(pk=their_subtask.pk).is_deleted is True
 
         my_parent.refresh_from_db()
@@ -403,6 +463,29 @@ class TestCascadeRestoreIsProjectScoped:
             "another project's tombstone is not mine to lift"
         )
         assert their_parent.project_id != mine.pk
+
+    def test_the_delete_cascade_is_scoped_too(self, calendar: Calendar) -> None:
+        """The mirror of the restore bug, and the more dangerous half.
+
+        `Task.soft_delete`'s subtask cascade shared the unscoped prefix, so deleting
+        one row tombstoned live subtasks in every other project at the same path.
+        """
+        mine = Project.objects.create(name="Mine", start_date=date(2026, 3, 2), calendar=calendar)
+        theirs = Project.objects.create(
+            name="Theirs", start_date=date(2026, 3, 2), calendar=calendar
+        )
+
+        my_parent = _task(mine, "Parent", "1")
+        my_subtask = _task(mine, "Check", "1.1", is_subtask=True)
+        _task(theirs, "Parent", "1")
+        their_subtask = _task(theirs, "Their check", "1.1", is_subtask=True)
+
+        my_parent.soft_delete()
+
+        assert Task.objects.get(pk=my_subtask.pk).is_deleted is True, "mine cascades"
+        assert Task.objects.get(pk=their_subtask.pk).is_deleted is False, (
+            "another project's live subtask is not mine to tombstone"
+        )
 
     def test_it_does_not_restore_another_projects_dependency_edges(
         self, calendar: Calendar
@@ -461,6 +544,48 @@ def test_indent_authority_is_unchanged_by_the_declaration(
         assert head.structure_role == StructureRole.CONTAINER
     else:
         assert head.structure_role == StructureRole.WORK, "a refusal declares nothing"
+
+
+def test_a_member_promotes_a_neighbour_they_could_not_edit_directly(project: Project) -> None:
+    """The write this change adds lands on a row the caller has no edit authority on.
+
+    That is deliberate and matches every pre-existing caller (`perform_create`,
+    `perform_destroy`, `perform_ungroup` all write the declaration on a parent gated
+    only by authority over the *child*). What bounds it is that the values are the
+    row's own — there is no caller-supplied input — and that a **declared** container
+    is never touched, so a Member cannot un-declare a colleague's phase.
+    """
+    member = get_user_model().objects.create_user(username="assignee", password="pw")
+    ProjectMembership.objects.create(project=project, user=member, role=Role.MEMBER)
+    client = APIClient()
+    client.force_authenticate(user=member)
+
+    head = _task(project, "Somebody else's row", "1", duration=7)
+    mover = _task(project, "Mine", "2", assignee=member)
+
+    r = client.post(f"/api/v1/projects/{project.id}/tasks/{mover.id}/indent/")
+    assert r.status_code == 200, "authority comes from the mover, which is theirs"
+
+    head.refresh_from_db()
+    assert head.structure_role == StructureRole.CONTAINER
+    assert head.own_estimate == 7, "the neighbour's authored value is preserved, not chosen"
+
+
+def test_a_member_cannot_un_declare_a_colleagues_phase_by_outdenting(project: Project) -> None:
+    """The bound on the finding above: the de-promotion refuses a DECLARED container."""
+    member = get_user_model().objects.create_user(username="outdenter", password="pw")
+    ProjectMembership.objects.create(project=project, user=member, role=Role.MEMBER)
+    client = APIClient()
+    client.force_authenticate(user=member)
+
+    head = _task(project, "Their phase", "1", structure_role=StructureRole.CONTAINER)
+    child = _task(project, "Mine", "1.1", assignee=member)
+
+    r = client.post(f"/api/v1/projects/{project.id}/tasks/{child.id}/outdent/")
+    assert r.status_code == 200
+
+    head.refresh_from_db()
+    assert head.structure_role == StructureRole.CONTAINER, "declared, so never auto-reverted"
 
 
 def test_an_unauthenticated_caller_cannot_indent(project: Project) -> None:

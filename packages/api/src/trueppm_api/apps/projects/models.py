@@ -2379,21 +2379,27 @@ def task_is_phase(task: Task) -> bool:
     )
 
 
-def structural_parent(task: Task) -> Task | None:
+def structural_parent(task: Task, *, lock: bool = False) -> Task | None:
     """The task one WBS level up, or None at the root (#2950).
 
     Parenthood in this tree is the ltree ``wbs_path``, not a FK — there is no
     ``parent_id`` column to read. ``1.2.3`` therefore resolves through ``1.2``.
     Subtasks are excluded on both sides: a subtask is a checklist item, never
     structural, so it neither has nor is a structural parent.
+
+    ``lock=True`` takes the row's write lock. The restructure endpoints use it to
+    claim the parent **before** locking the level below it, so every path acquires
+    parent-then-children and two concurrent restructures cannot deadlock by taking
+    the same two rows in opposite orders (#3010). Only legal inside ``atomic()``.
     """
     if task.wbs_path is None or task.is_subtask:
         return None
     parts = str(task.wbs_path).split(".")
     if len(parts) < 2:
         return None
+    manager = Task.objects.select_for_update() if lock else Task.objects
     return (
-        Task.objects.filter(
+        manager.filter(
             project_id=task.project_id,
             wbs_path=".".join(parts[:-1]),
             is_deleted=False,
@@ -2456,13 +2462,11 @@ def sync_structure_shadow_values(task: Task) -> bool:
     return False
 
 
-#: The columns :func:`sync_structure_shadow_values` can write. ``status`` and
-#: ``duration`` are in the list because the *restore* branch un-parks them; a
-#: promotion touches only the four declaration columns, but naming one list for
-#: both directions is what stops a caller from persisting half a transition.
-STRUCTURE_SHADOW_UPDATE_FIELDS = (
-    "status",
-    "duration",
+#: Columns a **promotion** writes: the declaration and the parked copies. It reads
+#: ``status`` / ``duration`` and does not touch them, so they are deliberately absent —
+#: naming a column the branch cannot change would silently revert a concurrent PATCH
+#: that landed between the re-read and the save.
+STRUCTURE_SHADOW_PROMOTE_FIELDS = (
     "structure_role",
     "auto_container",
     "own_status",
@@ -2470,8 +2474,13 @@ STRUCTURE_SHADOW_UPDATE_FIELDS = (
     "server_version",
 )
 
+#: Columns a **de-promotion** writes: the same set plus the two it un-parks.
+STRUCTURE_SHADOW_RESTORE_FIELDS = ("status", "duration", *STRUCTURE_SHADOW_PROMOTE_FIELDS)
 
-def resync_container_declarations(*candidates: Task | None) -> list[Task]:
+
+def resync_container_declarations(
+    *candidates: Task | None, already_locked: bool = False
+) -> list[Task]:
     """Re-derive **and persist** the container declaration on rows whose child set moved.
 
     :func:`sync_structure_shadow_values` only mutates the instance; it returns a bool
@@ -2479,13 +2488,25 @@ def resync_container_declarations(*candidates: Task | None) -> list[Task]:
     a caller that forgets the ``save`` converges in memory and not in the database —
     so every restructure path goes through this instead of open-coding the pair.
 
-    Each candidate is re-read first. A restructure renumbers siblings through *other*
-    instances of the same rows, so an object captured before the move can hold a stale
-    ``wbs_path`` and probe the wrong subtree. ``None`` and duplicate candidates are
-    skipped, which lets a call site pass "the new parent and the former parent" without
-    testing whether they are the same row or whether one exists.
+    Each candidate is re-read **under a row lock**. Two reasons, and the second is the
+    one that is easy to miss: a restructure renumbers siblings through *other* instances
+    of the same rows, so an object captured before the move can hold a stale ``wbs_path``
+    and probe the wrong subtree; and a bare ``refresh_from_db()`` takes no lock, which
+    makes this a read-modify-write that a concurrent PATCH can be lost to. Being inside
+    ``atomic()`` gives atomicity, not isolation — under ``READ COMMITTED`` the parent is
+    usually *outside* the endpoint's own ``select_for_update`` set (indent locks the
+    sibling level, not the level above it; reorder locks neither).
 
-    ``server_version`` is in the update list because the declaration is a **synced**
+    ``already_locked=True`` skips the re-read for a caller that has just fetched the
+    rows itself under ``select_for_update()`` — the undo path hands over a whole
+    queryset, and re-SELECTing each row one at a time made that pass O(N) in round
+    trips for no gain.
+
+    ``None`` and duplicate candidates are skipped, which lets a call site pass "the new
+    parent and the former parent" without testing whether they are the same row or
+    whether one exists.
+
+    ``server_version`` is in both update lists because the declaration is a **synced**
     fact: a promotion that skips the version bump never reaches the offline delta pull,
     and the row stays a task on every mobile client (ADR-0686).
 
@@ -2501,15 +2522,31 @@ def resync_container_declarations(*candidates: Task | None) -> list[Task]:
         if candidate is None or candidate.pk is None or candidate.pk in seen:
             continue
         seen.add(candidate.pk)
-        try:
-            candidate.refresh_from_db()
-        except Task.DoesNotExist:
-            # The row was deleted by the same act (ungroup dissolves its container).
+        if already_locked:
+            row = candidate
+        else:
+            try:
+                row = Task.objects.select_for_update().get(pk=candidate.pk)
+            except Task.DoesNotExist:
+                # Deleted by the same act (ungroup dissolves its container).
+                continue
+        before_status, before_duration = row.status, row.duration
+        if not sync_structure_shadow_values(row):
             continue
-        if not sync_structure_shadow_values(candidate):
-            continue
-        candidate.save(update_fields=list(STRUCTURE_SHADOW_UPDATE_FIELDS))
-        changed.append(candidate)
+        # Name `status` / `duration` only when this transition actually moved them.
+        # Asked as "did these columns change", not "which branch do I think ran" —
+        # inferring the branch from a side effect is exactly the mistake that made
+        # `perform_ungroup` persist a de-promotion with the promotion's field list.
+        fields = list(STRUCTURE_SHADOW_PROMOTE_FIELDS)
+        if row.status != before_status or row.duration != before_duration:
+            fields = list(STRUCTURE_SHADOW_RESTORE_FIELDS)
+        # `system_write=True`: nobody typed here. The row was re-derived because a
+        # NEIGHBOUR moved, and `edited_at` is read as "a human touched this" by
+        # template-apply undo and the ADR-0786 seed-retention sweep — so stamping it
+        # would make indenting row B mark row A as hand-edited (ADR-0786 §4).
+        # `known_exists=True`: it was just read back, so skip both existence probes.
+        row.save(update_fields=fields, system_write=True, known_exists=True)
+        changed.append(row)
     return changed
 
 
@@ -3299,6 +3336,12 @@ class Task(VersionedModel):
         # children are not auto-deleted — the PM must explicitly delete them).
         if self.wbs_path:
             subtask_children = Task.objects.filter(
+                # The delete side of the same missing scope as
+                # `cascade_task_children_restore` (#3010), and the more dangerous half:
+                # `wbs_path` is project-scoped and every project numbers from "1", so
+                # without this deleting a row here tombstoned the live subtasks under
+                # the same-shaped path in EVERY other project.
+                project_id=self.project_id,
                 is_subtask=True,
                 is_deleted=False,
                 wbs_path__startswith=str(self.wbs_path) + ".",
