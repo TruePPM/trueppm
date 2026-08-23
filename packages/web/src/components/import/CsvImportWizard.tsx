@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+import { formatChord } from '@/lib/platform';
 import { isAxiosError } from 'axios';
 import { useNavigate } from 'react-router';
 import {
@@ -1193,7 +1194,7 @@ function ResultStep({
                 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-brand-primary
                 focus:ring-offset-1"
         >
-          {undoPending ? 'Undoing…' : 'Undo import (⌘Z)'}
+          {undoPending ? 'Undoing…' : `Undo import (${formatChord('mod+z')})`}
         </button>
       )}
     </div>

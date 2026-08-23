@@ -320,11 +320,14 @@ test.describe('CSV/Excel import wizard (#746)', () => {
     await dialog.getByRole('button', { name: /Import 12 tasks/ }).click();
 
     await expect(dialog.getByText(/Imported 11 tasks/)).toBeVisible();
-    await dialog.getByRole('button', { name: 'Undo import (⌘Z)' }).click();
+    // Matched by prefix (#3028): the button spells the chord for the browser's
+    // platform, which the Node-side `formatChord` cannot be relied on to agree
+    // with. `platform.test.ts` owns the spelling; this owns the flow.
+    await dialog.getByRole('button', { name: /^Undo import/ }).click();
 
     await expect(dialog.getByText('Import undone — the rows it created were removed.')).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'View schedule' })).toHaveCount(0);
-    await expect(dialog.getByRole('button', { name: 'Undo import (⌘Z)' })).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: /^Undo import/ })).toHaveCount(0);
   });
 
   test('unresolvable rows are parked in a review branch, not dropped (#2732)', async ({ page }) => {

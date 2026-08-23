@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { isMacPlatform } from '@/lib/platform';
 import { isTypingInInput } from '@/hooks/useGlobalShortcut';
 
 /**
@@ -21,9 +22,11 @@ import { isTypingInInput } from '@/hooks/useGlobalShortcut';
  */
 export type KeyBindings = Record<string, (e: KeyboardEvent) => void>;
 
-const isMac =
-  typeof navigator !== 'undefined' &&
-  /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+// One platform detector for the whole app (#3028): this decides which physical
+// modifier `mod` matches, and `formatChord` decides how it is spelled. They must
+// not be able to disagree — a layer that matches Ctrl while the coach bar prints
+// ⌘ is exactly the defect this consolidation removes.
+const isMac = isMacPlatform();
 
 /**
  * The key token itself. Holding Alt/Option while pressing a letter on macOS

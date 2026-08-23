@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from 'react';
+import { formatChord } from '@/lib/platform';
 import { render, screen, cleanup, waitFor, act, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
@@ -1534,7 +1535,7 @@ describe('ScheduleView — Group / Ungroup keybindings (#2955)', () => {
     );
     expect(ungroupTasksMutate).not.toHaveBeenCalled();
     expect(useScheduleStore.getState().scheduleActionToast?.message).toContain(
-      '⌥← to outdent a single row',
+      `${formatChord('alt+ArrowLeft')} to outdent a single row`,
     );
   });
 
@@ -1548,7 +1549,12 @@ describe('ScheduleView — Group / Ungroup keybindings (#2955)', () => {
     act(() => capturedBuildMode!.focus.focusRow('t1'));
     act(() => capturedKeyBindings['mod+alt+g']?.({ preventDefault: vi.fn() } as unknown as KeyboardEvent));
     expect(groupTasksMutate).not.toHaveBeenCalled();
-    expect(useScheduleStore.getState().scheduleActionToast?.message).toContain('press ⌥A to author');
+    // Asserted through the formatter, not a literal: the toast is spelled for the
+    // reader's platform (#3028), so a hardcoded glyph would pin the Mac branch and
+    // fail everywhere else — which is the defect, not the test.
+    expect(useScheduleStore.getState().scheduleActionToast?.message).toContain(
+      `press ${formatChord('alt+a')} to author`,
+    );
   });
 
   it('stays silent for a viewer — no offer, so nothing to explain (rule 302)', () => {

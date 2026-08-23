@@ -12,6 +12,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { useLocation, useSearchParams } from 'react-router';
+import { formatChord } from '@/lib/platform';
 import { useProjectId } from '@/hooks/useProjectId';
 import { setSearchParam } from '@/hooks/useUrlSelectedId';
 import {
@@ -2875,7 +2876,7 @@ export function ScheduleView() {
       // rights was never offered the buttons, so there is nothing to explain and the
       // guard stays silent.
       if (hasEditRights) {
-        setScheduleActionToast({ message: 'Read mode — press ⌥A to author, then group.' });
+        setScheduleActionToast({ message: `Read mode — press ${formatChord('alt+a')} to author, then group.` });
       }
       return;
     }
@@ -2946,7 +2947,7 @@ export function ScheduleView() {
     if (readOnly) {
       // Same split as `handleGroupRows` (web rule 302).
       if (hasEditRights) {
-        setScheduleActionToast({ message: 'Read mode — press ⌥A to author, then ungroup.' });
+        setScheduleActionToast({ message: `Read mode — press ${formatChord('alt+a')} to author, then ungroup.` });
       }
       return;
     }
@@ -5023,7 +5024,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           onClick={scheduleExport.openDialog}
           disabled={!scheduleExport.canExport}
           aria-label="Export schedule as PDF"
-          title="Export schedule as PDF (⌘⇧E)"
+          title={`Export schedule as PDF (${formatChord('mod+shift+e')})`}
           className="inline-flex items-center gap-1.5 border border-neutral-border rounded-control h-7 px-3 text-xs font-medium flex-shrink-0
             focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
             focus-visible:ring-offset-neutral-surface

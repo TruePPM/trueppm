@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { formatChord } from '@/lib/platform';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { BuildModeHintStrip } from './BuildModeHintStrip';
 
@@ -59,7 +60,7 @@ describe('BuildModeHintStrip — multi-select hints (#2987)', () => {
     render(
       <BuildModeHintStrip mode="RowFocused" selectionCount={18} onShowCheatsheet={vi.fn()} />,
     );
-    expect(screen.getByText('⌘⇧K')).toBeInTheDocument();
+    expect(screen.getByText(formatChord('mod+shift+k'))).toBeInTheDocument();
     expect(screen.getByText('Edit all selected')).toBeInTheDocument();
   });
 
@@ -67,13 +68,13 @@ describe('BuildModeHintStrip — multi-select hints (#2987)', () => {
     render(
       <BuildModeHintStrip mode="RowFocused" selectionCount={1} onShowCheatsheet={vi.fn()} />,
     );
-    expect(screen.queryByText('⌘⇧K')).toBeNull();
+    expect(screen.queryByText(formatChord('mod+shift+k'))).toBeNull();
     expect(screen.getByText('Indent')).toBeInTheDocument();
   });
 
   it('defaults to the mode hints when no selection count is supplied', () => {
     render(<BuildModeHintStrip mode="RowFocused" onShowCheatsheet={vi.fn()} />);
-    expect(screen.queryByText('⌘⇧K')).toBeNull();
+    expect(screen.queryByText(formatChord('mod+shift+k'))).toBeNull();
     expect(screen.getByText('Indent')).toBeInTheDocument();
   });
 

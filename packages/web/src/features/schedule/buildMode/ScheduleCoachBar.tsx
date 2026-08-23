@@ -1,4 +1,5 @@
 import { CloseIcon } from '@/components/Icons';
+import { formatChord } from '@/lib/platform';
 
 interface CoachLine {
   key: string;
@@ -30,8 +31,8 @@ interface CoachLine {
  * bindings; prose naming glyphs is not.
  */
 const LINES: readonly CoachLine[] = [
-  { key: '⌥→', label: 'indent', before: 'Indent an item — ', bold: 'the one above becomes a phase' },
-  { key: '⌥⌘G', label: 'group', before: 'Select rows, ', bold: 'wrap them in a phase', after: ' — name it last' },
+  { key: formatChord('alt+ArrowRight'), label: 'indent', before: 'Indent an item — ', bold: 'the one above becomes a phase' },
+  { key: formatChord('mod+alt+g'), label: 'group', before: 'Select rows, ', bold: 'wrap them in a phase', after: ' — name it last' },
   { key: 'hover a row', label: 'row controls', before: '', bold: '+ ⇤ ⇥ ◆', after: ' — insert, move, milestone' },
 ];
 

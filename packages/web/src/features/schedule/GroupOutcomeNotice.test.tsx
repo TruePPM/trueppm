@@ -7,6 +7,7 @@
  * second one here would speak the whole outcome twice.
  */
 import { render, screen, fireEvent } from '@testing-library/react';
+import { formatChord } from '@/lib/platform';
 import { describe, it, expect, vi } from 'vitest';
 import { GroupOutcomeNotice } from './GroupOutcomeNotice';
 import { describeGroupOutcome, describeUngroupOutcome } from './buildMode/groupOutcome';
@@ -37,7 +38,7 @@ describe('GroupOutcomeNotice', () => {
     const strip = screen.getByTestId('group-outcome-notice');
     expect(strip).toHaveTextContent('4 items are now a phase.');
     expect(strip).toHaveTextContent('roll up from the work inside');
-    expect(strip).toHaveTextContent('⌘Z undoes the whole group');
+    expect(strip).toHaveTextContent(`${formatChord('mod+z')} undoes the whole group`);
   });
 
   it('surfaces left_alone — the issue’s requirement, and the part a request assertion cannot see', () => {

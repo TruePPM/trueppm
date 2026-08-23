@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { modifierKeyLabel } from '@/lib/platform';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import {
   deriveTier,
@@ -27,11 +28,9 @@ const TIER_ANNOUNCE_DEBOUNCE_MS = 250;
  * (rule 82) and calls back to the engine via `onFit`.
  */
 
-/** Platform-correct modifier glyph for tooltips: ⌘ on macOS, Ctrl elsewhere. */
-const MOD_GLYPH =
-  typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform)
-    ? '⌘' // ⌘
-    : 'Ctrl';
+// Was a third local copy of the platform check (#3028). `lib/platform.ts` is
+// the one owner — three copies agreeing by luck is how ROW_HEIGHT drifted.
+const MOD_GLYPH = modifierKeyLabel();
 
 interface ZoomControlProps {
   /** Fit the whole project into the viewport (⌘0). Wired to engine.fitToProject(). */

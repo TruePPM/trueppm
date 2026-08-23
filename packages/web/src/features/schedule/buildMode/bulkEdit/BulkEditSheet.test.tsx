@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { formatChord } from '@/lib/platform';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ProjectResource, Task } from '@/types';
@@ -67,7 +68,7 @@ describe('BulkEditSheet — form phase', () => {
     expect(within(sheet).getByRole('heading', { name: 'Edit 2 rows' })).toBeInTheDocument();
     expect(within(sheet).getByText(/no cascade/)).toBeInTheDocument();
     // The subtree lens is named exactly once, on the group it concerns.
-    expect(within(sheet).getByText('⌘⇧M for a whole subtree')).toBeInTheDocument();
+    expect(within(sheet).getByText(`${formatChord('mod+shift+m')} for a whole subtree`)).toBeInTheDocument();
   });
 
   it('is a modal dialog labelled by the selection size', () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { formatChord } from '@/lib/platform';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ScheduleAddPhaseButton } from './ScheduleAddPhaseButton';
 
@@ -55,7 +56,7 @@ describe('ScheduleAddPhaseButton', () => {
     render(<ScheduleAddPhaseButton onAddPhase={vi.fn()} />);
     expect(screen.getByTestId('add-phase-button')).toHaveAttribute(
       'title',
-      'Add new phase, with its first task (⌥⌘P)',
+      `Add new phase, with its first task (${formatChord('mod+alt+p')})`,
     );
   });
 

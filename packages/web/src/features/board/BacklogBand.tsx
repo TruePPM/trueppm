@@ -26,6 +26,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
+import { formatChord } from '@/lib/platform';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import type { Task, TaskStatus, TaskReadiness } from '@/types';
 import { ReadinessChip } from './ReadinessChip';
@@ -993,7 +994,7 @@ export function BacklogBand({
                 type="button"
                 onClick={onOpenCommandPalette}
                 aria-label="Open command palette to search everything"
-                title="Open command palette (⌘K)"
+                title={`Open command palette (${formatChord('mod+k')})`}
                 className="tppm-mono text-xs text-neutral-text-disabled hover:text-neutral-text-primary
                   focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 rounded-control px-0.5"
               >

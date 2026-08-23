@@ -1,4 +1,5 @@
 import { memo, useState, useRef, useCallback, useEffect } from 'react';
+import { formatChord } from '@/lib/platform';
 import type React from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
@@ -799,7 +800,7 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
       key: 'indent',
       label: 'Indent',
       icon: <IndentIcon className="h-4 w-4" aria-hidden="true" />,
-      hint: '⌥→',
+      hint: formatChord('alt+ArrowRight'),
       startsGroup: true,
       disabled: level <= 1,
       onSelect: () => buildMode.indent(task.id),
@@ -808,7 +809,7 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
       key: 'outdent',
       label: 'Outdent',
       icon: <OutdentIcon className="h-4 w-4" aria-hidden="true" />,
-      hint: '⌥←',
+      hint: formatChord('alt+ArrowLeft'),
       // Disable outdent at root level (level 1).
       disabled: level <= 1,
       onSelect: () => buildMode.outdent(task.id),
@@ -843,7 +844,7 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
       key: 'duplicate',
       label: 'Duplicate',
       icon: <CopyIcon className="h-4 w-4" aria-hidden="true" />,
-      hint: '⌘D',
+      hint: formatChord('mod+d'),
       startsGroup: true,
       onSelect: handleDuplicate,
     },
@@ -854,7 +855,7 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
       key: 'classify',
       label: 'Classification…',
       icon: <SlidersIcon className="h-4 w-4" aria-hidden="true" />,
-      hint: '⌘⇧M',
+      hint: formatChord('mod+shift+m'),
       startsGroup: true,
       disabled: !onClassifyRequest,
       onSelect: () => onClassifyRequest?.(task.id),
@@ -1531,7 +1532,7 @@ function RowStructureNudges({
             // The glyph IS the keyboard notation, so the button documents its
             // own shortcut instead of needing a label.
             aria-label={`Outdent ${taskName} — move it out of its phase`}
-            title="Outdent (⌥←)"
+            title={`Outdent (${formatChord('alt+ArrowLeft')})`}
             style={{ width: size, height: size }}
             className={`${buttonClass} disabled:opacity-40 disabled:cursor-not-allowed`}
           >
@@ -1545,7 +1546,7 @@ function RowStructureNudges({
               onIndent?.();
             }}
             aria-label={`Indent ${taskName} — move it under the row above`}
-            title="Indent (⌥→)"
+            title={`Indent (${formatChord('alt+ArrowRight')})`}
             style={{ width: size, height: size }}
             className={buttonClass}
           >

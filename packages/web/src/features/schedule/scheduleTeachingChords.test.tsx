@@ -1,3 +1,6 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { render, screen, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
@@ -153,8 +156,50 @@ const MODIFIER_ORDER = ['mod', 'shift', 'alt', 'ctrl'];
  * Returning `null` rather than throwing is what lets a chip carry a phrase
  * (`hover a row`) without the guard having to keep a list of exceptions.
  */
+/**
+ * Word spellings, for the non-Mac branch (#3028).
+ *
+ * Since chords are rendered through `formatChord`, the same chip reads `⌥⌘G` on
+ * a Mac and `Ctrl+Alt+G` everywhere else — and jsdom runs the *else* branch. A
+ * parser that understood only glyphs would therefore stop seeing any chord at
+ * all the moment the spelling was fixed, and this guard would go quietly
+ * vacuous: still green, checking nothing. Parsing both spellings is what keeps
+ * it honest on whichever platform the suite happens to run.
+ */
+const MODIFIER_WORDS: Record<string, string> = {
+  ctrl: 'mod',
+  cmd: 'mod',
+  alt: 'alt',
+  option: 'alt',
+  shift: 'shift',
+};
+
 function parseChord(text: string): string | null {
-  const chars = [...text.trim()];
+  const trimmed = text.trim();
+
+  // Word form: `Ctrl+Alt+G`. Only treat it as a chord when a real modifier
+  // leads, so prose containing a `+` is still prose.
+  if (/^[A-Za-z]+\+/.test(trimmed)) {
+    const parts = trimmed.split('+').map((t) => t.trim());
+    const mods: string[] = [];
+    let idx = 0;
+    while (idx < parts.length && MODIFIER_WORDS[parts[idx].toLowerCase()] !== undefined) {
+      mods.push(MODIFIER_WORDS[parts[idx].toLowerCase()]);
+      idx += 1;
+    }
+    if (mods.length > 0 && idx < parts.length) {
+      const tail = parts.slice(idx).join('+');
+      const key =
+        KEY_GLYPHS[tail] ??
+        (/^F\d+$/i.test(tail) || /^[a-z0-9?=-]$/i.test(tail) ? tail.toLowerCase() : null);
+      if (key !== null) {
+        mods.sort((a, b) => MODIFIER_ORDER.indexOf(a) - MODIFIER_ORDER.indexOf(b));
+        return [...mods, key].join('+');
+      }
+    }
+  }
+
+  const chars = [...trimmed];
   const modifiers: string[] = [];
   let i = 0;
   while (i < chars.length && MODIFIER_GLYPHS[chars[i]] !== undefined) {
@@ -180,7 +225,8 @@ function parseChord(text: string): string | null {
 }
 
 /** Prose spells a chord only when it carries a modifier glyph. */
-const PROSE_CHORD = /[⌘⌃⌥⇧]+[A-Za-z0-9→←↑↓⏎⇥⇤⌫⎋?]/g;
+const PROSE_CHORD =
+  /(?:[⌘⌃⌥⇧]+[A-Za-z0-9→←↑↓⏎⇥⇤⌫⎋?])|(?:\b(?:Ctrl|Alt|Shift|Cmd|Option)(?:\+(?:Ctrl|Alt|Shift))*\+[A-Za-z0-9→←↑↓⏎⇥⇤⌫⎋?]+)/g;
 
 function keystrokeClaims(container: HTMLElement): string[] {
   const claims: string[] = [];
@@ -278,5 +324,172 @@ describe('SessionTrail names only chords the keyboard resolves', () => {
     // written here instead of in a comment.
     expect(container.textContent ?? '').toContain('Undo reverses moves');
     expect(keystrokeClaims(container).filter((chord) => !live.has(chord))).toEqual([]);
+  });
+});
+
+/**
+ * #3028 — a chord must also be *spelled* for the platform reading it.
+ *
+ * The guard above asks "is this chord bound?", and `mod+alt+g` is bound — so it
+ * passed while every teaching surface printed `⌘` and `⌥` to a Linux reader whose
+ * keyboard has neither, and whose real binding is Ctrl+Alt+G. That is the same
+ * defect one platform over, on the majority of a self-hosted product's users.
+ *
+ * The mechanism is a source scan rather than a render assertion: a rendered test
+ * only ever runs one platform's branch, which is precisely how the hardcoded
+ * glyphs survived. The invariant is "the spelling comes from the formatter",
+ * not "this string looks right".
+ */
+/**
+ * The lines of a file that are code, not prose.
+ *
+ * Comments legitimately name chords while explaining them — `ScheduleView`'s
+ * structure-buttons block quotes `⌥⌘G` in the middle of a paragraph about why
+ * the toggle defaults off. So the scan has to know where comments *end*, and a
+ * per-line heuristic cannot: a continuation line of a block comment is
+ * indistinguishable from code by shape, and one containing a backtick looks
+ * exactly like a template literal.
+ *
+ * So track the state. `//`, `/* … *\/` and JSX `{/* … *\/}` all open and close
+ * here; anything inside is prose and is skipped.
+ */
+function codeLines(src: string): Array<readonly [number, string]> {
+  const out: Array<readonly [number, string]> = [];
+  let inBlock = false;
+  src.split('\n').forEach((line, i) => {
+    let rest = line;
+    let code = '';
+    while (rest.length > 0) {
+      if (inBlock) {
+        const close = rest.indexOf('*/');
+        if (close === -1) return;
+        rest = rest.slice(close + 2);
+        inBlock = false;
+        continue;
+      }
+      const open = rest.indexOf('/*');
+      const lineComment = rest.indexOf('//');
+      if (lineComment !== -1 && (open === -1 || lineComment < open)) {
+        code += rest.slice(0, lineComment);
+        rest = '';
+        continue;
+      }
+      if (open === -1) {
+        code += rest;
+        rest = '';
+        continue;
+      }
+      code += rest.slice(0, open);
+      rest = rest.slice(open + 2);
+      inBlock = true;
+    }
+    if (code.trim().length > 0) out.push([i + 1, code] as const);
+  });
+  return out;
+}
+
+describe('teaching surfaces spell chords for the reader (#3028)', () => {
+  // Every surface that prints a chord to a user. Enumerated rather than globbed
+  // because the whole-tree scan below is the safety net for anything missed
+  // here — this list exists so a failure names the file directly.
+  const SURFACES = [
+    'buildMode/ScheduleCoachBar.tsx',
+    'buildMode/BuildModeCheatsheet.tsx',
+    'buildMode/BuildModeHintStrip.tsx',
+    'buildMode/groupOutcome.ts',
+    'buildMode/bulkEdit/BulkEditSheet.tsx',
+    'ScheduleAddMilestoneButton.tsx',
+    'ScheduleAddPhaseButton.tsx',
+    'SeedBanner.tsx',
+    'ZoomControl.tsx',
+  ];
+
+  const here = dirname(fileURLToPath(import.meta.url));
+
+  it('scans a non-vacuous set of files', () => {
+    for (const rel of SURFACES) {
+      expect(readFileSync(join(here, rel), 'utf8').length).toBeGreaterThan(200);
+    }
+  });
+
+  it.each(SURFACES)('%s hardcodes no modifier glyph outside comments', (rel) => {
+    // `⇧` is deliberately not matched: it appears in the coach bar's `+ ⇤ ⇥ ◆`
+    // button-glyph run, which names row controls rather than keys.
+    const offenders = codeLines(readFileSync(join(here, rel), 'utf8')).filter(([, line]) =>
+      /[⌘⌥]/.test(line),
+    );
+
+    expect(offenders.map(([n, l]) => `${n}: ${l.trim().slice(0, 80)}`)).toEqual([]);
+  });
+
+  it('there is exactly one platform detector', () => {
+    // Three copies existed before #3028 (lib/platform, ZoomControl,
+    // useScheduleKeyboard) and agreed only by luck — the ROW_HEIGHT shape.
+    const scheduleDir = here;
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, e.name);
+        if (e.isDirectory()) walk(full);
+        else if (/\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) {
+          const src = readFileSync(full, 'utf8');
+          if (/\/Mac\|iPod\|iPhone\|iPad\//.test(src)) offenders.push(full);
+        }
+      }
+    };
+    walk(scheduleDir);
+    expect(offenders).toEqual([]);
+  });
+
+  it('no shipped file in the schedule tree hardcodes a modifier glyph', () => {
+    // The enumerated list above cannot cover a file nobody has written yet.
+    // !2066 landed six such strings between this issue being filed and fixed,
+    // which is exactly how long an enumeration stays complete.
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, e.name);
+        if (e.isDirectory()) walk(full);
+        else if (/\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) {
+          const bad = codeLines(readFileSync(full, 'utf8')).filter(([, l]) => /[⌘⌥]/.test(l));
+          if (bad.length > 0) {
+            offenders.push(
+              `${full.split('/schedule/')[1]}:${bad[0][0]} ${bad[0][1].trim().slice(0, 60)}`,
+            );
+          }
+        }
+      }
+    };
+    walk(here);
+    expect(offenders).toEqual([]);
+  });
+  it('no e2e spec asserts a hardcoded modifier glyph', () => {
+    // Learned the hard way on this very branch: the source sweep above passed,
+    // and `web:e2e` still failed on `schedule-group-ungroup.spec.ts` asserting
+    // `⌘Z undoes the whole group`. Playwright runs the NON-Mac branch, so a spec
+    // pinning the Mac spelling fails the moment the string is fixed — and it
+    // lives in a tree the source scan never looked at, which is the standing
+    // reason `web:e2e` is this repo's most common CI failure.
+    //
+    // Test NAMES may carry a glyph (`test('⌘Z reverses…')`) — they are prose.
+    // Only assertions are claims about rendered text.
+    const e2eDir = join(here, '..', '..', '..', 'e2e');
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, e.name);
+        if (e.isDirectory()) walk(full);
+        else if (/\.ts$/.test(e.name)) {
+          for (const [n, line] of codeLines(readFileSync(full, 'utf8'))) {
+            if (!/[⌘⌥]/.test(line)) continue;
+            // A chord inside `test(...)` / `describe(...)` is a label.
+            if (/^\s*(test|describe|it)(\.\w+)?\s*\(/.test(line)) continue;
+            offenders.push(`${e.name}:${n} ${line.trim().slice(0, 60)}`);
+          }
+        }
+      }
+    };
+    walk(e2eDir);
+    expect(offenders).toEqual([]);
   });
 });

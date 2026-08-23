@@ -7,6 +7,7 @@
  * the rule without predicting which rows the server will apply it to.
  */
 import { describe, it, expect } from 'vitest';
+import { formatChord } from '@/lib/platform';
 import {
   deriveGroupTarget,
   deriveUngroupTarget,
@@ -58,7 +59,7 @@ describe('describeGroupOutcome', () => {
     expect(outcome.detail).toContain('Name it');
     expect(outcome.detail).toContain('roll up from the work inside');
     expect(outcome.detail).toContain('nothing else to fill in');
-    expect(outcome.detail).toContain('⌘Z undoes the whole group');
+    expect(outcome.detail).toContain(`${formatChord('mod+z')} undoes the whole group`);
   });
 
   it('agrees with itself on one row', () => {
@@ -169,7 +170,7 @@ describe('describeUngroupOutcome', () => {
     expect(outcome.headline).toBe('Design is no longer a phase.');
     expect(outcome.detail).toContain('4 items moved up one level');
     expect(outcome.detail).toContain('keeping their links, owners and estimates');
-    expect(outcome.detail).toContain('⌘Z puts the phase back');
+    expect(outcome.detail).toContain(`${formatChord('mod+z')} puts the phase back`);
   });
 
   it('says an empty phase moved nothing rather than claiming a lift that did not happen', () => {
@@ -246,7 +247,7 @@ describe('deriveGroupTarget', () => {
 describe('describeGroupTarget', () => {
   it('states the count and the rule, and never predicts which rows the server will drop', () => {
     const sentence = describeGroupTarget({ taskIds: ['a', 'b', 'c', 'd'], blocked: null });
-    expect(sentence).toContain('⌥⌘G wraps 4 rows in a new phase');
+    expect(sentence).toContain(`${formatChord('mod+alt+g')} wraps 4 rows in a new phase`);
     expect(sentence).toContain('already inside another selected row stays where it is');
   });
 
@@ -286,7 +287,7 @@ describe('deriveUngroupTarget / describeUngroupTarget', () => {
       containerName: 'Design',
       blocked: null,
     });
-    expect(sentence).toContain('⌥⇧⌘G dissolves Design');
+    expect(sentence).toContain(`${formatChord('mod+shift+alt+g')} dissolves Design`);
     expect(sentence).toContain('links, owners and estimates stay');
   });
 });
@@ -305,7 +306,7 @@ describe('refusals are stated, never silent (web rule 311)', () => {
       blocked: 'not-a-phase',
     });
     expect(sentence).toContain('Wireframes is not a phase');
-    expect(sentence).toContain('⌥← to outdent a single row');
+    expect(sentence).toContain(`${formatChord('alt+ArrowLeft')} to outdent a single row`);
   });
 
   it('has a name for an unnamed row it refuses to dissolve', () => {

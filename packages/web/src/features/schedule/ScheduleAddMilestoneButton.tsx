@@ -1,3 +1,5 @@
+import { formatChord } from '@/lib/platform';
+
 export interface ScheduleAddMilestoneButtonProps {
   onAddMilestone: () => void;
   /** True when the user has read-only access — button renders disabled. */
@@ -26,7 +28,7 @@ export function ScheduleAddMilestoneButton({
       onClick={onAddMilestone}
       disabled={isDisabled}
       aria-label="Add new milestone (Cmd+M)"
-      title={disabled ? 'Read-only access' : 'Add new milestone (⌘M)'}
+      title={disabled ? 'Read-only access' : `Add new milestone (${formatChord('mod+m')})`}
       data-testid="add-milestone-button"
       className={[
         // shrink-0 + whitespace-nowrap keep the button a fixed size in the
