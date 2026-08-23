@@ -23700,8 +23700,24 @@
         "/api/v1/projects/{project_pk}/imports/": {
             "get": {
                 "operationId": "v1_projects_imports_retrieve",
-                "description": "List ImportRequest rows for a project — the audit / provenance surface (#799).\n\nRead-only at Member+ (any role). Returns the recent imports newest first\nwith filename, who initiated it, when, status, and task count from the\nlinked TaskRun summary. Powers the \"Imported from … on … by …\" affordance\non the project Overview and gives Marcus's PMO audit trail a starting\npoint without spinning up the enterprise audit overlay.\n\nRows are purged after 7 days by `purge_old_import_requests`, so this is\na recent-activity view, not durable audit history. Page-paginated (#1317).",
+                "description": "Page of import-request provenance rows for the project, newest first.\n\n`status` is one of pending / dispatched / done / dead. `initiated_by` is the user's integer id; `initiated_by_username` carries the name and is null once that user is deleted. `task_count` comes from the linked TaskRun summary and is null until the import completes.\n\n`warnings` lists everything the import did not carry over — MS Project constraints, deadlines, baselines, priority, work and cost have no TruePPM column and are reported with per-family task counts. The strings are prose for a person, so match the leading `Not imported: ` / `Partially imported: ` marker rather than the whole line. Empty for a queued or dead import.\n\nRows are purged after `TRUEPPM_IMPORT_RETENTION_DAYS` (default 7), so this is a recent-activity view, not durable audit history.",
                 "parameters": [
+                    {
+                        "in": "query",
+                        "name": "page",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "1-based page number."
+                    },
+                    {
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Rows per page. Default 50, maximum 200."
+                    },
                     {
                         "in": "path",
                         "name": "project_pk",
@@ -23730,8 +23746,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/ImportProvenancePage"
                                 },
                                 "examples": {
                                     "Imports": {
@@ -23741,7 +23756,7 @@
                                             "previous": null,
                                             "results": [
                                                 {
-                                                    "id": "…",
+                                                    "id": "6f1c2e70-2a1f-4f0e-9a0a-2f6d1c3b4a55",
                                                     "filename": "plan.xml",
                                                     "status": "done",
                                                     "creates_project": false,
@@ -23760,7 +23775,13 @@
                                 }
                             }
                         },
-                        "description": "Page of import-request provenance rows for the project, newest first: {count, next, previous, results: [{id, filename, status, creates_project, requested_at, initiated_by, initiated_by_username, task_count, warnings}]}. `status` is one of pending / dispatched / done / dead; `initiated_by` is the user's integer id (`initiated_by_username` carries the name, and is null once that user is deleted). `warnings` lists everything the import did not carry over — MS Project constraints, deadlines, baselines, priority, work and cost have no TruePPM column and are reported with per-family task counts; the strings are prose for a person, so match the leading 'Not imported: ' / 'Partially imported: ' marker rather than the whole line. Empty for a queued or dead import. Rows are purged after 7 days."
+                        "description": ""
+                    },
+                    "401": {
+                        "description": "Authentication credentials were not provided."
+                    },
+                    "403": {
+                        "description": "Not a member of this project."
                     },
                     "404": {
                         "content": {
@@ -48113,6 +48134,118 @@
                     "history_user",
                     "id"
                 ]
+            },
+            "ImportProvenancePage": {
+                "type": "object",
+                "description": "The paginated envelope ``GET /projects/{id}/imports/`` actually returns (#2942).\n\nDeclared explicitly rather than left to ``OpenApiTypes.OBJECT``, which generates\n``{\"type\": \"object\", \"additionalProperties\": {}}`` — machine-readable for nothing.\nAn SDK generated from that schema hands the caller an untyped bag: not ``results``,\nnot the pagination envelope, not ``task_count``, not ``warnings``. Every accuracy\nproblem #2942 lists exists *because* prose was the only description, so the fix is\nto make the shape checkable rather than to write better prose.\n\nThis is a schema-only serializer — the view returns\n``paginator.get_paginated_response(...)``, so nothing instantiates it at runtime.\nIt exists so ``responses={200: ...}`` has something faithful to point at, and it\nmust be kept in step with :class:`ImportProvenancePagination`'s envelope by hand;\nthere is no gate that compares a declared response shape to the real one.",
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "description": "Total rows across all pages."
+                    },
+                    "next": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true,
+                        "description": "URL of the next page, or null on the last page."
+                    },
+                    "previous": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true,
+                        "description": "URL of the previous page, or null on the first page."
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ImportRequestProvenance"
+                        }
+                    }
+                },
+                "required": [
+                    "count",
+                    "next",
+                    "previous",
+                    "results"
+                ]
+            },
+            "ImportRequestProvenance": {
+                "type": "object",
+                "description": "Read-only audit view of an `ImportRequest` for the project history list.\n\nMarcus (PMO persona) wants the import itself to be part of the project's\nrecord: who imported, from what file, when, and what was the outcome.\n`ImportRequest` already holds the durable who/what/when/status fields;\nthis serializer joins in the linked `TaskRun.result_summary` to surface\nthe imported task count alongside the audit fields.\n\n`ImportRequest` rows are purged after 7 days by the\n``purge_old_import_requests`` cleanup task, so this surface is\nintentionally an at-a-glance recent-activity view, not a long-lived\naudit log — enterprise overlays consume the `history_record_created`\nsignal for compliance-grade retention (out of scope here).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "filename": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ImportRequestProvenanceStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "creates_project": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "requested_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "initiated_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "initiated_by_username": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Display username; absent when the row's user was deleted.",
+                        "readOnly": true
+                    },
+                    "task_count": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Pull the imported task count from the linked TaskRun summary.",
+                        "readOnly": true
+                    },
+                    "warnings": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Everything the import did not carry over, in the parser's order (#2891).\n\nThe importer has always written these into ``TaskRun.result_summary``, and\nnothing has ever read them back out — so \"the parser warns\" was true and\nuseless at the same time. Losing an MS Project constraint, deadline or\nbaseline is a correctness event, not a log line, and the operator has to be\nable to reach it. This is the API-side half; a wizard surface for it is\ntracked separately (#2714).\n\nEmpty for a queued or dead import, the same contract as ``task_count``.",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "creates_project",
+                    "filename",
+                    "id",
+                    "initiated_by",
+                    "initiated_by_username",
+                    "requested_at",
+                    "status",
+                    "task_count",
+                    "warnings"
+                ]
+            },
+            "ImportRequestProvenanceStatusEnum": {
+                "enum": [
+                    "pending",
+                    "dispatched",
+                    "done",
+                    "dead"
+                ],
+                "type": "string",
+                "description": "* `pending` - Pending\n* `dispatched` - Dispatched\n* `done` - Done\n* `dead` - Dead"
             },
             "InboundTaskSyncPayloadRequest": {
                 "type": "object",
