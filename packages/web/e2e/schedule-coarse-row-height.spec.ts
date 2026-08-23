@@ -15,7 +15,12 @@
  * (the trap `programs.spec.ts` records for the same reason).
  */
 import { test, expect } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import {
+  setupAuth,
+  setupApiMocks,
+  setupCatchAll,
+  setupScheduleDisplayOptions,
+} from './fixtures';
 
 const PROJECT_ID = 'e2e-rowh-00000000-0000-0000-0000-000000002997';
 const BASE_URL = `/projects/${PROJECT_ID}/schedule`;
@@ -301,5 +306,80 @@ test.describe('Schedule rows on a fine pointer are unchanged (#2997)', () => {
       await tapCanvasAt(page, bar.x + bar.width / 2, row.y + row.height / 2);
       await expect(barOption(page, name)).toHaveAttribute('aria-selected', 'true');
     }
+  });
+});
+
+/**
+ * Comfortable rows at a **fine** pointer (#3019).
+ *
+ * The option shipped as a dead control: the Display menu toggled it, it
+ * persisted to localStorage, and nothing read it — row height came from the
+ * pointer class alone. The people it exists for are precisely the ones a
+ * coarse-pointer heuristic cannot reach, so a mouse is the only configuration
+ * that can prove it now works.
+ *
+ * Seeded through `localStorage` rather than by driving the menu, per the
+ * fixture's own contract: this is the honest reproduction of "this planner
+ * turned it on last week", and `schedule-display-menu.spec` owns the toggle.
+ */
+test.describe('Comfortable rows lifts a fine pointer to the 44px floor (#3019)', () => {
+  test.use({ viewport: { width: 1280, height: 900 } });
+
+  test.beforeEach(async ({ page }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, { projects: PROJECTS, projectId: PROJECT_ID, tasks: TASKS });
+    await mockBaselines(page);
+    await setupScheduleDisplayOptions(page, PROJECT_ID, { comfortableRows: true });
+    await page.goto(BASE_URL);
+    await expect(page.getByText('Mobilization').first()).toBeVisible();
+  });
+
+  test('rows and the pitch between them are 44px on a mouse', async ({ page }) => {
+    const boxes = [];
+    for (const name of NAMES) boxes.push(await boxOf(outlineRow(page, name)));
+
+    for (const [i, box] of boxes.entries()) {
+      expect(box.height, `row ${i} ("${NAMES[i]}") height`).toBeGreaterThanOrEqual(44);
+    }
+    for (let i = 1; i < boxes.length; i++) {
+      expect(boxes[i].y - boxes[i - 1].y, `pitch between rows ${i - 1} and ${i}`).toBeCloseTo(
+        44,
+        0,
+      );
+    }
+  });
+
+  test('the canvas follows the preference, not just the outline', async ({ page }) => {
+    // The failure mode a DOM-only assertion cannot see. The preference reaches
+    // the row model's single owner, so the non-React readers — renderer, hit
+    // index, virtualization — resolve the same 44 the outline did. Had it been
+    // wired into the React tree instead, this is the test that would fail: 44px
+    // DOM rows over 28px canvas bands, with nothing on screen to say so.
+    for (const name of NAMES) {
+      const row = await boxOf(outlineRow(page, name));
+      const bar = await boxOf(barOption(page, name));
+      expect(bar.y + bar.height / 2, `bar for "${name}"`).toBeCloseTo(row.y + row.height / 2, 0);
+    }
+  });
+
+  test('a click lands on the row it covers at the comfortable height', async ({ page }) => {
+    for (const name of NAMES) {
+      const row = await boxOf(outlineRow(page, name));
+      const bar = await boxOf(barOption(page, name));
+      await tapCanvasAt(page, bar.x + bar.width / 2, row.y + row.height / 2);
+      await expect(barOption(page, name)).toHaveAttribute('aria-selected', 'true');
+    }
+  });
+
+  test('the grip grows taller but does not take a 44px lane a mouse never needed', async ({
+    page,
+  }) => {
+    // "Larger controls" arrives through the resolved height, which the grip's own
+    // height is. Its *width* answers a different question — can this pointer aim?
+    // — and a mouse still can, so the name column is not surrendered.
+    const grip = await boxOf(outlineRow(page, 'Survey').getByTestId('row-reorder-grip'));
+    expect(grip.height, 'grip height follows the row').toBeGreaterThanOrEqual(44);
+    expect(grip.width, 'grip lane stays on the pointer class').toBeLessThan(44);
   });
 });

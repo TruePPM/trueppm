@@ -15,8 +15,22 @@ interface CoachLine {
  * survive, because hover affordances are exactly the thing you cannot discover
  * by looking.
  */
+/**
+ * `⌥→`, not `⇥` (#3020). Tab is bound to nothing and deliberately so: binding it
+ * reproduces the WCAG 2.1.2 keyboard trap fixed in #2192/#2727 (ADR-0776 §6, and
+ * `TaskListRow`'s `tryBuildModeIndent` doc comment). A chip naming a dead key is
+ * worse here than on any other surface — this bar's entire justification is that
+ * discovery was hover-dependent, so a user who tries the key it teaches and gets
+ * nothing concludes the *feature* is broken rather than the hint.
+ *
+ * Note the third line's `+ ⇤ ⇥ ◆` is a different claim and is correct: those are
+ * the row's own **button glyphs**, which is the design's chosen notation, not a
+ * keystroke. `scheduleTeachingChords.test.tsx` encodes exactly that distinction
+ * — a `<kbd>` chip is a keystroke claim and must resolve against the registered
+ * bindings; prose naming glyphs is not.
+ */
 const LINES: readonly CoachLine[] = [
-  { key: '⇥', label: 'indent', before: 'Indent an item — ', bold: 'the one above becomes a phase' },
+  { key: '⌥→', label: 'indent', before: 'Indent an item — ', bold: 'the one above becomes a phase' },
   { key: '⌥⌘G', label: 'group', before: 'Select rows, ', bold: 'wrap them in a phase', after: ' — name it last' },
   { key: 'hover a row', label: 'row controls', before: '', bold: '+ ⇤ ⇥ ◆', after: ' — insert, move, milestone' },
 ];

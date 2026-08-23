@@ -11,7 +11,7 @@ TruePPM has two ways to break work down:
 
 | Mechanism | Created via | CPM participation | Use when |
 |---|---|---|---|
-| **Child tasks under a phase** | Schedule-view indent (Tab key / context menu) | Yes — each task gets its own duration, float, dependencies, resource assignments | The sub-items need to be sequenced, separately resourced, or tracked on the Schedule view |
+| **Child tasks under a phase** | Schedule-view indent (`Alt` + `→` / context menu) | Yes — each task gets its own duration, float, dependencies, resource assignments | The sub-items need to be sequenced, separately resourced, or tracked on the Schedule view |
 | **Subtasks** | Task detail drawer | No — the parent task is the CPM node | The sub-items are the assignee's to-do list for a single deliverable |
 
 The practical test: _if any of the sub-items could end up on the critical path, or if a PM needs to see them on the Schedule view, make them child tasks under a phase._ If they're internal steps that only the task owner cares about, use subtasks.

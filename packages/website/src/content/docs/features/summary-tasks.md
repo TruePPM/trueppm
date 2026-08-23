@@ -36,11 +36,13 @@ When a task row is focused in the WBS view:
 
 | Shortcut | Action |
 |----------|--------|
-| `Tab` | Indent — make this task a child of the task above it |
-| `Shift` + `Tab` | Outdent — move this task up one level in the hierarchy |
+| `Alt` + `→` | Indent — make this task a child of the task above it |
+| `Alt` + `←` | Outdent — move this task up one level in the hierarchy |
 | `Alt` + `↑` / `Alt` + `↓` | Reorder within the current parent |
 | `↑` / `↓` | Move focus to the previous / next visible task |
 | `Enter` on chevron | Toggle expand / collapse of the focused summary |
+
+Plain `Tab` and `Shift` + `Tab` are deliberately left alone on a focused row — they fall through to the browser's normal focus traversal, so a keyboard user can always Tab out of the grid.
 
 Indent and outdent call the `useIndentTask` / `useOutdentTask` mutations. A one-line aria-live announcement ("Task indented", "Cannot outdent: task is already at root level", etc.) is emitted for screen reader users on every action.
 

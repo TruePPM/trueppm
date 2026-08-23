@@ -54,12 +54,39 @@ export const ROW_HEIGHT_FINE = 28;
  */
 export const ROW_HEIGHT_COARSE = 44;
 
+/**
+ * Row height when the user has asked for **Comfortable rows** (#3019).
+ *
+ * Deliberately an alias rather than a fourth `44` literal: the design's wording
+ * is *"44px rows and larger controls when on, the same sizing the coarse-pointer
+ * rule applies automatically"* — so this is not a number that happens to match
+ * the coarse height, it **is** the coarse height, reached by a second route. A
+ * separate literal here would be the "agree by luck" failure the module docstring
+ * above describes, one level up.
+ */
+export const ROW_HEIGHT_COMFORTABLE = ROW_HEIGHT_COARSE;
+
 /** Height of a task bar. Constant across pointer classes — only its inset moves. */
 export const BAR_HEIGHT = 18;
 
-/** Pure resolution: the only place the two heights are chosen between. */
-export function resolveRowHeight(coarse: boolean): number {
-  return coarse ? ROW_HEIGHT_COARSE : ROW_HEIGHT_FINE;
+/**
+ * Pure resolution: the only place the heights are chosen between.
+ *
+ * Two inputs, and the rule between them is **max, not either/or** — the option
+ * *raises the floor*. A coarse pointer is still 44px with Comfortable rows off
+ * (the touch floor is not a preference), and turning it on at a fine pointer
+ * lifts 28 to 44. Expressing it as `Math.max` rather than `coarse || comfortable`
+ * is what keeps that property true if a third height is ever introduced: the
+ * resolved height can only ever go up, never down, as inputs are added.
+ *
+ * `comfortable` is optional so the ~dozen existing single-argument call sites
+ * stay valid — widening the parameter list rather than every caller.
+ */
+export function resolveRowHeight(coarse: boolean, comfortable = false): number {
+  return Math.max(
+    coarse ? ROW_HEIGHT_COARSE : ROW_HEIGHT_FINE,
+    comfortable ? ROW_HEIGHT_COMFORTABLE : ROW_HEIGHT_FINE,
+  );
 }
 
 /**
@@ -80,13 +107,36 @@ function coarsePointerNow(): boolean {
 }
 
 /**
+ * The two inputs the row height resolves from, latched at module scope.
+ *
+ * They are latched separately because they arrive from **different places at
+ * different times**: the pointer class from a media query that every consumer of
+ * `useRowHeight()` re-asserts on every render, and Comfortable rows from one
+ * component's persisted preference, hydrated asynchronously from localStorage.
+ * Neither writer knows the other's value, so neither may pass it — each sets its
+ * own input and the recomputation reads both. Collapsing these into a single
+ * `syncRowMetrics(coarse, comfortable)` would make the eight components that
+ * only know the pointer class clobber the preference back to `false` on every
+ * render.
+ */
+let coarsePointerInput = coarsePointerNow();
+let comfortableRowsInput = false;
+
+/**
  * Current row height. **Live binding — do not copy into a module-scope const.**
  * SSR and jsdom (no `matchMedia`) resolve to the fine-pointer height.
  */
-export let ROW_HEIGHT = resolveRowHeight(coarsePointerNow());
+export let ROW_HEIGHT = resolveRowHeight(coarsePointerInput, comfortableRowsInput);
 
 /** Current bar inset. Live binding, derived from `ROW_HEIGHT`. */
 export let BAR_TOP_OFFSET = resolveBarTopOffset(ROW_HEIGHT);
+
+/** Re-resolve both live bindings from the currently latched inputs. */
+function recomputeRowMetrics(): number {
+  ROW_HEIGHT = resolveRowHeight(coarsePointerInput, comfortableRowsInput);
+  BAR_TOP_OFFSET = resolveBarTopOffset(ROW_HEIGHT);
+  return ROW_HEIGHT;
+}
 
 /**
  * Point the row model at a pointer class. Idempotent and pure in its argument,
@@ -96,12 +146,54 @@ export let BAR_TOP_OFFSET = resolveBarTopOffset(ROW_HEIGHT);
  * indistinguishable here.
  *
  * Returns the resolved height so the caller cannot read a different number than
- * the one it just installed.
+ * the one it just installed. Note it returns the height resolved from **both**
+ * inputs, not from `coarse` alone — a caller that knows only the pointer class
+ * still gets the number the canvas is painting with.
  */
 export function syncRowMetrics(coarse: boolean): number {
-  ROW_HEIGHT = resolveRowHeight(coarse);
-  BAR_TOP_OFFSET = resolveBarTopOffset(ROW_HEIGHT);
-  return ROW_HEIGHT;
+  coarsePointerInput = coarse;
+  return recomputeRowMetrics();
+}
+
+/**
+ * Subscribers to the Comfortable-rows input, so a React consumer can *subscribe*
+ * rather than merely read (module docstring rule 2, web rule 315c).
+ *
+ * The pointer class already has a subscription mechanism — the media query
+ * itself, which `useIsCoarsePointer()` listens to. Comfortable rows has no
+ * ambient event to listen to, so the module has to provide one; without it a
+ * `TaskListRow` deep in a memoized subtree would keep rendering 28px boxes
+ * around 44px canvas bands, which is precisely the invisible disagreement this
+ * module exists to prevent.
+ */
+const comfortableRowsListeners = new Set<() => void>();
+
+/**
+ * Install the user's Comfortable-rows preference (#3019).
+ *
+ * Idempotent, and **silent when unchanged** — the early return is what makes it
+ * safe to call from an effect that re-runs on every render of its owner without
+ * scheduling a render loop through the subscribers.
+ */
+export function syncComfortableRows(comfortable: boolean): number {
+  if (comfortableRowsInput === comfortable) return ROW_HEIGHT;
+  comfortableRowsInput = comfortable;
+  const resolved = recomputeRowMetrics();
+  for (const listener of [...comfortableRowsListeners]) listener();
+  return resolved;
+}
+
+/** The latched Comfortable-rows input. `useSyncExternalStore` snapshot. */
+export function getComfortableRows(): boolean {
+  return comfortableRowsInput;
+}
+
+/** Subscribe to Comfortable-rows changes. Returns the unsubscribe function. */
+export function subscribeComfortableRows(listener: () => void): () => void {
+  comfortableRowsListeners.add(listener);
+  return () => {
+    comfortableRowsListeners.delete(listener);
+  };
 }
 
 /**

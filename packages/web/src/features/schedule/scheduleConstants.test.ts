@@ -33,7 +33,10 @@ import type { Task } from '@/types';
 
 afterEach(() => {
   // Every test leaves the module on the fine-pointer height, which is what the
-  // rest of the suite (jsdom, no matchMedia) assumes.
+  // rest of the suite (jsdom, no matchMedia) assumes. Both inputs are reset:
+  // since #3019 the height resolves from two, and leaving either latched leaks
+  // a 44px row into the next test.
+  constants.syncComfortableRows(false);
   syncRowMetrics(false);
 });
 
@@ -50,6 +53,81 @@ describe('resolveRowHeight — the only place the two heights are chosen between
 
   it('clears the 44px floor on a coarse pointer', () => {
     expect(resolveRowHeight(true)).toBeGreaterThanOrEqual(44);
+  });
+
+  /**
+   * #3019 — Comfortable rows. The toggle persisted to localStorage and was read
+   * by nothing; the fix makes it a second *input* here rather than a second
+   * source of truth anywhere else.
+   */
+  describe('Comfortable rows raises the floor', () => {
+    it('lifts a fine pointer to 44px — the case the shipped control did nothing for', () => {
+      expect(resolveRowHeight(false, true)).toBe(44);
+    });
+
+    it('leaves a fine pointer at 28px when off', () => {
+      expect(resolveRowHeight(false, false)).toBe(28);
+      // Defaulting the parameter is what keeps the single-argument call sites
+      // valid; this pins that the default is the lean reading.
+      expect(resolveRowHeight(false)).toBe(resolveRowHeight(false, false));
+    });
+
+    it('cannot lower a coarse pointer — the touch floor is not a preference', () => {
+      // The `max` semantic, stated as the property rather than the number: with
+      // the option off, a coarse pointer is still on the WCAG 2.5.5 floor.
+      expect(resolveRowHeight(true, false)).toBe(44);
+      expect(resolveRowHeight(true, true)).toBe(44);
+      for (const comfortable of [false, true]) {
+        expect(resolveRowHeight(true, comfortable)).toBeGreaterThanOrEqual(
+          resolveRowHeight(false, comfortable),
+        );
+      }
+    });
+
+    it('is the coarse height by identity, not by a matching literal', () => {
+      // A fourth `44` would be the "agree by luck" failure this module exists to
+      // prevent, one level up from the row height itself.
+      expect(constants.ROW_HEIGHT_COMFORTABLE).toBe(ROW_HEIGHT_COARSE);
+    });
+  });
+});
+
+describe('syncComfortableRows — the second input, latched separately', () => {
+  afterEach(() => constants.syncComfortableRows(false));
+
+  it('installs the height and its derived inset, and reports the flag back', () => {
+    constants.syncComfortableRows(true);
+    expect(constants.ROW_HEIGHT).toBe(44);
+    expect(constants.BAR_TOP_OFFSET).toBe(13);
+    expect(constants.getComfortableRows()).toBe(true);
+  });
+
+  it('survives a pointer-class sync — the inputs do not clobber each other', () => {
+    // The bug this prevents: eight components call `syncRowMetrics(coarse)` on
+    // every render and none of them knows the preference. If that call reset the
+    // second input, Comfortable rows would last exactly until the next render.
+    constants.syncComfortableRows(true);
+    syncRowMetrics(false);
+    expect(constants.ROW_HEIGHT).toBe(44);
+    expect(constants.getComfortableRows()).toBe(true);
+  });
+
+  it('notifies subscribers on a change and stays silent on a repeat', () => {
+    let notified = 0;
+    const unsubscribe = constants.subscribeComfortableRows(() => {
+      notified += 1;
+    });
+    constants.syncComfortableRows(true);
+    expect(notified).toBe(1);
+    // Idempotent and silent — the owner's effect re-runs freely without
+    // scheduling a render loop through the subscribers.
+    constants.syncComfortableRows(true);
+    expect(notified).toBe(1);
+    constants.syncComfortableRows(false);
+    expect(notified).toBe(2);
+    unsubscribe();
+    constants.syncComfortableRows(true);
+    expect(notified).toBe(2);
   });
 });
 
