@@ -373,13 +373,19 @@ def assert_graph_feasible(project_id: Any, before: GraphState) -> None:
     silently.
     """
     after = capture_graph_state(project_id)
-    failure = _verdict(after)
-    if failure is None:
+    verdict = _verdict(after)
+    if verdict is None:
         return
     if _verdict(before) is not None:
         # Already broken when we arrived. Not ours to refuse.
         return
 
+    # Re-bound to a non-nullable name: `verdict` is `Exception | None`, and the `raise
+    # ... from` clause below requires an actual exception (or None) at runtime — a
+    # `TypeError` otherwise. The `is None` check above already guarantees that, but
+    # binding it to a name typed `Exception` keeps the guarantee legible to static
+    # analysis, not just to the reader (SonarCloud python:S5707).
+    failure: Exception = verdict
     offending = getattr(failure, "offending", None)
     reason = getattr(failure, "reason", "invalid_graph_input")
     raise GroupingRejected(
