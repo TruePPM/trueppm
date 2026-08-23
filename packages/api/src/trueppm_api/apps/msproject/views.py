@@ -11,7 +11,12 @@ from typing import Any
 from django.conf import settings
 from django.db import transaction
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+)
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import PageNumberPagination
@@ -28,6 +33,7 @@ from trueppm_api.apps.access.permissions import (
     IsProjectNotArchived,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
+from trueppm_api.apps.msproject.serializers import ImportProvenancePageSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -332,56 +338,80 @@ class ImportRequestProvenanceListView(APIView):
     permission_classes = [IsAuthenticated, IsProjectMember]
 
     @extend_schema(
-        responses={
-            200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description=(
-                    "Page of import-request provenance rows for the project, newest "
-                    "first: {count, next, previous, results: [{id, filename, status, "
-                    "creates_project, requested_at, initiated_by, "
-                    "initiated_by_username, task_count, warnings}]}. `status` is one "
-                    "of pending / dispatched / done / dead; `initiated_by` is the "
-                    "user's integer id (`initiated_by_username` carries the name, and "
-                    "is null once that user is deleted). `warnings` lists everything "
-                    "the import did not carry over — MS Project constraints, "
-                    "deadlines, baselines, priority, work and cost have no TruePPM "
-                    "column and are reported with per-family task counts; the strings "
-                    "are prose for a person, so match the leading 'Not imported: ' / "
-                    "'Partially imported: ' marker rather than the whole line. Empty "
-                    "for a queued or dead import. Rows are purged after 7 days."
-                ),
-                examples=[
-                    OpenApiExample(
-                        "imports",
-                        value={
-                            "count": 1,
-                            "next": None,
-                            "previous": None,
-                            "results": [
-                                {
-                                    "id": "…",
-                                    "filename": "plan.xml",
-                                    "status": "done",
-                                    "creates_project": False,
-                                    "requested_at": "2026-05-28T14:03:00Z",
-                                    "initiated_by": 17,
-                                    "initiated_by_username": "sarah",
-                                    "task_count": 142,
-                                    "warnings": [
-                                        "Not imported: deadline dates (TruePPM has no "
-                                        "deadline field) — set on 6 of 142 tasks."
-                                    ],
-                                }
-                            ],
-                        },
-                    ),
-                ],
+        # PINNED. Declaring a serializer-backed *list* response below makes
+        # drf-spectacular re-derive this operation's id as
+        # `v1_projects_imports_list`, and a renamed operationId is a Breaking change
+        # under `stability.md` — every generated SDK method for this endpoint would
+        # disappear and reappear under a new name. The rename buys nothing here, so
+        # the id is pinned and the schema is tightened underneath it (#2942).
+        operation_id="v1_projects_imports_retrieve",
+        parameters=[
+            OpenApiParameter(
+                name="page",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="1-based page number.",
             ),
+            OpenApiParameter(
+                name="page_size",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Rows per page. Default 50, maximum 200.",
+            ),
+        ],
+        responses={
+            200: ImportProvenancePageSerializer,
+            401: OpenApiResponse(description="Authentication credentials were not provided."),
+            403: OpenApiResponse(description="Not a member of this project."),
             404: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
                 description="Project not found.",
             ),
         },
+        description=(
+            "Page of import-request provenance rows for the project, newest first.\n\n"
+            "`status` is one of pending / dispatched / done / dead. `initiated_by` is "
+            "the user's integer id; `initiated_by_username` carries the name and is "
+            "null once that user is deleted. `task_count` comes from the linked "
+            "TaskRun summary and is null until the import completes.\n\n"
+            "`warnings` lists everything the import did not carry over — MS Project "
+            "constraints, deadlines, baselines, priority, work and cost have no "
+            "TruePPM column and are reported with per-family task counts. The strings "
+            "are prose for a person, so match the leading `Not imported: ` / "
+            "`Partially imported: ` marker rather than the whole line. Empty for a "
+            "queued or dead import.\n\n"
+            "Rows are purged after `TRUEPPM_IMPORT_RETENTION_DAYS` (default 7), so "
+            "this is a recent-activity view, not durable audit history."
+        ),
+        examples=[
+            OpenApiExample(
+                "imports",
+                value={
+                    "count": 1,
+                    "next": None,
+                    "previous": None,
+                    "results": [
+                        {
+                            "id": "6f1c2e70-2a1f-4f0e-9a0a-2f6d1c3b4a55",
+                            "filename": "plan.xml",
+                            "status": "done",
+                            "creates_project": False,
+                            "requested_at": "2026-05-28T14:03:00Z",
+                            "initiated_by": 17,
+                            "initiated_by_username": "sarah",
+                            "task_count": 142,
+                            "warnings": [
+                                "Not imported: deadline dates (TruePPM has no "
+                                "deadline field) — set on 6 of 142 tasks."
+                            ],
+                        }
+                    ],
+                },
+                response_only=True,
+            ),
+        ],
     )
     def get(self, request: Request, project_pk: str) -> Response:
         from trueppm_api.apps.msproject.models import ImportRequest

@@ -107,3 +107,30 @@ class ImportRequestProvenanceSerializer(serializers.ModelSerializer[ImportReques
         if not isinstance(warnings, list):
             return []
         return [str(w) for w in warnings]
+
+
+class ImportProvenancePageSerializer(serializers.Serializer[dict[str, object]]):
+    """The paginated envelope ``GET /projects/{id}/imports/`` actually returns (#2942).
+
+    Declared explicitly rather than left to ``OpenApiTypes.OBJECT``, which generates
+    ``{"type": "object", "additionalProperties": {}}`` — machine-readable for nothing.
+    An SDK generated from that schema hands the caller an untyped bag: not ``results``,
+    not the pagination envelope, not ``task_count``, not ``warnings``. Every accuracy
+    problem #2942 lists exists *because* prose was the only description, so the fix is
+    to make the shape checkable rather than to write better prose.
+
+    This is a schema-only serializer — the view returns
+    ``paginator.get_paginated_response(...)``, so nothing instantiates it at runtime.
+    It exists so ``responses={200: ...}`` has something faithful to point at, and it
+    must be kept in step with :class:`ImportProvenancePagination`'s envelope by hand;
+    there is no gate that compares a declared response shape to the real one.
+    """
+
+    count = serializers.IntegerField(help_text="Total rows across all pages.")
+    next = serializers.URLField(
+        allow_null=True, help_text="URL of the next page, or null on the last page."
+    )
+    previous = serializers.URLField(
+        allow_null=True, help_text="URL of the previous page, or null on the first page."
+    )
+    results = ImportRequestProvenanceSerializer(many=True)

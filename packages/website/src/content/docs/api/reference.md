@@ -1572,6 +1572,27 @@ Throttled at `user_search` (60/min per user — see
 used by the in-app import wizard, for scripted use — see
 [CSV import](/features/csv-import-export/#download-the-template).
 
+### Import provenance
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/v1/projects/{project_pk}/imports/` | Member+ | Recent imports for the project, newest first — who imported what, when, the outcome, and what the import did not carry over. |
+
+Page-number paginated (`{count, next, previous, results}`; `page`, `page_size`,
+default 50, max 200). Each row carries `id`, `filename`, `status`
+(`pending` / `dispatched` / `done` / `dead`), `creates_project`, `requested_at`,
+`initiated_by` (integer user id), `initiated_by_username` (null once that user is
+deleted), `task_count` (null until the import worker writes its summary), and
+`warnings`.
+
+Readable while the project is archived — it is a read-only provenance surface, so
+unlike most project routes it is not gated on `IsProjectNotArchived`.
+
+Rows are purged after `TRUEPPM_IMPORT_RETENTION_DAYS` (**default 7**), so this is a
+recent-activity view rather than durable audit history. Full field semantics and the
+warning-marker contract are on
+[MS Project import & export](/features/msproject-import-export/#list-recent-imports-project-history).
+
 ### Integrations
 
 :::note[Ships in 0.4]
