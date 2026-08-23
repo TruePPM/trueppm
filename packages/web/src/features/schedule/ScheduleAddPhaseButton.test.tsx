@@ -25,7 +25,9 @@ describe('ScheduleAddPhaseButton', () => {
 
   it('exposes a hotkey-aware accessible label', () => {
     render(<ScheduleAddPhaseButton onAddPhase={vi.fn()} />);
-    expect(screen.getByRole('button', { name: 'Add new phase (Cmd+P)' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Add new phase (Option+Cmd+P)' }),
+    ).toBeInTheDocument();
   });
 
   it('clicking calls onAddPhase', () => {
@@ -45,6 +47,16 @@ describe('ScheduleAddPhaseButton', () => {
   it('disabled state shows the read-only tooltip', () => {
     render(<ScheduleAddPhaseButton onAddPhase={vi.fn()} disabled />);
     expect(screen.getByTestId('add-phase-button')).toHaveAttribute('title', 'Read-only access');
+  });
+
+  it('tells a pointer user the button now brings a task with it (#2955)', () => {
+    // The only surface that states the changed behavior to somebody who never opens the
+    // cheatsheet — the accessible name carries the chord, the title carries the outcome.
+    render(<ScheduleAddPhaseButton onAddPhase={vi.fn()} />);
+    expect(screen.getByTestId('add-phase-button')).toHaveAttribute(
+      'title',
+      'Add new phase, with its first task (⌥⌘P)',
+    );
   });
 
   it('pending state blocks the click and shows wait cursor', () => {

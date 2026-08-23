@@ -1597,11 +1597,34 @@ interface RowSurfaceCtx {
   startEdit: () => void;
   setMenuAnchor: React.Dispatch<React.SetStateAction<{ x: number; y: number } | null>>;
   onHoverChange?: (taskId: string | null) => void;
+  /** Every visible row id, top to bottom — the order a shift-click range slices. */
+  visibleTaskIds?: string[];
 }
 
-function handleRowClick(ctx: RowSurfaceCtx): void {
+/**
+ * Shift-click extends the selection; a plain click collapses it (#2955).
+ *
+ * The third selection gesture the design names, beside `⇧↑ ⇧↓` and `⌘A`, and the one a
+ * pointer user reaches for. It routes through the **same** `extendSelection` reducer
+ * action as Shift+↑/↓ rather than computing a range here: the anchor semantics (fixed
+ * for the life of the selection, unlike `rowId` which tracks the moving edge) are the
+ * whole subtlety, and a second implementation of them would diverge on the case that
+ * matters — shift-clicking back *inside* an existing range has to shrink it, not
+ * restart it.
+ *
+ * `buildMode`, not `authoring`: selecting rows is navigation. A viewer may still build
+ * a range and read across it; what they may not do is act on one, and the acts are
+ * absent for them (rule 302 / #2961).
+ */
+function handleRowClick(e: React.MouseEvent, ctx: RowSurfaceCtx): void {
   if (ctx.isEditing || ctx.anyCellInEdit) return;
   if (ctx.buildMode) {
+    if (e.shiftKey && ctx.visibleTaskIds && ctx.buildMode.focus.state.rowId) {
+      // Suppress the native text selection a shift-click drags across the row.
+      e.preventDefault();
+      ctx.buildMode.focus.extendSelection(ctx.task.id, ctx.visibleTaskIds);
+      return;
+    }
     ctx.buildMode.focus.focusRow(ctx.task.id);
   } else {
     ctx.setSelectedTaskId(ctx.isSelected ? null : ctx.task.id);
@@ -1942,6 +1965,7 @@ function TaskListRowInner({
     startEdit,
     setMenuAnchor,
     onHoverChange,
+    visibleTaskIds,
   };
 
   return (
@@ -1970,7 +1994,7 @@ function TaskListRowInner({
         isStructuralPending,
         isPhaseRow,
       })}
-      onClick={() => handleRowClick(surface)}
+      onClick={(e) => handleRowClick(e, surface)}
       onDoubleClick={() => handleRowDoubleClick(surface)}
       onContextMenu={(e) => handleRowContextMenu(e, surface)}
       onMouseEnter={() => onHoverChange?.(task.id)}

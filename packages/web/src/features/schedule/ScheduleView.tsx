@@ -189,8 +189,30 @@ import {
   deleteSentence,
   milestoneSentence,
   movedIntoSentence,
+  groupSentence,
+  ungroupSentence,
   type ActRow,
 } from './trail/structuralActs';
+import {
+  useGroupTasks,
+  useUngroupTasks,
+  TaskGroupingRefused,
+  describeGroupingRefusal,
+} from '@/hooks/useTaskGrouping';
+import {
+  deriveGroupTarget,
+  deriveUngroupTarget,
+  describeGroupOutcome,
+  describeGroupRefusal,
+  describeUngroupOutcome,
+  describeUngroupRefusal,
+  flattenOutcome,
+  type GroupingOutcome,
+  type GroupTarget,
+  type UngroupTarget,
+} from './buildMode/groupOutcome';
+import { GroupOutcomeNotice } from './GroupOutcomeNotice';
+import { ScheduleStructureButtons } from './ScheduleStructureButtons';
 import { newestUndoableEntry, useTrailStore } from './trail/trailStore';
 import { SessionTrail } from './trail/SessionTrail';
 import {
@@ -1658,6 +1680,12 @@ export function ScheduleView() {
   const createTaskMut = useCreateTask(projectId);
   const reorderTaskMut = useReorderTasks(projectId);
   const reparentTaskMut = useReparentTask(projectId);
+  // Group / Ungroup (#2955). Server endpoints rather than a client-side compose of
+  // `reparent` N times, and that is the whole design: each act is ONE transaction and
+  // therefore one undo step. Composing it here would be N+1 un-transacted calls whose
+  // partial failure leaves a half-made phase — the defect already filed as #2914.
+  const groupTasksMut = useGroupTasks(projectId);
+  const ungroupTasksMut = useUngroupTasks(projectId);
   // Drag-to-link (#1666): the canvas `create-link` gesture lands here as an
   // FS/0-lag dependency create. Server enforces cycle detection (400
   // cyclic_dependency) and self-link rejection (ADR-0055); the arrow appears
@@ -1884,12 +1912,22 @@ export function ScheduleView() {
    * the failure this is meant to prevent.
    */
   const recordAct = useCallback(
-    (sentence: string): number | null => {
+    (sentence: string, trailText?: string): number | null => {
       if (ariaLiveRef.current) ariaLiveRef.current.textContent = sentence;
       // Returns the trail entry's id so a structural act can bind its server
       // `operation_id` on response — the sentence is announced before the request
       // lands, and waiting for the ledger handle would delay the announcement.
-      return projectId ? recordTrailAct(projectId, sentence) : null;
+      //
+      // `trailText` exists for one case and is deliberately narrow (#2955): Group and
+      // Ungroup have an *outcome* worth three sentences — what the phase now derives,
+      // which rows were left alone, what to do next — and a screen-reader user must
+      // hear all of it, because the notice strip that shows it to a sighted user is not
+      // a live region. Ten of those in the trail is a list nobody can scan. Passing the
+      // shorter form here keeps this the single site that serves both audiences, which
+      // is the property this helper exists for: an act that announces but leaves no
+      // trail entry (or the reverse) is what it prevents, not one that says the same
+      // thing at two lengths.
+      return projectId ? recordTrailAct(projectId, trailText ?? sentence) : null;
     },
     [projectId, recordTrailAct],
   );
@@ -2569,6 +2607,16 @@ export function ScheduleView() {
   // "Add first task to this phase" affordance; a reload before adding a child
   // just shows a normal (legitimately childless) row — no functional loss,
   // per the ux-design decision that an empty phase-in-waiting persists fine.
+  /**
+   * What Group / Ungroup last did (#2955), or null.
+   *
+   * Session state rather than derived from the mutation, because the notice has to
+   * outlive `groupTasksMut`'s settled data — a second act, a refetch, or a React Query
+   * garbage-collect would otherwise take the explanation away while the user is still
+   * looking at the phase it explains. Cleared by the next act and by the close button.
+   */
+  const [groupOutcome, setGroupOutcome] = useState<GroupingOutcome | null>(null);
+
   const phaseInWaitingKey = projectId ? `trueppm.schedule.phaseInWaiting.${projectId}` : null;
   const [phaseInWaitingIds, setPhaseInWaitingIds] = useState<Set<string>>(() => {
     if (!phaseInWaitingKey) return new Set();
@@ -2614,11 +2662,27 @@ export function ScheduleView() {
   // Rows still awaiting their first structural child — the set the row
   // renders the ghost affordance from (already filtered to "still waiting",
   // so TaskListRow only needs a plain `.has(id)` check).
+  //
+  // **Two producers since #2955, and the second is now the main one.** The client set
+  // above records "the user made this row intending it to be a phase" — a marker that
+  // existed because nothing on the server said so. `+ Phase` no longer writes to it
+  // (it now creates the phase *with* its first task, so there is never a moment of
+  // waiting), which would have left the whole affordance unreachable. But the state it
+  // describes is still real and is reached a different way: delete the last task out of
+  // a grouped phase and the container stays a container — `structure_role` is
+  // *declared* on a grouped phase (`auto_container: false`, #2950), so losing its last
+  // child does not silently demote it back to work. That is a phase-in-waiting, and
+  // now it is a **server fact** rather than something the client had to remember.
   const visiblePhaseInWaitingIds = useMemo(() => {
     const out = new Set<string>();
     for (const id of phaseInWaitingIds) {
       const t = allTasks.find((x) => x.id === id);
       if (t && !isPhaseTask(t, allTasks)) out.add(id);
+    }
+    for (const t of allTasks) {
+      if (t.structureRole === 'container' && !t.isSubtask && !isPhaseTask(t, allTasks)) {
+        out.add(t.id);
+      }
     }
     return out;
   }, [phaseInWaitingIds, allTasks]);
@@ -2647,22 +2711,236 @@ export function ScheduleView() {
     // abandons the edit it becomes a real committed name, and "Untitled" reads
     // as the state it is rather than as a name someone might mistake for their
     // own.
+    //
+    // **Create the task, then wrap it** (#2955). The design's rule for this button is
+    // that it "never leaves an empty phase behind", and the obvious reading —
+    // create the phase, then create a child under it — has exactly the failure it
+    // forbids: if the second create fails, an empty phase is what is left. Inverting
+    // it makes the bad case benign (one ordinary task, at the insertion point the
+    // user asked for) and the good case better: `tasks/group/` mints a *declared*
+    // container (`structure_role=container`, #2950) rather than a row that drifted
+    // into container-ness, and it writes ONE ledger row — so ⌘Z reverses the whole
+    // thing in a single step instead of unwinding two creates that were never
+    // recorded as anything.
     createTaskMut.mutate(
-      { name: 'Untitled phase', duration: 1, parent_id: inferredParentId },
+      { name: 'New task', duration: 1, parent_id: inferredParentId },
       {
-        onSuccess: (data) => {
-          setPhaseInWaitingIds((prev) => {
-            const next = new Set(prev);
-            next.add(data.id);
-            return next;
-          });
-          focus.focusRow(data.id);
-          focus.enterCellEdit(data.id, 'name');
-          if (!buildModeActive) setPendingAutoEditId(data.id);
+        onSuccess: (created) => {
+          groupTasksMut.mutate(
+            { taskIds: [created.id], name: 'Untitled phase' },
+            {
+              onSuccess: (data) => {
+                const outcome = describeGroupOutcome(data);
+                setGroupOutcome(outcome);
+                const entryId = recordAct(
+                  flattenOutcome(outcome),
+                  groupSentence(data.grouped_ids.length, data.left_alone.length),
+                );
+                if (entryId !== null) attachTrailOperation(entryId, data.operation_id);
+                // The phase, not the task inside it: the button said "Phase", and the
+                // design names the phase last precisely because naming it is the one
+                // decision the user still owes.
+                focus.focusRow(data.container.id);
+                focus.enterCellEdit(data.container.id, 'name');
+                if (!buildModeActive) setPendingAutoEditId(data.container.id);
+              },
+              onError: (error) => {
+                // The task exists and is fine; only the wrap failed. Say so rather
+                // than letting a row appear at the bottom with no explanation.
+                setScheduleActionToast({
+                  message:
+                    error instanceof TaskGroupingRefused
+                      ? describeGroupingRefusal(error.refusal)
+                      : 'Added the task, but couldn’t wrap it in a phase.',
+                });
+                focus.focusRow(created.id);
+                focus.enterCellEdit(created.id, 'name');
+              },
+            },
+          );
         },
       },
     );
-  }, [projectId, readOnly, createTaskMut, inferredParentId, focus, buildModeActive]);
+  }, [
+    projectId,
+    readOnly,
+    createTaskMut,
+    groupTasksMut,
+    inferredParentId,
+    focus,
+    buildModeActive,
+    recordAct,
+    attachTrailOperation,
+    setScheduleActionToast,
+  ]);
+
+  /**
+   * ⌥⌘G — put a phase around the selected rows (#2955).
+   *
+   * The selection goes to the server as-is. Its two rules — drop any row whose own
+   * ancestor is also selected, then group on the parent shared by most of the rest —
+   * are applied there and reported back in `left_alone`, and this handler renders that
+   * report rather than predicting it. Mirroring the rules here to pre-filter the
+   * request would put a second implementation of the selection semantics in the client,
+   * which is web rule 301's failure mode with the worst possible payload: a confident,
+   * wrong account of what the user's plan now looks like.
+   */
+  const handleGroupRows = useCallback(() => {
+    if (!projectId) return;
+    if (readOnly) {
+      // The two states web rule 302 keeps apart. An editor who chose Read has a gesture
+      // to explain and one key back, so the refusal explains itself; a user with no
+      // rights was never offered the buttons, so there is nothing to explain and the
+      // guard stays silent.
+      if (hasEditRights) {
+        setScheduleActionToast({ message: 'Read mode — press ⌥A to author, then group.' });
+      }
+      return;
+    }
+    const target = deriveGroupTarget(
+      focus.state.selectedIds,
+      focus.state.rowId,
+      visibleTasks.map((t) => t.id),
+    );
+    if (target.blocked !== null) {
+      // Stated, never silent (web rule 311(c)) — a chord that does nothing teaches the
+      // user the product is broken.
+      if (ariaLiveRef.current) ariaLiveRef.current.textContent = describeGroupRefusal(target);
+      setScheduleActionToast({ message: describeGroupRefusal(target) });
+      return;
+    }
+    groupTasksMut.mutate(
+      // No name: the design names the phase LAST. The server mints its placeholder and
+      // the name cell opens below, so the user types over it rather than being asked
+      // for a name before they can see what they wrapped.
+      { taskIds: target.taskIds },
+      {
+        onSuccess: (data) => {
+          const outcome = describeGroupOutcome(data);
+          setGroupOutcome(outcome);
+          // Full sentence to the live region, short one to the trail — same act, two
+          // lengths, one call site. See `recordAct`.
+          const entryId = recordAct(
+            flattenOutcome(outcome),
+            groupSentence(data.grouped_ids.length, data.left_alone.length),
+          );
+          if (entryId !== null) attachTrailOperation(entryId, data.operation_id);
+          focus.focusRow(data.container.id);
+          focus.enterCellEdit(data.container.id, 'name');
+        },
+        onError: (error) => {
+          setScheduleActionToast({
+            message:
+              error instanceof TaskGroupingRefused
+                ? describeGroupingRefusal(error.refusal)
+                : 'Couldn’t group those rows. Nothing changed.',
+          });
+        },
+      },
+    );
+  }, [
+    projectId,
+    readOnly,
+    focus,
+    visibleTasks,
+    groupTasksMut,
+    hasEditRights,
+    recordAct,
+    attachTrailOperation,
+    setScheduleActionToast,
+  ]);
+
+  /**
+   * ⌥⇧⌘G — dissolve the focused phase, lifting its rows one level (#2955).
+   *
+   * Its own key rather than a reuse of ⌥← on purpose: outdenting *one* row moves that
+   * row and leaves the phase standing; dissolving a phase removes the wrapper and moves
+   * everything it held. Those are different acts with different consequences, and one
+   * keystroke that meant either depending on what happened to be focused would be the
+   * "same gesture, two meanings" defect web rule 311 is about.
+   */
+  const handleUngroupRow = useCallback(() => {
+    if (!projectId) return;
+    if (readOnly) {
+      // Same split as `handleGroupRows` (web rule 302).
+      if (hasEditRights) {
+        setScheduleActionToast({ message: 'Read mode — press ⌥A to author, then ungroup.' });
+      }
+      return;
+    }
+    const rowId = focus.state.rowId;
+    const row = rowId ? (allTasks.find((t) => t.id === rowId) ?? null) : null;
+    const target = deriveUngroupTarget(
+      row ? { id: row.id, name: row.name } : null,
+      row ? isPhaseTask(row, allTasks) : false,
+    );
+    if (target.blocked !== null || target.taskId === null) {
+      const sentence = describeUngroupRefusal(target);
+      if (ariaLiveRef.current) ariaLiveRef.current.textContent = sentence;
+      setScheduleActionToast({ message: sentence });
+      return;
+    }
+    const containerName = target.containerName;
+    ungroupTasksMut.mutate(target.taskId, {
+      onSuccess: (data) => {
+        const outcome = describeUngroupOutcome(data, containerName);
+        setGroupOutcome(outcome);
+        const entryId = recordAct(
+          flattenOutcome(outcome),
+          ungroupSentence({ name: containerName }, data.lifted_ids.length),
+        );
+        if (entryId !== null) attachTrailOperation(entryId, data.operation_id);
+        // Focus the first row that came up a level, so the cursor lands on the work
+        // rather than on a wrapper that no longer exists.
+        const first = data.lifted_ids[0];
+        if (first) focus.focusRow(first);
+        else focus.clear();
+      },
+      onError: (error) => {
+        setScheduleActionToast({
+          message:
+            error instanceof TaskGroupingRefused
+              ? describeGroupingRefusal(error.refusal)
+              : 'Couldn’t ungroup that phase. Nothing changed.',
+        });
+      },
+    });
+  }, [
+    projectId,
+    readOnly,
+    focus,
+    allTasks,
+    ungroupTasksMut,
+    hasEditRights,
+    recordAct,
+    attachTrailOperation,
+    setScheduleActionToast,
+  ]);
+
+  /**
+   * What the two toolbar buttons would act on right now.
+   *
+   * One derivation shared by the button, its description and the keybinding (web rule
+   * 316): a second copy of "what would this act on" drifts into a control that offers
+   * an act the keystroke does not perform.
+   */
+  const groupTarget = useMemo(
+    () =>
+      deriveGroupTarget(
+        focus.state.selectedIds,
+        focus.state.rowId,
+        visibleTasks.map((t) => t.id),
+      ),
+    [focus.state.selectedIds, focus.state.rowId, visibleTasks],
+  );
+  const ungroupTarget = useMemo(() => {
+    const rowId = focus.state.rowId;
+    const row = rowId ? (allTasks.find((t) => t.id === rowId) ?? null) : null;
+    return deriveUngroupTarget(
+      row ? { id: row.id, name: row.name } : null,
+      row ? isPhaseTask(row, allTasks) : false,
+    );
+  }, [focus.state.rowId, allTasks]);
 
   // Ghost "⊕ Add first task to this phase" affordance (phase-in-waiting hint,
   // TaskListRow). Creates a structural (is_subtask: false, the default)
@@ -3000,7 +3278,12 @@ export function ScheduleView() {
       e.preventDefault();
       handleAddMilestone();
     };
-    out['mod+p'] = (e) => {
+    // ⌥⌘P / Ctrl+Alt+P (#2955). Was ⌘P until this issue, which is the browser's Print
+    // and which ADR-0627 already lists as reserved — the rebind hands Print back and
+    // brings the three structure chords into one family (⌥⌘P phase, ⌥⌘G group,
+    // ⌥⇧⌘G ungroup). `useScheduleKeyboard` resolves Alt+letter through `e.code`, so
+    // macOS Option composition (⌥P → 'π') does not break the match (#2727).
+    out['mod+alt+p'] = (e) => {
       if (!projectId || readOnly) return;
       e.preventDefault();
       handleAddPhase();
@@ -3053,6 +3336,21 @@ export function ScheduleView() {
         if (!rowId) return;
         e.preventDefault();
         handleClassifyRequest(rowId);
+      };
+      // ⌥⌘G / ⌥⇧⌘G (#2955): wrap the selection in a phase, and dissolve one.
+      //
+      // Build-mode only, and gated on `readOnly` inside the handler rather than here so
+      // a refusal can still be *stated*: an editor who pressed the chord in Read mode
+      // has a gesture to explain, and silence would read as the key being broken (web
+      // rule 302 draws the other half of this line — a user with no rights never sees
+      // the buttons and gets no explanation, because there was no offer to explain).
+      out['mod+alt+g'] = (e) => {
+        e.preventDefault();
+        handleGroupRows();
+      };
+      out['mod+shift+alt+g'] = (e) => {
+        e.preventDefault();
+        handleUngroupRow();
       };
       // ⌘⇧K (#2756 pt.2): bulk-edit every selected row. Build-mode only — the
       // selection it acts on only exists there. `open` is a no-op with nothing
@@ -3184,6 +3482,8 @@ export function ScheduleView() {
     undoStructuralAct,
     handleAddMilestone,
     handleAddPhase,
+    handleGroupRows,
+    handleUngroupRow,
     buildModeActive,
     toggleAuthorMode,
     focus,
@@ -3349,6 +3649,11 @@ export function ScheduleView() {
         onAddTask={handleToolbarAddTask}
         handleAddMilestone={handleAddMilestone}
         handleAddPhase={handleAddPhase}
+        groupTarget={groupTarget}
+        ungroupTarget={ungroupTarget}
+        onGroup={handleGroupRows}
+        onUngroup={handleUngroupRow}
+        restructurePending={groupTasksMut.isPending || ungroupTasksMut.isPending}
         createPending={createTaskMut.isPending}
         buildModeActive={buildModeActive}
         authorMode={authorMode.mode}
@@ -3523,6 +3828,16 @@ export function ScheduleView() {
           (#2951). The parked estimate is real (ADR-0844) but invisible without
           this. */}
       {hasEditRights && <ConversionNotice tasks={allTasks} />}
+
+      {/* What Group / Ungroup just did (#2955). Sits directly under ConversionNotice
+          because the two answer the same class of question — "my row changed identity,
+          what happened to its numbers" — and a planner should not have to learn two
+          places to look. Not a live region: `recordAct` already announced the same
+          sentence through the outline's polite channel, and a second one here would
+          speak the whole outcome twice. */}
+      {hasEditRights && (
+        <GroupOutcomeNotice outcome={groupOutcome} onDismiss={() => setGroupOutcome(null)} />
+      )}
 
       {/* What moved and why (#2965) — the question a planner has after the
           per-row markers (#2725) tell them THAT something changed. */}
@@ -4256,6 +4571,12 @@ interface ScheduleToolbarProps {
   onAddTask: () => void;
   handleAddMilestone: () => void;
   handleAddPhase: () => void;
+  /** Group / Ungroup (#2955) — what each would act on, and how to perform it. */
+  groupTarget: GroupTarget;
+  ungroupTarget: UngroupTarget;
+  onGroup: () => void;
+  onUngroup: () => void;
+  restructurePending: boolean;
   createPending: boolean;
   buildModeActive: boolean;
   authorMode: ScheduleAuthorMode;
@@ -4314,6 +4635,11 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
     onAddTask,
     handleAddMilestone,
     handleAddPhase,
+    groupTarget,
+    ungroupTarget,
+    onGroup,
+    onUngroup,
+    restructurePending,
     createPending,
     buildModeActive,
     authorMode,
@@ -4426,14 +4752,32 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           pending={createPending}
         />
       )}
-      {/* "+ Phase" peer button (epic #1752, issue #1754) — same gate as
-          "+ Task" / "+ Milestone". */}
-      {projectId && hasEditRights && (
-        <ScheduleAddPhaseButton
-          onAddPhase={handleAddPhase}
-          disabled={readOnly}
-          pending={createPending}
-        />
+      {/* Phase / Group / Ungroup (#2955) — the three structure controls, behind one
+          Display option that starts OFF.
+
+          The gate is a ruling, not a bug: `⌥⌘G` and `⇥` already make phases, and the
+          #2959 persona panel split on whether these earn permanent toolbar width, so
+          the default takes the leaner reading. The Display menu's Outline section
+          restores them, which is also the pointer-only user's way *in* — the chords are
+          a complete keyboard path, and turning the group on once is a complete pointer
+          path. Same edit-rights gate as "+ Task" / "+ Milestone": absent without
+          rights, present-and-inert for an editor who chose Read (#2949, rule 302). */}
+      {projectId && hasEditRights && displayOptions.structureButtons && (
+        <>
+          <ScheduleAddPhaseButton
+            onAddPhase={handleAddPhase}
+            disabled={readOnly}
+            pending={createPending || restructurePending}
+          />
+          <ScheduleStructureButtons
+            group={groupTarget}
+            ungroup={ungroupTarget}
+            onGroup={onGroup}
+            onUngroup={onUngroup}
+            pending={restructurePending}
+            readOnly={readOnly}
+          />
+        </>
       )}
       {buildModeActive && hasEditRights && (
         <BuildModePill onShowCheatsheet={() => setCheatsheetOpen(true)} />

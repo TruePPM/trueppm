@@ -18,8 +18,13 @@ export interface ScheduleAddPhaseButtonProps {
  * the toolbar reads as three visually distinct creation affordances. Uses the
  * `--brand-primary` family, never gold (gold is reserved for milestone).
  *
- * Pairs with the ⌘P / Ctrl+P keyboard shortcut wired in ScheduleView via
- * `useScheduleKeyboard`. Both surfaces share the same `onAddPhase` handler.
+ * Pairs with the ⌥⌘P / Ctrl+Alt+P keyboard shortcut wired in ScheduleView via
+ * `useScheduleKeyboard`. Both surfaces share the same `onAddPhase` handler, which as
+ * of #2955 creates the phase **with its first task** — a button never leaves an empty
+ * phase behind — and does it as one recorded act, so ⌘Z takes the whole thing back.
+ *
+ * Behind `displayOptions.structureButtons` since #2955 and therefore **off by default**;
+ * see `ScheduleStructureButtons` for why that is a ruling rather than an omission.
  */
 export function ScheduleAddPhaseButton({
   onAddPhase,
@@ -32,8 +37,8 @@ export function ScheduleAddPhaseButton({
       type="button"
       onClick={onAddPhase}
       disabled={isDisabled}
-      aria-label="Add new phase (Cmd+P)"
-      title={disabled ? 'Read-only access' : 'Add new phase (⌘P)'}
+      aria-label="Add new phase (Option+Cmd+P)"
+      title={disabled ? 'Read-only access' : 'Add new phase, with its first task (⌥⌘P)'}
       data-testid="add-phase-button"
       className={[
         // shrink-0 + whitespace-nowrap keep the button a fixed size in the

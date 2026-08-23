@@ -25,6 +25,7 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ['↑', '↓'], label: 'Move row focus' },
       { keys: ['Shift', '↑', '↓'], label: 'Extend selection' },
       { keys: ['⌘', 'A'], label: 'Select siblings, then the whole tree' },
+      { keys: ['Shift', 'Click'], label: 'Extend the selection to the row you click' },
       { keys: ['F8'], label: 'Jump to next unresolved @owner or missing duration' },
       { keys: ['Shift', 'F8'], label: 'Jump to previous unresolved @owner or missing duration' },
       { keys: ['F7'], label: 'Jump to next row that needs dates' },
@@ -72,6 +73,16 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ['⌥', '←'], label: 'Outdent one level' },
       { keys: ['⌥', '↑'], label: 'Move row (and its subtree) up' },
       { keys: ['⌥', '↓'], label: 'Move row (and its subtree) down' },
+      // The three structure acts (#2955). Listed here rather than under "Creating
+      // rows" because all three change what CONTAINS what, which is what this
+      // section is: ⇥ and ⌥→ make a phase from the top down, these make one around
+      // work that already exists.
+      { keys: ['⌥', '⌘', 'G'], label: 'Group the selected rows into a phase — name it last' },
+      {
+        keys: ['⌥', '⇧', '⌘', 'G'],
+        label: 'Ungroup this phase — its rows come up one level, keeping links and owners',
+      },
+      { keys: ['⌥', '⌘', 'P'], label: 'New phase, with its first task already in it' },
       { keys: ['Right-click'], label: 'Open row menu' },
     ],
   },

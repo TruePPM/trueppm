@@ -191,6 +191,54 @@ describe('TaskListRow — Shift+↑/↓ selection extend (#2727, ADR-0776 §1)',
   });
 });
 
+describe('TaskListRow — shift-click range selection (#2955)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('shift-clicking a later row extends the selection to it', () => {
+    // The third selection gesture the design names, and the one a pointer user reaches
+    // for. Before #2955 the row's onClick discarded its MouseEvent entirely, so a
+    // shift-click *collapsed* the selection to the row under the cursor.
+    const c = renderHarness();
+    act(() => c.current.focus.focusRow('t-m1'));
+    fireEvent.click(screen.getAllByRole('row')[2], { shiftKey: true });
+    expect(c.current.focus.state.selectedIds).toEqual(new Set(['t-m1', 't-m2', 't-m3']));
+  });
+
+  it('shift-clicking back inside the range SHRINKS it rather than restarting it', () => {
+    // The anchor is fixed for the life of the selection while `rowId` tracks the moving
+    // edge — the subtlety that makes routing through `extendSelection` (rather than
+    // computing a range here) the whole point.
+    const c = renderHarness();
+    act(() => c.current.focus.focusRow('t-m1'));
+    fireEvent.click(screen.getAllByRole('row')[2], { shiftKey: true });
+    fireEvent.click(screen.getAllByRole('row')[1], { shiftKey: true });
+    expect(c.current.focus.state.selectedIds).toEqual(new Set(['t-m1', 't-m2']));
+  });
+
+  it('extends upward from the anchor too', () => {
+    const c = renderHarness();
+    act(() => c.current.focus.focusRow('t-m3'));
+    fireEvent.click(screen.getAllByRole('row')[0], { shiftKey: true });
+    expect(c.current.focus.state.selectedIds).toEqual(new Set(['t-m1', 't-m2', 't-m3']));
+  });
+
+  it('a plain click still collapses the selection — the escape short of Esc', () => {
+    const c = renderHarness();
+    act(() => c.current.focus.focusRow('t-m1'));
+    fireEvent.click(screen.getAllByRole('row')[2], { shiftKey: true });
+    fireEvent.click(screen.getAllByRole('row')[1]);
+    expect(c.current.focus.state.selectedIds).toBeNull();
+    expect(c.current.focus.state.rowId).toBe('t-m2');
+  });
+
+  it('a shift-click with nothing focused focuses that row rather than throwing', () => {
+    const c = renderHarness();
+    fireEvent.click(screen.getAllByRole('row')[1], { shiftKey: true });
+    expect(c.current.focus.state.selectedIds).toBeNull();
+    expect(c.current.focus.state.rowId).toBe('t-m2');
+  });
+});
+
 describe('TaskListRow — ⌘A select siblings then whole tree (#2727, ADR-0776 §1)', () => {
   beforeEach(() => vi.clearAllMocks());
 

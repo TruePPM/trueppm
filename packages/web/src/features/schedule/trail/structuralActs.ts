@@ -92,6 +92,33 @@ export function milestoneSentence(row: ActRow, becameMilestone: boolean): string
     : `${label(row)} is a task again.`;
 }
 
+/**
+ * Group / Ungroup (#2955) — the trail's record of a wrap and its reversal.
+ *
+ * These two deliberately do NOT live with the rest of the group copy in
+ * `buildMode/groupOutcome.ts`. That module writes the *outcome notice*, which explains
+ * the consequence at the moment it happens and can afford three sentences; the trail is
+ * a scannable list of ten acts, where three sentences per row would bury the one the
+ * user is looking for. Same act, two lengths, and the shorter one still names what it
+ * cost — `leftAloneCount` is the number a user would otherwise have to count by eye.
+ */
+export function groupSentence(groupedCount: number, leftAloneCount = 0): string {
+  const n = groupedCount;
+  const head = `${n} ${n === 1 ? 'item is' : 'items are'} now a phase.`;
+  if (leftAloneCount <= 0) return head;
+  const k = leftAloneCount;
+  return `${head} ${k} ${k === 1 ? 'row' : 'rows'} stayed where ${k === 1 ? 'it was' : 'they were'}.`;
+}
+
+export function ungroupSentence(container: ActRow, liftedCount: number): string {
+  const n = liftedCount;
+  const moved =
+    n === 0
+      ? 'It was empty, so nothing moved.'
+      : `Its ${n} ${n === 1 ? 'item' : 'items'} moved up one level, keeping links, owners and estimates.`;
+  return `${label(container)} is no longer a phase. ${moved}`;
+}
+
 export function duplicateSentence(row: ActRow): string {
   const n = row.descendantCount ?? 0;
   const carried = n > 0 ? ` with ${n} ${n === 1 ? 'item' : 'items'} under it` : '';

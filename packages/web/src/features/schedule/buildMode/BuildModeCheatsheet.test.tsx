@@ -46,6 +46,27 @@ describe('BuildModeCheatsheet — visibility', () => {
     expect(screen.getByText('Move row (and its subtree) down')).toBeInTheDocument();
   });
 
+  it('teaches the three structure chords — the only route while the buttons ship off (#2955)', () => {
+    // `displayOptions.structureButtons` defaults false, so for most users this sheet and
+    // the selection hint strip are where Group / Ungroup are discoverable at all. And the
+    // ⌥⌘P row is the only place the rebind off ⌘P is stated to a user.
+    render(<BuildModeCheatsheet open={true} onClose={vi.fn()} />);
+    expect(
+      screen.getByText('Group the selected rows into a phase — name it last'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Ungroup this phase — its rows come up one level, keeping links and owners',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('New phase, with its first task already in it'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Extend the selection to the row you click'),
+    ).toBeInTheDocument();
+  });
+
   it('describes hover chain reveal in the Dependencies section (#475)', () => {
     render(<BuildModeCheatsheet open={true} onClose={vi.fn()} />);
     expect(

@@ -9,7 +9,7 @@ The Schedule view's toolbar gives you the at-a-glance project status (rightmost 
 ## Toolbar layout
 
 ```
-[ + Task ] [ + Milestone ] [ + Phase ] [ Build mode pill ]
+[ + Task ] [ + Milestone ]   ( + Phase · Group · Ungroup — off by default )   [ Build mode pill ]
 [ CP only · Focus chain ]   [ Critical path · Milestones ]
                                  ...
 [ {N} tasks · {C} critical · CPM ✓ ]   [ Grid | Timeline ]   [ Today ]   [ − {level} + ] [ Fit ]
@@ -88,21 +88,54 @@ The diamond pulses on the timeline for 1.5s after insert (suppressed under `pref
 
 The button is disabled with a "Read-only access" tooltip for **Viewer** role.
 
-## Adding a phase
+## Building phases
 
 Ships in 0.4 (Schedule/Gantt only — a phase-authoring action never appears on the board, sprints, or My Work).
 
 A **phase** is a WBS summary row — a non-subtask task with at least one structural child. It isn't a new task type: any summary task with a "real" (non-subtask) child under it is automatically a phase, the same way a task with subtasks is automatically a summary.
 
-Two paths:
-- **Click `+ Phase`** in the toolbar (the summary-bracket icon, distinct from the milestone's gold diamond).
-- **Press ⌘P (macOS) / Ctrl + P (Windows / Linux)** when the Schedule view has focus.
+There are two ways to end up with one, and they suit opposite ways of working. **Top-down**, you create the phase first and then fill it — that is `+ Phase`, or indenting a row under the one above it with `⇥` / `⌥→`. **Bottom-up**, you type the work first, look at it, and *then* see the phases in it — that is **Group**, which puts a phase around rows that already exist.
 
-Both insert a new summary row at your currently-focused insertion point (same phase-nesting inference as `+ Task` / `+ Milestone`) and drop it straight into inline rename. Because a freshly inserted row has no children yet, it isn't a phase yet either — it's a **phase-in-waiting**, and the row shows a dashed "⊕ Add first task to this phase" hint in place of the assignee display. Clicking the hint nests a first structural child under it; once that child exists, the row becomes a real phase and the hint retires. An empty phase-in-waiting is a legitimate state — nothing forces you to add a child immediately.
+### The three structure controls are off by default
+
+`+ Phase`, **Group** and **Ungroup** live together in the toolbar behind one setting, and that setting starts **off**. The keyboard shortcuts below work regardless. To show the buttons, open **Display → Outline → Phase, Group and Ungroup buttons**.
+
+They are in the toolbar rather than on a row because they are the only structure actions with no per-row equivalent: Group acts on a *selection*, and Ungroup acts on a container's whole contents. Everything else — indent, outdent, move, delete — is on the row menu where the row is.
+
+All three are absent entirely for the **Viewer** role, and present-but-disabled for an editor who has switched to Read.
+
+### Selecting the rows to wrap
+
+- **⇧↑ / ⇧↓** — extend the selection one row at a time from where it started.
+- **⌘A / Ctrl + A** — every sibling of the focused row; press it again for the whole visible tree.
+- **Shift + click** — extend the selection to the row you click.
+
+### Group — `⌥⌘G` / `Alt + Ctrl + G`
+
+Puts a phase *around* the selected rows and drops straight into naming it. The phase's dates, status and estimate roll up from the work inside, so there is nothing else to fill in — which is why the name comes last.
+
+Two rules decide what actually gets wrapped, and TruePPM tells you when they applied:
+
+- A row whose own ancestor is also selected is **left where it is** — it is already inside the phase you selected, and wrapping both would either duplicate or flatten the subtree.
+- The phase is created on the parent shared by **most** of the remaining rows; rows under a different parent are left where they are.
+
+Either way the outcome strip above the outline says how many rows became a phase and how many stayed put, with the reason. Nothing is silently dropped.
+
+The whole group is **one** change: `⌘Z` reverses it in a single step, not four.
+
+### Ungroup — `⌥⇧⌘G` / `Alt + Shift + Ctrl + G`
+
+Dissolves the focused phase and lifts its rows one level, **keeping their links, owners and estimates**. Only the wrapper goes. Dependency links that pointed at the wrapper itself go with it, and the outcome strip says how many.
+
+This is deliberately a different key from outdent (`⌥←`): outdenting *one* row moves that row and leaves the phase standing; dissolving a phase removes it and moves everything it held. `⌘Z` puts the phase back.
+
+### `+ Phase` — `⌥⌘P` / `Alt + Ctrl + P`
+
+Creates a phase **with its first task already in it**, at your currently-focused insertion point (same phase-nesting inference as `+ Task` / `+ Milestone`), and opens the phase's name for editing. A button never leaves an empty phase behind.
+
+A **phase-in-waiting** — a summary row with no structural child yet — is still a legitimate state; you can reach one by other routes, and the row shows a dashed "⊕ Add first task to this phase" hint in place of the assignee display until it gains a child.
 
 Once a row is a phase, its rollup behavior matches every other WBS summary task (dates and percent complete roll up from children) with a few phase-specific locks: it can't take a direct assignee, a direct time log, or (once #1755 lands) a sprint assignment — dependency and baseline rollups still apply normally.
-
-The button is disabled with a "Read-only access" tooltip for **Viewer** role.
 
 ## Task-list columns
 

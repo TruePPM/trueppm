@@ -246,7 +246,12 @@ export function EditableCell({
         ].join(' ')}
         style={style}
         onClick={(e) => {
-          // Stop propagation so the parent row's onClick (which would set
+          // Shift-click is a SELECTION gesture, never an edit one (#2955). A cell
+          // occupies most of a row's width, so swallowing it here is what made
+          // shift-click-to-extend unreachable by pointer: the row's own handler — the
+          // only place the range is computed — never ran. Let it bubble.
+          if (e.shiftKey) return;
+          // Otherwise stop propagation so the parent row's onClick (which would set
           // RowFocused) does not run after the cell's onStartEdit transitions
           // us to CellEdit. The row and the cell share an event tick; React
           // does not re-read `anyCellInEdit` between the two handlers.

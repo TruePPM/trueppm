@@ -480,3 +480,43 @@ describe('ScheduleDisplayMenu — section assembly edge cases', () => {
     expect(chart.setDependencyLinesVisible).toHaveBeenCalledWith(true);
   });
 });
+
+describe('ScheduleDisplayMenu — Outline chrome section (#2959, #2955)', () => {
+  const OUTLINE_OPTIONS = {
+    displayOptions: { structureButtons: false, coach: true, comfortableRows: false },
+  };
+
+  it('offers the structure-buttons toggle now that it governs real controls (#2955)', () => {
+    // It was deliberately withheld while nothing depended on it — a toggle that changes
+    // nothing is a dead control. This is also the pointer-only user's route in, which is
+    // why the label names the three buttons rather than something abstract.
+    const onToggle = vi.fn();
+    setup({ ...OUTLINE_OPTIONS, onToggleDisplayOption: onToggle });
+    const menu = openMenu();
+    const item = within(menu).getByRole('menuitemcheckbox', {
+      name: 'Phase, Group and Ungroup buttons',
+    });
+    expect(item).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(item);
+    expect(onToggle).toHaveBeenCalledWith('structureButtons');
+  });
+
+  it('reflects the on state', () => {
+    setup({
+      displayOptions: { structureButtons: true, coach: true, comfortableRows: false },
+      onToggleDisplayOption: vi.fn(),
+    });
+    const menu = openMenu();
+    expect(
+      within(menu).getByRole('menuitemcheckbox', { name: 'Phase, Group and Ungroup buttons' }),
+    ).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('omits the whole section when the caller supplies no display options (print layout)', () => {
+    setup();
+    const menu = openMenu();
+    expect(
+      within(menu).queryByRole('menuitemcheckbox', { name: 'Phase, Group and Ungroup buttons' }),
+    ).not.toBeInTheDocument();
+  });
+});

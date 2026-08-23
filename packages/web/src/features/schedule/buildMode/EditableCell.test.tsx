@@ -71,6 +71,43 @@ describe('EditableCell — static state', () => {
     fireEvent.click(screen.getByText('Initial name'));
     expect(onStartEdit).toHaveBeenCalledOnce();
   });
+
+  // Web rule 324. A plain click must be swallowed here — the cell owns it, and letting
+  // it reach the row would re-set RowFocused a tick after this handler moved to CellEdit.
+  // A SHIFT-click must not be: shift is a selection gesture, the cell occupies most of a
+  // row's width, and swallowing it is what left the outline's shift-click-to-extend range
+  // unreachable by pointer while every keyboard path worked (#2955).
+  it('swallows a plain click so the row cannot undo the transition to cell-edit', () => {
+    const onStartEdit = vi.fn();
+    const onRowClick = vi.fn();
+    // The ancestor stands in for the outline ROW, so it is written as one: `role="row"`
+    // with a keyboard handler, which is what the real element has and what keeps
+    // jsx-a11y satisfied without an escape hatch. It has to be a React ancestor —
+    // `stopPropagation` on a synthetic event does not stop the NATIVE event, so a
+    // listener added to the RTL container would fire either way and the test would pass
+    // against the broken code.
+    render(
+      <div role="row" tabIndex={0} onClick={onRowClick} onKeyDown={() => {}}>
+        <EditableCell {...baseProps} isEditing={false} onStartEdit={onStartEdit} />
+      </div>,
+    );
+    fireEvent.click(screen.getByText('Initial name'));
+    expect(onStartEdit).toHaveBeenCalledOnce();
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
+
+  it('lets a SHIFT-click through to the row, and does NOT start an edit', () => {
+    const onStartEdit = vi.fn();
+    const onRowClick = vi.fn();
+    render(
+      <div role="row" tabIndex={0} onClick={onRowClick} onKeyDown={() => {}}>
+        <EditableCell {...baseProps} isEditing={false} onStartEdit={onStartEdit} />
+      </div>,
+    );
+    fireEvent.click(screen.getByText('Initial name'), { shiftKey: true });
+    expect(onStartEdit).not.toHaveBeenCalled();
+    expect(onRowClick).toHaveBeenCalledOnce();
+  });
 });
 
 describe('EditableCell — editing state', () => {

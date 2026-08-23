@@ -1,17 +1,31 @@
 /**
- * "+ Phase" E2E (epic #1752, issue #1754, ADR-0293).
+ * "+ Phase" E2E (epic #1752, issue #1754, ADR-0293; rewritten for #2955).
  *
- * Golden path: click "+ Phase" → the new summary row drops straight into
- * inline name edit (create-empty-then-nest, ux-design decision) → rename it →
- * the row shows the "phase-in-waiting" ghost hint (no structural child yet,
- * so `is_phase` is still false) → click the hint to add the first task →
- * the row becomes a real phase and the hint retires.
+ * Golden path: click "+ Phase" → a phase arrives **with its first task already in it**
+ * → the phase drops straight into inline name edit → rename it.
+ *
+ * Two things changed in #2955 and both are asserted here rather than assumed:
+ *
+ *  - **The button never leaves an empty phase behind.** It creates the task and then
+ *    wraps it (`tasks/group/`), which is the inversion that makes the failure case
+ *    benign — a failed wrap leaves an ordinary task, where a failed second *create*
+ *    would have left exactly the empty phase the design forbids. So the
+ *    "phase-in-waiting" ghost hint must NOT appear, which is the opposite of what this
+ *    spec asserted before.
+ *  - **The button is behind a Display option that ships off.** ⌥⌘G and ⇥ already make
+ *    phases; the toolbar buttons are the discoverable route, not the primary one. The
+ *    spec opts in the way a user does.
  *
  * Plus a contributor-surface exclusion check: a phase never appears in the
  * global quick-log task picker (My Work / QuickLogTime, issue #1754 Surface 2).
  */
 import { test, expect, type Route } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import {
+  setupAuth,
+  setupApiMocks,
+  setupCatchAll,
+  setupScheduleDisplayOptions,
+} from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-phase-00000000-0000-0000-0000-000000001754';
 const BASE_URL = `/projects/${FIXTURE_PROJECT_ID}/schedule`;
@@ -57,6 +71,7 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
   test.beforeEach(async ({ page }) => {
     await setupCatchAll(page);
     await setupAuth(page);
+    await setupScheduleDisplayOptions(page, FIXTURE_PROJECT_ID, { structureButtons: true });
     await setupApiMocks(page, {
       projects: FIXTURE_PROJECTS,
       projectId: FIXTURE_PROJECT_ID,
@@ -140,68 +155,103 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
       return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
     });
 
+    // `tasks/group/` (#2955) — a different path, the same `tasks` array, because the
+    // "+ Phase" button now wraps the task it just created and the refetch has to show
+    // the container. Faithful in the one way this spec can observe: the wrapped rows
+    // become children of a new declared container which takes their level position.
+    await page.route(/\/api\/v1\/projects\/[^/]+\/tasks\/group\/$/, (route: Route) => {
+      const body = route.request().postDataJSON() as { task_ids: string[]; name?: string | null };
+      const wrapped = tasks.filter((t) => body.task_ids.includes(t.id));
+      const first = wrapped[0];
+      const container: MockTask = {
+        id: `container-${tasks.length + 1}`,
+        wbs_path: first.wbs_path,
+        name: body.name?.trim() || 'New phase',
+        early_start: '2026-04-05', early_finish: '2026-04-09',
+        planned_start: '2026-04-05', duration: 1, percent_complete: 0,
+        is_critical: false, is_milestone: false, is_summary: true,
+        is_phase: true, is_subtask: false, parent_id: first.parent_id,
+        status: 'NOT_STARTED',
+      };
+      tasks.splice(tasks.indexOf(first), 0, container);
+      wrapped.forEach((t, i) => {
+        t.parent_id = container.id;
+        t.wbs_path = `${container.wbs_path}.${i + 1}`;
+      });
+      recomputeFlags(tasks);
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          container: {
+            id: container.id, name: container.name, wbs_path: container.wbs_path,
+            structure_role: 'container', parent_id: container.parent_id,
+          },
+          grouped_ids: wrapped.map((t) => t.id),
+          left_alone: [],
+          updated: tasks.map((t) => ({ id: t.id, wbs_path: t.wbs_path })),
+          warning: null,
+          operation_id: 'e2e-group-op-1',
+        }),
+      });
+    });
+
     await page.goto(BASE_URL);
     await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
   });
 
   test('+ Phase button is a visible peer to + Task and + Milestone, brand-primary (not gold)', async ({ page }) => {
-    const button = page.getByRole('button', { name: 'Add new phase (Cmd+P)' });
+    const button = page.getByRole('button', { name: 'Add new phase (Option+Cmd+P)' });
     await expect(button).toBeVisible();
     await expect(button).toContainText('Phase');
   });
 
-  test('clicking + Phase inserts a summary row and drops it into inline rename', async ({ page }) => {
-    await page.getByRole('button', { name: 'Add new phase (Cmd+P)' }).click();
+  test('clicking + Phase creates a phase WITH its first task, and drops the phase into rename', async ({
+    page,
+  }) => {
+    await page.getByRole('button', { name: 'Add new phase (Option+Cmd+P)' }).click();
 
-    // The new row opens straight into the inline rename input (create-empty-
-    // then-nest) — no dialog, matching the ux-design decision.
+    // The PHASE opens straight into the inline rename input — not the task inside it.
+    // The button said "Phase", and naming it is the one decision still owed; the design
+    // names the phase last precisely because everything else about it is derived.
     const nameInput = page.getByRole('textbox', { name: 'Rename task Untitled phase' });
     await expect(nameInput).toBeVisible();
 
     await nameInput.fill('Design Phase');
     await nameInput.press('Enter');
 
-    // Renamed row shows in the task list.
     const grid = page.getByRole('treegrid', { name: 'Task list' });
     await expect(grid.getByText('Design Phase')).toBeVisible();
   });
 
-  test('a phase-in-waiting shows the ghost hint; adding its first task retires it', async ({ page }) => {
-    await page.getByRole('button', { name: 'Add new phase (Cmd+P)' }).click();
+  test('+ Phase never leaves an empty phase behind — no phase-in-waiting ghost', async ({
+    page,
+  }) => {
+    // The #2955 contract, and the reason the button composes create-then-group rather
+    // than create-then-create. Before this issue the button minted a childless summary
+    // and offered a ghost "⊕ Add first task to this phase"; a planner who ignored it was
+    // left with an empty phase in the plan. Now the first task arrives with the phase.
+    await page.getByRole('button', { name: 'Add new phase (Option+Cmd+P)' }).click();
     const nameInput = page.getByRole('textbox', { name: 'Rename task Untitled phase' });
+    await expect(nameInput).toBeVisible();
     await nameInput.fill('Design Phase');
     await nameInput.press('Enter');
 
-    // No structural child yet — is_phase is still false, so the row shows the
-    // ghost "Add first task to this phase" affordance instead of being a real
-    // phase (matches backend semantics: an empty phase-in-waiting is legitimate).
-    const hint = page.getByTestId('phase-in-waiting-hint');
-    await expect(hint).toBeVisible();
-    await expect(hint).toHaveText(/Add first task to this phase/);
-
-    // Committing the rename opens the next row and focuses it programmatically.
-    // Settle past `HOVER_SETTLE_MS` (80ms, useDependencyHover) before clicking,
-    // so this asserts the *steady* state rather than racing it (#2782): the
-    // focus-driven chain used to dim every other row to opacity-0.22 +
-    // pointer-events-none once that timer fired, killing this very affordance.
-    // Without the wait the click usually wins the race and the regression only
-    // shows up as a ~1-in-15 CI flake.
-    await page.waitForTimeout(200);
-    await expect(hint).toBeVisible();
-
-    await hint.click();
-
-    // The ghost's own creation drops the new child into rename too.
-    const childInput = page.getByRole('textbox', { name: 'Rename task New task' });
-    await expect(childInput).toBeVisible();
-    await childInput.fill('Wireframes');
-    await childInput.press('Enter');
-
-    // Once the phase has a structural child, is_phase flips true and the
-    // hint retires from the (now real) phase row.
     const grid = page.getByRole('treegrid', { name: 'Task list' });
-    await expect(grid.getByText('Wireframes')).toBeVisible();
+    await expect(grid.getByText('Design Phase')).toBeVisible();
+
+    // Settle past `HOVER_SETTLE_MS` (80ms, useDependencyHover) so this reads the
+    // *steady* state rather than racing it (#2782), then assert the absence.
+    await page.waitForTimeout(200);
     await expect(page.getByTestId('phase-in-waiting-hint')).toHaveCount(0);
+
+    // And the task really is inside it — an assertion on the structure, not on the
+    // request that produced it. `toHaveAttribute('aria-expanded', /true|false/)` would
+    // pass for either value and therefore assert nothing; the depth is the claim.
+    const phaseRow = grid.getByRole('row').filter({ hasText: 'Design Phase' }).first();
+    await expect(phaseRow).toHaveAttribute('aria-level', '1');
+    const childRow = grid.getByRole('row').filter({ hasText: 'New task' }).first();
+    await expect(childRow).toHaveAttribute('aria-level', '2');
   });
 });
 
