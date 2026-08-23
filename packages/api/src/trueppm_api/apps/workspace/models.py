@@ -757,6 +757,17 @@ class AuditEventType(models.TextChoices):
     TEMPLATE_PUBLISHED = "template_published", "Template published"
     SETTINGS_CHANGED = "workspace_settings_changed", "Workspace settings changed"
     EXPORT_TRIGGERED = "workspace_export_triggered", "Workspace export triggered"
+    # #2911. An invite is the account-provisioning path, and it was the one
+    # administrative action that erased its own record: the admin list filters to
+    # PENDING, so accepting or revoking made the row vanish from the only surface
+    # that showed it, and no verb here replaced it. INVITE_ACCEPTED additionally
+    # carries the inviter in metadata — the MEMBER_ADDED row written on the same
+    # transaction has the *invitee* as its actor (the accept endpoint is
+    # unauthenticated), so without this the log can say "X joined via invite" and
+    # never who sent it.
+    INVITE_SENT = "invite_sent", "Invite sent"
+    INVITE_ACCEPTED = "invite_accepted", "Invite accepted"
+    INVITE_REVOKED = "invite_revoked", "Invite revoked"
 
 
 class AuditEvent(models.Model):

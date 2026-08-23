@@ -890,4 +890,26 @@ def accept_invite(*, token: str, username: str = "", password: str = "") -> Any:
                 "email_token",
             ]
         )
+
+        # The invite's own durable record (#2911). Distinct from the MEMBER_ADDED
+        # row above and not redundant with it: that row's actor is the *invitee*,
+        # because this endpoint is unauthenticated and the invitee provisions
+        # themselves. It therefore cannot answer "who let them in". The inviter is
+        # carried here explicitly, denormalized to a label as well as an id so the
+        # answer survives the inviter's own off-boarding (the AuditEvent.actor_label
+        # idiom). Written inside the same transaction, so it rolls back with a
+        # failed accept rather than claiming a join that did not happen.
+        record_audit_event(
+            event_type=AuditEventType.INVITE_ACCEPTED,
+            actor=user,
+            target_type="invite",
+            target_id=invite.pk,
+            target_label=invite.email,
+            metadata={
+                "role": WorkspaceRole(invite.role).label,
+                "invited_by": _actor_label(invite.invited_by),
+                "invited_by_id": str(invite.invited_by_id) if invite.invited_by_id else None,
+                "invited_at": invite.created_at.isoformat(),
+            },
+        )
     return user

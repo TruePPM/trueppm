@@ -1,12 +1,21 @@
 ---
 title: Audit log
 description: Review the workspace operational audit log — what administration events are recorded, who can read it, and how the OSS log relates to the Enterprise immutable audit trail.
+documentedFor: "0.4"
 ---
 
 :::note[Added in 0.3 (alpha)]
 The operational audit log was added in **TruePPM 0.3**, available since the
 `0.3.0-alpha.1` pre-release (Jun 28, 2026). 0.3 is an alpha release; the first
 beta is planned for 0.4.
+:::
+
+:::note[Ships in 0.4]
+The three **invite** event types (`invite_sent`, `invite_accepted`,
+`invite_revoked`) and the `?status=` filter on the invite list ship in **0.4**.
+On the latest release (`v0.3.0-alpha.3`) the log records no invite verb, and an
+invite disappears from the Members page the moment it is accepted or revoked.
+Everything else on this page describes 0.3.
 :::
 
 The **operational audit log** is a chronological record of who changed what in
@@ -33,8 +42,24 @@ recorded:
 | `ownership_transferred` | The Owner transfers workspace ownership | The new owner | `new_owner_user_id` |
 | `project_created` | A project is created | The project | — |
 | `project_deleted` | A project is deleted (soft or hard) | The project | `mode` (`soft`/`hard`) |
+| `project_restored` | A soft-deleted project is restored from Trash | The project | — |
+| `template_published` | A project is published as a workspace template | The template | — |
 | `workspace_settings_changed` | Workspace General settings are saved | The workspace | `fields` (the names of the fields that changed) |
 | `workspace_export_triggered` | A workspace export is started | The export job | — |
+| `invite_sent` *(0.4)* | An Owner/Admin invites an email address | The invite | `role` |
+| `invite_accepted` *(0.4)* | An invited person joins the workspace | The invite | `role`, `invited_by`, `invited_by_id`, `invited_at` |
+| `invite_revoked` *(0.4)* | An Owner/Admin revokes a pending invite | The invite | `role`, `invited_by` |
+
+:::note[Why `invite_accepted` exists alongside `member_added`]
+They look redundant and are not. The invite-accept endpoint is **unauthenticated** —
+the token in the link is the credential, and the invitee provisions their own
+account — so the `member_added` row's actor is the **person joining**. It can say
+*"X joined via invite"* and never who sent it.
+
+`invite_accepted` carries the inviter, denormalized to a label as well as an id so
+the answer survives the inviter's own off-boarding. If you are auditing account
+provisioning, this is the row that answers *who let them in* (#2911).
+:::
 
 :::caution[Deactivation is irreversible for credentials]
 Deactivating a member revokes their refresh tokens and Personal Access Tokens,
