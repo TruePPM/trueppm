@@ -121,18 +121,35 @@ export function parseOwnerTokens(raw: string): OwnerToken[] {
   return tokens;
 }
 
+/** Why a roster lookup produced no single person — the two cases need different repairs. */
+export type RosterMatchStatus = 'matched' | 'unmatched' | 'ambiguous';
+
+export interface RosterMatch {
+  status: RosterMatchStatus;
+  /** The person, when exactly one was identified. Null on both failure kinds. */
+  member: ProjectResource | null;
+  /** The people an ambiguous query named. Empty unless `status` is `ambiguous`. */
+  candidates: ProjectResource[];
+}
+
 /**
- * Find the single roster member a token names, case-insensitively.
+ * Resolve a roster query, stating *why* it failed when it does.
  *
  * Matching is exact-name first, then unique prefix, then unique substring — each tier
- * only wins when it identifies exactly ONE person. An ambiguous token resolves to
+ * only wins when it identifies exactly ONE person. An ambiguous query resolves to
  * nothing rather than picking the first candidate: silently binding work to the wrong
  * person is the failure this contract exists to prevent, and `Ana` matching both
  * "Ana Rivera" and "Ana Silva" is a question only the author can answer.
+ *
+ * The status is the point (#2905). `matchRosterMember` collapses both failures to
+ * `null`, which is right for a caller that only needs the person but wrong for any
+ * caller that has to *report* the failure: a typo needs correcting and an ambiguous
+ * name needs disambiguating, and telling an author "1 owner not applied" without
+ * saying which it was leaves them guessing at a fix.
  */
-export function matchRosterMember(query: string, pool: ProjectResource[]): ProjectResource | null {
+export function resolveRosterMember(query: string, pool: ProjectResource[]): RosterMatch {
   const q = query.trim().toLowerCase();
-  if (!q) return null;
+  if (!q) return { status: 'unmatched', member: null, candidates: [] };
 
   const tiers = [
     pool.filter((p) => p.resource.name.toLowerCase() === q),
@@ -140,10 +157,24 @@ export function matchRosterMember(query: string, pool: ProjectResource[]): Proje
     pool.filter((p) => p.resource.name.toLowerCase().includes(q)),
   ];
   for (const tier of tiers) {
-    if (tier.length === 1) return tier[0];
-    if (tier.length > 1) return null;
+    if (tier.length === 1) return { status: 'matched', member: tier[0], candidates: [] };
+    // A tier that names several people stops the walk: a broader tier can only
+    // name more, so falling through would never disambiguate, and the narrower
+    // tiers have already been tried.
+    if (tier.length > 1) return { status: 'ambiguous', member: null, candidates: tier };
   }
-  return null;
+  return { status: 'unmatched', member: null, candidates: [] };
+}
+
+/**
+ * Find the single roster member a token names, case-insensitively.
+ *
+ * The person-only view of {@link resolveRosterMember}, kept because most callers
+ * genuinely only need the person and reading `.member` at each of them would be noise.
+ * Reach for `resolveRosterMember` when the failure has to be *reported*.
+ */
+export function matchRosterMember(query: string, pool: ProjectResource[]): ProjectResource | null {
+  return resolveRosterMember(query, pool).member;
 }
 
 /**
@@ -170,7 +201,8 @@ export function parseOwnerDraft(raw: string, pool: ProjectResource[]): OwnerToke
     // as two assignments the API would have to reconcile.
     const existing = owners.findIndex((o) => o.resourceId === match.resourceId);
     if (existing >= 0) owners[existing] = { ...owners[existing], units: token.units };
-    else owners.push({ resourceId: match.resourceId, name: match.resource.name, units: token.units });
+    else
+      owners.push({ resourceId: match.resourceId, name: match.resource.name, units: token.units });
     resolvedRaws.push(token.raw);
   }
 

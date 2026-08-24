@@ -242,6 +242,21 @@ Rows without a resolved duration are never treated as failures — they commit l
 other pasted row, and `F8` is how you find and fix them afterward, on your schedule, not
 the paste's.
 
+**An Owner column is matched against the project's team, and the receipt says when it
+couldn't be.** A name is resolved against the people on *this* project — never a
+workspace-wide directory — which is what stops a name typed on one project binding work
+to somebody who is a member of none. Two things can go wrong, and the receipt tells them
+apart because the repairs differ:
+
+| What the receipt says | What happened | What to do |
+|---|---|---|
+| *N owners were not on the roster, so were not applied* | The cell named nobody on this project — a typo, or somebody who has left | Fix the spelling in your source, or add them to the team and re-paste |
+| *N owners matched more than one person, so were not applied* | The cell named several people — `Ana` where the team has both Ana Rivera and Ana Silva | Use a fuller name |
+
+In both cases the **row still commits**, just without that owner. TruePPM never picks one
+of several candidates on your behalf: binding work to the wrong person silently is worse
+than leaving it unassigned and saying so.
+
 A pasted block always lands as siblings of whichever row was focused when you pasted —
 the same "same level as the focused row" placement Enter uses — so pasting while sitting
 inside a phase adds to that phase, and pasting with nothing focused lands at the project

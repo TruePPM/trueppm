@@ -6,7 +6,14 @@ const FIELD_LABEL: Record<string, string> = { name: 'name', duration: 'duration'
 /** Builds the receipt copy — "38 rows pasted. Hierarchy read from leading
  *  indentation — 4 levels. name · duration · owner matched · 2 columns ignored
  *  · 3 rows need a duration." Each clause only appears when it has something
- *  to say, so a clean flat paste reads as a short, confident sentence. */
+ *  to say, so a clean flat paste reads as a short, confident sentence.
+ *
+ *  The two owner clauses are separate sentences, not clauses in the `·` run
+ *  (#2905). The run reports what the paste *did*; an owner the roster could not
+ *  resolve is work the author asked for and did not get, and it needs to say what
+ *  to do about it — a typo needs correcting, an ambiguous name needs a fuller one.
+ *  Folding either into the `·` list would put a call to action in a list of
+ *  statistics, where it reads as one more count to skim past. */
 export function buildPasteReceiptMessage(summary: PasteSummary): string {
   const noun = `row${summary.rowCount !== 1 ? 's' : ''}`;
   const sentences = [`${summary.rowCount} ${noun} pasted.`];
@@ -30,6 +37,24 @@ export function buildPasteReceiptMessage(summary: PasteSummary): string {
     );
   }
   if (clauses.length > 0) sentences.push(`${clauses.join(' · ')}.`);
+
+  const owners = (n: number) => `${n} owner${n === 1 ? '' : 's'}`;
+  const wasWere = (n: number) => (n === 1 ? 'was' : 'were');
+
+  if (summary.unmatchedOwnerCount > 0) {
+    const n = summary.unmatchedOwnerCount;
+    sentences.push(
+      `${owners(n)} ${wasWere(n)} not on the roster, so ${wasWere(n)} not applied — ` +
+        `check the spelling, or add them to the team.`,
+    );
+  }
+  if (summary.ambiguousOwnerCount > 0) {
+    const n = summary.ambiguousOwnerCount;
+    sentences.push(
+      `${owners(n)} matched more than one person, so ${wasWere(n)} not applied — ` +
+        `use a fuller name.`,
+    );
+  }
   return sentences.join(' ');
 }
 
