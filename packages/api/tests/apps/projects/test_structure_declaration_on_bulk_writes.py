@@ -21,9 +21,11 @@ matches nothing passes silently, which is what made the sub-12px lint gate usele
 from __future__ import annotations
 
 import ast
+import uuid
 from datetime import date
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -546,3 +548,205 @@ class TestNoBulkWriterGoesAroundTheFunnel:
                 f"{rel} inserts Task rows through a generic dispatcher and never "
                 "reaches bulk_create_tasks — its containers land undeclared (#3030)"
             )
+
+
+# ── The behavioral guard: the invariant, not the API (#3036) ────────────────────
+
+
+class TestNoCreateSurfaceLeavesAParentUndeclared:
+    """Assert the OUTCOME across the create surfaces, not which function they called.
+
+    ``TestNoBulkWriterGoesAroundTheFunnel`` above is a source scan for
+    ``Task.objects.bulk_create``, and it works — but ``bulk_create`` is a **proxy** for
+    the real invariant, and the proxy has a blind spot the width of a whole endpoint.
+    ``POST /projects/{pk}/tasks/bulk/`` writes rows through a per-row
+    ``TaskSerializer.save()``: it calls neither ``bulk_create`` (so the scan never looks
+    at it) nor the viewset's ``perform_create`` (which declares inline). It therefore
+    left every parent it gave a first child as ``structure_role='work'`` for its entire
+    life, while the guard written to prevent exactly that reported green (#3036).
+
+    So this class asserts the thing that actually matters — **after a create lands, no
+    row has structural children and ``structure_role='work'``** — once per create
+    surface. A fifth surface added tomorrow is not caught by this file automatically;
+    what the file gives is a named place where forgetting to add it is visible, and an
+    assertion that the surfaces already listed still behave.
+
+    Be honest about the limit: an enumerated behavioral guard covers what it enumerates.
+    That is strictly more than the source scan covered, and it is not "every path".
+    """
+
+    def _undeclared_parents(self, project: Project) -> list[str]:
+        """Every row in ``project`` with structural children and no declaration."""
+        rows = list(Task.objects.filter(project=project, is_deleted=False, is_subtask=False))
+        by_path = {str(r.wbs_path): r for r in rows if r.wbs_path}
+        parents = wbs_ancestor_paths(set(by_path))
+        return [
+            f"{by_path[p].name} ({p})"
+            for p in sorted(parents)
+            if p in by_path and by_path[p].structure_role != StructureRole.CONTAINER
+        ]
+
+    def test_the_invariant_probe_is_not_vacuous(self, project: Project) -> None:
+        """A probe that can never report an offender passes on a broken tree forever.
+
+        Build the defect by hand — a parent and a child, with the parent left declared
+        work — and require the probe to name it. Without this, a probe whose ancestor
+        derivation silently returned an empty set would make every assertion below
+        meaningless in exactly the way the sub-12px lint gate was (rule 300).
+        """
+        parent = Task.objects.create(project=project, name="Undeclared", duration=1, wbs_path="1")
+        Task.objects.create(project=project, name="Child", duration=1, wbs_path="1.1")
+        assert parent.structure_role == StructureRole.WORK
+        assert self._undeclared_parents(project) == ["Undeclared (1)"]
+
+    def test_the_bulk_endpoint_declares_a_pre_existing_parent(
+        self, owner_client: APIClient, project: Project
+    ) -> None:
+        """The #3036 case: one create op naming a parent that is already in the table."""
+        parent = Task.objects.create(project=project, name="Mobilization", duration=1, wbs_path="1")
+        response = owner_client.post(
+            f"/api/v1/projects/{project.pk}/tasks/bulk/",
+            {
+                "operations": [
+                    {
+                        "op": "create",
+                        "data": {"name": "Survey", "duration": 2, "parent_id": str(parent.pk)},
+                    }
+                ]
+            },
+            format="json",
+        )
+        assert response.status_code == 207, response.data
+        assert len(response.data["applied"]) == 1, response.data
+        assert self._undeclared_parents(project) == []
+
+    def test_the_bulk_endpoint_declares_a_parent_created_in_the_same_batch(
+        self, owner_client: APIClient, project: Project
+    ) -> None:
+        """The paste-many shape: parent and child both minted in one call.
+
+        Distinct from the case above — the parent is not in the table when the batch
+        starts, so a fix that only re-read pre-existing ancestors would pass the other
+        test and leave a pasted subtree's own phases undeclared.
+        """
+        parent_id = str(uuid.uuid4())
+        response = owner_client.post(
+            f"/api/v1/projects/{project.pk}/tasks/bulk/",
+            {
+                "operations": [
+                    {"op": "create", "id": parent_id, "data": {"name": "Fitout", "duration": 1}},
+                    {
+                        "op": "create",
+                        "data": {"name": "Cable trays", "duration": 2, "parent_id": parent_id},
+                    },
+                ]
+            },
+            format="json",
+        )
+        assert response.status_code == 207, response.data
+        assert len(response.data["applied"]) == 2, response.data
+        assert Task.objects.get(pk=parent_id).structure_role == StructureRole.CONTAINER
+        assert self._undeclared_parents(project) == []
+
+    def test_a_rolled_back_child_does_not_declare_its_parent(
+        self, owner_client: APIClient, project: Project
+    ) -> None:
+        """Partial application must not declare a container for a row that never landed.
+
+        The declaration is derived from ``created_ids`` precisely so that
+        ``_rollback_bookkeeping`` truncating that list also un-declares the parent. A
+        fix that noted the parent inside ``_apply_create`` would survive its own child's
+        savepoint rollback and promote a leaf on the strength of a row that does not
+        exist.
+        """
+        parent = Task.objects.create(project=project, name="Solo", duration=1, wbs_path="1")
+        response = owner_client.post(
+            f"/api/v1/projects/{project.pk}/tasks/bulk/",
+            {
+                "operations": [
+                    # No name — rejected by the serializer, so nothing is created.
+                    {"op": "create", "data": {"duration": 2, "parent_id": str(parent.pk)}}
+                ]
+            },
+            format="json",
+        )
+        assert response.status_code == 207, response.data
+        assert response.data["applied"] == []
+        assert len(response.data["rejected"]) == 1
+        parent.refresh_from_db()
+        assert parent.structure_role == StructureRole.WORK
+        assert parent.auto_container is False
+
+    def test_a_subtask_never_declares_its_parent(
+        self, owner_client: APIClient, project: Project
+    ) -> None:
+        """A checklist item is not structural — it must not promote its task (#2950)."""
+        parent = Task.objects.create(project=project, name="Punch list", duration=1, wbs_path="1")
+        response = owner_client.post(
+            f"/api/v1/projects/{project.pk}/tasks/bulk/",
+            {
+                "operations": [
+                    {
+                        "op": "create",
+                        "data": {
+                            "name": "Check seals",
+                            "duration": 1,
+                            "parent_id": str(parent.pk),
+                            "is_subtask": True,
+                        },
+                    }
+                ]
+            },
+            format="json",
+        )
+        assert response.status_code == 207, response.data
+        assert len(response.data["applied"]) == 1, response.data
+        parent.refresh_from_db()
+        assert parent.structure_role == StructureRole.WORK
+
+    def test_a_declared_parent_is_in_the_batch_broadcast(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        django_capture_on_commit_callbacks: Any,
+    ) -> None:
+        """The promotion must reach the other clients, not only the database.
+
+        ``tasks_bulk_mutated`` carries the ids so a client refetches *those rows* rather
+        than blind-refetching the board (#1009). The declared parent is not any op's
+        target, so it is exactly the row a targeted refetch omits — and the omission is
+        invisible to every assertion about the database, which is why it is pinned here.
+        Without it a collaborator keeps seeing a card where the author sees a lane.
+        """
+        parent = Task.objects.create(project=project, name="Mobilization", duration=1, wbs_path="1")
+        with (
+            patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast,
+            patch("trueppm_api.apps.projects.views._enqueue_recalculate"),
+            # Deferred with transaction.on_commit, so the callbacks must be captured
+            # and executed or nothing is observable at all.
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            response = owner_client.post(
+                f"/api/v1/projects/{project.pk}/tasks/bulk/",
+                {
+                    "operations": [
+                        {
+                            "op": "create",
+                            "data": {"name": "Survey", "duration": 2, "parent_id": str(parent.pk)},
+                        }
+                    ]
+                },
+                format="json",
+            )
+        assert response.status_code == 207, response.data
+
+        mutated = [
+            call.args[2]["task_ids"]
+            for call in broadcast.call_args_list
+            if call.args[1] == "tasks_bulk_mutated"
+        ]
+        assert mutated, f"no tasks_bulk_mutated broadcast: {broadcast.call_args_list}"
+        assert str(parent.pk) in mutated[0], (
+            "the declared parent is missing from the broadcast, so a collaborator's "
+            f"targeted refetch never re-reads it: {mutated[0]}"
+        )

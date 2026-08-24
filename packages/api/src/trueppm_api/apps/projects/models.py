@@ -2680,11 +2680,44 @@ def bulk_create_tasks(
         else:
             Task.objects.bulk_create(rows)
         if outside:
-            _resync_outside_ancestors(project_id, outside)
+            _resync_ancestor_paths(project_id, outside)
     return list(rows)
 
 
-def _resync_outside_ancestors(project_id: Any, outside: set[str]) -> None:
+def declare_ancestors_of_paths(project_id: Any, paths: Iterable[str]) -> list[Task]:
+    """Declare the rows that ``paths`` have just given a first structural child.
+
+    The counterpart to :func:`declare_containers_in_batch` for a writer whose rows are
+    **already in the table**. ``declare_containers_in_batch`` sweeps a batch in memory
+    *before* the INSERT, because :func:`task_is_phase` cannot see rows that are not
+    written yet; a caller that has already inserted has the opposite problem and the
+    easier one — every ancestor of a written row provably has a child, so the
+    child-count question is answered without probing for it.
+
+    This exists because the ``bulk_create`` funnel is not the only way to write a row
+    that gives a parent its first child, and the guard built around that funnel could
+    not see the other way. ``POST /projects/{pk}/tasks/bulk/`` applies its ops through
+    a per-row ``TaskSerializer.save()`` — so it calls neither ``bulk_create`` (which
+    the funnel owns) nor the viewset's ``perform_create`` (which declares inline), and
+    landed parents ``structure_role='work'`` with children for its whole life (#3036).
+    Routing it here rather than open-coding a third declaration keeps one definition of
+    what a declaration is.
+
+    Ancestors are derived from the paths rather than taken from the caller: a caller
+    that knew which rows were parents would be a second source of truth for the fact
+    this function exists to compute.
+
+    Returns the rows it actually declared, because a promotion the caller cannot name
+    is a promotion it cannot broadcast — and this one changes how the Board draws the
+    row (card to lane), which is precisely what a collaborator needs told.
+    """
+    ancestors = wbs_ancestor_paths({p for p in paths if p})
+    if not ancestors:
+        return []
+    return _resync_ancestor_paths(project_id, ancestors)
+
+
+def _resync_ancestor_paths(project_id: Any, outside: set[str]) -> list[Task]:
     """Declare the rows the batch did not carry but has just given a first child.
 
     ``resync_container_declarations`` picks the field list from the transition that
@@ -2717,17 +2750,21 @@ def _resync_outside_ancestors(project_id: Any, outside: set[str]) -> None:
     ancestors). Availability, bounded, and loud.
     """
     ordered = sorted(outside)
+    changed: list[Task] = []
     for start in range(0, len(ordered), _OUTSIDE_ANCESTOR_CHUNK):
-        resync_container_declarations(
-            *Task.objects.select_for_update(no_key=True).filter(
-                project_id=project_id,
-                wbs_path__in=ordered[start : start + _OUTSIDE_ANCESTOR_CHUNK],
-                is_deleted=False,
-                is_subtask=False,
-            ),
-            already_locked=True,
-            is_container=True,
+        changed.extend(
+            resync_container_declarations(
+                *Task.objects.select_for_update(no_key=True).filter(
+                    project_id=project_id,
+                    wbs_path__in=ordered[start : start + _OUTSIDE_ANCESTOR_CHUNK],
+                    is_deleted=False,
+                    is_subtask=False,
+                ),
+                already_locked=True,
+                is_container=True,
+            )
         )
+    return changed
 
 
 class Task(VersionedModel):
