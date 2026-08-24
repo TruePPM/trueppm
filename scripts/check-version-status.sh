@@ -321,7 +321,12 @@ badge_check() { # badge_check <sidebar_file> <docs_root> <highest_shipped>
   while IFS="$tab" read -r slug badge; do
     [ -z "$slug" ] && continue
     page=""
-    for d in "$docs_root/$slug.md" "$docs_root/$slug.mdx"; do
+    # A slug resolves to <slug>.md or, for a section landing page, to
+    # <slug>/index.md — Starlight accepts both. Resolving only the first form
+    # would report "no page found" for a badged section index, which is a false
+    # red on a config nobody touched.
+    for d in "$docs_root/$slug.md" "$docs_root/$slug.mdx" \
+             "$docs_root/$slug/index.md" "$docs_root/$slug/index.mdx"; do
       [ -f "$d" ] && page="$d" && break
     done
     declared=""
@@ -940,6 +945,23 @@ Available today.'
   # A badge on a slug with no page at all is a nav entry pointing at nothing.
   badge_case "badged-slug-has-no-page" expect-fail "$plain_page" \
     '{ slug: "getting-started/gone", badge: "0.3" }' || return 1
+
+  # A section landing page resolves through <slug>/index.md. `{ slug: "overview" }`
+  # is a real entry in the config, so a resolver that only tried <slug>.md would
+  # report "no page found" the moment anyone badged one -- a false red on a
+  # config nobody touched.
+  local idx_dir="$tmp/bg-index"
+  mkdir -p "$idx_dir/getting-started/section"
+  cp "$docs/overview/roadmap.md" "$idx_dir/"
+  printf '%s\n' "$unshipped_page" > "$idx_dir/getting-started/section/index.md"
+  printf 'export default { sidebar: [ { label: "GS", items: [ { slug: "getting-started/section", badge: { text: "0.3", variant: "caution" } } ] } ] };\n' \
+    > "$idx_dir/astro.config.mjs"
+  if run_scan "$idx_dir/roadmap.md" "$idx_dir" "" "$idx_dir/astro.config.mjs" >/dev/null 2>&1; then
+    echo "SELF-TEST OK: badge resolves a section index page."
+  else
+    echo "SELF-TEST FAILED: badge check could not resolve <slug>/index.md." >&2
+    return 1
+  fi
 
   # Scope: BADGE_DIRS is getting-started, so an undeclared-badge page in another
   # tree must NOT be demanded. 60 pages under features/ + administration/ ride
