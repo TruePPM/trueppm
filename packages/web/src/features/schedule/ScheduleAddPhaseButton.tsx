@@ -6,6 +6,17 @@ export interface ScheduleAddPhaseButtonProps {
   disabled?: boolean;
   /** True while the create mutation is in flight — prevents double-fire. */
   pending?: boolean;
+  /**
+   * The focused row this press would turn into a phase, or null (#2951).
+   *
+   * The control performs two different acts depending on what is focused, and a
+   * keystroke or a label is a CLAIM that has to resolve against the act it names
+   * (rule 326). "Add new phase, with its first task" is true only on the empty-focus
+   * path; with a leaf focused the act is "make *this row* a phase", and a tooltip
+   * that said otherwise would be describing a write the user is about to make to
+   * a row it never mentions.
+   */
+  adoptsRowName?: string | null;
 }
 
 /**
@@ -25,6 +36,11 @@ export interface ScheduleAddPhaseButtonProps {
  * of #2955 creates the phase **with its first task** — a button never leaves an empty
  * phase behind — and does it as one recorded act, so ⌘Z takes the whole thing back.
  *
+ * Since #2951 the handler has a second act: with a leaf row focused it adopts **that**
+ * row as the container rather than making a new one, in a single `tasks/bulk` call. The
+ * control therefore states which act the next press performs (`adoptsRowName`) instead
+ * of naming only one of them.
+ *
  * Behind `displayOptions.structureButtons` since #2955 and therefore **off by default**;
  * see `ScheduleStructureButtons` for why that is a ruling rather than an omission.
  */
@@ -32,15 +48,22 @@ export function ScheduleAddPhaseButton({
   onAddPhase,
   disabled = false,
   pending = false,
+  adoptsRowName = null,
 }: ScheduleAddPhaseButtonProps) {
   const isDisabled = disabled || pending;
+  const chord = formatChord('mod+alt+p');
+  // Derived once and used for BOTH the accessible name and the tooltip, so the two
+  // cannot describe different acts (rule 316 — one phrasing, one owner).
+  const action = adoptsRowName
+    ? `Make ${adoptsRowName} a phase, with a task inside it`
+    : 'Add new phase, with its first task';
   return (
     <button
       type="button"
       onClick={onAddPhase}
       disabled={isDisabled}
-      aria-label="Add new phase (Option+Cmd+P)"
-      title={disabled ? 'Read-only access' : `Add new phase, with its first task (${formatChord('mod+alt+p')})`}
+      aria-label={`${action} (${chord})`}
+      title={disabled ? 'Read-only access' : `${action} (${chord})`}
       data-testid="add-phase-button"
       className={[
         // shrink-0 + whitespace-nowrap keep the button a fixed size in the
