@@ -425,6 +425,7 @@ FROZEN_WS_EVENT_TYPES = frozenset(
         "slip_conflicts_updated",
         "sprint_activated",
         "sprint_cancelled",
+        "sprint_close_failed",
         "sprint_closed",
         "sprint_created",
         "sprint_deleted",

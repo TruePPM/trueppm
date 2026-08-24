@@ -23,6 +23,9 @@
  *   task_attachment_created / task_attachment_deleted → invalidate task-attachments[taskId]
  *   task_note_created / task_note_updated / task_note_deleted / task_note_pinned → invalidate task-notes[taskId] + tasks (latest_note_at freshness chip)
  *   sprint_created / sprint_updated / sprint_deleted / sprint_activated / sprint_cancelled / sprint_closed → invalidate sprints
+ *   sprint_close_failed → invalidate sprints + ['sprint', id, 'close-request'] (a queued close was
+ *                  abandoned and the sprint stays open); invalidate-only, never renders on receipt
+ *                  because the event is replayed on reconnect (#2992)
  *   sprint_retro_updated → invalidate ['sprint', id, 'retro'] (notes/action-item upsert or visibility toggle, issue 1359)
  *   retro_item_created / retro_item_updated / retro_item_deleted / retro_item_moved → invalidate retro-board (ADR-0117)
  *   slip_conflict_acknowledged / slip_conflicts_updated → invalidate slip-conflicts (ADR-0120 D4, issue 1359)
@@ -707,6 +710,39 @@ function registerSprintHandlers(on: OnFn, deps: WsHandlerDeps): void {
       });
     },
   );
+
+  // --- Terminal sprint-close failure (#2992) ---
+  // Closing a sprint is asynchronous (202 + a drain), so it can fail long after
+  // the button was pressed. This event is emitted only when the close has been
+  // abandoned and the sprint will stay open — a failure the server still means
+  // to retry emits nothing.
+  //
+  // Deliberately invalidate-only: no toast, no store write. The event is
+  // persisted to the board-event buffer and replayed on every reconnect for the
+  // retention window, so anything that renders on *receipt* would re-alarm the
+  // user for the rest of the day. Refetching the close-request read route
+  // instead means the surface is driven by the current server verdict, and the
+  // role gate on the failure text is applied by the endpoint rather than
+  // bypassed by the broadcast. The payload carries no error text for that
+  // reason.
+  //
+  // Registered as its own event type — not folded into the sprint_* group
+  // above — because `on()` is last-write-wins and a second registration for a
+  // key already in that list would silently replace the group's handler.
+  on('sprint_close_failed', (payload) => {
+    // The sprint is still ACTIVE, so the list the user is looking at is wrong.
+    void queryClient.invalidateQueries({ queryKey: ['sprints', projectIdRef.current] });
+    const failedSprintId = payload?.id;
+    if (typeof failedSprintId === 'string') {
+      void queryClient.invalidateQueries({
+        queryKey: ['sprint', failedSprintId, 'close-request'],
+      });
+    } else {
+      void queryClient.invalidateQueries({
+        predicate: (q) => q.queryKey[0] === 'sprint' && q.queryKey[2] === 'close-request',
+      });
+    }
+  });
 
   // --- Live retro board events (ADR-0117 §4) ---
   // A peer created/edited/moved/deleted a sticky on the multi-writer retro
