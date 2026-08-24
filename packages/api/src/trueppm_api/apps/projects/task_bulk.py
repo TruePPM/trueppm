@@ -615,6 +615,57 @@ def apply_task_operations(
             _rollback_bookkeeping(out, before)
             out.reject(index, op.get("id"), CODE_CONFLICT, str(exc))
 
+    _declare_parents_of_created_rows(ctx, out)
+
+
+def _declare_parents_of_created_rows(ctx: BulkContext, out: BulkOutcome) -> None:
+    """Declare every parent this batch has just given a first structural child (#3036).
+
+    The single-row create path does this inline; the ``bulk_create`` importers do it
+    through ``declare_containers_in_batch``. This endpoint reached neither — it saves
+    per row through ``TaskSerializer`` — so a ``create`` naming an existing
+    ``parent_id`` left that parent ``structure_role='work'`` **with children**, and the
+    Board's rendering rule (ADR-0843) drew it as a card rather than a lane. That is the
+    artifact epic #2946 exists to remove, on the endpoint its own headline gesture uses.
+
+    **Derived from ``out.created_ids``, not recorded as the rows apply.** A handler runs
+    inside its own savepoint and ``_rollback_bookkeeping`` truncates ``created_ids`` when
+    that savepoint rolls back — so reading the list afterwards is automatically correct
+    for the partial-application case, while a parent noted during ``_apply_create`` would
+    survive its child's rollback and declare a container for a row that does not exist.
+
+    **One query set for the batch, not one per row.** A 500-op batch under a single
+    parent must not become 500 probes; ``declare_ancestors_of_paths`` sweeps the paths
+    and locks the ancestor rows in chunks, which is the shape ``declare_containers_in_batch``
+    was written to preserve. Rows created *inside* this batch that are themselves parents
+    are covered too — they are ancestors of their own children's paths, and by this point
+    every row is in the table.
+
+    **A declared parent joins ``updated_ids``, or the promotion is invisible to everyone
+    else.** ``tasks_bulk_mutated`` carries the batch's ids so clients refetch *those rows*
+    rather than the whole board (#1009), and the parent is not any op's target — so
+    leaving it out would broadcast a change set that omits the one row whose rendering
+    actually changed, and a collaborator's board would keep drawing a card where there is
+    now a lane. It does **not** join ``applied``: that bucket is the per-op report,
+    correlated by ``index``, and this row answers to no op.
+    """
+    from trueppm_api.apps.projects.models import Task, declare_ancestors_of_paths
+
+    if not out.created_ids:
+        return
+    paths = {
+        str(path)
+        for path in Task.objects.filter(
+            pk__in=out.created_ids, is_subtask=False, is_deleted=False
+        ).values_list("wbs_path", flat=True)
+        if path
+    }
+    if not paths:
+        return
+    for parent in declare_ancestors_of_paths(ctx.project.pk, paths):
+        if parent.pk not in out.created_ids and parent.pk not in out.updated_ids:
+            out.updated_ids.append(parent.pk)
+
 
 def _outcome_lengths(out: BulkOutcome) -> tuple[int, ...]:
     return (
