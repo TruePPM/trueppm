@@ -756,6 +756,31 @@ lint:sonar-exclusions:
     - bash scripts/check-sonar-exclusions.sh
     - bash scripts/check-sonar-exclusions.sh --self-test
 
+ci:prepush-parity:
+  extends: .fast-job
+  # Pre-push parity gate (#2941). `pre-push-checks` mirrored eight bespoke CI gates
+  # and `lint:design-system-v2` — a job of exactly that shape — was not among them, so
+  # the one gate policing hardcoded hex against the DS-v2 ratchet was the one a
+  # developer could not run before pushing. A breach passed `make pre-push` cleanly and
+  # failed the pipeline.
+  #
+  # The list was a historical accretion with nothing asserting it stayed complete, so
+  # fixing the one missing entry would have left the next gate to fall behind the same
+  # way. This job derives the CI set from this file rather than restating it.
+  #
+  # Runs in CI as well as in pre-push because the failure it catches is *adding a CI
+  # job* — which the author of that job is the last person to run pre-push against.
+  # Pure text matching over two files, no network, <1s.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache bash git grep sed
+  script:
+    - bash scripts/check-prepush-parity.sh
+
 lint:design-system-v2:
   extends: .fast-job
   # Design System v2 conformance gate (ADR-0125). Blocks design drift: arbitrary
