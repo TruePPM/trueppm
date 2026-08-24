@@ -8,7 +8,7 @@ describe('BlankOutlineDraftRow (#2733)', () => {
     // The whole point of deleting the card: the first keystroke is the first task,
     // not the third click.
     render(<BlankOutlineDraftRow onCommit={vi.fn()} nameWidth={240} />);
-    expect(await screen.findByRole('textbox', { name: /first task name/i })).toHaveFocus();
+    expect(await screen.findByRole('textbox', { name: /first item name/i })).toHaveFocus();
   });
 
   it('commits on Enter and keeps the caret for the next row', async () => {
@@ -17,7 +17,7 @@ describe('BlankOutlineDraftRow (#2733)', () => {
     // click-per-row exercise.
     const onCommit = vi.fn();
     render(<BlankOutlineDraftRow onCommit={onCommit} nameWidth={240} />);
-    const input = screen.getByRole('textbox', { name: /first task name/i });
+    const input = screen.getByRole('textbox', { name: /first item name/i });
 
     await userEvent.type(input, 'Survey the site{Enter}');
 
@@ -30,7 +30,7 @@ describe('BlankOutlineDraftRow (#2733)', () => {
   it('does not commit an empty or whitespace-only name', async () => {
     const onCommit = vi.fn();
     render(<BlankOutlineDraftRow onCommit={onCommit} nameWidth={240} />);
-    const input = screen.getByRole('textbox', { name: /first task name/i });
+    const input = screen.getByRole('textbox', { name: /first item name/i });
 
     await userEvent.type(input, '   {Enter}');
     await userEvent.tab();
@@ -44,7 +44,7 @@ describe('BlankOutlineDraftRow (#2733)', () => {
     // for every task typed.
     const onCommit = vi.fn();
     render(<BlankOutlineDraftRow onCommit={onCommit} nameWidth={240} />);
-    const input = screen.getByRole('textbox', { name: /first task name/i });
+    const input = screen.getByRole('textbox', { name: /first item name/i });
 
     await userEvent.type(input, 'Pour foundations{Enter}');
     await userEvent.tab();
@@ -57,7 +57,7 @@ describe('BlankOutlineDraftRow (#2733)', () => {
     // Clicking away with a typed name must not silently discard it.
     const onCommit = vi.fn();
     render(<BlankOutlineDraftRow onCommit={onCommit} nameWidth={240} />);
-    await userEvent.type(screen.getByRole('textbox', { name: /first task name/i }), 'Draft');
+    await userEvent.type(screen.getByRole('textbox', { name: /first item name/i }), 'Draft');
     await userEvent.tab();
 
     expect(onCommit).toHaveBeenCalledTimes(1);
@@ -67,7 +67,7 @@ describe('BlankOutlineDraftRow (#2733)', () => {
   it('Escape clears the draft without committing', async () => {
     const onCommit = vi.fn();
     render(<BlankOutlineDraftRow onCommit={onCommit} nameWidth={240} />);
-    const input = screen.getByRole('textbox', { name: /first task name/i });
+    const input = screen.getByRole('textbox', { name: /first item name/i });
 
     await userEvent.type(input, 'Never mind{Escape}');
 
@@ -79,7 +79,7 @@ describe('BlankOutlineDraftRow (#2733)', () => {
     // A caret in a field that cannot save is a worse lie than no caret at all.
     render(<BlankOutlineDraftRow nameWidth={240} />);
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(screen.getByRole('row')).toHaveTextContent(/no tasks yet/i);
+    expect(screen.getByRole('row')).toHaveTextContent(/no items yet/i);
   });
 });
 
@@ -97,7 +97,7 @@ describe('BlankOutlineDraftRow — outline parity (#2952)', () => {
     render(<BlankOutlineDraftRow nameWidth={240} />);
     const row = screen.getByRole('row');
     expect(row).toHaveAttribute('aria-level', '1');
-    expect(row).toHaveTextContent('No tasks yet.');
+    expect(row).toHaveTextContent('No items yet.');
   });
 
   it('restores the typed name when the create fails', async () => {
@@ -106,7 +106,7 @@ describe('BlankOutlineDraftRow — outline parity (#2952)', () => {
     // POST and reads as "I never typed it".
     const onCommit = vi.fn((_name: string, opts?: { onError?: () => void }) => opts?.onError?.());
     render(<BlankOutlineDraftRow onCommit={onCommit} nameWidth={240} />);
-    const input = screen.getByRole('textbox', { name: /first task name/i });
+    const input = screen.getByRole('textbox', { name: /first item name/i });
 
     await userEvent.type(input, 'Survey the site{Enter}');
 
@@ -119,7 +119,7 @@ describe('BlankOutlineDraftRow — outline parity (#2952)', () => {
       fail = opts?.onError;
     });
     render(<BlankOutlineDraftRow onCommit={onCommit} nameWidth={240} />);
-    const input = screen.getByRole('textbox', { name: /first task name/i });
+    const input = screen.getByRole('textbox', { name: /first item name/i });
 
     await userEvent.type(input, 'First row{Enter}');
     await userEvent.type(input, 'Second row');
@@ -145,5 +145,27 @@ describe('BlankOutlineDraftRow — the left-edge lanes (#3026)', () => {
     render(<BlankOutlineDraftRow onCommit={vi.fn()} nameWidth={240} />);
     const row = screen.getByRole('row');
     expect(row.querySelector(':scope > span[aria-hidden="true"]')).toBeNull();
+  });
+});
+
+/**
+ * The vocabulary lock on the blank-project placeholder (#3027).
+ *
+ * This row IS the placeholder surface the rule names, and it is the first thing
+ * a new project shows — so "Type your first task" is the product's opening claim
+ * about what the user is allowed to create, made before they have chosen a type
+ * and directly beside the `+ Phase` and `+ Milestone` paths that say otherwise.
+ */
+describe('BlankOutlineDraftRow — the vocabulary lock (#3027)', () => {
+  it('invites an item, not a task', () => {
+    render(<BlankOutlineDraftRow onCommit={vi.fn()} nameWidth={240} />);
+    const input = screen.getByRole('textbox', { name: 'First item name' });
+    expect(input).toHaveAttribute('placeholder', 'Type your first item, then press Enter');
+  });
+
+  it('says "No items yet." on the read-only variant', () => {
+    render(<BlankOutlineDraftRow nameWidth={240} />);
+    expect(screen.getByRole('row')).toHaveTextContent('No items yet.');
+    expect(screen.getByRole('row')).not.toHaveTextContent(/no tasks yet/i);
   });
 });

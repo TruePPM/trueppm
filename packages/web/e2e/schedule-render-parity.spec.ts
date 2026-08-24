@@ -6,7 +6,7 @@
  * - Owner column renders avatars
  * - Toolbar toggle buttons (4 of them) render with aria-pressed
  * - Summary chip shows task count + critical count + CPM ✓
- * - "+ Milestone" button is visible peer to "+ Task"
+ * - "+ Milestone" button is visible peer to "+ Item"
  * - Clicking "+ Milestone" inserts a row + fires the pulse overlay
  * - Reduced-motion suppresses the pulse overlay
  *
@@ -183,7 +183,7 @@ test.describe('Schedule milestone toolbar — +Milestone (#340)', () => {
     });
   });
 
-  test('+ Milestone button is visible as peer to + Task', async ({ page }) => {
+  test('+ Milestone button is visible as peer to + Item', async ({ page }) => {
     await page.goto(BASE_URL);
     await expect(page.getByTestId('add-milestone-button')).toBeVisible();
     await expect(page.getByTestId('add-milestone-button')).toContainText('Milestone');

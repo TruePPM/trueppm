@@ -308,7 +308,7 @@ describe('one row model, two surfaces (#2960)', () => {
     const timeline = renderSurface('timeline');
     expect(grid.headers).toEqual([
       'WBS',
-      'Task',
+      'Item',
       'Links',
       'Dur',
       'Start',
@@ -316,10 +316,10 @@ describe('one row model, two surfaces (#2960)', () => {
       '%',
       'Owner',
     ]);
-    expect(timeline.headers).toEqual(['WBS', 'Task']);
+    expect(timeline.headers).toEqual(['WBS', 'Item']);
     // The name column is byte-identical, which is what makes a gate's name "two
     // cells to the left" true on the Timeline as well as the Grid.
-    expect(timeline.headers).toContain('Task');
+    expect(timeline.headers).toContain('Item');
   });
 
   it('draws Links on the Grid ONLY, and the Display menu says the same (#3023)', () => {

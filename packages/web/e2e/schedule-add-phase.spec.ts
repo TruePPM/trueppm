@@ -115,7 +115,7 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
         const created: MockTask = {
           id: `new-${tasks.length + 1}`,
           wbs_path: wbsPath,
-          name: body.name ?? 'New task',
+          name: body.name ?? 'New item',
           early_start: '2026-04-05',
           early_finish: '2026-04-05',
           planned_start: null,
@@ -200,7 +200,7 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
     await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
   });
 
-  test('+ Phase button is a visible peer to + Task and + Milestone, brand-primary (not gold)', async ({ page }) => {
+  test('+ Phase button is a visible peer to + Item and + Milestone, brand-primary (not gold)', async ({ page }) => {
     const button = page.getByRole('button', { name: 'Add new phase (Option+Cmd+P)' });
     await expect(button).toBeVisible();
     await expect(button).toContainText('Phase');
@@ -229,7 +229,7 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
   }) => {
     // The #2955 contract, and the reason the button composes create-then-group rather
     // than create-then-create. Before this issue the button minted a childless summary
-    // and offered a ghost "⊕ Add first task to this phase"; a planner who ignored it was
+    // and offered a ghost "⊕ Add first item to this phase"; a planner who ignored it was
     // left with an empty phase in the plan. Now the first task arrives with the phase.
     await page.getByRole('button', { name: 'Add new phase (Option+Cmd+P)' }).click();
     const nameInput = page.getByRole('textbox', { name: 'Rename task Untitled phase' });
@@ -250,7 +250,7 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
     // pass for either value and therefore assert nothing; the depth is the claim.
     const phaseRow = grid.getByRole('row').filter({ hasText: 'Design Phase' }).first();
     await expect(phaseRow).toHaveAttribute('aria-level', '1');
-    const childRow = grid.getByRole('row').filter({ hasText: 'New task' }).first();
+    const childRow = grid.getByRole('row').filter({ hasText: 'New item' }).first();
     await expect(childRow).toHaveAttribute('aria-level', '2');
   });
 });

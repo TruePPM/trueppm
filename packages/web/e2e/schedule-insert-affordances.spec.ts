@@ -95,7 +95,7 @@ test.describe('Schedule — each insert affordance lands where its position impl
     await expect(statement).toHaveAttribute('data-target-kind', 'after');
     // The button describes itself with that same sentence, so a screen-reader
     // user hears it on focus rather than never.
-    const addTask = page.getByRole('button', { name: 'Add task' });
+    const addTask = page.getByRole('button', { name: 'Add item' });
     await expect(addTask).toHaveAttribute(
       'aria-describedby',
       'schedule-insert-target-statement',
@@ -113,6 +113,22 @@ test.describe('Schedule — each insert affordance lands where its position impl
       .toBe('1.3');
   });
 
+  test('the toolbar create says "+ Item" in the text a sighted user reads (#3027)', async ({
+    page,
+  }) => {
+    // Every other locator in this file resolves on `aria-label="Add item"`,
+    // which SHADOWS the visible text in the accessible name — so `+ Task` could
+    // come back and the whole suite would stay green. Its two peers are pinned
+    // by their visible text (`schedule-render-parity.spec.ts` on Milestone,
+    // `schedule-add-phase.spec.ts` on Phase); this is the third of the three.
+    await setupTaskStore(page, { tasks: FIXTURE_TASKS });
+    await page.goto(BASE_URL);
+    await expect(page.getByText('Survey the site')).toBeVisible();
+    const create = page.getByRole('button', { name: 'Add item' });
+    await expect(create).toContainText('Item');
+    await expect(create).not.toContainText('Task');
+  });
+
   test('the toolbar says ⏎ saves, not inserts, while the new row is unnamed — and refuses to add a second', async ({
     page,
   }) => {
@@ -121,7 +137,7 @@ test.describe('Schedule — each insert affordance lands where its position impl
     await expect(page.getByText('Clear access road')).toBeVisible();
 
     await page.getByText('Clear access road').click();
-    const addTask = page.getByRole('button', { name: 'Add task' });
+    const addTask = page.getByRole('button', { name: 'Add item' });
     await addTask.click();
     await expect.poll(() => store.creates.length).toBe(1);
 
@@ -154,7 +170,7 @@ test.describe('Schedule — each insert affordance lands where its position impl
     await page.getByText('Survey the site').click();
     const statement = page.getByTestId('schedule-insert-target');
     await expect(statement).toHaveText('⏎ adds a row after 1.2 · same level');
-    await expect(page.getByRole('button', { name: 'Add task' })).toHaveAttribute(
+    await expect(page.getByRole('button', { name: 'Add item' })).toHaveAttribute(
       'aria-describedby',
       'schedule-insert-target-statement',
     );
@@ -167,14 +183,14 @@ test.describe('Schedule — each insert affordance lands where its position impl
     await page.goto(BASE_URL);
     await expect(page.getByText('Survey the site')).toBeVisible();
 
-    // Park the cursor deep inside the phase. The old single "Add task" button
+    // Park the cursor deep inside the phase. The old single "Add item" button
     // would have honored this; the footer must not.
     await page.getByText('Survey the site').click();
     await expect(page.getByTestId('schedule-insert-target')).toBeVisible();
 
     const footer = page.getByTestId('schedule-append-task-footer');
     await footer.scrollIntoViewIfNeeded();
-    await footer.getByRole('button', { name: 'Add a task at the end' }).click();
+    await footer.getByRole('button', { name: 'Add an item at the end' }).click();
 
     await expect.poll(() => store.creates.length).toBe(1);
     // `?? null`, not `toMatchObject({ parent_id: null })`: the client drops a
@@ -212,7 +228,7 @@ test.describe('Schedule — each insert affordance lands where its position impl
 
     await page.getByText('Survey the site').click();
     await expect(page.getByTestId('schedule-insert-target')).toBeVisible();
-    await page.getByRole('button', { name: 'Add task' }).click();
+    await page.getByRole('button', { name: 'Add item' }).click();
     await expect.poll(() => store.creates.length).toBe(1);
 
     // One act, one entry — and the sentence names the neighbour the row landed
@@ -242,7 +258,7 @@ test.describe('Schedule — each insert affordance lands where its position impl
 
     const footer = page.getByTestId('schedule-append-task-footer');
     await footer.scrollIntoViewIfNeeded();
-    await footer.getByRole('button', { name: 'Add a task at the end' }).click();
+    await footer.getByRole('button', { name: 'Add an item at the end' }).click();
     await expect.poll(() => store.creates.length).toBe(1);
 
     const trailButton = page.getByRole('button', { name: /structural change.* this session/i });
@@ -277,7 +293,7 @@ test.describe('Schedule — each insert affordance lands where its position impl
     await expect(page.getByText('Survey the site')).toBeVisible();
     await page.getByText('Survey the site').click();
     await expect(page.getByTestId('schedule-insert-target')).toBeVisible();
-    await page.getByRole('button', { name: 'Add task' }).click();
+    await page.getByRole('button', { name: 'Add item' }).click();
 
     await expect.poll(() => refusedCreates).toBe(1);
     expect(store.creates).toHaveLength(0);
@@ -292,7 +308,7 @@ test.describe('Schedule — each insert affordance lands where its position impl
   test('a viewer gets neither affordance — absent, not disabled', async ({ page }) => {
     // Viewer is ordinal 1, not 0 and not 100 (`lib/roles.ts` — every ordinal is
     // truthy on purpose, #2489). The whole authoring apparatus goes; a dimmed
-    // "Add a task at the end" would teach a reader the product is broken
+    // "Add an item at the end" would teach a reader the product is broken
     // (rule 302).
     await page.route('**/api/v1/projects/*/members/**', (route) =>
       route.fulfill({
@@ -312,7 +328,7 @@ test.describe('Schedule — each insert affordance lands where its position impl
     await page.goto(BASE_URL);
     await expect(page.getByText('Survey the site')).toBeVisible();
 
-    await expect(page.getByRole('button', { name: 'Add task' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Add item' })).toHaveCount(0);
     await expect(page.getByTestId('schedule-append-task-footer')).toHaveCount(0);
     await page.getByText('Survey the site').click();
     await expect(page.getByTestId('schedule-insert-target')).toHaveCount(0);

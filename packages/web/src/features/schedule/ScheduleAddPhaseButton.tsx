@@ -9,14 +9,14 @@ export interface ScheduleAddPhaseButtonProps {
 }
 
 /**
- * Toolbar peer to "+ Task" / "+ Milestone" (epic #1752, issue #1754) — inserts
+ * Toolbar peer to "+ Item" / "+ Milestone" (epic #1752, issue #1754) — inserts
  * a new WBS summary row (a "phase-in-waiting" until it gains its first
  * structural child; ADR-0293) at the insertion point and drops straight into
  * inline name edit.
  *
  * The glyph is a summary-bar bracket (thin bar with downward end-caps),
  * matching the canvas `drawSummaryBar` rollup shape — deliberately distinct
- * from the milestone's gold diamond and the plain-bordered "+ Task" button so
+ * from the milestone's gold diamond and the plain-bordered "+ Item" button so
  * the toolbar reads as three visually distinct creation affordances. Uses the
  * `--brand-primary` family, never gold (gold is reserved for milestone).
  *

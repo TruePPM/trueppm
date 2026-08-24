@@ -324,7 +324,7 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
     await expect(menu.getByRole('menuitemcheckbox', { name: 'Links' })).toBeVisible();
     await page.keyboard.press('Escape');
 
-    // Timeline draws WBS + Task only, so it offers exactly the one toggle that
+    // Timeline draws WBS + Item only, so it offers exactly the one toggle that
     // does something — the rest are ABSENT, not present-and-inert (rule 302).
     await page.getByRole('radio', { name: 'Timeline' }).click();
     menu = await openMenu();

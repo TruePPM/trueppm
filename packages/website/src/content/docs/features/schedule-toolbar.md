@@ -4,12 +4,12 @@ description: Reference for the Schedule view toolbar — filter groups, summary 
 documentedFor: "0.4"
 ---
 
-The Schedule view's toolbar gives you the at-a-glance project status (rightmost summary chip), the day-to-day filtering controls (toggle groups), and the three primary authoring actions (`+ Task`, `+ Milestone`, `+ Phase`).
+The Schedule view's toolbar gives you the at-a-glance project status (rightmost summary chip), the day-to-day filtering controls (toggle groups), and the three primary authoring actions (`+ Item`, `+ Milestone`, `+ Phase`).
 
 ## Toolbar layout
 
 ```
-[ + Task ] [ + Milestone ]   ( + Phase · Group · Ungroup — off by default )   [ Build mode pill ]
+[ + Item ] [ + Milestone ]   ( + Phase · Group · Ungroup — off by default )   [ Build mode pill ]
 [ CP only · Focus chain ]   [ Critical path · Milestones ]
                                  ...
 [ {N} tasks · {C} critical · CPM ✓ ]   [ Grid | Timeline ]   [ Today ]   [ − {level} + ] [ Fit ]
@@ -30,9 +30,9 @@ table versus the bars. **Both layouts render the same rows** — the same order,
 nesting, the same collapsed phases, the same fold carets, mode gutters, drag grips and
 insert points. What changes is only how many columns the outline gives you:
 
-- **Grid** (default) — the full task-list table (WBS, Task, Links, Dur, Start, Finish, %,
+- **Grid** (default) — the full item-list table (WBS, Item, Links, Dur, Start, Finish, %,
   Owner) sits to the left of the bars, with a draggable splitter between them.
-- **Timeline** — the outline narrows to **WBS + Task**, and Links, Duration, Start,
+- **Timeline** — the outline narrows to **WBS + Item**, and Links, Duration, Start,
   Finish, % and Owner give their width to the bar track. Links is absent there on
   purpose: the canvas already draws the dependency arrows. Nothing about the plan's shape is hidden:
   a phase is still a phase, a collapsed phase is still collapsed, and collapsing one here
@@ -132,20 +132,20 @@ This is deliberately a different key from outdent (`⌥←`): outdenting *one* r
 
 ### `+ Phase` — `⌥⌘P` / `Alt + Ctrl + P`
 
-Creates a phase **with its first task already in it**, at your currently-focused insertion point (same phase-nesting inference as `+ Task` / `+ Milestone`), and opens the phase's name for editing. A button never leaves an empty phase behind.
+Creates a phase **with its first task already in it**, at your currently-focused insertion point (same phase-nesting inference as `+ Item` / `+ Milestone`), and opens the phase's name for editing. A button never leaves an empty phase behind.
 
-A **phase-in-waiting** — a summary row with no structural child yet — is still a legitimate state; you can reach one by other routes, and the row shows a dashed "⊕ Add first task to this phase" hint in place of the assignee display until it gains a child.
+A **phase-in-waiting** — a summary row with no structural child yet — is still a legitimate state; you can reach one by other routes, and the row shows a dashed "⊕ Add first item to this phase" hint in place of the assignee display until it gains a child.
 
 Once a row is a phase, its rollup behavior matches every other WBS summary task (dates and percent complete roll up from children) with a few phase-specific locks: it can't take a direct assignee, a direct time log, or (once #1755 lands) a sprint assignment — dependency and baseline rollups still apply normally.
 
 ## Task-list columns
 
-The task list shows eight columns by default in **Grid**. All except Task can be hidden via the **Columns** popover — which offers exactly the columns the current layout draws, so in **Timeline** (WBS + Task) it offers WBS alone rather than six checkboxes that would change nothing. A column you hide in Grid stays hidden in Timeline; switching layout never brings one back.
+The task list shows eight columns by default in **Grid**. All except Item can be hidden via the **Columns** popover — which offers exactly the columns the current layout draws, so in **Timeline** (WBS + Item) it offers WBS alone rather than six checkboxes that would change nothing. A column you hide in Grid stays hidden in Timeline; switching layout never brings one back.
 
 | Column | Width | Content |
 |---|---|---|
 | WBS | 48 px | Dot-path numbering (`1.1.2`). Long paths truncate with a hover tooltip. |
-| Task | flex | Name + chevron for summary expand/collapse + WBS indent. |
+| Item | flex | Name + chevron for summary expand/collapse + WBS indent. |
 | Links | 104 px | The row's dependency flags — see below. Each is a control. |
 | Dur | 52 px | Duration in working days (`5d`). |
 | Start | 74 px | Computed early start (read-only — change Planned Start to override). |

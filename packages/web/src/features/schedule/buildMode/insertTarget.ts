@@ -59,7 +59,7 @@ function trailingSegment(wbs: string): number {
  *
  * `isPristineNewRow` is the same predicate `TaskListRow` uses to render a
  * freshly-created row's Name cell blank: the API rejects a blank name at
- * create, so such a row carries a placeholder ("New task") on the wire while
+ * create, so such a row carries a placeholder ("New item") on the wire while
  * reading as untouched in the UI. Passing it here is what keeps the toolbar's
  * sentence agreeing with what the user can actually see in the cell.
  */

@@ -235,15 +235,15 @@ export function ScheduleEmptyState({ onAddTask }: { onAddTask?: () => void }) {
     <EmptyState
       className="h-full bg-neutral-surface"
       icon={GanttIcon}
-      title="No tasks yet"
-      description="Add tasks to lay out your schedule — the timeline, critical path, and forecast appear as soon as there's work to plan."
+      title="No items yet"
+      description="Add items to lay out your schedule — the timeline, critical path, and forecast appear as soon as there's work to plan."
       // A discoverable create CTA (#2044) — mirrors Board's empty state so a new
-      // user is never left hunting for the small toolbar "+ Task" button. Omitted
+      // user is never left hunting for the small toolbar "+ Item" button. Omitted
       // for read-only roles (Viewer), who have no create affordance to offer.
       action={
         onAddTask ? (
           <Button variant="primary" onClick={onAddTask}>
-            + Add task
+            + Add item
           </Button>
         ) : undefined
       }
@@ -329,7 +329,7 @@ function ScheduleFallbackTable({ tasks }: ScheduleFallbackTableProps) {
       <table className="w-full text-sm text-neutral-text-primary border-collapse">
         <thead>
           <tr className="border-b border-neutral-border">
-            <th className="text-left py-1 pr-4 font-medium">Task</th>
+            <th className="text-left py-1 pr-4 font-medium">Item</th>
             <th className="text-left py-1 pr-4 font-medium">Start</th>
             <th className="text-left py-1 pr-4 font-medium">Finish</th>
             <th className="text-left py-1 font-medium">Duration</th>
@@ -1608,7 +1608,7 @@ export function ScheduleView() {
     isError: roleError,
   } = useCurrentUserRole(projectIdUndef);
   // Pessimistic while the role loads (#2145): `canEditTask(null)` is false, so
-  // every create control (+ Task / + Milestone / + Phase) stays disabled until
+  // every create control (+ Item / + Milestone / + Phase) stays disabled until
   // the role resolves — matching the pessimistic `canImport`/`canShare`/
   // `canCaptureBaseline` gates below rather than flashing enabled for the
   // non-member majority. The server is authoritative; this is the UX gate.
@@ -2230,7 +2230,7 @@ export function ScheduleView() {
     ) => {
       createTaskMut.mutate(
         {
-          name: 'New task',
+          name: 'New item',
           duration: 1,
           parent_id: parentId,
           ...(sourceTask?.deliveryMode ? { delivery_mode: sourceTask.deliveryMode } : {}),
@@ -2559,7 +2559,7 @@ export function ScheduleView() {
   // View-scoped keyboard bindings (#340 + A1's `?` migration).
   // Parent inference uses build-mode focus when active, otherwise the row the
   // user clicked (selectedTaskId). Either way the new row lands inside the
-  // nearest enclosing summary so "+ Task / + Milestone under the highlighted
+  // nearest enclosing summary so "+ Item / + Milestone under the highlighted
   // phase" matches user intent rather than always appending at root.
   const buildModeFocusedRowId = focus.state.rowId;
   const inferredParentId = useMemo(
@@ -2598,7 +2598,7 @@ export function ScheduleView() {
   );
 
   /**
-   * The toolbar's `+ Task`. Three outcomes, each matching what the toolbar
+   * The toolbar's `+ Item`. Three outcomes, each matching what the toolbar
    * states beside the button:
    *
    * - a named row is focused → a sibling directly after it, same depth. This is
@@ -2626,7 +2626,7 @@ export function ScheduleView() {
   }, [readOnly, insertTarget, buildModeApi]);
 
   /**
-   * The footer's "Add a task at the end". `parent_id: null` unconditionally —
+   * The footer's "Add an item at the end". `parent_id: null` unconditionally —
    * top level, regardless of what is selected — because the end of the plan is
    * not inside anything, and the server appends a new root task after the last
    * one. Deliberately ignores `inferredParentId`: honoring the cursor from a
@@ -2691,7 +2691,7 @@ export function ScheduleView() {
   // the row has a structural (non-subtask) child — so a freshly inserted
   // summary row is a "phase-in-waiting" until then. Track those ids for this
   // session (sessionStorage, project-scoped) so the row can render the ghost
-  // "Add first task to this phase" affordance; a reload before adding a child
+  // "Add first item to this phase" affordance; a reload before adding a child
   // just shows a normal (legitimately childless) row — no functional loss,
   // per the ux-design decision that an empty phase-in-waiting persists fine.
   /**
@@ -2787,7 +2787,7 @@ export function ScheduleView() {
 
   const handleAddPhase = useCallback(() => {
     if (!projectId || readOnly) return;
-    // Same insertion point as "+ Task" / "+ Milestone" (inferredParentId) — a
+    // Same insertion point as "+ Item" / "+ Milestone" (inferredParentId) — a
     // phase can itself nest inside another phase. Non-blank placeholder name
     // (mirrors handleAddFirstTask below): the API rejects a blank name at
     // create, so the row opens straight into cell-edit for the user to
@@ -2810,7 +2810,7 @@ export function ScheduleView() {
     // thing in a single step instead of unwinding two creates that were never
     // recorded as anything.
     createTaskMut.mutate(
-      { name: 'New task', duration: 1, parent_id: inferredParentId },
+      { name: 'New item', duration: 1, parent_id: inferredParentId },
       {
         onSuccess: (created) => {
           groupTasksMut.mutate(
@@ -3029,7 +3029,7 @@ export function ScheduleView() {
     );
   }, [focus.state.rowId, allTasks]);
 
-  // Ghost "⊕ Add first task to this phase" affordance (phase-in-waiting hint,
+  // Ghost "⊕ Add first item to this phase" affordance (phase-in-waiting hint,
   // TaskListRow). Creates a structural (is_subtask: false, the default)
   // child nested one WBS level under the phase row — the first such child is
   // what flips `isPhaseTask` true and retires the hint.
@@ -3037,7 +3037,7 @@ export function ScheduleView() {
     (phaseTaskId: string) => {
       if (!projectId) return;
       createTaskMut.mutate(
-        { name: 'New task', duration: 1, parent_id: phaseTaskId },
+        { name: 'New item', duration: 1, parent_id: phaseTaskId },
         {
           onSuccess: (data) => {
             focus.focusRow(data.id);
@@ -4835,7 +4835,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
       aria-label="Schedule toolbar"
       className="flex flex-nowrap items-center gap-2 px-4 h-10 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0"
     >
-      {/* "+ Task" button — shown when a project is selected AND the user may
+      {/* "+ Item" button — shown when a project is selected AND the user may
           author. A viewer never sees it (#2949); an editor who chose Read sees
           it disabled, on the same `readOnly` gate as its "+ Milestone" /
           "+ Phase" peers (#2145).
@@ -4856,7 +4856,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           // present-and-inert with a refusal that explains itself, which is what
           // web rule 302 asks for on that side of the split.
           disabled={readOnly || insertTarget.kind === 'unnamed'}
-          aria-label="Add task"
+          aria-label="Add item"
           // The accessible NAME stays stable across all three branches — a
           // control renaming itself as the cursor moves is disorienting. The
           // qualification rides on `aria-describedby`, which is announced on
@@ -4873,10 +4873,10 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
               hover:border-brand-primary hover:text-brand-primary
               disabled:bg-neutral-surface-sunken disabled:text-neutral-text-disabled disabled:border-neutral-border disabled:cursor-not-allowed"
         >
-          + Task
+          + Item
         </button>
       )}
-      {/* Where that button will land its row (#2957). Adjacent to `+ Task`
+      {/* Where that button will land its row (#2957). Adjacent to `+ Item`
           rather than after the `+ Milestone` / `+ Phase` peers, because it
           states what THIS control does and a sentence sitting flush against a
           different button reads as annotating that one — the same
@@ -4901,7 +4901,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           the default takes the leaner reading. The Display menu's Outline section
           restores them, which is also the pointer-only user's way *in* — the chords are
           a complete keyboard path, and turning the group on once is a complete pointer
-          path. Same edit-rights gate as "+ Task" / "+ Milestone": absent without
+          path. Same edit-rights gate as "+ Item" / "+ Milestone": absent without
           rights, present-and-inert for an editor who chose Read (#2949, rule 302). */}
       {projectId && hasEditRights && displayOptions.structureButtons && (
         <>

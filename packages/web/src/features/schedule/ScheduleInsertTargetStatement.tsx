@@ -1,7 +1,7 @@
 import { describeInsertTarget, type InsertTarget } from './buildMode/insertTarget';
 
 /**
- * Stable id the `+ Task` button points `aria-describedby` at. Fixed rather than
+ * Stable id the `+ Item` button points `aria-describedby` at. Fixed rather than
  * generated: exactly one Schedule toolbar is mounted at a time, and the button
  * has to name the element from a different component.
  */

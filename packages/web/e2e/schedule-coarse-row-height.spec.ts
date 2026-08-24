@@ -228,6 +228,56 @@ test.describe('Schedule rows on a coarse pointer (#2997)', () => {
     await expect(insert).toHaveCSS('opacity', '1');
   });
 
+  test('the insert `+` presents a 44x44 tap box, and a tap OUTSIDE its disc lands (#3029)', async ({
+    page,
+  }) => {
+    // The disc is 16px and cannot grow — it straddles the row boundary, so a
+    // 44px circle there would cover the name cell of the rows on both sides.
+    // The target is therefore a `before:` box nobody sees, and the only thing
+    // that can measure a pseudo-element is a real engine: jsdom computes no
+    // pseudo geometry at all, so the unit tests can pin the constants and the
+    // custom property but never the resulting box.
+    const insert = outlineRow(page, 'Survey').getByRole('button', {
+      name: /Insert an item below Survey/,
+    });
+    const disc = await boxOf(insert);
+    // The mark stays small — this is the half of the fix that must NOT change.
+    expect(disc.width, 'visible disc width').toBeCloseTo(16, 0);
+
+    const tap = await insert.evaluate((el) => {
+      const before = window.getComputedStyle(el, '::before');
+      return { width: Number.parseFloat(before.width), height: Number.parseFloat(before.height) };
+    });
+    // Web rule 5 / WCAG 2.5.5, on the primary pointer route to inserting a row
+    // on a tablet — and the last control on this row still sizing itself.
+    expect(tap.width, 'tap-box width').toBeGreaterThanOrEqual(44);
+    expect(tap.height, 'tap-box height').toBeGreaterThanOrEqual(44);
+
+    // …and the box is live, not merely painted. A point 10px above the disc is
+    // outside the 16px mark and inside the 14px overhang, so it can only be
+    // answered by the `before:` box. Asserted by hit-testing rather than by
+    // arithmetic on the numbers above, which would agree with a box that exists
+    // but sits behind something (the #3026 lesson, from the other direction).
+    const px = disc.x + disc.width / 2;
+    const py = disc.y - 10;
+    const hitLabel = await page.evaluate(
+      ({ px, py }) => document.elementFromPoint(px, py)?.getAttribute('aria-label') ?? null,
+      { px, py },
+    );
+    expect(hitLabel).toMatch(/^Insert an item below Survey/);
+
+    let creates = 0;
+    await page.route('**/api/v1/tasks/', async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      creates += 1;
+      await route.fulfill({
+        json: taskRow({ id: 'r-new', wbs_path: '2.1', name: 'New Task', parent_id: null }),
+      });
+    });
+    await page.touchscreen.tap(px, py);
+    await expect.poll(() => creates, { message: 'a tap in the overhang inserts a row' }).toBe(1);
+  });
+
   test('the ⋮⋮ reorder grip meets the 44x44 floor (the #2954 mitigation is closed)', async ({
     page,
   }) => {
@@ -256,7 +306,7 @@ test.describe('Schedule rows on a coarse pointer (#2997)', () => {
     // rows and the draft row. Drop it from any one of them and that element's
     // columns sit 44px off — which reads as a broken table, not as a constant
     // that drifted. jsdom cannot see this; only a real layout can.
-    const header = page.getByRole('row', { name: 'Task list columns' });
+    const header = page.getByRole('row', { name: 'Item list columns' });
     const headerWbs = await boxOf(header.getByRole('columnheader', { name: /Work breakdown/ }));
     const rowWbs = await boxOf(outlineRow(page, 'Survey').getByRole('gridcell', { name: /^WBS/ }));
     expect(rowWbs.x, 'row WBS column aligns with its header').toBeCloseTo(headerWbs.x, 0);

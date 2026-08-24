@@ -35,7 +35,7 @@ function startOfWeek(d: Date): Date {
 /**
  * The right half of a blank project's Schedule (#2733).
  *
- * Replaces the "No tasks yet" card with two things a card cannot be: a **horizon**
+ * Replaces the "No items yet" card with two things a card cannot be: a **horizon**
  * drawn against the project's own calendar, so an empty project looks like a plan
  * surface rather than a failure; and a **quiet** side panel of the other ways to
  * fill it.

@@ -20,7 +20,7 @@ export interface BlankOutlineDraftRowProps {
    * Everything a real row reserves left of its first column — the ⋮⋮ grip's
    * lane (#2997) plus the ⇤/⇥ structural-nudge lane (#3026) — from
    * `TaskListPanel`, via `resolveOutlineLeftReserve`. Defaults to 0 so the
-   * *empty* variant — the "No tasks yet." line a viewer sees — reserves
+   * *empty* variant — the "No items yet." line a viewer sees — reserves
    * nothing, matching the rows a viewer gets.
    */
   leftReserve?: number;
@@ -29,13 +29,13 @@ export interface BlankOutlineDraftRowProps {
 /**
  * Row 1 of a blank project's outline — live, with the caret already in it (#2733).
  *
- * This replaces the "No tasks yet ◆ ◆ ◆ / Add first task" card. The difference is
+ * This replaces the "No items yet ◆ ◆ ◆ / Add first item" card. The difference is
  * not cosmetic: a card is a thing you must *dismiss* before you can work, and it
  * made a brand-new project read as a failure state. A live row makes the same
  * screen a canvas — structure accumulates as you type, and the first keystroke is
  * the first task rather than the third click.
  *
- * It is a **local draft**, not an eagerly-created task. Creating a "New task" row
+ * It is a **local draft**, not an eagerly-created task. Creating a "New item" row
  * server-side on mere navigation would litter every project someone opened and
  * backed out of, and would put a row into other people's live views before its
  * author had typed anything. Nothing is persisted until there is a name to persist.
@@ -98,7 +98,7 @@ export function BlankOutlineDraftRow({
         style={{ height: rowHeight }}
         className="flex items-center px-2 text-xs text-neutral-text-secondary"
       >
-        <span role="gridcell">No tasks yet.</span>
+        <span role="gridcell">No items yet.</span>
       </div>
     );
   }
@@ -133,8 +133,8 @@ export function BlankOutlineDraftRow({
           // The placeholder carries the affordance the deleted card used to
           // spell out. It has to read as an invitation to type, not as a label
           // for a field someone is hunting for.
-          placeholder="Type your first task, then press Enter"
-          aria-label="First task name"
+          placeholder="Type your first item, then press Enter"
+          aria-label="First item name"
           className="w-full bg-transparent text-sm text-neutral-text-primary
             placeholder:text-neutral-text-disabled focus:outline-none"
         />
