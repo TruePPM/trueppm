@@ -68,6 +68,17 @@ curl -fsS -H "Authorization: Bearer $ADMIN_JWT" \
 |---|---|---|
 | `TRUEPPM_BEAT_STALE_SECONDS` | `120` | Age past which the heartbeat is considered stale, for both the endpoint flag and the WARNING log |
 
+## Recurring-task occurrence generation
+
+The other Beat-scheduled job worth knowing by name is
+`projects.generate_recurring_occurrences`, which runs **hourly** and materializes
+recurring-task occurrences lazily — only those due within
+`TRUEPPM_RECURRENCE_HORIZON_DAYS` (default 14), rather than the full, possibly
+infinite series. A missed tick self-heals on the next one, because generation is
+idempotent through a per-occurrence unique constraint, so nothing is lost if Beat
+briefly stops. See [Recurring tasks](/features/recurring-tasks/) for the feature
+itself and [Configuration](/administration/configuration/) for the knob.
+
 ## Wiring it into Kubernetes / monitoring
 
 `/api/v1/health/beat/` is **authenticated**, so it is not a drop-in `httpGet` liveness

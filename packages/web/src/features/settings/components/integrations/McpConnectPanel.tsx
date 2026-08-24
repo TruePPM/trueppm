@@ -11,7 +11,7 @@
  * The snippet's shape is the single source of truth for the config: the command
  * is `trueppm-mcp`, the env vars are `TRUEPPM_API_URL` (the instance origin; the
  * server appends `/api/v1`) and `TRUEPPM_API_TOKEN`. Keep it in step with
- * `docs/administration/mcp-server.md` and the `trueppm-mcp` package.
+ * `packages/website/src/content/docs/administration/mcp-server.md` and the `trueppm-mcp` package.
  *
  * The install line is part of the affordance, not decoration (#2890): the config
  * names a `trueppm-mcp` executable, and a client told only to "add this and restart"
@@ -69,7 +69,7 @@ export function buildClaudeDesktopConfig(apiUrl: string, token: string): string 
 /**
  * One-time reveal for an `mcp:read` token: the raw token plus a copy-paste
  * `claude_desktop_config.json` snippet. The snippet's shape must stay in step
- * with `docs/administration/mcp-server.md` and the `trueppm-mcp` package — the
+ * with `packages/website/src/content/docs/administration/mcp-server.md` and the `trueppm-mcp` package — the
  * command is `trueppm-mcp`, the env vars are `TRUEPPM_API_URL` (the instance
  * origin; the server appends `/api/v1`) and `TRUEPPM_API_TOKEN`.
  */

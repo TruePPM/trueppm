@@ -11,7 +11,7 @@ not get to phone home*. `packages/web/index.html` used to load the type from
 `fonts.googleapis.com`, which meant two things nobody had signed up for (#2419):
 
 1. **Every page load emitted a third-party request** from the end user's browser,
-   carrying their IP and referrer — undisclosed anywhere in `docs/administration/`.
+   carrying their IP and referrer — undisclosed anywhere in `packages/website/src/content/docs/administration/`.
    In some regulated environments that alone is a deployment blocker.
 2. **Air-gapped and network-restricted installs got degraded typography.** The
    `@font-face` request failed, the browser silently substituted a fallback, the

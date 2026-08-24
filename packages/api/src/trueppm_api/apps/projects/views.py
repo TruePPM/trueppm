@@ -17523,7 +17523,7 @@ class AttachmentSigningNotSupported(APIException):
     the same indefinite-lifetime path forever, so honoring the request would hand
     back an ``expires_at`` that lies. Refusing outright — rather than silently
     returning the unsigned path — is the fix; see
-    ``docs/administration/`` for configuring a signing-capable backend.
+    ``packages/website/src/content/docs/administration/`` for configuring a signing-capable backend.
     """
 
     status_code = status.HTTP_501_NOT_IMPLEMENTED

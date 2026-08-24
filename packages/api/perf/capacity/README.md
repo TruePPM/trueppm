@@ -1,7 +1,7 @@
 # Capacity harness — the published scale envelope
 
 This harness produces the numbers behind **"Tested envelope"** in
-`docs/administration/sizing.md` (issue #2391). It is a different instrument from
+`packages/website/src/content/docs/administration/sizing.md` (issue #2391). It is a different instrument from
 `../load.js`, and conflating the two would misread both:
 
 |  | `perf/load.js` (k6) | `perf/capacity/` (this) |

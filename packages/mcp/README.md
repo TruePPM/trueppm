@@ -58,7 +58,7 @@ Or expose the HTTP/SSE transport for a web-based assistant:
 trueppm-mcp --transport http --host 127.0.0.1 --port 8000
 ```
 
-See [`docs/administration/mcp-server.md`](https://docs.trueppm.com/administration/mcp-server)
+See [`packages/website/src/content/docs/administration/mcp-server.md`](https://docs.trueppm.com/administration/mcp-server/)
 for wiring it into Claude Desktop's `claude_desktop_config.json`.
 
 ## Status

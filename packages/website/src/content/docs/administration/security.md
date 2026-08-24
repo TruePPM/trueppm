@@ -271,6 +271,24 @@ in that list is enabled by default.
 Never commit secrets to version control. Use environment variables, Docker secrets, or a secrets manager (Vault, AWS Secrets Manager, etc.).
 :::
 
+### Verifying before deploy
+
+Django's deploy check enforces the key rules at boot, so you can prove a
+deployment will start *before* you roll it:
+
+```bash
+DJANGO_SETTINGS_MODULE=trueppm_api.settings.prod \
+  SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))") \
+  ALLOWED_HOSTS=example.com \
+  python manage.py check --deploy --fail-level=ERROR
+```
+
+A key shorter than 32 characters, or one still carrying the Django
+`django-insecure-` placeholder prefix, surfaces the `trueppm.E003` system-check
+error and the command exits non-zero. `secrets.token_urlsafe(50)` produces a
+~67-character URL-safe string; store it in your `.env` (mode `0600`) or, on
+Kubernetes, set the `secrets.djangoSecretKey` Helm value.
+
 ### Separating the JWT signing key and forcing a global sign-out
 
 By default the JWT signing key **is** `SECRET_KEY`. Setting a dedicated

@@ -319,7 +319,7 @@ longer need to set `PYTHONPATH` by hand when running it from a worktree.
 
 1. Grep changed files for new public functions/classes missing docstrings
 2. Verify new user-visible behavior is reflected in `docs/features/` or `docs/getting-started/`
-3. Verify new admin-visible behavior (settings, env vars, Helm values, management commands) is reflected in `docs/administration/`
+3. Verify new admin-visible behavior (settings, env vars, Helm values, management commands) is reflected in `packages/website/src/content/docs/administration/`
 4. Verify new or modified endpoints are reflected in `docs/api/`
 5. Update any screenshots in `docs/` invalidated by UI changes — stale screenshots block the MR
 6. Verify all three test layers are covered: pytest (API), vitest (web units), Playwright E2E (`packages/web/e2e/`)
@@ -356,7 +356,7 @@ Be honest about what this is: it cannot stop a wrong answer — `--update-baseli
 **Do not advertise an API surface a client cannot reach.** Five `program_*` WebSocket events sat in the published taxonomy for months while no `group_add` in the codebase could join a program's channel group — an integrator building against them gets a `4003` and cannot debug their way out. `scripts/check-ws-event-reachability.sh` (CI job `docs:ws-event-reachability`) classifies each event by the **type of the id its `broadcast_board_event()` call site fans out on**, not by its name, and requires an unreachable one to carry a `not deliverable` marker on every taxonomy bullet and table row. It **inverts** when `routing.py` grows the route that makes the event deliverable (#836, 0.8) — the markers then become the reversed claim and must come off. It also asserts every event named in the taxonomy table exists in `FROZEN_WS_EVENT_TYPES`.
 
 ### Mandatory skills for docs work
-- **`docs-writer`** for any change touching `docs/features/`, `docs/getting-started/`, `docs/architecture/`, or `docs/administration/`
+- **`docs-writer`** for any change touching `packages/website/src/content/docs/features/`, `packages/website/src/content/docs/getting-started/`, `packages/website/src/content/docs/architecture/`, or `packages/website/src/content/docs/administration/` — the **published, gated** tree. `docs/` holds ADRs, specs and design records; it is not a second copy of the product docs, and `docs:tree-split` fails if it becomes one (#2928)
 - **`api-docs`** for any endpoint, serializer field, or permission rule change
 
 ### Mandatory design-stage gates
