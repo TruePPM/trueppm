@@ -286,6 +286,126 @@ export function useSprintMutations(projectId: string | null | undefined) {
 }
 
 // ---------------------------------------------------------------------------
+// Close-request watch (#2992)
+// ---------------------------------------------------------------------------
+
+/** Lifecycle of one queued sprint close, as reported by the read route (#2894). */
+export type SprintCloseRequestStatus = 'PENDING' | 'IN_FLIGHT' | 'COMPLETED' | 'FAILED';
+
+/**
+ * `GET /api/v1/sprints/{id}/close-request/` — the most recent close attempt.
+ *
+ * `error_message` is role-gated server-side: project Admins get the raw failure
+ * text, everyone else (and every agent token) gets a complete, human-readable
+ * summary sentence. Either way it is ready to render verbatim — never build a
+ * client-side map from `failure_reason` to copy, or the UI starts disagreeing
+ * with the API about what happened.
+ */
+export interface SprintCloseRequestState {
+  id: string;
+  sprint: string;
+  status: SprintCloseRequestStatus;
+  attempt_count: number;
+  failure_reason: string;
+  error_message: string;
+  requested_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  next_attempt_at: string | null;
+  /**
+   * Whether this request will never be attempted again — the field to branch
+   * on. `status === 'FAILED'` on its own means nothing: the drain re-queues a
+   * failed close for up to three attempts, so a FAILED row with a live retry
+   * clock is one that is about to run again. Only `terminal` distinguishes
+   * "gave up" from "trying again in a minute".
+   */
+  terminal: boolean;
+}
+
+/** How often the fallback poll asks, while a close is still in flight. */
+export const CLOSE_WATCH_POLL_MS = 3_000;
+
+/**
+ * How many times the fallback poll asks before giving up.
+ *
+ * A close that neither completes nor fails within this many rounds is stuck in
+ * a way no further polling diagnoses, and an unbounded poll on a wedged request
+ * would outlive the tab.
+ *
+ * Counted in attempts rather than wall-clock seconds on purpose. TanStack
+ * pauses `refetchInterval` while the tab is hidden, so a deadline of
+ * `Date.now() - startedAt > N` expires against a clock that keeps running while
+ * the polling that was supposed to fill it does not — background the tab for
+ * three minutes and the watch dies having asked zero times. That is the exact
+ * pairing this fallback exists for (a client whose socket is down, on a tab
+ * they have switched away from), so the budget has to be spent on requests
+ * actually made.
+ */
+export const CLOSE_WATCH_MAX_POLLS = 60;
+
+/**
+ * Watch a queued sprint close through to its outcome (#2992).
+ *
+ * `POST /sprints/{id}/close/` returns 202 and the work happens on a Celery
+ * drain, so the close can still fail minutes after the button was pressed. The
+ * `sprint_close_failed` WebSocket event is the primary signal — its handler in
+ * `useProjectWebSocket` invalidates this exact query key, so the outcome lands
+ * as soon as the server knows it. The poll below is the fallback for a client
+ * whose socket is down or who missed the frame, which is why it is bounded
+ * rather than fast: it is a safety net, not the mechanism.
+ *
+ * Returns the failure only once it is **terminal**. A close that failed and is
+ * scheduled to retry surfaces nothing at all — the drain re-runs it about a
+ * minute later and it usually succeeds, so announcing it would alarm the user
+ * about something that self-heals before they could act on it.
+ *
+ * Safe to point at any sprint, not just one this session closed: the route
+ * 404s when no close was ever requested and reports a terminal row otherwise,
+ * and both outcomes stop the poll after a single request. That is what lets the
+ * banner survive a reload and reach a teammate who did not press the button.
+ *
+ * @param sprintId Sprint whose close to watch, or null to watch nothing.
+ */
+export function useSprintCloseWatch(sprintId: string | null) {
+  const query = useQuery({
+    queryKey: ['sprint', sprintId, 'close-request'],
+    queryFn: async () => {
+      const res = await apiClient.get<SprintCloseRequestState>(
+        `/sprints/${sprintId}/close-request/`,
+      );
+      return res.data;
+    },
+    enabled: Boolean(sprintId),
+    // The row is rewritten by a worker we are not in the request path of, so a
+    // cached copy is never trustworthy while the close is live.
+    staleTime: 0,
+    refetchInterval: (q) => {
+      // Settled: the server will not change its mind.
+      if (q.state.data?.terminal) return false;
+      // A 404 means no close was ever requested for this sprint, which is the
+      // common case for a sprint nobody is closing. Stopping on error also
+      // keeps the fallback from hammering an unhealthy backend — the moment a
+      // close fails is exactly the moment the backend is least able to absorb
+      // a request every three seconds from every open tab.
+      if (q.state.status === 'error') return false;
+      const asked = q.state.dataUpdateCount + q.state.errorUpdateCount;
+      if (asked >= CLOSE_WATCH_MAX_POLLS) return false;
+      return CLOSE_WATCH_POLL_MS;
+    },
+  });
+
+  const state = query.data ?? null;
+  return {
+    state,
+    /**
+     * The close is over and the sprint did not close. Null in every other
+     * situation, including a failure the server still intends to retry.
+     */
+    terminalFailure: state !== null && state.terminal && state.status === 'FAILED' ? state : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Cadence generator (#2968)
 // ---------------------------------------------------------------------------
 

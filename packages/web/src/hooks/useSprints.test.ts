@@ -10,6 +10,7 @@ import {
   useActiveSprint,
   useSprintsByState,
   useSprintMutations,
+  useSprintCloseWatch,
   useSprintBurndown,
   useSprintCapacity,
   useIncomingCarryover,
@@ -38,7 +39,7 @@ import {
   useDeclineSuggestion,
   useRevokeSuggestion,
 } from './useSprints';
-import type { SprintRetroResponse } from './useSprints';
+import type { SprintRetroResponse, SprintCloseRequestState } from './useSprints';
 import type { ApiSprint } from '@/types';
 
 const getMock = vi.hoisted(() => vi.fn());
@@ -938,5 +939,94 @@ describe('sprint query gating and failure paths', () => {
     await waitFor(() => expect(result.current.createSprint.isError).toBe(true));
     expect(result.current.createSprint.error?.message).toBe('overlapping sprint window');
     expect(invalidate).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// useSprintCloseWatch (#2992)
+// ---------------------------------------------------------------------------
+
+describe('useSprintCloseWatch', () => {
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    qc = newQc();
+  });
+
+  function closeRequest(overrides: Partial<SprintCloseRequestState>): SprintCloseRequestState {
+    return {
+      id: 'req-1',
+      sprint: 'sp-1',
+      status: 'FAILED',
+      attempt_count: 1,
+      failure_reason: 'error',
+      error_message: 'The close failed and will be retried automatically.',
+      requested_at: '2026-08-23T10:00:00Z',
+      started_at: '2026-08-23T10:00:01Z',
+      completed_at: '2026-08-23T10:00:02Z',
+      next_attempt_at: '2026-08-23T10:01:02Z',
+      terminal: false,
+      ...overrides,
+    };
+  }
+
+  it('does NOT report a failure that is FAILED but not terminal', async () => {
+    // The case the whole hook exists to get right. The drain re-queues a failed
+    // close for up to three attempts, so FAILED on its own means "trying again
+    // in a minute" at least as often as it means "gave up". Branching on status
+    // would alarm the user about a fault that self-heals before they can act.
+    getMock.mockResolvedValue({ data: closeRequest({ terminal: false }) });
+
+    const { result } = renderHook(() => useSprintCloseWatch('sp-1'), { wrapper: makeWrapper(qc) });
+
+    await waitFor(() => expect(result.current.state).not.toBeNull());
+    expect(result.current.state?.status).toBe('FAILED');
+    expect(result.current.terminalFailure).toBeNull();
+  });
+
+  it('reports a terminal FAILED close, with the server-authored message', async () => {
+    getMock.mockResolvedValue({
+      data: closeRequest({
+        terminal: true,
+        next_attempt_at: null,
+        attempt_count: 3,
+        error_message: 'The close failed and will not be retried. The sprint is still open.',
+      }),
+    });
+
+    const { result } = renderHook(() => useSprintCloseWatch('sp-1'), { wrapper: makeWrapper(qc) });
+
+    await waitFor(() => expect(result.current.terminalFailure).not.toBeNull());
+    expect(result.current.terminalFailure?.attempt_count).toBe(3);
+    // Rendered verbatim — the banner never derives copy from failure_reason, so
+    // it cannot disagree with the API about what happened or leak past the
+    // server-side role gate on this field.
+    expect(result.current.terminalFailure?.error_message).toContain('still open');
+  });
+
+  it('does NOT report a failure for a close that terminated successfully', async () => {
+    getMock.mockResolvedValue({
+      data: closeRequest({ status: 'COMPLETED', terminal: true, next_attempt_at: null }),
+    });
+
+    const { result } = renderHook(() => useSprintCloseWatch('sp-1'), { wrapper: makeWrapper(qc) });
+
+    await waitFor(() => expect(result.current.state?.status).toBe('COMPLETED'));
+    expect(result.current.terminalFailure).toBeNull();
+  });
+
+  it('does not fetch at all when there is no close to watch', () => {
+    renderHook(() => useSprintCloseWatch(null), { wrapper: makeWrapper(qc) });
+    expect(getMock).not.toHaveBeenCalled();
+  });
+
+  it('reads the close-request route for the watched sprint', async () => {
+    getMock.mockResolvedValue({ data: closeRequest({}) });
+
+    const { result } = renderHook(() => useSprintCloseWatch('sp-9'), { wrapper: makeWrapper(qc) });
+
+    await waitFor(() => expect(result.current.state).not.toBeNull());
+    expect(getMock).toHaveBeenCalledWith('/sprints/sp-9/close-request/');
   });
 });

@@ -130,9 +130,19 @@ The set is open-ended and grows as features land; current event types include:
   payload carries the label `id`). Assigning or removing a label from a task emits
   `task_updated` with `changed_fields: ["labels"]`, not a distinct event.
 - **Sprints**: `sprint_created`, `sprint_updated`, `sprint_deleted`,
-  `sprint_activated`, `sprint_cancelled`, `sprint_closed`, `sprint_reranked`,
-  `sprint_retro_updated`, `milestone_rollup_updated`, `milestone_forecast_updated`,
-  `poker_session_updated`, `demo_toggled`
+  `sprint_activated`, `sprint_cancelled`, `sprint_closed`, `sprint_close_failed`,
+  `sprint_reranked`, `sprint_retro_updated`, `milestone_rollup_updated`,
+  `milestone_forecast_updated`, `poker_session_updated`, `demo_toggled`.
+  `sprint_close_failed` is the negative counterpart of `sprint_closed`: closing a
+  sprint is asynchronous (the endpoint returns `202` with a `request_id`), and
+  this event fires when that request is abandoned and the sprint will stay open.
+  It is emitted **only for a terminal outcome** — a failure the server still
+  intends to retry emits nothing, so receiving it always means the close is
+  dead. Payload: `{"id": <sprint_id>, "request_id": <uuid>, "failure_reason":
+  <cancelled|not_closable|stalled|error>, "attempt_count": <int>, "terminal":
+  true}`. It deliberately carries **no error text** — that field is role-gated
+  and is read from `GET /api/v1/sprints/{id}/close-request/`, which returns the
+  detail the calling identity is entitled to.
 - **Retro board**: `retro_item_created`, `retro_item_updated`,
   `retro_item_moved`, `retro_item_deleted`
 - **Comments / attachments**: `task_comment_created`, `task_comment_updated`,
@@ -281,6 +291,7 @@ adding it to that frozen set. Events with no webhook counterpart are marked
 | `api_token_revoked` | **WS-only** |
 | `demo_toggled` | **WS-only** |
 | `milestone_forecast_updated` | **WS-only** |
+| `sprint_close_failed` | **WS-only** |
 | `program_sponsorship_transferred` | **WS-only** — ⚠️ **not deliverable** until 0.8 (#836) |
 | `workshop_started` | **WS-only** |
 | `workshop_ended` | **WS-only** |

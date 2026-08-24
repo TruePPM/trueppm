@@ -21,6 +21,7 @@ import {
   useSprints,
   useSprintsByState,
   useSprintMutations,
+  useSprintCloseWatch,
   useSprintCapacity,
   useProjectVelocity,
   useSprintOutcome,
@@ -58,6 +59,7 @@ import { CloseSprintDialog } from './CloseSprintDialog';
 import { buildCarryoverToast, carryoverAdvanceTarget } from './carryoverToast';
 import { toast } from '@/components/Toast/toast';
 import { RetroHandoffBanner } from './RetroHandoffBanner';
+import { SprintCloseFailedBanner } from './SprintCloseFailedBanner';
 import { ScopePendingReviewPanel } from './ScopePendingReviewPanel';
 import { useCanManageScope } from '@/hooks/useCanManageScope';
 import { useCanEditSprintGoal } from '@/hooks/useCanEditSprintGoal';
@@ -296,6 +298,15 @@ function useCloseAndRetro({
     sprintId: string;
     sprintName: string;
   } | null>(null);
+  // The close this session asked for (#2992). Set from the 202 and kept after the
+  // sprint leaves the active bucket, because the close runs on a drain and can
+  // still fail long after the button was pressed — this is what lets the failure
+  // land where the user pressed Close rather than nowhere.
+  const [watchedClose, setWatchedClose] = useState<{
+    sprintId: string;
+    sprintName: string;
+  } | null>(null);
+  const [closeFailureDismissed, setCloseFailureDismissed] = useState(false);
   const [scrollToRetro, setScrollToRetro] = useState(false);
   const retroSectionRef = useRef<HTMLDivElement>(null);
 
@@ -333,6 +344,11 @@ function useCloseAndRetro({
         onSuccess: () => {
           setCloseDialogOpen(false);
           setRetroHandoff(closing);
+          // The 202 only means "queued". Watch the close-request row through to
+          // its outcome so a close that is abandoned on the drain surfaces here
+          // instead of leaving the sprint silently open (#2992).
+          setWatchedClose(closing);
+          setCloseFailureDismissed(false);
           // Confirm what moved where (#1470). The toast host is an aria-live
           // region, so this doubles as the SR announcement for the programmatic
           // selection change below (no extra live region needed).
@@ -381,6 +397,57 @@ function useCloseAndRetro({
     setScrollToRetro(false);
   }, [scrollToRetro, selectedSprintId]);
 
+  // The close this session asked for, or — after a reload, or for a teammate who
+  // never pressed the button — whatever is still ACTIVE. Falling back to the
+  // active sprint is what stops the failure being a single-tab, single-session
+  // fact: the close dies on a drain minutes later, so navigating away before it
+  // lands is the ordinary case, not the edge one. Reading the active sprint is
+  // cheap and self-limiting: no close ever requested 404s, and a settled one is
+  // terminal, and the hook stops polling on both.
+  const watchedSprint = useMemo(
+    () =>
+      watchedClose ??
+      (activeSprint ? { sprintId: activeSprint.id, sprintName: activeSprint.name } : null),
+    [watchedClose, activeSprint],
+  );
+  // The sprint_close_failed WS event invalidates this query the moment the
+  // server gives up; the hook's bounded poll covers a client whose socket is down.
+  const { terminalFailure } = useSprintCloseWatch(watchedSprint?.sprintId ?? null);
+  // Memoised because the effect below depends on it: a fresh object every render
+  // would re-run the retraction on every render for as long as the banner is up.
+  const closeFailure = useMemo(
+    () =>
+      watchedSprint && terminalFailure && !closeFailureDismissed
+        ? { ...watchedSprint, state: terminalFailure }
+        : null,
+    [watchedSprint, terminalFailure, closeFailureDismissed],
+  );
+
+  // Undo everything the 202 optimistically promised. All three fired on a queued
+  // close the server then abandoned: the retro CTA, and the auto-advance that
+  // moved the user to the destination sprint's tab. Leaving either standing
+  // means "Sprint 7 closed, run its retro" sits next to "Sprint 7 didn't
+  // close", or the user reads that banner while looking at Sprint 8. (The
+  // success toast is transient and clears itself.)
+  useEffect(() => {
+    if (!closeFailure) return;
+    setRetroHandoff(null);
+    setSelectedSprintId(closeFailure.sprintId);
+  }, [closeFailure, setSelectedSprintId]);
+
+  // Only offered when the failed sprint is the one the dialog would actually
+  // close — the dialog operates on `activeSprint`, so without this the button
+  // could close a different sprint than the banner names, or (when the sprint
+  // list is mid-refetch and `activeSprint` is null) dismiss the banner and open
+  // nothing, with no way back to the error.
+  const canRetryClose = Boolean(closeFailure && activeSprint?.id === closeFailure.sprintId);
+
+  function handleRetryClose() {
+    if (!canRetryClose) return;
+    setCloseFailureDismissed(true);
+    setCloseDialogOpen(true);
+  }
+
   return {
     closeDialogOpen,
     setCloseDialogOpen,
@@ -390,6 +457,10 @@ function useCloseAndRetro({
     setRetroHandoff,
     handleRunRetro,
     retroSectionRef,
+    closeFailure,
+    canRetryClose,
+    dismissCloseFailure: () => setCloseFailureDismissed(true),
+    handleRetryClose,
   };
 }
 
@@ -609,6 +680,10 @@ export function SprintsView() {
     setRetroHandoff,
     handleRunRetro,
     retroSectionRef,
+    closeFailure,
+    canRetryClose,
+    dismissCloseFailure,
+    handleRetryClose,
   } = useCloseAndRetro({
     activeSprint,
     plannedSprints: buckets.planned,
@@ -717,6 +792,21 @@ export function SprintsView() {
               iterationLabel={itl.lower}
               onRun={handleRunRetro}
               onDismiss={() => setRetroHandoff(null)}
+            />
+          )}
+
+          {/* Terminal close failure (#2992). The close is async (202 + drain), so
+          it can be abandoned minutes after the button was pressed; without this
+          the sprint just stayed open with no error anywhere. Shown only when the
+          server has given up — a close still queued for retry renders nothing. */}
+          {closeFailure && (
+            <SprintCloseFailedBanner
+              sprintName={closeFailure.sprintName}
+              iterationLabel={itl.lower}
+              errorMessage={closeFailure.state.error_message}
+              attemptCount={closeFailure.state.attempt_count}
+              onRetry={canRetryClose ? handleRetryClose : undefined}
+              onDismiss={dismissCloseFailure}
             />
           )}
 

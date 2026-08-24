@@ -37,6 +37,7 @@ from trueppm_mcp.tools import (
     _get_schedule_derivation,
     _get_schedule_summary,
     _get_sprint,
+    _get_sprint_close_request,
     _get_task,
     _list_my_work,
     _list_program_backlog,
@@ -772,6 +773,60 @@ async def test_get_sprint_without_project_skips_health_call(settings: Settings) 
         result = await _get_sprint(client, "s-1")
     assert result == {"id": "s-1", "name": "Orphan"}
     assert "health" not in result
+
+
+async def test_get_sprint_close_request_reports_a_terminal_failure(settings: Settings) -> None:
+    """An agent must be able to tell "still closing" from "permanently open".
+
+    ``get_sprint`` alone reports ``state=ACTIVE`` for both, which is the gap
+    this tool closes (#2992). ``terminal`` is the field to branch on.
+    """
+    routes: Routes = {
+        "sprints/s-1/close-request/": _json(
+            {
+                "id": "req-1",
+                "sprint": "s-1",
+                "status": "FAILED",
+                "attempt_count": 3,
+                "failure_reason": "stalled",
+                "error_message": "The close failed and will not be retried.",
+                "next_attempt_at": None,
+                "terminal": True,
+            }
+        )
+    }
+    async with _client(settings, routes) as client:
+        result = await _get_sprint_close_request(client, "s-1")
+    assert result["terminal"] is True
+    assert result["status"] == "FAILED"
+    assert result["failure_reason"] == "stalled"
+
+
+async def test_get_sprint_close_request_compacts_a_successful_close(settings: Settings) -> None:
+    """``_compact_mapping`` drops the empty failure fields on a healthy close.
+
+    Documented on the tool: ``failure_reason`` is present only once something
+    has actually failed, so an agent must not read its absence as an error.
+    """
+    routes: Routes = {
+        "sprints/s-1/close-request/": _json(
+            {
+                "id": "req-1",
+                "sprint": "s-1",
+                "status": "COMPLETED",
+                "attempt_count": 1,
+                "failure_reason": "",
+                "error_message": "",
+                "next_attempt_at": None,
+                "terminal": True,
+            }
+        )
+    }
+    async with _client(settings, routes) as client:
+        result = await _get_sprint_close_request(client, "s-1")
+    assert result["status"] == "COMPLETED"
+    assert "failure_reason" not in result
+    assert "error_message" not in result
 
 
 async def test_list_my_work_compacts_rows(settings: Settings) -> None:
