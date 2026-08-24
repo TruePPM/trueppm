@@ -113,6 +113,22 @@ test.describe('Schedule — each insert affordance lands where its position impl
       .toBe('1.3');
   });
 
+  test('the toolbar create says "+ Item" in the text a sighted user reads (#3027)', async ({
+    page,
+  }) => {
+    // Every other locator in this file resolves on `aria-label="Add item"`,
+    // which SHADOWS the visible text in the accessible name — so `+ Task` could
+    // come back and the whole suite would stay green. Its two peers are pinned
+    // by their visible text (`schedule-render-parity.spec.ts` on Milestone,
+    // `schedule-add-phase.spec.ts` on Phase); this is the third of the three.
+    await setupTaskStore(page, { tasks: FIXTURE_TASKS });
+    await page.goto(BASE_URL);
+    await expect(page.getByText('Survey the site')).toBeVisible();
+    const create = page.getByRole('button', { name: 'Add item' });
+    await expect(create).toContainText('Item');
+    await expect(create).not.toContainText('Task');
+  });
+
   test('the toolbar says ⏎ saves, not inserts, while the new row is unnamed — and refuses to add a second', async ({
     page,
   }) => {

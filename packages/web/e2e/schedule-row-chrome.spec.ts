@@ -235,6 +235,43 @@ test.describe('Schedule outline row chrome (#3025, #3026)', () => {
     expect(rowWbs?.x).toBeCloseTo(headerWbs?.x ?? -1, 0);
   });
 
+  test('the insert `+` draws NO tap box on a fine pointer, and stays a 16px mark (#3029)', async ({
+    page,
+  }) => {
+    // The counterweight to the coarse fix, asserted in the ONLY layer that can
+    // see it. jsdom renders no pseudo-element geometry — which is exactly how
+    // `before:-inset-3.5` was believed to measure 44 when it measured 42 — so a
+    // vitest `not.toContain('before:absolute')` cannot distinguish "no box"
+    // from "a box that is drawn anyway".
+    //
+    // Here the disc is hover-revealed, so a 44px `z-10` box around it would be
+    // an UNSEEN target lying over the row's name cell, which takes inline
+    // rename and F2: a planner clicking to rename would sometimes insert a row
+    // instead. That is worse than a small visible target, so the fine-pointer
+    // disc deliberately keeps its own 16px box (option (a) of #3029). If this
+    // test ever fails, that decision is back open — do not just update it.
+    const row = outlineRow(page, 'Survey');
+    await row.hover();
+    const insert = row.getByRole('button', { name: /Insert an item below Survey/ });
+    await expect(insert).toBeVisible();
+
+    const geom = await insert.evaluate((el) => {
+      const before = window.getComputedStyle(el, '::before');
+      return {
+        content: before.content,
+        width: before.width,
+        height: before.height,
+        discWidth: el.getBoundingClientRect().width,
+        discHeight: el.getBoundingClientRect().height,
+      };
+    });
+    // No generated content at all: the `before:` classes are coarse-only, so
+    // the pseudo-element never boxes on a mouse.
+    expect(geom.content, 'fine-pointer ::before content').toBe('none');
+    expect(geom.discWidth, 'disc width').toBeCloseTo(16, 0);
+    expect(geom.discHeight, 'disc height').toBeCloseTo(16, 0);
+  });
+
   test('the resting pair is drawn at 32%, not hidden outright (#3026)', async ({ page }) => {
     // No test pinned this before — which is how a tidy-up to `opacity-0` would
     // have landed green.

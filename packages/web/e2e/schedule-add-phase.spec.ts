@@ -115,7 +115,7 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
         const created: MockTask = {
           id: `new-${tasks.length + 1}`,
           wbs_path: wbsPath,
-          name: body.name ?? 'New task',
+          name: body.name ?? 'New item',
           early_start: '2026-04-05',
           early_finish: '2026-04-05',
           planned_start: null,
@@ -250,7 +250,7 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
     // pass for either value and therefore assert nothing; the depth is the claim.
     const phaseRow = grid.getByRole('row').filter({ hasText: 'Design Phase' }).first();
     await expect(phaseRow).toHaveAttribute('aria-level', '1');
-    const childRow = grid.getByRole('row').filter({ hasText: 'New task' }).first();
+    const childRow = grid.getByRole('row').filter({ hasText: 'New item' }).first();
     await expect(childRow).toHaveAttribute('aria-level', '2');
   });
 });

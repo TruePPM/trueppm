@@ -432,9 +432,9 @@ describe('TaskListPanel — pending scheduler rows', () => {
   it('renders a spinner row for each pending task before the timeout', () => {
     renderPanel({
       tasks: [task({ id: 'a', name: 'Scheduled' })],
-      pendingTaskIds: new Map([['p1', 'New task']]),
+      pendingTaskIds: new Map([['p1', 'New item']]),
     });
-    expect(screen.getByRole('row', { name: /New task, pending scheduling/i })).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: /New item, pending scheduling/i })).toBeInTheDocument();
     expect(screen.getByText('Scheduling…')).toBeInTheDocument();
     expect(screen.getByRole('status', { name: /Scheduling in progress/i })).toBeInTheDocument();
     // The "Pending schedule" fallback has not appeared yet.

@@ -7,7 +7,7 @@ import {
 } from './buildMode/groupOutcome';
 
 const BUTTON_CLASS = [
-  // Matches the "+ Task" peer exactly (h-7 px-3, neutral border, brand hover) — these
+  // Matches the "+ Item" peer exactly (h-7 px-3, neutral border, brand hover) — these
   // are creation-adjacent controls in the same row and a third visual weight would read
   // as a third kind of thing.
   'inline-flex h-7 px-3 items-center gap-1.5 rounded-control text-xs font-medium',

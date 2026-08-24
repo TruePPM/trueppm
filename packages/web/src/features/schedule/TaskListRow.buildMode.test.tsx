@@ -86,12 +86,15 @@ const stableSpies = {
 function Harness({
   task = baseTask,
   level = 2,
+  childCount,
   onMoveToRequest,
   visibleOverride,
   capture,
 }: {
   task?: Task;
   level?: number;
+  /** Structural children under this row — the Σ cell's noun and count (#3027). */
+  childCount?: number;
   onMoveToRequest?: (taskId: string) => void;
   /** Column visibility for THIS render — #3026 needs a row with `wbs: false`. */
   visibleOverride?: typeof visible;
@@ -138,6 +141,7 @@ function Harness({
       <PanelStandIn
         task={task}
         level={level}
+        childCount={childCount}
         visible={visibleOverride ?? visible}
         onMoveToRequest={onMoveToRequest}
       />
@@ -159,11 +163,13 @@ function Harness({
 function PanelStandIn({
   task,
   level,
+  childCount,
   visible: visibleProp,
   onMoveToRequest,
 }: {
   task: Task;
   level: number;
+  childCount?: number;
   visible: typeof visible;
   onMoveToRequest?: (taskId: string) => void;
 }) {
@@ -172,6 +178,7 @@ function PanelStandIn({
     <TaskListRow
       task={task}
       level={level}
+      childCount={childCount}
       widths={widths}
       visible={visibleProp}
       nudgeReserve={resolveNudgeLaneWidth(coarse)}
@@ -184,6 +191,7 @@ function renderHarness(
   opts: {
     task?: Task;
     level?: number;
+    childCount?: number;
     onMoveToRequest?: (taskId: string) => void;
     visibleOverride?: typeof visible;
   } = {},
@@ -1081,14 +1089,31 @@ describe('TaskListRow — the Σ cell (#2951)', () => {
   });
 
   it('says where the number comes from, and what to change instead', () => {
-    renderHarness({ task: container });
-    expect(screen.getByTitle(/Rolls up from .* Change an item to change this\./)).toBeInTheDocument();
+    renderHarness({ task: container, childCount: 3 });
+    // The noun is spelled out rather than swallowed by `.*`: the `.*` sat exactly
+    // where `${childCount} ${noun}` renders, so reverting it to "tasks" left this
+    // green. It is the one string in #3027 with a FACTUAL justification — a
+    // container rolls up phases and milestones too — so it is the one that most
+    // needs pinning.
+    expect(
+      screen.getByTitle('Rolls up from 3 items. Change an item to change this.'),
+    ).toBeInTheDocument();
   });
 
   it('spells the rollup out in the accessible name, not just the Σ glyph', () => {
-    renderHarness({ task: container });
+    renderHarness({ task: container, childCount: 3 });
     expect(
-      screen.getByRole('gridcell', { name: /rolled up from .* Not editable here\./ }),
+      screen.getByRole('gridcell', { name: /rolled up from 3 items\. Not editable here\./ }),
+    ).toBeInTheDocument();
+  });
+
+  it('says ITEM, singular, when exactly one row rolls up', () => {
+    // The singular branch had no test at all, and it is the branch a reviewer
+    // is least likely to read: `childCount === 1 ? 'item' : 'items'` renders on
+    // the one-child phase that is also the most common shape mid-build.
+    renderHarness({ task: container, childCount: 1 });
+    expect(
+      screen.getByTitle('Rolls up from 1 item. Change an item to change this.'),
     ).toBeInTheDocument();
   });
 

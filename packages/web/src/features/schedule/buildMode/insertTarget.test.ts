@@ -16,7 +16,7 @@ function task(over: Partial<Task> & { id: string; wbs: string; name: string }): 
 const TASKS: Task[] = [
   task({ id: 't-2', wbs: '2', name: 'Design' }),
   task({ id: 't-23', wbs: '2.3', name: 'Wire the loom', parentId: 't-2' }),
-  task({ id: 't-24', wbs: '2.4', name: 'New task', parentId: 't-2' }),
+  task({ id: 't-24', wbs: '2.4', name: 'New item', parentId: 't-2' }),
   task({ id: 't-blank', wbs: '2.5', name: '   ', parentId: 't-2' }),
 ];
 
@@ -58,7 +58,7 @@ describe('deriveInsertTarget', () => {
   });
 
   it('resolves a pristine new row to "unnamed" even though it carries a placeholder name', () => {
-    // The API rejects a blank name at create, so `insertBelow` posts "New task"
+    // The API rejects a blank name at create, so `insertBelow` posts "New item"
     // and the cell renders blank until typed. The toolbar has to agree with the
     // cell, not with the wire.
     expect(deriveInsertTarget('t-24', TASKS, (id) => id === 't-24')).toEqual({

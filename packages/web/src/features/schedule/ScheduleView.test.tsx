@@ -857,7 +857,7 @@ describe('ScheduleView — populated desktop', () => {
     renderSchedule();
     await user.click(screen.getByRole('button', { name: '+ Phase' }));
     expect(createTaskMutate).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'New task' }),
+      expect.objectContaining({ name: 'New item' }),
       expect.anything(),
     );
     expect(groupTasksMutate).toHaveBeenCalledWith(
@@ -1413,7 +1413,7 @@ describe('ScheduleView — mod+alt+p phase authoring binding (#2955)', () => {
     // The create is a plain task — the container comes from `tasks/group/`, which is
     // what makes it a *declared* container (#2950) and one undo step (#2974).
     expect(createTaskMutate).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'New task' }),
+      expect.objectContaining({ name: 'New item' }),
       expect.anything(),
     );
     expect(groupTasksMutate).toHaveBeenCalledWith(

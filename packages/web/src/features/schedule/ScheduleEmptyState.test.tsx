@@ -15,6 +15,8 @@ describe('ScheduleEmptyState (#2044)', () => {
   it('omits the CTA for read-only roles (no onAddTask)', () => {
     render(<ScheduleEmptyState />);
     expect(screen.getByText(/no items yet/i)).toBeInTheDocument();
+    // The description sentence carries the word too, and no other spec reads it.
+    expect(screen.getByText(/^Add items to lay out your schedule/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /add item/i })).toBeNull();
   });
 });

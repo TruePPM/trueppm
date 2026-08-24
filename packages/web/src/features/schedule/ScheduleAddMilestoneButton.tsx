@@ -9,7 +9,7 @@ export interface ScheduleAddMilestoneButtonProps {
 }
 
 /**
- * Toolbar peer to "+ Task" — opens a new milestone row at today's date.
+ * Toolbar peer to "+ Item" — opens a new milestone row at today's date.
  * Outlined-ghost variant per `packages/web/CLAUDE.md` rule §39 with the gold
  * `--brand-accent` token.
  *

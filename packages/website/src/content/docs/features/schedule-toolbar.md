@@ -30,7 +30,7 @@ table versus the bars. **Both layouts render the same rows** — the same order,
 nesting, the same collapsed phases, the same fold carets, mode gutters, drag grips and
 insert points. What changes is only how many columns the outline gives you:
 
-- **Grid** (default) — the full task-list table (WBS, Task, Links, Dur, Start, Finish, %,
+- **Grid** (default) — the full item-list table (WBS, Item, Links, Dur, Start, Finish, %,
   Owner) sits to the left of the bars, with a draggable splitter between them.
 - **Timeline** — the outline narrows to **WBS + Item**, and Links, Duration, Start,
   Finish, % and Owner give their width to the bar track. Links is absent there on
@@ -145,7 +145,7 @@ The task list shows eight columns by default in **Grid**. All except Item can be
 | Column | Width | Content |
 |---|---|---|
 | WBS | 48 px | Dot-path numbering (`1.1.2`). Long paths truncate with a hover tooltip. |
-| Task | flex | Name + chevron for summary expand/collapse + WBS indent. |
+| Item | flex | Name + chevron for summary expand/collapse + WBS indent. |
 | Links | 104 px | The row's dependency flags — see below. Each is a control. |
 | Dur | 52 px | Duration in working days (`5d`). |
 | Start | 74 px | Computed early start (read-only — change Planned Start to override). |

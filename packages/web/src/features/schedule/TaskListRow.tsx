@@ -14,9 +14,9 @@ import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { ProjectResource, Task } from '@/types';
 import {
   INSERT_DISC_SIZE,
-  INSERT_TAP_SIZE_COARSE,
   WBS_INDENT,
   resolveInsertLaneGap,
+  resolveInsertTapSize,
 } from './scheduleConstants';
 import { formatContainmentCount } from './containmentCount';
 import { useRowMetrics } from '@/hooks/useRowHeight';
@@ -2549,9 +2549,12 @@ function TaskListRowInner({
                 gripReserve + nudgeLane + resolveInsertLaneGap(coarse) + (level - 1) * 12,
               width: INSERT_DISC_SIZE,
               height: INSERT_DISC_SIZE,
-              // Emitted on both pointer classes so the value is inspectable,
-              // but only consumed by the coarse-only `before:` class above.
-              '--insert-tap-size': `${INSERT_TAP_SIZE_COARSE}px`,
+              // Resolved for THIS pointer class, and emitted on both so the
+              // value is inspectable — on a mouse it is the disc's own size, so
+              // the variable states "the tap box is the mark" rather than
+              // carrying a 44 the surface has decided not to use. Only the
+              // coarse-only `before:` class above reads it.
+              '--insert-tap-size': `${resolveInsertTapSize(coarse)}px`,
             } as React.CSSProperties
           }
         >

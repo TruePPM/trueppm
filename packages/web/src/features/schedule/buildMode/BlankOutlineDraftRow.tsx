@@ -35,7 +35,7 @@ export interface BlankOutlineDraftRowProps {
  * screen a canvas — structure accumulates as you type, and the first keystroke is
  * the first task rather than the third click.
  *
- * It is a **local draft**, not an eagerly-created task. Creating a "New task" row
+ * It is a **local draft**, not an eagerly-created task. Creating a "New item" row
  * server-side on mere navigation would litter every project someone opened and
  * backed out of, and would put a row into other people's live views before its
  * author had typed anything. Nothing is persisted until there is a name to persist.

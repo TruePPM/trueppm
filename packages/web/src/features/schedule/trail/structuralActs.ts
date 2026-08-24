@@ -89,7 +89,7 @@ export type InsertPlacement = 'below' | 'above' | 'child' | 'end';
  * silent for three releases because this function existed and nothing imported it.
  *
  * Every form names **where the row landed**, which is the only thing a user cannot
- * see for themselves: the caret moves into a Name cell that reads "New task" no
+ * see for themselves: the caret moves into a Name cell that reads "New item" no
  * matter which of the four gestures made it, so "added" alone would be a sentence
  * that cannot be checked against the tree. `end` has no anchor — the foot of the
  * plan is not inside anything — so it names the level instead, the same way

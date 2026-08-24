@@ -166,10 +166,10 @@ export function MobileSchedule({
       <EmptyState
         className="h-full bg-neutral-surface"
         icon={CalendarIcon}
-        title="No tasks yet"
-        description="Add your first task to start building the schedule. Tasks you create appear here in outline order."
+        title="No items yet"
+        description="Add your first item to start building the schedule. Rows you create appear here in outline order."
         action={
-          projectId && !readOnly ? <Button onClick={onAddTask}>+ Add task</Button> : undefined
+          projectId && !readOnly ? <Button onClick={onAddTask}>+ Add item</Button> : undefined
         }
       />
     );

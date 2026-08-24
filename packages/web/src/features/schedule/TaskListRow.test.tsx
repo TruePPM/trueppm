@@ -725,6 +725,10 @@ describe('TaskListRow — phase-in-waiting ghost affordance (issue #1754)', () =
     expect(hint).toBeInTheDocument();
     expect(hint).toHaveTextContent('Add first item to this phase');
     expect(hint).toHaveAccessibleName(`Add first item to ${base.name}`);
+    // The tooltip is a THIRD distinct string renamed in the same hunk, and the
+    // two assertions above cannot see it — the accessible name comes from
+    // `aria-label`, which shadows both the text and the title.
+    expect(hint).toHaveAttribute('title', 'This phase has no items yet');
   });
 
   it('clicking the hint calls onAddPhaseFirstChild with the task id', async () => {

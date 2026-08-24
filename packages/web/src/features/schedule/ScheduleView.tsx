@@ -2230,7 +2230,7 @@ export function ScheduleView() {
     ) => {
       createTaskMut.mutate(
         {
-          name: 'New task',
+          name: 'New item',
           duration: 1,
           parent_id: parentId,
           ...(sourceTask?.deliveryMode ? { delivery_mode: sourceTask.deliveryMode } : {}),
@@ -2810,7 +2810,7 @@ export function ScheduleView() {
     // thing in a single step instead of unwinding two creates that were never
     // recorded as anything.
     createTaskMut.mutate(
-      { name: 'New task', duration: 1, parent_id: inferredParentId },
+      { name: 'New item', duration: 1, parent_id: inferredParentId },
       {
         onSuccess: (created) => {
           groupTasksMut.mutate(
@@ -3037,7 +3037,7 @@ export function ScheduleView() {
     (phaseTaskId: string) => {
       if (!projectId) return;
       createTaskMut.mutate(
-        { name: 'New task', duration: 1, parent_id: phaseTaskId },
+        { name: 'New item', duration: 1, parent_id: phaseTaskId },
         {
           onSuccess: (data) => {
             focus.focusRow(data.id);
