@@ -31,6 +31,7 @@ import {
 } from '@tanstack/react-query';
 import { isAxiosError } from 'axios';
 import { apiClient } from '@/api/client';
+import type { ExternalSyncOutcome } from '@/features/integrations/syncOutcome';
 
 /**
  * Owner-facing summary of one external-source connection (never the secret).
@@ -49,6 +50,12 @@ export interface ExternalConnectionSummary {
   last_synced_at: string | null;
   jql: string;
   project_keys: string[];
+  /**
+   * What the last pull did — counts, and whether a cap truncated it (#2925).
+   * `null` until the first pull completes, which is a different state from a
+   * pull that completed and stored nothing.
+   */
+  last_sync: ExternalSyncOutcome | null;
 }
 
 export function externalConnectionKey(source: string): string[] {

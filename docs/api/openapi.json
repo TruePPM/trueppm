@@ -6916,7 +6916,7 @@
         "/api/v1/me/work/": {
             "get": {
                 "operationId": "v1_me_work_list",
-                "description": "``GET /api/v1/me/work/`` — contributor's flat task list across all projects.\n\nReturns the requesting user's assigned, non-BACKLOG, non-soft-deleted tasks,\neach tagged with a server-computed ``group`` bucket (today / this_sprint /\nupcoming, #484/ADR-0122) and pre-sorted so the buckets are contiguous.\nDeliberately flat — no CPM fields, no WBS hierarchy, no phase tree. The\ncontributor (Priya persona) reads this as a personal to-do list; PM-level\nconcepts (critical path, float, schedule variance) are intentionally absent.\n\n**RBAC contract (Morgan's sprint-sovereignty requirement)**: the queryset is\nhard-scoped to ``assignee=request.user`` *and* re-checks project membership\nvia ``project__memberships``. There is no ``?user=`` escape hatch — a PM-role\nor admin caller gets a 200 with their *own* assigned tasks (which may be\nempty). The endpoint cannot be used as a manager surveillance surface.\n\nStatus updates flow through the existing ``PATCH /api/v1/tasks/{id}/`` path,\nnot through this endpoint. Clients should send ``X-Source: my_work`` on the\nPATCH so the webhook payload carries the originating surface.\n\nResponse shape::\n\n    {\n        \"results\": [{ ...flat task fields... }],\n        \"next\": \"<cursor>\" | null,\n        \"previous\": \"<cursor>\" | null,\n        \"active_sprints\": [{ ...minimal sprint card... }],\n        \"due_today_count\": 3,\n        \"server_version_high_water\": 12345,\n        \"signals\": { ...cross-program focus-card aggregates, #1236... },\n        \"external_items\": [{ ...read-only Jira/etc. item, #1422... }],\n        \"external_sources\": [{ ...connected-source freshness, #1422... }]\n    }\n\n``external_items`` / ``external_sources`` (#1422, ADR-0097 §4) surface the\nuser's read-only external work items (their assigned Jira issues) alongside\nnative tasks in one feed. Like ``signals``, both are first-page-only side\nblocks (the bounded ≤500 personal cache is not paginated with ``results``)\nand always present on page 1 (possibly empty). An external item is never a\nTask — it carries no schedule/board/write fields.\n\n``signals`` (#1236, ADR-0221) rolls up per-user cross-program aggregates for\nthe focus cards — schedule health / SPI, a Monte-Carlo P80 ship-date forecast,\na real sprint burndown series, and the caller's own load-vs-capacity for the\nlead sprint (``utilization``, #1912) — over the user's own member projects.\nEach sub-key appears only when a real server-side computation backs it (rule\n120: no fabrication), and only on the first page. See\n``services.me_work_signals``.",
+                "description": "``GET /api/v1/me/work/`` — contributor's flat task list across all projects.\n\nReturns the requesting user's assigned, non-BACKLOG, non-soft-deleted tasks,\neach tagged with a server-computed ``group`` bucket (today / this_sprint /\nupcoming, #484/ADR-0122) and pre-sorted so the buckets are contiguous.\nDeliberately flat — no CPM fields, no WBS hierarchy, no phase tree. The\ncontributor (Priya persona) reads this as a personal to-do list; PM-level\nconcepts (critical path, float, schedule variance) are intentionally absent.\n\n**RBAC contract (Morgan's sprint-sovereignty requirement)**: the queryset is\nhard-scoped to ``assignee=request.user`` *and* re-checks project membership\nvia ``project__memberships``. There is no ``?user=`` escape hatch — a PM-role\nor admin caller gets a 200 with their *own* assigned tasks (which may be\nempty). The endpoint cannot be used as a manager surveillance surface.\n\nStatus updates flow through the existing ``PATCH /api/v1/tasks/{id}/`` path,\nnot through this endpoint. Clients should send ``X-Source: my_work`` on the\nPATCH so the webhook payload carries the originating surface.\n\nResponse shape::\n\n    {\n        \"results\": [{ ...flat task fields... }],\n        \"next\": \"<cursor>\" | null,\n        \"previous\": \"<cursor>\" | null,\n        \"active_sprints\": [{ ...minimal sprint card... }],\n        \"due_today_count\": 3,\n        \"server_version_high_water\": 12345,\n        \"signals\": { ...cross-program focus-card aggregates, #1236... },\n        \"external_items\": [{ ...read-only Jira/etc. item, #1422... }],\n        \"external_sources\": [{ ...connected-source freshness + last-pull\n                               outcome, #1422/#2925... }]\n    }\n\n``external_items`` / ``external_sources`` (#1422, ADR-0097 §4) surface the\nuser's read-only external work items (their assigned Jira issues) alongside\nnative tasks in one feed. Like ``signals``, both are first-page-only side\nblocks (the bounded ≤500 personal cache is not paginated with ``results``)\nand always present on page 1 (possibly empty). An external item is never a\nTask — it carries no schedule/board/write fields.\n\nEach ``external_sources`` row carries ``last_sync`` (#2925) — the last pull's\n``{at, ok, reason, fetched, stored, total_available, truncated}``, ``null``\nbefore the first pull completes. ``truncated`` means the source had more than\nthe pull carried, so ``external_items`` is the first ``stored`` of the user's\nassigned work rather than all of it; ``total_available`` is the provider's own\ncount when it reported one and ``null`` when it did not — ``null`` is\n*unknown*, never zero, so it must not be rendered as a denominator.\n\n``signals`` (#1236, ADR-0221) rolls up per-user cross-program aggregates for\nthe focus cards — schedule health / SPI, a Monte-Carlo P80 ship-date forecast,\na real sprint burndown series, and the caller's own load-vs-capacity for the\nlead sprint (``utilization``, #1912) — over the user's own member projects.\nEach sub-key appears only when a real server-side computation backs it (rule\n120: no fabrication), and only on the first page. See\n``services.me_work_signals``.",
                 "parameters": [
                     {
                         "name": "limit",
@@ -47165,6 +47165,45 @@
                     "reason"
                 ]
             },
+            "ExternalConnectionLastSync": {
+                "type": "object",
+                "description": "What the last pull actually did (#2925) — the outcome, not just the clock.\n\nWritten by the pull worker into ``config[\"last_sync\"]`` (``tasks.py``). Before\nthis, a connection reported ``status`` + ``last_synced_at`` and nothing else,\nso \"Connected, last synced 5 minutes ago\" read identically whether the pull\nreturned 200 items, zero, or failed — and a contributor past the source's page\nsize got a silently partial My Work.\n\n``truncated`` is the load-bearing field: it says the source had more than this\npull stored, so the owner is looking at the first ``stored`` of their assigned\nwork. ``total_available`` is the provider's own count when it reported one and\n``null`` when it did not — ``null`` means *unknown*, never *zero*, and a client\nmust not render a denominator from it.",
+                "properties": {
+                    "at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "ok": {
+                        "type": "boolean"
+                    },
+                    "reason": {
+                        "type": "string"
+                    },
+                    "fetched": {
+                        "type": "integer"
+                    },
+                    "stored": {
+                        "type": "integer"
+                    },
+                    "total_available": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "truncated": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "at",
+                    "fetched",
+                    "ok",
+                    "reason",
+                    "stored",
+                    "total_available",
+                    "truncated"
+                ]
+            },
             "ExternalConnectionSummary": {
                 "type": "object",
                 "description": "Owner-facing summary of a connection — **never** the secret (ADR-0097 §3).\n\nThe ``source`` key is intentionally not echoed: the caller already has it from\nthe ``/me/connections/{source}/`` request path, and a serializer field literally\nnamed ``source`` collides with DRF's internal ``Field.source`` attribute.",
@@ -47200,6 +47239,14 @@
                         "items": {
                             "type": "string"
                         }
+                    },
+                    "last_sync": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ExternalConnectionLastSync"
+                            }
+                        ],
+                        "nullable": true
                     }
                 },
                 "required": [
@@ -47208,6 +47255,7 @@
                     "deployment",
                     "exists",
                     "jql",
+                    "last_sync",
                     "last_synced_at",
                     "name",
                     "project_keys",

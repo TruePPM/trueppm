@@ -48,6 +48,7 @@ vi.mock('@/hooks/useIntegrationCredentials', () => ({
 // deterministically without touching apiClient; the dedicated section tests below
 // drive each hook per-state.
 import type { ExternalWorkItem } from '@/hooks/useExternalConnection';
+import type { ExternalSyncOutcome } from '@/features/integrations/syncOutcome';
 
 interface ConnReturn {
   connection: {
@@ -55,6 +56,9 @@ interface ConnReturn {
     base_url?: string;
     status?: string;
     last_synced_at: string | null;
+    /** Last pull's outcome (#2925). Optional here so the pre-#2925 fixtures
+     *  below keep standing for "a connection with no outcome recorded". */
+    last_sync?: ExternalSyncOutcome | null;
   } | null;
   isConnected: boolean;
   isLoading: boolean;
@@ -128,6 +132,26 @@ const CONNECTED_JIRA_INVALID_FILTER: ConnReturn = {
   isConnected: true,
   isLoading: false,
 };
+
+// Last-pull outcomes (#2925). The base is a complete pull; the two below it flip
+// exactly one thing so each assertion isolates the state it names.
+const PULL_COMPLETE: ExternalSyncOutcome = {
+  at: FIVE_MINUTES_AGO,
+  ok: true,
+  reason: '',
+  fetched: 12,
+  stored: 12,
+  total_available: 12,
+  truncated: false,
+};
+
+function connectedWithOutcome(last_sync: ExternalSyncOutcome): ConnReturn {
+  return {
+    connection: { ...CONNECTED_JIRA.connection!, last_sync },
+    isConnected: true,
+    isLoading: false,
+  };
+}
 
 function renderPage() {
   const queryClient = new QueryClient({
@@ -505,6 +529,92 @@ describe('ConnectedAccountsPage — Available sources (#1420)', () => {
 
     // Same remedy as auth_failed — the wizard re-submits the filter.
     fireEvent.click(card.getByRole('button', { name: 'Update filter' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: /Connect Jira/i })).toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // Last-pull outcome (#2925)
+  // -------------------------------------------------------------------------
+
+  it('states the pulled count, so "synced 5m ago" is about the pull not the clock', () => {
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira' ? connectedWithOutcome(PULL_COMPLETE) : NOT_CONNECTED,
+    );
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    expect(card.getByText(/12 items pulled/)).toBeInTheDocument();
+    // A complete pull claims no cap.
+    expect(card.queryByText(/Showing the first/)).not.toBeInTheDocument();
+  });
+
+  it('says the list is only the first N when a cap truncated the pull, and opens the filter', async () => {
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira'
+        ? connectedWithOutcome({
+            ...PULL_COMPLETE,
+            fetched: 100,
+            stored: 100,
+            total_available: 412,
+            truncated: true,
+          })
+        : NOT_CONNECTED,
+    );
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    const note = card.getByRole('note');
+    expect(note).toHaveTextContent('Showing the first 100 of 412 items assigned to you.');
+    // A truncated pull SUCCEEDED — never dressed as a broken connection.
+    expect(card.queryByRole('status')).not.toBeInTheDocument();
+
+    // The remedy it names has a control (rule 337).
+    fireEvent.click(card.getByRole('button', { name: 'Change filter' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: /Connect Jira/i })).toBeInTheDocument();
+  });
+
+  it('names a failed pull on a still-connected source, with no misleading Reconnect', () => {
+    // `unreachable` leaves status `connected` — an unreachable host is not an
+    // auth problem, and offering Reconnect would have the user re-issue a
+    // working token.
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira'
+        ? connectedWithOutcome({
+            ...PULL_COMPLETE,
+            ok: false,
+            reason: 'unreachable',
+            fetched: 0,
+            stored: 0,
+            total_available: null,
+          })
+        : NOT_CONNECTED,
+    );
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    // Same live-region contract as the two rungs above it (rule 337).
+    const banner = card.getByRole('status');
+    expect(banner).toHaveTextContent(/Couldn't reach Jira on the last sync/);
+    expect(banner).toHaveAttribute('aria-live', 'polite');
+    expect(card.queryByRole('button', { name: 'Reconnect' })).not.toBeInTheDocument();
+  });
+
+  it('offers Reconnect on the one failure the connect wizard actually fixes', async () => {
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira'
+        ? connectedWithOutcome({
+            ...PULL_COMPLETE,
+            ok: false,
+            reason: 'credential_unreadable',
+            fetched: 0,
+            stored: 0,
+            total_available: null,
+          })
+        : NOT_CONNECTED,
+    );
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    expect(card.getByRole('status')).toHaveTextContent(/could not be read/);
+    fireEvent.click(card.getByRole('button', { name: 'Reconnect' }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByRole('heading', { name: /Connect Jira/i })).toBeInTheDocument();
   });
