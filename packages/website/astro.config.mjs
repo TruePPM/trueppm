@@ -252,14 +252,39 @@ export default defineConfig({
             // Installation + quickstart lead: they are the verified path today.
             // "Try it" (hosted demo + one-command trial) is demoted until its
             // zero-config paths go live with the 0.4 tag (#1775, #939).
+            //
+            // The `0.4` badge is not decoration and is not hand-maintained: a
+            // page carrying `documentedFor: "0.4"` describes behavior no
+            // released install has, and ordering alone said so only in a
+            // comment no reader sees (#2908). `check-version-status.sh` pairs
+            // this badge against the page's own declaration in both
+            // directions, so it comes off when 0.4 ships or the gate reds.
             { slug: "getting-started/installation" },
             { slug: "getting-started/quickstart" },
-            { slug: "getting-started/bring-your-plan-in" },
-            { slug: "getting-started/try-it" },
-            { slug: "getting-started/sample-projects" },
-            { slug: "getting-started/sample-project-tour" },
-            { slug: "getting-started/evaluation-guide" },
-            { slug: "getting-started/upgrade" },
+            {
+              slug: "getting-started/bring-your-plan-in",
+              badge: { text: "0.4", variant: "caution" },
+            },
+            {
+              slug: "getting-started/try-it",
+              badge: { text: "0.4", variant: "caution" },
+            },
+            {
+              slug: "getting-started/sample-projects",
+              badge: { text: "0.4", variant: "caution" },
+            },
+            {
+              slug: "getting-started/sample-project-tour",
+              badge: { text: "0.4", variant: "caution" },
+            },
+            {
+              slug: "getting-started/evaluation-guide",
+              badge: { text: "0.4", variant: "caution" },
+            },
+            {
+              slug: "getting-started/upgrade",
+              badge: { text: "0.4", variant: "caution" },
+            },
           ],
         },
         // --- Persona guides ---

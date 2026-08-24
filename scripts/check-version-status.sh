@@ -42,12 +42,27 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROADMAP_DEFAULT="packages/website/src/content/docs/overview/roadmap.md"
 DOCS_ROOT_DEFAULT="packages/website/src/content/docs"
 BASELINE_DEFAULT="packages/website/docs-declaration-baseline.txt"
+SIDEBAR_DEFAULT="packages/website/astro.config.mjs"
 
 # Directories whose pages describe *user-visible product behavior*, and are
 # therefore the ones a self-hoster reads as "what my install does". These are
 # the only trees the declaration-coverage ratchet below applies to; explanation
 # trees (architecture/, contributing/, overview/) describe design, not features.
 DECLARATION_DIRS="features administration getting-started"
+
+# Trees whose sidebar entries must mirror the page's own `documentedFor` as a
+# version badge (#2908). A declaration + banner tells a reader the page is
+# unreleased only AFTER they open it; the navigation that sent them there said
+# nothing. Getting Started is the top of the adoption funnel — six of its eight
+# pages declare 0.4 — so it is where a reader pays the most for that silence.
+#
+# Scoped deliberately, not universally: 60 more pages under features/ and
+# administration/ declare 0.4, and badging all 66 sidebar entries is a
+# navigation-density decision, not a correctness one. The reverse check below
+# (a badge naming a shipped version, or one whose page declares nothing) runs
+# over EVERY sidebar entry regardless of this list, so widening the list can
+# only ever add work, never un-catch a stale badge.
+BADGE_DIRS="getting-started"
 
 # Portable sha256 of a file's contents. alpine/busybox has sha256sum; macOS has
 # shasum only.
@@ -209,9 +224,162 @@ update_baseline() {
   echo "Wrote $(awk 'NF && $1 !~ /^#/' "$baseline" | wc -l | tr -d ' ') baseline entries to $baseline"
 }
 
-# Run the scan. Args: <roadmap> <docs_root> [baseline]. Returns 1 on violations.
+# Emit "<slug><TAB><badge-version-or-empty>" for every sidebar entry in an
+# Astro/Starlight config. Written in python because the association is
+# structural, not textual: a badge belongs to the object that directly contains
+# its slug, and a `{ text, variant }` badge nests braces inside that object. A
+# line-oriented grep cannot tell that nesting from a sibling entry, and would
+# silently pair a slug with the next entry's badge.
+sidebar_entries() {
+  python3 - "$1" <<'PYEOF'
+import re, sys
+
+src = open(sys.argv[1], encoding="utf-8").read()
+
+# Object extents, skipping string literals and comments so a brace inside
+# either never moves the depth.
+spans, stack, i, n = [], [], 0, len(src)
+while i < n:
+    c = src[i]
+    if c in "\"'`":
+        q, i = c, i + 1
+        while i < n:
+            if src[i] == "\\":
+                i += 2
+                continue
+            if src[i] == q:
+                break
+            i += 1
+        i += 1
+        continue
+    if c == "/" and i + 1 < n and src[i + 1] == "/":
+        j = src.find("\n", i)
+        i = n if j < 0 else j
+        continue
+    if c == "/" and i + 1 < n and src[i + 1] == "*":
+        j = src.find("*/", i)
+        i = n if j < 0 else j + 2
+        continue
+    if c == "{":
+        stack.append(i)
+    elif c == "}" and stack:
+        spans.append((stack.pop(), i))
+    i += 1
+
+
+def innermost(pos):
+    """The tightest object span containing pos, or None."""
+    best = None
+    for s, e in spans:
+        if s < pos < e and (best is None or s > best[0]):
+            best = (s, e)
+    return best
+
+
+# A badge is claimed by the object that directly contains its key.
+badges = {}
+for m in re.finditer(r"\bbadge\s*:", src):
+    owner = innermost(m.start())
+    if owner is None:
+        continue
+    ver = re.search(r"0\.[0-9]+", src[m.end() : m.end() + 200])
+    badges.setdefault(owner, ver.group(0) if ver else "?")
+
+for m in re.finditer(r"""\bslug\s*:\s*["'`]([^"'`]+)["'`]""", src):
+    owner = innermost(m.start())
+    print("%s\t%s" % (m.group(1), badges.get(owner, "") if owner else ""))
+PYEOF
+}
+
+# Sidebar badge pairing (#2908). Both directions, for the same reason the
+# documentedFor/callout pairing runs both ways: a badge that never appears and
+# a badge that outlives its release are the same misinformation, and the second
+# is the one a release actually produces.
+BADGE_VIOLATIONS=0
+badge_check() { # badge_check <sidebar_file> <docs_root> <highest_shipped>
+  local sidebar="$1" docs_root="$2" highest="$3"
+  BADGE_VIOLATIONS=0
+
+  if [ ! -f "$sidebar" ]; then
+    echo "ERROR: sidebar config not found at: $sidebar" >&2
+    return 2
+  fi
+
+  local entries
+  if ! entries="$(sidebar_entries "$sidebar")"; then
+    echo "ERROR: could not parse sidebar entries from $sidebar" >&2
+    return 2
+  fi
+  if [ -z "$entries" ]; then
+    echo "ERROR: parsed zero sidebar entries from $sidebar — has the config" >&2
+    echo "       moved off literal { slug: \"…\" } entries (autogenerate)?" >&2
+    return 2
+  fi
+
+  local slug badge page declared d want tab
+  tab="$(printf '\t')"
+  while IFS="$tab" read -r slug badge; do
+    [ -z "$slug" ] && continue
+    page=""
+    for d in "$docs_root/$slug.md" "$docs_root/$slug.mdx"; do
+      [ -f "$d" ] && page="$d" && break
+    done
+    declared=""
+    if [ -n "$page" ]; then
+      declared="$(sed -n '1,/^---[[:space:]]*$/{ /^documentedFor:/p; }' "$page" 2>/dev/null \
+        | head -n 1 | sed -E 's/^documentedFor:[[:space:]]*["'"'"']?([0-9]+\.[0-9]+).*/\1/')"
+    fi
+
+    # Forward: a page in a badged tree that declares an unshipped version must
+    # carry that badge in the nav.
+    want=""
+    for d in $BADGE_DIRS; do
+      case "$slug" in "$d"/*) want=1 ;; esac
+    done
+    if [ -n "$want" ] && [ -n "$declared" ] && [ "$(version_gt "$declared" "$highest")" = "1" ]; then
+      if [ -z "$badge" ]; then
+        echo "VIOLATION: $sidebar: '$slug' has no badge, but the page declares documentedFor: $declared (unshipped)" >&2
+        echo "    Add   badge: { text: \"$declared\", variant: \"caution\" }   to its sidebar entry."
+        BADGE_VIOLATIONS=$((BADGE_VIOLATIONS + 1))
+        continue
+      elif [ "$badge" != "$declared" ]; then
+        echo "VIOLATION: $sidebar: '$slug' is badged $badge but the page declares documentedFor: $declared" >&2
+        BADGE_VIOLATIONS=$((BADGE_VIOLATIONS + 1))
+        continue
+      fi
+    fi
+
+    # Reverse: every version badge in the nav, in any tree, must be backed by a
+    # matching unshipped declaration. This is the branch that turns red on the
+    # release which ships 0.X — the badge has to come off with the callout.
+    [ -z "$badge" ] && continue
+    # A non-version badge ("New", "Deprecated") is not this gate's business.
+    [ "$badge" = "?" ] && continue
+    if [ -z "$page" ]; then
+      echo "VIOLATION: $sidebar: '$slug' is badged $badge but no page was found for that slug" >&2
+      BADGE_VIOLATIONS=$((BADGE_VIOLATIONS + 1))
+    elif [ -z "$declared" ]; then
+      echo "VIOLATION: $sidebar: '$slug' is badged $badge but the page declares no documentedFor" >&2
+      echo "    A version badge is a claim about the page; the page has to make it too."
+      BADGE_VIOLATIONS=$((BADGE_VIOLATIONS + 1))
+    elif [ "$badge" != "$declared" ]; then
+      echo "VIOLATION: $sidebar: '$slug' is badged $badge but the page declares documentedFor: $declared" >&2
+      BADGE_VIOLATIONS=$((BADGE_VIOLATIONS + 1))
+    elif [ "$(version_gt "$badge" "$highest")" != "1" ]; then
+      echo "VIOLATION: $sidebar: '$slug' is badged $badge, which has shipped" >&2
+      echo "    Delete the badge — $badge is released, so the nav now understates the product."
+      BADGE_VIOLATIONS=$((BADGE_VIOLATIONS + 1))
+    fi
+  done <<< "$entries"
+
+  return 0
+}
+
+# Run the scan. Args: <roadmap> <docs_root> [baseline] [sidebar].
+# Returns 1 on violations. Both optional args are opt-in so the tense/pairing
+# fixtures in self_test keep exercising exactly what they were written for.
 run_scan() {
-  local roadmap="$1" docs_root="$2" baseline="${3:-}"
+  local roadmap="$1" docs_root="$2" baseline="${3:-}" sidebar="${4:-}"
 
   if [ ! -f "$roadmap" ]; then
     echo "ERROR: roadmap source of truth not found at: $roadmap" >&2
@@ -375,6 +543,14 @@ run_scan() {
       return 2
     fi
     violations=$((violations + RATCHET_VIOLATIONS))
+  fi
+
+  # Sidebar badge pairing (#2908) — only when a sidebar path is supplied.
+  if [ -n "$sidebar" ]; then
+    if ! badge_check "$sidebar" "$docs_root" "$highest"; then
+      return 2
+    fi
+    violations=$((violations + BADGE_VIOLATIONS))
   fi
 
   echo ""
@@ -688,6 +864,114 @@ This page documents functionality added in **TruePPM 0.2**.
   }
   ratchet_case "orphan-baseline-entry" expect-fail _rt_orphan_entry || return 1
 
+  # -- Sidebar badge pairing (#2908) ------------------------------------------
+  # A declaration plus a banner tells a reader the page is unreleased only after
+  # they open it. These cases assert the nav says it too, and — the branch that
+  # matters — that the badge cannot outlive the release, which is the failure a
+  # tag actually produces. `getting-started/` because that is BADGE_DIRS.
+  badge_case() { # badge_case <name> <expect-pass|expect-fail> <page-fm> <sidebar-entry>
+    local name="$1" expect="$2" fm="$3" entry="$4"
+    local dir="$tmp/bg-$name"
+    mkdir -p "$dir/getting-started"
+    cp "$docs/overview/roadmap.md" "$dir/"
+    printf '%s\n' "$fm" > "$dir/getting-started/page.md"
+    printf 'export default { sidebar: [ { label: "Getting Started", items: [ %s ] } ] };\n' \
+      "$entry" > "$dir/astro.config.mjs"
+    if run_scan "$dir/roadmap.md" "$dir" "" "$dir/astro.config.mjs" >/dev/null 2>&1; then
+      if [ "$expect" = "expect-pass" ]; then
+        echo "SELF-TEST OK: badge $name accepted."
+      else
+        echo "SELF-TEST FAILED: badge $name was accepted and should not be." >&2
+        return 1
+      fi
+    else
+      if [ "$expect" = "expect-fail" ]; then
+        echo "SELF-TEST OK: badge $name correctly rejected."
+      else
+        echo "SELF-TEST FAILED: badge $name was rejected and should not be." >&2
+        return 1
+      fi
+    fi
+  }
+
+  local unshipped_page shipped_page plain_page
+  unshipped_page='---
+title: Try it
+documentedFor: "0.3"
+---
+
+:::note[Ships in 0.3]
+Not in the latest release.
+:::'
+  shipped_page='---
+title: Try it
+documentedFor: "0.2"
+---
+
+Available today.'
+  plain_page='---
+title: Try it
+---
+
+Available today.'
+
+  badge_case "unshipped-badged" expect-pass "$unshipped_page" \
+    '{ slug: "getting-started/page", badge: { text: "0.3", variant: "caution" } }' || return 1
+
+  badge_case "unshipped-unbadged" expect-fail "$unshipped_page" \
+    '{ slug: "getting-started/page" }' || return 1
+
+  badge_case "badge-disagrees-with-declaration" expect-fail "$unshipped_page" \
+    '{ slug: "getting-started/page", badge: { text: "0.4", variant: "caution" } }' || return 1
+
+  badge_case "badged-page-declares-nothing" expect-fail "$plain_page" \
+    '{ slug: "getting-started/page", badge: "0.3" }' || return 1
+
+  # THE release case: 0.2 has shipped, so the badge is now a false "not yet".
+  # This is the branch that reds on the tag and forces the badge off with the
+  # callout, instead of leaving the nav understating the product.
+  badge_case "badge-outlived-its-release" expect-fail "$shipped_page" \
+    '{ slug: "getting-started/page", badge: { text: "0.2", variant: "caution" } }' || return 1
+
+  # A non-version badge is somebody else's convention, not this gate's business.
+  badge_case "non-version-badge-ignored" expect-pass "$plain_page" \
+    '{ slug: "getting-started/page", badge: "New" }' || return 1
+
+  # A badge on a slug with no page at all is a nav entry pointing at nothing.
+  badge_case "badged-slug-has-no-page" expect-fail "$plain_page" \
+    '{ slug: "getting-started/gone", badge: "0.3" }' || return 1
+
+  # Scope: BADGE_DIRS is getting-started, so an undeclared-badge page in another
+  # tree must NOT be demanded. 60 pages under features/ + administration/ ride
+  # on this staying true — if it ever stops, the gate reds on all of them.
+  local scope_dir="$tmp/bg-scope"
+  mkdir -p "$scope_dir/features"
+  cp "$docs/overview/roadmap.md" "$scope_dir/"
+  printf '%s\n' "$unshipped_page" > "$scope_dir/features/page.md"
+  printf 'export default { sidebar: [ { label: "Features", items: [ { slug: "features/page" } ] } ] };\n' \
+    > "$scope_dir/astro.config.mjs"
+  if run_scan "$scope_dir/roadmap.md" "$scope_dir" "" "$scope_dir/astro.config.mjs" >/dev/null 2>&1; then
+    echo "SELF-TEST OK: badge scope respected outside BADGE_DIRS."
+  else
+    echo "SELF-TEST FAILED: badge check fired outside BADGE_DIRS." >&2
+    return 1
+  fi
+
+  # The parser's own failure mode: a config it cannot read must ERROR, not pass
+  # silently. A zero-entry parse reading as "no violations" is how this whole
+  # class of gate dies quietly when the config moves to autogenerate.
+  local empty_dir="$tmp/bg-empty"
+  mkdir -p "$empty_dir/getting-started"
+  cp "$docs/overview/roadmap.md" "$empty_dir/"
+  printf 'export default { sidebar: [ { label: "X", autogenerate: { directory: "x" } } ] };\n' \
+    > "$empty_dir/astro.config.mjs"
+  if run_scan "$empty_dir/roadmap.md" "$empty_dir" "" "$empty_dir/astro.config.mjs" >/dev/null 2>&1; then
+    echo "SELF-TEST FAILED: a sidebar with zero parsed entries was accepted." >&2
+    return 1
+  else
+    echo "SELF-TEST OK: unparseable sidebar correctly errored."
+  fi
+
   return 0
 }
 
@@ -700,11 +984,12 @@ main() {
   local roadmap="${ROADMAP_OVERRIDE:-$ROADMAP_DEFAULT}"
   local docs_root="${DOCS_ROOT_OVERRIDE:-$DOCS_ROOT_DEFAULT}"
   local baseline="${BASELINE_OVERRIDE:-$BASELINE_DEFAULT}"
+  local sidebar="${SIDEBAR_OVERRIDE:-$SIDEBAR_DEFAULT}"
   if [ "${1:-}" = "--update-baseline" ]; then
     update_baseline "$docs_root" "$baseline"
     return $?
   fi
-  run_scan "$roadmap" "$docs_root" "$baseline"
+  run_scan "$roadmap" "$docs_root" "$baseline" "$sidebar"
 }
 
 main "$@"
