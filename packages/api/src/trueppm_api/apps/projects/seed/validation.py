@@ -41,12 +41,21 @@ from jsonschema import Draft202012Validator, FormatChecker
 # timeline — so both load through their own bundled schema. See ADR-0109/0114.
 SUPPORTED_MAJORS = ("1", "2")
 
-# Aggregate ceiling on materializable entities (tasks + dependencies + sprints +
-# risks) across the whole document. Per-array maxItems in the schema bound each
-# collection; this bounds the *total* — a single import must not be able to
-# create an unbounded number of rows in one transaction. Generous: the largest
-# bundled sample is a few hundred entities.
+# Aggregate ceiling on materializable entities across the whole document.
+# Per-array maxItems in the schema bound each collection; this bounds the
+# *total* — a single import must not be able to create an unbounded number of
+# rows in one transaction. Generous: the largest bundled sample is a few hundred
+# entities.
 MAX_SEED_NODES = 100_000
+
+# Longest a single diagnostic may be. jsonschema renders the *whole offending
+# instance* into ``ValidationError.message`` for container-level keywords, so a
+# ``maxItems`` violation on ``projects`` echoes every project back at the caller
+# — a 201-project document produces a 10 KB line, and a document padded to
+# SEED_MAX_UPLOAD_MB produces megabytes, in a 400 whose body the caller chose
+# the size of (#2615). The path prefix and the keyword both survive truncation,
+# which is the part a caller can act on.
+MAX_SEED_ERROR_CHARS = 300
 
 _SCHEMAS_DIR = Path(__file__).resolve().parent.parent / "schemas"
 _SCHEMA_PATH_BY_MAJOR = {
@@ -215,10 +224,27 @@ def _document_errors(payload: dict[str, Any]) -> list[str]:
     return _schema_errors(payload, major)
 
 
+def _bounded_message(message: str) -> str:
+    """Clamp one jsonschema diagnostic to roughly ``MAX_SEED_ERROR_CHARS``.
+
+    Truncated in the **middle**, not at the end. jsonschema renders these as
+    ``<instance> is too long`` / ``<instance> has too many items`` — the
+    offending value first and the *verdict* last — so clipping the tail keeps
+    the megabytes and throws away the only part that says what is wrong. Middle
+    truncation keeps both ends: enough of the value to recognize it, and the
+    phrase naming the violated keyword.
+    """
+    if len(message) <= MAX_SEED_ERROR_CHARS:
+        return message
+    head = MAX_SEED_ERROR_CHARS * 2 // 3
+    tail = MAX_SEED_ERROR_CHARS - head
+    return f"{message[:head]} …(truncated)… {message[-tail:]}"
+
+
 def _schema_errors(payload: dict[str, Any], major: str) -> list[str]:
     """Run the structural pass, then the semantic passes it is a precondition for."""
     errors: list[str] = [
-        f"{_json_path(e.absolute_path)}: {e.message}"
+        f"{_json_path(e.absolute_path)}: {_bounded_message(e.message)}"
         for e in sorted(_validator(major).iter_errors(payload), key=lambda e: list(e.absolute_path))
     ]
 
@@ -378,14 +404,31 @@ def _check_event_target(
 
 
 def _node_budget_errors(payload: dict[str, Any]) -> list[str]:
-    """Reject documents whose total materializable entity count is excessive."""
-    total = len(payload.get("risks", []))
+    """Reject documents whose total materializable entity count is excessive.
+
+    Every collection counted here becomes rows the importer writes inside one
+    transaction, so the budget has to include the *containers* too, not only
+    their contents (#2615). ``projects`` and ``resources`` were previously
+    omitted: a project costs ~5 statements plus a ``cascade_project_soft_delete``
+    enqueue on the replace path, and each distinct resource costs ~2 round-trips
+    through ``ensure_project_resource`` — both were invisible to the ceiling
+    while a document of nothing but empty projects scored zero.
+    """
+    total = (
+        len(payload.get("projects", []))
+        + len(payload.get("resources", []))
+        + len(payload.get("accounts", []))
+        + len(payload.get("calendars", []))
+        + len(payload.get("risks", []))
+    )
     for project in payload.get("projects", []):
         total += (
             len(project.get("tasks", []))
             + len(project.get("dependencies", []))
             + len(project.get("sprints", []))
             + len(project.get("risks", []))
+            + len(project.get("baselines", []))
+            + len(project.get("labels", []))
             # TaskRelation rows materialize like dependencies, so they count
             # toward the per-import ceiling (ADR-0455).
             + sum(len(t.get("links", [])) for t in project.get("tasks", []))

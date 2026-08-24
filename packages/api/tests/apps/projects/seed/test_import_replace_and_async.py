@@ -12,6 +12,7 @@ this change reaches straight through them.
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from typing import Any
 from unittest.mock import patch
 
@@ -19,6 +20,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from jsonschema import Draft202012Validator
+from rest_framework.response import Response
 from rest_framework.test import APIClient
 
 from tests.test_openapi_response_conformance import (
@@ -846,3 +848,237 @@ def test_batched_inserts_are_sliced_not_one_giant_statement(seed_owner: Any) -> 
     assert landed.filter(sync_seq=0).count() == 0
     assert landed.filter(short_id="").count() == 0
     assert len({t.short_id for t in landed}) == landed.count()
+
+
+# ---------------------------------------------------------------------------
+# Outstanding-work bounds (#2615). The seed_import throttle caps how *often* a
+# job is created; nothing capped how many were in flight, and the per-program
+# de-dupe in enqueue_program_import can never match here because the request
+# creates a fresh Program immediately before enqueuing.
+# ---------------------------------------------------------------------------
+
+
+def _queue_import(client: APIClient, seed: dict[str, Any], slug: str) -> Any:
+    """POST a seed under a distinct slug WITHOUT running the resulting job."""
+    doc = json.loads(json.dumps(seed))
+    doc["program"]["slug"] = slug
+    return client.post(IMPORT_URL, data=doc, format="json")
+
+
+def test_the_per_program_dedupe_never_fires_on_the_import_path(seed_owner: Any) -> None:
+    """The premise for the per-user cap, asserted rather than assumed: every
+    import gets its own brand-new program, so the in-flight de-dupe in
+    ``enqueue_program_import`` has nothing to match against."""
+    client = _client(seed_owner)
+    first = _queue_import(client, _seed(), "atlas-a")
+    second = _queue_import(client, _seed(), "atlas-b")
+
+    assert first.status_code == 202
+    assert second.status_code == 202
+    assert first.data["program_id"] != second.data["program_id"]
+    assert ProgramImportJob.objects.filter(status=ImportJobStatus.PENDING).count() == 2
+
+
+def test_outstanding_imports_are_capped_per_user(seed_owner: Any, settings: Any) -> None:
+    settings.SEED_IMPORT_MAX_CONCURRENT_JOBS = 2
+    client = _client(seed_owner)
+
+    assert _queue_import(client, _seed(), "atlas-a").status_code == 202
+    assert _queue_import(client, _seed(), "atlas-b").status_code == 202
+
+    refused = _queue_import(client, _seed(), "atlas-c")
+
+    assert refused.status_code == 429
+    assert refused.data["code"] == "seed_import_concurrency_limit"
+    assert ProgramImportJob.objects.filter(requested_by=seed_owner).count() == 2
+
+
+def test_the_cap_leaves_no_program_shell_behind(seed_owner: Any, settings: Any) -> None:
+    """The refusal must precede ``create_program`` — a 429 that still left an
+    empty program would be the very litter this issue is about."""
+    settings.SEED_IMPORT_MAX_CONCURRENT_JOBS = 1
+    client = _client(seed_owner)
+    assert _queue_import(client, _seed(), "atlas-a").status_code == 202
+    before = Program.objects.count()
+
+    assert _queue_import(client, _seed(), "atlas-b").status_code == 429
+
+    assert Program.objects.count() == before
+
+
+def test_the_cap_never_destroys_a_program_it_then_refuses(seed_owner: Any) -> None:
+    """The in-transaction re-check sits *above* ``resolve_replace_candidates``.
+
+    Placed below it — the obvious spot, right before ``create_program`` — a
+    refusal returns *after* ``soft_delete_program_subtree`` has run, and since it
+    returns a Response rather than raising, the transaction COMMITS: the caller
+    loses their program and gets a 429 explaining nothing.
+
+    Only the second call can reach that code, so the race has to be staged. The
+    first (pre-parse) check has to pass and the second (in-transaction) one has
+    to refuse, which is exactly what a concurrent import taking the last slot
+    between them produces.
+    """
+    from trueppm_api.apps.projects import program_views
+
+    client = _client(seed_owner)
+    # A live program the replace is authorized to tear down.
+    assert _import_via_api(client, _seed()).status_code == 202
+    victim = Program.objects.get(code="atlas")
+    assert Project.objects.filter(program=victim, is_deleted=False).exists()
+
+    calls: list[int] = []
+
+    def _staged_race(user: Any) -> Any:
+        calls.append(1)
+        if len(calls) == 1:  # pre-parse: a slot was still free
+            return None
+        return Response(  # in-transaction: a concurrent import took it
+            {"detail": "over cap", "code": "seed_import_concurrency_limit"},
+            status=429,
+        )
+
+    with patch.object(program_views, "_seed_concurrency_refusal", _staged_race):
+        refused = client.post(IMPORT_URL, data={**_seed(), "replace": True}, format="json")
+
+    assert len(calls) == 2, "the in-transaction re-check never ran"
+    assert refused.status_code == 429
+    victim.refresh_from_db()
+    assert victim.is_deleted is False, "the teardown was committed under a refusal"
+    assert Project.objects.filter(program=victim, is_deleted=False).exists()
+
+
+def test_the_cap_counts_only_the_calling_user(
+    seed_owner: Any, stranger: Any, settings: Any
+) -> None:
+    settings.SEED_IMPORT_MAX_CONCURRENT_JOBS = 1
+    assert _queue_import(_client(seed_owner), _seed(), "atlas-a").status_code == 202
+
+    # A different account is unaffected — the bound is per user, not global.
+    assert _queue_import(_client(stranger), _seed(), "atlas-b").status_code == 202
+
+
+def test_a_finished_import_frees_its_slot(seed_owner: Any, settings: Any) -> None:
+    settings.SEED_IMPORT_MAX_CONCURRENT_JOBS = 1
+    client = _client(seed_owner)
+    queued = _queue_import(client, _seed(), "atlas-a")
+    assert queued.status_code == 202
+
+    assert _queue_import(client, _seed(), "atlas-b").status_code == 429
+    _run_job(queued.data["import_request_id"])
+    assert _queue_import(client, _seed(), "atlas-b").status_code == 202
+
+
+def test_a_zero_cap_disables_the_bound(seed_owner: Any, settings: Any) -> None:
+    """0 is the documented escape hatch for an operator who wants the throttle
+    to be the only limit — it must not read as "no imports allowed"."""
+    settings.SEED_IMPORT_MAX_CONCURRENT_JOBS = 0
+    client = _client(seed_owner)
+    for slug in ("atlas-a", "atlas-b", "atlas-c"):
+        assert _queue_import(client, _seed(), slug).status_code == 202
+
+
+def test_an_import_whose_requester_was_deleted_fails_with_a_readable_reason(
+    seed_owner: Any,
+) -> None:
+    """``requested_by`` is SET_NULL. The importer already refused to build
+    memberships against ``None``, but only by raising — burning three retries
+    and persisting a traceback where a reason belongs."""
+    client = _client(seed_owner)
+    queued = _queue_import(client, _seed(), "atlas-a")
+    job_id = queued.data["import_request_id"]
+    ProgramImportJob.objects.filter(pk=job_id).update(requested_by=None)
+
+    _run_job(job_id)
+
+    job = ProgramImportJob.objects.get(pk=job_id)
+    assert job.status == ImportJobStatus.FAILED
+    assert "no longer exists" in job.error_detail
+    assert "Traceback" not in job.error_detail
+
+
+# --- retention: the empty shell a failed import leaves behind ---------------
+
+
+def _expire_all_jobs() -> None:
+    from django.utils import timezone
+
+    ProgramImportJob.objects.update(expires_at=timezone.now() - timedelta(days=1))
+
+
+def test_the_purge_retires_the_empty_shell_of_a_failed_import(seed_owner: Any) -> None:
+    """A failed job keeps its shell so the Owner can reason about it — but the
+    reasoning needs the job row, and the purge deletes that. At 6/min the
+    leftovers accumulate at ~8,600 per account per day (#2615)."""
+    from trueppm_api.apps.projects.tasks import _do_purge_expired_program_imports
+
+    client = _client(seed_owner)
+    queued = _queue_import(client, _seed(), "atlas-a")
+    job_id = queued.data["import_request_id"]
+    program_id = queued.data["program_id"]
+    ProgramImportJob.objects.filter(pk=job_id).update(
+        status=ImportJobStatus.FAILED, error_detail="boom"
+    )
+    _expire_all_jobs()
+
+    _do_purge_expired_program_imports()
+
+    assert not ProgramImportJob.objects.filter(pk=job_id).exists()
+    program = Program.objects.get(pk=program_id)
+    assert program.is_deleted is True
+    # The server_version bump is what carries the tombstone to an offline client;
+    # a silent soft-delete would strand anyone who had already synced the shell.
+    assert program.server_version > 0
+
+
+def test_the_purge_leaves_a_shell_the_owner_has_since_used(seed_owner: Any) -> None:
+    """Anything built under the shell makes it the Owner's, not the importer's
+    leftover — the guard that keeps this reap from being a data loss."""
+    from trueppm_api.apps.projects.tasks import _do_purge_expired_program_imports
+
+    client = _client(seed_owner)
+    resp = _import_via_api(client, _seed())
+    program_id = resp.data["program_id"]
+    ProgramImportJob.objects.filter(pk=resp.data["import_request_id"]).update(
+        status=ImportJobStatus.FAILED
+    )
+    _expire_all_jobs()
+
+    _do_purge_expired_program_imports()
+
+    assert Program.objects.get(pk=program_id).is_deleted is False
+
+
+def test_the_purge_leaves_the_shell_of_a_successful_import(seed_owner: Any) -> None:
+    from trueppm_api.apps.projects.tasks import _do_purge_expired_program_imports
+
+    client = _client(seed_owner)
+    resp = _import_via_api(client, _seed())
+    program_id = resp.data["program_id"]
+    assert ProgramImportJob.objects.get(pk=resp.data["import_request_id"]).status == (
+        ImportJobStatus.SUCCESS
+    )
+    _expire_all_jobs()
+
+    _do_purge_expired_program_imports()
+
+    assert Program.objects.get(pk=program_id).is_deleted is False
+
+
+def test_the_purge_is_bounded_per_run(seed_owner: Any, monkeypatch: Any) -> None:
+    """Unbounded, a backlog bigger than the 55 s soft limit is SIGKILLed partway
+    and retried from the start forever, so it never drains."""
+    from trueppm_api.apps.projects import tasks as project_tasks
+
+    client = _client(seed_owner)
+    for slug in ("atlas-a", "atlas-b", "atlas-c"):
+        _queue_import(client, _seed(), slug)
+    ProgramImportJob.objects.update(status=ImportJobStatus.FAILED)
+    _expire_all_jobs()
+    monkeypatch.setattr(project_tasks, "PURGE_BATCH_SIZE", 2)
+
+    project_tasks._do_purge_expired_program_imports()
+    assert ProgramImportJob.objects.count() == 1
+
+    project_tasks._do_purge_expired_program_imports()
+    assert ProgramImportJob.objects.count() == 0

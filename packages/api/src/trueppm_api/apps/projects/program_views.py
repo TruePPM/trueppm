@@ -250,6 +250,52 @@ class _SeedPayloadProblem:
 _SEED_CONTROL_FIELDS = frozenset({"replace", "expected_program_id"})
 
 
+def _seed_concurrency_refusal(user: Any) -> Response | None:
+    """Refuse a seed import when the caller already has too many outstanding (#2615).
+
+    ``SeedImportThrottle`` bounds how *often* a job may be created; nothing
+    bounded how many were outstanding. The per-program in-flight de-dupe in
+    ``enqueue_program_import`` cannot help on this path — ``import_seed`` creates
+    a fresh ``Program`` immediately before enqueuing, so a brand-new program can
+    never already have a job and the filter never matches. That left 6/min of
+    full subtree builds able to accumulate in the queue indefinitely.
+
+    Counted per **user**, not per program, because the user is the only stable
+    thing across the requests: the program differs on every one of them.
+
+    Best-effort rather than a locked invariant. This is a resource bound, not a
+    security boundary, and a caller who wins a race to N+1 concurrent imports has
+    gained nothing that the throttle does not already re-bound one tick later —
+    so the cost of serializing every import request against a shared lock is not
+    worth paying. ``import_seed`` calls this twice (once before parsing, once
+    inside the transaction) which narrows the window without pretending to close
+    it.
+    """
+    from django.conf import settings
+
+    from trueppm_api.apps.projects.models import ImportJobStatus, ProgramImportJob
+
+    cap = int(getattr(settings, "SEED_IMPORT_MAX_CONCURRENT_JOBS", 3))
+    if cap <= 0:  # 0 disables the bound; the throttle is then the only limit
+        return None
+    outstanding = ProgramImportJob.objects.filter(
+        requested_by=user,
+        status__in=[ImportJobStatus.PENDING, ImportJobStatus.RUNNING],
+    ).count()
+    if outstanding < cap:
+        return None
+    return Response(
+        {
+            "detail": (
+                f"You already have {outstanding} seed imports queued or running "
+                f"(limit {cap}). Wait for one to finish, then re-send."
+            ),
+            "code": "seed_import_concurrency_limit",
+        },
+        status=status.HTTP_429_TOO_MANY_REQUESTS,
+    )
+
+
 def _discard_seed_payload(path: str) -> None:
     """Drop a stored seed payload whose import never produced a job row.
 
@@ -408,6 +454,18 @@ SEED_REPLACE_CONFLICT_RESPONSE = inline_serializer(
         "detail": serializers.CharField(),
         "code": serializers.CharField(),
         "conflict": _seed_replace_conflict(),
+    },
+)
+
+# The ``429`` envelope. Both refusals on this endpoint answer 429 and both carry
+# ``detail``, but only the concurrency bound carries ``code`` — DRF's own
+# throttle response has no code — so it is optional here rather than required
+# (#2615).
+SEED_IMPORT_REFUSED_RESPONSE = inline_serializer(
+    "SeedImportRefusedResponse",
+    {
+        "detail": serializers.CharField(),
+        "code": serializers.CharField(required=False),
     },
 )
 
@@ -902,6 +960,16 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                     "`seed_replace_mismatch`, or `seed_replace_ambiguous`."
                 ),
             ),
+            429: OpenApiResponse(
+                response=SEED_IMPORT_REFUSED_RESPONSE,
+                description=(
+                    "Either the `seed_import` rate bucket is exhausted (no `code`; retry "
+                    "after the interval in `Retry-After`), or you already have "
+                    "`SEED_IMPORT_MAX_CONCURRENT_JOBS` imports queued or running "
+                    "(`code: seed_import_concurrency_limit`). The second is cleared by an "
+                    "outstanding import finishing, not by waiting out a window."
+                ),
+            ),
         },
     )
     @action(
@@ -960,6 +1028,12 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             store_seed_payload,
         )
 
+        # Before parsing: an over-cap caller is refused without spending the
+        # validation pass on a document that was never going to be queued.
+        over_cap = _seed_concurrency_refusal(request.user)
+        if over_cap is not None:
+            return over_cap
+
         payload, problem = _read_seed_payload(request)
         if problem is not None:
             return Response({"detail": problem.detail}, status=status.HTTP_400_BAD_REQUEST)
@@ -1005,6 +1079,17 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         payload_path = store_seed_payload(_json.dumps(payload).encode("utf-8"))
 
         with transaction.atomic():
+            # Re-check the concurrency cap here and nowhere later: the pre-parse
+            # check ran before validation, so a concurrent request may have taken
+            # the last slot meanwhile. It must precede ``resolve_replace_candidates``
+            # because everything below it is destructive — returning a refusal
+            # after ``soft_delete_program_subtree`` would COMMIT the teardown and
+            # answer 429, losing the caller's program to a rate limit.
+            over_cap = _seed_concurrency_refusal(request.user)
+            if over_cap is not None:
+                _discard_seed_payload(payload_path)
+                return over_cap
+
             candidates = resolve_replace_candidates(request.user, slug, lock=True)
             replaced_program_id = None
             if candidates:

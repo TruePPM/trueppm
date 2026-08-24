@@ -1237,6 +1237,15 @@ JIRA_IMPORT_MAX_ROWS: int = env.int("JIRA_IMPORT_MAX_ROWS", default=20_000)
 # while bounding the memory a single authenticated import request can consume.
 SEED_MAX_UPLOAD_MB: int = env.int("SEED_MAX_UPLOAD_MB", default=5)
 
+# Max seed imports one account may have queued or running at once (#2615). The
+# ``seed_import`` throttle bounds the *rate* of job creation; it does not bound
+# how many of those jobs are outstanding, because the per-program in-flight
+# de-dupe in ``enqueue_program_import`` can never match on this path — the
+# request creates a fresh Program three lines earlier, so a brand-new program
+# has no prior job to de-dupe against. Without a per-user ceiling, six requests
+# a minute sustained becomes an unbounded worker backlog of full subtree builds.
+SEED_IMPORT_MAX_CONCURRENT_JOBS: int = env.int("SEED_IMPORT_MAX_CONCURRENT_JOBS", default=3)
+
 # ---------------------------------------------------------------------------
 # Django REST Framework
 # ---------------------------------------------------------------------------
