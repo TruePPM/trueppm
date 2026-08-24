@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable, Iterable, Sequence
 from datetime import time, timedelta
 from typing import Any, TypeGuard
 
@@ -11,7 +12,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Exists, F, OuterRef, Q
 from django.db.models.functions import Lower
 from django.utils import timezone
@@ -2410,7 +2411,7 @@ def structural_parent(task: Task, *, lock: bool = False) -> Task | None:
     )
 
 
-def sync_structure_shadow_values(task: Task) -> bool:
+def sync_structure_shadow_values(task: Task, *, is_container: bool | None = None) -> bool:
     """Park or restore a task's own status and estimate around the container line (#2950).
 
     Called after any write that can change a row's structural child count — task
@@ -2427,12 +2428,21 @@ def sync_structure_shadow_values(task: Task) -> bool:
       here. Silently un-declaring somebody's phase because its last task moved is
       the same class of silent identity change this field exists to remove.
 
+    ``is_container`` overrides the live child-count probe with an answer the caller
+    already holds. It exists for the **bulk insert** paths (#3030), which decide
+    container-ness for a whole batch in one in-memory sweep of the WBS paths and
+    run this *before* the INSERT — at which point :func:`task_is_phase` would query
+    for children that are not in the table yet and answer False for every row. The
+    override is deliberately the only thing those paths change: the promote /
+    de-promote branch below stays the single definition of what a declaration is,
+    so a bulk-written container and an indented one are the same object.
+
     Returns True when it changed something, so callers can skip a pointless save.
     """
     if task.pk is None or task.is_subtask:
         return False
 
-    is_container_now = task_is_phase(task)
+    is_container_now = task_is_phase(task) if is_container is None else is_container
 
     if is_container_now:
         if task.own_estimate is None and task.own_status is None:
@@ -2479,7 +2489,9 @@ STRUCTURE_SHADOW_RESTORE_FIELDS = ("status", "duration", *STRUCTURE_SHADOW_PROMO
 
 
 def resync_container_declarations(
-    *candidates: Task | None, already_locked: bool = False
+    *candidates: Task | None,
+    already_locked: bool = False,
+    is_container: bool | None = None,
 ) -> list[Task]:
     """Re-derive **and persist** the container declaration on rows whose child set moved.
 
@@ -2501,6 +2513,14 @@ def resync_container_declarations(
     rows itself under ``select_for_update()`` — the undo path hands over a whole
     queryset, and re-SELECTing each row one at a time made that pass O(N) in round
     trips for no gain.
+
+    ``is_container`` overrides the child-count probe for **every** candidate, and is
+    the other half of that saving: skipping the pk re-read while leaving
+    :func:`task_is_phase` to run per row still puts an ltree ``EXISTS`` query on the
+    row count, which on the bulk path is the very cost the caller came here to avoid.
+    Pass it only when the caller can prove the answer for the whole set — the bulk
+    funnel can, because every row it hands over is by construction an ancestor of a
+    child it just inserted.
 
     ``None`` and duplicate candidates are skipped, which lets a call site pass "the new
     parent and the former parent" without testing whether they are the same row or
@@ -2531,7 +2551,7 @@ def resync_container_declarations(
                 # Deleted by the same act (ungroup dissolves its container).
                 continue
         before_status, before_duration = row.status, row.duration
-        if not sync_structure_shadow_values(row):
+        if not sync_structure_shadow_values(row, is_container=is_container):
             continue
         # Name `status` / `duration` only when this transition actually moved them.
         # Asked as "did these columns change", not "which branch do I think ran" —
@@ -2548,6 +2568,166 @@ def resync_container_declarations(
         row.save(update_fields=fields, system_write=True, known_exists=True)
         changed.append(row)
     return changed
+
+
+def wbs_ancestor_paths(paths: Iterable[str]) -> set[str]:
+    """Every **strict** ancestor path implied by ``paths``, in one O(N·depth) sweep.
+
+    ``{"1.1", "2"}`` yields ``{"1"}``: a path is an ancestor iff some *other* path
+    is strictly descended from it, so each path contributes its own proper prefixes
+    and never itself. Ancestors that no row occupies are included — a caller that
+    needs "rows which are containers" intersects this with the paths it holds, and
+    a caller that needs "rows outside the batch which just gained a child"
+    subtracts them.
+    """
+    ancestors: set[str] = set()
+    for path in paths:
+        if not path:
+            continue
+        parts = str(path).split(".")
+        for end in range(1, len(parts)):
+            ancestors.add(".".join(parts[:end]))
+    return ancestors
+
+
+def declare_containers_in_batch(rows: Sequence[Task]) -> set[str]:
+    """Declare, **in memory and before the INSERT**, the containers a batch creates.
+
+    :func:`sync_structure_shadow_values` is what declares a row a container, and it
+    is reached from every single-row write path. The bulk writers — MS Project /
+    Jira / CSV import, template materialization, seed packs — reach it from none,
+    because ``bulk_create`` does not call ``Task.save()``. So a parent written by a
+    bulk path landed as ``structure_role='work'`` *with children*, and the Board's
+    rendering rule (ADR-0843) had nothing to key on: an imported project showed
+    every phase as a card (#3030).
+
+    Container-ness is decided here by sweeping the batch's own ``wbs_path`` values
+    rather than by asking the database once per row. That is not a micro-optimization
+    — an import is thousands of rows, and a per-row :func:`task_is_phase` probe would
+    turn one INSERT into N ltree queries. The sweep is exactly the derivation
+    ``task_is_phase`` performs, applied to a set the caller already has in hand.
+
+    Returns the WBS paths of ancestors the batch did **not** contain: pre-existing
+    rows that this batch has just given their first child. Those cannot be declared
+    in memory (the caller does not hold them) and are resynced after the INSERT by
+    :func:`bulk_create_tasks`. For a batch that builds a whole project the set is
+    empty, which is the common case and costs nothing.
+    """
+    structural = [row for row in rows if row.wbs_path and not row.is_subtask and row.pk is not None]
+    in_batch = {str(row.wbs_path) for row in structural}
+    ancestors = wbs_ancestor_paths(in_batch)
+    for row in structural:
+        if str(row.wbs_path) in ancestors:
+            sync_structure_shadow_values(row, is_container=True)
+    return ancestors - in_batch
+
+
+#: Ceiling on one ``wbs_path__in`` lookup for the outside-ancestor resync. PostgreSQL
+#: caps a statement at 65535 bound parameters, and the ancestor set is derived from
+#: whatever tree the caller hands over — the load fixture alone can reach ~22 000 paths.
+#: Chunking keeps a pathological shape a slow query rather than a hard failure.
+_OUTSIDE_ANCESTOR_CHUNK = 1000
+
+
+def bulk_create_tasks(
+    rows: Sequence[Task],
+    *,
+    batch_size: int | None = None,
+    insert: Callable[[Sequence[Task]], Any] | None = None,
+) -> list[Task]:
+    """INSERT ``rows`` **and declare the containers among them** (#3030).
+
+    Every bulk writer of ``Task`` goes through this instead of calling
+    ``Task.objects.bulk_create`` itself. That is the point: this defect has been
+    fixed three times at three call sites (#2950 on create/delete, #3010 on the four
+    restructure endpoints, and here), and patching each writer as it is discovered is
+    what let the class survive all three rounds. A funnel makes the *next* bulk
+    writer inherit the declaration instead of quietly reintroducing the hole, and
+    ``test_structure_declaration_on_bulk_writes.py`` fails on any module that goes
+    around it.
+
+    ``insert`` overrides the INSERT itself for a caller that needs a different one —
+    the seed importer writes through ``simple_history``'s ``bulk_create_with_history``
+    so its rows carry a history row. The declaration pass is identical either way.
+
+    The owning project is read off the rows rather than taken as an argument. A
+    caller-supplied id is a second, unchecked source of truth for the same fact: the
+    ancestor sweep is over the batch's paths, so an id that disagreed with them would
+    apply one project's path set as a promotion filter against another's rows. Every
+    row must belong to one project, and a batch that spans two is refused rather than
+    silently scoped to whichever one the caller named.
+
+    The whole pass — declare, insert, resync — runs in one ``atomic()`` block, so the
+    declaration and the insert it follows from are one act even for a caller that is
+    not itself atomic. Every caller today is, and this is what keeps that from being
+    an unstated precondition that fails silently the first time it stops being true.
+    """
+    if not rows:
+        return []
+    project_ids = {row.project_id for row in rows}
+    if len(project_ids) > 1:
+        raise ValueError(
+            "bulk_create_tasks was handed rows from several projects; the WBS ancestor "
+            f"sweep is only meaningful within one ({len(project_ids)} seen)."
+        )
+    project_id = next(iter(project_ids))
+    with transaction.atomic():
+        outside = declare_containers_in_batch(rows)
+        if insert is not None:
+            insert(rows)
+        elif batch_size is not None:
+            Task.objects.bulk_create(rows, batch_size=batch_size)
+        else:
+            Task.objects.bulk_create(rows)
+        if outside:
+            _resync_outside_ancestors(project_id, outside)
+    return list(rows)
+
+
+def _resync_outside_ancestors(project_id: Any, outside: set[str]) -> None:
+    """Declare the rows the batch did not carry but has just given a first child.
+
+    ``resync_container_declarations`` picks the field list from the transition that
+    actually fired, so this is the same code the restructure endpoints run — only the
+    way the rows are reached differs. Two arguments carry the whole cost story:
+
+    * ``already_locked=True`` — the rows were just locked and read in one statement, so
+      the helper's default per-candidate re-SELECT would put the round-trip count back
+      on the row count.
+    * ``is_container=True`` — provable here rather than probed. Every path in
+      ``outside`` is a strict ancestor of a row the INSERT above just wrote, so the
+      child-count question is already answered; leaving it to :func:`task_is_phase`
+      would run an ltree ``EXISTS`` per row, which is the cost this design exists to
+      avoid.
+
+    ``no_key=True`` because a plain ``FOR UPDATE`` conflicts with the ``FOR KEY SHARE``
+    PostgreSQL takes on a referenced row for every FK insert — so it would block any
+    concurrent write creating a ``Dependency`` / ``TaskResource`` / subtask pointing at
+    one of these parents, none of which can change the parent's child count.
+
+    Residual, and deliberately not worked around: these locks are held until the
+    *caller's* transaction commits (an import holds them through its dependency and
+    assignment passes), and the caller already holds the project row's write lock,
+    while the restructure endpoints take a task lock first and the project row second.
+    That is an ABBA pair, so a concurrent indent on one of these exact parents during
+    an additive import can deadlock; PostgreSQL aborts one side and the import rolls
+    back whole. It cannot be ordered away — any write to a pre-existing parent inside
+    an import transaction has it — and it needs ``outside`` to be non-empty, which no
+    shipping importer, template or seed pack produces (they all carry their own
+    ancestors). Availability, bounded, and loud.
+    """
+    ordered = sorted(outside)
+    for start in range(0, len(ordered), _OUTSIDE_ANCESTOR_CHUNK):
+        resync_container_declarations(
+            *Task.objects.select_for_update(no_key=True).filter(
+                project_id=project_id,
+                wbs_path__in=ordered[start : start + _OUTSIDE_ANCESTOR_CHUNK],
+                is_deleted=False,
+                is_subtask=False,
+            ),
+            already_locked=True,
+            is_container=True,
+        )
 
 
 class Task(VersionedModel):

@@ -346,7 +346,7 @@ def _create_tasks(
     from django.db.models import F
     from django.utils import timezone
 
-    from trueppm_api.apps.projects.models import Project, Task, TaskSource
+    from trueppm_api.apps.projects.models import Project, Task, TaskSource, bulk_create_tasks
 
     # Allocate a batch of short_ids: increment object_sequence by len(tasks)
     # in one UPDATE, then assign sequential hex IDs.
@@ -390,7 +390,12 @@ def _create_tasks(
         task.source_id = source_id
         task.seeded_at = seeded_at
 
-    Task.objects.bulk_create(task_objects, batch_size=batch_size)
+    # `bulk_create_tasks`, not `Task.objects.bulk_create`: a summary row here has
+    # children and must land DECLARED a container, or the Board renders every
+    # imported phase as a card (#3030). The summary indices computed above answer
+    # the same question for the three-point gate, but the declaration is derived
+    # inside the helper so this path and the restructure endpoints cannot drift.
+    bulk_create_tasks(task_objects, batch_size=batch_size)
     summary["tasks_created"] = len(task_objects)
     summary["task_count"] = len(task_objects)
     return task_objects
