@@ -1426,9 +1426,17 @@ def _do_purge_expired_program_imports() -> None:
         # account per day. Retire it here, at the same moment its explanation
         # goes away, and only if it is still empty: anything the Owner has since
         # built under it makes it theirs, not the importer's leftover.
-        if job.status == ImportJobStatus.FAILED and _reap_empty_import_shell(job):
-            reaped += 1
-        job.delete()
+        # One transaction per job, not one for the batch: a storage error on the
+        # next row must not roll back the rows already reaped, and the whole
+        # point of the batch is that it can be interrupted and resumed. The
+        # atomic block matters because ``soft_delete`` is two statements — the
+        # row UPDATE and the ``deleted_version`` stamp the sync tombstone is read
+        # from — and this runs in a beat task with no ambient transaction, so
+        # without it a crash between them leaves a tombstone sync cannot see.
+        with transaction.atomic():
+            if job.status == ImportJobStatus.FAILED and _reap_empty_import_shell(job):
+                reaped += 1
+            job.delete()
         count += 1
     if count:
         logger.info("purge_expired_program_imports: deleted %d expired import(s)", count)
@@ -1462,7 +1470,6 @@ def _reap_empty_import_shell(job: Any) -> bool:
         ProgramImportJob,
         Project,
     )
-    from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
     program = Program.objects.filter(pk=job.program_id, is_deleted=False).first()
     if program is None:  # already gone, or already tombstoned by a replace
@@ -1478,17 +1485,20 @@ def _reap_empty_import_shell(job: Any) -> bool:
         .exists()
     ):
         return False
+    # The ``server_version`` bump ``soft_delete`` writes is the delivery
+    # mechanism: an offline client learns the shell is gone from its next sync
+    # delta, which is the same path that carries every other program tombstone.
+    #
+    # Deliberately **no** ``program_deleted`` broadcast, unlike
+    # ``soft_delete_program_subtree``. That one runs in a request a user is
+    # watching; this runs in a nightly sweep, weeks later, over a shell that by
+    # definition nobody has open. And ``broadcast_board_event`` is synchronous
+    # (``async_to_sync`` over the channel layer) with no enclosing atomic block
+    # here, so ``on_commit`` would fire it inline — up to ``PURGE_BATCH_SIZE``
+    # blocking round-trips inside the same 55 s budget the batching above exists
+    # to protect, for an event that no consumer can currently receive anyway
+    # (program groups have no ``group_add``, #836).
     program.soft_delete()
-    # Same tombstone shape as ``soft_delete_program_subtree``, the only other
-    # place a program row is retired: the ``server_version`` bump is what reaches
-    # offline sync consumers, and the broadcast is what removes it from a session
-    # that has the empty shell open right now. Called directly rather than
-    # through ``partial`` — the WS freeze guard AST-scans for the event-type
-    # literal in the argument slot.
-    program_id = str(program.pk)
-    transaction.on_commit(
-        lambda: broadcast_board_event(program_id, "program_deleted", {"id": program_id})
-    )
     return True
 
 

@@ -1026,9 +1026,11 @@ def test_the_purge_retires_the_empty_shell_of_a_failed_import(seed_owner: Any) -
     assert not ProgramImportJob.objects.filter(pk=job_id).exists()
     program = Program.objects.get(pk=program_id)
     assert program.is_deleted is True
-    # The server_version bump is what carries the tombstone to an offline client;
-    # a silent soft-delete would strand anyone who had already synced the shell.
+    # The tombstone reaches an offline client through the sync delta, not a
+    # broadcast — so ``deleted_version`` has to be stamped, which is the second
+    # of ``soft_delete``'s two statements and the reason the reap is atomic.
     assert program.server_version > 0
+    assert program.deleted_version == program.server_version
 
 
 def test_the_purge_leaves_a_shell_the_owner_has_since_used(seed_owner: Any) -> None:
