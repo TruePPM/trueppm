@@ -115,6 +115,30 @@ class ExternalWorkItemDTO:
         )
 
 
+@dataclass(frozen=True)
+class ExternalFetchResult:
+    """One pull's items **plus** what the source knows about what it left behind.
+
+    The page of DTOs alone cannot answer "is this all of it?" — which is exactly
+    the question a truncated My Work needs answered (#2925). This carries the two
+    facts that make truncation decidable by the caller:
+
+    Attributes:
+        items: The sanitized DTOs this call returned (a single page).
+        total_available: How many items the provider says match the query in
+            total, or ``None`` when the provider did not say. ``None`` means
+            "unknown", never "zero" — a caller must not render a count from it.
+        page_size: The most items this call *could* have returned, or ``None``
+            when the source is unbounded / does not paginate. Combined with
+            ``len(items)`` it is the fallback truncation signal for a provider
+            that reports no total: a full page means there is probably more.
+    """
+
+    items: list[ExternalWorkItemDTO]
+    total_available: int | None = None
+    page_size: int | None = None
+
+
 class ExternalTaskSource(abc.ABC):
     """Contract for a user-scoped, read-only external work-item source (ADR-0097 §1).
 
@@ -138,6 +162,24 @@ class ExternalTaskSource(abc.ABC):
         cap, ``Retry-After`` backoff, and persistence to ``ExternalWorkItem`` are
         the #1419 sync worker's job — a source is a pure read.
         """
+
+    def fetch_assigned_items_result(
+        self, *, base_url: str, secret: str, config: dict[str, Any]
+    ) -> ExternalFetchResult:
+        """Same read as :meth:`fetch_assigned_items`, plus the pull's own bounds.
+
+        Deliberately **not** abstract, and deliberately additive rather than a
+        change to the abstract method's return type: an Enterprise source
+        registered against this ABC before #2925 implements only the abstract
+        method, and must keep working unchanged (the extension point is a
+        cross-repo commitment — see CLAUDE.md "OSS / Enterprise boundary rules").
+        The default therefore wraps the abstract read and reports *unknown*
+        bounds, which the sync worker renders as "no truncation claim" rather
+        than as "nothing was truncated". A source that can cheaply report its
+        provider's total (Jira's ``search.total``) overrides this.
+        """
+        items = self.fetch_assigned_items(base_url=base_url, secret=secret, config=config)
+        return ExternalFetchResult(items=items)
 
     def verify_credential(
         self, *, base_url: str, secret: str, config: dict[str, Any]
@@ -489,6 +531,12 @@ class _JiraBackend(abc.ABC):
     def fetch(
         self, *, base_url: str, secret: str, config: dict[str, Any]
     ) -> list[ExternalWorkItemDTO]:
+        """Items-only view of :meth:`fetch_result`, for callers that want the page."""
+        return self.fetch_result(base_url=base_url, secret=secret, config=config).items
+
+    def fetch_result(
+        self, *, base_url: str, secret: str, config: dict[str, Any]
+    ) -> ExternalFetchResult:
         """Fetch one page of the user's assigned issues as sanitized DTOs.
 
         Read-only ``GET /rest/api/<v>/search``. Transport/parse failures raise
@@ -500,6 +548,10 @@ class _JiraBackend(abc.ABC):
         The connection's ``config["project_keys"]`` is ANDed onto the query here
         (:func:`_compose_jql`), so the "Projects" filter narrows what actually
         leaves Jira instead of only being echoed back to the owner (#2888).
+
+        Returns the page **and** Jira's own ``total`` for the query, so the sync
+        worker can tell the owner their My Work is showing the first N of M
+        rather than presenting a truncated page as the whole answer (#2925).
 
         Raises:
             ExternalSourceAuthError: 401/403 — token expired or revoked.
@@ -545,9 +597,11 @@ class _JiraBackend(abc.ABC):
         if not isinstance(payload, dict):
             raise ExternalSourceError("Jira search returned a non-JSON body")
         issues = payload.get("issues")
+        total = _as_non_negative_int(payload.get("total"))
         if not isinstance(issues, list):
-            return []
-        return [_jira_issue_to_dto(base, issue) for issue in issues if isinstance(issue, dict)]
+            return ExternalFetchResult(items=[], total_available=total, page_size=_FETCH_PAGE_SIZE)
+        items = [_jira_issue_to_dto(base, issue) for issue in issues if isinstance(issue, dict)]
+        return ExternalFetchResult(items=items, total_available=total, page_size=_FETCH_PAGE_SIZE)
 
 
 class _JiraCloudBackend(_JiraBackend):
@@ -618,6 +672,18 @@ class JiraSource(ExternalTaskSource):
     ) -> list[ExternalWorkItemDTO]:
         return self._backend(config).fetch(base_url=base_url, secret=secret, config=config or {})
 
+    def fetch_assigned_items_result(
+        self, *, base_url: str, secret: str, config: dict[str, Any]
+    ) -> ExternalFetchResult:
+        """Override the ABC default: Jira reports a real ``total`` for the query.
+
+        So truncation is an exact fact here ("the first 100 of 412"), not the
+        full-page guess the base implementation would have to fall back on.
+        """
+        return self._backend(config).fetch_result(
+            base_url=base_url, secret=secret, config=config or {}
+        )
+
 
 def _as_dict(value: Any) -> dict[str, Any]:
     """Narrow an untrusted JSON value to a dict (empty if it is not one).
@@ -627,6 +693,21 @@ def _as_dict(value: Any) -> dict[str, Any]:
     total without a cascade of ``isinstance`` guards at each ``.get`` site.
     """
     return value if isinstance(value, dict) else {}
+
+
+def _as_non_negative_int(value: Any) -> int | None:
+    """Narrow an untrusted JSON number to a count, or ``None`` if it is not one.
+
+    ``total`` comes from the provider, so it can be absent, a string, a float, or
+    negative. Anything that is not a plain non-negative ``int`` degrades to
+    ``None`` ("unknown"), because a wrong number here becomes a wrong sentence in
+    the owner's UI — "showing the first 100 of -1" is worse than saying nothing.
+    ``bool`` is excluded explicitly: it is an ``int`` subclass, so ``True`` would
+    otherwise read as a total of 1.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if value >= 0 else None
 
 
 def _parse_iso_date(value: Any) -> date | None:

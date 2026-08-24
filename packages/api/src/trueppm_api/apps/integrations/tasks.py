@@ -24,16 +24,28 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
+from typing import Any
 
 from django.db import models, transaction
 from django.utils import timezone
 
 from trueppm_api.core.idempotent import idempotent_task
 
-from .connections import STATUS_AUTH_FAILED, STATUS_CONNECTED, STATUS_INVALID_FILTER
+from .connections import (
+    STATUS_AUTH_FAILED,
+    STATUS_CONNECTED,
+    STATUS_INVALID_FILTER,
+    SYNC_FAILURE_REASONS,
+    SYNC_REASON_AUTH_FAILED,
+    SYNC_REASON_DECRYPT_FAILED,
+    SYNC_REASON_INVALID_FILTER,
+    SYNC_REASON_RATE_LIMITED,
+    SYNC_REASON_UNREACHABLE,
+)
 from .encryption import decrypt_secret
 from .external_sources import (
     EXTERNAL_TASK_SOURCES,
+    ExternalFetchResult,
     ExternalSourceAuthError,
     ExternalSourceConfigError,
     ExternalSourceError,
@@ -55,6 +67,23 @@ logger = logging.getLogger(__name__)
 # bound rather than a routinely-hit limit; when a page ever exceeds it we keep
 # the first CACHE_ITEM_CAP and drop the rest so the cache stays bounded.
 CACHE_ITEM_CAP = 500
+
+# The ``config["last_sync"]["reason"]`` vocabulary is defined in ``connections``
+# — beside the read surface that serves it, so that surface can validate against
+# it without importing back into this module. Re-exported here because this is
+# the only module that *writes* it, and every writer should reach for it by name.
+__all__ = [
+    "SYNC_FAILURE_REASONS",
+    "SYNC_REASON_AUTH_FAILED",
+    "SYNC_REASON_DECRYPT_FAILED",
+    "SYNC_REASON_INVALID_FILTER",
+    "SYNC_REASON_RATE_LIMITED",
+    "SYNC_REASON_UNREACHABLE",
+    "drain_external_sync",
+    "external_sync",
+    "poll_external_sources",
+    "purge_external_sync",
+]
 
 # Drain floor: a PENDING row younger than this was almost certainly just handed
 # to on_commit dispatch, so the drain skips it to avoid a double-dispatch race
@@ -152,18 +181,23 @@ def _do_sync(request_id: str) -> None:
                 req.user_id,
                 req.source,
             )
+            _record_failed_pull(cred, SYNC_REASON_DECRYPT_FAILED, now)
             _mark_dead(req, "credential could not be decrypted")
             return
 
         try:
-            items = source_cls().fetch_assigned_items(
+            result = source_cls().fetch_assigned_items_result(
                 base_url=cred.base_url, secret=secret, config=cred.config or {}
             )
         except ExternalSourceAuthError:
             # 401/403: the token is dead. Flip the connection to auth_failed so My
             # Work shows "Reconnect", stop using the token, keep the last-good
             # cache (ADR-0097 §5). No retry loop on an auth failure.
-            _set_connection_status(cred, STATUS_AUTH_FAILED)
+            _set_connection_status(
+                cred,
+                STATUS_AUTH_FAILED,
+                last_sync=_failed_outcome(SYNC_REASON_AUTH_FAILED, now),
+            )
             _mark_dead(req, "auth_failed")
             logger.info(
                 "external_sync: auth failed for user=%s source=%s — connection flagged",
@@ -179,7 +213,11 @@ def _do_sync(request_id: str) -> None:
             # wider than the owner selected, so flag the connection with a state
             # whose remedy is the connect wizard and stop. Must precede the generic
             # ExternalSourceError arm below — this is a subclass of it.
-            _set_connection_status(cred, STATUS_INVALID_FILTER)
+            _set_connection_status(
+                cred,
+                STATUS_INVALID_FILTER,
+                last_sync=_failed_outcome(SYNC_REASON_INVALID_FILTER, now),
+            )
             _mark_dead(req, "invalid_filter")
             logger.info(
                 "external_sync: stored filter unusable for user=%s source=%s — connection flagged",
@@ -196,12 +234,13 @@ def _do_sync(request_id: str) -> None:
             # reachable, so flagging it would send the user to re-issue a token
             # that was never the problem. Must precede the generic arm below —
             # this is a subclass of it.
-            _requeue_rate_limited(req, exc.retry_after, now)
+            _requeue_rate_limited(req, exc.retry_after, now, cred=cred)
             return
         except ExternalSourceError as exc:
             # Transient (5xx / timeout): keep the last-good cache and retire this
             # attempt. The user (or the next poll) re-triggers; the cooldown keeps
             # the retry cadence sane. No data is lost.
+            _record_failed_pull(cred, SYNC_REASON_UNREACHABLE, now)
             _mark_dead(req, f"unreachable: {type(exc).__name__}")
             logger.info(
                 "external_sync: source unreachable for user=%s source=%s (%s)",
@@ -211,11 +250,16 @@ def _do_sync(request_id: str) -> None:
             )
             return
 
-        _apply_pull(req.user_id, req.source, items, now)
+        stored = _apply_pull(req.user_id, req.source, result.items, now)
 
-        # Successful pull: stamp the connection and retire the row.
+        # Successful pull: stamp the connection with its outcome and retire the row.
         cred.last_used_at = now
-        _set_connection_status(cred, STATUS_CONNECTED, extra_save_fields=["last_used_at"])
+        _set_connection_status(
+            cred,
+            STATUS_CONNECTED,
+            last_sync=_successful_outcome(result, stored, now),
+            extra_save_fields=["last_used_at"],
+        )
         req.status = ExternalSyncRequestStatus.DONE
         req.last_error = ""
         req.save(update_fields=["status", "last_error"])
@@ -226,7 +270,7 @@ def _apply_pull(
     source: str,
     items: list[ExternalWorkItemDTO],
     now: datetime,
-) -> None:
+) -> int:
     """Upsert the fetched DTOs and soft-remove anything that vanished.
 
     Items are already sanitized (field caps + URL scheme) at the registry
@@ -234,6 +278,12 @@ def _apply_pull(
     ``external_id`` no longer returned by a *successful* pull is soft-removed
     (``is_stale=True``) — never hard-deleted here — so a transient partial
     response can never wipe the list (ADR-0097 §5).
+
+    Returns:
+        How many rows this pull actually stored (after the cap and after
+        duplicate ``external_id``s collapse) — the "showing the first N" the
+        owner is told about, so the number they see is the number that landed
+        rather than the number the provider sent (#2925).
     """
     capped = items[:CACHE_ITEM_CAP]
     seen: set[str] = set()
@@ -265,30 +315,166 @@ def _apply_pull(
     if seen:
         stale_qs = stale_qs.exclude(external_id__in=seen)
     stale_qs.filter(is_stale=False).update(is_stale=True, last_synced_at=now)
+    return len(seen)
+
+
+def _iso_z(value: datetime) -> str:
+    """Serialize a timestamp the way DRF does, so one object has one spelling.
+
+    ``config`` is a JSON column, so ``at`` is stored as a string and DRF's
+    ``DateTimeField.to_representation`` passes a ``str`` straight through. Its
+    sibling ``last_synced_at`` is a real ``DateTimeField`` and renders as
+    ``…Z``, so a bare ``isoformat()`` would put ``…+00:00`` and ``…Z`` in the
+    same response object. Both are valid RFC 3339 and no client breaks on it —
+    it is just two spellings of one thing in one payload, which is the kind of
+    inconsistency an integrator has to write a special case for.
+    """
+    return value.isoformat().replace("+00:00", "Z")
+
+
+def _successful_outcome(result: ExternalFetchResult, stored: int, now: datetime) -> dict[str, Any]:
+    """Describe a completed pull for ``config["last_sync"]`` (#2925).
+
+    The truncation decision, in priority order, because each rung is a stronger
+    claim than the next:
+
+    1. The cache cap bit — more DTOs came back than we were willing to store.
+       Tested against :data:`CACHE_ITEM_CAP` rather than ``stored < fetched``,
+       because ``stored`` counts *distinct* ``external_id``s: a page containing a
+       duplicate satisfies ``stored < fetched`` with no cap anywhere near, which
+       would tell an owner their complete list is partial. De-duplication is not
+       truncation.
+    2. The provider reported a ``total`` larger than what we stored. Exact.
+    3. No total, but the page came back **full**. A guess, and the weakest rung:
+       a user with exactly ``page_size`` assigned items is indistinguishable from
+       one with more. It is the conservative direction — over-reporting "there
+       may be more" costs a line of UI, while under-reporting is the silent
+       truncation this issue exists to end.
+
+    ``total_available`` stays ``None`` when the source did not report one. The web
+    must render that as "the first N" without a denominator rather than inventing
+    a total — ``None`` here means *unknown*, never *zero*.
+    """
+    fetched = len(result.items)
+    total = result.total_available
+    if fetched > CACHE_ITEM_CAP:
+        truncated = True
+    elif total is not None:
+        truncated = total > stored
+    else:
+        truncated = result.page_size is not None and fetched >= result.page_size
+    return {
+        "at": _iso_z(now),
+        "ok": True,
+        "reason": "",
+        "fetched": fetched,
+        "stored": stored,
+        "total_available": total,
+        "truncated": truncated,
+    }
+
+
+def _failed_outcome(reason: str, now: datetime) -> dict[str, Any]:
+    """Describe a failed pull for ``config["last_sync"]`` (#2925).
+
+    Counts are zero rather than absent so the shape is uniform for every reader —
+    a failure did not store anything, and the last-good cache the owner is still
+    being served is described by the *previous* successful outcome, not this one.
+    ``reason`` is a :data:`SYNC_FAILURE_REASONS` token; see that constant for why
+    it is never a formatted message.
+    """
+    return {
+        "at": _iso_z(now),
+        "ok": False,
+        "reason": reason,
+        "fetched": 0,
+        "stored": 0,
+        "total_available": None,
+        "truncated": False,
+    }
+
+
+def _merge_config(
+    cred: IntegrationCredential,
+    updates: dict[str, Any],
+    *,
+    extra_save_fields: list[str] | None = None,
+) -> None:
+    """Merge keys into the credential's ``config`` under a row lock.
+
+    ``config`` is one JSON column holding several independently-owned keys: the
+    owner writes ``{jql, project_keys, account_email, deployment}`` from the
+    connect wizard, and this worker writes ``{status, last_sync}``. A save from
+    either side rewrites the **whole** column, so writing from the snapshot
+    ``cred`` was loaded with — before an outbound fetch that can take seconds —
+    silently reverts anything the owner changed while the pull was in flight.
+
+    That is not a cosmetic lost update. ``project_keys`` is ANDed into the JQL
+    (#2888) precisely so the filter narrows what leaves the provider, so reverting
+    it *widens* the next pull past what the owner selected; and reinstating a
+    stale ``status`` re-shows "Reconnect" on a connection the owner just repaired.
+
+    So: re-read the row ``SELECT … FOR UPDATE`` immediately before the write, and
+    merge only this module's own keys onto whatever is there now. The lock is
+    taken *after* the fetch, never across it, so a slow provider cannot hold it.
+    A row deleted mid-pull (the owner disconnected) is a no-op rather than a
+    resurrection.
+    """
+    fresh = IntegrationCredential.objects.select_for_update().filter(pk=cred.pk).first()
+    if fresh is None:
+        return
+    config = dict(fresh.config or {})
+    config.update(updates)
+    fresh.config = config
+    # Fields the caller already set on its own instance (``last_used_at``) have to
+    # be carried onto the locked row, which was loaded before they were assigned.
+    for field in extra_save_fields or []:
+        setattr(fresh, field, getattr(cred, field))
+    fresh.save(update_fields=["config", *(extra_save_fields or [])])
+    # Keep the caller's instance consistent with what was persisted, so a later
+    # read off ``cred`` in the same call does not see the pre-merge snapshot.
+    cred.config = config
+
+
+def _record_failed_pull(cred: IntegrationCredential, reason: str, now: datetime) -> None:
+    """Stamp a failure onto ``config["last_sync"]`` without touching ``status``.
+
+    Used by the failure paths that deliberately leave the connection lifecycle
+    alone — an unreachable host or an unreadable ciphertext is not ``auth_failed``
+    and must not send the owner to re-issue a working token. The outcome is still
+    recorded, because "connected, last synced 5 minutes ago" reading identically
+    whether the last pull worked or not is the defect (#2925).
+    """
+    _merge_config(cred, {"last_sync": _failed_outcome(reason, now)})
 
 
 def _set_connection_status(
     cred: IntegrationCredential,
     status: str,
     *,
+    last_sync: dict[str, Any] | None = None,
     extra_save_fields: list[str] | None = None,
 ) -> None:
     """Write ``config["status"]`` on the credential row (the connection lifecycle).
 
     ``config`` is the ADR-0097 §2 reuse of ``IntegrationCredential`` — the
-    connection's ``{account_email, jql, project_keys, status}`` live there. Only
-    ``status`` (+ any ``extra_save_fields`` the caller already set) is persisted.
+    connection's ``{account_email, jql, project_keys, status, last_sync}`` live
+    there. Only ``status``, an optional ``last_sync`` outcome, and any
+    ``extra_save_fields`` the caller already set are persisted — see
+    :func:`_merge_config` for why the other keys are merged rather than rewritten.
     """
-    config = dict(cred.config or {})
-    config["status"] = status
-    cred.config = config
-    cred.save(update_fields=["config", *(extra_save_fields or [])])
+    updates: dict[str, Any] = {"status": status}
+    if last_sync is not None:
+        updates["last_sync"] = last_sync
+    _merge_config(cred, updates, extra_save_fields=extra_save_fields)
 
 
 def _requeue_rate_limited(
     req: ExternalSyncRequest,
     retry_after: float | None,
     now: datetime,
+    *,
+    cred: IntegrationCredential | None = None,
 ) -> None:
     """Put a rate-limited pull back in the PENDING pool behind a retry clock.
 
@@ -305,9 +491,16 @@ def _requeue_rate_limited(
     Once the attempt budget is spent the row retires DEAD, so a source that 429s
     forever cannot cycle forever. That is not a permanent give-up: the owner's next
     manual refresh writes a fresh row.
+
+    Only that terminal give-up is recorded as a failed outcome on the connection
+    (#2925). A re-queue is not an outcome — the pull is still in flight, and
+    writing "last pull: rate limited" for a request that succeeds forty seconds
+    later would show the owner a failure that did not happen.
     """
     req.attempt_count += 1
     if req.attempt_count >= _MAX_RATE_LIMIT_ATTEMPTS:
+        if cred is not None:
+            _record_failed_pull(cred, SYNC_REASON_RATE_LIMITED, now)
         _mark_dead(req, f"rate_limited: retry budget spent after {req.attempt_count} attempt(s)")
         logger.info(
             "external_sync: rate-limit budget spent for user=%s source=%s",

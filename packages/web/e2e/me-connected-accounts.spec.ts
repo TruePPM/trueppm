@@ -72,6 +72,17 @@ function defaultCredentials(): CredentialRow[] {
   ];
 }
 
+/** The last pull's outcome (#2925) — counts + whether a cap truncated it. */
+interface LastSyncRow {
+  at: string | null;
+  ok: boolean;
+  reason: string;
+  fetched: number;
+  stored: number;
+  total_available: number | null;
+  truncated: boolean;
+}
+
 interface ConnectionRow {
   name: string;
   exists: boolean;
@@ -81,6 +92,9 @@ interface ConnectionRow {
   last_synced_at: string | null;
   jql: string;
   project_keys: string[];
+  /** Optional so the pre-#2925 fixtures below stay valid — the UI treats an
+   *  absent outcome the same as "no pull has completed yet". */
+  last_sync?: LastSyncRow | null;
 }
 
 function notConnected(name: string): ConnectionRow {
@@ -93,6 +107,7 @@ function notConnected(name: string): ConnectionRow {
     last_synced_at: null,
     jql: '',
     project_keys: [],
+    last_sync: null,
   };
 }
 
@@ -398,5 +413,160 @@ test.describe('Available sources section (#1420)', () => {
     const jiraCard = page.locator('#source-jira');
     await expect(jiraCard.getByText(/^Last synced 3d ago$/)).toBeVisible();
     await expect(jiraCard.getByRole('button', { name: 'Reconnect' })).toHaveCount(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Last-pull outcome (#2925) — the connection reports what the pull did, and
+  // says so when a cap truncated it.
+  // -------------------------------------------------------------------------
+
+  test('reports the pulled count on a connected source (#2925)', async ({ page }) => {
+    await setup(page, defaultCredentials(), {
+      jira: {
+        name: 'Jira',
+        exists: true,
+        base_url: 'https://acme.atlassian.net',
+        account_email: 'alice@example.com',
+        status: 'connected',
+        last_synced_at: '2026-05-20T14:00:00Z',
+        jql: '',
+        project_keys: [],
+        last_sync: {
+          at: '2026-05-20T14:00:00Z',
+          ok: true,
+          reason: '',
+          fetched: 12,
+          stored: 12,
+          total_available: 12,
+          truncated: false,
+        },
+      },
+    });
+    await page.goto('/me/settings/connected-accounts');
+
+    const jiraCard = page.locator('#source-jira');
+    await expect(jiraCard.getByText(/12 items pulled/)).toBeVisible();
+    // A complete pull must not claim a cap bit.
+    await expect(jiraCard.getByText(/Showing the first/)).toHaveCount(0);
+  });
+
+  test('says the list is only the first N when a cap truncated the pull (#2925)', async ({
+    page,
+  }) => {
+    // The exact case from the issue: a contributor past the source's 100-item
+    // page gets a partial My Work, and before this said so nowhere.
+    await setup(page, defaultCredentials(), {
+      jira: {
+        name: 'Jira',
+        exists: true,
+        base_url: 'https://acme.atlassian.net',
+        account_email: 'alice@example.com',
+        status: 'connected',
+        last_synced_at: '2026-05-20T14:00:00Z',
+        jql: '',
+        project_keys: [],
+        last_sync: {
+          at: '2026-05-20T14:00:00Z',
+          ok: true,
+          reason: '',
+          fetched: 100,
+          stored: 100,
+          total_available: 412,
+          truncated: true,
+        },
+      },
+    });
+    await page.goto('/me/settings/connected-accounts');
+
+    const jiraCard = page.locator('#source-jira');
+    const note = jiraCard.getByRole('note');
+    await expect(note).toContainText('Showing the first 100 of 412 items assigned to you.');
+    await expect(note).toContainText(/narrow the filter or project keys/i);
+    // A truncated pull SUCCEEDED — it must not be dressed as a broken connection.
+    await expect(jiraCard.getByRole('button', { name: 'Reconnect' })).toHaveCount(0);
+    await expect(jiraCard.getByRole('status')).toHaveCount(0);
+
+    // The remedy it names has a control (rule 337): the only route to the filter
+    // is the connect wizard, so the notice opens it rather than telling the user
+    // to go find it.
+    await jiraCard.getByRole('button', { name: 'Change filter' }).click();
+    await expect(
+      page.getByRole('dialog').getByRole('heading', { name: /Connect Jira/i }),
+    ).toBeVisible();
+  });
+
+  test('names the fault when the last pull failed on a still-valid token (#2925)', async ({
+    page,
+  }) => {
+    // status stays `connected` — an unreachable host is not an auth problem, and
+    // telling this user to reconnect would send them to re-issue a working token.
+    await setup(page, defaultCredentials(), {
+      jira: {
+        name: 'Jira',
+        exists: true,
+        base_url: 'https://acme.atlassian.net',
+        account_email: 'alice@example.com',
+        status: 'connected',
+        last_synced_at: '2026-05-20T14:00:00Z',
+        jql: '',
+        project_keys: [],
+        last_sync: {
+          at: '2026-05-20T14:00:00Z',
+          ok: false,
+          reason: 'unreachable',
+          fetched: 0,
+          stored: 0,
+          total_available: null,
+          truncated: false,
+        },
+      },
+    });
+    await page.goto('/me/settings/connected-accounts');
+
+    const jiraCard = page.locator('#source-jira');
+    // Same live-region contract as the auth_failed / invalid_filter rungs above
+    // it — one ordered ladder, one contract (rule 337).
+    await expect(jiraCard.getByRole('status')).toContainText(
+      /Couldn't reach Jira on the last sync/,
+    );
+    // …and no action, because the connect wizard fixes nothing here.
+    await expect(jiraCard.getByRole('button', { name: 'Reconnect' })).toHaveCount(0);
+  });
+
+  test('offers Reconnect on the one failure the wizard actually fixes (#2925)', async ({
+    page,
+  }) => {
+    // `credential_unreadable` leaves status `connected`, so the card renders its
+    // healthy Sync now / Disconnect pair. Naming "reconnect to replace it" with
+    // no Reconnect anywhere on the card would be worse than naming nothing.
+    await setup(page, defaultCredentials(), {
+      jira: {
+        name: 'Jira',
+        exists: true,
+        base_url: 'https://acme.atlassian.net',
+        account_email: 'alice@example.com',
+        status: 'connected',
+        last_synced_at: '2026-05-20T14:00:00Z',
+        jql: '',
+        project_keys: [],
+        last_sync: {
+          at: '2026-05-20T14:00:00Z',
+          ok: false,
+          reason: 'credential_unreadable',
+          fetched: 0,
+          stored: 0,
+          total_available: null,
+          truncated: false,
+        },
+      },
+    });
+    await page.goto('/me/settings/connected-accounts');
+
+    const jiraCard = page.locator('#source-jira');
+    await expect(jiraCard.getByRole('status')).toContainText(/could not be read/);
+    await jiraCard.getByRole('button', { name: 'Reconnect' }).click();
+    await expect(
+      page.getByRole('dialog').getByRole('heading', { name: /Connect Jira/i }),
+    ).toBeVisible();
   });
 });

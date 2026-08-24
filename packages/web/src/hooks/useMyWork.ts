@@ -18,6 +18,7 @@ import {
 import { apiClient } from '@/api/client';
 import type { TaskStatus } from '@/types';
 import type { BlockerType } from '@/lib/blocker';
+import type { ExternalSyncOutcome } from '@/features/integrations/syncOutcome';
 
 export type DueSource = 'actual' | 'planned' | 'estimated' | 'sprint' | null;
 
@@ -225,6 +226,12 @@ export interface MyWorkExternalSource {
   site_url: string;
   status: 'connected' | 'auth_failed' | 'invalid_filter' | 'not_connected';
   last_synced_at: string | null;
+  /**
+   * Last pull's outcome (#2925) — counts plus whether a cap truncated the feed.
+   * Optional because a payload from before the field, or a row that has never
+   * completed a pull, carries no outcome.
+   */
+  last_sync?: ExternalSyncOutcome | null;
 }
 
 export interface MyWorkPage {
