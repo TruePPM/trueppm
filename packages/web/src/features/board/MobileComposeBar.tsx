@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useRapidCompose } from './useRapidCompose';
 
 export interface MobileComposeBarProps {
   /**
@@ -45,59 +45,10 @@ export function MobileComposeBar({
   isPending = false,
   onClose,
 }: MobileComposeBarProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const barRef = useRef<HTMLDivElement>(null);
-  // Held in a ref so the Escape listener binds once and never restages on a
-  // parent re-render — the handler identity is not what the listener is for.
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  const [value, setValue] = useState('');
-
-  // Open with the caret already in the field. The FAB press was the user
-  // saying "I want to type"; making them tap a second time to start is the
-  // friction the modal had.
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  function commit() {
-    const name = value.trim();
-    if (!name || isPending) return;
-    // Clear and re-focus BEFORE the mutation resolves so the next item can be
-    // typed into an empty field immediately; `onError` puts it back.
-    setValue('');
-    inputRef.current?.focus();
-    onCommit(name, {
-      // Never clobber a half-typed replacement to hand back the failed one.
-      onError: () => setValue((cur) => (cur === '' ? name : cur)),
-    });
-  }
-
-  function handleInputKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key !== 'Enter') return;
-    e.preventDefault();
-    commit();
-  }
-
-  // Escape is bound to the BAR, not to the input: the field advertises
-  // `aria-keyshortcuts="Enter Escape"`, and once focus has tabbed onto Add or ×
-  // — reachable with a Bluetooth keyboard on a tablet — an input-bound handler
-  // would silently stop honoring the shortcut it advertises. A native listener
-  // on the wrapper rather than an `onKeyDown` prop, because the wrapper is a
-  // plain container: giving it a JSX keyboard handler makes it a non-native
-  // interactive element, and giving it a role to satisfy that would make the
-  // bar announce as something it is not (it is modeless and traps nothing).
-  useEffect(() => {
-    const el = barRef.current;
-    if (!el) return;
-    const onKeyDown = (e: globalThis.KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      e.preventDefault();
-      onCloseRef.current();
-    };
-    el.addEventListener('keydown', onKeyDown);
-    return () => el.removeEventListener('keydown', onKeyDown);
-  }, []);
+  // The rapid-fire contract — optimistic clear, error restore, container-bound
+  // Escape, readOnly-not-disabled — lives in the hook, shared verbatim with the
+  // lane compose field so the board's two capture surfaces cannot drift (#2952).
+  const compose = useRapidCompose({ onCommit, isPending, onClose });
 
   return (
     <div
@@ -105,7 +56,7 @@ export function MobileComposeBar({
       // point is that the destination column stays visible above it.
       className="fixed bottom-14 inset-x-0 z-20 md:hidden border-t border-neutral-border
         bg-neutral-surface-raised px-3 py-2"
-      ref={barRef}
+      ref={compose.containerRef}
       data-testid="mobile-compose-bar"
     >
       <div className="flex items-center justify-between pb-1.5">
@@ -131,22 +82,17 @@ export function MobileComposeBar({
         aria-label={`Add a task to ${destinationLabel}`}
         onSubmit={(e) => {
           e.preventDefault();
-          commit();
+          compose.commit();
         }}
         className="flex items-center gap-2"
       >
         <input
-          ref={inputRef}
+          ref={compose.inputRef}
           type="text"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={handleInputKeyDown}
-          // `readOnly`, never `disabled`, while a create is in flight. A
-          // disabled element is blurred by the browser, which on a phone closes
-          // the soft keyboard — and nothing re-focuses on re-enable, so every
-          // item after the first would cost a tap plus a keyboard re-open. That
-          // is the opposite of the rapid-fire intake this bar exists for. The
-          // `isPending` guard in `commit()` is what stops a double-fire.
+          value={compose.value}
+          onChange={(e) => compose.setValue(e.target.value)}
+          onKeyDown={compose.onInputKeyDown}
+          // `readOnly`, never `disabled` — see useRapidCompose.
           readOnly={isPending}
           placeholder="Name a task, then press Enter"
           aria-label={`Task name — lands in ${destinationLabel}`}
@@ -160,7 +106,7 @@ export function MobileComposeBar({
         />
         <button
           type="submit"
-          disabled={isPending || value.trim() === ''}
+          disabled={compose.submitDisabled}
           aria-busy={isPending}
           className="shrink-0 rounded-control bg-brand-primary px-4 text-sm font-semibold
             text-neutral-text-inverse
