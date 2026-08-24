@@ -1,5 +1,5 @@
 /**
- * Sprint story picker E2E (issue #2670).
+ * Sprint story picker E2E (issues #2670, #2914).
  *
  * "Pull from backlog" on the planned-sprint surface used to be a plain <Link>
  * that navigated away to the Product Backlog page (#1347) — a detour that lost
@@ -7,6 +7,12 @@
  * stories. This spec covers the in-place picker that replaces it: multi-select
  * over the backlog with Definition-of-Ready (ADR-0105) surfaced but never
  * hard-gating a commit in OSS.
+ *
+ * The commit itself is asserted at the wire (#2914): ONE
+ * `POST /projects/{pk}/tasks/bulk/` carrying every selected row, not N
+ * `PATCH /tasks/{id}/`. The partial-failure case is the one that matters — the
+ * endpoint answers 207 with per-row `applied` / `rejected` buckets, and the
+ * picker has to name the refused rows and retry exactly those.
  */
 import { test, expect } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures';
@@ -165,7 +171,11 @@ async function setupPage(page: import('@playwright/test').Page) {
     }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROJECT_DETAIL) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(PROJECT_DETAIL),
+    }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, (route) =>
     route.fulfill({
@@ -212,7 +222,11 @@ async function setupPage(page: import('@playwright/test').Page) {
     route.fulfill({ status: 404, contentType: 'application/json', body: '{"detail":"None"}' }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/retrospective/carryover/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [] }),
+    }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/velocity/`, (route) =>
     route.fulfill({
@@ -292,16 +306,30 @@ async function setupPage(page: import('@playwright/test').Page) {
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/sprint-health/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ signals: [] }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ signals: [] }),
+    }),
   );
   await page.route('**/api/v1/me/timer/', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ active: false }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ active: false }),
+    }),
   );
   await page.route('**/api/v1/me/work/**', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ count: 0, next: null, previous: null, results: [], due_today_count: 0 }),
+      body: JSON.stringify({
+        count: 0,
+        next: null,
+        previous: null,
+        results: [],
+        due_today_count: 0,
+      }),
     }),
   );
   await page.route('**/api/v1/programs/', (route) =>
@@ -318,30 +346,78 @@ async function setupPage(page: import('@playwright/test').Page) {
     route.fulfill({ status: 204, body: '' }),
   );
   await page.route('**/api/v1/ws/ticket/', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ticket: 'e2e' }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ticket: 'e2e' }),
+    }),
   );
   await page.route('**/api/v1/me/notifications/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, results: [] }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, results: [] }),
+    }),
   );
 }
 
-test.describe('Sprint story picker (#2670)', () => {
+/** One `operations` row as the picker sends it. */
+interface BulkOp {
+  op: string;
+  id: string;
+  data: { sprint?: string };
+}
+
+/**
+ * Capture every `tasks/bulk/` batch and answer each with a scripted 207.
+ *
+ * `replies` is consumed in order — the retry case needs the second call to
+ * answer differently from the first. A call past the end answers "everything
+ * applied", so a spec only scripts the responses it actually asserts on.
+ */
+async function routeBulk(
+  page: import('@playwright/test').Page,
+  batches: BulkOp[][],
+  replies: ((ops: BulkOp[]) => Record<string, unknown>)[] = [],
+) {
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/tasks/bulk/`, async (route) => {
+    const req = route.request();
+    if (req.method() !== 'POST') {
+      await route.continue();
+      return;
+    }
+    const body = req.postDataJSON() as { operations: BulkOp[] };
+    const ops = body.operations;
+    const reply = replies[batches.length];
+    batches.push(ops);
+    await route.fulfill({
+      status: 207,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        reply
+          ? reply(ops)
+          : {
+              applied: ops.map((op, index) => ({
+                index,
+                id: op.id,
+                op: 'update',
+                outcome: 'updated',
+              })),
+              rejected: [],
+              skipped: [],
+              operation_id: null,
+            },
+      ),
+    });
+  });
+}
+
+test.describe('Sprint story picker (#2670, #2914)', () => {
   test('golden path — open the picker, see DoR badges, commit a Ready story', async ({ page }) => {
     await setupPage(page);
 
-    let patchedSprint: unknown;
-    await page.route(/\/api\/v1\/tasks\/story-ready-a\//, (route) => {
-      const req = route.request();
-      if (req.method() === 'PATCH') {
-        patchedSprint = (req.postDataJSON() as { sprint?: unknown }).sprint;
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ...READY_A, sprint: patchedSprint }),
-        });
-      }
-      return route.continue();
-    });
+    const batches: BulkOp[][] = [];
+    await routeBulk(page, batches);
 
     await page.goto(BASE_URL);
 
@@ -366,7 +442,65 @@ test.describe('Sprint story picker (#2670)', () => {
 
     await expect(dialog).not.toBeVisible();
     await expect(page.getByText(/Pulled 1 story into SP-D00D/i)).toBeVisible();
-    expect(patchedSprint).toBe('sp-planned');
+    // ONE batch carrying the selection — not one PATCH per story (#2914).
+    expect(batches).toEqual([
+      [{ op: 'update', id: 'story-ready-a', data: { sprint: 'sp-planned' } }],
+    ]);
+  });
+
+  test('partial failure — the 207 buckets are reconciled per row, and the retry is scoped to them', async ({
+    page,
+  }) => {
+    await setupPage(page);
+
+    const batches: BulkOp[][] = [];
+    await routeBulk(page, batches, [
+      // First batch: story A lands, story B is refused with a reason the picker must show.
+      () => ({
+        applied: [{ index: 0, id: 'story-ready-a', op: 'update', outcome: 'updated' }],
+        rejected: [
+          {
+            index: 1,
+            id: 'story-ready-b',
+            code: 'forbidden',
+            message: 'You may not edit this task.',
+          },
+        ],
+        skipped: [],
+        operation_id: null,
+      }),
+    ]);
+
+    await page.goto(BASE_URL);
+    const backlogRegion = page.getByRole('region', { name: /Sprint Backlog/i });
+    await backlogRegion.getByRole('button', { name: 'Pull from backlog →', exact: true }).click();
+
+    const dialog = page.getByRole('dialog', { name: /Pull stories into SP-D00D/i });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: 'Ready story A' }).click();
+    await dialog.getByRole('button', { name: 'Ready story B' }).click();
+    await dialog.getByRole('button', { name: /Commit 2 stories/i }).click();
+
+    // The dialog stays open and reconciles: committed count, the refused row by
+    // name, and the server's own reason — none of which a toast could carry.
+    const result = dialog.getByTestId('story-picker-result');
+    await expect(result).toBeVisible();
+    await expect(result).toContainText('Committed 1 of 2 stories to SP-D00D.');
+    await expect(result).toContainText('1 not committed');
+    await expect(result).toContainText('Ready story B');
+    await expect(result).toContainText('You may not edit this task.');
+
+    // The retry re-sends the rejected row ONLY — never the one that already landed.
+    await dialog.getByRole('button', { name: /Retry 1 story/i }).click();
+    await expect(dialog).not.toBeVisible();
+    await expect(page.getByText(/Pulled 1 story into SP-D00D/i)).toBeVisible();
+    expect(batches).toEqual([
+      [
+        { op: 'update', id: 'story-ready-a', data: { sprint: 'sp-planned' } },
+        { op: 'update', id: 'story-ready-b', data: { sprint: 'sp-planned' } },
+      ],
+      [{ op: 'update', id: 'story-ready-b', data: { sprint: 'sp-planned' } }],
+    ]);
   });
 
   test('edge case — a not-ready story is advisory only, never hard-blocked from commit', async ({
@@ -374,19 +508,8 @@ test.describe('Sprint story picker (#2670)', () => {
   }) => {
     await setupPage(page);
 
-    const patchedIds: string[] = [];
-    await page.route(/\/api\/v1\/tasks\/story-refine-c\//, (route) => {
-      const req = route.request();
-      if (req.method() === 'PATCH') {
-        patchedIds.push('story-refine-c');
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ...NOT_READY_C, sprint: 'sp-planned' }),
-        });
-      }
-      return route.continue();
-    });
+    const batches: BulkOp[][] = [];
+    await routeBulk(page, batches);
 
     await page.goto(BASE_URL);
     const backlog = page.getByRole('region', { name: /Sprint Backlog/i });
@@ -412,6 +535,8 @@ test.describe('Sprint story picker (#2670)', () => {
     // OSS never hard-blocks: the commit goes through anyway.
     await commitButton.click();
     await expect(dialog).not.toBeVisible();
-    expect(patchedIds).toEqual(['story-refine-c']);
+    expect(batches).toEqual([
+      [{ op: 'update', id: 'story-refine-c', data: { sprint: 'sp-planned' } }],
+    ]);
   });
 });

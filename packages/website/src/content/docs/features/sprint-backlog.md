@@ -43,11 +43,23 @@ Opens as a dialog over the Sprints page. Every backlog story shows its points an
   advisory note ("N selected stories are not marked Ready — you can still pull
   them into the sprint") and the commit button stays enabled — the same
   advisory-only READY gate every other backlog surface uses.
-- **Commit** applies to every selected story in one action (`PATCH` each
-  story's `sprint`), closing the picker on success. The default "Ready only"
-  starting filter is a per-project, per-program, or per-workspace setting
-  (**General → Sprint planning**, inherited workspace → program → project) —
-  overridable per session in the picker regardless of the configured default.
+- **Commit** sends the whole selection as **one** request
+  (`POST /api/v1/projects/{pid}/tasks/bulk/`), applied inside a single database
+  transaction. If every story lands, the picker closes with a confirmation.
+- **Partial commits are reported per story.** The commit endpoint answers with a
+  per-row result, so when the server refuses some rows the picker stays open and
+  switches to a reconciliation view: how many stories were committed, each
+  refused story by name with the server's reason, and a **Retry N stories**
+  button that re-sends *only* the refused rows. Stories the server left
+  deliberately unchanged are listed separately and are not retried.
+- **A failed request commits nothing.** Because the batch is one transaction,
+  a network or server error rolls the whole thing back — the picker says so and
+  keeps your selection intact, rather than leaving you to guess which half
+  landed.
+- The default "Ready only" starting filter is a per-project, per-program, or
+  per-workspace setting (**General → Sprint planning**, inherited workspace →
+  program → project) — overridable per session in the picker regardless of the
+  configured default.
 
 ## Where to find it in the app
 
@@ -58,6 +70,7 @@ Opens as a dialog over the Sprints page. Every backlog story shows its points an
 | Method | Endpoint | Purpose |
 |---|---|---|
 | `GET` | `/api/v1/tasks/?project={pid}&sprint={sid}` | Sprint-filtered task list |
+| `POST` | `/api/v1/projects/{pid}/tasks/bulk/` | Story-picker commit — one transactional batch, per-row `applied` / `rejected` / `skipped` result |
 
 The `sprint=none` filter returns the project backlog (sprint-less tasks).
 
