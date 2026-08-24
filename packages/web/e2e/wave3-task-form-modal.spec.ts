@@ -111,7 +111,7 @@ async function setup(page: import('@playwright/test').Page, options: SetupOption
   await page.route('**/api/v1/edition/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ edition: 'community' }) }),
   );
-  // Current-user role (#2145): the Schedule "+ Task" button is now gated on
+  // Current-user role (#2145): the Schedule "+ Item" button is now gated on
   // Member+ (pessimistic while the role loads). Without this the ?self=true
   // query hits the 404 catch-all and the button stays disabled. Admin (300).
   await page.route('**/api/v1/projects/*/members/**', (route) =>

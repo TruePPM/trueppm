@@ -499,12 +499,12 @@ describe('TaskListPanel — scroll-to-task effect (issue #32)', () => {
 
 describe('TaskListPanel — blank project draft row (#2733)', () => {
   it('renders a live draft row when the outline is empty', async () => {
-    // The "No tasks yet" card is gone: an empty outline opens with the caret in
+    // The "No items yet" card is gone: an empty outline opens with the caret in
     // row 1, so the first keystroke is the first task rather than the third click.
     const onCommitDraftRow = vi.fn();
     renderPanel({ tasks: [], onCommitDraftRow });
 
-    const draft = await screen.findByRole('textbox', { name: /first task name/i });
+    const draft = await screen.findByRole('textbox', { name: /first item name/i });
     await userEvent.type(draft, 'Survey the site{Enter}');
 
     expect(onCommitDraftRow).toHaveBeenCalledTimes(1);
@@ -513,13 +513,13 @@ describe('TaskListPanel — blank project draft row (#2733)', () => {
 
   it('does not render the draft row once the outline has tasks', () => {
     renderPanel({ tasks: [task()], onCommitDraftRow: vi.fn() });
-    expect(screen.queryByRole('textbox', { name: /first task name/i })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: /first item name/i })).toBeNull();
   });
 
   it('renders a static line, not an input, without a commit handler', () => {
     // Read-only roles: a caret in a field that cannot save is worse than no caret.
     renderPanel({ tasks: [] });
-    expect(screen.queryByRole('textbox', { name: /first task name/i })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: /first item name/i })).toBeNull();
   });
 });
 
@@ -718,7 +718,7 @@ describe('TaskListPanel — append-at-the-end footer (#2957)', () => {
     });
     // The footer takes no task id at all — there is nothing for a cursor to
     // change about where it lands, which is the point (#2957).
-    await userEvent.click(screen.getByRole('button', { name: 'Add a task at the end' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add an item at the end' }));
     expect(onAppendTaskAtEnd).toHaveBeenCalledExactlyOnceWith();
     expect(screen.getByTestId('schedule-append-task-footer')).toHaveAttribute('aria-level', '1');
   });
@@ -729,7 +729,7 @@ describe('TaskListPanel — append-at-the-end footer (#2957)', () => {
       onAppendTaskAtEnd: vi.fn(),
       appendAtEndReadOnly: true,
     });
-    const btn = screen.getByRole('button', { name: 'Add a task at the end' });
+    const btn = screen.getByRole('button', { name: 'Add an item at the end' });
     expect(btn).toBeDisabled();
     expect(btn).toHaveAttribute('title', 'Read-only access');
   });

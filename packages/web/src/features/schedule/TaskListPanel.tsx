@@ -210,7 +210,7 @@ interface Props {
   sprintsById?: Map<string, { id: string; name: string; state: string }>;
   /**
    * Rows created via "+ Phase" (issue #1754) that have no structural child
-   * yet — each renders the ghost "Add first task to this phase" affordance
+   * yet — each renders the ghost "Add first item to this phase" affordance
    * instead of being indistinguishable from any other childless task.
    */
   phaseInWaitingIds?: Set<string>;
@@ -553,7 +553,7 @@ export function TaskListPanel({
       />
 
       {/* Blank project (#2733): the outline opens with a LIVE row and the caret
-          already in it, instead of a "No tasks yet" card the user has to get past.
+          already in it, instead of a "No items yet" card the user has to get past.
           Rendered here rather than inside the virtualizer because there is nothing
           to virtualize — it is exactly one row, and it must not be unmounted by a
           scroll measurement while somebody is typing into it. */}

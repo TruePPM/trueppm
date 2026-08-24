@@ -111,10 +111,10 @@ test.describe('Grid ↔ Timeline — one row model, two surfaces (#2960)', () =>
     // …with the same rows, in the same order, at the same depth, folded the same.
     expect(await rowModel(page)).toEqual(before);
 
-    // Only the columns moved: WBS + Task remain, the six data columns are gone.
+    // Only the columns moved: WBS + Item remain, the six data columns are gone.
     await expect(page.getByRole('columnheader')).toHaveCount(2);
     await expect(page.getByRole('columnheader', { name: 'Work breakdown structure' })).toBeVisible();
-    await expect(page.getByRole('columnheader', { name: 'Task' })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: 'Item' })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'Start date' })).toHaveCount(0);
     await expect(page.getByRole('columnheader', { name: 'Finish date' })).toHaveCount(0);
     // Links is a Grid column (#3023): on the Timeline the edges are drawn, so a
@@ -209,7 +209,7 @@ test.describe('Grid ↔ Timeline — a viewer gets absence on BOTH surfaces (#29
     expect((await rowModel(page)).map((r) => r.id)).toEqual(['ph', 'c1', 'c2', 'r2']);
 
     // …and nothing that mutates it is on offer, disabled or otherwise.
-    await expect(page.getByRole('button', { name: /^Add task/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Add item/ })).toHaveCount(0);
     await expect(page.getByTestId('row-reorder-grip')).toHaveCount(0);
 
     // A right-click over the bar track offers the browser's own menu rather than

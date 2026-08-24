@@ -12,7 +12,12 @@ import {
 } from './useProgressAutoStatusConfirm';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { ProjectResource, Task } from '@/types';
-import { WBS_INDENT, resolveInsertLaneGap } from './scheduleConstants';
+import {
+  INSERT_DISC_SIZE,
+  INSERT_TAP_SIZE_COARSE,
+  WBS_INDENT,
+  resolveInsertLaneGap,
+} from './scheduleConstants';
 import { formatContainmentCount } from './containmentCount';
 import { useRowMetrics } from '@/hooks/useRowHeight';
 import type { RowMode } from './deliveryModePresentation';
@@ -207,7 +212,7 @@ interface Props {
   sourceSprint?: { id: string; name: string; state: string } | null;
   /**
    * True when this row was created via "+ Phase" (issue #1754) and has no
-   * structural child yet — renders the ghost "Add first task to this phase"
+   * structural child yet — renders the ghost "Add first item to this phase"
    * affordance in place of the assignee chips. Never true once the row has a
    * structural child (it is then a real phase, per `isPhaseTask`).
    */
@@ -216,7 +221,7 @@ interface Props {
   onAddPhaseFirstChild?: (taskId: string) => void;
   /**
    * True for exactly one row (the one just created via "+ Phase" or its
-   * ghost "add first task" affordance, issue #1754) when Build Mode is not
+   * ghost "add first item" affordance, issue #1754) when Build Mode is not
    * active — drops the row into the local inline rename input on mount, the
    * same "double-click to rename" path a user would reach by hand.
    */
@@ -2461,7 +2466,7 @@ function TaskListRowInner({
 
       {/* ── WBS column (#248) ───────────────────────────────────────────────── */}
       {/* Insert-below affordance (#2957). On the row's BOTTOM EDGE, because that
-          is where the new row will appear — the single "Add task" button at the
+          is where the new row will appear — the single "Add item" button at the
           foot of the list did the cursor's bidding from somewhere its position
           did not imply, which reads as a bug.
 
@@ -2482,7 +2487,7 @@ function TaskListRowInner({
           aria-label={`Insert an item below ${task.name || 'this row'}, at the same level`}
           title="Insert an item here"
           className={[
-            'absolute left-0 bottom-0 translate-y-1/2 z-10 w-4 h-4',
+            'absolute left-0 bottom-0 translate-y-1/2 z-10',
             'flex items-center justify-center rounded-full',
             'border border-neutral-border bg-neutral-surface-raised',
             'text-xs leading-none text-neutral-text-secondary',
@@ -2498,22 +2503,57 @@ function TaskListRowInner({
             // The 16px disc is the mark; the tappable box around it is the
             // target. `before:` rather than a bigger button so the disc keeps
             // its position between rows and the row's own layout does not move.
-            coarse ? 'before:absolute before:-inset-3.5 before:content-[""]' : '',
+            //
+            // SIZED and centered, not inset — rule 315's own corollary, and the
+            // two pixels no unit test could see. `before:-inset-3.5` resolves
+            // against the button's PADDING box, and the disc's 1px border sits
+            // inside its 16px border box, so the box measured 42 and this control
+            // was under the touch floor for its whole life while every vitest
+            // assertion agreed it was fine (jsdom renders no pseudo geometry at
+            // all). An explicit edge length is immune to the border.
+            //
+            // The size reads a CSS variable rather than a literal because it IS
+            // `ROW_HEIGHT_COARSE` and a Tailwind class is a static string —
+            // writing 44 here would be a second declaration of the touch floor,
+            // frozen at authoring time, which is the module-scope capture web
+            // rule 315(b) forbids (#3029). Coarse-only: on a mouse the disc is
+            // hover-revealed, so a 44px box would be an unseen target over the
+            // row's rename cell.
+            coarse
+              ? [
+                  'before:absolute before:content-[""]',
+                  'before:left-1/2 before:top-1/2',
+                  'before:-translate-x-1/2 before:-translate-y-1/2',
+                  'before:w-[var(--insert-tap-size)] before:h-[var(--insert-tap-size)]',
+                ].join(' ')
+              : '',
           ].join(' ')}
           // Past BOTH left-edge lanes, and past what the TAP BOX overhangs
           // (#3026). The `+` is `absolute left-0`, so its offset names every
           // lane ahead of it by hand and a lane added later is invisible to it.
           // Two separate mistakes are available here and the second is the
           // subtle one: omit the nudge term and the disc lands inside the ⇤/⇥
-          // lane; include it but clear only the disc, and the `before:-inset-3.5`
-          // box — which is what the browser actually hit-tests — still covers
-          // the indent button's bottom-right 10px. `resolveInsertLaneGap` owns
+          // lane; include it but clear only the disc, and the `before:` box —
+          // which is what the browser actually hit-tests — still covers the
+          // indent button's bottom-right 10px. `resolveInsertLaneGap` owns
           // both, so the gap is the one on a mouse (no `before:` box is drawn)
           // and the one plus the overhang on a finger.
-          style={{
-            marginLeft:
-              gripReserve + nudgeLane + resolveInsertLaneGap(coarse) + (level - 1) * 12,
-          }}
+          //
+          // The disc is sized here rather than by `w-4 h-4` so it and the tap
+          // box come from one place: `INSERT_DISC_SIZE` is what
+          // `INSERT_TAP_INSET_COARSE` is derived against, so the two cannot
+          // drift into a box that is no longer centered on its mark.
+          style={
+            {
+              marginLeft:
+                gripReserve + nudgeLane + resolveInsertLaneGap(coarse) + (level - 1) * 12,
+              width: INSERT_DISC_SIZE,
+              height: INSERT_DISC_SIZE,
+              // Emitted on both pointer classes so the value is inspectable,
+              // but only consumed by the coarse-only `before:` class above.
+              '--insert-tap-size': `${INSERT_TAP_SIZE_COARSE}px`,
+            } as React.CSSProperties
+          }
         >
           +
         </button>
@@ -3350,12 +3390,12 @@ function TaskNameTrailing(props: TaskNameContentProps) {
           className="inline-flex shrink-0 items-center gap-1 rounded-chip border border-dashed border-neutral-border
             px-1.5 py-0.5 text-xs text-neutral-text-secondary hover:border-brand-primary hover:text-brand-primary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-          title="This phase has no tasks yet"
-          aria-label={`Add first task to ${task.name}`}
+          title="This phase has no items yet"
+          aria-label={`Add first item to ${task.name}`}
           data-testid="phase-in-waiting-hint"
         >
           <span aria-hidden="true">⊕</span>
-          <span>Add first task to this phase</span>
+          <span>Add first item to this phase</span>
         </button>
       )}
     </>
@@ -3424,8 +3464,11 @@ function TaskDurationCell({
   // container's estimate directly, because a control that appears to override a
   // server-enforced rollup is a lie with a spinner.
   if (task.isSummary) {
-    const noun = childCount === 1 ? 'task' : 'tasks';
-    const rollsUpFrom = `Rolls up from ${childCount} ${noun}. Change a task to change this.`;
+    // "item", not "task": a summary rolls up whatever is under it, and that
+    // set can contain phases and milestones. Naming them tasks is not merely
+    // off-vocabulary here, it is factually wrong about what was summed (#3027).
+    const noun = childCount === 1 ? 'item' : 'items';
+    const rollsUpFrom = `Rolls up from ${childCount} ${noun}. Change an item to change this.`;
     return (
       <div
         role="gridcell"

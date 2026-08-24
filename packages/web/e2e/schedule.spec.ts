@@ -275,7 +275,7 @@ test.describe('Schedule task list', () => {
   });
 
   test('task list header shows Dur, Start, Finish, and % columns', async ({ page }) => {
-    const header = page.getByRole('row', { name: 'Task list columns' });
+    const header = page.getByRole('row', { name: 'Item list columns' });
     await expect(header).toBeVisible();
     await expect(header.getByRole('columnheader', { name: 'Duration' })).toBeVisible();
     await expect(header.getByRole('columnheader', { name: 'Start date' })).toBeVisible();

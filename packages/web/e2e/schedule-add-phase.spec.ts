@@ -200,7 +200,7 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
     await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
   });
 
-  test('+ Phase button is a visible peer to + Task and + Milestone, brand-primary (not gold)', async ({ page }) => {
+  test('+ Phase button is a visible peer to + Item and + Milestone, brand-primary (not gold)', async ({ page }) => {
     const button = page.getByRole('button', { name: 'Add new phase (Option+Cmd+P)' });
     await expect(button).toBeVisible();
     await expect(button).toContainText('Phase');
@@ -229,7 +229,7 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
   }) => {
     // The #2955 contract, and the reason the button composes create-then-group rather
     // than create-then-create. Before this issue the button minted a childless summary
-    // and offered a ghost "⊕ Add first task to this phase"; a planner who ignored it was
+    // and offered a ghost "⊕ Add first item to this phase"; a planner who ignored it was
     // left with an empty phase in the plan. Now the first task arrives with the phase.
     await page.getByRole('button', { name: 'Add new phase (Option+Cmd+P)' }).click();
     const nameInput = page.getByRole('textbox', { name: 'Rename task Untitled phase' });

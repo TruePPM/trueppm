@@ -74,7 +74,7 @@ export function ScheduleAppendTaskFooter({
             disabled:cursor-not-allowed"
         >
           <span aria-hidden="true">+</span>
-          Add a task at the end
+          Add an item at the end
         </button>
       </div>
     </div>

@@ -136,7 +136,7 @@ export function TaskListHeader({
         text-xs font-medium text-neutral-text-secondary select-none sticky top-0 z-10"
       role="row"
       aria-rowindex={1}
-      aria-label="Task list columns"
+      aria-label="Item list columns"
     >
       {gripReserve > 0 && (
         <span aria-hidden="true" className="shrink-0" style={{ width: gripReserve }} />
@@ -158,13 +158,16 @@ export function TaskListHeader({
         </span>
       )}
 
-      {/* Task column — always visible; pl-2 keeps text inset from the left edge */}
+      {/* Item column — always visible; pl-2 keeps text inset from the left edge.
+          "Item" not "Task": the header names a row of ANY structure_role, and a
+          phase or milestone under a column headed "Task" is a type claim the row
+          does not carry (#3027). */}
       <span
         className="relative pl-2 truncate shrink-0"
         style={{ width: widths.task }}
         role="columnheader"
       >
-        Task
+        Item
         <ResizeHandle
           colKey="task"
           setWidth={setWidth}

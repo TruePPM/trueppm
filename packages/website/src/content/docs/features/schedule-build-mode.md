@@ -38,7 +38,7 @@ before you start.
 
 Two visible signals appear:
 
-- A **`⌨ Build mode` pill** in the toolbar (left side, next to the +Task button). Clicking it opens the keyboard cheatsheet.
+- A **`⌨ Build mode` pill** in the toolbar (left side, next to the +Item button). Clicking it opens the keyboard cheatsheet.
 - A **bottom hint strip** that always shows the three most relevant hotkeys for what you're currently focused on. Pressing `?` opens the full cheatsheet from anywhere on the page.
 
 The Schedule list rows also gain new keyboard behavior — see below.
@@ -327,10 +327,10 @@ That is the whole rule; you should never have to remember which control does wha
 | Affordance | Where the row lands |
 |---|---|
 | The **`+`** that appears on a row's bottom edge when you hover it | Directly below *that* row, at that row's own depth |
-| **`+ Task`** in the toolbar (and its keyboard twin, `⏎`) | Beside the row you have selected — same parent, same level |
-| **Add a task at the end**, at the foot of the list | At the end of the plan, at the top level |
+| **`+ Item`** in the toolbar (and its keyboard twin, `⏎`) | Beside the row you have selected — same parent, same level |
+| **Add an item at the end**, at the foot of the list | At the end of the plan, at the top level |
 
-The toolbar states where its insert will go, immediately beside `+ Task`: *"⏎ adds a row
+The toolbar states where its insert will go, immediately beside `+ Item`: *"⏎ adds a row
 after 2.4 · same level"*. The number is the row the new one will follow, which is the last
 row at that level — a new sibling is appended within its phase rather than wedged in
 mid-list, so the sentence names where it actually lands rather than where the cursor
@@ -338,15 +338,15 @@ happens to be. On a narrow window there is no room to draw it, but it is still r
 the button's description by a screen reader.
 
 While the row you are on has no name yet, the same place reads *"⏎ saves 2.5 · name it to
-add the next"*, and `+ Task` is inert until you name it. Pressing `⏎` on a blank row saves
+add the next"*, and `+ Item` is inert until you name it. Pressing `⏎` on a blank row saves
 it rather than stacking another blank row behind it, and the toolbar says so instead of
 offering a row you will not get. With nothing selected there is no row to land after, so
-the toolbar says nothing and `+ Task` opens the task form, where you choose the parent
+the toolbar says nothing and `+ Item` opens the task form, where you choose the parent
 yourself.
 
 The footer is the one that ignores your cursor entirely. It sits at the end of the plan
 because that is where its row goes — put the caret three levels deep inside a phase and
-**Add a task at the end** still appends at the top level, after the last row.
+**Add an item at the end** still appends at the top level, after the last row.
 
 Without edit rights none of the three is there at all — not dimmed, not refused on click.
 In **Read** mode they stay where they were and are inert, because one key gets you back.

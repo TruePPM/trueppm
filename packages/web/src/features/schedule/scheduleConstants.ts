@@ -372,16 +372,54 @@ export function resolveOutlineLeftReserve(coarse: boolean, authorable: boolean):
 export const INSERT_LANE_GAP = 4;
 
 /**
- * How far the insert `+`'s tap box reaches PAST its disc on a coarse pointer —
- * `before:-inset-3.5`, i.e. 3.5 × 4px (#3026).
+ * The row-edge insert `+` — the disc you see and the box the browser hits
+ * (#3029).
  *
- * The disc is the mark; the `before:` box is what the browser hit-tests. So the
- * box is what has to clear the nudge lane, and offsetting the *disc* by a visual
- * gap alone is not enough — it leaves the invisible box overlapping the indent
- * button by `INSERT_TAP_INSET_COARSE - INSERT_LANE_GAP` (10px, over the button's
- * bottom-right corner). That is two 44px targets on the same pixels: precisely
- * the collision the lane was added to prevent, arriving from the other direction
- * and with no visual symptom whatsoever.
+ * ## Two sizes, because the mark and the target are not the same thing
+ *
+ * The `+` sits **on the row boundary**, half above it and half below, and it is
+ * the design's first insert affordance: *"inserts directly below that row, at
+ * its depth"*. That position is why the visible disc cannot simply grow to the
+ * touch floor — a 44px circle straddling a 44px row line would cover the name
+ * cell of the rows on both sides of it. So the disc stays a 16px mark and the
+ * target is a `before:` box drawn around it, which the browser hit-tests and
+ * nobody sees.
+ *
+ * ## Why the coarse box is `ROW_HEIGHT_COARSE` and not a literal 44
+ *
+ * This is web rule 315 applied to the last control on the row that was still
+ * writing its own number. The box was `before:-inset-3.5` — a Tailwind literal
+ * meaning 14px, chosen because `16 + 2 × 14` happens to be 44. That is the
+ * "agree by luck" arrangement rule 315 exists to forbid: it is not derived from
+ * the row model, so if the touch floor ever moves the row grows and this target
+ * silently does not, with no visual symptom at all. `INSERT_TAP_SIZE_COARSE` now
+ * *is* `ROW_HEIGHT_COARSE`, the same route `NUDGE_SIZE_COARSE` takes (#3026),
+ * and the inset is arithmetic on top of it rather than a second declaration.
+ *
+ * ## Why the box is coarse-only — the decision, so it is not re-litigated
+ *
+ * On a fine pointer the disc is **hover-revealed**
+ * (`opacity-0 group-hover:opacity-100`), so a 44px `z-10` box around it would be
+ * an *unseen* target lying over the row's name cell — the cell that takes inline
+ * rename and F2. A planner clicking to rename a row would sometimes insert one
+ * instead. A large invisible target is worse than a small visible one, so the
+ * fine-pointer disc keeps its 16px box and no `before:` box is drawn there at
+ * all. That holds with **Comfortable rows** on as well (#3019 raises the row to
+ * 44 at a fine pointer): the preference raises reading density, and it does not
+ * make the disc visible, so the hazard is unchanged. Options considered and not
+ * taken: growing the visible disc without the hit box (cosmetic only), and
+ * making the disc permanently visible under Comfortable rows so both could grow
+ * (costs a `+` on every row, which the design deliberately kept to hover on a
+ * mouse). Revisit only if the disc stops being hover-revealed.
+ *
+ * ## The clearance consequence
+ *
+ * The box is what has to clear the nudge lane, and offsetting the *disc* by a
+ * visual gap alone is not enough — it leaves the invisible box overlapping the
+ * indent button by `INSERT_TAP_INSET_COARSE - INSERT_LANE_GAP` (10px, over the
+ * button's bottom-right corner). That is two 44px targets on the same pixels:
+ * precisely the collision the lane was added to prevent, arriving from the other
+ * direction and with no visual symptom whatsoever.
  *
  * Verified by hit-testing rather than by arithmetic: `document.elementFromPoint`
  * inside the overlap returns the `+`, not the nudge. jsdom computes no
@@ -389,7 +427,48 @@ export const INSERT_LANE_GAP = 4;
  * property — one that restates this formula agrees with the bug. The browser
  * assertion is in `e2e/schedule-coarse-row-height.spec.ts`.
  */
-export const INSERT_TAP_INSET_COARSE = 14;
+export const INSERT_DISC_SIZE = 16;
+
+/**
+ * Edge length of the insert `+`'s tap box on a coarse pointer.
+ *
+ * `ROW_HEIGHT_COARSE`, not a second literal `44` — see above. Deliberately keyed
+ * on the pointer class rather than on the resolved `ROW_HEIGHT`, in parity with
+ * `resolveNudgeSize` and `resolveGripWidth`.
+ */
+export const INSERT_TAP_SIZE_COARSE = ROW_HEIGHT_COARSE;
+
+/**
+ * How far the tap box reaches PAST the disc's border box on each side, on a
+ * coarse pointer. Derived: `(44 - 16) / 2 = 14`.
+ *
+ * This is the number `resolveInsertLaneGap` clears the nudge lane by, and it is
+ * measured from the disc's **border** box because that is the edge the lane sees.
+ *
+ * ## Why the box is sized, not inset — the two pixels nothing could see
+ *
+ * The shipped class was `before:-inset-3.5`, and `16 + 2 × 14 = 44` is the
+ * arithmetic that made it look right. It was wrong in the browser: an absolutely
+ * positioned pseudo-element resolves `inset` against its containing block, which
+ * is the button's **padding** box, and the disc carries a 1px `border` inside its
+ * 16px border box under Preflight's `border-box` sizing. So the padding box is
+ * 14px, the pseudo measured `14 + 28 = 42`, and the row-edge `+` sat two pixels
+ * under the touch floor for its whole life while every unit test agreed it was
+ * fine — jsdom renders no pseudo-element geometry, so nothing in the vitest tree
+ * *can* see this, and a browser assertion is the only instrument that reads it.
+ *
+ * The fix is rule 315's own corollary, stated there for `inset-y-0`: **size a
+ * target from an explicit height, not from insets.** The box is now
+ * `INSERT_TAP_SIZE_COARSE` square and centered on the disc, so it is immune to
+ * the border, to any future padding, and to the disc's size — where the inset
+ * form silently subtracted whichever of those changed.
+ */
+export const INSERT_TAP_INSET_COARSE = (INSERT_TAP_SIZE_COARSE - INSERT_DISC_SIZE) / 2;
+
+/** Edge length of the `+`'s hit box. Square, so this is both width and height. */
+export function resolveInsertTapSize(coarse: boolean): number {
+  return coarse ? INSERT_TAP_SIZE_COARSE : INSERT_DISC_SIZE;
+}
 
 /**
  * Gap from the nudge lane's right edge to the insert `+` disc.

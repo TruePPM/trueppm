@@ -429,7 +429,7 @@ vi.mock('./TaskListPanel', () => ({
           append-at-end
         </button>
       )}
-      {/* The ghost "⊕ Add first task to this phase" affordance lives on
+      {/* The ghost "⊕ Add first item to this phase" affordance lives on
           `TaskListRow`; this stub covers ScheduleView's half — that the create it
           fires announces itself like every other insert (#3018). `t1` is the
           fixture's phase row. */}
@@ -745,7 +745,7 @@ describe('ScheduleView — top-level states', () => {
     (HTMLCanvasElement.prototype.getContext as ReturnType<typeof vi.fn>).mockReturnValue(null);
     renderSchedule();
     // Fallback table headers + a task row rendered as plain text.
-    expect(screen.getByRole('columnheader', { name: 'Task' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Item' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Finish' })).toBeInTheDocument();
     // The fallback table itself carries the task row (as does the stubbed panel).
     const table = screen.getByRole('table');
@@ -758,7 +758,7 @@ describe('ScheduleView — top-level states', () => {
 
 describe('ScheduleView — empty state', () => {
   it('opens with a live draft row and creates the typed task (#2733)', async () => {
-    // #2733 deleted the "No tasks yet / Add first task" card. A card is a thing
+    // #2733 deleted the "No items yet / Add first item" card. A card is a thing
     // you must dismiss before you can work; the outline now opens with the caret
     // already in row 1, so the first keystroke is the first task.
     const user = userEvent.setup();
@@ -799,7 +799,7 @@ describe('ScheduleView — empty state', () => {
     mockEffectiveMethodology = 'AGILE';
     renderSchedule();
     expect(screen.getByText("Schedule isn't part of this project's workflow")).toBeInTheDocument();
-    expect(screen.queryByText(/no tasks yet/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no items yet/i)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Go to Sprints' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Change methodology' })).toBeInTheDocument();
     // …and no outline beside it (#2960). The card says this view does not apply
@@ -837,7 +837,7 @@ describe('ScheduleView — populated desktop', () => {
   it('toggles the create-task modal from the toolbar + button', async () => {
     const user = userEvent.setup();
     renderSchedule();
-    const addBtn = screen.getByRole('button', { name: 'Add task' });
+    const addBtn = screen.getByRole('button', { name: 'Add item' });
     expect(addBtn).toHaveAttribute('aria-expanded', 'false');
     await user.click(addBtn);
     expect(screen.getByRole('dialog', { name: 'Task form' })).toBeInTheDocument();
@@ -905,7 +905,7 @@ describe('ScheduleView — read-only vs authoring gates', () => {
     // is broken, so the create controls and the mode toggle are gone entirely.
     expect(screen.queryByRole('button', { name: '+ Milestone' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '+ Phase' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Add task' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add item' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('author-mode-pill')).not.toBeInTheDocument();
   });
 
@@ -1006,7 +1006,7 @@ describe('ScheduleView — three insert affordances (#2957)', () => {
     mockRole = ROLE_MEMBER;
     renderSchedule();
     expect(screen.queryByTestId('schedule-insert-target')).not.toBeInTheDocument();
-    const addBtn = screen.getByRole('button', { name: 'Add task' });
+    const addBtn = screen.getByRole('button', { name: 'Add item' });
     expect(addBtn).toHaveAttribute('aria-expanded', 'false');
     await user.click(addBtn);
     expect(screen.getByRole('dialog', { name: 'Task form' })).toBeInTheDocument();
@@ -1815,7 +1815,7 @@ describe('ScheduleView — insert announces and is recorded (#3018)', () => {
  * it. Both create a structural row, so both say so.
  */
 describe('ScheduleView — the creates that bypass createNewTask still announce (#3018)', () => {
-  it('announces the ghost "add first task to this phase" affordance', async () => {
+  it('announces the ghost "add first item to this phase" affordance', async () => {
     const user = userEvent.setup();
     mockRole = ROLE_MEMBER;
     renderSchedule();
@@ -2037,7 +2037,7 @@ describe('ScheduleView — build mode (default on desktop, #2682)', () => {
     renderSchedule();
     // The blank canvas: a live outline row plus the quiet fill panel (#2733).
     expect(screen.getByRole('complementary', { name: /ways to fill this project/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '+ Add task' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '+ Add item' })).toBeNull();
     await user.click(screen.getByRole('button', { name: 'commit-draft' }));
     expect(createTaskMutate).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Pour foundations', duration: 1, parent_id: null }),

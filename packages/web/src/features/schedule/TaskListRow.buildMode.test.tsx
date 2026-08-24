@@ -23,8 +23,11 @@ import {
   NUDGE_SIZE_COARSE,
   NUDGE_SIZE_FINE,
   ROW_HEIGHT_COARSE,
+  INSERT_DISC_SIZE,
   INSERT_LANE_GAP,
   INSERT_TAP_INSET_COARSE,
+  INSERT_TAP_SIZE_COARSE,
+  resolveInsertTapSize,
   resolveNudgeLaneWidth,
 } from './scheduleConstants';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -1038,7 +1041,7 @@ describe('TaskListRow — insert lands where its position implies (#2957)', () =
   });
 
   it('says it lands below THIS row, at the same level', () => {
-    // The old single "Add task" button sat at the foot of the list and inserted
+    // The old single "Add item" button sat at the foot of the list and inserted
     // at the cursor — a position that implied one thing and did another.
     renderHarness({ task: editable });
     expect(
@@ -1079,7 +1082,7 @@ describe('TaskListRow — the Σ cell (#2951)', () => {
 
   it('says where the number comes from, and what to change instead', () => {
     renderHarness({ task: container });
-    expect(screen.getByTitle(/Rolls up from .* Change a task to change this\./)).toBeInTheDocument();
+    expect(screen.getByTitle(/Rolls up from .* Change an item to change this\./)).toBeInTheDocument();
   });
 
   it('spells the rollup out in the accessible name, not just the Σ glyph', () => {
@@ -1092,5 +1095,100 @@ describe('TaskListRow — the Σ cell (#2951)', () => {
   it('leaves a leaf task editable', () => {
     renderHarness({ task: { ...baseTask, canEdit: true } });
     expect(screen.queryByRole('gridcell', { name: /Estimate:/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('TaskListRow — the row-edge `+` meets the touch floor on a coarse pointer (#3029)', () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(restoreCoarsePointer);
+
+  const editable: Task = { ...baseTask, canEdit: true };
+
+  /** The `+` disc. Its accessible name is the vocabulary lock's wording (#3027). */
+  function insertDisc(): HTMLElement {
+    return screen.getByRole('button', { name: /Insert an item below Foundation/ });
+  }
+
+  it('takes the 44 from the ROW-HEIGHT owner, not a second literal (rule 315)', () => {
+    // This is the whole defect. The tap box already measured 44px — but it got
+    // there via a `before:-inset-3.5` Tailwind literal chosen because
+    // `16 + 2 × 14` happens to equal the touch floor. That is the "agree by
+    // luck" arrangement rule 315 exists to forbid: nothing connects it to the
+    // row model, so a floor that moves grows the row and silently leaves this
+    // target behind, with no visual symptom at all.
+    expect(INSERT_TAP_SIZE_COARSE).toBe(ROW_HEIGHT_COARSE);
+    expect(resolveInsertTapSize(true)).toBeGreaterThanOrEqual(44);
+  });
+
+  it('derives the inset from the disc and the box rather than declaring it', () => {
+    // The box must stay centered on its mark. Deriving the overhang is what
+    // makes that true by construction instead of by a matching pair of literals.
+    expect(INSERT_TAP_INSET_COARSE).toBe((INSERT_TAP_SIZE_COARSE - INSERT_DISC_SIZE) / 2);
+    expect(INSERT_DISC_SIZE + 2 * INSERT_TAP_INSET_COARSE).toBe(INSERT_TAP_SIZE_COARSE);
+  });
+
+  it('SIZES the box rather than insetting it — the two pixels jsdom cannot see', () => {
+    // `before:-inset-3.5` measured 42px in a browser, not 44: an absolutely
+    // positioned pseudo resolves `inset` against the PADDING box, and the disc's
+    // 1px border sits inside its 16px border box under Preflight's `border-box`.
+    // No assertion in this file could ever have caught that — jsdom renders no
+    // pseudo geometry — so what is pinned here is the MECHANISM (an explicit
+    // edge length, immune to the border) and the browser owns the measurement
+    // (`e2e/schedule-coarse-row-height.spec.ts`).
+    stubCoarsePointer(true);
+    renderHarness({ task: editable });
+    const disc = insertDisc();
+    expect(disc.style.getPropertyValue('--insert-tap-size')).toBe(`${INSERT_TAP_SIZE_COARSE}px`);
+    expect(disc.className).toContain('before:w-[var(--insert-tap-size)]');
+    expect(disc.className).toContain('before:h-[var(--insert-tap-size)]');
+    // The inset form, in any spelling, is the bug.
+    expect(disc.className).not.toMatch(/before:-?inset/);
+  });
+
+  it('sizes the visible disc from the constant, not from a `w-4 h-4` literal', () => {
+    // The disc and the inset are derived against each other; a Tailwind class
+    // sizing the disc would put one of the pair back outside the owner.
+    stubCoarsePointer(true);
+    renderHarness({ task: editable });
+    const disc = insertDisc();
+    expect(disc.style.width).toBe(`${INSERT_DISC_SIZE}px`);
+    expect(disc.style.height).toBe(`${INSERT_DISC_SIZE}px`);
+    expect(disc.className).not.toMatch(/\bw-4\b/);
+    expect(disc.className).not.toMatch(/\bh-4\b/);
+  });
+
+  it('DRAWS NO TAP BOX on a fine pointer — an unseen 44px target over rename is worse', () => {
+    // The counterweight, and the decision this issue was split to record. On a
+    // mouse the disc is hover-revealed, so a 44px `z-10` box around it would lie
+    // invisibly over the row's name cell — the cell that takes inline rename and
+    // F2 — and a planner clicking to rename would sometimes insert instead.
+    // Option (a): the fine-pointer disc keeps its 16px box.
+    stubCoarsePointer(false);
+    renderHarness({ task: editable });
+    const disc = insertDisc();
+    expect(disc.className).not.toContain('before:absolute');
+    expect(disc.className).not.toContain('before:w-[var(--insert-tap-size)]');
+    expect(resolveInsertTapSize(false)).toBe(INSERT_DISC_SIZE);
+  });
+
+  it('leaves the fine-pointer reveal exactly as it was — hover and focus, not always-on', () => {
+    // The hazard above only holds while the disc is hover-revealed. If this
+    // assertion ever fails, the fine-pointer decision is back open (option (c)).
+    stubCoarsePointer(false);
+    renderHarness({ task: editable });
+    const cls = insertDisc().className;
+    expect(cls).toContain('opacity-0');
+    expect(cls).toContain('group-hover:opacity-100');
+    expect(cls).toContain('focus:opacity-100');
+  });
+
+  it('is permanently visible on a coarse pointer, so the 44px box is never unseen', () => {
+    // The precondition that makes case 1 safe: there is no hover on a finger, so
+    // a grown hit box is only honest if the mark under it is always shown.
+    stubCoarsePointer(true);
+    renderHarness({ task: editable });
+    const cls = insertDisc().className;
+    expect(cls).toContain('opacity-100');
+    expect(cls).not.toContain('opacity-0');
   });
 });

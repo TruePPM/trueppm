@@ -117,7 +117,7 @@ describe('TaskListHeader column resize keyboard operability (#2205)', () => {
  */
 describe('TaskListHeader — the grip lane (#2997)', () => {
   function laneWidth(): string | undefined {
-    const row = screen.getByRole('row', { name: 'Task list columns' });
+    const row = screen.getByRole('row', { name: 'Item list columns' });
     const first = row.firstElementChild as HTMLElement | null;
     return first?.getAttribute('aria-hidden') === 'true' ? first.style.width : undefined;
   }
@@ -136,7 +136,7 @@ describe('TaskListHeader — the grip lane (#2997)', () => {
 describe('TaskListHeader — the row\u2019s left-edge lanes (#2997, #3026)', () => {
   /** The header's leading `aria-hidden` spacers, in DOM order. */
   function spacers(): HTMLElement[] {
-    const header = screen.getByRole('row', { name: 'Task list columns' });
+    const header = screen.getByRole('row', { name: 'Item list columns' });
     return Array.from(header.querySelectorAll<HTMLElement>(':scope > span[aria-hidden="true"]'));
   }
 
@@ -163,5 +163,45 @@ describe('TaskListHeader — the row\u2019s left-edge lanes (#2997, #3026)', () 
     const [only] = spacers();
     expect(spacers()).toHaveLength(1);
     expect(only.style.width).toBe('34px');
+  });
+});
+
+/**
+ * The vocabulary lock, on the surface the design names first (#3027).
+ *
+ * > **Item** is the generic word for a row of any type — headers, create
+ * > affordances and placeholders use it. The specific types keep their own
+ * > words where the type is known: phase, milestone, task.
+ *
+ * The header is a *header*, so it takes the generic word — and since #2950 made
+ * `structure_role` a declared identity, "Task" over a column that also carries
+ * phases and milestones is a type claim those rows do not hold. Pinned here
+ * rather than left to the incidental locators in the specs above, because those
+ * would all still pass if the label regressed to "Task" together with them.
+ */
+describe('TaskListHeader — the vocabulary lock (#3027)', () => {
+  it('heads the name column "Item", never "Task"', () => {
+    // Matched with a prefix regex, not an exact name: the column's accessible
+    // name is composed from its contents, and the ResizeHandle inside it
+    // contributes `Resize task column` — a raw column KEY leaking into an
+    // accessible name, which is a separate defect on all eight columns and out
+    // of this issue's scope. What is pinned here is the word the header states.
+    renderHeader();
+    expect(screen.getByRole('columnheader', { name: /^Item\b/ })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /^Task\b/ })).toBeNull();
+  });
+
+  it('names the header row itself with the generic word too', () => {
+    renderHeader();
+    expect(screen.getByRole('row', { name: 'Item list columns' })).toBeInTheDocument();
+    expect(screen.queryByRole('row', { name: 'Task list columns' })).toBeNull();
+  });
+
+  it('leaves the typed columns alone — the lock is about the GENERIC word', () => {
+    // The counterweight. A sweep that renamed every "task" in the tree would
+    // pass the two assertions above and cost the outline the words it is
+    // allowed to use where the type IS known.
+    renderHeader();
+    expect(screen.getByRole('columnheader', { name: 'Work breakdown structure' })).toBeInTheDocument();
   });
 });

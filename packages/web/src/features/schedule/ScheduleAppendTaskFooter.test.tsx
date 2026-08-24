@@ -8,7 +8,7 @@ describe('ScheduleAppendTaskFooter', () => {
     const onAppend = vi.fn();
     const user = userEvent.setup();
     render(<ScheduleAppendTaskFooter onAppend={onAppend} ariaRowIndex={8} />);
-    await user.click(screen.getByRole('button', { name: 'Add a task at the end' }));
+    await user.click(screen.getByRole('button', { name: 'Add an item at the end' }));
     expect(onAppend).toHaveBeenCalledTimes(1);
   });
 
@@ -24,7 +24,7 @@ describe('ScheduleAppendTaskFooter', () => {
     const onAppend = vi.fn();
     const user = userEvent.setup();
     render(<ScheduleAppendTaskFooter onAppend={onAppend} readOnly ariaRowIndex={8} />);
-    const btn = screen.getByRole('button', { name: 'Add a task at the end' });
+    const btn = screen.getByRole('button', { name: 'Add an item at the end' });
     expect(btn).toBeDisabled();
     expect(btn).toHaveAttribute('title', 'Read-only access');
     await user.click(btn);

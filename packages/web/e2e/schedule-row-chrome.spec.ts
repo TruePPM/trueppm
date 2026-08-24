@@ -219,7 +219,7 @@ test.describe('Schedule outline row chrome (#3025, #3026)', () => {
     // constant zero. The nudges are in flow and always drawn, so the desktop
     // outline is now 34px wider — asserted here because the coarse spec's
     // equivalent cannot see a regression that only zeroes the fine branch.
-    const header = page.getByRole('row', { name: 'Task list columns' });
+    const header = page.getByRole('row', { name: 'Item list columns' });
     const headerWbs = await header.getByRole('columnheader', { name: /Work breakdown/ }).boundingBox();
     const outlineBox = await page.getByRole('treegrid', { name: 'Task list' }).boundingBox();
     expect(headerWbs).not.toBeNull();
