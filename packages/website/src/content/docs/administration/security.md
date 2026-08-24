@@ -283,11 +283,14 @@ DJANGO_SETTINGS_MODULE=trueppm_api.settings.prod \
   python manage.py check --deploy --fail-level=ERROR
 ```
 
-A key shorter than 32 characters, or one still carrying the Django
-`django-insecure-` placeholder prefix, surfaces the `trueppm.E003` system-check
-error and the command exits non-zero. `secrets.token_urlsafe(50)` produces a
-~67-character URL-safe string; store it in your `.env` (mode `0600`) or, on
-Kubernetes, set the `secrets.djangoSecretKey` Helm value.
+Each failure has its own id, so the output says which rule you broke: an empty
+key is `trueppm.E001`, one still carrying the Django `django-insecure-`
+placeholder prefix is `trueppm.E002`, and one shorter than 32 characters is
+`trueppm.E003`. Any of them exits non-zero.
+
+`secrets.token_urlsafe(50)` produces a ~67-character URL-safe string; store it in
+your `.env` (mode `0600`) or, on Kubernetes, set the `secrets.djangoSecretKey`
+Helm value.
 
 ### Separating the JWT signing key and forcing a global sign-out
 
