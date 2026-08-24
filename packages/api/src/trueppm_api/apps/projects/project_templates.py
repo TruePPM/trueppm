@@ -340,7 +340,7 @@ def materialize_structure(
     """
     from django.db.models import F
 
-    from trueppm_api.apps.projects.models import Dependency, Task
+    from trueppm_api.apps.projects.models import Dependency, bulk_create_tasks
     from trueppm_api.apps.projects.models import (
         Project as ProjectModel,
     )
@@ -379,7 +379,12 @@ def materialize_structure(
     for row in rows:
         row.sync_seq = seq
 
-    Task.objects.bulk_create(rows, batch_size=500)
+    # `bulk_create_tasks`, not `Task.objects.bulk_create`: a template's phase rows
+    # have children the moment they land, and `bulk_create` never reaches the
+    # declaration that `Task.save()` paths run — so a materialized template used to
+    # arrive with every phase as `structure_role='work'` (#3030). With #2909's
+    # bundled starters this is a first-run path.
+    bulk_create_tasks(rows, batch_size=500)
 
     # Relabel the ref-space edges onto the rows just created. A missing endpoint is
     # impossible here — validate_structure rejects a dangling edge — but the lookup

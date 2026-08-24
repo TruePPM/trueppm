@@ -40,7 +40,13 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Dependency, Program, Project, Task
+from trueppm_api.apps.projects.models import (
+    Dependency,
+    Program,
+    Project,
+    Task,
+    bulk_create_tasks,
+)
 from trueppm_api.apps.sync.sequence import allocate_for_projects
 
 User = get_user_model()
@@ -317,7 +323,16 @@ class Command(BaseCommand):
         tasks = self._make_tasks(project, task_count, breadth, rng)
         for task in tasks:
             task.sync_seq = seq
-        Task.objects.bulk_create(tasks, batch_size=1000)
+        # Through the funnel so a WBS-shaped seed declares its containers like every
+        # other bulk writer (#3030). Nothing is declared here, and for a reason worth
+        # writing down: `_make_tasks` emits ONLY depth-3 leaf paths and never the "1"
+        # or "1.1" rows above them, so this project's tree has no parent rows at all.
+        # The ancestor sweep therefore reports every one of those missing levels as
+        # "outside the batch" and looks them up against nothing. That costs a handful
+        # of empty queries, and it means the load fixture can never exercise the
+        # declaration path it now routes through — but going around the funnel is what
+        # would make the next change to this shape silent.
+        bulk_create_tasks(tasks, batch_size=1000)
 
         # bulk_create bypassed save(), which is what normally advances the
         # per-project short_id counter — reconcile it so any task created through

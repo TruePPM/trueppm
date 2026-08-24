@@ -63,6 +63,7 @@ from trueppm_api.apps.projects.models import (
     TaskRelation,
     TaskSource,
     TaskStatus,
+    bulk_create_tasks,
 )
 from trueppm_api.apps.projects.seed.forecast_backfill import backfill_forecast_history
 from trueppm_api.apps.projects.seed.reldates import (
@@ -459,27 +460,51 @@ class _SeedImporter:
             row.server_version = 1
             row.sync_seq = seq
 
-        if not hasattr(model, "history"):
-            model.objects.bulk_create(rows, batch_size=_BULK_BATCH_SIZE)
-            return
+        # Keyed on the row's own pk, not on ``id(row)``: every model here has a UUID
+        # primary key assigned at construction, so this survives a caller that hands
+        # the insert a re-materialized instance rather than the identical object.
+        date_by_row: dict[Any, date] = (
+            {row.pk: when for row, when in zip(rows, history_dates, strict=True)}
+            if history_dates is not None
+            else {}
+        )
 
-        if history_dates is None:
-            bulk_create_with_history(
-                rows, model, batch_size=_BULK_BATCH_SIZE, default_user=self.owner
-            )
-            return
+        def _insert(batch: Any) -> None:
+            """The INSERT itself, over whatever slice of ``rows`` it is handed.
 
-        by_date: dict[date, list[Any]] = defaultdict(list)
-        for row, when in zip(rows, history_dates, strict=True):
-            by_date[when].append(row)
-        for when, group in by_date.items():
-            bulk_create_with_history(
-                group,
-                model,
-                batch_size=_BULK_BATCH_SIZE,
-                default_user=self.owner,
-                default_date=self._creation_dt(when),
-            )
+            Taken as a closure so the Task path can wrap it (see below) without the
+            declaration pass having to know which of the three insert shapes applies.
+            """
+            batch = list(batch)
+            if not hasattr(model, "history"):
+                model.objects.bulk_create(batch, batch_size=_BULK_BATCH_SIZE)
+                return
+            if not date_by_row:
+                bulk_create_with_history(
+                    batch, model, batch_size=_BULK_BATCH_SIZE, default_user=self.owner
+                )
+                return
+            by_date: dict[date, list[Any]] = defaultdict(list)
+            for row in batch:
+                by_date[date_by_row[row.pk]].append(row)
+            for when, group in by_date.items():
+                bulk_create_with_history(
+                    group,
+                    model,
+                    batch_size=_BULK_BATCH_SIZE,
+                    default_user=self.owner,
+                    default_date=self._creation_dt(when),
+                )
+
+        if model is Task:
+            # A seed pack has phases, and `bulk_create` reaches none of the
+            # declaration that `Task.save()` paths run — so without this a seeded
+            # phase lands `structure_role='work'` with children and the Board
+            # renders it as a card (#3030). Routed through the same funnel as the
+            # importers rather than re-derived here.
+            bulk_create_tasks(rows, insert=_insert)
+            return
+        _insert(rows)
 
     def _save_new(self, instance: Any, created_on: date) -> Any:
         """Insert ``instance``, backdating its creation history row under replay.
