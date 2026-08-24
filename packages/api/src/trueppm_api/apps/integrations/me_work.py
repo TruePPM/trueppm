@@ -24,7 +24,7 @@ from django.db.models import Case, F, IntegerField, QuerySet, Value, When
 from django.utils import timezone
 from rest_framework import serializers
 
-from .connections import STATUS_AUTH_FAILED, STATUS_CONNECTED
+from .connections import STATUS_AUTH_FAILED, STATUS_CONNECTED, last_sync_summary
 from .external_sources import BUCKET_IN_PROGRESS, BUCKET_TODO, EXTERNAL_TASK_SOURCES
 from .models import ExternalSyncRequestReason, ExternalWorkItem, IntegrationCredential
 
@@ -99,6 +99,11 @@ def external_source_summaries(user: Any) -> list[dict[str, Any]]:
     and swap to a "Reconnect" prompt when the #1419 pull worker flipped the
     connection to ``auth_failed`` (ADR-0097 §5). A single query over the user's
     credentials — no per-source round-trip.
+
+    Each row also carries the last pull's outcome (``last_sync``, #2925), because
+    this block is what My Work itself renders: a feed truncated at the source's
+    page size is otherwise indistinguishable from a complete one, and the place
+    that truth matters most is the list the user is actually looking at.
     """
     source_keys = EXTERNAL_TASK_SOURCES.keys()
     creds = {
@@ -119,6 +124,7 @@ def external_source_summaries(user: Any) -> list[dict[str, Any]]:
                 "site_url": _site_url(row.base_url),
                 "status": cfg.get("status") or STATUS_CONNECTED,
                 "last_synced_at": row.last_used_at,
+                "last_sync": last_sync_summary(cfg),
             }
         )
     return summaries

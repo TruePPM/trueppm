@@ -174,6 +174,17 @@ field limits (custom fields are excluded there too).
   account and site, a cached-item count and last-sync time (or "first sync in
   progress" until the first pull lands), and a **Recently pulled** preview of the
   items now appearing in My Work.
+- **What the last pull did** — the connected card reports the outcome of the last
+  sync, not just when it happened: how many items were pulled, and — when the
+  source had more than one pull can carry — an explicit *"Showing the first 100
+  of 412 items assigned to you."* A pull is a **single page** from the source (100
+  items for Jira) and the personal cache is capped at 500 rows per source, both
+  deliberate bounds. Narrow the JQL or the project keys to change *which* items
+  are pulled. The same line appears in My Work next to the external feed it
+  qualifies, so a partial list is never presented as a complete one. If the last
+  pull failed while your token is still valid — the source was unreachable, or it
+  rate-limited every attempt — the card says so and names the reason instead of
+  reporting a bare "Active".
 - **Manage inline** — **Sync now** triggers an immediate read-only pull;
   **Disconnect** (with a confirmation step) removes the stored token and clears the
   source's items from My Work. Nothing in Jira is ever modified — you can reconnect

@@ -27,6 +27,12 @@ import {
   type ExternalTaskSourceEntry,
 } from '@/features/integrations/registry';
 import { SourceMark } from '@/features/integrations/SourceMark';
+import {
+  pullCountLabel,
+  syncFailureMessage,
+  syncFailureNeedsReconnect,
+  truncationNotice,
+} from '@/features/integrations/syncOutcome';
 import { safeExternalHref } from '@/lib/safeExternalHref';
 import { formatRelative } from '@/lib/formatRelative';
 import {
@@ -618,6 +624,13 @@ function SourceCard({ source }: { source: ExternalTaskSourceEntry }) {
         />
       ) : null}
 
+      {isConnected ? (
+        <TruncationNotice
+          connection={connection}
+          onChangeFilter={() => setShowConnect(true)}
+        />
+      ) : null}
+
       {isConnected && sourceItems.length > 0 ? (
         <RecentlyPulled items={sourceItems} sourceName={source.name} />
       ) : null}
@@ -660,6 +673,10 @@ function SourceCard({ source }: { source: ExternalTaskSourceEntry }) {
  * failure when it is normal.
  */
 function ConnectionDetailLine({ connection }: { connection: ExternalConnectionSummary }) {
+  // The count is what turns "synced 5 minutes ago" into a statement about the
+  // pull rather than about the clock — the same line said the same thing for a
+  // 200-item pull, an empty one, and a failed one before #2925.
+  const count = pullCountLabel(connection.last_sync);
   return (
     <p className="mt-1 text-xs text-neutral-text-secondary">
       Linked as {connection.account_email || 'your account'}
@@ -669,15 +686,70 @@ function ConnectionDetailLine({ connection }: { connection: ExternalConnectionSu
       ) : (
         <> · first sync in progress…</>
       )}
+      {count ? <> · {count}</> : null}
     </p>
   );
 }
 
 /**
- * The one health notice a connected source may need: re-auth, or a stale sync.
+ * "Showing the first 100 of 412 items assigned to you." (#2925)
  *
- * Re-auth wins — a connection whose token failed is also, necessarily, stale,
- * and telling the user it is stale would point them at the wrong fix.
+ * A `role="note"` rather than a live region: the cap is a standing property of
+ * the connection the user can read at their own pace, not a transition being
+ * announced, and this card can re-render on any query invalidation. It is
+ * deliberately outside the `ConnectionHealthNotice` ladder (rule 337) rather than
+ * a rung of it — a truncated pull *succeeded*, so it takes neutral tones, not the
+ * amber a fault takes, and dressing a working connection as broken would send the
+ * user looking for a break that is not there.
+ *
+ * The remedy is stated **and** given a control. Narrowing the filter is the only
+ * thing that changes which items land, and the only route to the filter is the
+ * connect wizard — so the notice opens it rather than telling the user to go find
+ * it. The sentence names no mechanism, because three different caps produce it
+ * (the source's page size, our per-source cache cap, a full page with no total)
+ * and only one of them is the source's.
+ */
+function TruncationNotice({
+  connection,
+  onChangeFilter,
+}: {
+  connection: ExternalConnectionSummary | null | undefined;
+  onChangeFilter: () => void;
+}) {
+  const notice = truncationNotice(connection?.last_sync);
+  if (!notice) return null;
+  return (
+    <div
+      role="note"
+      className="flex flex-wrap items-center justify-between gap-2 rounded-control border border-neutral-border bg-neutral-surface-sunken px-3 py-2 text-[12px] text-neutral-text-primary"
+    >
+      <span>
+        {notice} That is the most one sync can pull — narrow the filter or project
+        keys to change which items you get.
+      </span>
+      <button
+        type="button"
+        onClick={onChangeFilter}
+        /* focus: not focus-visible: — a standalone action button (rule 214). */
+        className="h-7 shrink-0 rounded-control border border-neutral-border bg-transparent px-3 text-[12px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+      >
+        Change filter
+      </button>
+    </div>
+  );
+}
+
+/**
+ * The one health notice a connected source may need: re-auth, a failed pull, or
+ * a stale sync.
+ *
+ * Strictly ordered, most-specific first, because every rung is also true of the
+ * rungs below it and only the first one names the right fix. Re-auth wins — a
+ * connection whose token failed is also, necessarily, stale, and telling the user
+ * it is stale would point them at the wrong fix. A failed *pull* on a connection
+ * whose status is still `connected` (an unreachable host, a spent rate-limit
+ * budget) comes next: it is a real thing the owner should know happened, but it
+ * is not a credential problem and must not be dressed as one (#2925).
  */
 function ConnectionHealthNotice({
   connection,
@@ -706,6 +778,22 @@ function ConnectionHealthNotice({
       />
     );
   }
+  const lastSync = connection?.last_sync ?? null;
+  if (lastSync && !lastSync.ok) {
+    // Same banner as the two rungs above, not a quieter variant: rule 337 — one
+    // ordered ladder, one live-region contract. It renders `action={false}` when
+    // the remedy is not the wizard, so the notice never names a fix this card
+    // cannot offer (an unreachable host and a rate limit both clear on their own
+    // or on the next Sync now).
+    return (
+      <ReconnectBanner
+        sourceName={sourceName}
+        onReconnect={onReconnect}
+        message={syncFailureMessage(lastSync, sourceName)}
+        actionLabel={syncFailureNeedsReconnect(lastSync) ? 'Reconnect' : null}
+      />
+    );
+  }
   const lastSynced = connection?.last_synced_at ?? null;
   if (lastSynced && isStaleSync(lastSynced)) {
     return (
@@ -727,7 +815,12 @@ function ReconnectBanner({
   onReconnect: () => void;
   /** Overrides the default reauthorization wording. */
   message?: string;
-  actionLabel?: string;
+  /**
+   * `null` renders the notice with no action. For the rungs whose remedy is not
+   * the connect wizard — an unreachable host, a spent rate-limit budget — a
+   * button here would offer to fix something that is not broken.
+   */
+  actionLabel?: string | null;
 }) {
   return (
     <div
@@ -741,16 +834,18 @@ function ReconnectBanner({
         </span>
         {message ?? `${sourceName} needs reauthorization — items stopped pulling into My Work.`}
       </span>
-      <button
-        type="button"
-        onClick={onReconnect}
-        /* Standalone action button: focus: not focus-visible: — Firefox/Safari skip
-           :focus-visible on pointer focus, so a clicked control shows no ring (rule 214).
-           Inputs and the external-link <a> in this file keep focus-visible:. */
-        className="h-7 shrink-0 rounded-control border border-semantic-at-risk/50 bg-transparent px-3 text-[12px] font-medium text-semantic-at-risk hover:bg-semantic-at-risk/10 focus:outline-none focus:ring-2 focus:ring-semantic-at-risk focus:ring-offset-1"
-      >
-        {actionLabel}
-      </button>
+      {actionLabel === null ? null : (
+        <button
+          type="button"
+          onClick={onReconnect}
+          /* Standalone action button: focus: not focus-visible: — Firefox/Safari skip
+             :focus-visible on pointer focus, so a clicked control shows no ring (rule 214).
+             Inputs and the external-link <a> in this file keep focus-visible:. */
+          className="h-7 shrink-0 rounded-control border border-semantic-at-risk/50 bg-transparent px-3 text-[12px] font-medium text-semantic-at-risk hover:bg-semantic-at-risk/10 focus:outline-none focus:ring-2 focus:ring-semantic-at-risk focus:ring-offset-1"
+        >
+          {actionLabel}
+        </button>
+      )}
     </div>
   );
 }
