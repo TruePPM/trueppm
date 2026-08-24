@@ -188,4 +188,4 @@ dead-letter surface.**
   (outbound webhooks), ADR-0083 (format extension and the OSS event-count
   cap), ADR-0089 (the delivery sequence number in the body), ADR-0084 (the
   dead-letter alerting receiver), and ADR-0210 (dead-letter write actions —
-  requeue and dismiss) are the primary records behind this page.
+  requeue and drop) are the primary records behind this page.

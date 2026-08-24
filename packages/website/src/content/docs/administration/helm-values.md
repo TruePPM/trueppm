@@ -10,14 +10,47 @@ with. For *how many* of each resource to run at a given team size, see
 [Deployment Sizing](/administration/sizing/); for the application environment
 variables passed under `env`, see [Configuration](/administration/configuration/).
 
-:::note[Parts of this page ship in 0.4]
-Most of these values have been in the chart since 0.1. Four blocks land with the 0.4
-beta and are **not** in the latest released chart: the `web` tier (`web.*`, the nginx
-SPA and its admin allowlist and security headers), OpenTelemetry export
-(`observability.*`), the `demo` mode block, and `values.schema.json` — the schema that
-makes an unknown or misspelled key fail the upgrade instead of being accepted in
-silence. On the current release the chart deploys the API and workers only, ignores an
-`observability` block entirely, and accepts any key you write.
+:::note[About half of this page ships in 0.4]
+The chart in the latest release (`v0.3.0-alpha.3`) deploys the API and a Celery
+worker and exposes fourteen top-level keys: `replicaCount`, `global`, `image`,
+`service`, `ingress` (only `enabled`, and nothing renders from it), `postgresql`,
+`valkey`, `networkPolicy`, `podSecurityContext`, `containerSecurityContext`,
+`resources`, `env`, `envFrom`, and `admin`. Those sections — [Image and
+replicas](#image-and-replicas), [Bundled datastores](#bundled-datastores),
+[Network and pod security](#network-and-pod-security), [Resources](#resources),
+[Application environment](#application-environment-env), and [Admin
+bootstrap](#admin-bootstrap) — describe the released chart.
+
+**Everything else on this page lands with the 0.4 beta and is not in the released
+chart.** Namely:
+
+- `values.schema.json` and the closed root that rejects unknown keys
+  ([Unknown keys are rejected](#unknown-keys-are-rejected)) — the released chart
+  accepts any key you write;
+- the `web` tier (`web.*`): the nginx SPA, its `/admin/` allowlist, and its
+  security headers ([Service and web tier](#service-and-web-tier), [Django admin
+  exposure](#django-admin-exposure), [SPA security headers](#spa-security-headers));
+- `celeryWorker.*` ([Celery worker tuning](#celery-worker-tuning)) — the released
+  worker takes no chart-level concurrency, recycling, or extra-args knobs;
+- every `ingress` key past `enabled` ([Ingress](#ingress)) — the released chart has
+  no Ingress template at all, so `ingress.enabled: true` renders nothing;
+- `probes.*` ([Health probes](#health-probes)), `podDisruptionBudget.*` and
+  `autoscaling.*` ([Scaling and availability](#scaling-and-availability)) — and
+  there is no Celery Beat deployment on the released chart for `probes.beat.*` to
+  probe;
+- `observability.*`, `otelCollector.*`, `dashboards.*`, `alerts.*`, and
+  `logging.*` ([Observability](#observability)) — the released chart ignores an
+  `observability` block entirely;
+- `tests.*` ([`helm test`](#helm-test)), `backup.*` ([Scheduled
+  backups](#scheduled-backups)), and the `demo` mode block ([Public read-only demo
+  mode](#public-read-only-demo-mode));
+- `valkey.sentinel.*` ([Managed datastores](#managed-external-datastores)) — the
+  released chart's `valkey` block carries `enabled` and `auth` only. This is the
+  one 0.4 addition inside a section that is otherwise released, and it is marked
+  experimental besides.
+
+Verify against your own chart with `helm show values` before writing a values file
+on the released version.
 :::
 
 :::note[Secure by default]
@@ -163,12 +196,13 @@ The shipped defaults already satisfy this. If you raise `MSPROJECT_MAX_UPLOAD_MB
 above 50, raise both transport limits to match — otherwise the higher app cap is
 unreachable.
 
-:::caution[Before 0.4 the defaults did not satisfy it]
-`ingress.annotations` shipped empty, so ingress-nginx applied its own **1 MB**
-default and *every import above 1 MB failed on a default install*. If you are
-carrying a values file that pins `ingress.annotations` to your own map, confirm
-it includes `proxy-body-size` — an explicit map that omits it inherits the 1 MB
-default again.
+:::caution[An explicit annotations map drops the default]
+Helm deep-merges `ingress.annotations`, but only for keys you do not set. The
+`proxy-body-size` default exists precisely because an empty map lets ingress-nginx
+apply its own **1 MB** ceiling, and *every import above 1 MB then fails on an
+otherwise-default install*. If you are carrying a values file that pins
+`ingress.annotations` to your own map, confirm it includes `proxy-body-size` — an
+explicit map that omits it inherits the 1 MB default again.
 :::
 
 **On other ingress controllers** the annotation is a no-op. Traefik uses a
