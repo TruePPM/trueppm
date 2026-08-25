@@ -445,7 +445,10 @@ function classifySubmitError(
  *
  * Failures in the assignment/dependency tail surface as a non-blocking
  * warning and the modal stays open so the user can retry — the task itself
- * has already been written and is visible on the board.
+ * has already been written and is visible on the board. In create mode that
+ * retry must not re-POST /tasks/: `createdTaskId` remembers the id from the
+ * first successful create so a subsequent Save reuses it and only retries
+ * the tail (#2901).
  */
 export function TaskFormModal({
   projectId,
@@ -502,6 +505,14 @@ export function TaskFormModal({
   // 409ing again. Null means "no override — use the task prop's serverVersion".
   const [conflict, setConflict] = useState<SyncConflict | null>(null);
   const [baseVersionOverride, setBaseVersionOverride] = useState<number | null>(null);
+  // #2901: id of a task this modal session already created, when the
+  // create succeeded but the assignment/dependency tail failed. `mode` stays
+  // derived from the `task` prop (still null — the caller hasn't reopened
+  // the modal against the new task), so without this the Save button the
+  // error banner invites the user to press again would re-POST /tasks/ and
+  // silently duplicate the row. Once set, `handleSubmit` reuses this id and
+  // retries only the tail instead of creating a second task.
+  const [createdTaskId, setCreatedTaskId] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   // #838: dirty-discard confirmation now uses the ARIA-managed ConfirmDiscardDialog
   // instead of window.confirm (which is unmanaged by the focus trap / screen reader).
@@ -833,14 +844,22 @@ export function TaskFormModal({
     try {
       let savedTaskId: string;
       if (mode === 'create') {
-        const created = await createTask.mutateAsync(
-          buildCreatePayload(form, {
-            ...ctx,
-            isMilestoneCreate,
-            parentId: selectedParentId,
-          }),
-        );
-        savedTaskId = created.id;
+        if (createdTaskId !== null) {
+          // Retry after a partial failure (#2901): the task itself was
+          // already created on a previous Save click and only the tail
+          // failed. Reuse that id and fall through to the tail sync below —
+          // POSTing /tasks/ again would create a second row.
+          savedTaskId = createdTaskId;
+        } else {
+          const created = await createTask.mutateAsync(
+            buildCreatePayload(form, {
+              ...ctx,
+              isMilestoneCreate,
+              parentId: selectedParentId,
+            }),
+          );
+          savedTaskId = created.id;
+        }
       } else {
         if (!task) throw new Error('Edit mode requires a task');
         await updateTask.mutateAsync(
@@ -862,6 +881,9 @@ export function TaskFormModal({
         await syncAssignments(savedTaskId);
         await syncPredecessors(savedTaskId);
       } catch (assignErr) {
+        // #2901: remember the created id so a retry patches the tail instead
+        // of re-creating the task (see the `createdTaskId` declaration above).
+        if (mode === 'create') setCreatedTaskId(savedTaskId);
         setSubmitError(describeAssignmentFailure(assignErr));
         return;
       }
