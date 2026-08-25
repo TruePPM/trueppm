@@ -7,13 +7,18 @@ import {
 } from '@/hooks/useDependencyMutations';
 import { parseCyclicDependencyError, formatCycleMessage } from '@/hooks/useTaskMutations';
 import { ScheduleDependencyPicker } from './ScheduleDependencyPicker';
+import {
+  LINK_TYPE_OPTIONS,
+  LAG_MIN_DAYS,
+  LAG_MAX_DAYS,
+  LAG_FIELD_LABEL,
+  LAG_FIELD_HINT,
+  LAG_UNIT_SUFFIX,
+} from './deps/linkTypes';
 
-const DEP_TYPES: { value: LinkType; label: string }[] = [
-  { value: 'FS', label: 'Finish → Start' },
-  { value: 'SS', label: 'Start → Start' },
-  { value: 'FF', label: 'Finish → Finish' },
-  { value: 'SF', label: 'Start → Finish' },
-];
+/** The drawer's `<select>` options. Sourced from `deps/linkTypes` so the drawer
+ *  and the picker offer the same four in the same order with the same words. */
+const DEP_TYPES = LINK_TYPE_OPTIONS;
 
 interface DependenciesTabProps {
   task: Task;
@@ -24,7 +29,13 @@ interface DependenciesTabProps {
   programId?: string | null;
 }
 
-export function DependenciesTab({ task, tasks, links, projectId, programId }: DependenciesTabProps) {
+export function DependenciesTab({
+  task,
+  tasks,
+  links,
+  projectId,
+  programId,
+}: DependenciesTabProps) {
   const createDep = useCreateDependency(projectId);
   const updateDep = useUpdateDependency(projectId);
   const deleteDep = useDeleteDependency(projectId);
@@ -37,9 +48,7 @@ export function DependenciesTab({ task, tasks, links, projectId, programId }: De
   // Which side opened the cross-project picker (ADR-0120) — the inline
   // dropdowns below only ever list this project's tasks, so a task in a
   // sibling project is reachable only through this modal.
-  const [crossPickerMode, setCrossPickerMode] = useState<'predecessor' | 'successor' | null>(
-    null,
-  );
+  const [crossPickerMode, setCrossPickerMode] = useState<'predecessor' | 'successor' | null>(null);
 
   useEffect(() => {
     setAddPredId('');
@@ -65,12 +74,17 @@ export function DependenciesTab({ task, tasks, links, projectId, programId }: De
     createDep.mutate(
       { predecessor: addPredId, successor: taskId, dep_type: addPredType },
       {
-        onSuccess: () => { setAddPredId(''); setAddPredType('FS'); },
+        onSuccess: () => {
+          setAddPredId('');
+          setAddPredType('FS');
+        },
         // Cycle errors keep the predecessor selection intact so the user can
         // adjust without re-picking from the dropdown (#356 AC).
         onError: (err) => {
           const cycle = parseCyclicDependencyError(err);
-          setErrorMessage(cycle ? formatCycleMessage(cycle) : 'Couldn’t add dependency. Try again.');
+          setErrorMessage(
+            cycle ? formatCycleMessage(cycle) : 'Couldn’t add dependency. Try again.',
+          );
         },
       },
     );
@@ -82,10 +96,15 @@ export function DependenciesTab({ task, tasks, links, projectId, programId }: De
     createDep.mutate(
       { predecessor: taskId, successor: addSuccId, dep_type: addSuccType },
       {
-        onSuccess: () => { setAddSuccId(''); setAddSuccType('FS'); },
+        onSuccess: () => {
+          setAddSuccId('');
+          setAddSuccType('FS');
+        },
         onError: (err) => {
           const cycle = parseCyclicDependencyError(err);
-          setErrorMessage(cycle ? formatCycleMessage(cycle) : 'Couldn’t add dependency. Try again.');
+          setErrorMessage(
+            cycle ? formatCycleMessage(cycle) : 'Couldn’t add dependency. Try again.',
+          );
         },
       },
     );
@@ -123,9 +142,7 @@ export function DependenciesTab({ task, tasks, links, projectId, programId }: De
           onAdd={handleAddPred}
           addLabel="Add predecessor"
         />
-        {programId && (
-          <CrossProjectSearchLink onClick={() => setCrossPickerMode('predecessor')} />
-        )}
+        {programId && <CrossProjectSearchLink onClick={() => setCrossPickerMode('predecessor')} />}
       </section>
 
       <section aria-label="Successors">
@@ -158,9 +175,7 @@ export function DependenciesTab({ task, tasks, links, projectId, programId }: De
           onAdd={handleAddSucc}
           addLabel="Add successor"
         />
-        {programId && (
-          <CrossProjectSearchLink onClick={() => setCrossPickerMode('successor')} />
-        )}
+        {programId && <CrossProjectSearchLink onClick={() => setCrossPickerMode('successor')} />}
       </section>
 
       {crossPickerMode && (
@@ -208,9 +223,7 @@ interface DepRowProps {
 
 function DepRow({ link, relatedTask, onUpdate, onDelete }: DepRowProps) {
   const [rowError, setRowError] = useState<string | null>(null);
-  const label = relatedTask.wbs
-    ? `${relatedTask.wbs} — ${relatedTask.name}`
-    : relatedTask.name;
+  const label = relatedTask.wbs ? `${relatedTask.wbs} — ${relatedTask.name}` : relatedTask.name;
 
   return (
     <div className="border-b border-neutral-border/40 last:border-b-0">
@@ -228,9 +241,7 @@ function DepRow({ link, relatedTask, onUpdate, onDelete }: DepRowProps) {
                 onError: (err) => {
                   const cycle = parseCyclicDependencyError(err);
                   setRowError(
-                    cycle
-                      ? formatCycleMessage(cycle)
-                      : 'Couldn’t update dependency. Try again.',
+                    cycle ? formatCycleMessage(cycle) : 'Couldn’t update dependency. Try again.',
                   );
                 },
               },
@@ -242,17 +253,19 @@ function DepRow({ link, relatedTask, onUpdate, onDelete }: DepRowProps) {
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
           {DEP_TYPES.map((dt) => (
-            <option key={dt.value} value={dt.value}>{dt.label}</option>
+            <option key={dt.value} value={dt.value}>
+              {dt.label}
+            </option>
           ))}
         </select>
         <input
           key={`${link.id}-lag-${link.lag}`}
           type="number"
           defaultValue={link.lag}
-          min={-365}
-          max={365}
-          aria-label="Lag days"
-          title="Lag in days (negative = lead)"
+          min={LAG_MIN_DAYS}
+          max={LAG_MAX_DAYS}
+          aria-label={LAG_FIELD_LABEL}
+          title={LAG_FIELD_HINT}
           onBlur={(e) => {
             const newLag = Number.parseInt(e.target.value, 10);
             if (!Number.isNaN(newLag) && newLag !== link.lag) {
@@ -264,7 +277,7 @@ function DepRow({ link, relatedTask, onUpdate, onDelete }: DepRowProps) {
             bg-neutral-surface text-neutral-text-primary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         />
-        <span className="text-xs text-neutral-text-disabled shrink-0">d lag</span>
+        <span className="text-xs text-neutral-text-secondary shrink-0">{LAG_UNIT_SUFFIX}</span>
         <button
           type="button"
           onClick={onDelete}
@@ -336,7 +349,9 @@ function AddDepRow({
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
         {DEP_TYPES.map((dt) => (
-          <option key={dt.value} value={dt.value}>{dt.label}</option>
+          <option key={dt.value} value={dt.value}>
+            {dt.label}
+          </option>
         ))}
       </select>
       <button

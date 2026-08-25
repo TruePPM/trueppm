@@ -168,7 +168,7 @@ test.describe('Cross-project dependency picker (#1150)', () => {
     // Grouped sibling results appear (after the 200ms search debounce).
     const list = dialog.getByRole('listbox', { name: 'Program task results' });
     await expect(list.getByText('Security', { exact: true })).toBeVisible();
-    await dialog.getByRole('option', { name: /Security sign-off/ }).click();
+    await dialog.getByRole('listbox').getByRole('option', { name: /Security sign-off/ }).click();
 
     // The edge is posted source → picked (successor mode).
     await expect(page.getByText(/Linked across projects/)).toBeVisible();
@@ -190,7 +190,7 @@ test.describe('Cross-project dependency picker (#1150)', () => {
     const dialog = await openSuccessorPicker(page);
     await dialog.getByRole('tab', { name: 'Program' }).click();
     await dialog.getByLabel('Search tasks').fill('leg');
-    await dialog.getByRole('option', { name: /Legal go-ahead/ }).click();
+    await dialog.getByRole('listbox').getByRole('option', { name: /Legal go-ahead/ }).click();
 
     await expect(page.getByText(/waiting for Legal to accept/)).toBeVisible();
   });
@@ -212,7 +212,7 @@ test.describe('Cross-project dependency picker (#1150)', () => {
     const dialog = page.getByRole('dialog', { name: /Add successor/ });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByRole('tab', { name: 'Program' })).toHaveCount(0);
-    await expect(dialog.getByRole('option').first()).toBeVisible();
+    await expect(dialog.getByRole('listbox').getByRole('option').first()).toBeVisible();
   });
 });
 
@@ -245,7 +245,7 @@ test.describe('Drawer cross-project search link (gap closed — DependenciesTab 
     await dialog.getByLabel('Search tasks').fill('sec');
     const list = dialog.getByRole('listbox', { name: 'Program task results' });
     await expect(list.getByText('Security', { exact: true })).toBeVisible();
-    await dialog.getByRole('option', { name: /Security sign-off/ }).click();
+    await dialog.getByRole('listbox').getByRole('option', { name: /Security sign-off/ }).click();
 
     // predecessor mode: picked → source.
     await expect(page.getByText(/Linked across projects/)).toBeVisible();

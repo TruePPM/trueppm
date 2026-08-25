@@ -1,3 +1,4 @@
+import { LINK_TYPES, LINK_TYPE_PROSE_NAME } from './linkTypes';
 import type { LinkType } from '@/types';
 
 /**
@@ -57,14 +58,11 @@ export interface DepFlag {
  * identical schedule shapes get two different tokens and the flag stops being
  * comparable down a column.
  */
-const TYPE_ORDER: readonly LinkType[] = ['FS', 'SS', 'FF', 'SF'];
+const TYPE_ORDER: readonly LinkType[] = LINK_TYPES;
 
-const TYPE_NAMES: Record<LinkType, string> = {
-  FS: 'Finish-to-Start',
-  SS: 'Start-to-Start',
-  FF: 'Finish-to-Finish',
-  SF: 'Start-to-Finish',
-};
+/** Prose names, for the tooltip — see `linkTypes` on why these differ from the
+ *  arrow labels a control uses. */
+const TYPE_NAMES: Record<LinkType, string> = LINK_TYPE_PROSE_NAME;
 
 /**
  * Distinct types present, canonical first and anything unrecognized after.
