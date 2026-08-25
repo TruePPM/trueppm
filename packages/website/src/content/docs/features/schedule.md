@@ -227,7 +227,32 @@ drag-to-plan stay on the desktop canvas.
 
 ## Task detail drawer
 
-Clicking a task row opens a right-side drawer (a bottom sheet on mobile). The
+### Opening a task
+
+Every schedule row carries an **Open** button at the trailing edge of its name,
+revealed when you hover the row or focus anything in it. It opens the task detail
+drawer for that row, and it is present on **both** schedule layouts — Grid and
+Timeline — because both render the same outline rows.
+
+Two other ways in:
+
+- **Alt + Enter** on a focused row, which needs no mouse.
+- **Double-click a task's bar** on the Timeline canvas. Single-click on a bar stays
+  selection-only (it draws the ring and the dependency chain), so double-click is
+  the "show me the details" gesture there.
+
+The task **name** cell is deliberately not the open target: it is an edit target,
+taking inline rename, `F2`, and the name-autocomplete popover. A click that opened
+a drawer would fight the thing that cell already does.
+
+:::note[Ships in 0.4]
+The Open button and the Alt + Enter binding ship in **TruePPM 0.4**. On
+`v0.3.0-alpha.3`, the latest release, the only way to open a task from the Schedule
+is the canvas bar's double-click — so on the Grid layout, which has no bars, a
+reader with edit rights has no way to open a task at all.
+:::
+
+The drawer opens on the right (a bottom sheet on mobile). The
 header shows the WBS number, a readiness chip, a **CP** marker when the task is
 on the critical path, and the task name as an inline-editable field. Below it,
 the drawer groups everything about the task into four tabs:

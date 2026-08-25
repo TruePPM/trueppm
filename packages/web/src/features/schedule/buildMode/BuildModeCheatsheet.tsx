@@ -38,6 +38,9 @@ const SECTIONS: ShortcutSection[] = [
       { keys: ['Shift', 'F8'], label: 'Jump to previous unresolved @owner or missing duration' },
       { keys: ['F7'], label: 'Jump to next row that needs dates' },
       { keys: ['Shift', 'F7'], label: 'Jump to previous row that needs dates' },
+      // A read, not an edit — it is in this section rather than under the
+      // authoring actions because it is the one row action every role has (#2979).
+      { keys: [ALT, '⏎'], label: 'Open the focused row’s details' },
       { keys: ['Esc'], label: 'Clear selection' },
     ],
   },

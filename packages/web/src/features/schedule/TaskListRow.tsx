@@ -20,6 +20,7 @@ import {
 } from './scheduleConstants';
 import { formatContainmentCount } from './containmentCount';
 import { useRowMetrics } from '@/hooks/useRowHeight';
+import { Tooltip } from '@/components/Tooltip';
 import type { RowMode } from './deliveryModePresentation';
 import { ModeChip, ModeGutter } from './RowModeIndicators';
 import { ScopeChangedChip } from '@/features/sprints/ScopeChangedChip';
@@ -747,6 +748,24 @@ function handleRowKeyDown(e: React.KeyboardEvent, ctx: RowKeyDownCtx): void {
   if ((e.key === 'Home' || e.key === 'End') && e.target === e.currentTarget && !isEditing && !anyCellInEdit) {
     e.preventDefault();
     onFocusEdge?.(e.key === 'Home' ? 'first' : 'last');
+    return;
+  }
+  // Alt+Enter opens the task detail drawer (#2979). Handled ahead of the
+  // build-mode reducer, like Home/End above, because the act is identical in
+  // both modes and neither reducer claims it.
+  //
+  // It has to be Alt+Enter rather than something more obvious, and the reasons
+  // are all taken: plain `Enter` inserts a row in build mode, `Shift`/`⌘`+Enter
+  // insert above/child, `F2` renames, and a bare letter starts typing into the
+  // Name cell — so no unmodified key is free. Alt+Enter is the platform's own
+  // "show me the details of this thing" binding, which is the meaning wanted.
+  //
+  // Not gated on edit rights: opening a task is a read. `setSelectedTaskId`
+  // rather than the `isSelected ? null : id` toggle the plain-Enter path uses —
+  // Open means open, and toggling would make the button and the key disagree.
+  if (e.key === 'Enter' && e.altKey && !isEditing && !anyCellInEdit) {
+    e.preventDefault();
+    ctx.setSelectedTaskId(ctx.task.id);
     return;
   }
   // Build-mode owns Tab/Letter/Delete/Esc on the row; let it run first.
@@ -3386,6 +3405,7 @@ function TaskNameTrailing(props: TaskNameContentProps) {
   return (
     <>
       {!task.isSummary && !task.isMilestone && <AssigneeChips assignees={task.assignees} />}
+      <OpenTaskButton task={task} />
       {/* Phase-in-waiting ghost affordance (issue #1754): a "+ Phase" row
           has no structural child yet, so `isPhaseTask` is still false.
           One tap nests a structural child under it — the row becomes a
@@ -3410,6 +3430,84 @@ function TaskNameTrailing(props: TaskNameContentProps) {
         </button>
       )}
     </>
+  );
+}
+
+/**
+ * The row's Open affordance (#2979).
+ *
+ * Before this there was no way to open a task from the schedule at all unless
+ * you were a *reader without edit rights* (for whom `Enter` on a focused row
+ * opens the drawer) or you found the canvas bar's double-click. An editor in
+ * build mode had neither: `Enter` inserts a row for them, and the Grid surface
+ * has no bar to double-click. The row menu was not the answer — it is gated on
+ * `authoring`, so it is empty for exactly the readers who most need a way in.
+ *
+ * So this is deliberately **not** gated on edit rights. Opening a task is a
+ * read, and the one affordance has to serve both surfaces and every role, or it
+ * reintroduces the split it exists to close.
+ *
+ * Why a button rather than making the name itself clickable: the name cell is an
+ * *edit* target — it takes inline rename, `F2`, and the name-autocomplete
+ * popover. Putting a second interaction model on it would fight the thing that
+ * cell already does, which is the drift #2960 removed. A distinct control has no
+ * gesture to lose an argument with, and it brings focus, `Tab`, and a real
+ * accessible name along with it.
+ *
+ * `aria-label` carries the task name because the accessible name is computed
+ * from *trimmed* text nodes — an icon-only button would otherwise announce as
+ * "button" with nothing to distinguish it from the thirty others on screen.
+ */
+function OpenTaskButton({ task }: { task: Task }) {
+  const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
+  const { coarse } = useRowMetrics();
+  return (
+    // Rule 287: an icon-only control's explanation must reach hover, keyboard
+    // focus AND touch, which is why this is the shared `Tooltip` and not a bare
+    // `title` — `title` is invisible to keyboard focus and unreachable on touch.
+    // `describe={false}` because the sentence restates the button's own
+    // accessible name; wiring `aria-describedby` to a duplicate of the name is a
+    // double announcement (rule 287c).
+    <Tooltip content="Open details" describe={false}>
+      <button
+        type="button"
+        // The row owns the roving tab stop, so this is reached by arrowing to the
+        // row and pressing Alt+Enter rather than by Tab — see `handleRowKeyDown`.
+        // Left in the a11y tree (never `display:none`) so a screen reader finds it
+        // on the row it belongs to; only its opacity is animated.
+        onClick={(e) => {
+          // The row's own click handler selects/toggles — opening is a different
+          // intent and must not also move the selection out from under the drawer.
+          e.stopPropagation();
+          setSelectedTaskId(task.id);
+        }}
+        className={[
+          'relative inline-flex shrink-0 items-center justify-center rounded-control p-0.5',
+          'text-neutral-text-secondary transition-opacity hover:text-brand-primary',
+          // A `group-hover` reveal never fires on a touch device (rule 287a), so
+          // on a coarse pointer the resting state IS the state — same treatment
+          // the ⋮⋮ grip and the insert affordances already take in this file.
+          // `focus:opacity-100` as well as `group-focus-within:`: the ux-review
+          // hover-reveal gate requires the control's own focus to reveal it, or
+          // it is unreachable by keyboard.
+          coarse
+            ? 'opacity-100'
+            : 'opacity-0 group-hover:opacity-100 focus:opacity-100 group-focus-within:opacity-100',
+          // The icon is ~18px with its padding. A `before:` overlay lifts the hit
+          // target to 44px on a coarse pointer without changing the row's layout
+          // (rule 253's pattern) — 18 + 2*13 = 44.
+          coarse ? 'before:absolute before:inset-[-13px] before:content-[""]' : '',
+          // `focus-visible:` deliberately, NOT `focus:` — the Schedule tree is the
+          // standing carve-out to rule 4's standalone-control form (rule 137).
+          // Do not "convert" this to `focus:` on a sweep.
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary',
+        ].join(' ')}
+        aria-label={`Open ${task.name}`}
+        data-testid="row-open-task"
+      >
+        <ArrowUpRightIcon className="h-3.5 w-3.5" aria-hidden="true" />
+      </button>
+    </Tooltip>
   );
 }
 
