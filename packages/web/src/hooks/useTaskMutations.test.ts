@@ -18,6 +18,7 @@ import {
   useOutdentTask,
   useDeleteTask,
   BulkRowRejectedError,
+  useBulkCreateTasks,
   useBulkDeleteTasks,
   useBulkUpdateTasks,
   useRestoreTask,
@@ -741,6 +742,46 @@ describe('useBulkDeleteTasks', () => {
     const { result } = renderHook(() => useBulkDeleteTasks('p1'), { wrapper: makeWrapper(qc) });
     result.current.mutate(['t1']);
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
+  });
+});
+
+describe('useBulkCreateTasks (#3038)', () => {
+  let qc: QueryClient;
+  beforeEach(() => {
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    vi.clearAllMocks();
+    postMock.mockResolvedValue({
+      data: { applied: [], rejected: [], skipped: [], operation_id: null },
+    });
+  });
+
+  it('POSTs create operations with no `origin` key when none is given', async () => {
+    // The keyboard `⌘⌥P` phase-adopt create (ScheduleView) calls the hook this way —
+    // the server keeps today's default provenance (HAND) when the body carries no
+    // `origin` at all.
+    const { result } = renderHook(() => useBulkCreateTasks('p1'), { wrapper: makeWrapper(qc) });
+    const operations = [{ op: 'create' as const, id: 't1', data: { name: 'A' } }];
+    result.current.mutate(operations);
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith('/projects/p1/tasks/bulk/', { operations }),
+    );
+    expect(postMock.mock.calls[0][1]).not.toHaveProperty('origin');
+  });
+
+  it("forwards `origin: 'paste'` when the hook is instantiated for paste-many", async () => {
+    const { result } = renderHook(() => useBulkCreateTasks('p1', 'paste'), {
+      wrapper: makeWrapper(qc),
+    });
+    const operations = [{ op: 'create' as const, id: 't1', data: { name: 'A' } }];
+    result.current.mutate(operations);
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith('/projects/p1/tasks/bulk/', {
+        operations,
+        origin: 'paste',
+      }),
+    );
   });
 });
 
