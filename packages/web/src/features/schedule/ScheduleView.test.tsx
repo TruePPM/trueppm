@@ -7,7 +7,7 @@ import { MemoryRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { FIXTURE_TASKS, FIXTURE_LINKS } from '@/fixtures/tasks';
 import type { Task, TaskLink } from '@/types';
-import { ROLE_VIEWER, ROLE_MEMBER, ROLE_ADMIN } from '@/lib/roles';
+import { ROLE_VIEWER, ROLE_MEMBER, ROLE_SCHEDULER, ROLE_ADMIN } from '@/lib/roles';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { useTrailStore, newestUndoableEntry } from './trail/trailStore';
 import { AUTHOR_PARENT_PARAM } from './authorParam';
@@ -45,6 +45,29 @@ let mockIsLoading = false;
 let mockError: Error | null = null;
 let mockRole: number | null = ROLE_MEMBER;
 let mockRoleError = false;
+/**
+ * `can_author` as the SERVER would compute it (#3034, ADR-0773 §2).
+ *
+ * `ScheduleView`'s authoring gate reads `Project.can_author`, not the role
+ * ordinal, so this mock stands in for `role_can_author_plan` rather than for a
+ * second client-side rule — which is why it reproduces the band exclusion
+ * (`>= MEMBER` *minus* the 200–299 resource-management band) instead of a plain
+ * threshold. Deriving it from `mockRole` keeps every existing role-driven test
+ * in this file honest; the Scheduler cases below are the ones that would pass
+ * under a plain `>=` and must not.
+ *
+ * Set `mockCanAuthorOverride` to model a state the role cannot express:
+ * `'unresolved'` is the project detail not having landed yet, which is a
+ * different thing from the server answering "no".
+ */
+let mockCanAuthorOverride: boolean | 'unresolved' | undefined;
+function serverCanAuthor(): boolean | undefined {
+  if (mockCanAuthorOverride === 'unresolved') return undefined;
+  if (mockCanAuthorOverride !== undefined) return mockCanAuthorOverride;
+  if (mockRole == null) return false;
+  if (mockRole >= ROLE_SCHEDULER && mockRole < ROLE_ADMIN) return false;
+  return mockRole >= ROLE_MEMBER;
+}
 let mockSurfaces = { monte_carlo: true, baselines: true };
 let mockBreakpoint: 'sm' | 'md' | 'lg' = 'lg';
 let mockIsExporting = false;
@@ -241,6 +264,7 @@ vi.mock('@/hooks/useProject', () => ({
       is_sample: false,
       recalculated_at: '2026-10-01T00:00:00Z',
       effective_methodology: mockEffectiveMethodology,
+      can_author: serverCanAuthor(),
     },
     isLoading: false,
   }),
@@ -696,6 +720,7 @@ beforeEach(() => {
   mockIsLoading = false;
   mockError = null;
   mockRole = ROLE_MEMBER;
+  mockCanAuthorOverride = undefined;
   mockRoleError = false;
   mockSurfaces = { monte_carlo: true, baselines: true };
   mockBreakpoint = 'lg';
@@ -2213,6 +2238,59 @@ describe('ScheduleView — Alt+A Author/Read toggle (#2727, ADR-0776 §5)', () =
     await waitFor(() =>
       expect(screen.getByTestId('author-mode-pill')).toHaveTextContent('Read'),
     );
+  });
+});
+
+describe('ScheduleView — the authoring gate is the server\'s can_author (#3034)', () => {
+  // ADR-0773 §(d) names `ProjectSerializer.can_author` "the web gate", and the
+  // Designer ignored it: `hasEditRights` was `canEditTask(currentRole)`, a plain
+  // `role >= ROLE_MEMBER` test. ROLE_SCHEDULER (200) passes that and is refused
+  // by the server, so a Scheduler was handed the full apparatus and then refused
+  // two different ways — paste-many 403s outright, while a single row COMMITS and
+  // every subsequent keystroke 403s.
+  //
+  // The `mockRole` in these tests stays SCHEDULER on purpose. That is what makes
+  // them a regression net: they only pass while the gate reads the server field,
+  // and go red the moment anyone re-derives it from the ordinal.
+
+  it('a Scheduler sees the same absence a Viewer sees — no pill, no insert, no apparatus', () => {
+    mockRole = ROLE_SCHEDULER;
+    renderSchedule();
+    expect(screen.queryByTestId('author-mode-pill')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+ Milestone' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('schedule-view-only')).toBeInTheDocument();
+  });
+
+  it('a Scheduler still reads the schedule — this hides authoring, not data', () => {
+    mockRole = ROLE_SCHEDULER;
+    renderSchedule();
+    // Read access is untouched: the rows and the forecast are both present. The
+    // #2949 rule is "the authoring apparatus is absent", not "the view is empty".
+    expect(screen.getByTestId('forecast-bar')).toBeInTheDocument();
+  });
+
+  it('a Member is unaffected — the band exclusion is not a raised floor', () => {
+    mockRole = ROLE_MEMBER;
+    renderSchedule();
+    expect(screen.getByTestId('author-mode-pill')).toBeInTheDocument();
+    expect(screen.queryByTestId('schedule-view-only')).not.toBeInTheDocument();
+  });
+
+  it('withholds the apparatus until the project detail resolves', () => {
+    // `can_author` absent (the query has not landed) reads as "no", so the pill
+    // never flashes on for the non-author majority and then vanishes. The role
+    // says ADMIN in BOTH halves precisely to show it is the project query — not
+    // the role query — that the gate now waits on.
+    mockRole = ROLE_ADMIN;
+    mockCanAuthorOverride = 'unresolved';
+    renderSchedule();
+    expect(screen.queryByTestId('author-mode-pill')).not.toBeInTheDocument();
+    expect(screen.getByTestId('schedule-view-only')).toBeInTheDocument();
+
+    cleanup();
+    mockCanAuthorOverride = undefined; // resolved; derives true from ROLE_ADMIN
+    renderSchedule();
+    expect(screen.getByTestId('author-mode-pill')).toBeInTheDocument();
   });
 });
 

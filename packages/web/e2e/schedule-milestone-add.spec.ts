@@ -12,7 +12,18 @@ import { setupCatchAll } from './fixtures/api-mocks';
 const FIXTURE_PROJECT_ID = 'e2e-fixture-00000000-0000-0000-0000-000000000001';
 
 const FIXTURE_API_PROJECTS = [
-  { id: FIXTURE_PROJECT_ID, name: 'Alpha Platform Upgrade', description: '', start_date: '2026-01-01', calendar: 'default' },
+  // `can_author` is the Schedule's authoring gate since #3034 (ADR-0773 §(d)).
+  // This spec builds its own project route rather than going through
+  // `setupApiMocks`, so it has to carry the field itself — without it the
+  // "+ Milestone" button this spec is about is correctly absent.
+  {
+    id: FIXTURE_PROJECT_ID,
+    name: 'Alpha Platform Upgrade',
+    description: '',
+    start_date: '2026-01-01',
+    calendar: 'default',
+    can_author: true,
+  },
 ];
 
 const FIXTURE_API_TASKS = [
@@ -100,6 +111,9 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
         start_date: '2026-01-01',
         calendar: 'default',
         agile_features: false,
+        // The Schedule's authoring gate since #3034 (ADR-0773 §(d)) — without it
+        // "+ Milestone", the control this whole spec is about, is correctly absent.
+        can_author: true,
       }),
     }),
   );

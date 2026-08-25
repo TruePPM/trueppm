@@ -2,8 +2,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
-import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
-import { canEditTask } from '@/lib/roles';
+import { canAuthorPlan } from '@/lib/roles';
 import { setSearchParam } from '@/hooks/useUrlSelectedId';
 import { useTaskDrawerStore } from '@/stores/taskDrawerStore';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
@@ -248,14 +247,18 @@ function buildFacetSummary(
 export function GridView() {
   const projectId = useProjectId() ?? null;
   const project = useProject(projectId);
-  // Write-control gate (#2145): the Grid renders the same tasks as the Schedule,
-  // so it must apply the same VIEWER read-only rule. Member+ may author; Viewers
-  // may not. Pessimistic while the role loads (canEditTask(null) === false) so
-  // Delete / select-all / create never flash for a viewer who turns out to lack
-  // the permission — a false affordance that 403s on submit is worse than a
-  // brief absence. The server is authoritative; this is the UX gate.
-  const { role: currentRole } = useCurrentUserRole(projectId ?? undefined);
-  const canEdit = canEditTask(currentRole);
+  // Write-control gate (#2145, corrected #3034): the Grid renders the same tasks
+  // as the Schedule and offers the same authoring acts (bulk delete, create), so
+  // it must resolve "may this reader author" the same way — the server's
+  // `can_author`, not a client-side `role >= ROLE_MEMBER`. The ordinal form was
+  // wrong for the Scheduler band, which sits above Member and is refused task
+  // content: the Grid's bulk delete goes to `TaskBulkView` (`IsProjectPlanAuthor`)
+  // and 403s outright. Pessimistic while the project detail loads
+  // (`canAuthorPlan(undefined) === false`) so Delete / select-all / create never
+  // flash for a reader who turns out to lack the permission — a false affordance
+  // that 403s on submit is worse than a brief absence. The server is
+  // authoritative; this is the UX gate.
+  const canEdit = canAuthorPlan(project.data?.can_author);
   const { tasks, isLoading, error } = useScheduleTasks();
   const { selectedIds, selectAll, clearSelection } = useTaskSelectionStore();
   const { setSelectedTaskId: setOutlineSelectedTaskId, selectedTaskId: outlineSelectedTaskId } =

@@ -56,6 +56,36 @@ export function canEditTask(role: number | null | undefined): boolean {
 }
 
 /**
+ * May this reader enter the Designer's **Author** mode at all? (#3034, ADR-0773 §(d))
+ *
+ * Takes the server's `Project.can_author`, not a role ordinal, and that is the
+ * whole point. The authoring rule is
+ * `role >= MEMBER && !(SCHEDULER <= role < ADMIN)` — a *band exclusion*, not a
+ * threshold — so the obvious client-side `canEditTask(role)` (`role >= MEMBER`)
+ * gets Scheduler exactly backwards: ordinally above Member, refused task content
+ * by the server. That mismatch is not a cosmetic one. It splits into two
+ * failures, and the second is the reason this is resolved server-side:
+ *
+ * 1. paste-many and the classification cascade 403 outright (`IsProjectPlanAuthor`);
+ * 2. a single row **commits** and then every subsequent edit 403s — `TaskViewSet`
+ *    admits the create at `IsProjectMemberWrite` and refuses the update at
+ *    `IsProjectMemberWriteOrOwn`. In a keyboard-fast row grid that is a trap, and
+ *    it is verbatim the trap `can_user_author_plan`'s docstring was written about.
+ *
+ * `undefined` — the project detail query has not resolved — returns `false`, so
+ * the apparatus is ABSENT until the server answers rather than flashing on for
+ * the non-author majority. Same pessimism `canEditTask(null)` already applies,
+ * and the same rule #2949 settled: absence beats a false affordance.
+ *
+ * Deliberately NOT the resolver for a single row — that stays
+ * {@link canEditTaskRow}, which the server answers per task. This one is the
+ * project-level "is there a mode to be in".
+ */
+export function canAuthorPlan(canAuthor: boolean | undefined): boolean {
+  return canAuthor === true;
+}
+
+/**
  * May this reader mutate **this row**? (web rule 302, #2961, extended #2960)
  *
  * Three inputs, and the order matters:

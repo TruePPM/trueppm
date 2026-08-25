@@ -19,6 +19,9 @@ const PROJECT_DETAIL = {
   code: '', health: 'AUTO', visibility: 'WORKSPACE', timezone: '', default_view: 'BOARD',
   lead: null, lead_detail: null, iteration_label: 'Sprint', is_archived: false, archived_at: null,
   archived_by: null, recalculated_at: null, is_sample: false, program_detail: null, server_version: 1,
+  // The Schedule's authoring gate since #3034 (ADR-0773 §(d)) — this spec builds
+  // its own project route, so it carries the field itself.
+  can_author: true,
 };
 
 const pj = (b: unknown) => JSON.stringify(b);

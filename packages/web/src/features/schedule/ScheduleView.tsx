@@ -82,7 +82,7 @@ import { inferNearestSummaryParent } from './inferMilestoneParent';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useBaselines, useCreateBaseline } from '@/hooks/useBaselines';
 import { useSurfaceVisibility } from '@/hooks/useSurfaceVisibility';
-import { ROLE_ADMIN, ROLE_SCHEDULER, canEditTask, canEditTaskRow } from '@/lib/roles';
+import { ROLE_ADMIN, ROLE_SCHEDULER, canAuthorPlan, canEditTaskRow } from '@/lib/roles';
 import { BaselineManagerModal } from './BaselineManagerModal';
 import { TaskTrashDialog } from '@/features/project/TaskTrashDialog';
 import { CaptureBaselineConfirmDialog } from './CaptureBaselineConfirmDialog';
@@ -1611,11 +1611,14 @@ export function ScheduleView() {
     isLoading: roleLoading,
     isError: roleError,
   } = useCurrentUserRole(projectIdUndef);
-  // Pessimistic while the role loads (#2145): `canEditTask(null)` is false, so
-  // every create control (+ Item / + Milestone / + Phase) stays disabled until
-  // the role resolves — matching the pessimistic `canImport`/`canShare`/
-  // `canCaptureBaseline` gates below rather than flashing enabled for the
-  // non-member majority. The server is authoritative; this is the UX gate.
+  // `currentRole` still drives the per-row gate (`canEditRow` below) and the
+  // Scheduler-band affordances; it no longer decides `hasEditRights`, which now
+  // reads the server's own verdict — see the block at `hasEditRights` (#3034).
+  // Pessimistic while it loads (#2145): every create control (+ Item /
+  // + Milestone / + Phase) stays disabled until the answer arrives — matching
+  // the pessimistic `canImport`/`canShare`/`canCaptureBaseline` gates below
+  // rather than flashing enabled for the non-member majority. The server is
+  // authoritative; this is the UX gate.
   // Alt+A Author/Read toggle (#2727, ADR-0776 §5) — a client-only, per-user
   // per-project preference layered on top of the server role gate below, not
   // a replacement for it. "Read" mode forces readOnly regardless of role.
@@ -1643,7 +1646,23 @@ export function ScheduleView() {
   // broken; explaining a refusal to someone who never should have seen the
   // button is noise. `readOnly` still governs BEHAVIOR for both — this is
   // presentation only, and the server remains the thing that actually refuses.
-  const hasEditRights = canEditTask(currentRole);
+  // ADR-0773 §(d): the server's `can_author`, NOT a client-side ordinal test.
+  // `canEditTask(currentRole)` (`role >= ROLE_MEMBER`) used to stand here and was
+  // wrong for exactly one band — Scheduler (200) is ordinally above Member and is
+  // refused task content by the server — which handed a Scheduler the whole
+  // authoring apparatus and then refused it two different ways: paste-many and the
+  // classification cascade 403 outright, while a single row COMMITS and every
+  // subsequent keystroke 403s (#3034). `canAuthorPlan` resolves the same rule the
+  // server enforces, and returns false until the project query lands.
+  const hasEditRights = canAuthorPlan(projectDetail?.can_author);
+  // One flag, two server permissions — known and tracked (#3053). `readOnly` fronts
+  // task-content authoring (`IsProjectPlanAuthor`, which excludes Scheduler) AND
+  // dependency authoring (`IsProjectScheduler`, which requires it). Neither rule is a
+  // superset of the other, so this boolean is wrong for one band whichever way it
+  // resolves: today a Scheduler loses canvas drag-to-link, which the server would
+  // accept. Splitting it means deciding, per consumer, which of the two it meant —
+  // and the canvas needs both, since drag-to-reschedule and drag-to-link are one
+  // gesture resolved by where it starts. Do not "simplify" this comment away.
   const readOnly = !hasEditRights || authorMode.mode === 'read';
 
   /**

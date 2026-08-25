@@ -310,6 +310,21 @@ test.describe('Schedule — each insert affordance lands where its position impl
     // truthy on purpose, #2489). The whole authoring apparatus goes; a dimmed
     // "Add an item at the end" would teach a reader the product is broken
     // (rule 302).
+    //
+    // Since #3034 the project-level gate is the server's `can_author`, not the
+    // role ordinal, so a viewer has to be modelled on BOTH: `can_author: false`
+    // for "is there an authoring mode at all", and the members override below
+    // for the per-row verdict. Registered before `goto`, and after
+    // `setupApiMocks`, so this route wins.
+    await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/`, (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ ...FIXTURE_PROJECTS[0], can_author: false }),
+          })
+        : route.continue(),
+    );
     await page.route('**/api/v1/projects/*/members/**', (route) =>
       route.fulfill({
         status: 200,

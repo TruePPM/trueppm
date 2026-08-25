@@ -285,6 +285,19 @@ export interface ApiProjectDetail {
    * defaults both facets to false when absent.
    */
   my_facets?: { is_scrum_master: boolean; is_product_owner: boolean };
+  /**
+   * Whether the caller may author this project's plan (ADR-0773 §(d), #3034) —
+   * the server's own answer, produced by the same `role_can_author_plan`
+   * predicate `IsProjectPlanAuthor` enforces (ADR-0133, "one rule, called
+   * twice"). The Designer's Read/Author gate reads THIS.
+   *
+   * It is not `my_role >= MEMBER` and must never be re-derived as one: the rule
+   * excludes the 200–299 resource-management band, which is ordinally *above*
+   * Member. Required (not optional) on purpose — the serializer always emits it,
+   * and declaring it optional would let a future field drop degrade silently to
+   * "nobody may author" instead of failing the typecheck. See `canAuthorPlan`.
+   */
+  can_author: boolean;
 }
 
 /**

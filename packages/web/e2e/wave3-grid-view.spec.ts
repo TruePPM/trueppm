@@ -85,6 +85,10 @@ async function setup(page: import('@playwright/test').Page) {
         id: FIXTURE_PROJECT_ID, name: 'Grid View Project',
         methodology: 'HYBRID', agile_features: false,
         start_date: '2026-04-01',
+        // The Grid's write gate since #3034 (ADR-0773 §(d)): the server's
+        // `can_author`, not the role ordinal. Without it "+ Task" is correctly
+        // absent and this spec's layout assertions have nothing to measure.
+        can_author: true,
       }),
     }),
   );

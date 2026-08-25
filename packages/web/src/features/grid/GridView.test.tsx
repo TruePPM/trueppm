@@ -8,7 +8,7 @@ import { renderWithRouter } from '@/test/utils';
 import { useTaskDrawerStore } from '@/stores/taskDrawerStore';
 import { useTaskSelectionStore } from '@/stores/taskSelectionStore';
 import { useWbsStore } from '@/stores/wbsStore';
-import { ROLE_MEMBER, ROLE_VIEWER } from '@/lib/roles';
+import { ROLE_MEMBER, ROLE_SCHEDULER, ROLE_VIEWER } from '@/lib/roles';
 import type { Task, Methodology } from '@/types';
 
 // This file mounts the full GridView (TanStack Virtual + Query + router) ~104
@@ -48,6 +48,8 @@ beforeEach(() => {
   window.localStorage.clear();
   // Default every test to an authoring role; viewer-gating tests set VIEWER.
   currentRoleMock = ROLE_MEMBER;
+  // …and to the server saying yes; the gating tests below flip this (#3034).
+  projectCanAuthorMock = true;
   // Grid selection lives in a module-scoped zustand store, so it survives unmount
   // and would leak a stale selection into the next spec's toolbar assertions.
   useTaskSelectionStore.setState({ selectedIds: new Set<string>() });
@@ -145,11 +147,20 @@ let projectAgileFeatures = false;
 // undefined and the methodology falls back to HYBRID.
 let projectDataUndefined = false;
 
+// The Grid's write gate reads the server's `can_author` (#3034), not the role
+// ordinal — so the authoring assertions below drive THIS, not `currentRoleMock`.
+let projectCanAuthorMock = true;
+
 vi.mock('@/hooks/useProject', () => ({
   useProject: () => ({
     data: projectDataUndefined
       ? undefined
-      : { id: 'proj-1', methodology: projectMethodology, agile_features: projectAgileFeatures },
+      : {
+          id: 'proj-1',
+          methodology: projectMethodology,
+          agile_features: projectAgileFeatures,
+          can_author: projectCanAuthorMock,
+        },
     isLoading: false,
   }),
 }));
@@ -926,7 +937,7 @@ describe('GridView — bulk restore result toasts (#2078)', () => {
   });
 });
 
-describe('GridView — role gating (#2145)', () => {
+describe('GridView — authoring gate (#2145, rewired to can_author in #3034)', () => {
   beforeEach(() => {
     projectMethodology = 'AGILE'; // flat — where select-all/Delete/+Task live
     scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
@@ -934,6 +945,7 @@ describe('GridView — role gating (#2145)', () => {
 
   it('a Viewer sees no select-all, no + Task, and no bulk-delete affordance', async () => {
     currentRoleMock = ROLE_VIEWER;
+    projectCanAuthorMock = false;
     await renderGrid();
     // The list still renders (read is allowed)…
     expect(await screen.findByText('Planning')).toBeInTheDocument();
@@ -945,21 +957,30 @@ describe('GridView — role gating (#2145)', () => {
 
   it('a Member sees the select-all box and + Task button', async () => {
     currentRoleMock = ROLE_MEMBER;
+    projectCanAuthorMock = true;
     await renderGrid();
     expect(await screen.findByLabelText(/select all tasks/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^\+ task$/i })).toBeInTheDocument();
   });
 
-  it('while the role is still loading (null) the write controls stay hidden (pessimistic)', async () => {
-    currentRoleMock = null;
+  it('a Scheduler is refused the write controls even though the ordinal is above Member', async () => {
+    // The regression this test exists for (#3034): the gate used to be
+    // `role >= ROLE_MEMBER`, and ROLE_SCHEDULER (200) satisfies it. The server
+    // does not — bulk delete goes to TaskBulkView, which carries
+    // IsProjectPlanAuthor and 403s. The role mock stays SCHEDULER precisely so
+    // this fails again if anyone re-derives the gate from the ordinal.
+    currentRoleMock = ROLE_SCHEDULER;
+    projectCanAuthorMock = false;
     await renderGrid();
     expect(await screen.findByText('Planning')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^\+ task$/i })).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/select all tasks/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^\+ task$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /^Select /i })).not.toBeInTheDocument();
   });
 
   it('the empty-state CTA is hidden for a Viewer', async () => {
     currentRoleMock = ROLE_VIEWER;
+    projectCanAuthorMock = false;
     scheduleTasksMockReturn = { tasks: [], links: [], isLoading: false, error: null };
     await renderGrid();
     expect(screen.getByText(/no tasks yet/i)).toBeInTheDocument();
