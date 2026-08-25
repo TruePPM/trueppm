@@ -2,18 +2,31 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { ScheduleAppendTaskFooter } from './ScheduleAppendTaskFooter';
+import { ROW_VOCABULARY } from './rowVocabulary';
 
 describe('ScheduleAppendTaskFooter', () => {
   it('appends when activated, and says so on the label', async () => {
     const onAppend = vi.fn();
     const user = userEvent.setup();
-    render(<ScheduleAppendTaskFooter onAppend={onAppend} ariaRowIndex={8} />);
+    render(
+      <ScheduleAppendTaskFooter
+        onAppend={onAppend}
+        ariaRowIndex={8}
+        label={ROW_VOCABULARY.create.appendAtEnd}
+      />,
+    );
     await user.click(screen.getByRole('button', { name: 'Add an item at the end' }));
     expect(onAppend).toHaveBeenCalledTimes(1);
   });
 
   it('declares the depth it lands at — top level, not inside anything', () => {
-    render(<ScheduleAppendTaskFooter onAppend={vi.fn()} ariaRowIndex={8} />);
+    render(
+      <ScheduleAppendTaskFooter
+        onAppend={vi.fn()}
+        ariaRowIndex={8}
+        label={ROW_VOCABULARY.create.appendAtEnd}
+      />,
+    );
     const row = screen.getByTestId('schedule-append-task-footer');
     expect(row).toHaveAttribute('aria-level', '1');
     expect(row).toHaveAttribute('aria-rowindex', '8');
@@ -23,7 +36,14 @@ describe('ScheduleAppendTaskFooter', () => {
   it('stays present and inert for an editor who chose Read', async () => {
     const onAppend = vi.fn();
     const user = userEvent.setup();
-    render(<ScheduleAppendTaskFooter onAppend={onAppend} readOnly ariaRowIndex={8} />);
+    render(
+      <ScheduleAppendTaskFooter
+        onAppend={onAppend}
+        readOnly
+        ariaRowIndex={8}
+        label={ROW_VOCABULARY.create.appendAtEnd}
+      />,
+    );
     const btn = screen.getByRole('button', { name: 'Add an item at the end' });
     expect(btn).toBeDisabled();
     expect(btn).toHaveAttribute('title', 'Read-only access');
@@ -59,13 +79,25 @@ describe('ScheduleAppendTaskFooter — row-height parity (#2952)', () => {
   // resized outline. `useRowHeight()` is the subscription (#2997).
   it('takes its height from the same hook the outline rows use — fine pointer', () => {
     mockPointer(false);
-    render(<ScheduleAppendTaskFooter onAppend={vi.fn()} ariaRowIndex={8} />);
+    render(
+      <ScheduleAppendTaskFooter
+        onAppend={vi.fn()}
+        ariaRowIndex={8}
+        label={ROW_VOCABULARY.create.appendAtEnd}
+      />,
+    );
     expect(screen.getByTestId('schedule-append-task-footer')).toHaveStyle({ height: '28px' });
   });
 
   it('takes its height from the same hook the outline rows use — coarse pointer', () => {
     mockPointer(true);
-    render(<ScheduleAppendTaskFooter onAppend={vi.fn()} ariaRowIndex={8} />);
+    render(
+      <ScheduleAppendTaskFooter
+        onAppend={vi.fn()}
+        ariaRowIndex={8}
+        label={ROW_VOCABULARY.create.appendAtEnd}
+      />,
+    );
     expect(screen.getByTestId('schedule-append-task-footer')).toHaveStyle({ height: '44px' });
   });
 });

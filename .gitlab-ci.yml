@@ -1459,6 +1459,42 @@ web:playwright-pins:
     - bash scripts/check-playwright-pins.sh --self-test
     - bash scripts/check-playwright-pins.sh
 
+web:row-vocabulary:
+  extends: .fast-job
+  # The outline's governed vocabulary, written anywhere but its module (#3031).
+  #
+  # A row in the outline may be a task, a phase, a milestone or a subtask, and
+  # `structure_role` is declared only once something declares it (ADR-0843). On
+  # the surfaces that exist BEFORE the type does — column headers, create
+  # affordances, placeholders, and the name a create path mints — the noun must
+  # be "item", because any other noun is a claim about a row nobody has made.
+  #
+  # This is a CI job rather than a review habit because the rule reaches things
+  # no reviewer thinks of as copy. #3027's instance was `+ Item` creating a row
+  # literally NAMED "New task" — invisible to a sweep looking at button labels,
+  # and it persisted into the plan, the WBS and the rollup if the user pressed
+  # Escape. That was the SECOND hand sweep; web rule 300 says a rule needing a
+  # second one has no working mechanism.
+  #
+  # Note the primary mechanism is the type system, not this job: governed copy
+  # is a branded `VocabularyToken` only `rowVocabulary.ts` can mint, so a literal
+  # in a governed prop does not compile. This covers the residual — a component
+  # that renders a governed surface without going through the module at all.
+  #
+  # Runs in the lint stage: no install, no build, no network. ~1s.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash grep python3
+  script:
+    # Self-test first: a passing run looks the same whether the gate works or
+    # its patterns have drifted to match nothing.
+    - bash scripts/check-row-vocabulary.sh --self-test
+    - bash scripts/check-row-vocabulary.sh
+
 web:rule-numbers:
   extends: .fast-job
   # Two rules in packages/web/CLAUDE.md sharing a number (#2933).

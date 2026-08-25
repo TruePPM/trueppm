@@ -13,6 +13,7 @@ import { TaskListHeader } from './TaskListHeader';
 import { TaskListRow } from './TaskListRow';
 import { BlankOutlineDraftRow } from './buildMode/BlankOutlineDraftRow';
 import { ScheduleAppendTaskFooter } from './ScheduleAppendTaskFooter';
+import { ROW_VOCABULARY } from './rowVocabulary';
 import type { PhasePlannedBadge } from './plannedByPhase';
 import type { RowMode } from './deliveryModePresentation';
 import type { TaskDepChips } from './deps/depFlag';
@@ -678,6 +679,7 @@ export function TaskListPanel({
             down, which is the same gesture as "put one more at the bottom". */}
         {showAppendFooter && onAppendTaskAtEnd && (
           <ScheduleAppendTaskFooter
+            label={ROW_VOCABULARY.create.appendAtEnd}
             onAppend={onAppendTaskAtEnd}
             readOnly={appendAtEndReadOnly}
             ariaRowIndex={tasks.length + 2}

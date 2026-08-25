@@ -1,3 +1,4 @@
+import { ROW_VOCABULARY } from './rowVocabulary';
 import {
   useRef,
   useCallback,
@@ -238,15 +239,15 @@ export function ScheduleEmptyState({ onAddTask }: { onAddTask?: () => void }) {
     <EmptyState
       className="h-full bg-neutral-surface"
       icon={GanttIcon}
-      title="No items yet"
-      description="Add items to lay out your schedule — the timeline, critical path, and forecast appear as soon as there's work to plan."
+      title={ROW_VOCABULARY.empty.title}
+      description={ROW_VOCABULARY.empty.description}
       // A discoverable create CTA (#2044) — mirrors Board's empty state so a new
       // user is never left hunting for the small toolbar "+ Item" button. Omitted
       // for read-only roles (Viewer), who have no create affordance to offer.
       action={
         onAddTask ? (
           <Button variant="primary" onClick={onAddTask}>
-            + Add item
+            {ROW_VOCABULARY.create.emptyStateButton}
           </Button>
         ) : undefined
       }
@@ -332,7 +333,7 @@ function ScheduleFallbackTable({ tasks }: ScheduleFallbackTableProps) {
       <table className="w-full text-sm text-neutral-text-primary border-collapse">
         <thead>
           <tr className="border-b border-neutral-border">
-            <th className="text-left py-1 pr-4 font-medium">Item</th>
+            <th className="text-left py-1 pr-4 font-medium">{ROW_VOCABULARY.header.rowColumn}</th>
             <th className="text-left py-1 pr-4 font-medium">Start</th>
             <th className="text-left py-1 pr-4 font-medium">Finish</th>
             <th className="text-left py-1 font-medium">Duration</th>
@@ -2182,7 +2183,10 @@ export function ScheduleView() {
           recordAct(
             deleteSentence({ name: snapshot.name, descendantCount: descendantCount }),
           );
-          const label = snapshot.name || 'Untitled task';
+          // Neutral noun (#3031): this toast reports the deletion of whatever
+          // row was focused — a phase and a milestone reach it too — so a
+          // blank-named one must not be announced as a task.
+          const label = snapshot.name || ROW_VOCABULARY.minted.untitledRow;
           const subtaskSuffix =
             descendantCount > 0
               ? ` and its ${descendantCount} subtask${descendantCount === 1 ? '' : 's'}`
@@ -2235,7 +2239,7 @@ export function ScheduleView() {
     ) => {
       createTaskMut.mutate(
         {
-          name: 'New item',
+          name: ROW_VOCABULARY.minted.newRow,
           duration: 1,
           parent_id: parentId,
           ...(sourceTask?.deliveryMode ? { delivery_mode: sourceTask.deliveryMode } : {}),
@@ -2472,7 +2476,12 @@ export function ScheduleView() {
         if (summary && summary.count > 0) {
           setPendingSubtreeDelete({
             id: taskId,
-            name: summary.name || 'Untitled task',
+            // Neutral noun, not "Untitled task" (#3031). This branch is reached
+            // only when the row HAS children, so calling it a task is the one
+            // claim we positively know may be wrong — and it is made on a
+            // destructive confirm, the worst place to misdescribe what is about
+            // to be deleted.
+            name: summary.name || ROW_VOCABULARY.minted.untitledRow,
             count: summary.count,
           });
           return;
@@ -2494,7 +2503,7 @@ export function ScheduleView() {
         if (summary && summary.count > 0) {
           setPendingSubtreeDelete({
             id: taskId,
-            name: summary.name || 'Untitled task',
+            name: summary.name || ROW_VOCABULARY.minted.untitledRow,
             count: summary.count,
           });
           return;
@@ -2839,7 +2848,7 @@ export function ScheduleView() {
           {
             op: 'create',
             id: childId,
-            data: { name: 'New item', duration: 1, parent_id: target.id },
+            data: { name: ROW_VOCABULARY.minted.newRow, duration: 1, parent_id: target.id },
           },
         ],
         {
@@ -2898,11 +2907,11 @@ export function ScheduleView() {
     // thing in a single step instead of unwinding two creates that were never
     // recorded as anything.
     createTaskMut.mutate(
-      { name: 'New item', duration: 1, parent_id: inferredParentId },
+      { name: ROW_VOCABULARY.minted.newRow, duration: 1, parent_id: inferredParentId },
       {
         onSuccess: (created) => {
           groupTasksMut.mutate(
-            { taskIds: [created.id], name: 'Untitled phase' },
+            { taskIds: [created.id], name: ROW_VOCABULARY.minted.newPhase },
             {
               onSuccess: (data) => {
                 const outcome = describeGroupOutcome(data);
@@ -3127,7 +3136,7 @@ export function ScheduleView() {
     (phaseTaskId: string) => {
       if (!projectId) return;
       createTaskMut.mutate(
-        { name: 'New item', duration: 1, parent_id: phaseTaskId },
+        { name: ROW_VOCABULARY.minted.newRow, duration: 1, parent_id: phaseTaskId },
         {
           onSuccess: (data) => {
             focus.focusRow(data.id);
@@ -4950,7 +4959,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           // present-and-inert with a refusal that explains itself, which is what
           // web rule 302 asks for on that side of the split.
           disabled={readOnly || insertTarget.kind === 'unnamed'}
-          aria-label="Add item"
+          aria-label={ROW_VOCABULARY.create.toolbarLabel}
           // The accessible NAME stays stable across all three branches — a
           // control renaming itself as the cursor moves is disorienting. The
           // qualification rides on `aria-describedby`, which is announced on
@@ -4967,7 +4976,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
               hover:border-brand-primary hover:text-brand-primary
               disabled:bg-neutral-surface-sunken disabled:text-neutral-text-disabled disabled:border-neutral-border disabled:cursor-not-allowed"
         >
-          + Item
+          {ROW_VOCABULARY.create.toolbarButton}
         </button>
       )}
       {/* Where that button will land its row (#2957). Adjacent to `+ Item`
@@ -5301,7 +5310,7 @@ function timelineRowMenuItems(
       : []),
     {
       key: 'insert-below',
-      label: 'Insert item below',
+      label: ROW_VOCABULARY.create.insertBelowMenu,
       onSelect: () => buildMode.insertBelow(taskId),
     },
     {

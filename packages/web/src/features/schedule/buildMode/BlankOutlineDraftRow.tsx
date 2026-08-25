@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useRowHeight } from '@/hooks/useRowHeight';
+import { ROW_VOCABULARY } from '../rowVocabulary';
 
 export interface BlankOutlineDraftRowProps {
   /**
@@ -98,7 +99,7 @@ export function BlankOutlineDraftRow({
         style={{ height: rowHeight }}
         className="flex items-center px-2 text-xs text-neutral-text-secondary"
       >
-        <span role="gridcell">No items yet.</span>
+        <span role="gridcell">{ROW_VOCABULARY.empty.outlineRow}</span>
       </div>
     );
   }
@@ -133,8 +134,8 @@ export function BlankOutlineDraftRow({
           // The placeholder carries the affordance the deleted card used to
           // spell out. It has to read as an invitation to type, not as a label
           // for a field someone is hunting for.
-          placeholder="Type your first item, then press Enter"
-          aria-label="First item name"
+          placeholder={ROW_VOCABULARY.empty.firstRowPlaceholder}
+          aria-label={ROW_VOCABULARY.empty.firstRowLabel}
           className="w-full bg-transparent text-sm text-neutral-text-primary
             placeholder:text-neutral-text-disabled focus:outline-none"
         />

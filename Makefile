@@ -2,7 +2,7 @@
 # Run `make help` for a list of targets.
 
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod \
-        migrations-check migrations-numbering schema-check web-lint web-typecheck web-rule-numbers-check pre-push pre-push-checks \
+        migrations-check migrations-numbering schema-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks \
         pre-push-behind-warn pre-push-collision-check pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web sonar \
         release-smoke screenshots wt-new wt-list wt-remove wt-prune wt-doctor
@@ -303,6 +303,16 @@ web-rule-numbers-check: ## Fail if two packages/web/CLAUDE.md rules share a numb
 	@bash scripts/check-web-rule-numbers.sh --self-test
 	@bash scripts/check-web-rule-numbers.sh
 
+web-row-vocabulary-check: ## Fail if the outline's governed vocabulary is written outside its module (#3031)
+	@# A row may be a task, a phase, a milestone or a subtask, and its type is
+	@# DECLARED, not assumed. So the surfaces that exist before the type does —
+	@# headers, create affordances, placeholders, and the name a create path
+	@# mints — must say "item". The rule was swept by hand twice (#2952, #3027)
+	@# and the second sweep found `+ Item` creating a row named "New task": a
+	@# row's own name is a stronger type claim than any button label.
+	@bash scripts/check-row-vocabulary.sh --self-test
+	@bash scripts/check-row-vocabulary.sh
+
 playwright-pins-check: ## Fail if a Playwright npm pin drifts from the CI image tag (#2797)
 	@# A version mismatch means the browsers baked into the image are at a path
 	@# the npm package never looks in, so the launch fails outright. In web:e2e
@@ -373,7 +383,7 @@ nginx-headers-check: ## Fail if the five nginx configs disagree on the hardening
 	@# are skipped (loudly) when helm is not on PATH — CI always has it.
 	@bash scripts/check-nginx-security-headers.sh
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check playwright-pins-check web-rule-numbers-check design-system-check adr-status-check version-status-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check prepush-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check playwright-pins-check web-rule-numbers-check web-row-vocabulary-check design-system-check adr-status-check version-status-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check prepush-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/

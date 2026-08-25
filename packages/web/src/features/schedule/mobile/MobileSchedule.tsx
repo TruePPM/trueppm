@@ -1,3 +1,4 @@
+import { ROW_VOCABULARY } from '../rowVocabulary';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Task, TaskStatus } from '@/types';
@@ -166,10 +167,10 @@ export function MobileSchedule({
       <EmptyState
         className="h-full bg-neutral-surface"
         icon={CalendarIcon}
-        title="No items yet"
-        description="Add your first item to start building the schedule. Rows you create appear here in outline order."
+        title={ROW_VOCABULARY.empty.title}
+        description={ROW_VOCABULARY.empty.mobileDescription}
         action={
-          projectId && !readOnly ? <Button onClick={onAddTask}>+ Add item</Button> : undefined
+          projectId && !readOnly ? <Button onClick={onAddTask}>{ROW_VOCABULARY.create.emptyStateButton}</Button> : undefined
         }
       />
     );

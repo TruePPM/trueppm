@@ -108,6 +108,14 @@ import {
   type RowMenuItem,
 } from './buildMode';
 import { wbsParentPath } from './buildMode/insertBelow';
+import {
+  ROW_VOCABULARY,
+  ROW_NOUN,
+  ROW_NOUN_PLURAL,
+  insertBelowRowLabel,
+  addFirstRowToLabel,
+  ADD_FIRST_ROW_TO_PHASE,
+} from './rowVocabulary';
 
 interface Props {
   task: Task;
@@ -2484,8 +2492,8 @@ function TaskListRowInner({
             e.stopPropagation();
             authoring.insertBelow(task.id);
           }}
-          aria-label={`Insert an item below ${task.name || 'this row'}, at the same level`}
-          title="Insert an item here"
+          aria-label={insertBelowRowLabel(task.name)}
+          title={ROW_VOCABULARY.create.insertHereTitle}
           className={[
             'absolute left-0 bottom-0 translate-y-1/2 z-10',
             'flex items-center justify-center rounded-full',
@@ -3393,12 +3401,12 @@ function TaskNameTrailing(props: TaskNameContentProps) {
           className="inline-flex shrink-0 items-center gap-1 rounded-chip border border-dashed border-neutral-border
             px-1.5 py-0.5 text-xs text-neutral-text-secondary hover:border-brand-primary hover:text-brand-primary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-          title="This phase has no items yet"
-          aria-label={`Add first item to ${task.name}`}
+          title={ROW_VOCABULARY.create.phaseHasNoRows}
+          aria-label={addFirstRowToLabel(task.name)}
           data-testid="phase-in-waiting-hint"
         >
           <span aria-hidden="true">⊕</span>
-          <span>Add first item to this phase</span>
+          <span>{ADD_FIRST_ROW_TO_PHASE}</span>
         </button>
       )}
     </>
@@ -3470,7 +3478,7 @@ function TaskDurationCell({
     // "item", not "task": a summary rolls up whatever is under it, and that
     // set can contain phases and milestones. Naming them tasks is not merely
     // off-vocabulary here, it is factually wrong about what was summed (#3027).
-    const noun = childCount === 1 ? 'item' : 'items';
+    const noun = childCount === 1 ? ROW_NOUN : ROW_NOUN_PLURAL;
     const rollsUpFrom = `Rolls up from ${childCount} ${noun}. Change an item to change this.`;
     return (
       <div
