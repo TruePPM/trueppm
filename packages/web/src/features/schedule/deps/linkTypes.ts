@@ -91,6 +91,58 @@ export const LAG_FIELD_HINT = 'Lag in days (negative = lead)';
 /** Unit suffix rendered beside the field. */
 export const LAG_UNIT_SUFFIX = 'd lag';
 
+/**
+ * Accessible name for a link-type control, optionally naming the link it acts
+ * on.
+ *
+ * **Not one shared constant, and the reason matters.** The first attempt at
+ * #2916 gave `DepRow` and `AddDepRow` the same string, on the theory that two
+ * names for one control is drift. It is the opposite: they are two *different*
+ * controls, and an identical name makes them indistinguishable — to a test, and
+ * to the screen-reader user the name exists for.
+ *
+ * It also surfaced a defect that predates both: a task with three predecessors
+ * renders three selects all called "Dependency type" and three inputs all
+ * called "Lag days", so navigating by form control gives no way to tell which
+ * link is which. Passing the row's label fixes that.
+ *
+ * The argument is **required**, not optional. An add-row has no existing link
+ * to name, but it does have a side — "new predecessor" / "new successor" — and
+ * the drawer renders one add-row per section, so a bare fallback would leave
+ * those two identical to each other. An optional parameter is exactly what the
+ * next caller omits (web rule 325).
+ */
+export function linkTypeFieldLabel(target: string): string {
+  return `Dependency type for ${target}`;
+}
+
+/** The same, for a lag control. Same reasoning, same shape. */
+export function lagFieldLabelFor(target: string): string {
+  return `${LAG_FIELD_LABEL} for ${target}`;
+}
+
+/**
+ * Resolve a lag field's raw text to the number that goes on the wire.
+ *
+ * Every lag control holds TEXT, not a number, because a number state has to
+ * decide what the emptied field means and every answer is wrong: `0` silently
+ * rewrites what the user cleared, `NaN` reaches the payload, `null` needs a
+ * branch at every read. Deferring it means exactly one place has to answer, and
+ * this is it — `""` and a lone `"-"` (mid-typing a lead) both resolve to 0.
+ *
+ * Clamped to the bounds every surface shares, so no creation path can mint a
+ * link that the drawer, which owns editing, would refuse to accept.
+ *
+ * Extracted from the picker in #2916 rather than copied into the drawer: two
+ * parsers for one field is how the two surfaces come to disagree about what an
+ * empty box means.
+ */
+export function clampLagDays(text: string): number {
+  const n = Number.parseInt(text, 10);
+  if (Number.isNaN(n)) return 0;
+  return Math.min(LAG_MAX_DAYS, Math.max(LAG_MIN_DAYS, n));
+}
+
 /** Is this string one of the four? Narrows an unknown server token. */
 export function isCanonicalLinkType(value: string): value is CanonicalLinkType {
   return (LINK_TYPES as readonly string[]).includes(value);

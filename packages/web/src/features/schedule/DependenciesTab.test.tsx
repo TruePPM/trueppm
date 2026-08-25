@@ -223,7 +223,7 @@ describe('DepRow per-row error on cycle 400 — #249', () => {
   it('shows cycle error alert when onError fires with cycle payload', () => {
     renderTab('task-b', [FS_LINK], [TASK_A, TASK_B]);
 
-    const depTypeSelect = screen.getByRole('combobox', { name: 'Dependency type' });
+    const depTypeSelect = screen.getByRole('combobox', { name: 'Dependency type for 1.1 — Task A' });
     fireEvent.change(depTypeSelect, { target: { value: 'SS' } });
 
     expect(capturedUpdateOpts).not.toBeNull();
@@ -254,7 +254,7 @@ describe('DepRow per-row error on cycle 400 — #249', () => {
   it('clears row error when dep type is changed again', () => {
     renderTab('task-b', [FS_LINK], [TASK_A, TASK_B]);
 
-    const depTypeSelect = screen.getByRole('combobox', { name: 'Dependency type' });
+    const depTypeSelect = screen.getByRole('combobox', { name: 'Dependency type for 1.1 — Task A' });
     fireEvent.change(depTypeSelect, { target: { value: 'SS' } });
     act(() => {
       capturedUpdateOpts?.onError?.({
@@ -282,7 +282,7 @@ describe('DepRow per-row error on cycle 400 — #249', () => {
   it('shows generic error message when 400 is not a cycle error', () => {
     renderTab('task-b', [FS_LINK], [TASK_A, TASK_B]);
 
-    const depTypeSelect = screen.getByRole('combobox', { name: 'Dependency type' });
+    const depTypeSelect = screen.getByRole('combobox', { name: 'Dependency type for 1.1 — Task A' });
     fireEvent.change(depTypeSelect, { target: { value: 'SS' } });
 
     act(() => {
@@ -397,7 +397,7 @@ describe('dependency rows', () => {
       [TASK_A, TASK_B],
     );
     expect(
-      within(predSection()).queryByRole('combobox', { name: 'Dependency type' }),
+      within(predSection()).queryByRole('combobox', { name: /^Dependency type for (?!new )/ }),
     ).not.toBeInTheDocument();
     // The link exists, so the empty-state placeholder is still suppressed.
     expect(within(predSection()).queryByText('None')).not.toBeInTheDocument();
@@ -410,7 +410,7 @@ describe('dependency rows', () => {
       [TASK_A, TASK_B],
     );
     expect(
-      within(succSection()).queryByRole('combobox', { name: 'Dependency type' }),
+      within(succSection()).queryByRole('combobox', { name: /^Dependency type for (?!new )/ }),
     ).not.toBeInTheDocument();
     expect(within(succSection()).queryByText('None')).not.toBeInTheDocument();
   });
@@ -429,7 +429,7 @@ describe('dependency rows', () => {
 describe('DepRow lag field', () => {
   it('patches the lag when a new value is committed on blur', () => {
     renderTab('task-b', [FS_LINK], [TASK_A, TASK_B]);
-    const lag = screen.getByRole('spinbutton', { name: 'Lag days' });
+    const lag = screen.getByRole('spinbutton', { name: 'Lag days for 1.1 — Task A' });
     fireEvent.blur(lag, { target: { value: '5' } });
 
     expect(updateMutateMock).toHaveBeenCalledTimes(1);
@@ -438,7 +438,7 @@ describe('DepRow lag field', () => {
 
   it('accepts a negative lead value', () => {
     renderTab('task-b', [FS_LINK], [TASK_A, TASK_B]);
-    fireEvent.blur(screen.getByRole('spinbutton', { name: 'Lag days' }), {
+    fireEvent.blur(screen.getByRole('spinbutton', { name: 'Lag days for 1.1 — Task A' }), {
       target: { value: '-3' },
     });
     expect(capturedUpdatePayload).toEqual({ id: 'link-1', lag: -3 });
@@ -446,7 +446,7 @@ describe('DepRow lag field', () => {
 
   it('does not patch when the value is unchanged', () => {
     renderTab('task-b', [FS_LINK], [TASK_A, TASK_B]);
-    fireEvent.blur(screen.getByRole('spinbutton', { name: 'Lag days' }), {
+    fireEvent.blur(screen.getByRole('spinbutton', { name: 'Lag days for 1.1 — Task A' }), {
       target: { value: '0' },
     });
     expect(updateMutateMock).not.toHaveBeenCalled();
@@ -454,7 +454,7 @@ describe('DepRow lag field', () => {
 
   it('does not patch when the field is cleared to a non-number', () => {
     renderTab('task-b', [FS_LINK], [TASK_A, TASK_B]);
-    fireEvent.blur(screen.getByRole('spinbutton', { name: 'Lag days' }), {
+    fireEvent.blur(screen.getByRole('spinbutton', { name: 'Lag days for 1.1 — Task A' }), {
       target: { value: '' },
     });
     expect(updateMutateMock).not.toHaveBeenCalled();
@@ -462,7 +462,7 @@ describe('DepRow lag field', () => {
 
   it('clears a standing row error once a new lag is committed', () => {
     renderTab('task-b', [FS_LINK], [TASK_A, TASK_B]);
-    fireEvent.change(screen.getByRole('combobox', { name: 'Dependency type' }), {
+    fireEvent.change(screen.getByRole('combobox', { name: 'Dependency type for 1.1 — Task A' }), {
       target: { value: 'SS' },
     });
     act(() => {
@@ -470,7 +470,7 @@ describe('DepRow lag field', () => {
     });
     expect(screen.getByRole('alert')).toBeInTheDocument();
 
-    fireEvent.blur(screen.getByRole('spinbutton', { name: 'Lag days' }), {
+    fireEvent.blur(screen.getByRole('spinbutton', { name: 'Lag days for 1.1 — Task A' }), {
       target: { value: '2' },
     });
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -535,7 +535,7 @@ describe('adding a predecessor', () => {
       target: { value: taskId },
     });
     if (linkType) {
-      fireEvent.change(within(predSection()).getByRole('combobox', { name: 'Link type' }), {
+      fireEvent.change(within(predSection()).getByRole('combobox', { name: 'Dependency type for new predecessor' }), {
         target: { value: linkType },
       });
     }
@@ -548,7 +548,7 @@ describe('adding a predecessor', () => {
     expect(capturedCreatePayload).toEqual({
       predecessor: 'task-a',
       successor: 'task-b',
-      dep_type: 'FS',
+      dep_type: 'FS', lag: 0,
     });
   });
 
@@ -569,7 +569,7 @@ describe('adding a predecessor', () => {
       screen.getByRole<HTMLSelectElement>('combobox', { name: 'Add predecessor' }).value,
     ).toBe('');
     expect(
-      within(predSection()).getByRole<HTMLSelectElement>('combobox', { name: 'Link type' }).value,
+      within(predSection()).getByRole<HTMLSelectElement>('combobox', { name: 'Dependency type for new predecessor' }).value,
     ).toBe('FS');
   });
 
@@ -619,7 +619,7 @@ describe('adding a successor', () => {
       target: { value: taskId },
     });
     if (linkType) {
-      fireEvent.change(within(succSection()).getByRole('combobox', { name: 'Link type' }), {
+      fireEvent.change(within(succSection()).getByRole('combobox', { name: 'Dependency type for new successor' }), {
         target: { value: linkType },
       });
     }
@@ -632,7 +632,7 @@ describe('adding a successor', () => {
     expect(capturedCreatePayload).toEqual({
       predecessor: 'task-b',
       successor: 'task-a',
-      dep_type: 'SF',
+      dep_type: 'SF', lag: 0,
     });
   });
 
@@ -646,7 +646,7 @@ describe('adding a successor', () => {
       screen.getByRole<HTMLSelectElement>('combobox', { name: 'Add successor' }).value,
     ).toBe('');
     expect(
-      within(succSection()).getByRole<HTMLSelectElement>('combobox', { name: 'Link type' }).value,
+      within(succSection()).getByRole<HTMLSelectElement>('combobox', { name: 'Dependency type for new successor' }).value,
     ).toBe('FS');
   });
 
@@ -708,5 +708,92 @@ describe('task switch', () => {
     expect(
       screen.getByRole<HTMLSelectElement>('combobox', { name: 'Add predecessor' }).value,
     ).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lag at CREATE, and control names that tell the links apart (#2916)
+// ---------------------------------------------------------------------------
+
+describe('DependenciesTab — lag at create (#2916)', () => {
+  function predLag() {
+    return within(predSection()).getByRole('spinbutton', {
+      name: 'Lag days for new predecessor',
+    });
+  }
+
+  it('sends the typed lag when adding a predecessor', () => {
+    renderTab('task-b', [], [TASK_A, TASK_B]);
+    fireEvent.change(within(predSection()).getByRole('combobox', { name: 'Add predecessor' }), {
+      target: { value: 'task-a' },
+    });
+    fireEvent.change(predLag(), { target: { value: '3' } });
+    fireEvent.click(within(predSection()).getByRole('button', { name: 'Add predecessor' }));
+    expect(capturedCreatePayload).toMatchObject({ lag: 3 });
+  });
+
+  it('sends a NEGATIVE lag as a lead — the reason the field is signed', () => {
+    renderTab('task-b', [], [TASK_A, TASK_B]);
+    fireEvent.change(within(predSection()).getByRole('combobox', { name: 'Add predecessor' }), {
+      target: { value: 'task-a' },
+    });
+    fireEvent.change(predLag(), { target: { value: '-2' } });
+    fireEvent.click(within(predSection()).getByRole('button', { name: 'Add predecessor' }));
+    expect(capturedCreatePayload).toMatchObject({ lag: -2 });
+  });
+
+  it('treats an emptied field as 0 rather than sending NaN', () => {
+    renderTab('task-b', [], [TASK_A, TASK_B]);
+    fireEvent.change(within(predSection()).getByRole('combobox', { name: 'Add predecessor' }), {
+      target: { value: 'task-a' },
+    });
+    fireEvent.change(predLag(), { target: { value: '' } });
+    fireEvent.click(within(predSection()).getByRole('button', { name: 'Add predecessor' }));
+    expect(capturedCreatePayload).toMatchObject({ lag: 0 });
+  });
+
+  it('clamps to the bounds every surface shares, via the one shared parser', () => {
+    renderTab('task-b', [], [TASK_A, TASK_B]);
+    fireEvent.change(within(predSection()).getByRole('combobox', { name: 'Add predecessor' }), {
+      target: { value: 'task-a' },
+    });
+    fireEvent.change(predLag(), { target: { value: '9999' } });
+    fireEvent.click(within(predSection()).getByRole('button', { name: 'Add predecessor' }));
+    expect(capturedCreatePayload).toMatchObject({ lag: 365 });
+  });
+});
+
+describe('DependenciesTab — every link control names the link it acts on (#2916)', () => {
+  it('gives two predecessor rows two DISTINCT lag controls', () => {
+    // The defect this guards predates the lag-at-create work: a task with
+    // several predecessors rendered N selects all called "Dependency type" and
+    // N inputs all called "Lag days", so navigating by form control gave no way
+    // to tell which link was which. Adding a third pair to the same section
+    // would have made it worse, which is how it was noticed.
+    renderTab(
+      'task-b',
+      [
+        link({ id: 'l1', sourceId: 'task-a', targetId: 'task-b' }),
+        link({ id: 'l2', sourceId: 'task-c', targetId: 'task-b' }),
+      ],
+      [TASK_A, TASK_B, TASK_C],
+    );
+    const lagNames = within(predSection())
+      .getAllByRole('spinbutton')
+      .map((el) => el.getAttribute('aria-label'));
+    // Two per-link rows plus the add row — and no two alike.
+    expect(lagNames.length).toBe(3);
+    expect(new Set(lagNames).size).toBe(lagNames.length);
+  });
+
+  it('distinguishes the predecessor add-row from the successor add-row', () => {
+    // Both sections render an add-row; before #2916 both said "Lag days".
+    renderTab('task-b', [], [TASK_A, TASK_B]);
+    expect(
+      within(predSection()).getByRole('spinbutton', { name: 'Lag days for new predecessor' }),
+    ).toBeInTheDocument();
+    expect(
+      within(succSection()).getByRole('spinbutton', { name: 'Lag days for new successor' }),
+    ).toBeInTheDocument();
   });
 });
