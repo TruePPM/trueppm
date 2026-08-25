@@ -26,11 +26,11 @@ import {
   drawSummaryBar,
   drawActualDateBar,
   drawSprintBands,
-  drawSprintBandLabels,
+  drawCadenceRail,
   prepareDependencyLayout,
   SPRINT_BAND_FADE_MS,
 } from './GanttRenderer';
-import type { SprintBand } from '../sprintBands';
+import type { CadenceSegment, SprintBand } from '../sprintBands';
 
 // Spy on the arrow-layout builder while keeping its real implementation, so
 // #1499's regression test can assert *when* the dependency layout cache gets
@@ -57,7 +57,7 @@ vi.mock('./GanttRenderer', async (importOriginal) => {
     // #2738 — the sprint-band seam: these specs assert WHICH bands the engine
     // hands the renderer and at what alpha, without needing pixels.
     drawSprintBands: vi.fn(actual.drawSprintBands),
-    drawSprintBandLabels: vi.fn(actual.drawSprintBandLabels),
+    drawCadenceRail: vi.fn(actual.drawCadenceRail),
   };
 });
 
@@ -2093,6 +2093,16 @@ describe('GanttEngineImpl — sprint-window bands (#2738)', () => {
     },
   ];
 
+  const SEGMENTS: CadenceSegment[] = [
+    {
+      startDate: '2026-04-01',
+      finishDate: '2026-04-10',
+      label: 'Sprint 4',
+      sprintIds: ['sp1'],
+      active: true,
+    },
+  ];
+
   const CHART = {
     taskNamePlacement: 'next' as const,
     showProgressPills: true,
@@ -2133,12 +2143,19 @@ describe('GanttEngineImpl — sprint-window bands (#2738)', () => {
     expect(spy.mock.calls[0][1]).toBe(BANDS);
   });
 
-  it('draws the name pills on the bars layer, not the background one', () => {
+  it('draws the cadence rail from the SEGMENTS, not from the bands (#3012)', () => {
+    // The two lists are independent on purpose: a sprint with no committed work
+    // has a segment and no band, and pushing only bands must therefore leave the
+    // rail empty rather than silently deriving a window from a row range.
     const h = setup();
     h.engine.setTasks([makeTask('a', '2026-04-01', '2026-04-10')]);
     h.engine.setSprintBands(BANDS);
     h.flushFrame();
-    expect(vi.mocked(drawSprintBandLabels)).toHaveBeenCalled();
+    expect(vi.mocked(drawCadenceRail).mock.calls.at(-1)?.[1]).toEqual([]);
+
+    h.engine.setCadenceSegments(SEGMENTS);
+    h.flushFrame();
+    expect(vi.mocked(drawCadenceRail).mock.calls.at(-1)?.[1]).toBe(SEGMENTS);
   });
 
   it('paints nothing when the Display toggle turns sprint windows off', () => {
@@ -2147,13 +2164,17 @@ describe('GanttEngineImpl — sprint-window bands (#2738)', () => {
     h.engine.setSprintBands(BANDS);
     h.flushFrame();
 
+    h.engine.setCadenceSegments(SEGMENTS);
+    h.flushFrame();
     vi.mocked(drawSprintBands).mockClear();
-    vi.mocked(drawSprintBandLabels).mockClear();
+    vi.mocked(drawCadenceRail).mockClear();
     h.engine.setChartOptions({ ...CHART, showSprintBands: false });
     h.flushFrame();
 
+    // One toggle, both readings — the rail and the bands are two views of the
+    // same fact, so "Sprint windows" off must take the rail with it.
     expect(vi.mocked(drawSprintBands)).not.toHaveBeenCalled();
-    expect(vi.mocked(drawSprintBandLabels)).not.toHaveBeenCalled();
+    expect(vi.mocked(drawCadenceRail)).not.toHaveBeenCalled();
   });
 
   it('ignores a re-push of the identical band array (reference contract)', () => {

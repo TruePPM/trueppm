@@ -241,6 +241,30 @@ test.describe('Sprint windows on the schedule canvas (#2738)', () => {
     await expect(page.getByRole('button', { name: /Display, 1 active filter/ })).toBeVisible();
   });
 
+  test('the outline header grows by the rail, so the two halves stay aligned (#3012)', async ({
+    page,
+  }) => {
+    // The failure this catches has no visible symptom of its own: if the outline
+    // header stays 28px while the canvas header becomes 44px, every outline row
+    // sits a rail-height above the canvas row it names and taps open the
+    // neighbouring task. Both halves read one binding; this asserts the DOM half
+    // actually moved.
+    await page.goto(BASE_URL);
+    const header = page.getByRole('row', { name: 'Item list columns' });
+    await expect(header).toBeVisible();
+    const withRail = await header.boundingBox();
+    expect(withRail?.height).toBe(44);
+
+    // Turning the windows off retracts the rail, and the header returns to the
+    // ruler's own height — byte-identical to a waterfall project.
+    await page.getByRole('button', { name: /^Display/ }).click();
+    await page.getByRole('menuitemcheckbox', { name: 'Sprint windows' }).click();
+    await page.keyboard.press('Escape');
+    await expect
+      .poll(async () => (await header.boundingBox())?.height)
+      .toBe(28);
+  });
+
   test('the hidden-window choice survives a reload', async ({ page }) => {
     await page.goto(BASE_URL);
     await page.getByRole('button', { name: /^Display/ }).click();

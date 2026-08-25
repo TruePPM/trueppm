@@ -280,3 +280,155 @@ export function sprintBandByTaskId(
   }
   return byTask;
 }
+
+// ---------------------------------------------------------------------------
+// The cadence rail (#3012)
+// ---------------------------------------------------------------------------
+
+/**
+ * One drawn cell of the sprint cadence rail: a stretch of *time* and the sprint
+ * windows covering it.
+ *
+ * Note what this is NOT: a row range. `SprintBand` above answers "which rows
+ * does this sprint drive"; a segment answers "which sprint owns this stretch of
+ * the axis". They are two different claims and the rail exists because the band
+ * cannot make the second one — three ways, each of which loses a sprint's name
+ * from the picture entirely:
+ *
+ * 1. A sprint with **no committed work** produces no band, so an empty sprint —
+ *    a real and important planning fact — is invisible today.
+ * 2. Bands are maximal contiguous **row runs**, so a sprint scattered across the
+ *    WBS produces several bands and therefore several copies of one name.
+ * 3. The band's name pill was anchored at the band's first row, so scrolling
+ *    past that row left the sprint anonymous for the rest of its own extent.
+ *
+ * The rail is a **label rail**: it names the window, it does not redraw it. The
+ * bands still own the wash, the hatch and the row extent.
+ */
+export interface CadenceSegment {
+  /** ISO date — segment start (inclusive). */
+  startDate: string;
+  /** ISO date — segment finish (inclusive; `dateToRight` closes the day). */
+  finishDate: string;
+  /**
+   * What the rail writes in this cell: the covering sprint's name, or `N sprints`
+   * where windows overlap.
+   *
+   * The count form is deliberate rather than a fallback. The rail is one row and
+   * never stacks (a variable rail height re-opens the geometry problem every
+   * frame), so an overlapped stretch cannot show both names — and showing one of
+   * them would assert that the *other* sprint does not cover these days, which
+   * is a lie about the plan rather than a truncation of it. "2 sprints" is the
+   * honest reading and is itself worth seeing: overlapping cadence is usually a
+   * data problem the planner wants to know about.
+   */
+  label: string;
+  /** Covering sprint ids, in window-start order. Never empty. */
+  sprintIds: string[];
+  /**
+   * Whether any covering sprint is ACTIVE.
+   *
+   * `any`, not `all`: the emphasis marks *where the team is now*, and an active
+   * sprint overlapped by a planned one is still where the team is now.
+   */
+  active: boolean;
+}
+
+const MS_PER_DAY = 86_400_000;
+
+/** ISO `YYYY-MM-DD` → UTC ms. Local-time parsing would shift a window a day. */
+function isoToUtcMs(iso: string): number {
+  return Date.parse(`${iso.slice(0, 10)}T00:00:00Z`);
+}
+
+/** UTC ms → ISO `YYYY-MM-DD`. */
+function utcMsToIso(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/**
+ * Partition the time axis into the cells the cadence rail should draw (#3012).
+ *
+ * The partition is cut at **every** window boundary — each start, and each
+ * finish's day-after — and each resulting cell keeps the set of windows covering
+ * it. That is what makes overlap representable in a single row without stacking:
+ * an overlap is not a special case to detect, it is simply a cell whose covering
+ * set has more than one member.
+ *
+ * Cells covered by nothing are dropped rather than emitted as gaps, so a project
+ * whose sprints do not tile the axis renders rail cells only where cadence
+ * actually exists — the space between two sprints is not a nameless sprint.
+ *
+ * Adjacent cells with an identical covering set are merged back together, so a
+ * boundary that turns out not to change anything (two sprints sharing a start
+ * date, a finish immediately followed by that same sprint's re-listing) does not
+ * leave a hairline rule through the middle of one window.
+ *
+ * @param sprints Every sprint on the project (`useSprints`). Cancelled ones and
+ *                any missing a window are skipped, via the SAME `drawsABand`
+ *                predicate the row bands use — the rail and the band must never
+ *                disagree about which sprints are drawable.
+ */
+export function computeCadenceSegments(
+  sprints: readonly SprintWindowSource[],
+): CadenceSegment[] {
+  const windows: Array<{ id: string; name: string; startMs: number; endMs: number; active: boolean }> =
+    [];
+  for (const sprint of sprints) {
+    if (!sprint.start_date || !sprint.finish_date) continue;
+    if (!drawsABand(sprint.state)) continue;
+    const startMs = isoToUtcMs(sprint.start_date);
+    const endMs = isoToUtcMs(sprint.finish_date);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) continue;
+    // An inverted window covers no days at all. Dropping it is the only honest
+    // option: drawing it normalized would invent a window nobody planned.
+    if (endMs < startMs) continue;
+    windows.push({
+      id: sprint.id,
+      name: sprint.name,
+      startMs,
+      endMs,
+      active: sprint.state === 'ACTIVE',
+    });
+  }
+  if (!windows.length) return [];
+
+  windows.sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+
+  const cuts = new Set<number>();
+  for (const w of windows) {
+    cuts.add(w.startMs);
+    cuts.add(w.endMs + MS_PER_DAY);
+  }
+  const boundaries = [...cuts].sort((a, b) => a - b);
+
+  const segments: CadenceSegment[] = [];
+  for (let i = 0; i < boundaries.length - 1; i++) {
+    const cellStart = boundaries[i];
+    const cellEnd = boundaries[i + 1] - MS_PER_DAY;
+    const covering = windows.filter((w) => w.startMs <= cellStart && w.endMs >= cellStart);
+    if (!covering.length) continue;
+
+    const sprintIds = covering.map((w) => w.id);
+    const prev = segments[segments.length - 1];
+    if (
+      prev &&
+      isoToUtcMs(prev.finishDate) + MS_PER_DAY === cellStart &&
+      prev.sprintIds.length === sprintIds.length &&
+      prev.sprintIds.every((id, idx) => id === sprintIds[idx])
+    ) {
+      prev.finishDate = utcMsToIso(cellEnd);
+      continue;
+    }
+
+    segments.push({
+      startDate: utcMsToIso(cellStart),
+      finishDate: utcMsToIso(cellEnd),
+      label: covering.length === 1 ? covering[0].name : `${covering.length} sprints`,
+      sprintIds,
+      active: covering.some((w) => w.active),
+    });
+  }
+
+  return segments;
+}

@@ -1,4 +1,4 @@
-import { HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
+import { CHART_HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
 
 /**
  * Which timeline row sits under a pointer over the **bar track** (#2978).
@@ -22,8 +22,8 @@ export function timelineRowIndexAt(
   rowCount: number,
 ): number | null {
   // Above the first row — the month/week ruler, which is not a task.
-  if (offsetY < HEADER_HEIGHT) return null;
-  const index = Math.floor((offsetY - HEADER_HEIGHT + scrollTop) / ROW_HEIGHT);
+  if (offsetY < CHART_HEADER_HEIGHT) return null;
+  const index = Math.floor((offsetY - CHART_HEADER_HEIGHT + scrollTop) / ROW_HEIGHT);
   if (index < 0 || index >= rowCount) return null;
   return index;
 }

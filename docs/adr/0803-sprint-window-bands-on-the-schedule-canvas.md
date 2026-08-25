@@ -4,7 +4,7 @@
 
 Accepted — 2026-08-05, implemented by #2738 in the same MR (verified: `computeSprintBands`
 in `packages/web/src/features/schedule/sprintBands.ts`, `drawSprintBands` /
-`drawSprintBandLabels` / `sprintBandFadeAlpha` in
+`drawCadenceRail` (was `drawSprintBandLabels` until #3012) / `sprintBandFadeAlpha` in
 `packages/web/src/features/schedule/engine/GanttRenderer.ts`, `setSprintBands` on the
 `GanttEngine` contract, and the `Sprint window` legend entry in `ScheduleLegend.tsx`;
 covered by `sprintBands.test.ts`, the band blocks in `GanttRenderer.test.ts` and
@@ -13,6 +13,26 @@ covered by `sprintBands.test.ts`, the band blocks in `GanttRenderer.test.ts` and
 For 0.4, child of epic #2741 (Project Designer — declaring the hybrid split). Continues
 ADR-0801, which made a row's *delivery mode* visible; this makes the sprint *window*
 visible on the same timeline.
+
+**Amended 2026-08-25 by #3012 — the name pill in §3 is superseded by a cadence rail.**
+The decision here is unchanged: sprint windows are drawn on the shared canvas, addressed
+by row, as paint rather than as a container. What changed is where a window's *name* is
+written. §3's pill was anchored to the band's first row, and three consequences of that
+were not visible when this ADR was written:
+
+1. a sprint with **no committed work** produces no band, so an empty sprint — a planning
+   fact — had no representation on the chart at all;
+2. bands are maximal contiguous **row runs**, so a sprint scattered across the WBS drew
+   its name once per run;
+3. scrolling past a band's first row left that sprint anonymous for the rest of its own
+   extent, which the pill's viewport-sticky x could not fix because the problem is in y.
+
+#3012 therefore moves the name onto the **time axis**: a 16px rail of named windows under
+the date ruler, computed by `computeCadenceSegments` from the sprint list alone (not from
+the rows), and `drawSprintBandLabels` is deleted. §3's second and third paragraphs — the
+bars-layer split and the inter-bar-gutter reasoning — describe a mechanism that no longer
+exists; read them as the record of why the pill was placed where it was, not as current
+behavior. Everything else in §3, and all of §§1, 2, 4 and 5, stands.
 
 ## Context
 

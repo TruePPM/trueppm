@@ -209,15 +209,108 @@ if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
 }
 
 /**
- * Height of the canvas timeline header (major + minor date labels).
- * Must match TaskListHeader h-7 (28px) so task-list rows align with canvas bars.
+ * Height of the **date ruler band** — the two label rows (major + minor units)
+ * `drawTimelineHeader` paints at y = 0.
  *
- * Deliberately **not** pointer-dependent: the header is a label band, not a
- * touch target, and both the outline header and the canvas header derive from
- * this one number. Growing it would misalign nothing but would cost a coarse
- * pointer 16px of the rows it came to read.
+ * This is emphatically *not* "the y where row 0 starts". Those were the same
+ * number until #3012 and `HEADER_HEIGHT` was used for both at 19+ sites, which
+ * is exactly the "one constant, two meanings" shape web rule 315 is about: the
+ * moment a second band is inserted between the ruler and the first row, half
+ * those sites must move and half must not, and **nothing looks broken when the
+ * wrong half moves** — the outline's rows simply sit a rail-height above the
+ * canvas's and taps open the neighbouring task.
+ *
+ * Read {@link CHART_HEADER_HEIGHT} for the row origin. Read this one only when
+ * you mean the ruler's own ink.
+ *
+ * Deliberately **not** pointer-dependent: the ruler is a label band, not a touch
+ * target. Growing it would misalign nothing but would cost a coarse pointer 16px
+ * of the rows it came to read.
  */
 export const HEADER_HEIGHT = 28;
+
+/**
+ * Height of the **sprint cadence rail** — the strip of named sprint windows
+ * directly under the date ruler (#3012, ADR-0803).
+ *
+ * 16px, matching the sprint-band name pill it replaces, so a sprint name renders
+ * at the same size in the rail as it did in the pill. The rail is present only
+ * when there is a drawable sprint window AND the "Sprint windows" display option
+ * is on; otherwise the chart's geometry is byte-identical to a waterfall
+ * project's, which is the property that lets this ship without a visual diff on
+ * every non-agile plan.
+ */
+export const CADENCE_RAIL_HEIGHT = 16;
+
+/**
+ * Whether the cadence rail is currently drawn. Latched at module scope for the
+ * same reason `comfortableRowsInput` is: the value arrives from one component's
+ * resolved state and has to reach the non-React readers (renderer, hit index,
+ * engine virtualization) that cannot take a hook.
+ */
+let cadenceRailInput = false;
+
+/**
+ * **The y at which row 0 starts.** Live binding — do not copy into a
+ * module-scope const (web rule 315b).
+ *
+ * `HEADER_HEIGHT` when the cadence rail is absent, `HEADER_HEIGHT +
+ * CADENCE_RAIL_HEIGHT` when it is present. Every consumer that means "the top of
+ * the chart's content area" reads this: row bands, grid lines, bar tops, the
+ * sprint bands, the hit index, the canvas virtualization window, the ARIA
+ * overlay's row rects, the outline header's own height, and the scroll spacer.
+ *
+ * The three DOM readers are the ones worth naming, because a disagreement there
+ * is silent rather than ugly: `TaskListHeader`'s height (or the outline's rows
+ * sit the rail's height above the canvas's), `ScheduleMainArea`'s scroll spacer
+ * (or the last row becomes unreachable by the rail height), and `PreviewOverlay`
+ * / `MonteCarloGanttMarkers`' `top` (or the drag preview and the P50/P80 markers
+ * start inside the rail).
+ */
+export let CHART_HEADER_HEIGHT = HEADER_HEIGHT;
+
+/**
+ * Subscribers to the cadence-rail input, so a React consumer can *subscribe*
+ * rather than merely read (web rule 315c).
+ *
+ * Same construction as `comfortableRowsListeners`, and for the same reason:
+ * unlike the pointer class there is no ambient browser event to listen to, so
+ * the module has to provide the notification itself. Without it `TaskListHeader`
+ * would keep rendering a 28px box under a 44px canvas header the first time a
+ * project's sprints load.
+ */
+const cadenceRailListeners = new Set<() => void>();
+
+/**
+ * Install whether the cadence rail is drawn (#3012).
+ *
+ * Idempotent and **silent when unchanged** — the early return is what makes it
+ * safe to call from an effect that re-runs on every render of its owner without
+ * scheduling a render loop through the subscribers.
+ *
+ * Returns the resolved chart header height so the caller cannot read a different
+ * number than the one it just installed.
+ */
+export function syncCadenceRail(visible: boolean): number {
+  if (cadenceRailInput === visible) return CHART_HEADER_HEIGHT;
+  cadenceRailInput = visible;
+  CHART_HEADER_HEIGHT = HEADER_HEIGHT + (visible ? CADENCE_RAIL_HEIGHT : 0);
+  for (const listener of [...cadenceRailListeners]) listener();
+  return CHART_HEADER_HEIGHT;
+}
+
+/** The latched cadence-rail input. `useSyncExternalStore` snapshot. */
+export function getCadenceRail(): boolean {
+  return cadenceRailInput;
+}
+
+/** Subscribe to cadence-rail changes. Returns the unsubscribe function. */
+export function subscribeCadenceRail(listener: () => void): () => void {
+  cadenceRailListeners.add(listener);
+  return () => {
+    cadenceRailListeners.delete(listener);
+  };
+}
 /** WBS indent per level in pixels */
 export const WBS_INDENT = 16;
 /**
