@@ -36,6 +36,25 @@ silently rotting as new ones land:
 ``test_protect_relations_snapshot`` is the guard that generalizes: it pins the
 resolved ``PROTECT`` set per model so the *next* such FK fails a test rather than
 a nightly.
+
+**Format-suffix pk on projects/programs/tasks (#3044).** The 2026-08-21 nightly
+also reported 12 ``not_a_server_error`` failures — GET/PUT/PATCH/DELETE 500ing on
+``/api/v1/projects/0.5/``, ``/api/v1/programs/0.5/``, and ``/api/v1/tasks/0.5/``.
+All twelve were one defect, already fixed the same morning by #2989 (merged
+09:57, before the fuzz run's failures were triaged): ``/projects/0.5/`` parses as
+pk="0", format="5"; DRF's content negotiation rejects the unknown format inside
+``initial()`` — *before* ``perform_authentication()`` runs; ``exception_handler``
+calls ``set_rollback()`` for that ``NotAcceptable`` under ``ATOMIC_REQUESTS``; and
+``McpReadableViewMixin.finalize_response`` (which all three viewsets use) used to
+read the lazy ``request.successful_authenticator`` property, triggering
+authentication for the first time against an already-poisoned transaction and
+raising ``TransactionManagementError`` instead of letting the 406 through. #2989
+fixed the guard and added one regression test (a PAT-authenticated GET on
+``/projects/{id}.xyz/``). The tests below close #3044 by pinning the exact
+fuzzer-reported surface — all three resources, all four methods, real JWT auth
+(matching how ``api:fuzz`` authenticates, not ``force_authenticate``) — so a
+regression on any one of the twelve is caught here rather than waiting for
+another nightly to draw the same example.
 """
 
 from __future__ import annotations
@@ -47,6 +66,7 @@ from django.contrib.auth import get_user_model
 from django.db.models import ProtectedError
 from rest_framework import status
 from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from trueppm_api.apps.access.models import (
     ProgramMembership,
@@ -105,10 +125,30 @@ def owner_client(owner: object) -> APIClient:
 
 
 @pytest.fixture
+def owner_jwt_client(owner: object) -> APIClient:
+    """A client carrying a real ``Authorization: Bearer`` JWT, not ``force_authenticate``.
+
+    ``force_authenticate`` bypasses ``perform_authentication()`` entirely and so
+    never exercises the lazy-authenticate path #3044/#2989 describe. ``api:fuzz``
+    authenticates by minting a JWT (``POST /api/v1/auth/token/``) and sending it as
+    a bearer header on every request — this fixture matches that exactly.
+    """
+    c = APIClient()
+    token = str(RefreshToken.for_user(owner).access_token)
+    c.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+    return c
+
+
+@pytest.fixture
 def program(owner: object) -> Program:
     p = Program.objects.create(name="Fuzz program")
     ProgramMembership.objects.create(program=p, user=owner, role=Role.OWNER)
     return p
+
+
+@pytest.fixture
+def task(project: Project) -> Task:
+    return Task.objects.create(project=project, name="Fuzz task", duration=1)
 
 
 @pytest.fixture
@@ -437,6 +477,53 @@ def test_remove_sample_with_mention_groups_succeeds(
     assert not Project.objects.filter(pk=proj.pk).exists()
     assert not UserDefinedMentionGroup.objects.filter(project_id=proj.pk).exists()
     assert not ProgramUserDefinedMentionGroup.objects.filter(program_id=program.pk).exists()
+
+
+# --------------------------------------------------------------------------- #
+# Format-suffix pk on projects/programs/tasks must never 500 (#3044)
+# --------------------------------------------------------------------------- #
+
+#: Verbatim from the nightly's own repro lines: a numeric-looking pk with a
+#: fractional part parses as pk="0", format="5" against DRF's default router
+#: regex, tripping content negotiation before authentication ever runs.
+_MALFORMED_PK = "0.5"
+
+
+@pytest.mark.parametrize("method", ["get", "put", "patch", "delete"])
+@pytest.mark.parametrize(
+    "resource_url",
+    ["/api/v1/projects/{pk}/", "/api/v1/programs/{pk}/", "/api/v1/tasks/{pk}/"],
+)
+def test_format_suffix_pk_never_500s(
+    owner_jwt_client: APIClient,
+    project: Project,
+    program: Program,
+    task: Task,
+    resource_url: str,
+    method: str,
+) -> None:
+    """Pins all twelve fuzzer failures at once: a malformed/format-suffix pk on
+    the three core detail routes must be a clean 4xx, never a 500, for a real
+    JWT-authenticated caller (not ``force_authenticate``, which never exercises
+    the lazy-authenticate crash this class of bug is about)."""
+    url = resource_url.format(pk=_MALFORMED_PK)
+    body = {"name": "x"} if method in ("put", "patch") else None
+    resp = getattr(owner_jwt_client, method)(url, data=body, format="json")
+
+    assert resp.status_code != status.HTTP_500_INTERNAL_SERVER_ERROR, resp.content
+    assert resp.status_code < 500
+
+
+def test_project_force_delete_format_suffix_pk_never_500s(
+    owner_jwt_client: APIClient, project: Project
+) -> None:
+    """The exact fourth curl from the issue: ``DELETE .../?force=true`` on a
+    malformed pk must not 500 either — the query string doesn't change which
+    exception fires first inside ``initial()``."""
+    resp = owner_jwt_client.delete(f"/api/v1/projects/{_MALFORMED_PK}/?force=true")
+
+    assert resp.status_code != status.HTTP_500_INTERNAL_SERVER_ERROR, resp.content
+    assert resp.status_code < 500
 
 
 # --------------------------------------------------------------------------- #
