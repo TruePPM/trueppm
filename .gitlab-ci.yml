@@ -898,6 +898,16 @@ docs:version-accuracy:
   # occurrence of the class (#807 → #2608 → #2846) and the first time anything
   # asks the question at all; the tense regex is structurally blind to a page
   # that describes an unreleased feature and names no version.
+  #
+  # And the sidebar badge pairing (#2908): a page under getting-started/ that
+  # declares an unshipped `documentedFor` must carry a matching version badge on
+  # its packages/website/astro.config.mjs sidebar entry, and — in the other
+  # direction, over EVERY entry in the config — a version badge must be backed
+  # by a matching unshipped declaration. Before this, a reader learned a page
+  # was unreleased only after opening it; the nav that sent them there said
+  # nothing but a comment. The reverse branch is the one that earns its keep: it
+  # reds on the release that ships 0.X, forcing the badge off with the callout
+  # instead of leaving the nav understating the product.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   rules:
