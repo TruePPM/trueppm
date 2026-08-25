@@ -30,9 +30,12 @@
 # TODO_GREP_TOKEN (a masked, protected CI/CD variable holding a project- or
 # group-level access token with `read_api`) is the correct mechanism for a
 # private project or a self-hosted fork whose issue tracker is not publicly
-# readable; see the job's `variables:` block in .gitlab-ci.yml. It is not
-# required for trueppm/trueppm itself today, because this project's issue
-# tracker is public.
+# readable. It is not required for trueppm/trueppm itself today, because this
+# project's issue tracker is public — and it must NOT be declared as a
+# self-referencing `variables:` entry on the job to document that dependency:
+# with nothing defining it, the job receives the literal `$TODO_GREP_TOKEN`
+# rather than an empty string, which is non-empty, gets sent as a
+# PRIVATE-TOKEN header, and 401s every lookup.
 #
 # A gate that cannot reach its oracle must go red, not silently skip — so by
 # default an issue lookup that fails (network error, API error, a private
@@ -77,21 +80,23 @@ PY
 
   # A fake `curl` ahead of PATH lets the remaining scenarios drive the REAL
   # fetch/parse/decide code path in rule 2 (the curl call, the jq state
-  # parse, the closed/unresolved branches) without hitting the network.
-  # TODO_GREP_MOCK_MODE=fail simulates curl -f's exit on an HTTP error
-  # (401/404/etc.) so the unresolved-lookup path is exercised for real too.
+  # parse, the closed/unresolved branches) without hitting the network. It
+  # emulates the `-w '\n%{http_code}'` contract the caller relies on: body,
+  # then the status on its own trailing line. TODO_GREP_MOCK_MODE=fail
+  # simulates a 401 so the unresolved-lookup path is exercised for real too.
   mkdir -p "$tmp/bin"
   cat >"$tmp/bin/curl" <<'CURLMOCK'
 #!/usr/bin/env bash
 url="${*: -1}"
 iid=$(printf '%s' "$url" | grep -oE '[0-9]+$')
 if [ "${TODO_GREP_MOCK_MODE:-}" = "fail" ]; then
-  exit 22
+  printf '{"message":"401 Unauthorized"}\n401'
+  exit 0
 fi
 if [ "$iid" = "1" ]; then
-  printf '{"state":"closed","title":"Closed fixture issue"}'
+  printf '{"state":"closed","title":"Closed fixture issue"}\n200'
 else
-  printf '{"state":"opened","title":"Open fixture issue"}'
+  printf '{"state":"opened","title":"Open fixture issue"}\n200'
 fi
 CURLMOCK
   chmod +x "$tmp/bin/curl"
@@ -265,14 +270,24 @@ if [ -n "$todo_refs" ]; then
       iid=$(printf '%s' "$ref" | grep -oE '[0-9]+')
       [ -z "$iid" ] && continue
       url="${API}/projects/${PROJECT}/issues/${iid}"
+      # The status code is appended on its own line rather than relying on
+      # `curl -f`'s exit status: "could not fetch" alone cannot distinguish a
+      # 401 (an auth header is being sent that should not be) from a 404
+      # (wrong project id) or a 000 (no egress), and that ambiguity is what
+      # makes a red gate expensive to diagnose. 000 is what curl reports when
+      # the request never completed.
+      #
       # The "+" expansion (not a bare "${CURL_AUTH_ARGS[@]}") is required so
       # this does not trip "unbound variable" under `set -u` on bash 3.2
       # (macOS's default /usr/bin/env bash) when the array is empty.
-      if ! body=$(curl -sf "${CURL_AUTH_ARGS[@]+"${CURL_AUTH_ARGS[@]}"}" "$url"); then
+      resp=$(curl -s -w $'\n%{http_code}' "${CURL_AUTH_ARGS[@]+"${CURL_AUTH_ARGS[@]}"}" "$url" || true)
+      http_code="${resp##*$'\n'}"
+      body="${resp%$'\n'*}"
+      if [ "$http_code" != "200" ]; then
         if [ "$ALLOW_UNRESOLVED" = "1" ]; then
-          echo "WARN: could not fetch issue #${iid} from GitLab API — skipping (TODO_GREP_ALLOW_UNRESOLVED=1)." >&2
+          echo "WARN: could not fetch issue #${iid} from GitLab API (HTTP ${http_code:-000}) — skipping (TODO_GREP_ALLOW_UNRESOLVED=1)." >&2
         else
-          echo "ERROR: could not fetch issue #${iid} from GitLab API — cannot verify TODO(#${iid})." >&2
+          echo "ERROR: could not fetch issue #${iid} from GitLab API (HTTP ${http_code:-000}) — cannot verify TODO(#${iid})." >&2
           unresolved_count=$((unresolved_count + 1))
         fi
         continue
