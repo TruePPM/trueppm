@@ -197,7 +197,10 @@ export function slugifyLaneKey(label: string): string {
   return label
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+    // Single `-`, not `-+`: the collapse above already reduced every run of
+    // non-alphanumerics to one dash, so `--` cannot exist here. The bounded form
+    // is also linear, where `-+$` backtracks on a long dash run (Sonar S8786).
+    .replace(/^-|-$/g, '')
     .slice(0, 32);
 }
 

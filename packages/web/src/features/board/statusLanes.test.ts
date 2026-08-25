@@ -188,6 +188,15 @@ describe('lane key minting', () => {
     expect(slugifyLaneKey('  ')).toBe('');
   });
 
+  it('trims the dashes a leading or trailing separator run produces', () => {
+    // The `[^a-z0-9]+` collapse leaves at most ONE dash at each end, which is
+    // why the trim can be a bounded `^-|-$` rather than a backtracking `-+`.
+    expect(slugifyLaneKey('!!!Blocked!!!')).toBe('blocked');
+    expect(slugifyLaneKey('---')).toBe('');
+    expect(slugifyLaneKey('__in progress__')).toBe('in-progress');
+    expect(slugifyLaneKey('-')).toBe('');
+  });
+
   it('collects keys across the WHOLE config, not one column', () => {
     // The server enforces project-wide uniqueness so a bare key names exactly
     // one (status, lane) pair; the editor has to honor the same scope.

@@ -42,7 +42,7 @@ function rows(n: number): string {
 
 /** A snake_case token the client does not recognize, rendered as prose (rule 301(c)). */
 function humanize(token: string): string {
-  return token.replace(/_/g, ' ');
+  return token.replaceAll('_', ' ');
 }
 
 /**
