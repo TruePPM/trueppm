@@ -398,6 +398,8 @@ The picker's **Link** type and lag controls, its match highlighting, its `N of M
 
 Both settings persist while the picker is open, so adding three Start-to-Start links in one visit is one decision rather than three. They apply to the link being added, not to links already on the task — to change an existing link, use the **Dependencies** section of the task detail drawer, which is still where links are edited and removed.
 
+The drawer's **Dependencies** section takes the same two settings when you add a link there: its **Add predecessor** / **Add successor** rows carry a type dropdown and a lag field, so a link created from the drawer states its terms up front too.
+
 **Searching the picker.** Type to narrow the list. A term starting with a **digit** is read as a **WBS prefix** — `1.` returns everything in phase 1 — and anything else as a **name substring**. Whichever part of the row matched is highlighted, so you can see at a glance *why* a row is in the list. A `3 of 4 matches` count sits above the list in both scopes; when more rows match than the list can show, it says so and asks you to keep typing.
 
 **Working the picker from the keyboard.** The search field keeps the cursor the whole time, so you never have to tab into the results:

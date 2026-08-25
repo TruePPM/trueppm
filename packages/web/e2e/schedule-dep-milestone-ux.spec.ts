@@ -128,7 +128,7 @@ test.describe('Dep-type picker plain-English labels (#249)', () => {
     await expect(depRegion).toBeVisible({ timeout: 5_000 });
 
     // The DepRow for the predecessor link should show "Finish → Start"
-    const depTypeSelect = depRegion.getByRole('combobox', { name: 'Dependency type' });
+    const depTypeSelect = depRegion.getByRole('combobox', { name: /^Dependency type for (?!new )/ });
     await expect(depTypeSelect).toBeVisible();
     // The selected option text is "Finish → Start" — not the bare acronym "FS"
     await expect(depTypeSelect).toContainText('Finish → Start');
@@ -138,7 +138,7 @@ test.describe('Dep-type picker plain-English labels (#249)', () => {
     const drawer = await openDrawer(page, 'Build Phase');
     await drawer.getByRole('button', { name: 'Dependencies' }).click();
 
-    const addTypeSelect = drawer.getByRole('combobox', { name: 'Link type' }).first();
+    const addTypeSelect = drawer.getByRole('combobox', { name: 'Dependency type for new predecessor' });
     await expect(addTypeSelect).toBeVisible();
 
     for (const label of ['Finish → Start', 'Start → Start', 'Finish → Finish', 'Start → Finish']) {
@@ -201,7 +201,7 @@ test.describe('Per-row cycle error on dep-type PATCH (#249)', () => {
     const drawer = await openDrawer(page, 'Build Phase');
     await drawer.getByRole('button', { name: 'Dependencies' }).click();
 
-    const depTypeSelect = drawer.getByRole('combobox', { name: 'Dependency type' });
+    const depTypeSelect = drawer.getByRole('combobox', { name: /^Dependency type for (?!new )/ });
     await expect(depTypeSelect).toBeVisible({ timeout: 5_000 });
 
     // Change type to SS — mock PATCH returns cycle 400
@@ -218,7 +218,7 @@ test.describe('Per-row cycle error on dep-type PATCH (#249)', () => {
     const drawer = await openDrawer(page, 'Build Phase');
     await drawer.getByRole('button', { name: 'Dependencies' }).click();
 
-    const depTypeSelect = drawer.getByRole('combobox', { name: 'Dependency type' });
+    const depTypeSelect = drawer.getByRole('combobox', { name: /^Dependency type for (?!new )/ });
     await depTypeSelect.selectOption('SS');
     const rowAlert = drawer.getByRole('alert');
     await expect(rowAlert).toBeVisible({ timeout: 3_000 });

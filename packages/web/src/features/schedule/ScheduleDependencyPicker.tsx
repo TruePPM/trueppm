@@ -5,6 +5,7 @@ import {
   LAG_FIELD_LABEL,
   LAG_FIELD_HINT,
   LAG_UNIT_SUFFIX,
+  clampLagDays,
   type CanonicalLinkType,
 } from './deps/linkTypes';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
@@ -340,11 +341,7 @@ export function ScheduleDependencyPicker({
    * The lag actually sent. Clamped to the bounds the drawer enforces, so the
    * picker cannot mint a link the surface that owns editing would refuse.
    */
-  const parsedLag = useMemo(() => {
-    const n = Number.parseInt(lagText, 10);
-    if (Number.isNaN(n)) return 0;
-    return Math.min(LAG_MAX_DAYS, Math.max(LAG_MIN_DAYS, n));
-  }, [lagText]);
+  const parsedLag = useMemo(() => clampLagDays(lagText), [lagText]);
 
   const typeFieldId = `${listboxId}-type`;
   const lagFieldId = `${listboxId}-lag`;

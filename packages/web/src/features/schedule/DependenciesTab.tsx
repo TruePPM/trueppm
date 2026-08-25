@@ -9,11 +9,13 @@ import { parseCyclicDependencyError, formatCycleMessage } from '@/hooks/useTaskM
 import { ScheduleDependencyPicker } from './ScheduleDependencyPicker';
 import {
   LINK_TYPE_OPTIONS,
+  linkTypeFieldLabel,
+  lagFieldLabelFor,
   LAG_MIN_DAYS,
   LAG_MAX_DAYS,
-  LAG_FIELD_LABEL,
   LAG_FIELD_HINT,
   LAG_UNIT_SUFFIX,
+  clampLagDays,
 } from './deps/linkTypes';
 
 /** The drawer's `<select>` options. Sourced from `deps/linkTypes` so the drawer
@@ -44,6 +46,8 @@ export function DependenciesTab({
   const [addPredType, setAddPredType] = useState<LinkType>('FS');
   const [addSuccId, setAddSuccId] = useState('');
   const [addSuccType, setAddSuccType] = useState<LinkType>('FS');
+  const [addPredLag, setAddPredLag] = useState('0');
+  const [addSuccLag, setAddSuccLag] = useState('0');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   // Which side opened the cross-project picker (ADR-0120) — the inline
   // dropdowns below only ever list this project's tasks, so a task in a
@@ -72,11 +76,12 @@ export function DependenciesTab({
     if (!addPredId) return;
     setErrorMessage(null);
     createDep.mutate(
-      { predecessor: addPredId, successor: taskId, dep_type: addPredType },
+      { predecessor: addPredId, successor: taskId, dep_type: addPredType, lag: clampLagDays(addPredLag) },
       {
         onSuccess: () => {
           setAddPredId('');
           setAddPredType('FS');
+          setAddPredLag('0');
         },
         // Cycle errors keep the predecessor selection intact so the user can
         // adjust without re-picking from the dropdown (#356 AC).
@@ -94,11 +99,12 @@ export function DependenciesTab({
     if (!addSuccId) return;
     setErrorMessage(null);
     createDep.mutate(
-      { predecessor: taskId, successor: addSuccId, dep_type: addSuccType },
+      { predecessor: taskId, successor: addSuccId, dep_type: addSuccType, lag: clampLagDays(addSuccLag) },
       {
         onSuccess: () => {
           setAddSuccId('');
           setAddSuccType('FS');
+          setAddSuccLag('0');
         },
         onError: (err) => {
           const cycle = parseCyclicDependencyError(err);
@@ -139,8 +145,11 @@ export function DependenciesTab({
           isPending={createDep.isPending}
           onTaskChange={setAddPredId}
           onTypeChange={setAddPredType}
+          lagText={addPredLag}
+          onLagChange={setAddPredLag}
           onAdd={handleAddPred}
           addLabel="Add predecessor"
+          relation="predecessor"
         />
         {programId && <CrossProjectSearchLink onClick={() => setCrossPickerMode('predecessor')} />}
       </section>
@@ -172,8 +181,11 @@ export function DependenciesTab({
           isPending={createDep.isPending}
           onTaskChange={setAddSuccId}
           onTypeChange={setAddSuccType}
+          lagText={addSuccLag}
+          onLagChange={setAddSuccLag}
           onAdd={handleAddSucc}
           addLabel="Add successor"
+          relation="successor"
         />
         {programId && <CrossProjectSearchLink onClick={() => setCrossPickerMode('successor')} />}
       </section>
@@ -247,7 +259,7 @@ function DepRow({ link, relatedTask, onUpdate, onDelete }: DepRowProps) {
               },
             );
           }}
-          aria-label="Dependency type"
+          aria-label={linkTypeFieldLabel(label)}
           className="text-xs border border-neutral-border rounded-control px-1.5 py-1
             bg-neutral-surface text-neutral-text-primary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
@@ -264,7 +276,7 @@ function DepRow({ link, relatedTask, onUpdate, onDelete }: DepRowProps) {
           defaultValue={link.lag}
           min={LAG_MIN_DAYS}
           max={LAG_MAX_DAYS}
-          aria-label={LAG_FIELD_LABEL}
+          aria-label={lagFieldLabelFor(label)}
           title={LAG_FIELD_HINT}
           onBlur={(e) => {
             const newLag = Number.parseInt(e.target.value, 10);
@@ -306,9 +318,25 @@ interface AddDepRowProps {
   availableTasks: Task[];
   selectedTaskId: string;
   selectedType: LinkType;
+  /**
+   * Lag for the edge about to be created, as TEXT — same reason as the picker
+   * (#3023): a number state has to decide what the emptied field means and
+   * every answer is wrong. `clampLagDays` resolves "" and a lone "-" to 0 in
+   * one place.
+   */
+  lagText: string;
   isPending: boolean;
   onTaskChange: (id: string) => void;
   onTypeChange: (type: LinkType) => void;
+  onLagChange: (text: string) => void;
+  /**
+   * Which side this add-row builds. Names its controls, because the drawer
+   * renders TWO add-rows — one per section — and "Lag days" on both is the same
+   * ambiguity the per-link rows had (#2916). An explicit prop rather than a
+   * regex over `addLabel`: deriving a control's accessible name by string
+   * surgery on another label is how the two drift.
+   */
+  relation: 'predecessor' | 'successor';
   onAdd: () => void;
   addLabel: string;
 }
@@ -317,12 +345,16 @@ function AddDepRow({
   availableTasks,
   selectedTaskId,
   selectedType,
+  lagText,
   isPending,
   onTaskChange,
   onTypeChange,
+  onLagChange,
   onAdd,
   addLabel,
+  relation,
 }: AddDepRowProps) {
+  const target = `new ${relation}`;
   return (
     <div className="flex items-center gap-2 mt-2">
       <select
@@ -343,7 +375,7 @@ function AddDepRow({
       <select
         value={selectedType}
         onChange={(e) => onTypeChange(e.target.value as LinkType)}
-        aria-label="Link type"
+        aria-label={linkTypeFieldLabel(target)}
         className="text-xs border border-neutral-border rounded-control px-1.5 py-1
           bg-neutral-surface text-neutral-text-primary
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
@@ -354,6 +386,23 @@ function AddDepRow({
           </option>
         ))}
       </select>
+      {/* Lag at CREATE (#2916). The drawer could already choose all four types
+          here but not a lag, so an SS+2d edge — the normal shape in a
+          phase-gated program — was create-then-edit even on the surface this
+          ADR-0052 §8 names as the place deeper editing lives. */}
+      <input
+        type="number"
+        value={lagText}
+        min={LAG_MIN_DAYS}
+        max={LAG_MAX_DAYS}
+        aria-label={lagFieldLabelFor(target)}
+        title={LAG_FIELD_HINT}
+        onChange={(e) => onLagChange(e.target.value)}
+        className="w-14 text-xs border border-neutral-border rounded-control px-1.5 py-1 text-center
+          bg-neutral-surface text-neutral-text-primary
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+      />
+      <span className="text-xs text-neutral-text-secondary shrink-0">{LAG_UNIT_SUFFIX}</span>
       <button
         type="button"
         onClick={onAdd}
