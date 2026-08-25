@@ -155,6 +155,51 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
       return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
     });
 
+    // `tasks/bulk/` (#2951) — the gesture's single call. Stateful against the same
+    // `tasks` array for the same reason `tasks/group/` is: the app refetches the list
+    // on success, and a stateless mock would re-serve the pre-gesture tree and erase
+    // the row the assertion is about. The parent is flipped to a summary here because
+    // that is what the server does on this write (`sync_structure_shadow_values`,
+    // #3036) — the client never asks for it.
+    await page.route(/\/api\/v1\/projects\/[^/]+\/tasks\/bulk\/$/, (route: Route) => {
+      const body = route.request().postDataJSON() as {
+        operations: { op: string; id: string; data: Record<string, unknown> }[];
+      };
+      const applied: { index: number; id: string; op: string; outcome: string }[] = [];
+      body.operations.forEach((op, index) => {
+        const parentId = op.data.parent_id as string | undefined;
+        const parent = tasks.find((t) => t.id === parentId);
+        if (parent) {
+          parent.is_summary = true;
+          parent.is_phase = true;
+        }
+        tasks.push({
+          id: op.id,
+          wbs_path: parent ? `${parent.wbs_path}.1` : `${tasks.length + 1}`,
+          name: (op.data.name as string) ?? 'New item',
+          early_start: '2026-04-05', early_finish: '2026-04-09',
+          planned_start: '2026-04-05',
+          duration: (op.data.duration as number) ?? 1,
+          percent_complete: 0,
+          is_critical: false, is_milestone: false, is_summary: false,
+          is_phase: false, is_subtask: false,
+          parent_id: parentId ?? null, status: 'NOT_STARTED',
+        } as MockTask);
+        applied.push({ index, id: op.id, op: 'create', outcome: 'created' });
+      });
+      return route.fulfill({
+        status: 207,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          applied,
+          rejected: [],
+          skipped: [],
+          dependencies: { applied: [], rejected: [] },
+          operation_id: 'op-e2e-1',
+        }),
+      });
+    });
+
     // `tasks/group/` (#2955) — a different path, the same `tasks` array, because the
     // "+ Phase" button now wraps the task it just created and the refetch has to show
     // the container. Faithful in the one way this spec can observe: the wrapped rows
@@ -201,7 +246,7 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
   });
 
   test('+ Phase button is a visible peer to + Item and + Milestone, brand-primary (not gold)', async ({ page }) => {
-    const button = page.getByRole('button', { name: 'Add new phase (Option+Cmd+P)' });
+    const button = page.getByRole('button', { name: /^Add new phase, with its first task/ });
     await expect(button).toBeVisible();
     await expect(button).toContainText('Phase');
   });
@@ -209,7 +254,7 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
   test('clicking + Phase creates a phase WITH its first task, and drops the phase into rename', async ({
     page,
   }) => {
-    await page.getByRole('button', { name: 'Add new phase (Option+Cmd+P)' }).click();
+    await page.getByRole('button', { name: /^Add new phase, with its first task/ }).click();
 
     // The PHASE opens straight into the inline rename input — not the task inside it.
     // The button said "Phase", and naming it is the one decision still owed; the design
@@ -224,6 +269,37 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
     await expect(grid.getByText('Design Phase')).toBeVisible();
   });
 
+  test('with a leaf focused, + Phase adopts THAT row in one batch call (#2951)', async ({
+    page,
+  }) => {
+    // The gesture the design writes as "type *Mobilization*, press the key". It rides
+    // ⌘⌥P rather than ⌥→: indent means "move this row under the one above", which makes
+    // the row ABOVE the phase — not the row you just named.
+    const grid = page.getByRole('treegrid', { name: 'Task list' });
+    const leaf = grid.getByRole('row').filter({ hasText: 'Existing Task' }).first();
+    await leaf.getByRole('gridcell').first().click();
+    await expect(leaf).toHaveAttribute('aria-selected', 'true');
+
+    // The control states which act the next press performs, so the label is the
+    // observable proof the gesture is armed — not an internal flag.
+    await expect(
+      page.getByRole('button', { name: /^Make Existing Task a phase/ }),
+    ).toBeVisible();
+
+    const [request] = await Promise.all([
+      page.waitForRequest((r) => r.url().includes('/tasks/bulk/') && r.method() === 'POST'),
+      page.getByRole('button', { name: /^Make Existing Task a phase/ }).click(),
+    ]);
+
+    // ONE call with ONE create op — the issue's central claim. The server declares the
+    // parent a container on the same write (#3036), so there is no second round trip
+    // and no moment at which an empty container exists.
+    const body = request.postDataJSON() as { operations: { op: string; data: Record<string, unknown> }[] };
+    expect(body.operations).toHaveLength(1);
+    expect(body.operations[0].op).toBe('create');
+    expect(body.operations[0].data).toMatchObject({ duration: 1 });
+  });
+
   test('+ Phase never leaves an empty phase behind — no phase-in-waiting ghost', async ({
     page,
   }) => {
@@ -231,7 +307,7 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
     // than create-then-create. Before this issue the button minted a childless summary
     // and offered a ghost "⊕ Add first item to this phase"; a planner who ignored it was
     // left with an empty phase in the plan. Now the first task arrives with the phase.
-    await page.getByRole('button', { name: 'Add new phase (Option+Cmd+P)' }).click();
+    await page.getByRole('button', { name: /^Add new phase, with its first task/ }).click();
     const nameInput = page.getByRole('textbox', { name: 'Rename task Untitled phase' });
     await expect(nameInput).toBeVisible();
     await nameInput.fill('Design Phase');

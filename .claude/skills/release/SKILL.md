@@ -57,11 +57,11 @@ Before running the script:
 
 For every fragment in `changelog.d/`, verify documentation is in sync:
 
-- **`*.added.md` (new features)** — each must have a corresponding page or section in `docs/features/` (or `docs/getting-started/` / `docs/administration/` where appropriate), with the correct version callout (`> **Added in X.Y**`) and enterprise callout if applicable. Run the `docs-writer` skill if anything is missing.
+- **`*.added.md` (new features)** — each must have a corresponding page or section in `packages/website/src/content/docs/features/` (or `packages/website/src/content/docs/getting-started/` / `packages/website/src/content/docs/administration/` where appropriate), with the correct version callout (`> **Added in X.Y**`) and enterprise callout if applicable. Run the `docs-writer` skill if anything is missing.
 - **API surface changes** — any new or modified endpoint must be reflected in `docs/api/` and `docs/api/openapi.json`. Regenerate the schema if needed: `git merge origin/main && scripts/export-openapi.sh && git add docs/api/openapi.json`. Run the `api-design` skill (audit mode) if anything is missing.
 - **PyPI package surface changes** — any new export, signature change, or behaviour change in `packages/scheduler` must be reflected in the scheduler README and the published docs section; any change to the `packages/mcp` tool list, token scopes, or environment variables must be reflected in `features/mcp-server.md`, `features/mcp-connect.md`, `administration/mcp-server.md`, **and** `packages/mcp/server.json`. Once 1.0 ships, both surfaces are locked for the major line.
 - **`*.changed.md` (changed behaviour)** — existing doc pages must reflect the new behaviour; stale screenshots or descriptions must be updated.
-- **Helm chart changes** — any new value, env var, or default change must be reflected in `packages/helm/values.yaml` comments and in `docs/administration/`.
+- **Helm chart changes** — any new value, env var, or default change must be reflected in `packages/helm/values.yaml` comments and in `packages/website/src/content/docs/administration/`.
 - **Breaking changes** — if any exist, ensure a migration or upgrade note is present in `docs/getting-started/` or a dedicated upgrade guide.
 
 Do not proceed to Step 2 until the docs audit is complete. A release with stale documentation is worse than no documentation — users will follow the wrong instructions.

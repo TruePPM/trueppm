@@ -63,7 +63,7 @@ instances multiplies the true value; dashboards and alerts must aggregate these
 gauges with ``max`` or ``last``. The two synchronous WS instruments are the
 exception: they count *per-process* events (this process's own sockets and
 broadcasts), so they aggregate normally with ``sum``. This is called out in
-``docs/administration/observability.md``.
+``packages/website/src/content/docs/administration/observability.md``.
 
 **Best-effort and non-fatal.** Each callback is wrapped so a database hiccup yields
 *no* observation for that cycle rather than raising on the exporter thread, and a

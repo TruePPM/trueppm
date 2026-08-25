@@ -89,7 +89,7 @@ the job.
 3. Avoid dependencies outside `trueppm-scheduler` and `matplotlib`
    (already installed in the CI image). Use a `try/import` guard for
    optional visualisation libraries.
-4. Add a row to the table in `docs/features/scheduler.md`.
+4. Add a row to the table in `packages/website/src/content/docs/features/scheduler.md`.
 
 ## Project structure
 

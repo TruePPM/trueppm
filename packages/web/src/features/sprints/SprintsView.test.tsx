@@ -49,11 +49,19 @@ const useProjectVelocityMock = vi.fn<() => { data: ProjectVelocity | undefined }
   data: undefined,
 }));
 const useSprintOutcomeMock = vi.fn<() => { data: unknown }>(() => ({ data: undefined }));
+/** Terminal close-failure watch (#2992). Defaults to "no failure" so every
+ *  pre-existing case renders exactly as it did; the cases that exercise the
+ *  failure banner override it. */
+const useSprintCloseWatchMock = vi.fn<() => { state: unknown; terminalFailure: unknown }>(() => ({
+  state: null,
+  terminalFailure: null,
+}));
 
 vi.mock('@/hooks/useSprints', () => ({
   useSprints: (projectId?: string | null) => useSprintsMock(projectId),
   useSprintsByState: (projectId?: string | null) => useSprintsByStateMock(projectId),
   useSprintMutations: (projectId?: string | null) => useSprintMutationsMock(projectId),
+  useSprintCloseWatch: () => useSprintCloseWatchMock(),
   useSprintBurndown: () => ({ data: undefined, isLoading: false, error: null }),
   useSprintCapacity: (sprintId?: string | null) => useSprintCapacityMock(sprintId),
   useProjectVelocity: () => useProjectVelocityMock(),

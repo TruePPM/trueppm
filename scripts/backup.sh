@@ -6,7 +6,7 @@
 #   - db.dump          PostgreSQL logical backup (pg_dump --format=custom)
 #   - media.tar.gz     the attachment/media directory (only when it exists and
 #                      is local-disk; object-storage backends are backed up by
-#                      the object store itself — see docs/administration/backup-restore.md)
+#                      the object store itself — see https://docs.trueppm.com/administration/backup-restore/)
 #   - redis.rdb        OPTIONAL Redis/Valkey point-in-time snapshot (only with
 #                      --redis AND a readable RDB path). The cache/broker is
 #                      reconstructible from PostgreSQL, so it is excluded by
@@ -76,7 +76,7 @@ MinIO usually cannot serve virtual-hosted-style bucket hostnames.
 
 Retention and the bucket: --keep-daily prunes the LOCAL output directory only.
 Nothing is ever deleted from the bucket — set a lifecycle policy on the bucket
-for remote retention. See docs/administration/backup-restore.md.
+for remote retention. See https://docs.trueppm.com/administration/backup-restore/.
 
 Exit codes: 0 success; non-zero on any failure (the artifact is only finalized
 after every step succeeds — a partial backup is never left behind).

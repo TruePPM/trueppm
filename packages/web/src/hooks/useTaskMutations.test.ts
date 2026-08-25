@@ -396,6 +396,32 @@ describe('useCreateTask', () => {
     await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'p1'] }));
   });
 
+  it('forwards board_lane only when the lane compose supplies one (#2952/#2967)', async () => {
+    const { result } = renderHook(() => useCreateTask('p1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ name: 'Laned', duration: 1, status: 'REVIEW', board_lane: 'qa' });
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith('/tasks/', {
+        project: 'p1',
+        name: 'Laned',
+        duration: 1,
+        status: 'REVIEW',
+        board_lane: 'qa',
+      }),
+    );
+  });
+
+  it('omits board_lane entirely on an unladen board (#2952)', async () => {
+    // The field is optional on the payload type, so what this pins is not a type
+    // error: an unconditional spread would put `board_lane: undefined` on every create
+    // the app makes, which the server's lane validation then has to reason about. An
+    // unladen board must POST exactly the body it always has.
+    const { result } = renderHook(() => useCreateTask('p1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ name: 'Plain', duration: 1 });
+    await waitFor(() => expect(postMock).toHaveBeenCalled());
+    expect(postMock.mock.calls[0][1]).not.toHaveProperty('board_lane');
+  });
+
+
   it('falls back to undefined query key when projectId is null', async () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useCreateTask(null), { wrapper: makeWrapper(qc) });

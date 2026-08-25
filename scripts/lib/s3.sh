@@ -104,7 +104,7 @@ _s3_mc_alias() {
 
 # _s3_endpoint_looks_incluster HOST — best-effort heuristic: succeeds when HOST
 # looks like it resolves inside the cluster or on a private network, i.e.
-# plaintext to it is the documented, expected shape (docs/administration/
+# plaintext to it is the documented, expected shape (packages/website/src/content/docs/administration/
 # backup-restore.md and configuration.md both show http://minio:9000 as the
 # in-cluster default). Fails otherwise, including for anything this heuristic
 # cannot classify — a false "in-cluster" verdict silences the warning that

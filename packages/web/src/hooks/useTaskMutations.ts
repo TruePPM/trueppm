@@ -55,6 +55,13 @@ export interface CreateTaskPayload {
   governance_class?: GovernanceClass;
   /** Execution / rollup mode (ADR-0036/#407). Defaults server-side to 'waterfall'. */
   delivery_mode?: DeliveryMode;
+  /**
+   * Named lane within the destination column (#2967). Validated server-side against
+   * the project's `BoardColumnConfig` for the status this create lands in — an
+   * unknown key is rejected at the write boundary rather than becoming an orphan
+   * lane. Omit on a board that configures no lanes.
+   */
+  board_lane?: string;
 }
 
 /** POST /api/v1/tasks/ — create a new task in the given project. */
@@ -69,6 +76,11 @@ export function useCreateTask(projectId: string | null) {
         duration: payload.duration,
         ...(payload.parent_id != null ? { parent_id: payload.parent_id } : {}),
         ...(payload.status != null ? { status: payload.status } : {}),
+        // Forwarded only when set, like every optional above — an unladen board must
+        // POST exactly the body it always has. Declaring the field on the payload type
+        // without adding it here would have been a field that type-checks, reads as
+        // wired, and is dropped before the request (#2952).
+        ...(payload.board_lane ? { board_lane: payload.board_lane } : {}),
         ...(payload.planned_start !== undefined ? { planned_start: payload.planned_start } : {}),
         ...(payload.notes !== undefined ? { notes: payload.notes } : {}),
         ...(payload.sprint !== undefined ? { sprint: payload.sprint } : {}),

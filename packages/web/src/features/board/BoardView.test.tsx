@@ -123,6 +123,15 @@ const createTaskMutate =
   >();
 /** Shared update-task spy (#2459) — the workshop phase-rename write path. */
 const updateTaskMutate = vi.fn<(body: Record<string, unknown>) => void>();
+// The empty-board CTA navigates into the Designer rather than opening a modal
+// (#2952). `MemoryRouter` still provides the real Routes context; only the
+// imperative navigate is spied on.
+const navigateMock = vi.fn();
+vi.mock('react-router', async () => {
+  const actual = await vi.importActual<typeof import('react-router')>('react-router');
+  return { ...actual, useNavigate: () => navigateMock };
+});
+
 vi.mock('@/hooks/useTaskMutations', () => ({
   useCreateTask: () => ({
     mutate: createTaskMutate,
@@ -698,7 +707,7 @@ describe('BoardView', () => {
     ).toBeInTheDocument();
   });
 
-  it('opens TaskFormModal with status pre-set to BACKLOG when added from the synthetic lane (issue #387)', async () => {
+  it('composes into BACKLOG from the synthetic lane, and says so (issue #387, #2952)', async () => {
     const user = userEvent.setup();
     const backlogTask: Task = {
       ...FIXTURE_TASKS[1],
@@ -713,12 +722,29 @@ describe('BoardView', () => {
     mockTasks = [backlogTask];
     renderBoard();
     await user.click(screen.getByRole('button', { name: 'Add to backlog' }));
-    // Dialog opens with the synthetic-lane title and a status select pre-set
-    // to BACKLOG — exercises the `isSynthetic` branch through to the modal.
-    const dialog = await screen.findByRole('dialog', { name: /Add to backlog/i });
-    expect(dialog).toBeInTheDocument();
-    const statusSelect = screen.getByLabelText<HTMLSelectElement>(/Status/i);
-    expect(statusSelect.value).toBe('BACKLOG');
+    // The lane `+` opens a one-field compose in the destination cell rather than a
+    // form (#2952). What matters here is the thing the demote-to-Designer option
+    // would have dropped SILENTLY: the synthetic lane still commits BACKLOG, which
+    // is #387's VoC outcome and not an incidental default.
+    const field = await screen.findByTestId('lane-compose-field');
+    expect(field).toBeInTheDocument();
+    // Asserted through the accessible name, because that is where the destination
+    // is stated to a screen reader — the visible hint is aria-hidden.
+    expect(
+      within(field).getByRole('textbox', { name: /lands in BACKLOG/i }),
+    ).toBeInTheDocument();
+
+    // And the create it issues carries that status, not merely the label.
+    await user.type(within(field).getByRole('textbox'), 'Rough idea');
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(createTaskMutate).toHaveBeenCalled());
+    expect(createTaskMutate.mock.calls[0][0]).toMatchObject({
+      name: 'Rough idea',
+      status: 'BACKLOG',
+      parent_id: null,
+      // An unscheduled idea, exactly as the rail and the old modal both created it.
+      duration: 0,
+    });
   });
 
   it('replaces the WIP badge with a plain count when "Show WIP limits" is off', async () => {
@@ -925,14 +951,54 @@ describe('BoardView', () => {
     expect(screen.getByRole('button', { name: /Add task to Test Project/ })).toBeInTheDocument();
   });
 
-  it('opens the unified task form modal when phase + button is clicked (issue #208 / #305)', async () => {
+  it('composes into the phase lane at NOT_STARTED, with duration 1 (issue #208 / #305, #2952)', async () => {
     const user = (await import('@testing-library/user-event')).default.setup();
     renderBoard();
     await user.click(screen.getByRole('button', { name: /Add task to Alpha Platform Upgrade/ }));
-    // The redesigned TaskFormModal (#305) titles its header "Add to {phase}".
+    const field = await screen.findByTestId('lane-compose-field');
     expect(
-      screen.getByRole('dialog', { name: /Add to Alpha Platform Upgrade/ }),
+      within(field).getByRole('form', { name: /Add a task to Alpha Platform Upgrade/i }),
     ).toBeInTheDocument();
+
+    await user.type(within(field).getByRole('textbox'), 'Survey the site');
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(createTaskMutate).toHaveBeenCalled());
+    // `duration: 1`, never the backlog rail's 0 — zero duration is the milestone
+    // definition in the locked vocabulary, so reusing the rail's value here would
+    // mint a zero-duration row for every task added to a phase.
+    expect(createTaskMutate.mock.calls[0][0]).toMatchObject({
+      name: 'Survey the site',
+      status: 'NOT_STARTED',
+      duration: 1,
+    });
+  });
+
+  it('keeps the compose field open after a commit, for rapid-fire intake (#2952)', async () => {
+    const user = (await import('@testing-library/user-event')).default.setup();
+    renderBoard();
+    await user.click(screen.getByRole('button', { name: /Add task to Alpha Platform Upgrade/ }));
+    const input = within(await screen.findByTestId('lane-compose-field')).getByRole('textbox');
+
+    await user.type(input, 'First');
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(createTaskMutate).toHaveBeenCalledTimes(1));
+    // Still open, cleared, and focused — a site walk produces five items, not one.
+    expect(screen.getByTestId('lane-compose-field')).toBeInTheDocument();
+    expect(input).toHaveValue('');
+    expect(input).toHaveFocus();
+  });
+
+  it('Escape closes the compose field without creating anything (#2952)', async () => {
+    const user = (await import('@testing-library/user-event')).default.setup();
+    renderBoard();
+    await user.click(screen.getByRole('button', { name: /Add task to Alpha Platform Upgrade/ }));
+    const field = await screen.findByTestId('lane-compose-field');
+    await user.type(within(field).getByRole('textbox'), 'Abandoned');
+    await user.keyboard('{Escape}');
+    await waitFor(() =>
+      expect(screen.queryByTestId('lane-compose-field')).not.toBeInTheDocument(),
+    );
+    expect(createTaskMutate).not.toHaveBeenCalled();
   });
 
   it('renders "Column tints" toggle in toolbar (issue #211)', async () => {
@@ -2772,14 +2838,20 @@ describe('empty-state create affordance', () => {
     resetMocks();
   });
 
-  it('opens the create modal from the "No tasks yet" empty state', async () => {
+  it('routes the "No tasks yet" empty state into the Designer, not a modal (#2952)', async () => {
     const user = userEvent.setup();
     mockTasks = [FIXTURE_TASKS[0]]; // summary only — no leaf cards, no backlog
     renderBoard();
     expect(screen.getByText('No tasks yet')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '+ Add task' }));
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    // An empty board is the one create surface case 18's table is right about
+    // unamended: there is no lane, so no status default and no container to
+    // preserve. The lane `+` keeps its own compose field precisely because it
+    // has those things to carry; this one does not.
+    await waitFor(() => expect(navigateMock).toHaveBeenCalled());
+    expect(navigateMock.mock.calls[0][0]).toMatch(/\/schedule\?author=task$/);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 });
 

@@ -52,6 +52,13 @@ _CLOSE_RETRY_BACKOFF = timedelta(seconds=60)
 _DISPATCH_BUDGET = 50
 _RETRY_DISPATCH_BUDGET = 10
 _RETRY_REQUEUE_BUDGET = 200
+# Deliberately far below _RETRY_REQUEUE_BUDGET (#2992). Re-queueing is one bulk
+# UPDATE whose cost barely moves with the row count; abandoning now costs a
+# transaction, a BoardEvent insert and a channel-layer fan-out *per row*, and it
+# runs ahead of the dispatch sweeps inside a 25 s soft limit. The path fires in
+# bulk precisely during a correlated outage, which is the worst moment to spend
+# that budget — so it takes a small bite and leaves the rest for the next sweep.
+_ABANDON_BUDGET = 50
 
 
 @idempotent_task(
@@ -83,7 +90,10 @@ def close_sprint(self: object, request_id: str) -> None:
     hits the FAILED short-circuit above, so it would spend the budget without
     running the close. When the budget is spent ``next_attempt_at`` stays null,
     the row is abandoned, and the sprint remains ACTIVE — recoverable only by
-    issuing a fresh close request.
+    issuing a fresh close request. That abandonment is announced on the board as
+    ``sprint_close_failed`` (#2992) via ``_finalize_close_failure``, which is the
+    one place any close request is marked FAILED; an intermediate, still-
+    retryable failure deliberately announces nothing.
 
     On success the function:
       1. Snapshots ``completed_*`` from current task state
@@ -281,11 +291,13 @@ def close_sprint(self: object, request_id: str) -> None:
         # the thing that can reset status back to PENDING first.
         attempts = req.attempt_count + 1  # this run, already applied above
         exhausted = attempts >= _MAX_CLOSE_ATTEMPTS
-        SprintCloseRequest.objects.filter(pk=req.pk).update(
-            status=SprintCloseRequestStatus.FAILED,
-            completed_at=timezone.now(),
+        _finalize_close_failure(
+            req_pk=req.pk,
+            sprint_id=req.sprint_id,
+            project_id=req.sprint.project_id,
             error_message=str(exc)[:1000],
             failure_reason=SprintCloseRequestFailureReason.ERROR,
+            attempt_count=attempts,
             next_attempt_at=None if exhausted else timezone.now() + _CLOSE_RETRY_BACKOFF,
         )
         if exhausted:
@@ -295,6 +307,130 @@ def close_sprint(self: object, request_id: str) -> None:
                 attempts,
                 req.sprint_id,
             )
+
+
+def _finalize_close_failure(
+    *,
+    req_pk: Any,
+    sprint_id: Any,
+    project_id: Any,
+    error_message: str,
+    failure_reason: str,
+    attempt_count: int,
+    next_attempt_at: Any = None,
+    expected_status: str | None = None,
+) -> None:
+    """Mark a close request FAILED and, when that is terminal, tell the board (#2992).
+
+    The single writer of ``status=FAILED``. It exists because the *terminal*
+    failure — the one a user has to be told about, because the sprint stays
+    ACTIVE forever — is reached from four independent places, and a broadcast
+    wired into only the obvious one would miss three:
+
+      1. ``close_sprint``'s exception handler once the attempt budget is spent,
+      2. ``_finalize_non_closable_sprint`` when the sprint was cancelled,
+      3. the same function when the sprint is in some other non-closable state,
+      4. ``_do_drain``'s orphan sweep, for a close that never raised at all
+         because its worker died mid-attempt on every try.
+
+    ``next_attempt_at`` is the terminality test, not ``status``: a FAILED row
+    with a live retry clock is one the drain will pick up again in a minute, and
+    announcing *that* as a failure would alarm a user about something that
+    self-heals. This is the same rule ``SprintCloseRequestStateSerializer.
+    get_terminal`` names on the read side, kept in one place on the write side so
+    the two cannot drift.
+
+    The broadcast is deferred with ``transaction.on_commit`` inside an explicit
+    ``atomic`` block because the four call sites do **not** share an ambient
+    transaction: two run inside ``close_sprint``'s ``with transaction.atomic()``
+    and two (the exception handler, which sits outside the block that just rolled
+    back, and the drain) run in worker autocommit. Registering the callback
+    against a transaction this function opens itself makes the ordering — row
+    durable, then announce — identical at all four, instead of correct at two by
+    construction and at the other two by accident.
+
+    The payload deliberately carries no ``error_message``. That field is
+    role-gated on ``GET /sprints/{id}/close-request/`` — raw exception text is
+    Admin-only and is withheld from agent tokens entirely, because a database or
+    broker failure puts internal hostnames and SQL fragments in it. A board
+    broadcast fans out to the whole project group with no per-recipient
+    filtering available, so putting the text here would silently reverse that
+    gate. Clients learn the failure happened from the event and read the text
+    they are entitled to from the endpoint. Everything in the payload below is
+    already unconditional on that endpoint for every reader who can receive the
+    event.
+
+    Args:
+        req_pk: SprintCloseRequest primary key.
+        sprint_id: The sprint that failed to close.
+        project_id: Board group to fan out on — a ``Project`` pk, which is what
+            makes this event deliverable (a program pk would not be).
+        error_message: Stored failure text; never broadcast.
+        failure_reason: A ``SprintCloseRequestFailureReason`` member.
+        attempt_count: Attempts made including the one that just failed.
+        next_attempt_at: When the drain may retry, or None for terminal.
+        expected_status: Only write if the row is still in this status. Used by
+            the drain, whose select-then-write split would otherwise clobber a
+            row that moved on in between.
+
+    The write is a check-and-set and the announcement is conditional on it. Two
+    races make a blind ``filter(pk=...).update()`` wrong here, and both end in
+    the same user-visible lie — "your sprint didn't close" about one that did:
+
+      * Django runs non-robust ``on_commit`` hooks from ``Atomic.__exit__``,
+        *after* the commit. ``close_sprint``'s success path registers three, and
+        one of them dispatches webhooks and can raise — which lands in the very
+        ``except`` block that calls this function, with the COMPLETED row already
+        durable. Excluding COMPLETED stops a committed close being rewritten as a
+        failure by its own post-commit fallout.
+      * The drain's orphan sweep selects candidates and then writes them one at a
+        time, so the guard that used to live in a single ``UPDATE … WHERE`` no
+        longer covers the write. ``expected_status`` puts it back.
+
+    Returning early when the update matched nothing keeps the broadcast honest:
+    an event is sent only for a row this call actually made terminal.
+    """
+    from trueppm_api.apps.projects.models import SprintCloseRequest, SprintCloseRequestStatus
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    with transaction.atomic():
+        rows = SprintCloseRequest.objects.filter(pk=req_pk)
+        if expected_status is not None:
+            rows = rows.filter(status=expected_status)
+        updated = rows.exclude(status=SprintCloseRequestStatus.COMPLETED).update(
+            status=SprintCloseRequestStatus.FAILED,
+            completed_at=timezone.now(),
+            error_message=error_message,
+            failure_reason=failure_reason,
+            next_attempt_at=next_attempt_at,
+        )
+        if next_attempt_at is not None or not updated:
+            return
+
+        # Bound to locals rather than read off the closure: the callback runs
+        # after this frame is gone, and the drain calls this in a loop.
+        sprint_id_str = str(sprint_id)
+        request_id_str = str(req_pk)
+        project_id_str = str(project_id)
+        reason = str(failure_reason)
+        attempts = int(attempt_count)
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                project_id_str,
+                "sprint_close_failed",
+                {
+                    "id": sprint_id_str,
+                    "request_id": request_id_str,
+                    "failure_reason": reason,
+                    "attempt_count": attempts,
+                    # Constant by construction — this event is only ever emitted
+                    # for a request that will not be retried. Stated on the wire
+                    # so a consumer that never calls the read route still knows
+                    # it is not looking at a transient blip.
+                    "terminal": True,
+                },
+            )
+        )
 
 
 def _finalize_non_closable_sprint(req: Any, sprint: Any) -> bool:
@@ -322,23 +458,29 @@ def _finalize_non_closable_sprint(req: Any, sprint: Any) -> bool:
         return True
 
     if sprint.state == SprintState.CANCELLED:
-        SprintCloseRequest.objects.filter(pk=req.pk).update(
-            status=SprintCloseRequestStatus.FAILED,
-            completed_at=timezone.now(),
+        _finalize_close_failure(
+            req_pk=req.pk,
+            sprint_id=sprint.pk,
+            project_id=sprint.project_id,
             error_message="Sprint was cancelled before close could complete.",
             failure_reason=SprintCloseRequestFailureReason.CANCELLED,
+            # ``req`` was read before the increment this attempt already applied.
+            attempt_count=req.attempt_count + 1,
             # Terminal by nature: no retry can un-cancel a sprint. Leaving the
-            # clock null is what keeps the drain's retry sweep off this row.
+            # clock null is what keeps the drain's retry sweep off this row, and
+            # is what makes the helper announce it.
             next_attempt_at=None,
         )
         return True
 
     if sprint.state != SprintState.ACTIVE:
-        SprintCloseRequest.objects.filter(pk=req.pk).update(
-            status=SprintCloseRequestStatus.FAILED,
-            completed_at=timezone.now(),
+        _finalize_close_failure(
+            req_pk=req.pk,
+            sprint_id=sprint.pk,
+            project_id=sprint.project_id,
             error_message=f"Sprint state {sprint.state} is not closable.",
             failure_reason=SprintCloseRequestFailureReason.NOT_CLOSABLE,
+            attempt_count=req.attempt_count + 1,
             next_attempt_at=None,
         )
         return True
@@ -715,20 +857,54 @@ def _do_drain() -> None:
     # Capping the recovery above without this would trade an unbounded loop for a
     # row wedged in a non-terminal state that no sweep touches and no reader can
     # interpret — the same silent stranding in a different status.
-    abandoned = SprintCloseRequest.objects.filter(
-        status=SprintCloseRequestStatus.IN_FLIGHT,
-        started_at__lt=orphan_cutoff,
-        attempt_count__gte=_MAX_CLOSE_ATTEMPTS,
-    ).update(
-        status=SprintCloseRequestStatus.FAILED,
-        completed_at=now,
-        next_attempt_at=None,
-        error_message=(
-            "The close stopped responding on every attempt and was abandoned. "
-            "The sprint is still open."
-        ),
-        failure_reason=SprintCloseRequestFailureReason.STALLED,
+    #
+    # Materialised row-by-row rather than left as one bulk .update() (#2992):
+    # this is a terminal failure like any other, so it has to announce itself on
+    # the sprint's board — and a bulk update returns a count, which cannot say
+    # *which* projects to fan out to. Sliced for the same reason every other
+    # statement in this sweep is: one UPDATE that costs the same whether it hits
+    # one row or ten thousand becomes N BoardEvent inserts and N group_sends
+    # once it broadcasts, inside a task with a soft time limit. A correlated
+    # outage (workers OOM-killed across many projects) is exactly when this path
+    # fires in bulk, so leaving it unbounded would turn a bad minute into a
+    # worse one. The remainder is picked up on the next 30 s sweep.
+    stalled = list(
+        SprintCloseRequest.objects.filter(
+            status=SprintCloseRequestStatus.IN_FLIGHT,
+            started_at__lt=orphan_cutoff,
+            attempt_count__gte=_MAX_CLOSE_ATTEMPTS,
+        ).values("pk", "sprint_id", "sprint__project_id", "attempt_count")[:_ABANDON_BUDGET]
     )
+    abandoned = 0
+    for row in stalled:
+        # Each row belongs to a different project, so this is one event per board
+        # rather than a loop fanning the same event out N times. Isolated per row:
+        # a channel-layer or BoardEvent fault on one project must not abort the
+        # sweep before it dispatches the fresh, healthy closes at the bottom of
+        # this function — the bulk UPDATE this replaced could not fail that way.
+        try:
+            _finalize_close_failure(
+                req_pk=row["pk"],
+                sprint_id=row["sprint_id"],
+                project_id=row["sprint__project_id"],
+                error_message=(
+                    "The close stopped responding on every attempt and was abandoned. "
+                    "The sprint is still open."
+                ),
+                failure_reason=SprintCloseRequestFailureReason.STALLED,
+                attempt_count=row["attempt_count"],
+                # Restores the predicate the single bulk UPDATE used to carry in
+                # its WHERE clause. Without it the select-then-write split can
+                # clobber a row that finished in between and announce a failure
+                # for a sprint that closed.
+                expected_status=SprintCloseRequestStatus.IN_FLIGHT,
+            )
+        except Exception:
+            logger.exception(
+                "drain_sprint_close_requests: abandoning stalled request %s failed", row["pk"]
+            )
+            continue
+        abandoned += 1
     if abandoned:
         logger.error(
             "drain_sprint_close_requests: abandoned %d close request(s) stalled past "

@@ -34,7 +34,7 @@ SECRET_KEY = env("SECRET_KEY", default="django-insecure-change-me-in-prod")
 # When set explicitly it is strength-validated in prod exactly like SECRET_KEY
 # (see core.security_checks.validate_signing_key); when it defaults to SECRET_KEY
 # the SECRET_KEY validation already covers it. Rotation runbook:
-# docs/administration/secret-rotation.md.
+# packages/website/src/content/docs/administration/secret-rotation.md.
 JWT_SIGNING_KEY = env("JWT_SIGNING_KEY", default=SECRET_KEY)
 
 DEBUG = False
@@ -1071,7 +1071,8 @@ INTEGRATION_ENCRYPTION_KEY: str = env(
 # verification, git-link refresh, webhooks, SMTP relay, SSO), so an allow-listed
 # host is reachable through the user-influenceable URL surfaces too — only list a
 # host at least as trusted as the SSO issuer. See ADR-0590 and the "Running the
-# identity provider inside your cluster" section of docs/administration/single-sign-on.
+# identity provider inside your cluster" section of
+# packages/website/src/content/docs/administration/single-sign-on.md.
 EGRESS_ALLOWLISTED_HOSTS: list[str] = env.list("TRUEPPM_EGRESS_ALLOWLISTED_HOSTS", default=[])
 
 # Per-provider base-URL allow-list for user-connected external task sources

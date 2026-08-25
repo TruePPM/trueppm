@@ -27,8 +27,11 @@ import {
   hasNamedLanes,
   parseTrackKey,
   resolveTrackKey,
+  trackKey as composeTrackKey,
   type BoardTrack,
 } from './statusLanes';
+import { authorLink } from '@/features/schedule/authorParam';
+import { LaneComposeField } from './LaneComposeField';
 import { LaneCrumbProvider } from './LaneCrumbContext';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import {
@@ -41,7 +44,7 @@ import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
-import { useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProjectCustomFields, type ProjectCustomField } from '@/hooks/useProjectCustomFields';
 import { useUrlSelectedId } from '@/hooks/useUrlSelectedId';
@@ -396,6 +399,22 @@ function PhaseSummaryChips({ phase }: { phase: Phase }) {
 // ---------------------------------------------------------------------------
 // Board cell (droppable per phase + status)
 // ---------------------------------------------------------------------------
+
+/**
+ * The one cell on the board currently offering a compose field (#2952).
+ *
+ * Identified by `phaseId` + `trackKey` rather than by phase alone, because a track key
+ * is `status#laneKey` (#2967) — so the cell position carries all three facts the lane
+ * `+` used to hand to a form: the container, the status, and the named lane. That is
+ * the whole reason this became a cell affordance rather than a route into the Designer,
+ * which had no representation for any of them.
+ */
+export interface ComposeTarget {
+  phaseId: string;
+  trackKey: string;
+  laneName: string;
+  destinationLabel: string;
+}
 
 interface BoardCellProps {
   phaseId: string;
@@ -891,6 +910,17 @@ interface PhaseLaneProps {
   cellCap: number | null;
   /** Current user's resource id — exempts my-own cards from the cap. */
   myResourceId: string | null;
+  /**
+   * The cell currently offering a compose field, or null (#2952).
+   *
+   * Passed to every lane rather than only the owning one: `PhaseLane` is memoized, and
+   * the target changes identity only when compose opens or closes, so lanes re-render
+   * then and not on every board render.
+   */
+  composeTarget: ComposeTarget | null;
+  composeIsPending: boolean;
+  onComposeCommit: (name: string, opts?: { onError?: () => void }) => void;
+  onComposeClose: () => void;
 }
 
 /**
@@ -1136,6 +1166,10 @@ function PhaseLaneImpl({
   onResizeHeight,
   cellCap,
   myResourceId,
+  composeTarget,
+  composeIsPending,
+  onComposeCommit,
+  onComposeClose,
 }: PhaseLaneProps) {
   const avg = phaseProgress(phase);
   const committedTaskCount = phase.tasks.filter(isTaskScheduled).length;
@@ -1247,6 +1281,26 @@ function PhaseLaneImpl({
             <div className="px-[11px] pb-2">
               <PhaseSummaryChips phase={phase} />
             </div>
+            {/* The lane compose field (#2952) — rendered in the lane's own meta panel,
+                directly under the `+` that opened it, rather than inside the
+                destination cell. The cell would have been the more literal reading of
+                "lands where its position implies", but a lane does not always render
+                one: the synthetic backlog lane and a collapsed or stubbed column each
+                have a `+` and no cell to host a field, so the affordance would open
+                nothing. Anchoring it to the control keeps it reachable from every lane
+                that offers it, and the destination is stated in words instead — which
+                is what the touch bar already does, and for the same reason. */}
+            {composeTarget?.phaseId === phase.id && (
+              <div className="px-[11px] pb-2">
+                <LaneComposeField
+                  laneName={composeTarget.laneName}
+                  destinationLabel={composeTarget.destinationLabel}
+                  isPending={composeIsPending}
+                  onCommit={onComposeCommit}
+                  onClose={onComposeClose}
+                />
+              </div>
+            )}
           </div>
         </div>
 
@@ -1655,15 +1709,12 @@ export function BoardView() {
   // `isSynthetic` flags the phase-less Project Tasks lane (#386) — when true,
   // TaskFormModal opens with status defaulting to BACKLOG and the modal title
   // reads "Add to backlog" rather than "Add to Project Tasks". Issue #387.
-  const [addTaskPhase, setAddTaskPhase] = useState<{
-    id: string;
-    name: string;
-    isSynthetic?: boolean;
-    // Explicit status override (issue 605) — the mobile FAB targets the group in
-    // view, so it opens the modal preset to that status. When absent the modal
-    // falls back to the isSynthetic-derived default (BACKLOG / NOT_STARTED).
-    status?: TaskStatus;
-  } | null>(null);
+  // The cell currently offering the lane compose field (#2952). This replaced
+  // `addTaskPhase`, which existed only to open `TaskFormModal` from the lane `+`.
+  // The modal's `status` override is gone with it: the mobile FAB stopped opening a
+  // form in !2051, so nothing had set that field since — it was already dead.
+  const [composeTarget, setComposeTarget] = useState<ComposeTarget | null>(null);
+  const navigate = useNavigate();
   // The status column currently snapped into view on the mobile board (issue 605)
   // — drives the FAB's create-into-visible-group default. Seeded to the first
   // column and kept in sync by MobileBoard's IntersectionObserver.
@@ -2776,18 +2827,88 @@ export function BoardView() {
     [announce, COLUMNS, guardWipThenMove, projectId, readOnly, updateStatus],
   );
 
-  const handleAddTask = useCallback((phaseId: string, phaseName: string, isSynthetic = false) => {
-    // Synthetic phase-less Project Tasks lane (#387): the lane is intake
-    // scaffolding, not a real committed structure, so the modal opens
-    // with `defaultStatus="BACKLOG"` and the header reads "Add to backlog".
-    // VoC panel resolved the BACKLOG-vs-TO-DO default tension (#386 follow-up)
-    // by treating the synthetic lane as context-aware intake.
-    setAddTaskPhase({
-      id: phaseId,
-      name: isSynthetic ? 'backlog' : phaseName,
-      isSynthetic,
-    });
-  }, []);
+  /**
+   * The lane `+` (#2952, case 18's last disposition row).
+   *
+   * It used to open `TaskFormModal` — a whole form, over the board, to add one row.
+   * The table said **demote** it into the Designer; that ruling was amended, because
+   * routing it through `?author=` drops what this affordance actually carries. The
+   * synthetic phase-less lane commits `BACKLOG` and a real phase commits
+   * `NOT_STARTED`, and that default is not incidental — it is #387's VoC outcome,
+   * which resolved the BACKLOG-vs-TO-DO tension on purpose. Since #2967 a cell also
+   * carries a named lane. The Designer has no representation for any of it.
+   *
+   * So it is **promoted** on the Inbox `Capture` precedent: a surface doing a
+   * genuinely different job keeps its affordance. Placing a card *in this cell* is not
+   * authoring a plan row. What goes is the competing **form** — which is what case 18
+   * was objecting to — replaced by the same one-field capture the Inbox and the mobile
+   * FAB already use.
+   *
+   * The destination cell is resolved here rather than in the lane, so the status the
+   * card lands in and the label the field states come from **one** derivation.
+   */
+  const handleAddTask = useCallback(
+    (phaseId: string, phaseName: string, isSynthetic = false) => {
+      const status: TaskStatus = isSynthetic ? 'BACKLOG' : 'NOT_STARTED';
+      const column = COLUMNS.find((c) => c.status === status);
+      // The first named lane of the destination column, when it has any (#2967) —
+      // the same "leftmost track of this status" rule a keyboard move follows.
+      const laneKey = column?.lanes?.[0]?.key ?? null;
+      const laneLabel = column?.lanes?.[0]?.label ?? null;
+      const columnLabel = column?.label ?? status;
+      setComposeTarget({
+        phaseId,
+        trackKey: composeTrackKey(status, laneKey),
+        laneName: isSynthetic ? 'the backlog' : phaseName,
+        // Name the LANE when the column has one, for the same reason a drop
+        // announcement does: "lands in Review" is not honest about Review · QA.
+        destinationLabel: laneLabel ? `${columnLabel} · ${laneLabel}` : columnLabel,
+      });
+    },
+    // `COLUMNS` is a memo, not a module constant — the lane set is reconfigurable
+    // (#2967), so closing over a stale one would file into a lane that no longer
+    // exists. It is the reason this dependency array is not empty.
+    [COLUMNS],
+  );
+
+  const handleComposeClose = useCallback(() => setComposeTarget(null), []);
+
+  /**
+   * Commit one typed name into the compose target's cell.
+   *
+   * `duration: 1`, matching what `TaskFormModal` created here before — **not** the
+   * backlog rail's `duration: 0`. Zero duration is the milestone definition in the
+   * locked vocabulary, and reusing the rail's value would have minted a zero-duration
+   * row for every task added to a phase. The synthetic backlog lane keeps `0`, which
+   * is what the rail and the old modal both did for an unscheduled idea.
+   */
+  const handleComposeCommit = useCallback(
+    (name: string, opts?: { onError?: () => void }) => {
+      const target = composeTarget;
+      if (!target || !projectId) return;
+      const { status, laneKey } = parseTrackKey(target.trackKey);
+      const isBacklog = status === 'BACKLOG';
+      createTask.mutate(
+        {
+          name,
+          duration: isBacklog ? 0 : 1,
+          status,
+          parent_id: target.phaseId === 'root' ? null : target.phaseId,
+          // Sent only when the destination column actually has lanes, so an
+          // unladen board POSTs exactly the body it always has (#2967).
+          ...(laneKey ? { board_lane: laneKey } : {}),
+        },
+        {
+          onSuccess: () => announce(`${name} added to ${target.destinationLabel}`),
+          onError: () => {
+            toast.error(`Couldn't add "${name}" — try again.`);
+            opts?.onError?.();
+          },
+        },
+      );
+    },
+    [announce, composeTarget, createTask, projectId],
+  );
 
   // The containers a rail card can be filed into (#2952). Phase grouping only:
   // under assignee (324) or epic (364) grouping a lane id is a resource or an
@@ -3044,7 +3165,8 @@ export function BoardView() {
   const openCheatsheet = useCallback(() => setShowCheatsheet(true), []);
   const focusSearchInput = useCallback(() => searchInputRef.current?.focus(), []);
 
-  // When AddTaskModal is open, the modal owns the keyboard.
+  // While the lane compose field is open it owns the keyboard — otherwise typing a
+  // task name would drive card navigation (#2952, same contract the modal had).
   useBoardKeyboard(
     boardKeyboardBindings({
       overlayOpen: isB3OverlayOpen({ depTask, riskTask, showCheatsheet, popoverTask, editTaskId }),
@@ -3060,7 +3182,7 @@ export function BoardView() {
       onOpenFilter: toggleFilterPanel,
       onCloseOverlay: closeAllOverlays,
     }),
-    addTaskPhase === null,
+    composeTarget === null,
   );
 
   // One lane's props. Held together here (rather than in `BoardPhaseLanes`) so the
@@ -3124,6 +3246,11 @@ export function BoardView() {
     // Per-cell card cap (issue 1967, ADR-0420) — desktop matrix only.
     cellCap: toolbarPrefs.cellCap,
     myResourceId,
+    // The lane compose field (#2952) — see `handleAddTask`.
+    composeTarget,
+    composeIsPending: createTask.isPending,
+    onComposeCommit: handleComposeCommit,
+    onComposeClose: handleComposeClose,
   });
 
   // Workshop mode makes lanes sortable; every other mode renders them plain.
@@ -3415,7 +3542,15 @@ export function BoardView() {
             isAddingPhase={createTask.isPending}
             mineActive={mineActive}
             onShowAllTasks={() => myTasksFilter.setEnabled(false)}
-            onAddTaskEmptyBoard={() => handleAddTask('root', projectName ?? 'Project')}
+            // An EMPTY board is the one create surface that is genuinely the
+            // Designer's job, and the one case 18's table is right about
+            // unamended: with no lanes there is no cell, no status default and
+            // no container to preserve — "start a plan" is exactly what
+            // `?author=` was built for (#2952). The lane `+` keeps its own
+            // affordance because it has all three of those things to carry.
+            onAddTaskEmptyBoard={() => {
+              if (projectId) void navigate(authorLink(projectId, 'task'));
+            }}
           />
 
           {/* Scope-injection drop toast (#1140) — bottom-center, neutral, ephemeral.
@@ -3477,7 +3612,6 @@ export function BoardView() {
 
       <BoardConfirmDialogs
         projectId={projectId}
-        isMobile={isMobile}
         selectedSprint={selectedSprint}
         backlogDemoteCandidate={backlogDemoteCandidate}
         onBacklogDemoteCancel={() => setBacklogDemoteCandidate(null)}
@@ -3496,8 +3630,6 @@ export function BoardView() {
         }}
         scheduleDialogTask={scheduleDialogTask}
         onScheduleDialogClose={handleScheduleDialogClose}
-        addTaskPhase={addTaskPhase}
-        onAddTaskClose={() => setAddTaskPhase(null)}
         workshopExitOpen={showExitConfirm}
         workshopEnding={endWorkshop.isPending}
         workshopToggleRef={workshopToggleRef}

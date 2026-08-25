@@ -90,6 +90,38 @@ const reorderTaskMutate = vi.fn();
 // Set to make the next group/ungroup REFUSE instead of succeeding. Without this the
 // six `onError` arms in ScheduleView are unreachable — a mock that only ever calls
 // `onSuccess` makes an error branch look covered because the file around it is.
+// The #2951 gesture's batch. Like `groupTasksMutate`, it can be made to REFUSE and to
+// return an EMPTY 207 — the batch endpoint answers 207 with per-row rejections, so
+// "request succeeded, nothing applied" is a real outcome the handler has to treat as a
+// failure. A mock that only ever applies makes that arm look covered.
+let nextBulkCreateError: unknown = null;
+let nextBulkCreateApplies = true;
+const bulkCreateMutate = vi.fn(
+  (
+    _ops: unknown[],
+    opts?: {
+      onSuccess?: (d: {
+        applied: { id: string }[];
+        rejected: unknown[];
+        skipped: unknown[];
+        operation_id: string | null;
+      }) => void;
+      onError?: (e: unknown) => void;
+    },
+  ) => {
+    if (nextBulkCreateError !== null) {
+      opts?.onError?.(nextBulkCreateError);
+      return;
+    }
+    opts?.onSuccess?.({
+      applied: nextBulkCreateApplies ? [{ id: 'child-1' }] : [],
+      rejected: [],
+      skipped: [],
+      operation_id: nextBulkCreateApplies ? 'op-bulk-1' : null,
+    });
+  },
+);
+
 let nextGroupingError: unknown = null;
 const groupTasksMutate = vi.fn(
   (
@@ -261,6 +293,7 @@ vi.mock('@/hooks/useTaskMutations', async (importOriginal) => {
       isPending: false,
       variables: undefined,
     }),
+    useBulkCreateTasks: () => ({ mutate: bulkCreateMutate, isPending: false }),
     useReorderTasks: () => ({ mutate: reorderTaskMutate, isPending: false, variables: undefined }),
     useAddDependency: () => ({ mutate: addDepMutate, isPending: false, variables: undefined }),
     parseCyclicDependencyError: (err: unknown) =>
@@ -675,6 +708,11 @@ beforeEach(() => {
   exportProjectMock.mockReset();
   createTaskMutate.mockClear();
   createTaskMutateAsync.mockClear();
+  // Same reason as `reorderTaskMutate` below: uncleared, one test's `mock.calls[0]`
+  // is an earlier test's call, and a "was not called" assertion reads the leak.
+  bulkCreateMutate.mockClear();
+  nextBulkCreateError = null;
+  nextBulkCreateApplies = true;
   // Never cleared before #3018, so `reorderTaskMutate.mock.calls[0]` in one test was
   // an EARLIER test's call — whose captured `onError` closes over an unmounted
   // render's live-region ref. The trail (a module singleton) still recorded, so the
@@ -1420,6 +1458,74 @@ describe('ScheduleView — mod+alt+p phase authoring binding (#2955)', () => {
       expect.objectContaining({ taskIds: ['new-task-1'], name: 'Untitled phase' }),
       expect.anything(),
     );
+  });
+
+  it('adopts the FOCUSED leaf as the container, in ONE batch call (#2951)', () => {
+    renderSchedule();
+    act(() => capturedBuildMode!.focus.focusRow('t2'));
+    const e = { preventDefault: vi.fn() } as unknown as KeyboardEvent;
+    act(() => capturedKeyBindings['mod+alt+p']?.(e));
+
+    // One call, one op — the whole claim of the issue. A `create` naming the focused row
+    // as parent is all it takes: the server declares that parent a container on the same
+    // write (#3036), so no empty container exists at any point and there is no second
+    // round trip in which the wrap could fail.
+    expect(bulkCreateMutate).toHaveBeenCalledTimes(1);
+    const ops = bulkCreateMutate.mock.calls[0][0] as {
+      op: string;
+      id: string;
+      data: Record<string, unknown>;
+    }[];
+    expect(ops).toHaveLength(1);
+    expect(ops[0].op).toBe('create');
+    expect(ops[0].data).toMatchObject({ parent_id: 't2', duration: 1 });
+    // The client mints the id (ADR-0772), which is what lets the caret move to the child
+    // without waiting for the row to come back.
+    expect(ops[0].id).toEqual(expect.any(String));
+
+    // The old two-call path must NOT also run — that would be two undo steps and a
+    // window in which an empty container exists, which is what this replaces.
+    expect(createTaskMutate).not.toHaveBeenCalled();
+    expect(groupTasksMutate).not.toHaveBeenCalled();
+  });
+
+  it('falls back to create-then-wrap when NOTHING is focused (#2951)', () => {
+    renderSchedule();
+    const e = { preventDefault: vi.fn() } as unknown as KeyboardEvent;
+    act(() => capturedKeyBindings['mod+alt+p']?.(e));
+    // No row to adopt, so the gesture still means "make a new phase here" — the
+    // pre-existing behavior, unchanged.
+    expect(bulkCreateMutate).not.toHaveBeenCalled();
+    expect(createTaskMutate).toHaveBeenCalled();
+  });
+
+  it('does not adopt a row that is ALREADY a container (#2951)', () => {
+    // A summary has no transition to make; adopting it would be a plain "add a child",
+    // which Enter already does. Asserted because the predicate is the whole gesture: a
+    // wrong one silently turns ⌘⌥P into a second insert key.
+    mockTasks = [
+      { ...FIXTURE_TASKS[0], id: 'sum-1', name: 'Already a phase', isSummary: true },
+    ];
+    renderSchedule();
+    act(() => capturedBuildMode!.focus.focusRow('sum-1'));
+    const e = { preventDefault: vi.fn() } as unknown as KeyboardEvent;
+    act(() => capturedKeyBindings['mod+alt+p']?.(e));
+    expect(bulkCreateMutate).not.toHaveBeenCalled();
+    expect(createTaskMutate).toHaveBeenCalled();
+  });
+
+  it('treats an EMPTY 207 as a failure rather than reporting a phase (#2951)', () => {
+    // The batch answers 207 with per-row rejections, so "the request succeeded and
+    // nothing was applied" is a real outcome. Reporting a phase here would be rule 301's
+    // failure with the worst payload: a confident, wrong account of the user's plan.
+    nextBulkCreateApplies = false;
+    renderSchedule();
+    act(() => capturedBuildMode!.focus.focusRow('t2'));
+    const e = { preventDefault: vi.fn() } as unknown as KeyboardEvent;
+    act(() => capturedKeyBindings['mod+alt+p']?.(e));
+    expect(bulkCreateMutate).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/Couldn't add a task under/)).toBeInTheDocument();
+    nextBulkCreateApplies = true;
   });
 
   it('no longer claims ⌘P, which is the browser’s Print (ADR-0627)', () => {

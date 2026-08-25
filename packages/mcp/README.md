@@ -58,12 +58,12 @@ Or expose the HTTP/SSE transport for a web-based assistant:
 trueppm-mcp --transport http --host 127.0.0.1 --port 8000
 ```
 
-See [`docs/administration/mcp-server.md`](https://docs.trueppm.com/administration/mcp-server)
+See [`packages/website/src/content/docs/administration/mcp-server.md`](https://docs.trueppm.com/administration/mcp-server/)
 for wiring it into Claude Desktop's `claude_desktop_config.json`.
 
 ## Status
 
-The read-tool surface ships in 0.4: **18 read-only tools** across projects and
+The read-tool surface ships in 0.4: **19 read-only tools** across projects and
 programs, tasks and My Work, schedule and risk (including non-mutating what-if
 and schedule derivation), and sprints — each mapping to one existing REST
 endpoint and returning only what your role permits. The
