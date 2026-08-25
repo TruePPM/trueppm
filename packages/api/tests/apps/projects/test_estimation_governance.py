@@ -988,10 +988,11 @@ SERVER_OWNED_TASK_FIELDS: list[tuple[str, object, object]] = [
     ("estimate_status", EstimateStatus.PENDING, EstimateStatus.ACCEPTED),
     # ADR-0102: only the sprint accept/reject services may clear this.
     ("sprint_pending", True, False),
-    # wbs_path and is_subtask belong in this table too — both are server-managed
-    # with their invariants enforced only at create, and both are still writable on
-    # PATCH. They need create-vs-update asymmetry rather than a read_only_fields
-    # entry, so they are tracked separately: TODO(#2585).
+    # wbs_path and is_subtask needed create-vs-update asymmetry rather than a plain
+    # read_only_fields entry — both are server-managed with their invariants
+    # enforced only at create — and are covered separately for exactly that reason:
+    # both are now read-only on PATCH (ADR-0743, #2585), asserted in
+    # test_task_placement_and_estimate_authority.py and test_task_wbs_auto_assign.py.
 ]
 
 

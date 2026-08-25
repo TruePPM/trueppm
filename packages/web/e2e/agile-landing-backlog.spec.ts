@@ -4,10 +4,11 @@
  * backlog instead of an empty Overview or a "No stories yet" welcome card.
  *
  * Golden path only. The `⌘⇧M` hybrid-declaration entry point named in the issue
- * is deliberately **not** covered here — it does not exist on any surface yet
- * (its frontend half, #2736, is unmerged; see ADR-0800 §Decision 6 and the
- * `TODO(#2736)` left in `ProductBacklogPage`'s toolbar). An E2E assertion for a
- * shortcut that opens nothing would just be asserting a no-op.
+ * is deliberately **not** covered here — it does not exist on this surface yet.
+ * The popover it would open shipped in #2736, but nothing wires it into this
+ * toolbar (see ADR-0800 §Decision 6, tracked in #3035, and the `TODO(#3035)`
+ * left in `ProductBacklogPage`'s toolbar). An E2E assertion for a shortcut
+ * that opens nothing would just be asserting a no-op.
  */
 import { test, expect } from './fixtures/coverage';
 import { setupApiMocks, setupAuth, setupCatchAll } from './fixtures';

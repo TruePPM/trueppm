@@ -40,9 +40,13 @@
 # in a merge_request_event pipeline):
 #   CI_PIPELINE_SOURCE, CI_MERGE_REQUEST_TARGET_BRANCH_NAME, CI_MERGE_REQUEST_IID,
 #   CI_API_V4_URL, CI_PROJECT_ID, CI_JOB_TOKEN
-# The open-MR query uses the built-in CI_JOB_TOKEN — the same credential the
-# sibling check-issue-boundary.sh / check-todo-grep.sh gates already use for
-# same-project API reads, so there is no extra token to provision or rotate.
+# The open-MR query uses the built-in CI_JOB_TOKEN against the Merge Requests
+# API, which is in GitLab's job-token-supported endpoint list — so there is no
+# extra token to provision or rotate. This is NOT the same credential path as
+# check-todo-grep.sh's rule 2 (Issues API): #3043 established that CI_JOB_TOKEN
+# cannot authenticate against Issues at all, on any project. The two scripts
+# hit different endpoints with different job-token support; do not assume one
+# finding transfers to the other without checking GitLab's own endpoint list.
 #   ADR_GATE_TOKEN   — OPTIONAL. A read_api project/group token, only needed on
 #                      instances that have locked down the job-token API scope. If
 #                      neither the job token nor this can query the API, the
@@ -160,10 +164,13 @@ done <<<"$mine"
 #     catches two simultaneously-open branches — the exact failure mode of #918
 #     that layers 1 and (a) cannot see.
 #
-#     Credential: the built-in CI_JOB_TOKEN. It authorizes same-project API reads
-#     on default GitLab token scopes — the sibling gates check-issue-boundary.sh
-#     and check-todo-grep.sh already rely on it for issue reads with no dedicated
-#     token provisioned, so no new credential to rotate is introduced here.
+#     Credential: the built-in CI_JOB_TOKEN. It authorizes same-project Merge
+#     Requests API reads on default GitLab token scopes — that endpoint is in
+#     GitLab's job-token-supported list, so no new credential to rotate is
+#     introduced here. This is a different claim than "the same credential
+#     works for issue reads": #3043 found CI_JOB_TOKEN cannot authenticate
+#     against the Issues API at all, which is why check-todo-grep.sh no longer
+#     relies on it (it falls back to an anonymous request instead).
 #     ADR_GATE_TOKEN is an *optional* escape hatch for self-hosters who have
 #     locked down their job-token API scope; it is not required.
 auth_header=""

@@ -973,11 +973,11 @@ function DesktopGroomingView() {
           <Button variant="primary" size="sm" onClick={focusQuickAdd}>
             + Add story
           </Button>
-          {/* TODO(#2736): mount the classification-cascade popover's `⌘⇧M` entry
-              point here once it ships — #2736 (the popover this shortcut would
-              open) is still unmerged, so there is nothing to wire yet. The hybrid
-              door (an agile project declaring a gated compliance subtree, Epic C)
-              must stay reachable from this toolbar, not just the Schedule one. */}
+          {/* TODO(#3035): mount the classification-cascade popover's `⌘⇧M` entry
+              point here — the popover itself shipped in #2736, but nothing wires
+              it into this toolbar yet. The hybrid door (an agile project
+              declaring a gated compliance subtree, Epic C) must stay reachable
+              from this toolbar, not just the Schedule one. */}
         </header>
 
         <HealthStrip health={health} iterationLower={itl.lower} />
