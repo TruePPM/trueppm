@@ -621,3 +621,115 @@ def test_validate_seed_still_raises_everything_inspect_reports() -> None:
     with pytest.raises(SeedValidationError) as exc:
         validate_seed(seed)
     assert exc.value.errors == report.errors
+
+
+# ---------------------------------------------------------------------------
+# Payload ceilings (#2615) — the free-text caps, the collection caps, the node
+# budget's blind spots, and the diagnostic that echoed the payload back.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("path", "cap"),
+    [
+        (("program", "description"), 100_000),
+        (("projects", 0, "description"), 100_000),
+        (("projects", 0, "tasks", 0, "notes"), 10_000),
+    ],
+)
+def test_free_text_fields_are_capped(path: tuple[Any, ...], cap: int) -> None:
+    """Unbounded prose let a schema-valid document be padded to the upload
+    ceiling with a single project, passing the node budget untouched."""
+    seed = _valid_seed()
+    node: Any = seed
+    for key in path[:-1]:
+        node = node[key]
+    node[path[-1]] = "x" * (cap + 1)
+
+    report = inspect_seed(seed)
+
+    assert report.valid is False
+    assert "too long" in "\n".join(report.errors)
+
+
+def test_free_text_at_the_cap_is_accepted() -> None:
+    """The ceiling is generous on purpose: 100 KB matches what the integration
+    ingest serializer already accepts, so an export still re-imports."""
+    seed = _valid_seed()
+    seed["program"]["description"] = "x" * 100_000
+    assert inspect_seed(seed).valid is True
+
+
+def test_sprint_narrative_fields_are_capped() -> None:
+    seed = _valid_seed()
+    sprint = seed["projects"][0].setdefault("sprints", [])
+    sprint.append(
+        {
+            "slug": "s-over",
+            "name": "Oversized",
+            "start_date": "2026-01-05",
+            "finish_date": "2026-01-16",
+            "state": "PLANNED",
+            "goal": "g" * 10_001,
+        }
+    )
+    report = inspect_seed(seed)
+    assert report.valid is False
+    assert "too long" in "\n".join(report.errors)
+
+
+def test_top_level_resources_are_bounded() -> None:
+    """``resources`` carried no maxItems and no node-budget entry, so it was the
+    one collection an attacker could grow without limit — and each row costs
+    ~2 round-trips through ``ensure_project_resource``."""
+    seed = _valid_seed()
+    seed["resources"] = [
+        {"slug": f"r-{i}", "name": f"R{i}", "max_units": 1.0} for i in range(5_001)
+    ]
+    report = inspect_seed(seed)
+    assert report.valid is False
+    assert "too long" in "\n".join(report.errors)
+
+
+def test_projects_and_resources_count_toward_the_node_budget() -> None:
+    """A document of nothing but empty projects scored **zero** against the
+    budget, because only a project's *contents* were counted. ``resources`` was
+    invisible the same way, and each one costs ~2 round-trips on import."""
+    from trueppm_api.apps.projects.seed import validation
+
+    payload = {
+        "projects": [{"slug": f"p-{i}", "tasks": []} for i in range(10)],
+        "resources": [{"slug": f"r-{i}"} for i in range(4)],
+    }
+    assert validation._node_budget_errors(payload) == []
+
+    original = validation.MAX_SEED_NODES
+    try:
+        validation.MAX_SEED_NODES = 13
+        errors = validation._node_budget_errors(payload)
+    finally:
+        validation.MAX_SEED_NODES = original
+    assert errors and "14 entities" in errors[0], errors
+
+
+def test_a_container_diagnostic_does_not_echo_the_whole_payload() -> None:
+    """jsonschema renders the offending *instance* into ``message`` for container
+    keywords, so a ``maxItems`` breach on ``projects`` returned every project to
+    the caller — megabytes, in a 400 whose size the caller chose (#2615)."""
+    from trueppm_api.apps.projects.seed.validation import MAX_SEED_ERROR_CHARS
+
+    seed = _valid_seed()
+    template = seed["projects"][0]
+    seed["projects"] = [
+        {**template, "slug": f"p-{i}", "code": None, "tasks": [], "dependencies": []}
+        for i in range(201)
+    ]
+    for project in seed["projects"]:
+        project.pop("code", None)
+
+    report = inspect_seed(seed)
+
+    assert report.valid is False
+    over_long = [e for e in report.errors if len(e) > MAX_SEED_ERROR_CHARS + 64]
+    assert over_long == [], over_long[:1]
+    assert any("truncated" in e for e in report.errors), report.errors[:2]

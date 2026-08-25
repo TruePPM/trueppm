@@ -13932,20 +13932,14 @@
                         "description": "A live program you own already holds this seed's slug. Re-send with `replace=true` to confirm; optionally pin the target with `expected_program_id`. The replaced program's projects move to Trash individually as standalone projects; the program shell itself is not recoverable. `code` is `seed_replace_required`, `seed_replace_mismatch`, or `seed_replace_ambiguous`."
                     },
                     "429": {
-                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string",
-                                            "example": "Request was throttled. Expected available in 42 seconds."
-                                        }
-                                    }
+                                    "$ref": "#/components/schemas/SeedImportRefusedResponse"
                                 }
                             }
-                        }
+                        },
+                        "description": "Either the `seed_import` rate bucket is exhausted (no `code`; retry after the interval in `Retry-After`), or you already have `SEED_IMPORT_MAX_CONCURRENT_JOBS` imports queued or running (`code: seed_import_concurrency_limit`). The second is cleared by an outstanding import finishing, not by waiting out a window."
                     }
                 }
             }
@@ -58347,6 +58341,20 @@
                     "program_id",
                     "queued",
                     "replaced_program_id"
+                ]
+            },
+            "SeedImportRefusedResponse": {
+                "type": "object",
+                "properties": {
+                    "detail": {
+                        "type": "string"
+                    },
+                    "code": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "detail"
                 ]
             },
             "SeedImportRequestRequest": {

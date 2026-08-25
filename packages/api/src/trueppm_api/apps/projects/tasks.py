@@ -28,6 +28,11 @@ EXPORT_ORPHAN_WINDOW_MINUTES = 5  # ADR-0219 §Durable Execution item 3
 EXPORT_DRAIN_BATCH_SIZE = 10
 DEFAULT_EXPORT_RETENTION_DAYS = 7  # ADR-0219 §Durable Execution item 6 (shared with ADR-0174)
 
+# Rows one purge run may reap, shared by the export and import purges (#2615).
+# Sized so a full batch of storage DELETE round-trips finishes well inside the
+# 55 s soft limit those tasks carry; a larger backlog drains over several runs.
+PURGE_BATCH_SIZE = 500
+
 
 # ---------------------------------------------------------------------------
 # close_sprint — applies a single SprintCloseRequest
@@ -1315,9 +1320,15 @@ def _do_purge_expired_program_exports() -> None:
     retention = _export_retention_days()
     if retention is None:  # retention disabled — keep archives indefinitely
         return
-    expired = ProgramExportJob.objects.filter(expires_at__lt=timezone.now())
+    # Bounded per run (#2615). Each iteration is a storage DELETE plus a row
+    # DELETE, and the task carries a 55 s soft limit — an unbounded walk over a
+    # backlog larger than one window is SIGKILLed partway rather than draining,
+    # so the same oversized backlog is retried from the start on every tick and
+    # never shrinks. A slice drains it incrementally instead: whatever is left
+    # is picked up by the next scheduled run.
+    expired = ProgramExportJob.objects.filter(expires_at__lt=timezone.now()).order_by("expires_at")
     count = 0
-    for job in expired.iterator():
+    for job in expired[:PURGE_BATCH_SIZE]:
         if job.file_path:
             try:
                 default_storage.delete(job.file_path)
@@ -1329,6 +1340,12 @@ def _do_purge_expired_program_exports() -> None:
         count += 1
     if count:
         logger.info("purge_expired_program_exports: deleted %d expired export(s)", count)
+    if count == PURGE_BATCH_SIZE and (remaining := expired.count()):
+        logger.info(
+            "purge_expired_program_exports: batch full, %d expired export(s) remain for the "
+            "next run",
+            remaining,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1400,6 +1417,23 @@ def run_program_import(self: object, job_id: str) -> None:
         job.save(update_fields=["status", "started_at", "celery_task_id"])
 
     program = job.program
+
+    # ``requested_by`` is SET_NULL, so an account deleted between the 202 and
+    # this run leaves the importer with no owner to build memberships against.
+    # It fails safely today — the importer raises rather than granting anything
+    # to ``None`` — but it does so as an unhandled exception that burns all three
+    # retries first and lands a traceback string in ``error_detail``. The
+    # condition is deterministic, so refuse it up front with a reason the
+    # polling client can render (#2615).
+    if job.requested_by_id is None:
+        logger.warning("run_program_import: job %s has no requester, refusing", job_id)
+        _fail_import_job(
+            job_id,
+            "The account that requested this import no longer exists. "
+            "Re-import as an existing user.",
+        )
+        return
+
     try:
         with default_storage.open(job.file_path, "rb") as handle:
             payload = json.loads(handle.read().decode("utf-8"))
@@ -1542,14 +1576,16 @@ def _do_drain_program_imports() -> None:
 def _do_purge_expired_program_imports() -> None:
     from django.core.files.storage import default_storage
 
-    from trueppm_api.apps.projects.models import ProgramImportJob
+    from trueppm_api.apps.projects.models import ImportJobStatus, ProgramImportJob
 
     retention = _import_retention_days()
     if retention is None:  # retention disabled — keep rows indefinitely
         return
-    expired = ProgramImportJob.objects.filter(expires_at__lt=timezone.now())
+    # Bounded per run for the same reason as the export purge above (#2615).
+    expired = ProgramImportJob.objects.filter(expires_at__lt=timezone.now()).order_by("expires_at")
     count = 0
-    for job in expired.iterator():
+    reaped = 0
+    for job in expired[:PURGE_BATCH_SIZE]:
         if job.file_path:
             try:
                 default_storage.delete(job.file_path)
@@ -1557,10 +1593,89 @@ def _do_purge_expired_program_imports() -> None:
                 logger.warning(
                     "purge_expired_program_imports: could not delete payload for %s", job.id
                 )
-        job.delete()
+        # A failed import deliberately keeps its program shell so the Owner can
+        # reason about what happened (ADR-0726 §Durable Execution 8). That
+        # reasoning needs the *job row*, and the job row is what this loop is
+        # deleting — so past retention the shell is no longer evidence of
+        # anything, it is only an empty program in the Owner's list that nothing
+        # reaps. At the seed_import throttle's 6/min that is ~8,600 of them per
+        # account per day. Retire it here, at the same moment its explanation
+        # goes away, and only if it is still empty: anything the Owner has since
+        # built under it makes it theirs, not the importer's leftover.
+        # One transaction per job, not one for the batch: a storage error on the
+        # next row must not roll back the rows already reaped, and the whole
+        # point of the batch is that it can be interrupted and resumed. The
+        # atomic block matters because ``soft_delete`` is two statements — the
+        # row UPDATE and the ``deleted_version`` stamp the sync tombstone is read
+        # from — and this runs in a beat task with no ambient transaction, so
+        # without it a crash between them leaves a tombstone sync cannot see.
+        with transaction.atomic():
+            if job.status == ImportJobStatus.FAILED and _reap_empty_import_shell(job):
+                reaped += 1
+            job.delete()
         count += 1
     if count:
         logger.info("purge_expired_program_imports: deleted %d expired import(s)", count)
+    if reaped:
+        logger.info(
+            "purge_expired_program_imports: retired %d empty failed-import shell(s)", reaped
+        )
+    if count == PURGE_BATCH_SIZE and (remaining := expired.count()):
+        logger.info(
+            "purge_expired_program_imports: batch full, %d expired import(s) remain for the "
+            "next run",
+            remaining,
+        )
+
+
+def _reap_empty_import_shell(job: Any) -> bool:
+    """Tombstone the empty program shell a failed import left behind (#2615).
+
+    Soft-deleted rather than hard-deleted: the program row's ``server_version``
+    bump is what reaches offline sync consumers, and a hard delete would strand
+    a client that had already seen the shell — the same reasoning that makes
+    ``soft_delete_program_subtree`` tombstone the program instead of removing it.
+    There is no program Trash (#2587), so this is not recoverable through the UI;
+    that is why every guard below is a *reason not to touch it*.
+
+    Returns True when a shell was retired.
+    """
+    from trueppm_api.apps.projects.models import (
+        ImportJobStatus,
+        Program,
+        ProgramImportJob,
+        Project,
+    )
+
+    program = Program.objects.filter(pk=job.program_id, is_deleted=False).first()
+    if program is None:  # already gone, or already tombstoned by a replace
+        return False
+    if Project.objects.filter(program_id=program.pk, is_deleted=False).exists():
+        return False
+    # A later import that succeeded into the same shell makes it real, even
+    # though *this* job failed.
+    if (
+        ProgramImportJob.objects.filter(program_id=program.pk)
+        .exclude(pk=job.pk)
+        .exclude(status=ImportJobStatus.FAILED)
+        .exists()
+    ):
+        return False
+    # The ``server_version`` bump ``soft_delete`` writes is the delivery
+    # mechanism: an offline client learns the shell is gone from its next sync
+    # delta, which is the same path that carries every other program tombstone.
+    #
+    # Deliberately **no** ``program_deleted`` broadcast, unlike
+    # ``soft_delete_program_subtree``. That one runs in a request a user is
+    # watching; this runs in a nightly sweep, weeks later, over a shell that by
+    # definition nobody has open. And ``broadcast_board_event`` is synchronous
+    # (``async_to_sync`` over the channel layer) with no enclosing atomic block
+    # here, so ``on_commit`` would fire it inline — up to ``PURGE_BATCH_SIZE``
+    # blocking round-trips inside the same 55 s budget the batching above exists
+    # to protect, for an event that no consumer can currently receive anyway
+    # (program groups have no ``group_add``, #836).
+    program.soft_delete()
+    return True
 
 
 # ---------------------------------------------------------------------------

@@ -34,7 +34,7 @@ SECRET_KEY = env("SECRET_KEY", default="django-insecure-change-me-in-prod")
 # When set explicitly it is strength-validated in prod exactly like SECRET_KEY
 # (see core.security_checks.validate_signing_key); when it defaults to SECRET_KEY
 # the SECRET_KEY validation already covers it. Rotation runbook:
-# docs/administration/secret-rotation.md.
+# packages/website/src/content/docs/administration/secret-rotation.md.
 JWT_SIGNING_KEY = env("JWT_SIGNING_KEY", default=SECRET_KEY)
 
 DEBUG = False
@@ -1071,7 +1071,8 @@ INTEGRATION_ENCRYPTION_KEY: str = env(
 # verification, git-link refresh, webhooks, SMTP relay, SSO), so an allow-listed
 # host is reachable through the user-influenceable URL surfaces too — only list a
 # host at least as trusted as the SSO issuer. See ADR-0590 and the "Running the
-# identity provider inside your cluster" section of docs/administration/single-sign-on.
+# identity provider inside your cluster" section of
+# packages/website/src/content/docs/administration/single-sign-on.md.
 EGRESS_ALLOWLISTED_HOSTS: list[str] = env.list("TRUEPPM_EGRESS_ALLOWLISTED_HOSTS", default=[])
 
 # Per-provider base-URL allow-list for user-connected external task sources
@@ -1236,6 +1237,15 @@ JIRA_IMPORT_MAX_ROWS: int = env.int("JIRA_IMPORT_MAX_ROWS", default=20_000)
 # (the largest bundled sample is a few hundred KB); 5 MB is generous headroom
 # while bounding the memory a single authenticated import request can consume.
 SEED_MAX_UPLOAD_MB: int = env.int("SEED_MAX_UPLOAD_MB", default=5)
+
+# Max seed imports one account may have queued or running at once (#2615). The
+# ``seed_import`` throttle bounds the *rate* of job creation; it does not bound
+# how many of those jobs are outstanding, because the per-program in-flight
+# de-dupe in ``enqueue_program_import`` can never match on this path — the
+# request creates a fresh Program three lines earlier, so a brand-new program
+# has no prior job to de-dupe against. Without a per-user ceiling, six requests
+# a minute sustained becomes an unbounded worker backlog of full subtree builds.
+SEED_IMPORT_MAX_CONCURRENT_JOBS: int = env.int("SEED_IMPORT_MAX_CONCURRENT_JOBS", default=3)
 
 # ---------------------------------------------------------------------------
 # Django REST Framework

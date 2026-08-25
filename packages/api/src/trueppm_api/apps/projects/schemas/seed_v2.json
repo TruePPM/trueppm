@@ -20,19 +20,23 @@
     "program": { "$ref": "#/$defs/program" },
     "accounts": {
       "type": "array",
+      "maxItems": 2000,
       "description": "User logins referenced by the seed. Created only when import runs with --create-users; on the sample path they resolve to namespaced unusable-password persona rows.",
       "items": { "$ref": "#/$defs/account" }
     },
     "calendars": {
       "type": "array",
+      "maxItems": 200,
       "items": { "$ref": "#/$defs/calendar" }
     },
     "resources": {
       "type": "array",
+      "maxItems": 5000,
       "items": { "$ref": "#/$defs/resource" }
     },
     "risks": {
       "type": "array",
+      "maxItems": 5000,
       "description": "Program-scoped risks. Project-scoped risks live under each project.",
       "items": { "$ref": "#/$defs/risk" }
     },
@@ -96,7 +100,7 @@
           "description": "Program natural key. Persisted into Program.code; re-import upserts on (workspace, code)."
         },
         "name": { "type": "string", "minLength": 1, "maxLength": 255 },
-        "description": { "type": "string" },
+        "description": { "type": "string", "maxLength": 100000 },
         "methodology": { "enum": ["WATERFALL", "AGILE", "HYBRID"] },
         "color": { "$ref": "#/$defs/color" },
         "lead": {
@@ -229,7 +233,7 @@
         "duration": { "type": "integer", "minimum": 0 },
         "planned_start": { "$ref": "#/$defs/seedDate" },
         "percent_complete": { "type": "number", "minimum": 0, "maximum": 100 },
-        "notes": { "type": "string" },
+        "notes": { "type": "string", "maxLength": 10000 },
         "estimate": { "$ref": "#/$defs/estimate" },
         "story_points": { "type": "integer", "minimum": 0 },
         "remaining_points": { "type": "integer", "minimum": 0 },
@@ -305,8 +309,8 @@
       "properties": {
         "slug": { "$ref": "#/$defs/slug" },
         "name": { "type": "string", "minLength": 1, "maxLength": 255 },
-        "goal": { "type": "string" },
-        "notes": { "type": "string" },
+        "goal": { "type": "string", "maxLength": 10000 },
+        "notes": { "type": "string", "maxLength": 10000 },
         "start_date": { "$ref": "#/$defs/seedDate" },
         "finish_date": { "$ref": "#/$defs/seedDate" },
         "state": { "enum": ["PLANNED", "ACTIVE", "COMPLETED", "CANCELLED"] },
@@ -355,16 +359,16 @@
       "properties": {
         "slug": { "$ref": "#/$defs/slug" },
         "title": { "type": "string", "minLength": 1, "maxLength": 512 },
-        "description": { "type": "string" },
+        "description": { "type": "string", "maxLength": 100000 },
         "status": { "enum": ["OPEN", "MITIGATING", "RESOLVED", "ACCEPTED", "CLOSED"] },
         "probability": { "type": "integer", "minimum": 1, "maximum": 5 },
         "impact": { "type": "integer", "minimum": 1, "maximum": 5 },
         "category": { "enum": ["TECHNICAL", "EXTERNAL", "ORGANIZATIONAL", "PROJECT_MANAGEMENT"] },
         "response": { "enum": ["AVOID", "MITIGATE", "TRANSFER", "ACCEPT"] },
         "mitigation_due_date": { "$ref": "#/$defs/seedDate" },
-        "trigger": { "type": "string" },
-        "contingency": { "type": "string" },
-        "notes": { "type": "string" },
+        "trigger": { "type": "string", "maxLength": 10000 },
+        "contingency": { "type": "string", "maxLength": 10000 },
+        "notes": { "type": "string", "maxLength": 10000 },
         "owner": { "$ref": "#/$defs/slug" },
         "tasks": {
           "type": "array",
@@ -441,7 +445,7 @@
       "properties": {
         "slug": { "$ref": "#/$defs/slug" },
         "name": { "type": "string", "minLength": 1, "maxLength": 255 },
-        "description": { "type": "string" },
+        "description": { "type": "string", "maxLength": 100000 },
         "methodology": { "enum": ["WATERFALL", "AGILE", "HYBRID"] },
         "start_date": { "$ref": "#/$defs/seedDate" },
         "calendar": { "$ref": "#/$defs/slug" },

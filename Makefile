@@ -349,6 +349,13 @@ version-status-check: ## Run the docs:version-accuracy CI job locally (#2941)
 	@# any docs branch can trip this. ~3s, no network.
 	@bash scripts/check-version-status.sh
 
+docs-tree-split-check: ## Run the docs:tree-split CI job locally (#2928)
+	@# No *.md basename may exist in both docs/ and the published website tree,
+	@# and no source pointer may name a docs/<published-tree>/ page that is not
+	@# there. `docs/administration/` was a second, ungated copy of eight pages for
+	@# months while `backup.sh --help` sent operators to the stale half. ~1s.
+	@bash scripts/check-docs-tree-split.sh
+
 ws-event-reachability-check: ## Run the docs:ws-event-reachability CI job locally (#2941)
 	@# Every WS event named in the published taxonomy must be deliverable to a
 	@# client, or carry a `not deliverable` marker. 50ms.
@@ -376,7 +383,7 @@ nginx-headers-check: ## Fail if the five nginx configs disagree on the hardening
 	@# are skipped (loudly) when helm is not on PATH — CI always has it.
 	@bash scripts/check-nginx-security-headers.sh
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check playwright-pins-check web-rule-numbers-check web-row-vocabulary-check design-system-check adr-status-check version-status-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check prepush-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check playwright-pins-check web-rule-numbers-check web-row-vocabulary-check design-system-check adr-status-check version-status-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check prepush-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/

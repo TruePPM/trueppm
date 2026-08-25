@@ -13,7 +13,7 @@
 # The Redis snapshot, if present in the artifact, is intentionally NOT restored:
 # the cache and Celery broker are reconstructible from PostgreSQL, and forcing a
 # stale RDB back onto a running instance would resurrect dead queue state. See
-# docs/administration/backup-restore.md for the rationale.
+# https://docs.trueppm.com/administration/backup-restore/ for the rationale.
 #
 # Connection is parameterized through env / flags, identical to backup.sh, so
 # the same script restores onto the Compose dev stack or a Helm-deployed cluster.
