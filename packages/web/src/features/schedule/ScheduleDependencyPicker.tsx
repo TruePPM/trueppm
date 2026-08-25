@@ -1,3 +1,12 @@
+import {
+  LINK_TYPE_OPTIONS,
+  LAG_MIN_DAYS,
+  LAG_MAX_DAYS,
+  LAG_FIELD_LABEL,
+  LAG_FIELD_HINT,
+  LAG_UNIT_SUFFIX,
+  type CanonicalLinkType,
+} from './deps/linkTypes';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Task } from '@/types';
@@ -37,7 +46,9 @@ import { highlightSegments, prefixSegments } from '@/lib/searchHighlight';
  * was the only commit and it closes, so the picker was one-link-per-open by
  * construction.
  *
- * Submits via the shared `useAddDependency` hook (FS, lag 0). A cross-project
+ * Submits via the shared `useAddDependency` hook, carrying the type and lag
+ * chosen in the dialog (#3023 step 3 — it posted FS/0 unconditionally before,
+ * and the drawer was the only place to change them). A cross-project
  * edge may come back `pending_acceptance` (ADR-0120 D2 consent gate); the
  * success toast reflects that. The server's cycle-detection 400 (now
  * program-scoped) surfaces inline below the result list so the user can pick a
@@ -107,7 +118,6 @@ interface CrossGroup {
   projectName: string;
   items: PickItem[];
 }
-
 
 /**
  * Match a row against the query the way a planner means it (#2958).
@@ -236,33 +246,32 @@ export function ScheduleDependencyPicker({
   const projectItems = useMemo<PickItem[]>(() => {
     if (scope !== 'project') return [];
     const q = search.trim().toLowerCase();
-    return allTasks
-      .filter((t) => t.id !== task.id)
-      .filter((t) => !excludedIds.has(t.id) && !addedIds.has(t.id))
-      // A leading digit reads as a WBS PREFIX, anything else as a name substring
-      // (#2958). Typing `1.` means "everything in phase 1" — matching it as a
-      // loose substring against names too would bury those rows among every task
-      // whose title happens to contain a 1.
-      .filter((t) => matchesQuery(t.name, t.wbs ?? '', q))
-      .map<PickItem>((t) => ({
-        id: t.id,
-        name: t.name,
-        projectId,
-        isCross: false,
-        wbs: t.wbs,
-        status: t.status,
-        isMilestone: t.isMilestone,
-      }));
+    return (
+      allTasks
+        .filter((t) => t.id !== task.id)
+        .filter((t) => !excludedIds.has(t.id) && !addedIds.has(t.id))
+        // A leading digit reads as a WBS PREFIX, anything else as a name substring
+        // (#2958). Typing `1.` means "everything in phase 1" — matching it as a
+        // loose substring against names too would bury those rows among every task
+        // whose title happens to contain a 1.
+        .filter((t) => matchesQuery(t.name, t.wbs ?? '', q))
+        .map<PickItem>((t) => ({
+          id: t.id,
+          name: t.name,
+          projectId,
+          isCross: false,
+          wbs: t.wbs,
+          status: t.status,
+          isMilestone: t.isMilestone,
+        }))
+    );
   }, [scope, allTasks, task.id, excludedIds, addedIds, search, projectId]);
 
   // The list is capped, so the count has to say so (#2958). A silent
   // `.slice(0, 12)` reads as "these are all your options" — which, on a picker
   // whose whole job is finding one row among many, is the failure mode.
   const projectMatchTotal = projectItems.length;
-  const shownProjectItems = useMemo(
-    () => projectItems.slice(0, MAX_RESULTS),
-    [projectItems],
-  );
+  const shownProjectItems = useMemo(() => projectItems.slice(0, MAX_RESULTS), [projectItems]);
 
   const crossGroups = useMemo<CrossGroup[]>(() => {
     if (scope !== 'program') return [];
@@ -307,14 +316,51 @@ export function ScheduleDependencyPicker({
     if (flatItems.length === 0 && inList) setInList(false);
   }, [flatItems.length, inList]);
 
+  /**
+   * The terms the next link is created with (#3023 step 3).
+   *
+   * **Picker-level rather than per-row, and that is not a compromise here.**
+   * The picker commits exactly one link per Enter or Space, so a picker-level
+   * control *is* per-link — and because the controls persist across a Space
+   * multi-add, a planner can add two FS links, switch to SS, and add a third
+   * without reopening. Per-row terms only become expressible when step 4 turns
+   * the list into checkboxes and several links commit at once; that is the
+   * change that should move these onto the row, not this one.
+   *
+   * Lag is held as TEXT, not a number. A number state forces a decision about
+   * what the empty field means, and every answer is wrong: 0 silently rewrites
+   * what the user cleared, NaN leaks into the payload, and null needs a second
+   * branch at every read. Text defers it to one place — {@link parsedLag} —
+   * where "empty" and "-" (mid-typing a lead) both resolve to 0.
+   */
+  const [depType, setDepType] = useState<CanonicalLinkType>('FS');
+  const [lagText, setLagText] = useState('0');
+
+  /**
+   * The lag actually sent. Clamped to the bounds the drawer enforces, so the
+   * picker cannot mint a link the surface that owns editing would refuse.
+   */
+  const parsedLag = useMemo(() => {
+    const n = Number.parseInt(lagText, 10);
+    if (Number.isNaN(n)) return 0;
+    return Math.min(LAG_MAX_DAYS, Math.max(LAG_MIN_DAYS, n));
+  }, [lagText]);
+
+  const typeFieldId = `${listboxId}-type`;
+  const lagFieldId = `${listboxId}-lag`;
+
   const submit = useCallback(
     (target: PickItem, opts?: { keepOpen?: boolean }) => {
       const keepOpen = opts?.keepOpen ?? false;
       setCycleMessage(null);
-      const payload =
+      const ends =
         mode === 'predecessor'
           ? { predecessor: target.id, successor: task.id }
           : { predecessor: task.id, successor: target.id };
+      // The whole link, stated once. Before #3023 the picker posted FS/0 and
+      // type and lag were editable only afterwards in the drawer, which made
+      // every non-FS link a two-surface, two-mutation act.
+      const payload = { ...ends, dep_type: depType, lag: parsedLag };
       addDep.mutate(payload, {
         onSuccess: (data) => {
           if (target.isCross) {
@@ -343,7 +389,7 @@ export function ScheduleDependencyPicker({
         },
       });
     },
-    [addDep, mode, task.id, onClose],
+    [addDep, mode, task.id, onClose, depType, parsedLag],
   );
 
   // Keep refs in sync for the window keydown handler.
@@ -351,10 +397,18 @@ export function ScheduleDependencyPicker({
   const itemsRef = useRef<PickItem[]>([]);
   const activeIdxRef = useRef(0);
   const inListRef = useRef(false);
-  useEffect(() => { submitRef.current = submit; }, [submit]);
-  useEffect(() => { itemsRef.current = flatItems; }, [flatItems]);
-  useEffect(() => { activeIdxRef.current = activeIdx; }, [activeIdx]);
-  useEffect(() => { inListRef.current = inList; }, [inList]);
+  useEffect(() => {
+    submitRef.current = submit;
+  }, [submit]);
+  useEffect(() => {
+    itemsRef.current = flatItems;
+  }, [flatItems]);
+  useEffect(() => {
+    activeIdxRef.current = activeIdx;
+  }, [activeIdx]);
+  useEffect(() => {
+    inListRef.current = inList;
+  }, [inList]);
 
   const switchScope = useCallback((next: Scope) => {
     setScope(next);
@@ -376,6 +430,15 @@ export function ScheduleDependencyPicker({
   // before it can reach this window-level listener.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Every binding below steers the LIST, so each one belongs to the search
+      // field and to nothing else. Space and Enter already carried this guard
+      // (a Tabbed-to × button would otherwise commit a link); the arrows did
+      // not, because until #3023 there was nothing else in the dialog to Tab
+      // to. The link-terms controls change that: ↓ inside the type `<select>`
+      // is how you choose SS, and ↑/↓ inside a number input is how you step the
+      // lag — both would have been preventDefault()'d into moving the row caret
+      // instead, silently, on the surface whose keyboard contract is the point.
+      if (e.target !== inputRef.current) return;
       if (e.key === 'ArrowLeft' && canCrossProject) {
         e.preventDefault();
         switchScope('project');
@@ -508,9 +571,7 @@ export function ScheduleDependencyPicker({
         className="relative mx-3 w-full max-w-[480px] max-h-[480px] bg-neutral-surface border border-neutral-border rounded-card flex flex-col focus:outline-none"
       >
         <div className="h-12 flex items-center justify-between px-4 border-b border-neutral-border">
-          <h2 className="text-sm font-medium text-neutral-text-primary truncate">
-            {title}
-          </h2>
+          <h2 className="text-sm font-medium text-neutral-text-primary truncate">{title}</h2>
           <button
             type="button"
             aria-label="Close"
@@ -559,12 +620,50 @@ export function ScheduleDependencyPicker({
             aria-autocomplete="list"
             aria-expanded={flatItems.length > 0}
             aria-controls={flatItems.length > 0 ? listboxId : undefined}
-            aria-activedescendant={
-              inList && flatItems[activeIdx] ? optionId(activeIdx) : undefined
-            }
+            aria-activedescendant={inList && flatItems[activeIdx] ? optionId(activeIdx) : undefined}
             aria-describedby={matchTotal > 0 ? countId : undefined}
             className="w-full h-9 px-3 text-[13px] border border-neutral-border rounded-control bg-neutral-surface text-neutral-text-primary placeholder:text-neutral-text-secondary focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
           />
+        </div>
+
+        {/* The terms the next link carries (#3023 step 3). Placed BELOW the
+            search field and ABOVE the results, because they describe the link
+            that pressing Enter on a row will make — a control that changes what
+            a commit does has to be visible before the commit, not discovered
+            afterwards in the drawer. Both persist across a Space multi-add, so
+            a run of SS links is set once rather than per row. */}
+        <div className="flex items-center gap-2 px-4 pb-2">
+          <label htmlFor={typeFieldId} className="text-xs text-neutral-text-secondary shrink-0">
+            Link
+          </label>
+          <select
+            id={typeFieldId}
+            value={depType}
+            onChange={(e) => setDepType(e.target.value as CanonicalLinkType)}
+            className="text-xs border border-neutral-border rounded-control px-1.5 py-1
+              bg-neutral-surface text-neutral-text-primary
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          >
+            {LINK_TYPE_OPTIONS.map((dt) => (
+              <option key={dt.value} value={dt.value}>
+                {dt.label}
+              </option>
+            ))}
+          </select>
+          <input
+            id={lagFieldId}
+            type="number"
+            value={lagText}
+            min={LAG_MIN_DAYS}
+            max={LAG_MAX_DAYS}
+            aria-label={LAG_FIELD_LABEL}
+            title={LAG_FIELD_HINT}
+            onChange={(e) => setLagText(e.target.value)}
+            className="w-16 text-xs border border-neutral-border rounded-control px-1.5 py-1 text-center
+              bg-neutral-surface text-neutral-text-primary
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          />
+          <span className="text-xs text-neutral-text-secondary shrink-0">{LAG_UNIT_SUFFIX}</span>
         </div>
 
         {matchTotal > 0 && (
@@ -576,10 +675,7 @@ export function ScheduleDependencyPicker({
           // the row announcement the planner is navigating by (rule 316). It
           // reaches a screen reader through the input's `aria-describedby`,
           // which is read on demand rather than shouted on change.
-          <p
-            id={countId}
-            className="px-3 pb-1 text-xs text-neutral-text-secondary"
-          >
+          <p id={countId} className="px-3 pb-1 text-xs text-neutral-text-secondary">
             {`${shownCount} of ${matchTotal} ${matchTotal === 1 ? 'match' : 'matches'}`}
             {countIsPartial ? ' — keep typing to narrow' : ''}
           </p>
@@ -737,7 +833,11 @@ function ProgramResults({
   }
   if (isLoading) {
     return (
-      <div className="flex-1 overflow-y-auto px-4 pb-2 pt-1" aria-busy="true" aria-label="Loading tasks">
+      <div
+        className="flex-1 overflow-y-auto px-4 pb-2 pt-1"
+        aria-busy="true"
+        aria-label="Loading tasks"
+      >
         {[0, 1, 2].map((i) => (
           <div
             key={i}

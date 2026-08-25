@@ -139,7 +139,7 @@ test.describe('Dependency picker keyboard contract (#3024)', () => {
 
     // ↓ walks into the list and lands on the FIRST row — not the second.
     await search.press('ArrowDown');
-    const firstOption = dialog.getByRole('option').first();
+    const firstOption = dialog.getByRole('listbox').getByRole('option').first();
     await expect(search).toHaveAttribute('aria-activedescendant', /.+/);
     expect(await search.getAttribute('aria-activedescendant')).toBe(
       await firstOption.getAttribute('id'),
@@ -193,14 +193,14 @@ test.describe('Dependency picker keyboard contract (#3024)', () => {
 
     // A leading digit is a WBS prefix: the mark lands in the code column.
     await search.fill('2');
-    const wbsRow = dialog.getByRole('option').first();
+    const wbsRow = dialog.getByRole('listbox').getByRole('option').first();
     await expect(wbsRow.locator('mark')).toHaveText('2');
     await expect(wbsRow).toContainText('Lay-down area survey');
 
     // Anything else is a name substring: the mark moves to the name, with the
     // row's own casing preserved.
     await search.fill('lay');
-    const nameRow = dialog.getByRole('option').first();
+    const nameRow = dialog.getByRole('listbox').getByRole('option').first();
     await expect(nameRow.locator('mark')).toHaveText('Lay');
   });
 
@@ -222,7 +222,7 @@ test.describe('Dependency picker keyboard contract (#3024)', () => {
     await mockDependencies(page);
     const dialog = await openPredecessorPicker(page);
     const search = dialog.getByLabel('Search tasks');
-    await expect(dialog.getByRole('option').first()).toBeVisible();
+    await expect(dialog.getByRole('listbox').getByRole('option').first()).toBeVisible();
     await expectNoA11yViolations(page, testInfo, scanDialogOnly);
 
     // Again with the caret inside the list, which is when `aria-activedescendant`

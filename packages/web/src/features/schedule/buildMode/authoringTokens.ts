@@ -40,22 +40,24 @@ import {
  * the same syntax is how the two would drift.
  */
 
-/** The four dependency types, in the order `⌥→` cycles through them. */
-export const DEPENDENCY_TYPE_CYCLE = ['FS', 'SS', 'FF', 'SF'] as const;
-export type DependencyType = (typeof DEPENDENCY_TYPE_CYCLE)[number];
-
 /**
- * Advance a dependency type one step around the cycle, wrapping at the end.
+ * The four dependency types, in the order `⌥→` cycles through them.
  *
- * Kept here rather than in the component so the binding and the grammar cannot
- * disagree about the order — the cheatsheet renders `DEPENDENCY_TYPE_CYCLE`.
+ * Re-exported from `deps/linkTypes`, not declared here. This module's docstring
+ * used to say the order lived here "so the binding and the grammar cannot
+ * disagree" — which was true of those two and blind to the other two copies
+ * (`depFlag`'s canonical sort, the drawer's `<select>`). Three files each
+ * believing they were the single source is how a vocabulary drifts (#3023).
+ *
+ * The names stay for the cheatsheet and the `⌥→` binding that import them.
  */
-export function cycleDependencyType(current: DependencyType, steps = 1): DependencyType {
-  const i = DEPENDENCY_TYPE_CYCLE.indexOf(current);
-  const len = DEPENDENCY_TYPE_CYCLE.length;
-  // `% len` twice so a negative `steps` (⌥← ) wraps forward rather than indexing out.
-  return DEPENDENCY_TYPE_CYCLE[(((i + steps) % len) + len) % len];
-}
+// Imported as well as re-exported: this module uses both names internally, and
+// a bare `export … from` re-exports without binding them in local scope.
+import { LINK_TYPES, cycleLinkType, type CanonicalLinkType } from '../deps/linkTypes';
+
+export const DEPENDENCY_TYPE_CYCLE = LINK_TYPES;
+export const cycleDependencyType = cycleLinkType;
+export type DependencyType = CanonicalLinkType;
 
 /** Aliases the author may type for a delivery mode. The key is what they type. */
 const DELIVERY_MODE_ALIASES: Record<string, DeliveryMode> = {
@@ -74,7 +76,13 @@ const DELIVERY_MODE_ALIASES: Record<string, DeliveryMode> = {
 /** Every delivery-mode word the grammar accepts — drives the type-ahead list. */
 export const DELIVERY_MODE_WORDS = Object.keys(DELIVERY_MODE_ALIASES);
 
-export type TokenKind = 'duration' | 'owner' | 'predecessor' | 'milestone' | 'deliveryMode' | 'parent';
+export type TokenKind =
+  | 'duration'
+  | 'owner'
+  | 'predecessor'
+  | 'milestone'
+  | 'deliveryMode'
+  | 'parent';
 
 /** One token lifted out of a raw draft, before anything is resolved. */
 export interface AuthoringToken {
@@ -224,11 +232,22 @@ export function parseAuthoringTokens(raw: string): AnyAuthoringToken[] {
     if (!mode) {
       // An unknown mode word is still a token — it has to reach `unresolved` so it
       // gets an amber underline, rather than vanishing into the task name.
-      const unknownMode: DeliveryModeToken = { kind: 'deliveryMode', raw: m[1], start, query: word };
+      const unknownMode: DeliveryModeToken = {
+        kind: 'deliveryMode',
+        raw: m[1],
+        start,
+        query: word,
+      };
       tokens.push(unknownMode);
       continue;
     }
-    const modeToken: DeliveryModeToken = { kind: 'deliveryMode', raw: m[1], start, query: word, mode };
+    const modeToken: DeliveryModeToken = {
+      kind: 'deliveryMode',
+      raw: m[1],
+      start,
+      query: word,
+      mode,
+    };
     tokens.push(modeToken);
   }
 
@@ -520,7 +539,10 @@ export interface ActiveTokenFragment {
  * Returns the LAST open sigil before the caret, so typing `>2.3 @an` offers people
  * rather than tasks.
  */
-export function activeTokenFragment(draft: string, caret = draft.length): ActiveTokenFragment | null {
+export function activeTokenFragment(
+  draft: string,
+  caret = draft.length,
+): ActiveTokenFragment | null {
   const upToCaret = draft.slice(0, caret);
 
   let best: ActiveTokenFragment | null = null;
@@ -580,11 +602,7 @@ export function segmentAuthoringName(
  * Pure string work, so "what does ⌥→ do here" is answerable without a DOM. `steps`
  * is negative for `⌥←`.
  */
-export function cycleDependencyTypeInDraft(
-  draft: string,
-  caret: number,
-  steps = 1,
-): string | null {
+export function cycleDependencyTypeInDraft(draft: string, caret: number, steps = 1): string | null {
   const tokens = parseAuthoringTokens(draft).filter(
     (t): t is PredecessorToken => t.kind === 'predecessor',
   );
@@ -597,13 +615,10 @@ export function cycleDependencyTypeInDraft(
   if (!target) return null;
 
   const next = cycleDependencyType(target.depType, steps);
-  const lagSuffix =
-    target.lag === 0 ? '' : `${target.lag > 0 ? '+' : '-'}${Math.abs(target.lag)}d`;
+  const lagSuffix = target.lag === 0 ? '' : `${target.lag > 0 ? '+' : '-'}${Math.abs(target.lag)}d`;
   const body = /\s/.test(target.query) ? `"${target.query}"` : target.query;
   // FS is the default spelling, so cycling back to it drops the suffix rather than
   // leaving a redundant `:FS` behind.
   const rewritten = `>${body}${next === 'FS' ? '' : `:${next}`}${lagSuffix}`;
-  return (
-    draft.slice(0, target.start) + rewritten + draft.slice(target.start + target.raw.length)
-  );
+  return draft.slice(0, target.start) + rewritten + draft.slice(target.start + target.raw.length);
 }

@@ -173,16 +173,28 @@ function renderPicker(props: Partial<ScheduleDependencyPickerProps> = {}) {
   };
 }
 
+/**
+ * The result rows, scoped to the listbox.
+ *
+ * NOT `rowOptions()`. Since #3023 the dialog also contains a
+ * link-type `<select>`, and a native `<option>` carries the implicit role
+ * `option` too — so an unscoped query returns four extra elements that are not
+ * rows, and every count and index in this file silently shifts. The `<select>`
+ * itself is a `combobox`, never a `listbox`, so scoping here is unambiguous.
+ */
+function rowOptions(): HTMLElement[] {
+  const listbox = screen.queryByRole('listbox');
+  return listbox ? within(listbox).queryAllByRole('option') : [];
+}
+
 /** Accessible names of the currently-rendered option rows, in list order. */
 function optionNames(): string[] {
-  return screen
-    .queryAllByRole('option')
-    .map((o) => o.textContent?.replace(/\s+/g, ' ').trim() ?? '');
+  return rowOptions().map((o) => o.textContent?.replace(/\s+/g, ' ').trim() ?? '');
 }
 
 /** Index of the option row currently marked `aria-selected`. */
 function selectedIndex(): number {
-  return screen.queryAllByRole('option').findIndex((o) => o.getAttribute('aria-selected') === 'true');
+  return rowOptions().findIndex((o) => o.getAttribute('aria-selected') === 'true');
 }
 
 function searchInput(): HTMLElement {
@@ -267,7 +279,7 @@ describe('ScheduleDependencyPicker — single-project (no regression)', () => {
     );
     fireEvent.click(screen.getByRole('option', { name: /Design review/ }));
     expect(mutateSpy).toHaveBeenCalledWith(
-      { predecessor: 't-local-1', successor: 't-source' },
+      { predecessor: 't-local-1', successor: 't-source', dep_type: 'FS', lag: 0 },
       expect.any(Object),
     );
     expect(infoSpy).not.toHaveBeenCalled();
@@ -359,7 +371,7 @@ describe('ScheduleDependencyPicker — cross-project (ADR-0120)', () => {
 
     // successor mode: source → picked
     expect(mutateSpy).toHaveBeenCalledWith(
-      { predecessor: 't-source', successor: 'x1' },
+      { predecessor: 't-source', successor: 'x1', dep_type: 'FS', lag: 0 },
       expect.any(Object),
     );
     expect(successSpy).toHaveBeenCalledWith(expect.stringContaining('Security'));
@@ -531,7 +543,7 @@ describe('ScheduleDependencyPicker — project-scope filtering', () => {
   it('shows the project-scope empty state when nothing matches', () => {
     renderPicker();
     fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: 'nope' } });
-    expect(screen.queryAllByRole('option')).toHaveLength(0);
+    expect(rowOptions()).toHaveLength(0);
     expect(screen.getByText(/No matching tasks\. Try a different search\./)).toBeInTheDocument();
   });
 
@@ -540,7 +552,7 @@ describe('ScheduleDependencyPicker — project-scope filtering', () => {
       makeTask({ id: `t-${i}`, name: `Task ${i}`, wbs: `2.${i}` }),
     );
     renderPicker({ allTasks: many });
-    expect(screen.getAllByRole('option')).toHaveLength(12);
+    expect(rowOptions()).toHaveLength(12);
   });
 
   it('falls back to an em dash when a task has no WBS code', () => {
@@ -558,7 +570,13 @@ describe('ScheduleDependencyPicker — project-scope filtering', () => {
   it('renders a milestone marker instead of a status chip for a milestone', () => {
     renderPicker({
       allTasks: [
-        makeTask({ id: 't-ms', name: 'Go live', wbs: '4', isMilestone: true, status: 'NOT_STARTED' }),
+        makeTask({
+          id: 't-ms',
+          name: 'Go live',
+          wbs: '4',
+          isMilestone: true,
+          status: 'NOT_STARTED',
+        }),
       ],
     });
     const row = screen.getByRole('option', { name: /Go live/ });
@@ -577,7 +595,7 @@ describe('ScheduleDependencyPicker — keyboard navigation', () => {
 
     pressKey('ArrowDown');
     expect(selectedIndex()).toBe(0);
-    expect(activeDescendantOption()).toBe(screen.getAllByRole('option')[0]);
+    expect(activeDescendantOption()).toBe(rowOptions()[0]);
 
     pressKey('ArrowDown');
     expect(selectedIndex()).toBe(1);
@@ -610,7 +628,7 @@ describe('ScheduleDependencyPicker — keyboard navigation', () => {
     pressKey('ArrowDown');
     pressKey('Enter');
     expect(mutateSpy).toHaveBeenCalledWith(
-      { predecessor: 't-local-2', successor: 't-source' },
+      { predecessor: 't-local-2', successor: 't-source', dep_type: 'FS', lag: 0 },
       expect.any(Object),
     );
     expect(onClose).toHaveBeenCalled();
@@ -653,7 +671,7 @@ describe('ScheduleDependencyPicker — keyboard navigation', () => {
 
     // The schedule dropped a task while the picker was open.
     view.rerenderWith({ allTasks: [LOCAL_TASKS[0]] });
-    expect(screen.getAllByRole('option')).toHaveLength(1);
+    expect(rowOptions()).toHaveLength(1);
     expect(selectedIndex()).toBe(0);
   });
 
@@ -768,7 +786,7 @@ describe('ScheduleDependencyPicker — program-scope states', () => {
     expect(refetchSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('renders a cross-project row\'s server-decoded reference, never its raw hex short_id (#2671)', async () => {
+  it("renders a cross-project row's server-decoded reference, never its raw hex short_id (#2671)", async () => {
     searchState.data = CROSS_ROWS;
     renderPicker({ programId: 'prog-1', initialScope: 'program' });
     fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: 'sec' } });
@@ -783,7 +801,13 @@ describe('ScheduleDependencyPicker — program-scope states', () => {
 
   it('drops the source task and already-linked tasks from the program results', async () => {
     searchState.data = [
-      { id: 't-source', name: 'Source task', short_id: 'SRC-1', project_id: 'p1', project_name: 'Mine' },
+      {
+        id: 't-source',
+        name: 'Source task',
+        short_id: 'SRC-1',
+        project_id: 'p1',
+        project_name: 'Mine',
+      },
       ...CROSS_ROWS,
     ];
     renderPicker({
@@ -836,7 +860,7 @@ describe('ScheduleDependencyPicker — program-scope states', () => {
     pressKey('ArrowDown');
     pressKey('Enter');
     expect(mutateSpy).toHaveBeenCalledWith(
-      { predecessor: 'x2', successor: 't-source' },
+      { predecessor: 'x2', successor: 't-source', dep_type: 'FS', lag: 0 },
       expect.any(Object),
     );
   });
@@ -892,7 +916,7 @@ describe('ScheduleDependencyPicker — Space adds without closing (#3024)', () =
     fireEvent.keyDown(searchInput(), { key: ' ' });
 
     expect(mutateSpy).toHaveBeenCalledWith(
-      { predecessor: 't-local-1', successor: 't-source' },
+      { predecessor: 't-local-1', successor: 't-source', dep_type: 'FS', lag: 0 },
       expect.any(Object),
     );
     // The picker STAYS OPEN — that is what makes it multi-add. `Enter` is the
@@ -919,6 +943,11 @@ describe('ScheduleDependencyPicker — Space adds without closing (#3024)', () =
     expect(mutateSpy.mock.calls[1][0]).toEqual({
       predecessor: 't-local-2',
       successor: 't-source',
+      // The terms persist ACROSS a Space multi-add (#3023 step 3) — they are
+      // set once for the run rather than reverting to FS/0 between rows, which
+      // is what makes "add three SS links" one decision instead of three.
+      dep_type: 'FS',
+      lag: 0,
     });
     expect(onClose).not.toHaveBeenCalled();
   });
@@ -1000,11 +1029,11 @@ describe('ScheduleDependencyPicker — aria-activedescendant over a listbox (#30
   it('tracks the active row as the arrows move it', () => {
     renderPicker();
     pressKey('ArrowDown');
-    const rows = screen.getAllByRole('option');
+    const rows = rowOptions();
     expect(activeDescendantOption()).toBe(rows[0]);
 
     pressKey('ArrowDown');
-    expect(activeDescendantOption()).toBe(screen.getAllByRole('option')[1]);
+    expect(activeDescendantOption()).toBe(rowOptions()[1]);
   });
 
   it('names the row explicitly, so a highlighted name is not read as one word', () => {
@@ -1013,7 +1042,9 @@ describe('ScheduleDependencyPicker — aria-activedescendant over a listbox (#30
     // Accessible-name computation trims each text node before joining, so a name
     // split across <mark>/<span> would announce "Designreview". This is what
     // `aria-activedescendant` makes a screen reader read on every arrow press.
-    expect(screen.getByRole('option', { name: '1.1 Design review not started' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('option', { name: '1.1 Design review not started' }),
+    ).toBeInTheDocument();
   });
 
   it('tracks a cross-project row across groups', async () => {
@@ -1025,7 +1056,7 @@ describe('ScheduleDependencyPicker — aria-activedescendant over a listbox (#30
     pressKey('ArrowDown');
     pressKey('ArrowDown');
     pressKey('ArrowDown');
-    expect(activeDescendantOption()).toBe(screen.getAllByRole('option')[2]);
+    expect(activeDescendantOption()).toBe(rowOptions()[2]);
     // The project header is a group name, not an option — a bare <div> is not a
     // legal listbox child and would announce the project twice.
     expect(screen.getByRole('group', { name: 'Legal' })).toBeInTheDocument();
@@ -1050,7 +1081,7 @@ describe('ScheduleDependencyPicker — the match is marked (#3024)', () => {
     });
     fireEvent.change(searchInput(), { target: { value: '1.' } });
 
-    const rows = screen.getAllByRole('option');
+    const rows = rowOptions();
     expect(markedText(rows[0])).toEqual(['1.']);
     expect(markedText(rows[1])).toEqual(['1.']);
   });
@@ -1061,7 +1092,7 @@ describe('ScheduleDependencyPicker — the match is marked (#3024)', () => {
     });
     fireEvent.change(searchInput(), { target: { value: 'lay' } });
 
-    const row = screen.getAllByRole('option')[0];
+    const row = rowOptions()[0];
     // The original casing survives — the mark states where the hit was, it does
     // not restate the query.
     expect(markedText(row)).toEqual(['Lay']);
@@ -1069,7 +1100,7 @@ describe('ScheduleDependencyPicker — the match is marked (#3024)', () => {
 
   it('marks nothing when there is no query', () => {
     renderPicker();
-    expect(markedText(screen.getAllByRole('option')[0])).toEqual([]);
+    expect(markedText(rowOptions()[0])).toEqual([]);
   });
 
   it('a WBS-prefix hit and a name-substring hit are distinguishable', () => {
@@ -1078,23 +1109,23 @@ describe('ScheduleDependencyPicker — the match is marked (#3024)', () => {
     renderPicker({ allTasks: [makeTask({ id: 'a', wbs: '1.1', name: 'Phase 1 kickoff' })] });
 
     fireEvent.change(searchInput(), { target: { value: '1.' } });
-    const wbsHit = screen.getAllByRole('option')[0];
+    const wbsHit = rowOptions()[0];
     expect(within(wbsHit).getByText('1.').tagName).toBe('MARK');
 
     fireEvent.change(searchInput(), { target: { value: 'kick' } });
-    const nameHit = screen.getAllByRole('option')[0];
+    const nameHit = rowOptions()[0];
     expect(within(nameHit).getByText('kick').tagName).toBe('MARK');
     // …and the WBS column carries no mark this time.
     expect(markedText(nameHit)).toEqual(['kick']);
   });
 
-  it('never marks a cross-project row\'s server-formatted reference', async () => {
+  it("never marks a cross-project row's server-formatted reference", async () => {
     searchState.data = CROSS_ROWS;
     renderPicker({ programId: 'prog-1', initialScope: 'program' });
     // `SEC-3` is a server id, not a WBS code — prefix semantics do not apply.
     fireEvent.change(searchInput(), { target: { value: '3' } });
     await screen.findByRole('listbox', { name: 'Program task results' });
-    for (const row of screen.getAllByRole('option')) expect(markedText(row)).toEqual([]);
+    for (const row of rowOptions()) expect(markedText(row)).toEqual([]);
   });
 });
 
@@ -1164,7 +1195,7 @@ describe('ScheduleDependencyPicker — a commit key is a commit only from the fi
     // is what makes it inert — otherwise this passes without exercising it.
     renderPicker();
     fireEvent.change(searchInput(), { target: { value: 'nope' } });
-    expect(screen.queryAllByRole('option')).toHaveLength(0);
+    expect(rowOptions()).toHaveLength(0);
     pressKey('Enter');
     expect(mutateSpy).not.toHaveBeenCalled();
   });
@@ -1179,12 +1210,16 @@ describe('ScheduleDependencyPicker — the footer states which mode you are in (
   it('promises Space once ↓ has entered the list', () => {
     renderPicker();
     pressKey('ArrowDown');
-    expect(screen.getByText('↑↓ move · Space add · Enter add & close · Esc cancel')).toBeInTheDocument();
+    expect(
+      screen.getByText('↑↓ move · Space add · Enter add & close · Esc cancel'),
+    ).toBeInTheDocument();
   });
 
   it('keeps the scope hint in both modes for a programmed project', () => {
     renderPicker({ programId: 'prog-1' });
-    expect(screen.getByText('←→ scope · ↓ into list · Enter add & close · Esc cancel')).toBeInTheDocument();
+    expect(
+      screen.getByText('←→ scope · ↓ into list · Enter add & close · Esc cancel'),
+    ).toBeInTheDocument();
     pressKey('ArrowDown');
     expect(
       screen.getByText('←→ scope · ↑↓ move · Space add · Enter add & close · Esc cancel'),
@@ -1211,7 +1246,7 @@ describe('ScheduleDependencyPicker — program scope marks what the SERVER match
     renderPicker({ programId: 'prog-1', initialScope: 'program' });
     fireEvent.change(searchInput(), { target: { value: '2' } });
     await screen.findByRole('listbox', { name: 'Program task results' });
-    expect(markedText(screen.getAllByRole('option')[0])).toEqual(['2']);
+    expect(markedText(rowOptions()[0])).toEqual(['2']);
   });
 
   it('says to narrow when the server hit its 200-row ceiling', async () => {
@@ -1255,5 +1290,154 @@ describe('ScheduleDependencyPicker — the count describes, it does not shout (#
     pressKey('ArrowDown');
     pressKey(' ');
     expect(screen.getByRole('status')).toHaveTextContent('Added “Design review” — 1 link added');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The picker writes the WHOLE link — type and lead/lag (#3023 step 3)
+// ---------------------------------------------------------------------------
+
+describe('ScheduleDependencyPicker — the link terms (#3023 step 3)', () => {
+  /** The link-type `<select>`. Named, not positional — the dialog's other
+   *  combobox is the search field, and #3024's whole subject is that the two
+   *  must not be confused. */
+  function typeSelect(): HTMLSelectElement {
+    return screen.getByLabelText('Link');
+  }
+  function lagInput(): HTMLInputElement {
+    return screen.getByLabelText('Lag days');
+  }
+
+  /** Walk into the list and commit the active row with Enter. */
+  function commitFirstRow() {
+    fireEvent.keyDown(searchInput(), { key: 'ArrowDown' });
+    fireEvent.keyDown(searchInput(), { key: 'Enter' });
+  }
+
+  it('offers the four types, in the canonical order, from the shared vocabulary', () => {
+    renderPicker();
+    // Order is load-bearing, not cosmetic: `depFlag` sorts by it so two rows
+    // with the same links read the same regardless of arrival order, and `⌥→`
+    // cycles through it. Before #3023 it was declared in three files.
+    expect(
+      within(typeSelect())
+        .getAllByRole('option')
+        .map((o) => (o as HTMLOptionElement).value),
+    ).toEqual(['FS', 'SS', 'FF', 'SF']);
+  });
+
+  it('sends the chosen type instead of hardcoding FS', () => {
+    renderPicker();
+    mutateSpy.mockClear();
+    fireEvent.change(typeSelect(), { target: { value: 'SS' } });
+    commitFirstRow();
+    expect(mutateSpy.mock.calls[0][0]).toMatchObject({ dep_type: 'SS' });
+  });
+
+  it('sends a positive lag', () => {
+    renderPicker();
+    mutateSpy.mockClear();
+    fireEvent.change(lagInput(), { target: { value: '3' } });
+    commitFirstRow();
+    expect(mutateSpy.mock.calls[0][0]).toMatchObject({ lag: 3 });
+  });
+
+  it('sends a NEGATIVE lag as a lead, which is the whole reason the field is signed', () => {
+    renderPicker();
+    mutateSpy.mockClear();
+    fireEvent.change(lagInput(), { target: { value: '-2' } });
+    commitFirstRow();
+    expect(mutateSpy.mock.calls[0][0]).toMatchObject({ lag: -2 });
+  });
+
+  it('treats an emptied field as 0 rather than sending NaN', () => {
+    // The field is held as text precisely so this case has ONE answer in ONE
+    // place. A number state would have to decide what "" means at every read.
+    renderPicker();
+    mutateSpy.mockClear();
+    fireEvent.change(lagInput(), { target: { value: '' } });
+    commitFirstRow();
+    expect(mutateSpy.mock.calls[0][0]).toMatchObject({ lag: 0 });
+  });
+
+  it('treats a lone minus sign as 0 — mid-typing a lead is not a value yet', () => {
+    renderPicker();
+    mutateSpy.mockClear();
+    fireEvent.change(lagInput(), { target: { value: '-' } });
+    commitFirstRow();
+    expect(mutateSpy.mock.calls[0][0]).toMatchObject({ lag: 0 });
+  });
+
+  it('clamps to the bounds the DRAWER enforces, so it cannot mint an uneditable link', () => {
+    // The drawer owns editing and refuses beyond ±365. A picker that could
+    // create 400 would produce a link its own edit surface rejects.
+    renderPicker();
+    mutateSpy.mockClear();
+    fireEvent.change(lagInput(), { target: { value: '9999' } });
+    commitFirstRow();
+    expect(mutateSpy.mock.calls[0][0]).toMatchObject({ lag: 365 });
+
+    mutateSpy.mockClear();
+    fireEvent.change(lagInput(), { target: { value: '-9999' } });
+    commitFirstRow();
+    expect(mutateSpy.mock.calls[0][0]).toMatchObject({ lag: -365 });
+  });
+
+  it('carries the terms across a Space multi-add, so a run of SS links is one decision', () => {
+    renderPicker();
+    mutateSpy.mockClear();
+    fireEvent.change(typeSelect(), { target: { value: 'FF' } });
+    fireEvent.change(lagInput(), { target: { value: '5' } });
+
+    fireEvent.keyDown(searchInput(), { key: 'ArrowDown' });
+    fireEvent.keyDown(searchInput(), { key: ' ' });
+    fireEvent.keyDown(searchInput(), { key: ' ' });
+
+    expect(mutateSpy).toHaveBeenCalledTimes(2);
+    for (const call of mutateSpy.mock.calls) {
+      expect(call[0]).toMatchObject({ dep_type: 'FF', lag: 5 });
+    }
+  });
+
+  it('leaves the row caret alone when an arrow key is pressed INSIDE the terms', () => {
+    // The regression this change would otherwise have introduced. Every arrow
+    // binding steers the result list and calls preventDefault(), so without a
+    // focus-target guard, `↓` inside the type select — the way you choose SS —
+    // would move the row highlight and never reach the control. Space and Enter
+    // already carried this guard; the arrows did not, because until now there
+    // was nothing else in the dialog to Tab to.
+    renderPicker();
+    fireEvent.keyDown(searchInput(), { key: 'ArrowDown' }); // enter the list
+    expect(selectedIndex()).toBe(0);
+    // Enough rows that a move is observable. The first draft of this test
+    // pressed ↓ ↓ ↑ and passed with the guard REMOVED: the fixture has two
+    // rows, so the second ↓ clamped and the ↑ undid the first — a
+    // self-cancelling sequence that measured nothing. One press from a known
+    // index is what makes the assertion bite.
+    expect(rowOptions().length).toBeGreaterThan(1);
+
+    fireEvent.keyDown(typeSelect(), { key: 'ArrowDown' });
+    expect(selectedIndex()).toBe(0);
+  });
+
+  it('leaves the row caret alone when ↑ is pressed inside the terms', () => {
+    // The other direction, from a non-zero index so it cannot pass by clamping.
+    renderPicker();
+    fireEvent.keyDown(searchInput(), { key: 'ArrowDown' }); // enter at 0
+    fireEvent.keyDown(searchInput(), { key: 'ArrowDown' }); // move to 1
+    expect(selectedIndex()).toBe(1);
+
+    fireEvent.keyDown(lagInput(), { key: 'ArrowUp' });
+    expect(selectedIndex()).toBe(1);
+  });
+
+  it('does not commit a link when Enter is pressed inside the terms', () => {
+    // Same guard, sharper consequence: Enter in a number field is a form-submit
+    // idiom, and swallowing it here would write an edge the user never picked.
+    renderPicker();
+    fireEvent.keyDown(searchInput(), { key: 'ArrowDown' });
+    mutateSpy.mockClear();
+    fireEvent.keyDown(lagInput(), { key: 'Enter' });
+    expect(mutateSpy).not.toHaveBeenCalled();
   });
 });
