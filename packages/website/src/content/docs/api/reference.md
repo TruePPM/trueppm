@@ -517,6 +517,23 @@ CPM fields (`early_start`, `early_finish`, `late_start`, `late_finish`, `total_f
 
 Assigning a **phase** (a task that rolls up one or more real child tasks) to a sprint is rejected unconditionally with `400` and a standard field error on `sprint` carrying the stable code `phase_in_sprint_forbidden`. This is a hard invariant — it is *not* affected by the project's guardrail policy and cannot be escalated or relaxed by an Owner (assigning a phase to a sprint double-counts velocity). Assign the child tasks inside the phase instead. Other sprint-composition guardrails (`summary_in_sprint`, `task_outside_sprint_window`, `recurring_in_sprint`) remain Warn-by-default and are configurable via the guardrail policy.
 
+#### Who may create a task
+
+`POST /api/v1/tasks/` requires **Team Member or above, minus the Resource Manager
+band (ordinals 200–299)** — the same rule the batch endpoint enforces. Read
+`can_author` on the project resource rather than comparing role ordinals yourself:
+Resource Manager sits *above* Team Member in the role order and is nonetheless
+refused task content, so `role >= Member` gets exactly that role wrong.
+
+:::note[Ships in 0.4]
+The single-row refusal ships in **TruePPM 0.4**. On `v0.3.0-alpha.3` (the latest
+release) `POST /api/v1/tasks/` accepts a Resource Manager's create and then refuses
+every subsequent `PATCH` and `DELETE` on the row it just made, because create gates
+on `IsProjectMemberWrite` while update and destroy gate on the per-task rule. The
+batch endpoint already refuses the band on that release; only the single-row path
+changes.
+:::
+
 #### Placement on create
 
 :::note[Ships in 0.4]

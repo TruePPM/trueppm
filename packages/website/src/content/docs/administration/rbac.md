@@ -1,6 +1,7 @@
 ---
 title: Roles and Permissions
 description: TruePPM's 5-role RBAC model — setup, enforcement, and permission matrix.
+documentedFor: "0.4"
 ---
 
 TruePPM uses a 5-role per-project permission model stored in `ProjectMembership` and enforced on every API endpoint and WebSocket connection.
@@ -157,3 +158,19 @@ WebSocket connections authenticate with a short-lived, single-use **ticket** (`?
 Every task in the API response carries two read-only booleans for the requesting user: `can_edit` and `can_delete`. They are computed server-side from the **same** predicate the write-permission check enforces (`can_user_edit_task`), so a client never re-implements the rule and the declared capability can never drift from the enforced one. The values reflect the full per-task rule, including the assignee-own case (a Member may edit a task only when they are its assignee) and the Product Owner facet (a PO may edit — but not delete — `EPIC`/`STORY` items). `can_delete` differs from `can_edit` only for a Product Owner, who grooms stories but does not delete them.
 
 These flags are advisory for clients (the server still authorizes every write — hiding a control is defense-in-depth, never the only gate). The web app gates the entire task detail drawer off `can_edit`: a user who cannot edit a task sees a fully read-only drawer with a **"View only"** indicator in the header, rather than controls that silently fail on submit. A future admin role-capability matrix view (`GET /projects/{id}/role-capabilities/`) will expose the full role × capability grid for compliance review.
+
+### `can_author` — may this user author the plan at all?
+
+`GET /projects/{id}/` carries a third read-only boolean, `can_author`. Where `can_edit` and `can_delete` answer "may this user change **this row**", `can_author` answers the project-level question that comes before it: **is there an authoring mode to be in.** It is computed from the same predicate the task-authoring endpoints enforce, so — like the per-task flags — the answer a client reads is the answer the server will give.
+
+The rule is *not* "Team Member or above". It is Team Member or above **minus the resource-management band (200–299)**:
+
+```
+role >= Member  and not  (Scheduler <= role < Admin)
+```
+
+That exclusion is the whole point of the field, and it is why a client must read it rather than compare ordinals. A Resource Manager sits *above* Team Member on the ladder and is nonetheless refused task content — so the obvious `role >= Member` test gets exactly one role wrong, and gets it wrong in the direction that shows someone a control the server will refuse. The band form (rather than "is this role exactly Scheduler") means an Enterprise custom role registered at 201–299 inherits the same exclusion instead of silently gaining authoring rights the tier beside it does not have.
+
+:::note[Ships in 0.4]
+The client half of this ships in **TruePPM 0.4**, the first beta. The `can_author` field itself is already on the wire in `v0.3.0-alpha.3`, the latest release — but nothing in the web app reads it. On the current release the Schedule and Grid derive edit rights from a client-side role comparison, so a **Resource Manager is shown the full authoring apparatus** — the Author/Read toggle, insert affordances, the row menu, editable cells — and is then refused on save. Wiring both surfaces to `can_author` lands in 0.4, so that a Resource Manager will get the same **"View only"** absence a Viewer gets; `POST /api/v1/tasks/` will refuse the band outright in the same release, rather than accepting a row the same user cannot subsequently edit.
+:::

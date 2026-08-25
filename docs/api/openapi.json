@@ -39420,7 +39420,7 @@
         "/api/v1/tasks/{id}/": {
             "get": {
                 "operationId": "v1_tasks_retrieve",
-                "description": "CRUD for tasks within a project.\n\nCPM output fields (early_start, early_finish, late_start, late_finish,\ntotal_float, free_float, is_critical) are read-only and populated by\nthe auto-scheduling Celery task.\n\nPermission matrix (issue #11):\n  list/retrieve    — any member (IsProjectMember)\n  create           — Team Member+ (IsProjectMemberWrite)\n  update/destroy   — Project Manager+ or assignee (IsProjectMemberWriteOrOwn)",
+                "description": "CRUD for tasks within a project.\n\nCPM output fields (early_start, early_finish, late_start, late_finish,\ntotal_float, free_float, is_critical) are read-only and populated by\nthe auto-scheduling Celery task.\n\nPermission matrix (issue #11):\n  list/retrieve    — any member (IsProjectMember)\n  create           — plan authors (IsProjectMemberWrite + IsProjectPlanAuthor);\n                     Member+ minus the 200-299 resource-management band, #3034\n  update/destroy   — Project Manager+ or assignee (IsProjectMemberWriteOrOwn)",
                 "parameters": [
                     {
                         "in": "path",
@@ -39482,7 +39482,7 @@
             },
             "put": {
                 "operationId": "v1_tasks_update",
-                "description": "CRUD for tasks within a project.\n\nCPM output fields (early_start, early_finish, late_start, late_finish,\ntotal_float, free_float, is_critical) are read-only and populated by\nthe auto-scheduling Celery task.\n\nPermission matrix (issue #11):\n  list/retrieve    — any member (IsProjectMember)\n  create           — Team Member+ (IsProjectMemberWrite)\n  update/destroy   — Project Manager+ or assignee (IsProjectMemberWriteOrOwn)",
+                "description": "CRUD for tasks within a project.\n\nCPM output fields (early_start, early_finish, late_start, late_finish,\ntotal_float, free_float, is_critical) are read-only and populated by\nthe auto-scheduling Celery task.\n\nPermission matrix (issue #11):\n  list/retrieve    — any member (IsProjectMember)\n  create           — plan authors (IsProjectMemberWrite + IsProjectPlanAuthor);\n                     Member+ minus the 200-299 resource-management band, #3034\n  update/destroy   — Project Manager+ or assignee (IsProjectMemberWriteOrOwn)",
                 "parameters": [
                     {
                         "in": "path",
@@ -39571,7 +39571,7 @@
             },
             "patch": {
                 "operationId": "v1_tasks_partial_update",
-                "description": "CRUD for tasks within a project.\n\nCPM output fields (early_start, early_finish, late_start, late_finish,\ntotal_float, free_float, is_critical) are read-only and populated by\nthe auto-scheduling Celery task.\n\nPermission matrix (issue #11):\n  list/retrieve    — any member (IsProjectMember)\n  create           — Team Member+ (IsProjectMemberWrite)\n  update/destroy   — Project Manager+ or assignee (IsProjectMemberWriteOrOwn)",
+                "description": "CRUD for tasks within a project.\n\nCPM output fields (early_start, early_finish, late_start, late_finish,\ntotal_float, free_float, is_critical) are read-only and populated by\nthe auto-scheduling Celery task.\n\nPermission matrix (issue #11):\n  list/retrieve    — any member (IsProjectMember)\n  create           — plan authors (IsProjectMemberWrite + IsProjectPlanAuthor);\n                     Member+ minus the 200-299 resource-management band, #3034\n  update/destroy   — Project Manager+ or assignee (IsProjectMemberWriteOrOwn)",
                 "parameters": [
                     {
                         "in": "path",
@@ -39659,7 +39659,7 @@
             },
             "delete": {
                 "operationId": "v1_tasks_destroy",
-                "description": "CRUD for tasks within a project.\n\nCPM output fields (early_start, early_finish, late_start, late_finish,\ntotal_float, free_float, is_critical) are read-only and populated by\nthe auto-scheduling Celery task.\n\nPermission matrix (issue #11):\n  list/retrieve    — any member (IsProjectMember)\n  create           — Team Member+ (IsProjectMemberWrite)\n  update/destroy   — Project Manager+ or assignee (IsProjectMemberWriteOrOwn)",
+                "description": "CRUD for tasks within a project.\n\nCPM output fields (early_start, early_finish, late_start, late_finish,\ntotal_float, free_float, is_critical) are read-only and populated by\nthe auto-scheduling Celery task.\n\nPermission matrix (issue #11):\n  list/retrieve    — any member (IsProjectMember)\n  create           — plan authors (IsProjectMemberWrite + IsProjectPlanAuthor);\n                     Member+ minus the 200-299 resource-management band, #3034\n  update/destroy   — Project Manager+ or assignee (IsProjectMemberWriteOrOwn)",
                 "parameters": [
                     {
                         "in": "path",

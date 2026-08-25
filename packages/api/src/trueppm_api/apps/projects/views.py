@@ -5117,7 +5117,8 @@ class TaskViewSet(
 
     Permission matrix (issue #11):
       list/retrieve    — any member (IsProjectMember)
-      create           — Team Member+ (IsProjectMemberWrite)
+      create           — plan authors (IsProjectMemberWrite + IsProjectPlanAuthor);
+                         Member+ minus the 200-299 resource-management band, #3034
       update/destroy   — Project Manager+ or assignee (IsProjectMemberWriteOrOwn)
     """
 
@@ -5137,8 +5138,34 @@ class TaskViewSet(
         # un-delete it (Admin+ or the task's assignee via IsProjectMemberWriteOrOwn).
         if self.action in ("update", "partial_update", "destroy", "restore"):
             return [IsAuthenticated(), IsProjectMemberWriteOrOwn(), IsProjectNotArchived()]
+        # ADR-0773 §(d) / #3034: create carries IsProjectPlanAuthor *alongside*
+        # IsProjectMemberWrite, per ADR-0184's additive doctrine. Without it this
+        # branch admits Role.SCHEDULER (200 >= MEMBER) while the update/destroy
+        # branch above refuses it (IsProjectMemberWriteOrOwn -> can_user_edit_task
+        # -> False for the resource-management band). That asymmetry is not a
+        # cosmetic inconsistency: the row COMMITS and every subsequent edit 403s,
+        # which is the exact trap can_user_author_plan's docstring was written
+        # about. Refusing at create closes the window at its source, so a client
+        # that fails to read `can_author` can no longer half-author a plan.
+        #
+        # This takes nothing from a legitimate Scheduler: the band already could
+        # not edit or delete the task it had just created, and resource assignment
+        # runs through the TaskResource endpoints, not this one.
+        #
+        # What actually enforces it: `/api/v1/tasks/` is a flat route, so
+        # `_project_pk_from_view` finds no `project_pk` and has_permission falls
+        # through (#2745) — the load-bearing call is `perform_create`'s explicit
+        # `check_object_permissions(request, project)`, which reaches
+        # has_object_permission with the resolved Project. Removing that call
+        # silently un-gates this branch; the pytest in
+        # tests/apps/projects/test_task_bulk_contract.py is what would catch it.
         if self.action == "create":
-            return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
+            return [
+                IsAuthenticated(),
+                IsProjectMemberWrite(),
+                IsProjectPlanAuthor(),
+                IsProjectNotArchived(),
+            ]
         # ADR-0766 (#2597): withdraw_approval shares approve_estimates's gate —
         # whoever can grant a SUGGEST_APPROVE approval can revoke it. Both must be
         # named here because this override replaces the @action's inline

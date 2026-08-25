@@ -288,7 +288,18 @@ export async function setupPinned(page: Page, items: PinnedFixture[]): Promise<v
  * for specific URLs (last-registered wins).
  */
 export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Promise<void> {
-  const projects = opts.projects ?? [DEFAULT_PROJECT];
+  // `can_author` (ADR-0773 §(d), #3034) is the Designer's authoring gate: the
+  // Schedule and the Grid render their authoring apparatus only when the server
+  // says yes. It is defaulted on here rather than added to DEFAULT_PROJECT
+  // because most specs pass their OWN `projects` array, which replaces the
+  // default wholesale — without this every one of them would silently drop to
+  // read-only and fail on a missing control, for a reason nothing in the spec
+  // names. A spec exercising the refusal sets `can_author: false` on its
+  // fixture and that wins, because the spread is second.
+  const projects = (opts.projects ?? [DEFAULT_PROJECT]).map((p) => ({
+    can_author: true,
+    ...p,
+  }));
   const projectId = opts.projectId ?? projects[0].id;
   const user = opts.user ?? DEFAULT_USER;
   const overview: OverviewFixture = { ...DEFAULT_OVERVIEW, ...opts.overview };

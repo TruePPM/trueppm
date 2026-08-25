@@ -17,6 +17,7 @@ import {
   ROLE_ADMIN,
   ROLE_OWNER,
   canEditTask,
+  canAuthorPlan,
   canEditRisk,
   progressCompleteAutoStatus,
 } from './roles';
@@ -86,6 +87,28 @@ describe('canEditTask', () => {
 
   it('denies a custom role below Member', () => {
     expect(canEditTask(ROLE_VIEWER + 50)).toBe(false);
+  });
+});
+
+describe('canAuthorPlan (#3034, ADR-0773 §(d))', () => {
+  it('takes the server verdict verbatim', () => {
+    expect(canAuthorPlan(true)).toBe(true);
+    expect(canAuthorPlan(false)).toBe(false);
+  });
+
+  it('denies while the project detail is unresolved (undefined)', () => {
+    // The apparatus is ABSENT until the server answers (#2949) — a control
+    // briefly offered and then refused teaches a reader the product is broken.
+    expect(canAuthorPlan(undefined)).toBe(false);
+  });
+
+  it('is NOT canEditTask — the Scheduler band is where they disagree', () => {
+    // The whole reason this resolver exists. `canEditTask(ROLE_SCHEDULER)` is
+    // true (200 >= 100), and the server's answer for that band is false. Any
+    // future "simplification" that routes the Designer gate back through an
+    // ordinal comparison reintroduces #3034, so the disagreement is pinned here.
+    expect(canEditTask(ROLE_SCHEDULER)).toBe(true);
+    expect(canAuthorPlan(false)).toBe(false);
   });
 });
 

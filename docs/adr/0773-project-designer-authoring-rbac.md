@@ -222,10 +222,30 @@ references across its 12 components. The Designer must not fix that by importing
 `ROLE_MEMBER` and writing `role >= ROLE_MEMBER` in the toggle: that reproduces the
 Scheduler bug on the client, where nothing will catch it. Consume the server field.
 
+> **Amended 2026-08-25 (#3034) — §(d) is wired, and `TaskViewSet.create` joins the map.**
+>
+> The warning above was not heeded, and the predicted failure is exactly what shipped:
+> `ScheduleView.tsx` derived its Read/Author gate from `canEditTask(currentRole)` —
+> `role >= ROLE_MEMBER` — and `can_author` had **zero** readers anywhere in the client.
+> A Scheduler was offered the whole authoring apparatus. Both surfaces that render the
+> Designer's rows (`ScheduleView`, `GridView`) now read `can_author` through one
+> resolver, `canAuthorPlan` in `packages/web/src/lib/roles.ts`.
+>
+> The same issue settled the open half of the split this ADR described but did not fix:
+> **`TaskViewSet.create` now carries `IsProjectPlanAuthor`** alongside
+> `IsProjectMemberWrite`. Context above documents the asymmetry — create admits the
+> Scheduler band, update/destroy refuses it, so the row commits and every subsequent
+> keystroke 403s — as a live consequence rather than a decision, which left the client
+> as the only thing standing between a Scheduler and a half-authored plan. It is now
+> refused at its source. This removes no capability the band actually had: it could
+> never edit or delete the row it created, and resource assignment runs through the
+> `TaskResource` endpoints.
+
 ### Endpoint → class map
 
 | Endpoint | Issue | `permission_classes` | Per-row gate in body |
 |---|---|---|---|
+| `POST /projects/{pk}/tasks/` | #3034 | `IsAuthenticated, IsProjectMemberWrite, IsProjectPlanAuthor, IsProjectNotArchived` | `can_user_edit_task` on update/destroy via `IsProjectMemberWriteOrOwn` (unchanged) |
 | `POST /projects/{pk}/tasks/bulk/` | #2723 | `IsAuthenticated, IsProjectMemberWrite, IsProjectPlanAuthor, IsProjectNotArchived` | `can_user_edit_task` on every update; `_require_wbs_restructure_permission` on any op that moves a row |
 | subtree classification cascade | #2735 | `IsAuthenticated, IsProjectAdmin, IsProjectNotArchived` | none — Admin edits any row |
 | template apply / seed | #2729 | `IsAuthenticated, IsProjectAdmin, IsProjectNotArchived` | — |

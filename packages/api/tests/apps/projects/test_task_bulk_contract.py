@@ -772,6 +772,44 @@ def test_role_can_author_plan_excludes_the_whole_resource_management_band() -> N
 
 
 @pytest.mark.django_db
+def test_single_row_create_refuses_the_scheduler_band_at_the_source(project: Project) -> None:
+    """The decision #3034 records: ``TaskViewSet.create`` gains ``IsProjectPlanAuthor``.
+
+    ADR-0773 described the single-row split as a live consequence and did not close
+    it: ``create`` gated on ``IsProjectMemberWrite`` (which admits Scheduler at
+    200 >= 100) while ``update``/``destroy`` gated on ``IsProjectMemberWriteOrOwn``
+    (which refuses the band). So the row committed and every subsequent keystroke
+    403'd — survivable in a modal, a trap in a row grid.
+
+    The batch endpoint already refused this (see the test above). Pinning the
+    single-row path here is what stops the two drifting apart again, and what makes
+    the client gate defense-in-depth rather than the only defense.
+    """
+    scheduler_client = _member(project, "sched_create", Role.SCHEDULER)
+    r = scheduler_client.post(
+        "/api/v1/tasks/",
+        {"project": str(project.pk), "name": "X", "duration": 1},
+        format="json",
+    )
+    assert r.status_code == 403, r.data
+    # The point of refusing at create: nothing is left half-authored behind it.
+    assert Task.objects.filter(project=project).count() == 0
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("role", [Role.MEMBER, Role.ADMIN, Role.OWNER])
+def test_single_row_create_still_admits_every_authoring_role(project: Project, role: int) -> None:
+    """The band exclusion is not a raised floor — Member+ outside 200-299 is unaffected."""
+    client = _member(project, f"create_ok_{role}", role)
+    r = client.post(
+        "/api/v1/tasks/",
+        {"project": str(project.pk), "name": "X", "duration": 1},
+        format="json",
+    )
+    assert r.status_code == 201, r.data
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "role",
     [Role.VIEWER, Role.MEMBER, Role.SCHEDULER, Role.ADMIN, Role.OWNER],

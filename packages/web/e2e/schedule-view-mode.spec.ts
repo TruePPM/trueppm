@@ -180,9 +180,21 @@ test.describe('Grid ↔ Timeline — a viewer gets absence on BOTH surfaces (#29
     await setupAuth(page);
     await setupCatchAll(page);
     await setupApiMocks(page, { projects: PROJECTS, projectId: PROJECT_ID, tasks: TASKS });
-    // `setupApiMocks` hard-codes `?self=true` to role 300 regardless of its
-    // `members` option, so the caller's role has to be overridden here — and
-    // AFTER it, since Playwright matches the most recent registration first.
+    // Two overrides, because a viewer is two facts since #3034. The
+    // project-level "is there an authoring mode at all" gate is the server's
+    // `can_author` (ADR-0773 §(d)) — NOT the role ordinal, which is what let a
+    // Scheduler through. The role still decides the per-row verdict, so both are
+    // set. Registered AFTER `setupApiMocks`, since Playwright matches the most
+    // recent registration first.
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ ...PROJECTS[0], can_author: false }),
+          })
+        : route.continue(),
+    );
     // ROLE_VIEWER is **1**, not 100 — 100 is MEMBER, which can edit tasks
     // (ADR-0072). `useCurrentUserRole` reads row 0 of the array.
     await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (route) =>
