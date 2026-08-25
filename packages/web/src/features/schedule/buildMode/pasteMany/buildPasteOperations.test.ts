@@ -26,6 +26,7 @@ function member(id: string, name: string): ProjectResource {
 }
 
 const ANA = member('r-ana', 'Ana Rivera');
+const ANA_S = member('r-ana-s', 'Ana Silva');
 const POOL = [ANA];
 
 function sequentialIds() {
@@ -111,13 +112,69 @@ describe('buildPasteOperations', () => {
     expect(result.operations[0].data.owners).toEqual([{ resource: 'r-ana', units: 1 }]);
   });
 
-  it('an unresolvable owner value is silently dropped, not rejected — the row still commits', () => {
+  it('an unresolvable owner value is dropped, not rejected — the row still commits', () => {
     const rows = parsePastedText('Task\tOwner\nSurvey\tSomeone Unknown');
     const columns = inferColumns(rows, true);
     const result = buildPasteOperations(rows, columns, POOL, null, true, sequentialIds());
 
     expect(result.operations[0].data).not.toHaveProperty('owners');
     expect(result.operations).toHaveLength(1);
+  });
+
+  it('records an off-roster owner on the receipt instead of dropping it silently', () => {
+    const rows = parsePastedText('Task\tOwner\nSurvey\tSomeone Unknown');
+    const columns = inferColumns(rows, true);
+    const result = buildPasteOperations(rows, columns, POOL, null, true, sequentialIds());
+
+    expect(result.summary.unmatchedOwnerCount).toBe(1);
+    expect(result.summary.ambiguousOwnerCount).toBe(0);
+    expect(result.droppedOwners).toEqual([
+      { id: 'id-1', value: 'Someone Unknown', reason: 'unmatched' },
+    ]);
+  });
+
+  it('distinguishes an ambiguous owner from an unknown one — the repairs differ', () => {
+    // "Ana" names both roster members; matchRosterMember returned null for this
+    // and for a typo alike, so neither could be told apart downstream (#2905).
+    const rows = parsePastedText('Task\tOwner\nSurvey\tAna\nDesign\tNobody Here');
+    const columns = inferColumns(rows, true);
+    const result = buildPasteOperations(
+      rows,
+      columns,
+      [ANA, ANA_S],
+      null,
+      true,
+      sequentialIds(),
+    );
+
+    expect(result.summary.ambiguousOwnerCount).toBe(1);
+    expect(result.summary.unmatchedOwnerCount).toBe(1);
+    expect(result.droppedOwners).toEqual([
+      { id: 'id-1', value: 'Ana', reason: 'ambiguous' },
+      { id: 'id-2', value: 'Nobody Here', reason: 'unmatched' },
+    ]);
+    // Neither row binds an owner — an ambiguous name must never pick a candidate.
+    expect(result.operations[0].data).not.toHaveProperty('owners');
+    expect(result.operations[1].data).not.toHaveProperty('owners');
+  });
+
+  it('a resolved owner is not reported as dropped', () => {
+    const rows = parsePastedText('Task\tOwner\nSurvey\tAna Rivera');
+    const columns = inferColumns(rows, true);
+    const result = buildPasteOperations(rows, columns, POOL, null, true, sequentialIds());
+
+    expect(result.summary.unmatchedOwnerCount).toBe(0);
+    expect(result.summary.ambiguousOwnerCount).toBe(0);
+    expect(result.droppedOwners).toEqual([]);
+  });
+
+  it('a blank owner cell is not a dropped owner — the author asked for nothing', () => {
+    const rows = parsePastedText('Task\tOwner\nSurvey\t');
+    const columns = inferColumns(rows, true);
+    const result = buildPasteOperations(rows, columns, POOL, null, true, sequentialIds());
+
+    expect(result.summary.unmatchedOwnerCount).toBe(0);
+    expect(result.droppedOwners).toEqual([]);
   });
 
   it('skips a row whose name cell is blank rather than creating an empty task', () => {

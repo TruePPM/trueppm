@@ -3,6 +3,7 @@ import type { ProjectResource } from '@/types';
 import {
   activeOwnerQuery,
   matchRosterMember,
+  resolveRosterMember,
   ownerTokensToApiPayload,
   parseOwnerDraft,
   parseOwnerTokens,
@@ -90,6 +91,52 @@ describe('matchRosterMember', () => {
 
   it('never reaches outside the supplied roster', () => {
     expect(matchRosterMember('ana', [BEN])).toBeNull();
+  });
+});
+
+describe('resolveRosterMember', () => {
+  it('states WHY a query failed — matchRosterMember collapses both to null', () => {
+    // The whole point of the wider return (#2905): a typo needs correcting and an
+    // ambiguous name needs a fuller one, and a bare null cannot tell them apart.
+    expect(matchRosterMember('ana', [ANA, ANA_S])).toBeNull();
+    expect(matchRosterMember('nobody', [ANA, ANA_S])).toBeNull();
+
+    expect(resolveRosterMember('ana', [ANA, ANA_S]).status).toBe('ambiguous');
+    expect(resolveRosterMember('nobody', [ANA, ANA_S]).status).toBe('unmatched');
+  });
+
+  it('names the candidates an ambiguous query matched', () => {
+    const result = resolveRosterMember('ana', [ANA, ANA_S]);
+    expect(result.member).toBeNull();
+    expect(result.candidates.map((c) => c.resourceId).sort()).toEqual(
+      [ANA.resourceId, ANA_S.resourceId].sort(),
+    );
+  });
+
+  it('carries no candidates on a match or a miss', () => {
+    expect(resolveRosterMember('ben', POOL).candidates).toEqual([]);
+    expect(resolveRosterMember('nobody', POOL).candidates).toEqual([]);
+  });
+
+  it('an exact name beats a prefix tier that would have been ambiguous', () => {
+    // "An" is exact for one member and a prefix of the other two; the exact tier
+    // resolves first, so this is a match rather than an ambiguity.
+    const pool = [member('r-an', 'An'), ANA, ANA_S];
+    const result = resolveRosterMember('An', pool);
+    expect(result.status).toBe('matched');
+    expect(result.member?.resourceId).toBe('r-an');
+  });
+
+  it('a blank query is unmatched, not ambiguous, however large the roster', () => {
+    expect(resolveRosterMember('   ', [ANA, ANA_S]).status).toBe('unmatched');
+  });
+
+  it('matchRosterMember returns exactly the resolver member', () => {
+    for (const q of ['ben', 'ana', 'nobody', '']) {
+      expect(matchRosterMember(q, [ANA, ANA_S, BEN])).toBe(
+        resolveRosterMember(q, [ANA, ANA_S, BEN]).member,
+      );
+    }
   });
 });
 

@@ -1,6 +1,6 @@
 import type { ProjectResource } from '@/types';
 import { parseDurationInput } from '../EditableCell';
-import { matchRosterMember } from '../ownerToken';
+import { resolveRosterMember } from '../ownerToken';
 import type { PasteColumnMapping, PasteField } from './inferColumns';
 import type { ParsedPasteRow } from './parsePastedText';
 
@@ -16,6 +16,12 @@ export interface PasteSummary {
   matchedFields: PasteField[];
   ignoredColumnCount: number;
   needsDurationCount: number;
+  /** Rows whose Owner cell named nobody on the roster — a typo or a stale person.
+   *  Counted separately from `ambiguousOwnerCount` because the repairs differ. */
+  unmatchedOwnerCount: number;
+  /** Rows whose Owner cell named more than one roster member, e.g. `Ana` against
+   *  both "Ana Rivera" and "Ana Silva". */
+  ambiguousOwnerCount: number;
 }
 
 export interface BuiltPasteBatch {
@@ -29,6 +35,19 @@ export interface BuiltPasteBatch {
    *  outline must auto-expand, or the pasted subtree lands invisible under a
    *  parent that defaults to collapsed. */
   parentIds: Set<string>;
+  /** Rows created without the owner their cell asked for, with the text that failed
+   *  and why. The receipt reports the two reasons as separate counts; the row ids are
+   *  carried so a later change can walk to them the way F8 walks `needsDurationIds`,
+   *  which this deliberately does not wire (#2905; follow-up #3033). */
+  droppedOwners: DroppedOwner[];
+}
+
+export interface DroppedOwner {
+  /** The client-minted id of the row whose owner was dropped. */
+  id: string;
+  /** The Owner cell exactly as pasted, so the author can find it in their source. */
+  value: string;
+  reason: 'unmatched' | 'ambiguous';
 }
 
 /**
@@ -66,6 +85,7 @@ export function buildPasteOperations(
   const createdIds: string[] = [];
   const needsDurationIds = new Set<string>();
   const parentIds = new Set<string>();
+  const droppedOwners: DroppedOwner[] = [];
   const depthsUsed = new Set<number>();
 
   for (const row of dataRows) {
@@ -84,12 +104,20 @@ export function buildPasteOperations(
     if (duration === null) needsDurationIds.add(id);
 
     const ownerRaw = ownerIndex != null ? (row.cells[ownerIndex] ?? '') : '';
-    const owner = ownerRaw.trim() ? matchRosterMember(ownerRaw, resourcePool) : null;
+    // An owner the roster cannot resolve is still dropped from the payload — the
+    // server rejects an off-roster id and binding the wrong person is worse than
+    // binding none (ADR-0774 §3). What changes here is that the drop is now
+    // *recorded* rather than silent: `matchRosterMember` collapsed "nobody" and
+    // "several people" to the same null, so neither reached the receipt (#2905).
+    const owner = ownerRaw.trim() ? resolveRosterMember(ownerRaw, resourcePool) : null;
+    if (owner && owner.status !== 'matched') {
+      droppedOwners.push({ id, value: ownerRaw.trim(), reason: owner.status });
+    }
 
     const data: Record<string, unknown> = { name };
     if (parentId) data.parent_id = parentId;
     if (duration !== null) data.duration = duration;
-    if (owner) data.owners = [{ resource: owner.resourceId, units: 1 }];
+    if (owner?.member) data.owners = [{ resource: owner.member.resourceId, units: 1 }];
 
     operations.push({ op: 'create', id, data });
     createdIds.push(id);
@@ -106,9 +134,12 @@ export function buildPasteOperations(
       matchedFields,
       ignoredColumnCount,
       needsDurationCount: needsDurationIds.size,
+      unmatchedOwnerCount: droppedOwners.filter((o) => o.reason === 'unmatched').length,
+      ambiguousOwnerCount: droppedOwners.filter((o) => o.reason === 'ambiguous').length,
     },
     createdIds,
     needsDurationIds,
     parentIds,
+    droppedOwners,
   };
 }

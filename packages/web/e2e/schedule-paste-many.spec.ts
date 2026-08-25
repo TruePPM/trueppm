@@ -25,6 +25,7 @@ type Page = import('@playwright/test').Page;
 const PROJECT_ID = 'e2e-paste-00000000-0000-0000-0000-000000002724';
 const SCHEDULE_URL = `/projects/${PROJECT_ID}/schedule`;
 const ANA_ID = 'res-ana-2724';
+const ANA_S_ID = 'res-ana-silva-2905';
 
 const FIXTURE_PROJECTS = [
   {
@@ -61,15 +62,15 @@ const FIXTURE_TASKS = [
   },
 ];
 
-const ROSTER = [
-  {
-    id: 'pr-ana',
+function rosterMember(prId: string, resourceId: string, name: string, email: string) {
+  return {
+    id: prId,
     project: PROJECT_ID,
-    resource: ANA_ID,
+    resource: resourceId,
     resource_detail: {
-      id: ANA_ID,
-      name: 'Ana Rivera',
-      email: 'ana@example.com',
+      id: resourceId,
+      name,
+      email,
       job_role: 'Analyst',
       max_units: '1.00',
       calendar: null,
@@ -79,7 +80,16 @@ const ROSTER = [
     units_override: null,
     effective_max_units: '1.00',
     notes: '',
-  },
+  };
+}
+
+const ROSTER = [rosterMember('pr-ana', ANA_ID, 'Ana Rivera', 'ana@example.com')];
+
+// A second Ana makes a bare "Ana" ambiguous — the case #2905 has to tell apart
+// from a plain typo, and the one a single-member roster cannot produce.
+const ROSTER_TWO_ANAS = [
+  ...ROSTER,
+  rosterMember('pr-ana-s', ANA_S_ID, 'Ana Silva', 'ana.silva@example.com'),
 ];
 
 // One root task ("Design", duration 5, owned by Ana) and two children ("Wireframes"
@@ -87,7 +97,7 @@ const ROSTER = [
 // tabs on the child rows are the hierarchy signal.
 const PASTE_TEXT = 'Task\tDuration\tOwner\nDesign\t5\tAna Rivera\n\tWireframes\t3\n\tReview';
 
-async function setup(page: Page) {
+async function setup(page: Page, roster: typeof ROSTER = ROSTER) {
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page, { projects: FIXTURE_PROJECTS, projectId: PROJECT_ID });
@@ -95,7 +105,7 @@ async function setup(page: Page) {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ count: ROSTER.length, next: null, previous: null, results: ROSTER }),
+      body: JSON.stringify({ count: roster.length, next: null, previous: null, results: roster }),
     }),
   );
   return setupTaskStore(page, { tasks: FIXTURE_TASKS });
@@ -110,7 +120,11 @@ async function pasteOntoRow(page: Page, rowText: string, text: string) {
   await page.evaluate((pasted) => {
     const dt = new DataTransfer();
     dt.setData('text/plain', pasted);
-    const event = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
+    const event = new ClipboardEvent('paste', {
+      clipboardData: dt,
+      bubbles: true,
+      cancelable: true,
+    });
     document.body.dispatchEvent(event);
   }, text);
 }
@@ -185,5 +199,38 @@ test.describe('paste-many — spreadsheet rows into the outline (#2724)', () => 
     await expect(receipt).toHaveCount(0);
     await expect(page.getByRole('row').filter({ hasText: 'Design' })).toHaveCount(1);
     await expect(page.getByRole('row').filter({ hasText: 'Wireframes' })).toHaveCount(1);
+  });
+
+  test('an Owner the roster does not know is reported, not silently dropped', async ({ page }) => {
+    // Before #2905 the client filtered the owner out before the request and the
+    // receipt reported only needsDurationCount — so a typo in a pasted Owner
+    // column produced an unassigned task and no signal anywhere.
+    await setup(page);
+    await page.goto(SCHEDULE_URL);
+    await expect(page.getByText('Foundation')).toBeVisible();
+
+    await pasteOntoRow(page, 'Foundation', 'Task\tOwner\nSurvey\tAna Riveraa');
+
+    const receipt = page.getByTestId('paste-receipt-strip');
+    await expect(receipt).toBeVisible();
+    await expect(receipt).toContainText('1 row pasted');
+    await expect(receipt).toContainText('1 owner was not on the roster');
+    await expect(receipt).toContainText('check the spelling');
+    // The row still commits — an unresolvable owner is a warning, never a rejection.
+    await expect(page.getByRole('row').filter({ hasText: 'Survey' })).toHaveCount(1);
+  });
+
+  test('an ambiguous Owner reads differently from an unknown one', async ({ page }) => {
+    await setup(page, ROSTER_TWO_ANAS);
+    await page.goto(SCHEDULE_URL);
+    await expect(page.getByText('Foundation')).toBeVisible();
+
+    await pasteOntoRow(page, 'Foundation', 'Task\tOwner\nSurvey\tAna');
+
+    const receipt = page.getByTestId('paste-receipt-strip');
+    await expect(receipt).toBeVisible();
+    await expect(receipt).toContainText('1 owner matched more than one person');
+    await expect(receipt).toContainText('use a fuller name');
+    await expect(receipt).not.toContainText('check the spelling');
   });
 });
