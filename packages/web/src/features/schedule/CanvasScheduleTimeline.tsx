@@ -19,7 +19,7 @@
 import { useRef, useEffect, useMemo, type CSSProperties, type RefObject } from 'react';
 import type { Task, TaskLink } from '@/types';
 import type { ChartRenderOptions, GanttEngine, ZoomLevel } from './engine';
-import type { SprintBand } from './sprintBands';
+import type { CadenceSegment, SprintBand } from './sprintBands';
 import { useGanttEngine } from '@/hooks/useGanttEngine';
 import { useIsDark } from '@/hooks/useIsDark';
 import { useFiscalYearStartMonth } from '@/hooks/useFiscalYearStartMonth';
@@ -36,6 +36,16 @@ interface CanvasScheduleTimelineProps {
    * schedule view), which simply draws no bands.
    */
   sprintBands?: SprintBand[];
+  /**
+   * Cells of the sprint cadence rail (#3012) — the named sprint windows drawn on
+   * the time axis under the date ruler.
+   *
+   * NOT the same list as `sprintBands`, and not derivable from it: a band is a
+   * row range and a segment is a stretch of the axis, so a sprint with no
+   * committed work has a segment and no band. Defaults to none for hosts with no
+   * sprint context, which draws no rail.
+   */
+  cadenceSegments?: CadenceSegment[];
   zoomLevel: ZoomLevel;
   /** Chart menu toggles — on-bar name placement + progress-pill visibility (#2097).
    *  Defaults to everything-visible for hosts without a Display menu (e.g. the
@@ -55,10 +65,14 @@ const DEFAULT_CHART_OPTIONS: ChartRenderOptions = {
  *  on every render and defeat the engine's reference comparison. */
 const NO_SPRINT_BANDS: SprintBand[] = [];
 
+/** Same, for the cadence rail. */
+const NO_CADENCE_SEGMENTS: CadenceSegment[] = [];
+
 export function CanvasScheduleTimeline({
   tasks,
   links,
   sprintBands = NO_SPRINT_BANDS,
+  cadenceSegments = NO_CADENCE_SEGMENTS,
   zoomLevel,
   chartOptions = DEFAULT_CHART_OPTIONS,
   containerRef,
@@ -124,6 +138,14 @@ export function CanvasScheduleTimeline({
     if (!engine) return;
     engine.setSprintBands(sprintBands);
   }, [engine, sprintBands]);
+
+  // Cadence rail cells (#3012). Independent of the bands — an empty sprint has a
+  // rail cell and no band — so it gets its own push rather than being derived
+  // from `sprintBands` here.
+  useEffect(() => {
+    if (!engine) return;
+    engine.setCadenceSegments(cadenceSegments);
+  }, [engine, cadenceSegments]);
 
   // Push Chart menu toggles (name placement / progress pills) to the engine (#2097).
   useEffect(() => {

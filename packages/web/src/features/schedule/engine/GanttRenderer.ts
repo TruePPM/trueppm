@@ -17,7 +17,7 @@
  */
 
 import type { DeliveryMode, ExternalLinkStatus, Task, TaskLink } from '@/types';
-import type { SprintBand } from '../sprintBands';
+import type { CadenceSegment, SprintBand } from '../sprintBands';
 import type { FiscalConfig, GanttScaleData } from './GanttScaleData';
 import {
   CALENDAR_QUARTERS,
@@ -32,7 +32,14 @@ import {
   parseUTCDate,
 } from './GanttScaleData';
 import { todayISO } from '@/features/resource/resourceUtils';
-import { HEADER_HEIGHT, ROW_HEIGHT, BAR_TOP_OFFSET, BAR_HEIGHT } from '../scheduleConstants';
+import {
+  CADENCE_RAIL_HEIGHT,
+  CHART_HEADER_HEIGHT,
+  HEADER_HEIGHT,
+  ROW_HEIGHT,
+  BAR_TOP_OFFSET,
+  BAR_HEIGHT,
+} from '../scheduleConstants';
 
 // ---------------------------------------------------------------------------
 // Constants (exported — used by GanttEngineImpl and GanttHitIndex)
@@ -135,9 +142,9 @@ function getInitials(fullName: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-/** Height of the major label row inside the HEADER_HEIGHT band. */
+/** Height of the major label row inside the HEADER_HEIGHT ruler band. */
 const HEADER_MAJOR_HEIGHT = 14;
-/** Height of the minor label row inside the HEADER_HEIGHT band. */
+/** Height of the minor label row inside the HEADER_HEIGHT ruler band. */
 const HEADER_MINOR_HEIGHT = 14;
 
 // ---------------------------------------------------------------------------
@@ -491,7 +498,7 @@ export function drawRowBands(
   for (let i = firstRow; i <= lastRow; i++) {
     if (i % 2 !== 0) {
       ctx.fillStyle = _palette.rowBandAlt;
-      ctx.fillRect(0, i * rowH + HEADER_HEIGHT - scrollTop, canvasWidth + scrollLeft, rowH);
+      ctx.fillRect(0, i * rowH + CHART_HEADER_HEIGHT - scrollTop, canvasWidth + scrollLeft, rowH);
     }
   }
 }
@@ -511,9 +518,9 @@ export function drawHoverRowBand(
   viewportWidth: number,
   viewportHeight: number,
 ): void {
-  const y = rowIndex * ROW_HEIGHT + HEADER_HEIGHT - scrollTop;
-  if (y + ROW_HEIGHT <= HEADER_HEIGHT || y >= viewportHeight) return;
-  const top = Math.max(y, HEADER_HEIGHT);
+  const y = rowIndex * ROW_HEIGHT + CHART_HEADER_HEIGHT - scrollTop;
+  if (y + ROW_HEIGHT <= CHART_HEADER_HEIGHT || y >= viewportHeight) return;
+  const top = Math.max(y, CHART_HEADER_HEIGHT);
   const height = Math.min(y + ROW_HEIGHT, viewportHeight) - top;
   if (height <= 0) return;
   ctx.fillStyle = _palette.rowHover;
@@ -610,9 +617,9 @@ export function drawGridLines(
       if (isWeekend(date)) {
         const dayWidth = dayMs * scales.pxPerMs;
         ctx.fillStyle = _palette.weekend;
-        ctx.fillRect(x, HEADER_HEIGHT, dayWidth, canvasHeight + scrollTop - HEADER_HEIGHT);
+        ctx.fillRect(x, CHART_HEADER_HEIGHT, dayWidth, canvasHeight + scrollTop - CHART_HEADER_HEIGHT);
       }
-      ctx.moveTo(x + 0.5, HEADER_HEIGHT);
+      ctx.moveTo(x + 0.5, CHART_HEADER_HEIGHT);
       ctx.lineTo(x + 0.5, canvasHeight + scrollTop);
     }
     ms += dayMs;
@@ -624,7 +631,7 @@ export function drawGridLines(
   ctx.strokeStyle = _palette.gridLine;
   const rowH = ROW_HEIGHT; // hoisted live binding — see drawRowBands (#2997)
   for (let i = firstRow; i <= lastRow + 1; i++) {
-    const y = i * rowH + HEADER_HEIGHT - scrollTop + 0.5;
+    const y = i * rowH + CHART_HEADER_HEIGHT - scrollTop + 0.5;
     ctx.moveTo(0, y);
     ctx.lineTo(ctx.canvas.width / (window.devicePixelRatio || 1), y);
   }
@@ -651,7 +658,7 @@ export function drawTodayLine(
   ctx.lineWidth = 2;
   ctx.globalAlpha = 0.9;
   ctx.beginPath();
-  ctx.moveTo(x + 0.5, HEADER_HEIGHT);
+  ctx.moveTo(x + 0.5, CHART_HEADER_HEIGHT);
   ctx.lineTo(x + 0.5, canvasHeight);
   ctx.stroke();
   ctx.restore();
@@ -672,21 +679,6 @@ export function drawTodayLine(
  */
 const SPRINT_BAND_HATCH_PITCH = 10;
 
-/**
- * Height of the band's name pill, in logical px.
- *
- * Sized against the FINE-pointer gutter between two rows' bars — 10px, i.e.
- * `ROW_HEIGHT_FINE` 28 − `BAR_HEIGHT` 18. The 12px name sits entirely inside it,
- * only the pill's rounded 3px caps reach into a bar box, and the label is drawn
- * before the bars so a bar wins that sliver. On a coarse pointer the gutter is
- * 26px, so the pill has room to spare and this stays the binding constraint
- * (#2997) — the critical-path frame lives in the first and last 2px of the
- * bar box and must never be occluded by a decorative label (rule 235/295).
- */
-const SPRINT_BAND_PILL_HEIGHT = 16;
-/** Inset of the name pill from the band's left edge. */
-const SPRINT_BAND_PILL_INSET = 6;
-const SPRINT_BAND_PILL_PAD_X = 5;
 
 /**
  * Dash pattern for the band's two window rules.
@@ -741,9 +733,11 @@ interface BandRect {
 /**
  * Project one band into viewport coordinates, culling anything off-screen.
  *
- * Exported-by-consequence of being shared: `drawSprintBands` (bg layer) and
- * `drawSprintBandLabels` (bars layer) MUST agree pixel-for-pixel, or the label
- * detaches from the region it names. One projection, two consumers.
+ * Until #3012 this was shared with a `drawSprintBandLabels` pass on the bars
+ * layer, which had to agree with the wash pixel-for-pixel or the name pill
+ * detached from the region it named. The cadence rail replaced that pill — a
+ * band's name now lives on the time axis, not on the band — so this projection
+ * has one consumer again and that agreement problem is gone with it.
  */
 function bandRect(
   band: SprintBand,
@@ -758,17 +752,17 @@ function bandRect(
   // every bar uses, so a task finishing on the sprint's last day ends flush with
   // the band edge instead of a day short of it.
   const right = dateToRight(band.finishDate, scales) - scrollLeft;
-  const anchorTop = band.firstRow * ROW_HEIGHT + HEADER_HEIGHT - scrollTop;
-  const bottom = (band.lastRow + 1) * ROW_HEIGHT + HEADER_HEIGHT - scrollTop;
+  const anchorTop = band.firstRow * ROW_HEIGHT + CHART_HEADER_HEIGHT - scrollTop;
+  const bottom = (band.lastRow + 1) * ROW_HEIGHT + CHART_HEADER_HEIGHT - scrollTop;
   if (right <= left) return null;
   if (right <= 0 || left >= viewportWidth) return null;
-  if (bottom <= HEADER_HEIGHT || anchorTop >= viewportHeight) return null;
+  if (bottom <= CHART_HEADER_HEIGHT || anchorTop >= viewportHeight) return null;
   return {
     left,
     right,
     // Clamp to below the header band and inside the viewport so a band scrolled
     // past the fold cannot bleed over the retained date header.
-    top: Math.max(anchorTop, HEADER_HEIGHT),
+    top: Math.max(anchorTop, CHART_HEADER_HEIGHT),
     bottom: Math.min(bottom, viewportHeight),
     anchorTop,
   };
@@ -880,7 +874,7 @@ export function drawSprintBands(
     ctx.lineWidth = 1;
     ctx.setLineDash([]);
     ctx.beginPath();
-    if (rect.anchorTop >= HEADER_HEIGHT) {
+    if (rect.anchorTop >= CHART_HEADER_HEIGHT) {
       ctx.moveTo(clipLeft, rect.anchorTop + 0.5);
       ctx.lineTo(clipRight, rect.anchorTop + 0.5);
     }
@@ -891,92 +885,6 @@ export function drawSprintBands(
     ctx.stroke();
     ctx.restore();
   }
-}
-
-/**
- * Draw each band's sprint-name pill on canvas-bars (#2738, ADR-0803).
- *
- * Split from {@link drawSprintBands} because of layer order, not taste. The band
- * is a background wash and belongs under everything; its label is text and would
- * be unreadable there — the bg layer is overpainted by the first bar that
- * crosses it, and the bars inside a sprint band are precisely the ones that will.
- * So the region paints on the bg layer and the label on the bars layer.
- *
- * Within the bars layer it paints EARLY — after the hover wash, before the bars.
- * That is a deliberate loss: the pill straddles a row boundary, and the 3px of it
- * that reach into a bar box are exactly where `drawTaskBar`'s 2px inset
- * critical-path frame lives. A decorative label must never occlude a risk signal
- * (rule 235), so the bar wins the sliver and the pill keeps the 10px inter-bar
- * gutter its text actually occupies.
- *
- * The pill straddles the band's top edge rather than sitting inside the first
- * row: a 28px row leaves 5px above the bar, which cannot hold 12px text, and a
- * pill placed inside would cover the first bar's leading edge — the one part of
- * a bar a planner reads dates from.
- *
- * Horizontally the pill sticks to the viewport's left edge while the band's own
- * start is scrolled off, so panning into the middle of a long sprint never
- * leaves an anonymous band. It falls back to the band's true left edge whenever
- * sticking would push the pill past the band's right edge — better off-screen
- * than floating over a window it does not label.
- */
-export function drawSprintBandLabels(
-  ctx: CanvasRenderingContext2D,
-  bands: readonly SprintBand[],
-  scales: GanttScaleData,
-  scrollLeft: number,
-  scrollTop: number,
-  viewportWidth: number,
-  viewportHeight: number,
-  alpha = 1,
-): void {
-  if (!bands.length || alpha <= 0) return;
-
-  ctx.save();
-  // The body face, not chipFont(): a sprint name is prose, and chipFont() is
-  // 11px JetBrains Mono scoped to tabular numerals in the % chip (rule 8c) —
-  // and below the 12px minimum (rule 50).
-  ctx.font = canvasFont();
-  ctx.textBaseline = 'middle';
-
-  for (const band of bands) {
-    const rect = bandRect(band, scales, scrollLeft, scrollTop, viewportWidth, viewportHeight);
-    if (!rect) continue;
-
-    const bandWidth = rect.right - rect.left;
-    const maxTextWidth = bandWidth - SPRINT_BAND_PILL_INSET * 2 - SPRINT_BAND_PILL_PAD_X * 2;
-    // A band narrower than a couple of glyphs gets no label at all — an ellipsis
-    // alone names nothing, and the band's edges already carry the window.
-    if (maxTextWidth < 16) continue;
-
-    const label = truncateToWidth(ctx, band.name, maxTextWidth);
-    const pillWidth = ctx.measureText(label).width + SPRINT_BAND_PILL_PAD_X * 2;
-
-    const ownX = rect.left + SPRINT_BAND_PILL_INSET;
-    const stickyLimit = rect.right - SPRINT_BAND_PILL_INSET - pillWidth;
-    const x = Math.min(Math.max(ownX, SPRINT_BAND_PILL_INSET), Math.max(stickyLimit, ownX));
-    if (x + pillWidth <= 0 || x >= viewportWidth) continue;
-
-    // Straddle the band's top edge, but never let the pill ride up into the date
-    // header — on a band whose first row is the first row of the chart it sits
-    // flush below the header instead.
-    const pillTop = Math.max(rect.anchorTop - SPRINT_BAND_PILL_HEIGHT / 2, HEADER_HEIGHT + 1);
-    if (pillTop >= viewportHeight || pillTop + SPRINT_BAND_PILL_HEIGHT <= HEADER_HEIGHT) continue;
-
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = _palette.sprintBandEdge;
-    ctx.beginPath();
-    ctx.roundRect(x, pillTop, pillWidth, SPRINT_BAND_PILL_HEIGHT, 3);
-    ctx.fill();
-
-    // Paired with the pill's own fill, not with the chart surface: under
-    // forced-colors the pill is `Highlight`, whose guaranteed-contrast partner
-    // is `HighlightText` and NOT the `Canvas` that chipTextOnSurface resolves to.
-    ctx.fillStyle = _palette.chipTextOnHighlight;
-    ctx.fillText(label, x + SPRINT_BAND_PILL_PAD_X, pillTop + SPRINT_BAND_PILL_HEIGHT / 2);
-  }
-
-  ctx.restore();
 }
 
 // ---------------------------------------------------------------------------
@@ -1149,7 +1057,7 @@ function findCellStart(
 }
 
 /**
- * Draw the two-row timeline header at y = 0..HEADER_HEIGHT on canvas-bg.
+ * Draw the two-row timeline date ruler at y = 0..HEADER_HEIGHT on canvas-bg.
  * Top row: major unit (day, week, month, quarter, or year).
  * Bottom row: minor unit (day, week, month, quarter, or year).
  *
@@ -1284,6 +1192,147 @@ export function drawTimelineHeader(
       drawHeaderCell(ctx, label, cellX, HEADER_MAJOR_HEIGHT, cellWidth, HEADER_MINOR_HEIGHT);
     }
   }
+}
+
+
+/** Horizontal breathing room between a rail cell's edge and its label. */
+const CADENCE_LABEL_PAD_X = 4;
+
+/**
+ * Narrowest cell that gets a label at all, in logical px.
+ *
+ * Below this the only thing `truncateToWidth` can return is a bare `…`, which
+ * names nothing and reads as a rendering fault rather than as a narrow window.
+ * The cell's own left rule still marks the boundary, so nothing is lost but the
+ * text — and at day zoom on a year-long plan the rail is a cadence *pattern*,
+ * not a list of names.
+ */
+const CADENCE_LABEL_MIN_WIDTH = 24;
+
+/**
+ * Draw the sprint cadence rail directly under the date ruler (#3012, ADR-0803).
+ *
+ * ## What it is
+ *
+ * A single 16px row of named sprint windows across *time*, occupying
+ * `HEADER_HEIGHT .. CHART_HEADER_HEIGHT`. It is a **label rail**: it names the
+ * window, it does not redraw it. `drawSprintBands` still owns the wash, the
+ * hatch and the row extent — the rail replaces only the name pill that used to
+ * be anchored to a band's first row and vanished the moment you scrolled past
+ * it.
+ *
+ * ## Why one row, never stacked
+ *
+ * Overlapping windows are split into segments by `computeCadenceSegments` rather
+ * than drawn on top of each other, because the rail's height feeds
+ * `CHART_HEADER_HEIGHT`, which five subsystems read to the pixel. A rail that
+ * grew a second row when two sprints overlapped would move every row's origin
+ * mid-scroll, and the disagreement between the outline's rows and the canvas's
+ * has no visible symptom — taps just open the neighbouring task (web rule 315).
+ * A fixed height is the property that makes this safe.
+ *
+ * ## Why no right rule
+ *
+ * Each cell draws a 1px rule at its LEFT edge only. The next cell's left rule is
+ * the boundary; drawing both would double every internal edge into a 2px seam
+ * that reads as a gap between adjacent sprints where there is none.
+ *
+ * The canvas is `aria-hidden`, so this adds no accessible content of its own —
+ * the windows reach a screen reader through `ScheduleAriaOverlay`'s per-row band
+ * description, which already carries each sprint's name and dates. Deliberately
+ * NOT a focusable stop: the ruler above it has none, and one here would land
+ * before every row in the tab order.
+ */
+export function drawCadenceRail(
+  ctx: CanvasRenderingContext2D,
+  segments: readonly CadenceSegment[],
+  scales: GanttScaleData,
+  scrollLeft: number,
+  canvasWidth: number,
+): void {
+  if (!segments.length) return;
+
+  const top = HEADER_HEIGHT;
+  const bottom = HEADER_HEIGHT + CADENCE_RAIL_HEIGHT;
+
+  ctx.save();
+
+  // Opaque backing across the full width, for the same reason the date ruler
+  // paints one: this band is retained while the chart scrolls under it.
+  ctx.fillStyle = _palette.surface;
+  ctx.fillRect(0, top, canvasWidth, CADENCE_RAIL_HEIGHT);
+
+  ctx.font = canvasFont();
+  ctx.textBaseline = 'middle';
+
+  for (const segment of segments) {
+    const left = dateToLeft(segment.startDate, scales) - scrollLeft;
+    // Inclusive finish closed at the end of the finish day — the same convention
+    // every bar and every band uses, so a sprint's last day is inside its cell.
+    const right = dateToRight(segment.finishDate, scales) - scrollLeft;
+    if (right <= left) continue;
+    if (right <= 0 || left >= canvasWidth) continue;
+
+    const width = right - left;
+    const clipLeft = Math.max(left, 0);
+    const clipRight = Math.min(right, canvasWidth);
+
+    if (segment.active) {
+      // The live sprint is the one thing on this rail a planner looks for
+      // first, so it is the only cell that is filled rather than outlined.
+      ctx.fillStyle = _palette.sprintBandEdge;
+      ctx.fillRect(clipLeft, top, clipRight - clipLeft, CADENCE_RAIL_HEIGHT);
+    }
+
+    // Bottom rule: 2px for the active window, a hairline for the rest. Drawn
+    // per-cell rather than as one rule across the rail, so a stretch of axis
+    // that no sprint covers stays visibly uncovered.
+    ctx.strokeStyle = _palette.sprintBandEdge;
+    ctx.lineWidth = segment.active ? 2 : 1;
+    ctx.beginPath();
+    const ruleY = segment.active ? bottom - 1 : bottom - 0.5;
+    ctx.moveTo(clipLeft, ruleY);
+    ctx.lineTo(clipRight, ruleY);
+    ctx.stroke();
+
+    // Left rule — the window's start date. Only when the real edge is on
+    // screen: a clamped edge is the viewport, not a boundary, and ruling it
+    // would invent a sprint start wherever the user happens to have scrolled.
+    if (left >= 0 && left <= canvasWidth) {
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(left + 0.5, top);
+      ctx.lineTo(left + 0.5, bottom);
+      ctx.stroke();
+    }
+
+    if (width < CADENCE_LABEL_MIN_WIDTH) continue;
+
+    const label = truncateToWidth(ctx, segment.label, width - CADENCE_LABEL_PAD_X * 2);
+    const textWidth = ctx.measureText(label).width;
+    // Centered in the window, then slid back inside the viewport if the window
+    // runs off either edge — the truncation is measured against the window's
+    // FULL width, so panning through a long sprint moves the name without
+    // rewriting it. Without this a sprint wider than the viewport would be
+    // anonymous for most of its own extent, which is one of the three failures
+    // that made the row-anchored pill insufficient.
+    let x = left + (width - textWidth) / 2;
+    const lo = Math.max(left + CADENCE_LABEL_PAD_X, CADENCE_LABEL_PAD_X);
+    const hi = Math.min(
+      right - CADENCE_LABEL_PAD_X - textWidth,
+      canvasWidth - CADENCE_LABEL_PAD_X - textWidth,
+    );
+    if (hi >= lo) x = Math.min(Math.max(x, lo), hi);
+
+    // Paired with whatever the cell actually painted: `chipTextOnHighlight` is
+    // the guaranteed partner of the filled active cell (`Highlight` under
+    // forced-colors, whose partner is `HighlightText` and NOT `Canvas`), and
+    // `textSecondary` is the ink for an outlined cell sitting on the surface.
+    ctx.fillStyle = segment.active ? _palette.chipTextOnHighlight : _palette.textSecondary;
+    ctx.fillText(label, x, top + CADENCE_RAIL_HEIGHT / 2);
+  }
+
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------------------
@@ -1491,7 +1540,7 @@ export function drawTaskBar(
   // finish is inclusive — paint through the end of the finish day (#950).
   const barRight = dateToRight(task.finish, scales) - scrollLeft;
   const barWidth = Math.max(2, barRight - barLeft);
-  const barTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
+  const barTop = rowIndex * ROW_HEIGHT + CHART_HEADER_HEIGHT + BAR_TOP_OFFSET;
 
   const fill = barFillColor(task);
 
@@ -1783,7 +1832,7 @@ export function drawFilterMatchMarker(
   ctx: CanvasRenderingContext2D,
   rowIndex: number,
 ): void {
-  const top = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
+  const top = rowIndex * ROW_HEIGHT + CHART_HEADER_HEIGHT + BAR_TOP_OFFSET;
   ctx.save();
   // Full opacity regardless of any ambient alpha: the marker is the signal that
   // survives when everything around it is de-emphasized.
@@ -1828,7 +1877,7 @@ export function drawTaskBarLabel(
   const barLeft = dateToLeft(task.start, scales) - scrollLeft;
   // finish is inclusive — the label hugs the true (exclusive) bar edge (#950).
   const barRight = dateToRight(task.finish, scales) - scrollLeft;
-  const barTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
+  const barTop = rowIndex * ROW_HEIGHT + CHART_HEADER_HEIGHT + BAR_TOP_OFFSET;
 
   ctx.save();
   ctx.font = canvasFont();
@@ -1945,7 +1994,7 @@ export function drawActualDateBar(
   const width = Math.max(2, right - left);
 
   // Position: bottom of the planned bar (barTop + BAR_HEIGHT + 1px gap)
-  const barTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
+  const barTop = rowIndex * ROW_HEIGHT + CHART_HEADER_HEIGHT + BAR_TOP_OFFSET;
   const actualTop = barTop + BAR_HEIGHT + 1;
 
   const variance = task.scheduleVarianceDays ?? null;
@@ -1997,7 +2046,7 @@ export function drawScheduleVarianceBadge(
   const barRight = dateToRight(task.finish, scales) - scrollLeft;
   if (barRight < 0 || barRight > viewportWidth) return;
 
-  const barTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
+  const barTop = rowIndex * ROW_HEIGHT + CHART_HEADER_HEIGHT + BAR_TOP_OFFSET;
   const badgeY = barTop + BAR_HEIGHT / 2;
   const label = variance > 0 ? `+${variance}d` : `${variance}d`;
   const color = variance > 0 ? _palette.barCritical : _palette.barComplete;
@@ -2037,7 +2086,7 @@ export function drawSummaryBar(
   // Rollup finish is inclusive — span through the end of the finish day (#950).
   const barRight = dateToRight(task.finish, scales) - scrollLeft;
   const barWidth = Math.max(2, barRight - barLeft);
-  const rowCenterY = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2;
+  const rowCenterY = rowIndex * ROW_HEIGHT + CHART_HEADER_HEIGHT + ROW_HEIGHT / 2;
   const barTop = rowCenterY - SUMMARY_BAR_HEIGHT / 2;
 
   ctx.save();
@@ -2088,7 +2137,7 @@ export function drawMilestone(
   // Issue #332: skip uncommitted milestones — same gate as drawTaskBar.
   if (!task.plannedStart && !task.sprintId) return;
   const centerX = dateToLeft(task.start, scales) - scrollLeft;
-  const centerY = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2;
+  const centerY = rowIndex * ROW_HEIGHT + CHART_HEADER_HEIGHT + ROW_HEIGHT / 2;
   const half = MILESTONE_SIZE / 2;
 
   ctx.save();
@@ -2805,7 +2854,7 @@ function buildObstacleRows(
     const rectLeft = t.isMilestone ? cx - milestoneHalfDiag : cx;
     // Non-milestone finish is inclusive — obstacle box ends at the true edge (#950).
     const rectRight = t.isMilestone ? cx + milestoneHalfDiag : dateToRight(t.finish, scales);
-    const rowCenterY = i * rowH + HEADER_HEIGHT + rowH / 2;
+    const rowCenterY = i * rowH + CHART_HEADER_HEIGHT + rowH / 2;
 
     let boxLeft: number, boxRight: number, halfH: number;
     if (t.isMilestone) {
@@ -3032,7 +3081,7 @@ function makeDepPaintContext(
         parentId: n.parentId,
       };
     },
-    rowY: (rowIndex) => rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop,
+    rowY: (rowIndex) => rowIndex * ROW_HEIGHT + CHART_HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop,
     obstaclesFor: (srcId, tgtId, rA, rB) =>
       boxesInRows(
         Math.min(rA, rB) - 1,
@@ -3501,7 +3550,7 @@ export function drawDragShadow(
 ): void {
   const duration = parseUTCDate(task.finish).getTime() - parseUTCDate(task.start).getTime();
   const barWidth = Math.max(2, duration * scales.pxPerMs);
-  const barTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
+  const barTop = rowIndex * ROW_HEIGHT + CHART_HEADER_HEIGHT + BAR_TOP_OFFSET;
 
   ctx.save();
   ctx.fillStyle = _palette.ghostFill;

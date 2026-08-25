@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { computeSprintBands, sprintBandByTaskId, type SprintWindowSource } from './sprintBands';
-import type { Task } from '@/types';
+import {
+  computeCadenceSegments,
+  computeSprintBands,
+  sprintBandByTaskId,
+  type SprintWindowSource,
+} from './sprintBands';
+import type { SprintState, Task } from '@/types';
 
 function task(id: string, over: Partial<Task> = {}): Task {
   return {
@@ -231,5 +236,150 @@ describe('sprintBandByTaskId (#2738)', () => {
 
   it('is empty when there are no bands', () => {
     expect(sprintBandByTaskId([task('a')], []).size).toBe(0);
+  });
+});
+
+describe('computeCadenceSegments — naming every window on the axis (#3012)', () => {
+  const win = (
+    id: string,
+    start: string,
+    finish: string,
+    state: SprintState = 'PLANNED',
+    name = id.toUpperCase(),
+  ): SprintWindowSource => ({ id, name, start_date: start, finish_date: finish, state });
+
+  it('emits a cell for a sprint with NO committed work', () => {
+    // The reason the rail exists. `computeSprintBands` returns [] for this input
+    // because no row resolves to the sprint — so an empty sprint, which is a
+    // real planning fact, is invisible on the chart without this.
+    const sprints = [win('s1', '2026-04-06', '2026-04-17')];
+    expect(computeSprintBands([], sprints)).toEqual([]);
+    expect(computeCadenceSegments(sprints)).toEqual([
+      {
+        startDate: '2026-04-06',
+        finishDate: '2026-04-17',
+        label: 'S1',
+        sprintIds: ['s1'],
+        active: false,
+      },
+    ]);
+  });
+
+  it('names one sprint ONCE however its work is scattered across the WBS', () => {
+    // Bands are maximal contiguous ROW runs, so a scattered sprint produces
+    // several bands and therefore several copies of one name. The rail is
+    // addressed by date, so it cannot.
+    const segments = computeCadenceSegments([win('s1', '2026-04-06', '2026-04-17')]);
+    expect(segments.map((s) => s.label)).toEqual(['S1']);
+  });
+
+  it('skips a CANCELLED sprint, via the same predicate the bands use', () => {
+    // A cancelled sprint named a window that never governed any work. The rail
+    // and the bands must never disagree about which sprints are drawable, which
+    // is why `drawsABand` is shared rather than reimplemented here.
+    expect(computeCadenceSegments([win('s1', '2026-04-06', '2026-04-17', 'CANCELLED')])).toEqual(
+      [],
+    );
+  });
+
+  it('skips a sprint with no window at all', () => {
+    expect(
+      computeCadenceSegments([{ id: 's1', name: 'S1', start_date: '', finish_date: '', state: 'PLANNED' }]),
+    ).toEqual([]);
+  });
+
+  it('drops an inverted window rather than normalizing it', () => {
+    // Normalizing would invent a window nobody planned.
+    expect(computeCadenceSegments([win('s1', '2026-04-17', '2026-04-06')])).toEqual([]);
+  });
+
+  it('splits overlapping windows into segments instead of stacking them', () => {
+    // The rail is ONE row and its height feeds CHART_HEADER_HEIGHT — a second
+    // row would move every task's origin mid-scroll. So overlap is expressed
+    // along the axis, not up it.
+    const segments = computeCadenceSegments([
+      win('s1', '2026-04-01', '2026-04-10'),
+      win('s2', '2026-04-06', '2026-04-15'),
+    ]);
+    expect(segments).toEqual([
+      {
+        startDate: '2026-04-01',
+        finishDate: '2026-04-05',
+        label: 'S1',
+        sprintIds: ['s1'],
+        active: false,
+      },
+      {
+        startDate: '2026-04-06',
+        finishDate: '2026-04-10',
+        label: '2 sprints',
+        sprintIds: ['s1', 's2'],
+        active: false,
+      },
+      {
+        startDate: '2026-04-11',
+        finishDate: '2026-04-15',
+        label: 'S2',
+        sprintIds: ['s2'],
+        active: false,
+      },
+    ]);
+  });
+
+  it('never names ONE of two overlapping sprints', () => {
+    // Showing one name over a stretch both sprints cover asserts that the other
+    // does not cover it — a lie about the plan rather than a truncation of it.
+    const segments = computeCadenceSegments([
+      win('s1', '2026-04-01', '2026-04-10'),
+      win('s2', '2026-04-01', '2026-04-10'),
+    ]);
+    expect(segments).toHaveLength(1);
+    expect(segments[0].label).toBe('2 sprints');
+    expect(segments[0].sprintIds).toEqual(['s1', 's2']);
+  });
+
+  it('marks a cell ACTIVE when ANY covering sprint is active', () => {
+    // `any`, not `all`: the emphasis marks where the team is now, and an active
+    // sprint overlapped by a planned one is still where the team is now.
+    const segments = computeCadenceSegments([
+      win('s1', '2026-04-01', '2026-04-10', 'ACTIVE'),
+      win('s2', '2026-04-01', '2026-04-10', 'PLANNED'),
+    ]);
+    expect(segments[0].active).toBe(true);
+  });
+
+  it('leaves a gap between two sprints uncovered', () => {
+    // The space between two sprints is not a nameless sprint.
+    const segments = computeCadenceSegments([
+      win('s1', '2026-04-01', '2026-04-05'),
+      win('s2', '2026-04-13', '2026-04-17'),
+    ]);
+    expect(segments.map((s) => [s.startDate, s.finishDate])).toEqual([
+      ['2026-04-01', '2026-04-05'],
+      ['2026-04-13', '2026-04-17'],
+    ]);
+  });
+
+  it('does not leave a hairline through a window whose boundary changes nothing', () => {
+    // Two sprints sharing a start date cut the partition at one boundary that
+    // turns out not to change the covering set on either side of the next one.
+    const segments = computeCadenceSegments([
+      win('s1', '2026-04-01', '2026-04-10'),
+      win('s2', '2026-04-01', '2026-04-10'),
+    ]);
+    expect(segments).toHaveLength(1);
+  });
+
+  it('closes the finish day, like every other finish date in the scheduler', () => {
+    const segments = computeCadenceSegments([win('s1', '2026-04-06', '2026-04-06')]);
+    expect(segments).toEqual([
+      {
+        startDate: '2026-04-06',
+        finishDate: '2026-04-06',
+        label: 'S1',
+        sprintIds: ['s1'],
+        active: false,
+      },
+    ]);
   });
 });

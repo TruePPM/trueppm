@@ -4,7 +4,7 @@ import { useUpdateProject } from '@/hooks/useProjectMutations';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import type { GanttEngine } from './engine';
 import { dateToLeft, leftToDate } from './engine';
-import { HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
+import { CHART_HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
 import type { Task, ApiSprint } from '@/types';
 import type { CommitAction } from './ScheduleCommitPopover';
 
@@ -254,7 +254,7 @@ export function useScheduleCommit({
       // container viewport offset to get final screen-fixed coordinates.
       const barCenterCanvasX = (newBarLeftCanvas + newBarRightCanvas) / 2;
       const x = rect.left + (barCenterCanvasX - engine.scrollLeft);
-      const rowTopCanvasY = HEADER_HEIGHT + rowIndex * ROW_HEIGHT;
+      const rowTopCanvasY = CHART_HEADER_HEIGHT + rowIndex * ROW_HEIGHT;
       const y = rect.top + (rowTopCanvasY - container.scrollTop);
       return { x, y };
     },

@@ -1,3 +1,4 @@
+import { useChartHeaderHeight } from '@/hooks/useChartHeaderHeight';
 import { useRef, type PointerEvent, type KeyboardEvent } from 'react';
 import { MIN_COL_WIDTHS, type ColumnKey, type ColumnWidths } from '@/hooks/useColumnWidths';
 import { ROW_VOCABULARY } from './rowVocabulary';
@@ -156,10 +157,18 @@ export function TaskListHeader({
   nudgeReserve,
   maxTaskWidth,
 }: Props) {
+  // The outline header must be exactly as tall as the canvas's header band —
+  // the date ruler plus the cadence rail when one is drawn. It was a hardcoded
+  // `h-7` (28px), which is the ruler alone; leaving it there once the rail
+  // exists puts every outline row a rail-height above the canvas row it names,
+  // and **nothing looks broken** — taps simply open the neighbouring task
+  // (#3012, web rule 315).
+  const chartHeaderHeight = useChartHeaderHeight();
   return (
     <div
-      className="flex items-center h-7 bg-neutral-surface border-b border-neutral-border
+      className="flex items-center bg-neutral-surface border-b border-neutral-border
         text-xs font-medium text-neutral-text-secondary select-none sticky top-0 z-10"
+      style={{ height: chartHeaderHeight }}
       role="row"
       aria-rowindex={1}
       aria-label={ROW_VOCABULARY.header.columnsRow}

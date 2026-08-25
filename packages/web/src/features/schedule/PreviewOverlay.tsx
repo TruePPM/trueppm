@@ -30,6 +30,7 @@
  *   while the gesture is live, instead of letting the bar snap back unexplained
  */
 
+import { useChartHeaderHeight } from '@/hooks/useChartHeaderHeight';
 import { useMemo, useEffect, useRef, useState, type RefObject } from 'react';
 import type { GanttEngine, GanttScaleData } from '@/features/schedule/engine';
 import type { DragPreviewResult, Task } from '@/types';
@@ -37,7 +38,6 @@ import { useDragStore } from '@/stores/dragStore';
 import { dateToLeft } from '@/features/schedule/engine';
 import { ROW_HEIGHT, BAR_TOP_OFFSET, BAR_HEIGHT } from './engine/GanttHitIndex';
 import { useRowHeight } from '@/hooks/useRowHeight';
-import { HEADER_HEIGHT } from './scheduleConstants';
 import { isPinnedByActuals, PINNED_DRAG_EXPLANATION } from './pinnedByActuals';
 
 // Design tokens (defined in tailwind.config.ts / globals.css — applied via style prop per rule 10).
@@ -57,7 +57,8 @@ const BUILD_BORDER = 'var(--color-brand-accent, #E8A020)';
 /**
  * Vertical placement of a ghost bar inside the clipped bars band.
  *
- * The band's own box already starts at HEADER_HEIGHT (see the render below), so
+ * The band's own box already starts at the chart header height (see the render
+ * below), so
  * this is row-relative and must NOT add the header again. `BAR_TOP_OFFSET` /
  * `BAR_HEIGHT` come from `GanttHitIndex` — the same constants the renderer draws
  * real bars with, so a ghost lands exactly on the bar it previews rather than
@@ -238,6 +239,10 @@ export function PreviewOverlay({ engine, tasks, containerRef }: Props) {
   // real bars with, so the two cannot resolve different heights — but without a
   // subscription this component would keep the pre-flip rows on screen.
   useRowHeight();
+  // Same reason, second runtime geometry input: the bars band is inset by the
+  // chart header, which grows by the cadence rail's height when a project's
+  // sprints resolve (#3012).
+  const chartHeaderHeight = useChartHeaderHeight();
   const phase = useDragStore((s) => s.phase);
   const draggedTaskId = useDragStore((s) => s.draggedTaskId);
   const previewResults = useDragStore((s) => s.previewResults);
@@ -335,7 +340,7 @@ export function PreviewOverlay({ engine, tasks, containerRef }: Props) {
           barTop() is row-relative and adds no header offset. */}
       <div
         className="absolute left-0 right-0 bottom-0 overflow-hidden"
-        style={{ top: HEADER_HEIGHT }}
+        style={{ top: chartHeaderHeight }}
       >
         {/* Build ghost bar — dashed amber placeholder during inline name editing (#344) */}
         {phase === 'building' && buildingTaskId && buildingStart && buildingFinish && (() => {
