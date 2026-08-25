@@ -1631,21 +1631,93 @@ function RowReorderHandle({
 }
 
 /**
- * WBS column (#248). Split out of TaskListRowInner (#2081) — the character
- * budget that drives the middle-ellipsis truncation is verbatim.
+ * Split a rendered WBS path into its ancestor prefix and its leaf segment.
+ *
+ * Operates on the **already-truncated** string, not the raw path: the leaf the
+ * reader can see is the one worth emphasising, and `truncateWbsPath` guarantees
+ * the leaf survives the middle ellipsis. Splitting the raw path first and
+ * truncating the halves separately would re-open the case the truncation exists
+ * to close.
+ *
+ * A depth-1 path (`"3"`) has no ancestors, so the prefix is empty.
+ *
+ * The ellipsis counts as a separator, and that is the point of splitting on
+ * `.` OR `…` rather than on `.` alone: in `"1.…2"` the ellipsis *stands in for*
+ * the elided ancestor segments, so it belongs to the prefix. Splitting on the
+ * dot alone would hand the leaf span `"…2"` and emphasise a mark that is not
+ * this row's number.
+ *
+ * `truncateWbsPath`'s two-segment branch can also put the ellipsis last
+ * (`"10.…"`), leaving no visible leaf digit at all. That yields an empty leaf,
+ * which renders nothing — correct, because there is no own-number to emphasise.
+ */
+export function splitWbsLeaf(rendered: string): { ancestors: string; leaf: string } {
+  const cut = Math.max(rendered.lastIndexOf('.'), rendered.lastIndexOf('…'));
+  if (cut === -1) return { ancestors: '', leaf: rendered };
+  return { ancestors: rendered.slice(0, cut + 1), leaf: rendered.slice(cut + 1) };
+}
+
+/**
+ * WBS column (#248, realigned #3055).
+ *
+ * ## Why this is left-aligned, and why that is the whole depth cue
+ *
+ * It was right-aligned, which flushed `1`, `2`, `2.1` and `3` to a common right
+ * edge and made `2.1` read as a peer of `3` rather than as something inside `2`.
+ * That is a **numeric** convention — quantities align on their last digit so
+ * magnitudes stack — applied to an **identifier**. A WBS path is an address: its
+ * leading segments name the parent, and those are what must line up with the
+ * parent's row.
+ *
+ * In `tppm-mono` every segment is a fixed advance, so the ladder is already in
+ * the string for free: `2` → `2.1` → `2.1.4` self-indents two characters per
+ * level. Right-alignment was precisely what threw that away.
+ *
+ * So there is deliberately **no `paddingLeft: (level - 1) * step` here.** The
+ * string is the ladder; a padding ladder on top of it compounds, and at depth 4+
+ * in a resizable column it pushes the leaf into the very ellipsis
+ * `truncateWbsPath` exists to prevent. It would also run at a different rhythm
+ * from the name cell's `WBS_INDENT` (16px vs a ~7px mono advance) — two ladders
+ * that disagree. `DepthGuides` remains the sole carrier of the drawn-rule
+ * channel; a tree glyph in here would make neither authoritative.
+ *
+ * ## The leaf is emphasised UP, never the ancestors down
+ *
+ * The conventional treatment fades the ancestor segments. We raise the leaf
+ * instead, and that is an accessibility constraint rather than a preference:
+ * there is no `--neutral-text-tertiary` token, and the only weaker one
+ * (`--neutral-text-disabled`, ≈2.5:1 on surface) would fail WCAG 1.4.3 for a
+ * low-vision **sighted** reader. The cell's `aria-label` does not rescue that —
+ * 1.4.3 governs visual text, and an accessible name is a different channel.
+ * Both spans therefore stay at or above 4.5:1, and the leaf is found by contrast
+ * instead of by position — which is what replaces the predictable leaf x that
+ * right-alignment used to buy.
+ *
+ * ## `aria-label` and `title` carry the FULL path and must not change
+ *
+ * The visible string is truncated; the accessible name never is. Roughly twenty
+ * e2e specs locate rows by `WBS <path>`, and the two spans below sit inside one
+ * wrapper whose `textContent` is still the rendered path, so a text query keeps
+ * matching a single element.
  */
 function RowWbsCell({ wbs, widthPx }: { wbs: string; widthPx: number }) {
+  // −2 chars, not −1: the cell now pads on BOTH sides (pl-2 + pr-1), where it
+  // used to pad only on the right. The 8px divisor is the mono advance at
+  // text-xs, unchanged from #248.
+  const rendered = truncateWbsPath(wbs, Math.max(3, Math.floor(widthPx / 8) - 2));
+  const { ancestors, leaf } = splitWbsLeaf(rendered);
   return (
     <div
-      className="flex items-center justify-end shrink-0 border-r border-neutral-border/20
-        text-right text-neutral-text-secondary tppm-mono pr-2 text-xs"
+      className="flex items-center justify-start shrink-0 border-r border-neutral-border/20
+        text-left text-neutral-text-secondary tppm-mono pl-2 pr-1 text-xs"
       style={{ width: widthPx }}
       role="gridcell"
       aria-label={`WBS ${wbs}`}
       title={wbs}
     >
       <span className="truncate">
-        {truncateWbsPath(wbs, Math.max(3, Math.floor(widthPx / 8) - 1))}
+        {ancestors}
+        <span className="text-neutral-text-primary font-medium">{leaf}</span>
       </span>
     </div>
   );
@@ -2097,15 +2169,45 @@ function taskNameStyles(
 /**
  * Is this row a phase — a container of structural work (ADR-0293)?
  *
- * Mirrors `isPhaseTask()` without needing the whole task list: prefer the
- * server's verdict, and fall back to "has a structural child" using the tree
- * flags the row already receives. `isSummary` is deliberately not enough — it
- * is also true for a leaf whose only children are drawer subtasks, and banding
- * those would say "container" about a row that contains no work.
+ * Mirrors `isPhaseTask()` without needing the whole task list: prefer what the
+ * author **declared**, then the server's derived verdict, then fall back to
+ * "has a structural child" using the tree flags the row already receives.
+ * `isSummary` is deliberately not enough — it is also true for a leaf whose only
+ * children are drawer subtasks, and banding those would say "container" about a
+ * row that contains no work.
+ *
+ * ## Why `structureRole` is consulted FIRST (#3056)
+ *
+ * ADR-0293 keeps phase-ness *emergent*, and that is still right: MS Project, P6
+ * and every WBS tool derive summary-ness from having children, and asking an
+ * author to both declare a phase and nest work under it makes them state one
+ * fact twice — after which the two drift. Nothing here adds a stored phase type;
+ * ADR-0058 rejected `task_type` and this needs no such thing.
+ *
+ * But #2950 added the one declaration the *rendering* half genuinely needs.
+ * `Task.structure_role` is documented — in its own `help_text` and in the
+ * `Task` type — as governing rendering, grouping and vocabulary and never
+ * computation, and `models.py` is explicit that a **declared** container which
+ * loses its last child "stays declared and becomes an empty lane" rather than
+ * being silently demoted back to work. The server holds that line. Until this
+ * function read the field, the outline then contradicted it on screen: the row
+ * lost its band, its edge and its display face and rendered as ordinary work,
+ * with only a trailing ghost affordance dissenting.
+ *
+ * The derived verdict still wins every *computation* — this function feeds only
+ * presentation (the row wash, the name face, and `PhaseBandEdge`), gates no
+ * write, and so cannot lock a row the server would accept a PATCH on. An empty
+ * declared container stays fully editable, which is exactly what
+ * `structure_role`'s "presentation only" contract promises.
+ *
+ * An empty declared container gets no fold caret, and that falls out rather than
+ * being special-cased: `hasChildren` is computed independently, so "N inside"
+ * never appears on a row with nothing in it.
  */
 function isPhaseRowOf(task: Task, hasChildren: boolean): boolean {
-  if (typeof task.isPhase === 'boolean') return task.isPhase;
   if (task.isSubtask) return false;
+  if (task.structureRole === 'container') return true;
+  if (typeof task.isPhase === 'boolean') return task.isPhase;
   return hasChildren;
 }
 

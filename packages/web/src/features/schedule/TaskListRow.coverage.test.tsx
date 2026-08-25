@@ -18,7 +18,7 @@ import { MemoryRouter, Routes, Route } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderWithRouter } from '@/test/utils';
 import { useScheduleStore } from '@/stores/scheduleStore';
-import { TaskListRow } from './TaskListRow';
+import { TaskListRow, splitWbsLeaf } from './TaskListRow';
 import { BuildModeProvider } from './buildMode/BuildModeContext';
 import { useScheduleFocus, type BuildModeApi } from './buildMode';
 import type { Task } from '@/types';
@@ -806,6 +806,103 @@ describe('TaskListRow — milestone start-cell date popover (#345)', () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────────
+// The WBS ladder (#3055). The column was right-aligned, which flushed every
+// path to a common right edge and made `2.1` read as a peer of `3`. In a mono
+// font the ladder is already in the string — left-alignment is what lets it
+// show.
+// ───────────────────────────────────────────────────────────────────────────
+describe('splitWbsLeaf (#3055)', () => {
+  it('splits a nested path into ancestors and leaf, keeping the dot on the prefix', () => {
+    // The dot rides with the ancestors so the leaf span holds ONLY this row's
+    // own number — that is what the weight is emphasising.
+    expect(splitWbsLeaf('2.1')).toEqual({ ancestors: '2.', leaf: '1' });
+    expect(splitWbsLeaf('1.10.5')).toEqual({ ancestors: '1.10.', leaf: '5' });
+  });
+
+  it('gives a depth-1 path no ancestors', () => {
+    expect(splitWbsLeaf('3')).toEqual({ ancestors: '', leaf: '3' });
+    expect(splitWbsLeaf('12')).toEqual({ ancestors: '', leaf: '12' });
+  });
+
+  it('splits on the LAST dot of an already-truncated path', () => {
+    // Operates on the rendered string, not the raw path: `truncateWbsPath`
+    // guarantees the leaf survives the middle ellipsis, so the visible leaf is
+    // the one worth emphasising.
+    expect(splitWbsLeaf('1.…2')).toEqual({ ancestors: '1.…', leaf: '2' });
+  });
+
+  it('yields an empty leaf when truncation left no visible own-number', () => {
+    // `truncateWbsPath`'s two-segment branch puts the ellipsis LAST. There is
+    // no own-number to emphasise, so the leaf span renders nothing.
+    expect(splitWbsLeaf('10.…')).toEqual({ ancestors: '10.…', leaf: '' });
+  });
+
+  it('concatenates back to the input for every shape', () => {
+    for (const path of ['1', '2.1', '1.10.5.2', '1.…2', '10.…', '10']) {
+      const { ancestors, leaf } = splitWbsLeaf(path);
+      expect(ancestors + leaf).toBe(path);
+    }
+  });
+});
+
+describe('TaskListRow — the WBS column reads as a ladder (#3055)', () => {
+  const wbsCell = () => screen.getByRole('gridcell', { name: 'WBS 1.1' });
+
+  it('left-aligns the column so leading segments line up with the parent row', () => {
+    // THE defect. `justify-end` / `text-right` aligned on the LAST character,
+    // which is a numeric convention applied to an identifier.
+    renderRouted(<TaskListRow task={base} level={2} widths={widths} visible={visible} />);
+    const cell = wbsCell();
+    expect(cell.className).toContain('justify-start');
+    expect(cell.className).toContain('text-left');
+    expect(cell.className).not.toContain('justify-end');
+    expect(cell.className).not.toContain('text-right');
+  });
+
+  it('does NOT add a per-level padding ladder on top of the string', () => {
+    // The mono string already self-indents two characters per level. A padding
+    // ladder compounds it and pushes the leaf into the ellipsis at depth 4+.
+    const { container } = renderRouted(
+      <TaskListRow task={{ ...base, wbs: '1.1.1.1' }} level={4} widths={widths} visible={visible} />,
+    );
+    const cell = container.querySelector('[aria-label="WBS 1.1.1.1"]') as HTMLElement;
+    expect(cell.style.paddingLeft).toBe('');
+  });
+
+  it('emphasises the LEAF rather than fading the ancestors', () => {
+    // Accessibility, not preference: there is no tertiary text token, and the
+    // only weaker one would fail WCAG 1.4.3 for a low-vision sighted reader.
+    renderRouted(<TaskListRow task={base} level={2} widths={widths} visible={visible} />);
+    const leaf = wbsCell().querySelector('.text-neutral-text-primary') as HTMLElement;
+    expect(leaf).not.toBeNull();
+    expect(leaf.textContent).toBe('1');
+    expect(leaf.className).toContain('font-medium');
+    // The ancestors keep the cell's own secondary color — never disabled.
+    expect(wbsCell().className).toContain('text-neutral-text-secondary');
+    expect(wbsCell().className).not.toContain('text-neutral-text-disabled');
+  });
+
+  it('keeps the full untruncated path as the accessible name and the title', () => {
+    // ~20 e2e specs locate rows by `WBS <path>`; the split must not fragment it.
+    const { container } = renderRouted(
+      <TaskListRow task={{ ...base, wbs: '1.10.5.2' }} level={4} widths={{ ...widths, wbs: 32 }} visible={visible} />,
+    );
+    const cell = container.querySelector('[aria-label="WBS 1.10.5.2"]') as HTMLElement;
+    expect(cell).not.toBeNull();
+    expect(cell.getAttribute('title')).toBe('1.10.5.2');
+    // Visibly truncated, but the leaf survives — that is what the middle
+    // ellipsis is for.
+    expect(cell.textContent).not.toBe('1.10.5.2');
+    expect(cell.textContent?.endsWith('2')).toBe(true);
+  });
+
+  it('renders the visible path as one contiguous string across the two spans', () => {
+    renderRouted(<TaskListRow task={base} level={2} widths={widths} visible={visible} />);
+    expect(wbsCell().textContent).toBe('1.1');
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
 // Containment chrome on a real row (#2956). The unit tests in
 // RowContainmentChrome.test.tsx pin the geometry; these pin the wiring — which
 // rows get a band, and that the marks reach the DOM at all.
@@ -838,6 +935,71 @@ describe('TaskListRow — phase bands and depth guides (#2956)', () => {
         visible={visible}
         hasChildren
         childCount={2}
+      />,
+    );
+    expect(screen.queryByTestId('phase-band-edge')).not.toBeInTheDocument();
+  });
+
+  // ── Declared containers (#3056) ──────────────────────────────────────────
+  //
+  // `structure_role` is DECLARED by the author (#2950) and is documented — in
+  // its own help_text and on the `Task` type — as governing rendering. The row
+  // did not read it, so a container whose last child was moved out lost its
+  // band and rendered as ordinary work while the server still called it a
+  // container. These pin the declaration as the FIRST signal.
+
+  it('bands a DECLARED container that has no children yet', () => {
+    // THE defect. `isPhase` is the server's derived EXISTS(structural child)
+    // verdict, so it is correctly false here — the row has nothing in it. The
+    // declaration is what says "this is a lane", and models.py is explicit that
+    // a declared container which loses its last child stays declared.
+    renderRouted(
+      <TaskListRow
+        task={{ ...base, isPhase: false, isSummary: false, structureRole: 'container' }}
+        level={2}
+        widths={widths}
+        visible={visible}
+      />,
+    );
+    expect(screen.getByTestId('phase-band-edge')).toBeInTheDocument();
+  });
+
+  it('gives an empty declared container NO fold caret', () => {
+    // Falls out of `hasChildren` being computed independently rather than being
+    // special-cased: there is nothing to fold, and a caret that cannot expand is
+    // a broken affordance. The row reads as "a container, currently empty".
+    renderRouted(
+      <TaskListRow
+        task={{ ...base, isPhase: false, isSummary: false, structureRole: 'container' }}
+        level={2}
+        widths={widths}
+        visible={visible}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: /inside|hidden/i })).not.toBeInTheDocument();
+  });
+
+  it('does NOT band a declared `work` row that has no children', () => {
+    renderRouted(
+      <TaskListRow
+        task={{ ...base, isPhase: false, isSummary: false, structureRole: 'work' }}
+        level={2}
+        widths={widths}
+        visible={visible}
+      />,
+    );
+    expect(screen.queryByTestId('phase-band-edge')).not.toBeInTheDocument();
+  });
+
+  it('never bands a subtask, even one that somehow declares container', () => {
+    // A drawer leaf is never structure. The subtask test runs before the
+    // declaration for exactly this reason.
+    renderRouted(
+      <TaskListRow
+        task={{ ...base, isSubtask: true, isPhase: false, structureRole: 'container' }}
+        level={2}
+        widths={widths}
+        visible={visible}
       />,
     );
     expect(screen.queryByTestId('phase-band-edge')).not.toBeInTheDocument();
