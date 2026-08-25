@@ -870,6 +870,56 @@ describe('TaskFormModal (issue #305)', () => {
     expect(onCreated).toHaveBeenCalledWith('new-task-id');
   });
 
+  // ----- Retry after a failed assignment tail (#2901) ----------------------
+  //
+  // The task itself is written by the first POST /tasks/; only the
+  // assignment/dependency tail failed. `mode` stays 'create' (derived from
+  // the still-null `task` prop) so the Save button still reads "Create
+  // task" — pressing it again must retry the tail against the id already
+  // returned, not re-POST /tasks/ and duplicate the row.
+  it('retrying after a failed assignment tail patches the existing task instead of re-creating it', async () => {
+    mockResourcePool = [{ resource: { id: 'r1', name: 'Maya' }, roleTitle: 'PM' }];
+    const onClose = vi.fn();
+    const onCreated = vi.fn();
+    renderModal({ onClose, onCreated });
+
+    fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'Ship it' } });
+    fireEvent.change(screen.getByPlaceholderText('Search people…'), {
+      target: { value: 'maya' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Maya/ }));
+
+    addAssignmentMutate.mockRejectedValueOnce(new Error('Assignment service unavailable'));
+    fireEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    // Microtasks: createTask.mutateAsync, then the failing syncAssignments.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(
+      await screen.findByText(
+        'Saved task, but updating assignments or dependencies failed: Assignment service unavailable',
+      ),
+    ).toBeInTheDocument();
+    expect(createMutate).toHaveBeenCalledTimes(1);
+    expect(addAssignmentMutate).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Retry (addAssignmentMutate now resolves via its default mock).
+    fireEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // The bug: this used to call createTask.mutateAsync a second time and
+    // create a duplicate task row. It must still have been called exactly
+    // once, against the id from the first successful create.
+    expect(createMutate).toHaveBeenCalledTimes(1);
+    expect(addAssignmentMutate).toHaveBeenCalledTimes(2);
+    expect(onCreated).toHaveBeenCalledTimes(1);
+    expect(onCreated).toHaveBeenCalledWith('new-task-id');
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('isMilestone is ignored in edit mode (Duration stays visible)', () => {
     renderModal({ isMilestone: true, task: baseTask() });
     // Edit-mode milestones are handled by MetaRail, not this modal — so
