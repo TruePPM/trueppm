@@ -10,16 +10,27 @@ This page documents functionality added in **TruePPM 0.2**, available since the 
 :::
 
 :::note[Ships in 0.4]
-One item on this page — the **Notification dispatcher** card's detection logic —
-ships in **TruePPM 0.4**, the first beta, and is **not** in `v0.3.0-alpha.3`, the
-latest release.
+Two things on this page ship in **TruePPM 0.4**, the first beta, and are **not**
+in `v0.3.0-alpha.3`, the latest release:
 
-In 0.3 that card reports "stuck" only for emails that are *still queued* an hour
-after a failed attempt. Because the delivery queue abandons a row after three
-attempts (about 90 seconds on its 30-second cadence), and because it rewrites the
-failure timestamp on every attempt, that condition cannot be reached while the
-relay is what is broken — so on 0.3 the card reports `ok` throughout an SMTP
-outage. Everything else on this page describes 0.3 behavior accurately.
+- **Every write action on a dead-lettered task** — everything under
+  [Triaging dead-lettered tasks](#triaging-dead-lettered-tasks), including the
+  bulk actions, and the four `requeue` / `drop` / `requeue-all` / `drop-all`
+  endpoints listed under [API](#api). On 0.3 the Dead-letter inspector is purely
+  diagnostic: you can filter, read a traceback, and read a payload, but there is
+  no button that changes a parked task's state and no write endpoint behind one.
+  (0.3 exposes `retry` and `dismiss` on this resource at the API level only, with
+  no UI, no backoff, no drop note, and no bulk form; 0.4 replaces both.)
+- **The Notification dispatcher card's detection logic.** In 0.3 that card
+  reports "stuck" only for emails that are *still queued* an hour after a failed
+  attempt. Because the delivery queue abandons a row after three attempts (about
+  90 seconds on its 30-second cadence), and because it rewrites the failure
+  timestamp on every attempt, that condition cannot be reached while the relay is
+  what is broken — so on 0.3 the card reports `ok` throughout an SMTP outage.
+
+Everything else — the overview dashboard, the component cards, the Beat panel,
+the retention summary, and the read side of the Dead-letter inspector — describes
+0.3 behavior accurately.
 :::
 
 TruePPM runs scheduling, notifications, webhooks, MS Project imports, and retention
@@ -106,7 +117,8 @@ to the editor, where admins tune windows, schedule, and on-demand runs; see
 Reached from the overview's **Open inspector** link. A split view over
 permanently-failed Celery tasks (the `FailedTask` records that back
 [Dead-letter Alerting](/administration/dead-letter-alerting)) — inspect a task on the
-left/detail, then requeue or drop it (see [Triaging dead-lettered tasks](#triaging-dead-lettered-tasks)).
+left/detail, then requeue or drop it — a 0.4 action, see
+[Triaging dead-lettered tasks](#triaging-dead-lettered-tasks).
 
 - **Filter** by status, task name (substring), and time window; sorted newest-failure-first.
 - **Detail pane** for a selected task:
@@ -117,6 +129,13 @@ left/detail, then requeue or drop it (see [Triaging dead-lettered tasks](#triagi
   - **Payload** — the pretty-printed task `args` and `kwargs`.
 
 ## Triaging dead-lettered tasks
+
+:::note[This whole section ships in 0.4]
+Nothing below is in `v0.3.0-alpha.3`. On the latest release the inspector is
+read-only — there is no Requeue, Drop, Requeue all, or Drop all control, and no
+endpoint behind one. To clear a parked task on 0.3 you re-enqueue it from a shell
+against the broker, or leave it for the retention purge.
+:::
 
 From the detail pane you can act on a parked task; both actions are workspace-admin
 gated and each opens a confirmation before it runs.
@@ -150,12 +169,10 @@ parked queue cannot overload the database. When more tasks match than the cap, t
 result reports how many were processed and that the batch was capped — repeat the
 action to continue.
 
-:::note[The cap becomes tunable in 0.4]
-The 500 bound applies on every release, but the environment variable that changes it
-lands in **0.4**. On the current release no settings module reads the name this page
-previously gave (`FAILED_TASK_BULK_ACTION_MAX`), so setting it has no effect and the
-default always wins.
-:::
+The bound is the Django setting `FAILED_TASK_BULK_ACTION_MAX`, which reads the
+`TRUEPPM_FAILED_TASK_BULK_ACTION_MAX` environment variable. Set the environment
+variable — the setting name has no `TRUEPPM_` prefix and is not read from the
+environment under that spelling.
 
 ## API
 
@@ -167,6 +184,10 @@ The console is API-first; every surface is admin-only (`IsAdminUser`):
   `?status=`, `?task_name=`, `?failed_after=`, and `?failed_before=`.
 - `GET /api/v1/admin/failed-tasks/{id}/` — a single failed-task record, including its
   payload, traceback, and (once acted on) the `resolution_note` / `resolved_at` audit.
+
+The three read endpoints above are on the latest release. The four write endpoints
+below ship in 0.4.
+
 - `POST /api/v1/admin/failed-tasks/{id}/requeue/` — re-enqueue the task through the
   durable workflow backend with an optional `{ "backoff_seconds": N }` (0–86400).
 - `POST /api/v1/admin/failed-tasks/{id}/drop/` — soft-remove the task (→ `dismissed`)

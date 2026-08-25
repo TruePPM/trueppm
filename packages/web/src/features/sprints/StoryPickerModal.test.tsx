@@ -9,8 +9,22 @@ import { makeSprint } from './sprintTestFixtures';
 
 const mutateAsyncMock = vi.fn();
 vi.mock('@/hooks/useTaskMutations', () => ({
-  useUpdateTask: () => ({ mutateAsync: mutateAsyncMock }),
+  useBulkUpdateTasks: () => ({ mutateAsync: mutateAsyncMock }),
 }));
+
+/** A 207 body with the buckets the picker reads (`task_bulk.py::BulkOutcome`). */
+function bulk207(over: {
+  applied?: { index: number; id: string }[];
+  rejected?: { index: number; id: string | null; code: string; message: string }[];
+  skipped?: { index: number; id: string | null; code: string; message: string }[];
+}) {
+  return {
+    applied: (over.applied ?? []).map((a) => ({ ...a, op: 'update', outcome: 'updated' })),
+    rejected: over.rejected ?? [],
+    skipped: over.skipped ?? [],
+    operation_id: null,
+  };
+}
 
 const { toastSuccessMock, toastErrorMock } = vi.hoisted(() => ({
   toastSuccessMock: vi.fn(),
@@ -72,7 +86,14 @@ const SPRINT = makeSprint({ id: 'sp-1', short_id_display: 'SP-A1', capacity_poin
 
 beforeEach(() => {
   mutateAsyncMock.mockReset();
-  mutateAsyncMock.mockResolvedValue({});
+  mutateAsyncMock.mockResolvedValue(
+    bulk207({
+      applied: [
+        { index: 0, id: 's1' },
+        { index: 1, id: 's2' },
+      ],
+    }),
+  );
   toastSuccessMock.mockReset();
   toastErrorMock.mockReset();
   useProductBacklogMock.mockReset();
@@ -143,7 +164,7 @@ describe('StoryPickerModal', () => {
     expect(commitButton).toBeEnabled();
   });
 
-  it('commits selected stories via PATCH sprint=<id> and closes on success (golden path)', async () => {
+  it('commits the selection as ONE tasks/bulk batch and closes on a fully-applied 207 (golden path)', async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     renderModal({ onClose });
@@ -151,24 +172,107 @@ describe('StoryPickerModal', () => {
     await user.click(screen.getByRole('button', { name: 'Ready story B' }));
     await user.click(screen.getByRole('button', { name: /Commit 2 stories/i }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
-    expect(mutateAsyncMock).toHaveBeenCalledWith({ id: 's1', projectId: 'proj-1', sprint: 'sp-1' });
-    expect(mutateAsyncMock).toHaveBeenCalledWith({ id: 's2', projectId: 'proj-1', sprint: 'sp-1' });
+    // One request, not N: this is the whole point of #2914.
+    expect(mutateAsyncMock).toHaveBeenCalledTimes(1);
+    expect(mutateAsyncMock).toHaveBeenCalledWith([
+      { op: 'update', id: 's1', data: { sprint: 'sp-1' } },
+      { op: 'update', id: 's2', data: { sprint: 'sp-1' } },
+    ]);
     expect(toastSuccessMock).toHaveBeenCalledWith(expect.stringContaining('2 stories'));
   });
 
-  it('keeps only the failed rows selected and leaves the modal open on a partial commit failure', async () => {
+  it('renders the 207 buckets per row on a partial commit — committed count, rejected row, reason', async () => {
     const user = userEvent.setup();
-    mutateAsyncMock.mockImplementation(({ id }: { id: string }) =>
-      id === 's2' ? Promise.reject(new Error('network error')) : Promise.resolve({}),
+    mutateAsyncMock.mockResolvedValue(
+      bulk207({
+        applied: [{ index: 0, id: 's1' }],
+        rejected: [
+          { index: 1, id: 's2', code: 'forbidden', message: 'You may not edit this task.' },
+        ],
+      }),
     );
     const onClose = vi.fn();
     renderModal({ onClose });
     await user.click(screen.getByRole('button', { name: 'Ready story A' }));
     await user.click(screen.getByRole('button', { name: 'Ready story B' }));
     await user.click(screen.getByRole('button', { name: /Commit 2 stories/i }));
-    await waitFor(() => expect(toastErrorMock).toHaveBeenCalled());
+
+    const result = await screen.findByTestId('story-picker-result');
+    expect(result).toHaveTextContent(/Committed 1 of 2 stories to SP-A1/i);
+    expect(result).toHaveTextContent('Ready story B');
+    expect(result).toHaveTextContent('You may not edit this task.');
     expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByText(/1 selected/i)).toBeInTheDocument();
+    // The picker table is gone — the dialog is reconciling, not still picking.
+    expect(screen.queryByRole('button', { name: /Commit 2 stories/i })).not.toBeInTheDocument();
+  });
+
+  it('retries only the rejected rows, never the ones that already landed', async () => {
+    const user = userEvent.setup();
+    mutateAsyncMock.mockResolvedValueOnce(
+      bulk207({
+        applied: [{ index: 0, id: 's1' }],
+        rejected: [{ index: 1, id: 's2', code: 'conflict', message: 'Try again.' }],
+      }),
+    );
+    const onClose = vi.fn();
+    renderModal({ onClose });
+    await user.click(screen.getByRole('button', { name: 'Ready story A' }));
+    await user.click(screen.getByRole('button', { name: 'Ready story B' }));
+    await user.click(screen.getByRole('button', { name: /Commit 2 stories/i }));
+
+    mutateAsyncMock.mockResolvedValueOnce(bulk207({ applied: [{ index: 0, id: 's2' }] }));
+    await user.click(await screen.findByRole('button', { name: /Retry 1 story/i }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(mutateAsyncMock).toHaveBeenLastCalledWith([
+      { op: 'update', id: 's2', data: { sprint: 'sp-1' } },
+    ]);
+  });
+
+  it('lists a skipped row as left-unchanged and offers no retry for it', async () => {
+    const user = userEvent.setup();
+    mutateAsyncMock.mockResolvedValue(
+      bulk207({
+        applied: [{ index: 0, id: 's1' }],
+        skipped: [
+          {
+            index: 1,
+            id: 's2',
+            code: 'tombstoned',
+            message: 'That id belongs to a deleted row; not re-created.',
+          },
+        ],
+      }),
+    );
+    renderModal();
+    await user.click(screen.getByRole('button', { name: 'Ready story A' }));
+    await user.click(screen.getByRole('button', { name: 'Ready story B' }));
+    await user.click(screen.getByRole('button', { name: /Commit 2 stories/i }));
+
+    const result = await screen.findByTestId('story-picker-result');
+    expect(result).toHaveTextContent(/1 left unchanged/i);
+    expect(result).toHaveTextContent('That id belongs to a deleted row');
+    expect(screen.queryByRole('button', { name: /Retry/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Done' })).toBeInTheDocument();
+  });
+
+  it('states that NOTHING was committed when the request itself fails, keeping the selection', async () => {
+    const user = userEvent.setup();
+    mutateAsyncMock.mockRejectedValue(new Error('network error'));
+    const onClose = vi.fn();
+    renderModal({ onClose });
+    await user.click(screen.getByRole('button', { name: 'Ready story A' }));
+    await user.click(screen.getByRole('button', { name: 'Ready story B' }));
+    await user.click(screen.getByRole('button', { name: /Commit 2 stories/i }));
+
+    // The batch is one transaction, so a failed request wrote nothing — say so
+    // rather than leaving the user to guess which half landed.
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /no stories were pulled into SP-A1/i,
+    );
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText(/2 selected/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('story-picker-result')).not.toBeInTheDocument();
   });
 
   it('shows an empty state with a link to the full backlog when there is nothing to pull', () => {

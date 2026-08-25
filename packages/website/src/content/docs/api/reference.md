@@ -1734,6 +1734,31 @@ or underscores — and is stored upper-cased and de-duplicated; anything else is
 `400` on the field. `jql` must have balanced parentheses and quotes for the same
 reason (the narrowing wraps it), and an unbalanced value is likewise a `400`.
 
+`GET /api/v1/me/connections/{source}/` returns a `last_sync` object describing
+the **outcome** of the last pull: `{at, ok, reason, fetched, stored,
+total_available, truncated}`. `fetched` is what the provider returned on this
+pull; `stored` is what survived the cache cap and de-duplication, and is
+therefore the "first N" a user is shown. `total_available` is the provider's own
+count of everything matching your filter, or `null` when it did not report one —
+`null` means *unknown*, never zero, so do not render it as a denominator.
+`truncated` means the source had more than this pull carried (a pull is one page
+— 100 items for Jira — and the cache is capped at 500 rows per source), so the
+items you see are the first `stored` of your assigned work. On a failure `reason`
+is a token from a fixed set — `auth_failed`, `invalid_filter`, `unreachable`,
+`rate_limited`, `credential_unreadable` — deliberately never a formatted message,
+so nothing from the request URL or the provider's response can reach it; an
+unrecognized value is served as `""`.
+
+`last_sync` is `null` in two cases: before the connection's first pull completes,
+and after any successful `PUT /api/v1/me/connections/{source}/`. The `PUT`
+rebuilds the stored config from its payload and deliberately discards the
+previous outcome — that outcome described a pull made with the old token and
+filter, so carrying it onto a re-connect would report a count, or a truncation,
+that no longer applies. `PUT` returns the same summary object as `GET`.
+
+The same `last_sync` object rides on each `external_sources` row of
+`GET /api/v1/me/work/`.
+
 The org-wide, admin-configured, bidirectional Integration Hub is Enterprise;
 everything in this table is the OSS carve-out — a personal, one-way credential
 or connection, or a single project's own Git automation. See

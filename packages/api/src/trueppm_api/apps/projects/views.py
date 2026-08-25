@@ -15662,7 +15662,8 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
             "server_version_high_water": 12345,
             "signals": { ...cross-program focus-card aggregates, #1236... },
             "external_items": [{ ...read-only Jira/etc. item, #1422... }],
-            "external_sources": [{ ...connected-source freshness, #1422... }]
+            "external_sources": [{ ...connected-source freshness + last-pull
+                                   outcome, #1422/#2925... }]
         }
 
     ``external_items`` / ``external_sources`` (#1422, ADR-0097 §4) surface the
@@ -15671,6 +15672,14 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
     blocks (the bounded ≤500 personal cache is not paginated with ``results``)
     and always present on page 1 (possibly empty). An external item is never a
     Task — it carries no schedule/board/write fields.
+
+    Each ``external_sources`` row carries ``last_sync`` (#2925) — the last pull's
+    ``{at, ok, reason, fetched, stored, total_available, truncated}``, ``null``
+    before the first pull completes. ``truncated`` means the source had more than
+    the pull carried, so ``external_items`` is the first ``stored`` of the user's
+    assigned work rather than all of it; ``total_available`` is the provider's own
+    count when it reported one and ``null`` when it did not — ``null`` is
+    *unknown*, never zero, so it must not be rendered as a denominator.
 
     ``signals`` (#1236, ADR-0221) rolls up per-user cross-program aggregates for
     the focus cards — schedule health / SPI, a Monte-Carlo P80 ship-date forecast,

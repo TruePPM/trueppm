@@ -1,20 +1,11 @@
 import type { RefObject } from 'react';
-import type { Task, TaskStatus } from '@/types';
+import type { Task } from '@/types';
 import { BacklogDemoteConfirmDialog } from '../BacklogDemoteConfirmDialog';
 import { WipLimitConfirmDialog } from '../WipLimitConfirmDialog';
 import { ScheduleTaskDialog } from '@/features/schedule/ScheduleTaskDialog';
-import { TaskFormModal } from '../TaskFormModal';
 import { WorkshopExitDialog } from './WorkshopExitDialog';
 import type { WipBreach } from '../wipBreach';
 import type { ApiSprint } from '@/types';
-
-/** The synthetic-lane-aware create-modal target set by the lane "+" / mobile FAB. */
-export interface AddTaskTarget {
-  id: string;
-  name: string;
-  isSynthetic?: boolean;
-  status?: TaskStatus;
-}
 
 export interface PendingWipMove {
   breach: WipBreach;
@@ -24,7 +15,6 @@ export interface PendingWipMove {
 
 interface BoardConfirmDialogsProps {
   projectId: string;
-  isMobile: boolean;
   selectedSprint: ApiSprint | null;
   /** NOT_STARTED card dropped on the backlog band, awaiting a deliberate demote. */
   backlogDemoteCandidate: Task | null;
@@ -36,8 +26,6 @@ interface BoardConfirmDialogsProps {
   onWipMoveConfirm: (perform: () => void) => void;
   scheduleDialogTask: Task | null;
   onScheduleDialogClose: () => void;
-  addTaskPhase: AddTaskTarget | null;
-  onAddTaskClose: () => void;
   workshopExitOpen: boolean;
   workshopEnding: boolean;
   workshopToggleRef: RefObject<HTMLButtonElement | null>;
@@ -65,7 +53,6 @@ function promoteSprintTarget(sprint: ApiSprint | null, task: Task) {
  */
 export function BoardConfirmDialogs({
   projectId,
-  isMobile,
   selectedSprint,
   backlogDemoteCandidate,
   onBacklogDemoteCancel,
@@ -75,8 +62,6 @@ export function BoardConfirmDialogs({
   onWipMoveConfirm,
   scheduleDialogTask,
   onScheduleDialogClose,
-  addTaskPhase,
-  onAddTaskClose,
   workshopExitOpen,
   workshopEnding,
   workshopToggleRef,
@@ -122,30 +107,6 @@ export function BoardConfirmDialogs({
         />
       )}
 
-      {/* Per-phase task create modal (issue #305 — replaced AddTaskModal).
-          When the source is the synthetic phase-less Project Tasks lane
-          (#387), open with status defaulting to BACKLOG; the modal title
-          becomes "Add to backlog" via the lowercased phaseName.
-
-          The `'root'` sentinel is the BoardView's view-layer name for the
-          parentless lane — the API expects `parent_id: null` (see
-          views.py "null = root level"), so normalize before the modal
-          stores it as `selectedParentId`. */}
-      {addTaskPhase && projectId && (
-        <TaskFormModal
-          projectId={projectId}
-          task={null}
-          phaseName={addTaskPhase.name}
-          parentId={addTaskPhase.id === 'root' ? null : addTaskPhase.id}
-          defaultStatus={
-            // Explicit FAB target (issue 605) wins; else the synthetic backlog
-            // lane defaults to BACKLOG and a real phase to NOT_STARTED.
-            addTaskPhase.status ?? (addTaskPhase.isSynthetic ? 'BACKLOG' : 'NOT_STARTED')
-          }
-          isMobile={isMobile}
-          onClose={onAddTaskClose}
-        />
-      )}
 
       {/* Workshop exit confirmation dialog (ADR-0046) */}
       {workshopExitOpen && (

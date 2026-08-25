@@ -1,6 +1,7 @@
 # Declaration-coverage baseline (#2846) — see scripts/check-version-status.sh.
 #
-# Pages under: features administration getting-started that carry NO "documentedFor" front-matter key,
+# Pages under: features administration getting-started overview that carry NO "documentedFor" front-matter key,
+# (exempt: overview/roadmap.md — the source of truth, not a page derived from it)
 # with the sha256 of the contents they had when they were last recorded here.
 # Editing one of these pages breaks its hash and fails docs:version-accuracy
 # until the author either declares the version the page documents or re-runs
@@ -50,3 +51,13 @@ features/wip-overload.md 4fec6e11d6aea17e8729f43aec30891985e28dafd0a742d320abd9b
 features/workshops.md 16e6aa0d572fe4f4cd40f338eaf2b083a9c09493c3658c089b01125255e04e44
 getting-started/installation.md 963425c49e6334635918d344a7b7610b4b2e44f8a1031f38664ec91d0dd973ee
 getting-started/quickstart.md 508c0e3e95864a0628ec4be83c082ed583157a0a5d6c7f505037b141914bc501
+overview/data-model.md 7457bf7eae21f7e6bc22fe27cc8e3b5884ca3046afd5be67f48dea778ce770fd
+overview/how-it-compares.md 32ee5c79780e79ece267793d177502af8db3e4488fe45af3384832fb6d8fb7ba
+overview/how-this-was-built.md 59a8715cc9e40c2a823ab3ef1fa68b61a5cca70a66d6310208119182b30395ad
+overview/index.md 740f8ad52a06f4b1fe003c5e5d8d1246c09ee0477a9db24fce997b7d1ef09a4e
+overview/known-issues.md e0a937e380dcffb69dc841946ee70655e354acf7fd9d03fcf5a25b4fd3118dcb
+overview/principles.md 7e0deb47a888f9dd1781ed5485ecd5a1b5112f3e81b1a6c1bd8742942d9bda82
+overview/sso-is-not-enterprise.md 341af901e840f8ad28d9d3c36dcba41b63e16170a433de50e8c9411ac25fcba7
+overview/team-ownership-not-surveillance.md 16cf95931e99d9a2aeee63df051291a2cf0adededcbb3a247afbe0c5e2a75b34
+overview/what-it-does-not-do.md c81c7d43a0b74b44f8d69485d7fe6df0d5d116f975be4013f7513976b4a8530a
+overview/why-now.md dcc249a428f6309e185bf63cf3c45813bfaec4e1f0a2c6ff30a2a0efddb0ed8b

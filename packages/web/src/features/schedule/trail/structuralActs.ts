@@ -150,6 +150,20 @@ export function ungroupSentence(container: ActRow, liftedCount: number): string 
   return `${label(container)} is no longer a phase. ${moved}`;
 }
 
+/**
+ * The `⌘⌥P` gesture with a row to adopt (#2951) — the focused row gains its first child
+ * and becomes a phase in one commit.
+ *
+ * Distinct from `groupSentence`, which describes rows being *wrapped* in a new container
+ * the user must still name. Here the container is a row that already exists and already
+ * has the user's own name on it, and the unnamed row is the task now inside it — so the
+ * sentence names the phase and says what happened to its own values, which is the fact a
+ * reader is about to be surprised by.
+ */
+export function adoptedPhaseSentence(row: ActRow): string {
+  return `${label(row)} is now a phase. Its status and estimate roll up from the task inside it.`;
+}
+
 export function duplicateSentence(row: ActRow): string {
   const n = row.descendantCount ?? 0;
   const carried = n > 0 ? ` with ${n} ${n === 1 ? 'item' : 'items'} under it` : '';

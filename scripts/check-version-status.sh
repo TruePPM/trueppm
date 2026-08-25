@@ -45,9 +45,28 @@ BASELINE_DEFAULT="packages/website/docs-declaration-baseline.txt"
 
 # Directories whose pages describe *user-visible product behavior*, and are
 # therefore the ones a self-hoster reads as "what my install does". These are
-# the only trees the declaration-coverage ratchet below applies to; explanation
-# trees (architecture/, contributing/, overview/) describe design, not features.
-DECLARATION_DIRS="features administration getting-started"
+# the only trees the declaration-coverage ratchet below applies to; the
+# remaining explanation trees (architecture/, contributing/) describe design,
+# not features.
+#
+# `overview/` was excluded on the same reasoning until #2893, and that was the
+# wrong call for one specific reason: overview/ holds roadmap.md, the document
+# this whole gate treats as its source of truth, alongside marketing-adjacent
+# pages that make concrete product claims a self-hoster reads as "what my
+# install does" (the identity-provider list on sso-is-not-enterprise.md, for
+# one). A guard that derives correctness from an oracle it cannot itself see
+# inherits the oracle's errors silently.
+DECLARATION_DIRS="features administration getting-started overview"
+
+# Pages under DECLARATION_DIRS that the ratchet deliberately never asks about,
+# relative to docs_root.
+#
+# roadmap.md is the source of truth, not a page derived from it: it describes
+# Underway and Planned versions in every section by design, so `documentedFor`
+# is meaningless on it and a hash entry would mean re-baselining on every
+# roadmap edit — pure ceremony with no question behind it. It is already exempt
+# from the tense scan above for the same reason.
+DECLARATION_EXEMPT="overview/roadmap.md"
 
 # Portable sha256 of a file's contents. alpine/busybox has sha256sum; macOS has
 # shasum only.
@@ -64,13 +83,20 @@ page_declares() {
   sed -n '1,/^---[[:space:]]*$/{ /^documentedFor:/p; }' "$1" 2>/dev/null | grep -q .
 }
 
-# Every behavior page under DECLARATION_DIRS, relative to docs_root, sorted.
+# Every behavior page under DECLARATION_DIRS, relative to docs_root, sorted,
+# minus DECLARATION_EXEMPT.
 declaration_pages() {
-  local docs_root="$1" d
+  local docs_root="$1" d rel
   for d in $DECLARATION_DIRS; do
     [ -d "$docs_root/$d" ] || continue
     find "$docs_root/$d" -type f \( -name '*.md' -o -name '*.mdx' \) 2>/dev/null
-  done | sed "s#^$docs_root/##" | sort
+  done | sed "s#^$docs_root/##" | sort | while IFS= read -r rel; do
+    [ -z "$rel" ] && continue
+    case " $DECLARATION_EXEMPT " in
+      *" $rel "*) continue ;;
+    esac
+    printf '%s\n' "$rel"
+  done
 }
 
 # Extract the set of shipped major.minor versions from the roadmap's
@@ -189,6 +215,7 @@ update_baseline() {
     echo "# Declaration-coverage baseline (#2846) — see scripts/check-version-status.sh."
     echo "#"
     echo "# Pages under: $DECLARATION_DIRS that carry NO \"documentedFor\" front-matter key,"
+    echo "# (exempt: $DECLARATION_EXEMPT — the source of truth, not a page derived from it)"
     echo "# with the sha256 of the contents they had when they were last recorded here."
     echo "# Editing one of these pages breaks its hash and fails docs:version-accuracy"
     echo "# until the author either declares the version the page documents or re-runs"
@@ -687,6 +714,52 @@ This page documents functionality added in **TruePPM 0.2**.
     printf '# baseline\nfeatures/gone.md deadbeef\n' > "$1/baseline.txt"
   }
   ratchet_case "orphan-baseline-entry" expect-fail _rt_orphan_entry || return 1
+
+  # -- overview/ is inside the ratchet, minus roadmap.md (#2893) --------------
+  # overview/ was outside DECLARATION_DIRS until #2893, which meant the one
+  # document this gate treats as its source of truth was the one document it
+  # could not see. roadmap.md itself stays exempt: it describes Underway and
+  # Planned versions in every section by design, so a hash entry for it would
+  # only mean re-baselining on every roadmap edit.
+  #
+  # These cases pass the roadmap at its real relative path so the exemption is
+  # exercised against the same string declaration_pages() emits.
+  ratchet_overview_case() { # <name> <expect-pass|expect-fail> <setup-fn>
+    local name="$1" expect="$2" setup="$3"
+    local dir="$tmp/rto-$name"
+    mkdir -p "$dir/overview"
+    cp "$docs/overview/roadmap.md" "$dir/overview/"
+    "$setup" "$dir"
+    if run_scan "$dir/overview/roadmap.md" "$dir" "$dir/baseline.txt" >/dev/null 2>&1; then
+      if [ "$expect" = "expect-pass" ]; then
+        echo "SELF-TEST OK: ratchet $name accepted."
+      else
+        echo "SELF-TEST FAILED: ratchet $name was accepted and should not be." >&2
+        return 1
+      fi
+    else
+      if [ "$expect" = "expect-fail" ]; then
+        echo "SELF-TEST OK: ratchet $name correctly rejected."
+      else
+        echo "SELF-TEST FAILED: ratchet $name was rejected and should not be." >&2
+        return 1
+      fi
+    fi
+  }
+
+  # roadmap.md declares nothing and is in no baseline — and must stay accepted.
+  _rt_roadmap_exempt() {
+    printf '# baseline\n' > "$1/baseline.txt"
+  }
+  ratchet_overview_case "overview-roadmap-exempt" expect-pass _rt_roadmap_exempt || return 1
+
+  # Any OTHER overview page that declares nothing and was never recorded fails.
+  _rt_overview_unrecorded() {
+    printf 'TruePPM federates login with Authelia, Okta, Auth0, and Entra ID.\n' \
+      > "$1/overview/sso.md"
+    printf '# baseline\n' > "$1/baseline.txt"
+  }
+  ratchet_overview_case "overview-unrecorded" expect-fail _rt_overview_unrecorded || return 1
 
   return 0
 }

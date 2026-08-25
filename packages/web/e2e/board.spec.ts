@@ -255,63 +255,62 @@ test.describe('Board view', () => {
     await expect(page.getByText('4 tasks')).toBeVisible();
   });
 
-  test('per-phase + button opens TaskFormModal with phase pre-selected (issue #305)', async ({
-    page,
-  }) => {
+  test('per-phase + button opens a one-field compose in the lane (#2952)', async ({ page }) => {
     const addBtn = page.getByRole('button', { name: /Add task to Alpha Phase/ });
     await expect(addBtn).toBeVisible();
     await addBtn.click();
 
-    const dialog = page.getByRole('dialog', { name: /Add to Alpha Phase/ });
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByLabel('Task name *')).toBeVisible();
+    const field = page.getByTestId('lane-compose-field');
+    await expect(field).toBeVisible();
+    await expect(field.getByRole('form', { name: /Add a task to Alpha Phase/i })).toBeVisible();
+    // No form — that is the whole point of the demotion (case 18).
+    await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 
-  test('TaskFormModal submits and closes on save', async ({ page }) => {
-    await page.getByRole('button', { name: /Add task to Alpha Phase/ }).click();
-    const dialog = page.getByRole('dialog', { name: /Add to Alpha Phase/ });
-    await dialog.getByLabel('Task name *').fill('My new task');
-    await dialog.getByRole('button', { name: 'Create task' }).click();
-    await expect(dialog).not.toBeVisible({ timeout: 5_000 });
-  });
-
-  test('story-points input is available on a non-agile board and is sent on create (#1961)', async ({
+  test('the lane compose POSTs the phase as parent and stays open for the next item (#2952)', async ({
     page,
   }) => {
-    // The board fixture project has no agile_features, so this is a waterfall
-    // board. The estimate is decoupled from agile features (ADR-0418): the Pts
-    // input is available while the Sprint selector stays agile-only.
     await page.getByRole('button', { name: /Add task to Alpha Phase/ }).click();
-    const dialog = page.getByRole('dialog', { name: /Add to Alpha Phase/ });
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByLabel('Pts')).toBeVisible();
-    await expect(dialog.getByLabel('Sprint')).toHaveCount(0);
-
-    await dialog.getByLabel('Task name *').fill('Estimated waterfall task');
-    // Points are now a scale-aware <select> (ADR-0510, #2027) — pick, don't fill.
-    // No effective_estimation_scale mock → falls back to Fibonacci, where 8 is valid.
-    await dialog.getByLabel('Pts').selectOption('8');
+    const field = page.getByTestId('lane-compose-field');
+    const input = field.getByRole('textbox');
+    await input.fill('My new task');
 
     const [request] = await Promise.all([
       page.waitForRequest((r) => r.url().includes('/api/v1/tasks/') && r.method() === 'POST'),
-      dialog.getByRole('button', { name: 'Create task' }).click(),
+      input.press('Enter'),
     ]);
-    expect(request.postDataJSON()).toMatchObject({ story_points: 8 });
-    await expect(dialog).not.toBeVisible({ timeout: 5_000 });
+    // `duration: 1`, not the backlog rail's 0 — a zero-duration row is a milestone
+    // in the locked vocabulary.
+    expect(request.postDataJSON()).toMatchObject({
+      name: 'My new task',
+      status: 'NOT_STARTED',
+      duration: 1,
+    });
+
+    // Rapid-fire intake: the field survives the commit, cleared and focused.
+    await expect(field).toBeVisible();
+    await expect(input).toHaveValue('');
+    await expect(input).toBeFocused();
   });
 
-  test('TaskFormModal closes on Cancel', async ({ page }) => {
+  test('Escape closes the lane compose without writing (#2952)', async ({ page }) => {
     await page.getByRole('button', { name: /Add task to Alpha Phase/ }).click();
-    const dialog = page.getByRole('dialog', { name: /Add to Alpha Phase/ });
-    await dialog.getByRole('button', { name: 'Cancel' }).click();
-    await expect(dialog).not.toBeVisible();
+    const field = page.getByTestId('lane-compose-field');
+    await field.getByRole('textbox').fill('Abandoned');
+    await field.getByRole('textbox').press('Escape');
+    await expect(page.getByTestId('lane-compose-field')).toHaveCount(0);
   });
 
-  test('TaskFormModal closes on Escape', async ({ page }) => {
-    await page.getByRole('button', { name: /Add task to Alpha Phase/ }).click();
-    await page.keyboard.press('Escape');
-    await expect(page.getByRole('dialog')).not.toBeVisible();
-  });
+  // Three modal tests used to sit here (#2952). The board no longer opens
+  // `TaskFormModal` at all — the lane `+` offers a one-field compose, covered above.
+  //
+  // The non-agile story-points claim (#1961) and Cancel-closes moved to
+  // `wave3-task-form-modal.spec.ts`, asserted against the Calendar's create entry point
+  // where the modal still lives. The Escape case was **deleted rather than moved**: with
+  // no dialog on this page, `expect(dialog).not.toBeVisible()` passes without testing
+  // anything, and a vacuous green is worse than an absent test. Escape on the surface
+  // this page actually has is covered above.
+
 
   test('column headers render (issue #211)', async ({ page }) => {
     // BACKLOG was lifted out of the phase grid into the BacklogBand rail

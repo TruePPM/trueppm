@@ -181,6 +181,8 @@ import {
   useAddDependency,
   parseCyclicDependencyError,
   buildCopyName,
+  useBulkCreateTasks,
+  type TaskBulkResponse,
 } from '@/hooks/useTaskMutations';
 import { toast } from '@/components/Toast';
 import { wbsParentPath, siblingIdsOf } from './buildMode/insertBelow';
@@ -193,6 +195,7 @@ import {
   insertMisplacedSentence,
   milestoneSentence,
   movedIntoSentence,
+  adoptedPhaseSentence,
   groupSentence,
   ungroupSentence,
   type ActRow,
@@ -1710,6 +1713,8 @@ export function ScheduleView() {
   // therefore one undo step. Composing it here would be N+1 un-transacted calls whose
   // partial failure leaves a half-made phase — the defect already filed as #2914.
   const groupTasksMut = useGroupTasks(projectId);
+  // One batch call is what makes the #2951 gesture a single commit and a single undo step.
+  const bulkCreateTasksMut = useBulkCreateTasks(projectId);
   const ungroupTasksMut = useUngroupTasks(projectId);
   // Drag-to-link (#1666): the canvas `create-link` gesture lands here as an
   // FS/0-lag dependency create. Server enforces cycle detection (400
@@ -2785,8 +2790,91 @@ export function ScheduleView() {
   // virtualized row back into view can never re-trigger edit mode.
   const [pendingAutoEditId, setPendingAutoEditId] = useState<string | null>(null);
 
+  /**
+   * The row `⌘⌥P` acts on, when the gesture has one to adopt (#2951).
+   *
+   * The design's sentence is "type *Mobilization*, press the key — that commits the
+   * parent as a container and opens its first child". The earlier ruling settled which
+   * key is NOT used (`⇥`, because Tab-as-indent is the WCAG 2.1.2 keyboard trap fixed in
+   * #2192), but it assumed the gesture *was* indent. It is not: `⌥→` means "move this
+   * row under the row above", which makes the row ABOVE the phase — not the row you just
+   * typed. Overloading it on a row-state predicate would give one key two acts
+   * distinguished only by which row is focused, which is rule 329's trap.
+   *
+   * So the gesture rides the control that already produces this outcome. `⌘⌥P` gains a
+   * subject: with a leaf focused it gives **that** row its first child; with nothing
+   * focused it keeps making a fresh phase at the insertion point.
+   *
+   * A summary is excluded because it is already a container (there is no transition to
+   * make), and a milestone because a zero-duration gate cannot host children.
+   */
+  const phaseAdoptionTarget = useMemo(() => {
+    const focusedId = focus.state.rowId;
+    if (!focusedId) return null;
+    const row = allTasks.find((t) => t.id === focusedId);
+    if (!row || row.isSummary || row.isSubtask || row.isMilestone) return null;
+    return row;
+  }, [allTasks, focus.state.rowId]);
+
   const handleAddPhase = useCallback(() => {
     if (!projectId || readOnly) return;
+
+    // ── The gesture: adopt the focused row as the container (#2951) ──────────
+    //
+    // ONE `tasks/bulk` call, not the create-then-wrap pair below. A single `create`
+    // naming the focused row as parent is all it takes: the server declares that parent
+    // a container on the same write (`sync_structure_shadow_values`, wired into the bulk
+    // path in #3036), so there is no moment at which an empty container exists and no
+    // second round trip in which the wrap could fail. The batch's `operation_id` is one
+    // ledger row, so `⌘Z` reverses the whole thing in one step.
+    //
+    // This is why the endpoint had to be fixed first: before #3036 the bulk path left a
+    // parent `structure_role='work'` with children, so the gesture would have shipped
+    // the exact artifact epic #2946 exists to remove, through the epic's own feature.
+    if (phaseAdoptionTarget) {
+      const target = phaseAdoptionTarget;
+      const childId = crypto.randomUUID();
+      bulkCreateTasksMut.mutate(
+        [
+          {
+            op: 'create',
+            id: childId,
+            data: { name: 'New item', duration: 1, parent_id: target.id },
+          },
+        ],
+        {
+          onSuccess: (data: TaskBulkResponse) => {
+            // The batch is 207: a create can be rejected per row while the request
+            // succeeds. Treat "nothing applied" as the failure it is rather than
+            // reporting a phase that was never made.
+            if (data.applied.length === 0) {
+              setScheduleActionToast({
+                message: `Couldn't add a task under ${target.name} — try again.`,
+              });
+              return;
+            }
+            const entryId = recordAct(
+              adoptedPhaseSentence({ name: target.name }),
+            );
+            if (entryId !== null && data.operation_id) {
+              attachTrailOperation(entryId, data.operation_id);
+            }
+            // The CHILD, not the phase: the phase already has the name the user typed,
+            // and the row that still needs one is the task now sitting inside it. This
+            // is the opposite of `+ Phase` below, where the container is the unnamed one.
+            focus.focusRow(childId);
+            focus.enterCellEdit(childId, 'name');
+            if (!buildModeActive) setPendingAutoEditId(childId);
+          },
+          onError: () =>
+            setScheduleActionToast({
+              message: `Couldn't add a task under ${target.name} — try again.`,
+            }),
+        },
+      );
+      return;
+    }
+
     // Same insertion point as "+ Item" / "+ Milestone" (inferredParentId) — a
     // phase can itself nest inside another phase. Non-blank placeholder name
     // (mirrors handleAddFirstTask below): the API rejects a blank name at
@@ -2859,6 +2947,8 @@ export function ScheduleView() {
     recordAct,
     attachTrailOperation,
     setScheduleActionToast,
+    phaseAdoptionTarget,
+    bulkCreateTasksMut,
   ]);
 
   /**
@@ -3779,6 +3869,7 @@ export function ScheduleView() {
         onAddTask={handleToolbarAddTask}
         handleAddMilestone={handleAddMilestone}
         handleAddPhase={handleAddPhase}
+        phaseAdoptionName={phaseAdoptionTarget?.name ?? null}
         groupTarget={groupTarget}
         ungroupTarget={ungroupTarget}
         onGroup={handleGroupRows}
@@ -4712,6 +4803,8 @@ interface ScheduleToolbarProps {
   onAddTask: () => void;
   handleAddMilestone: () => void;
   handleAddPhase: () => void;
+  /** Name of the focused row `+ Phase` would adopt, or null (#2951). */
+  phaseAdoptionName: string | null;
   /** Group / Ungroup (#2955) — what each would act on, and how to perform it. */
   groupTarget: GroupTarget;
   ungroupTarget: UngroupTarget;
@@ -4776,6 +4869,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
     onAddTask,
     handleAddMilestone,
     handleAddPhase,
+    phaseAdoptionName,
     groupTarget,
     ungroupTarget,
     onGroup,
@@ -4909,6 +5003,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
             onAddPhase={handleAddPhase}
             disabled={readOnly}
             pending={createPending || restructurePending}
+            adoptsRowName={phaseAdoptionName}
           />
           <ScheduleStructureButtons
             group={groupTarget}
