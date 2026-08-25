@@ -20,6 +20,7 @@ import { useRef, useEffect, useMemo, type CSSProperties, type RefObject } from '
 import type { Task, TaskLink } from '@/types';
 import type { ChartRenderOptions, GanttEngine, ZoomLevel } from './engine';
 import type { CadenceSegment, SprintBand } from './sprintBands';
+import type { BuildModeApi } from './buildMode/BuildModeContext';
 import { useGanttEngine } from '@/hooks/useGanttEngine';
 import { useIsDark } from '@/hooks/useIsDark';
 import { useFiscalYearStartMonth } from '@/hooks/useFiscalYearStartMonth';
@@ -46,6 +47,13 @@ interface CanvasScheduleTimelineProps {
    * sprint context, which draws no rail.
    */
   cadenceSegments?: CadenceSegment[];
+  /**
+   * Build-mode API and the per-row edit predicate, for the Enter-creates-a-row
+   * trio on a focused bar (#2784). Both omitted on the read-only program
+   * schedule, where the trio simply does not exist.
+   */
+  authoring?: BuildModeApi | null;
+  canEditRow?: (task: Task) => boolean;
   zoomLevel: ZoomLevel;
   /** Chart menu toggles — on-bar name placement + progress-pill visibility (#2097).
    *  Defaults to everything-visible for hosts without a Display menu (e.g. the
@@ -73,6 +81,8 @@ export function CanvasScheduleTimeline({
   links,
   sprintBands = NO_SPRINT_BANDS,
   cadenceSegments = NO_CADENCE_SEGMENTS,
+  authoring = null,
+  canEditRow,
   zoomLevel,
   chartOptions = DEFAULT_CHART_OPTIONS,
   containerRef,
@@ -201,6 +211,8 @@ export function CanvasScheduleTimeline({
         tasks={tasks}
         links={links}
         sprintBands={sprintBands}
+        authoring={authoring}
+        canEditRow={canEditRow}
         containerRef={containerRef}
       />
       {/* Layer 4: drag/keyboard-reschedule preview bars (pointer-events: none).

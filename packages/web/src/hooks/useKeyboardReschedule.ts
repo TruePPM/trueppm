@@ -60,6 +60,26 @@ export interface UseKeyboardRescheduleOptions {
    * the date the server will actually commit.
    */
   statusDate?: string | null;
+  /**
+   * True while the focused Timeline bar can be authored — build mode is on AND
+   * this reader may edit the row (#2784).
+   *
+   * When it is, `Shift+Enter` belongs to **insert row above** and must NOT also
+   * start a reschedule. This flag exists because the two handlers are on
+   * different elements: `ScheduleAriaOverlay`'s React handler inserts the row,
+   * and *this* listener is on `document` and fires after it in bubble order,
+   * reading the selection rather than the event target. Without the gate a
+   * single `Shift+Enter` would insert a row and start a reschedule on the
+   * previously-selected task in the same press.
+   *
+   * `preventDefault` cannot express this: the overlay already calls it on the
+   * working `Shift+Enter` path today and this listener still initiates, which is
+   * the documented interplay `ScheduleAriaOverlay.keyboard.test.tsx` pins.
+   *
+   * Reschedule is not left without a key — `r` / `R` has been its single-key
+   * alias since #2205 and is unaffected in either mode. ADR-0909 §4.
+   */
+  authoringActive?: boolean;
   /** Called when the user presses 'd' to open the date input popover. */
   onOpenDatePopover: (taskId: string) => void;
 }
@@ -72,6 +92,7 @@ export function useKeyboardReschedule({
   ariaAssertiveRef,
   keyboardModeRef,
   statusDate,
+  authoringActive = false,
   onOpenDatePopover,
 }: UseKeyboardRescheduleOptions): void {
   const workerRef = useRef<Worker | null>(null);
@@ -91,6 +112,10 @@ export function useKeyboardReschedule({
   // status-date change must not tear down and rebuild the key bindings.
   const statusDateRef = useRef(statusDate ?? null);
   useEffect(() => { statusDateRef.current = statusDate ?? null; }, [statusDate]);
+  // Same treatment again: toggling build mode must not tear down and rebuild
+  // the document listener, which would drop an in-flight reschedule.
+  const authoringActiveRef = useRef(authoringActive);
+  useEffect(() => { authoringActiveRef.current = authoringActive; }, [authoringActive]);
 
   const startDrag = useDragStore((s) => s.startDrag);
   const updatePreview = useDragStore((s) => s.updatePreview);
@@ -191,9 +216,14 @@ export function useKeyboardReschedule({
      * Not-in-keyboard-mode entry: Shift+Enter or 'r' on a reschedulable selected
      * task starts keyboard mode. Plain Enter opens the task drawer elsewhere
      * (#2205), so it is deliberately ignored here.
+     *
+     * While authoring, `Shift+Enter` is **insert row above** (#2784) and drops
+     * out of this set — see `authoringActive`. `r` / `R` is unconditional and
+     * remains the reschedule key in both modes.
      */
     const tryInitiate = (e: KeyboardEvent) => {
-      const initiates = (e.key === 'Enter' && e.shiftKey) || e.key === 'r' || e.key === 'R';
+      const shiftEnterInitiates = e.key === 'Enter' && e.shiftKey && !authoringActiveRef.current;
+      const initiates = shiftEnterInitiates || e.key === 'r' || e.key === 'R';
       if (!initiates) return;
       const taskId = selectedTaskIdRef.current;
       if (!taskId) return;

@@ -1519,19 +1519,6 @@ export function ScheduleView() {
     [allTasks],
   );
 
-  // Uses the full `allLinks` graph (not the paint-filtered `links`) so keyboard
-  // rescheduling cascades through every real dependency regardless of view filters.
-  useKeyboardReschedule({
-    engine,
-    tasks: allTasks,
-    links: allLinks,
-    ariaLiveRef,
-    ariaAssertiveRef,
-    keyboardModeRef,
-    statusDate,
-    onOpenDatePopover: handleOpenDatePopover,
-  });
-
   // Pull-to-commit gate (ADR-0067 / #492). Drag-end and resize-end no longer
   // fire the PATCH directly: the bar visually moves via engine.updateTask, and
   // the popover holds the change until Confirm. Cancel/Esc/click-outside revert.
@@ -1709,6 +1696,41 @@ export function ScheduleView() {
       canEditTaskRow(task.canEdit, currentRole, roleLoading || roleError === true),
     [currentRole, roleLoading, roleError],
   );
+
+  /**
+   * Is the Enter family the row-creation trio right now? (#2784)
+   *
+   * Build mode has to be mounted AND this reader has to be able to author at
+   * least one row — `BuildModeProvider` is mounted for every desktop user,
+   * viewers included, so its presence is not an entitlement check.
+   *
+   * `useKeyboardReschedule` reads this to drop `Shift+Enter` from its initiation
+   * set while authoring, because there `Shift+Enter` inserts a row above. The
+   * two handlers live on different elements — the overlay's React handler on the
+   * bar, this listener on `document`, firing after it in bubble order and
+   * keyed on the *selection* rather than the event target — so without the gate
+   * one press would insert a row and start a reschedule on the previously
+   * selected task. `r` / `R` is unaffected and remains the reschedule key.
+   */
+  const authoringActive = buildModeActive && !readOnly;
+
+  // Uses the full `allLinks` graph (not the paint-filtered `links`) so keyboard
+  // rescheduling cascades through every real dependency regardless of view filters.
+  //
+  // Called here rather than earlier in the component because `authoringActive`
+  // resolves from the role state above; the call is still unconditional and its
+  // position is stable across renders, which is what the rules of hooks require.
+  useKeyboardReschedule({
+    engine,
+    tasks: allTasks,
+    links: allLinks,
+    ariaLiveRef,
+    ariaAssertiveRef,
+    keyboardModeRef,
+    statusDate,
+    authoringActive,
+    onOpenDatePopover: handleOpenDatePopover,
+  });
 
   /**
    * The outline panel's real box on the active surface (#2960).
@@ -5652,6 +5674,8 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
                   links={links ?? []}
                   sprintBands={sprintBands}
                   cadenceSegments={cadenceSegments}
+                  authoring={timelineBuildMode}
+                  canEditRow={canEditRow}
                   zoomLevel={zoomLevel}
                   chartOptions={chartOptions}
                   containerRef={canvasScrollRef}
