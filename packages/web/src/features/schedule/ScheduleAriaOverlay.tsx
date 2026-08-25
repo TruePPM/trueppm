@@ -30,6 +30,7 @@
  * - Rule 69: buildTaskAriaLabel canonical format
  */
 
+import { useChartHeaderHeight } from '@/hooks/useChartHeaderHeight';
 import {
   useState,
   useEffect,
@@ -45,7 +46,6 @@ import type { GanttEngine } from './engine';
 import { dateToLeft, dateToRight } from './engine';
 import { BAR_HEIGHT } from './engine/GanttHitIndex';
 import { useRowMetrics } from '@/hooks/useRowHeight';
-import { HEADER_HEIGHT } from './scheduleConstants';
 import { sprintBandByTaskId, type SprintBand } from './sprintBands';
 import { isPinnedByActuals } from './pinnedByActuals';
 
@@ -280,10 +280,16 @@ export function ScheduleAriaOverlay({
     [tasks, sprintBands],
   );
 
+  // The chart's row origin — the date ruler plus the cadence rail when one is
+  // drawn (#3012). Subscribed rather than read, so the overlay's row rects move
+  // with the canvas's the first time a project's sprints resolve; a silent
+  // disagreement here puts the focus ring on the neighbouring row.
+  const chartHeaderHeight = useChartHeaderHeight();
+
   // Virtualised row range — viewportHeight is reduced by fixed header band
   const overscan = OVERSCAN_ROWS * rowHeight;
   const minY = scrollTop - overscan;
-  const maxY = scrollTop + viewportHeight - HEADER_HEIGHT + overscan;
+  const maxY = scrollTop + viewportHeight - chartHeaderHeight + overscan;
   const firstRow = Math.max(0, Math.floor(minY / rowHeight));
   const lastRow = Math.min(tasks.length - 1, Math.ceil(maxY / rowHeight));
 
@@ -329,7 +335,7 @@ export function ScheduleAriaOverlay({
         const container = containerRef.current;
         if (container) {
           const rowTop = tasks.indexOf(target) * rowHeight;
-          const viewH = container.clientHeight - HEADER_HEIGHT;
+          const viewH = container.clientHeight - chartHeaderHeight;
           if (rowTop < container.scrollTop) container.scrollTop = rowTop;
           else if (rowTop + rowHeight > container.scrollTop + viewH)
             container.scrollTop = rowTop + rowHeight - viewH;
@@ -391,7 +397,7 @@ export function ScheduleAriaOverlay({
           break;
       }
     },
-    [tasks, engine, containerRef, rowHeight],
+    [tasks, engine, containerRef, rowHeight, chartHeaderHeight],
   );
 
   const scales = engine?.scales ?? null;
@@ -425,7 +431,7 @@ export function ScheduleAriaOverlay({
       </span>
       {tasks.slice(firstRow, lastRow + 1).map((task, sliceIdx) => {
         const rowIndex = firstRow + sliceIdx;
-        const rowTop = rowIndex * rowHeight + HEADER_HEIGHT - scrollTop;
+        const rowTop = rowIndex * rowHeight + chartHeaderHeight - scrollTop;
         // Roving tabindex: until the user has focused a row, the first task is the
         // tab stop so the listbox is reachable by Tab on initial load. Without the
         // `?? tasks[0]?.id` fallback every option was tabIndex=-1 and keyboard/AT

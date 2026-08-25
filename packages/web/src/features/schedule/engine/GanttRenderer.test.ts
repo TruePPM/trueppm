@@ -22,7 +22,7 @@ import {
   MERGE_DOT_RADIUS,
   COLOR,
   drawSprintBands,
-  drawSprintBandLabels,
+  drawCadenceRail,
   sprintBandFadeAlpha,
   SPRINT_BAND_FADE_MS,
   canvasFont,
@@ -31,9 +31,9 @@ import {
   getFontScale,
 } from './GanttRenderer';
 import { buildScaleData, dateToLeft, dateToRight } from './GanttScaleData';
-import { HEADER_HEIGHT } from '../scheduleConstants';
+import { CADENCE_RAIL_HEIGHT, HEADER_HEIGHT } from '../scheduleConstants';
 import type { Task } from '@/types';
-import type { SprintBand } from '../sprintBands';
+import type { CadenceSegment, SprintBand } from '../sprintBands';
 
 function makeCtxSpy() {
   const calls: Array<{ name: string; args: unknown[] }> = [];
@@ -3364,102 +3364,101 @@ describe('drawSprintBands — the window on the shared timeline (#2738)', () => 
   });
 });
 
-describe('drawSprintBandLabels — naming the window (#2738)', () => {
+describe('drawCadenceRail — naming every window on the time axis (#3012)', () => {
   const scales = buildScaleData('week', '2026-04-01', '2026-05-01');
   const VIEW_W = 800;
-  const VIEW_H = 600;
+  const RAIL_TOP = HEADER_HEIGHT;
+  const RAIL_BOTTOM = HEADER_HEIGHT + CADENCE_RAIL_HEIGHT;
 
-  const BAND: SprintBand = {
-    sprintId: 'sp1',
-    name: 'Sprint 4',
+  const PLANNED: CadenceSegment = {
     startDate: '2026-04-06',
     finishDate: '2026-04-17',
-    firstRow: 2,
-    lastRow: 4,
+    label: 'Sprint 4',
+    sprintIds: ['sp1'],
+    active: false,
   };
+  const ACTIVE: CadenceSegment = { ...PLANNED, active: true };
 
-  it('draws the sprint name once per visible band', () => {
+  it('draws each window name once', () => {
     const { ctx, calls } = makeCtxSpy();
-    drawSprintBandLabels(ctx, [BAND], scales, 0, 0, VIEW_W, VIEW_H);
+    drawCadenceRail(ctx, [PLANNED], scales, 0, VIEW_W);
     const texts = calls.filter((c) => c.name === 'fillText').map((c) => c.args[0]);
     expect(texts).toEqual(['Sprint 4']);
   });
 
-  it('straddles the band top edge instead of covering the first bar', () => {
+  it('keeps the label inside the rail band, clear of the ruler and of row 0', () => {
+    // The rail's whole safety argument is that it occupies exactly
+    // HEADER_HEIGHT..CHART_HEADER_HEIGHT. Ink outside that would either sit on
+    // the date ruler or on the first row's bar.
     const { ctx, calls } = makeCtxSpy();
-    drawSprintBandLabels(ctx, [BAND], scales, 0, 0, VIEW_W, VIEW_H);
-    const pill = calls.find((c) => c.name === 'roundRect');
-    expect(pill).toBeDefined();
-    const bandTop = 2 * ROW_HEIGHT + HEADER_HEIGHT;
-    expect(pill!.args[1] as number).toBeLessThan(bandTop);
+    drawCadenceRail(ctx, [PLANNED], scales, 0, VIEW_W);
+    const baseline = calls.find((c) => c.name === 'fillText')!.args[2] as number;
+    expect(baseline).toBeGreaterThan(RAIL_TOP);
+    expect(baseline).toBeLessThan(RAIL_BOTTOM);
   });
 
-  it('keeps its TEXT inside the inter-bar gutter, clear of both bar boxes', () => {
-    // Rule 235/295: the first and last 2px of a bar box hold the critical-path
-    // frame. The pill's rounded caps may graze them (the bars paint after and
-    // win), but the glyphs must sit in the 10px gutter between the two bars.
-    const { ctx, calls } = makeCtxSpy();
-    drawSprintBandLabels(ctx, [BAND], scales, 0, 0, VIEW_W, VIEW_H);
-    const text = calls.find((c) => c.name === 'fillText');
-    const bandTop = 2 * ROW_HEIGHT + HEADER_HEIGHT;
-    // textBaseline is 'middle', so the glyph box is centred on this y.
-    const baseline = text!.args[2] as number;
-    expect(baseline).toBeCloseTo(bandTop);
-    // The gutter runs from the previous row's bar bottom to this row's bar top.
-    expect(baseline).toBeGreaterThan(bandTop - (ROW_HEIGHT - BAR_HEIGHT) / 2);
-    expect(baseline).toBeLessThan(bandTop + (ROW_HEIGHT - BAR_HEIGHT) / 2);
-  });
-
-  it('inks the pill with the palette entry paired to the pill fill', () => {
-    // Under forced-colors the pill is `Highlight`, whose only guaranteed
+  it('fills only the ACTIVE window, and inks it with the paired palette entry', () => {
+    // Under forced-colors the fill is `Highlight`, whose only guaranteed
     // contrast partner is `HighlightText` — not the `Canvas` that
     // chipTextOnSurface resolves to.
-    const { ctx, calls } = makeCtxSpy();
-    drawSprintBandLabels(ctx, [BAND], scales, 0, 0, VIEW_W, VIEW_H);
-    const fills = calls.filter((c) => c.name === 'fillStyle').map((c) => c.args[0]);
-    expect(fills).toContain(COLOR.chipTextOnHighlight);
+    const active = makeCtxSpy();
+    drawCadenceRail(active.ctx, [ACTIVE], scales, 0, VIEW_W);
+    const activeFills = active.calls.filter((c) => c.name === 'fillStyle').map((c) => c.args[0]);
+    expect(activeFills).toContain(COLOR.sprintBandEdge);
+    expect(activeFills).toContain(COLOR.chipTextOnHighlight);
     expect(COLOR_FORCED.chipTextOnHighlight).toBe('HighlightText');
+
+    const planned = makeCtxSpy();
+    drawCadenceRail(planned.ctx, [PLANNED], scales, 0, VIEW_W);
+    const plannedFills = planned.calls.filter((c) => c.name === 'fillStyle').map((c) => c.args[0]);
+    // The backing surface is filled, the cell is not.
+    expect(plannedFills).not.toContain(COLOR.sprintBandEdge);
+    expect(plannedFills).toContain(COLOR.textSecondary);
   });
 
-  it('never lets the pill ride up into the date header', () => {
+  it('rules the window START and never its right edge', () => {
+    // Drawing both would double every internal boundary into a 2px seam that
+    // reads as a gap between two adjacent sprints where there is none.
     const { ctx, calls } = makeCtxSpy();
-    drawSprintBandLabels(ctx, [{ ...BAND, firstRow: 0 }], scales, 0, 0, VIEW_W, VIEW_H);
-    const pill = calls.find((c) => c.name === 'roundRect');
-    expect(pill!.args[1] as number).toBeGreaterThanOrEqual(HEADER_HEIGHT);
+    drawCadenceRail(ctx, [PLANNED], scales, 0, VIEW_W);
+    const left = dateToLeft(PLANNED.startDate, scales);
+    const right = dateToRight(PLANNED.finishDate, scales);
+    const verticals = calls
+      .filter((c) => c.name === 'moveTo' && (c.args[1] as number) === RAIL_TOP)
+      .map((c) => c.args[0] as number);
+    expect(verticals).toContainEqual(left + 0.5);
+    expect(verticals).not.toContainEqual(right + 0.5);
   });
 
-  it('sticks the label to the viewport edge when the window start is panned off', () => {
+  it('omits the label on a window too narrow to name', () => {
+    // A bare `…` names nothing and reads as a rendering fault. The cell's own
+    // left rule still marks the boundary.
     const { ctx, calls } = makeCtxSpy();
-    const scrolled = dateToLeft('2026-04-10', scales);
-    drawSprintBandLabels(ctx, [BAND], scales, scrolled, 0, VIEW_W, VIEW_H);
-    const pill = calls.find((c) => c.name === 'roundRect');
-    expect(pill).toBeDefined();
-    // Pinned just inside the viewport, not left at a negative x where a planner
-    // panning into a long sprint would see an anonymous band.
-    expect(pill!.args[0] as number).toBeGreaterThanOrEqual(0);
-  });
-
-  it('omits the label on a band too narrow to name', () => {
-    const { ctx, calls } = makeCtxSpy();
-    // A one-day window at week zoom is a few px wide.
-    drawSprintBandLabels(
+    drawCadenceRail(
       ctx,
-      [{ ...BAND, startDate: '2026-04-06', finishDate: '2026-04-06' }],
+      [{ ...PLANNED, startDate: '2026-04-06', finishDate: '2026-04-06' }],
       scales,
       0,
-      0,
       VIEW_W,
-      VIEW_H,
     );
     expect(calls.filter((c) => c.name === 'fillText')).toHaveLength(0);
   });
 
-  it('draws nothing at alpha 0 or with no bands', () => {
-    const a = makeCtxSpy();
-    drawSprintBandLabels(a.ctx, [BAND], scales, 0, 0, VIEW_W, VIEW_H, 0);
-    expect(a.calls.filter((c) => c.name === 'fillText')).toHaveLength(0);
-    const b = makeCtxSpy();
-    drawSprintBandLabels(b.ctx, [], scales, 0, 0, VIEW_W, VIEW_H);
-    expect(b.calls.filter((c) => c.name === 'fillText')).toHaveLength(0);
+  it('keeps the name on screen when the window start is panned off', () => {
+    // The third failure that made the row-anchored pill insufficient: a sprint
+    // wider than the viewport was anonymous for most of its own extent.
+    const { ctx, calls } = makeCtxSpy();
+    const scrolled = dateToLeft('2026-04-10', scales);
+    drawCadenceRail(ctx, [PLANNED], scales, scrolled, VIEW_W);
+    const text = calls.find((c) => c.name === 'fillText');
+    expect(text).toBeDefined();
+    expect(text!.args[0]).toBe('Sprint 4');
+    expect(text!.args[1] as number).toBeGreaterThanOrEqual(0);
+  });
+
+  it('draws nothing at all with no segments — a waterfall project keeps its pixels', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawCadenceRail(ctx, [], scales, 0, VIEW_W);
+    expect(calls).toHaveLength(0);
   });
 });

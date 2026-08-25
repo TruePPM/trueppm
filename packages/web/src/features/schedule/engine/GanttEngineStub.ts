@@ -15,7 +15,7 @@
  */
 
 import type { Task, TaskLink } from '@/types';
-import type { SprintBand } from '../sprintBands';
+import type { CadenceSegment, SprintBand } from '../sprintBands';
 import type {
   FilterHighlight,
   GanttEngine,
@@ -77,6 +77,7 @@ export class GanttEngineStub implements GanttEngine {
   // ── Sprint-window bands (#2738) ───────────────────────────────────────────
 
   setSprintBands(_bands: SprintBand[]): void {}
+  setCadenceSegments(_segments: CadenceSegment[]): void {}
 
   // ── Event emitter ─────────────────────────────────────────────────────────
 

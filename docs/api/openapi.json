@@ -49488,6 +49488,13 @@
                     "task"
                 ]
             },
+            "OriginEnum": {
+                "enum": [
+                    "paste"
+                ],
+                "type": "string",
+                "description": "* `paste` - paste"
+            },
             "OutcomeEnum": {
                 "enum": [
                     "success",
@@ -61537,6 +61544,17 @@
                     },
                     "dependencies": {
                         "$ref": "#/components/schemas/TaskBulkDependencyBucketRequest"
+                    },
+                    "origin": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/OriginEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
                     }
                 },
                 "required": [

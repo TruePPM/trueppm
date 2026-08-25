@@ -239,8 +239,13 @@ describe('one definition — the engine re-exports, it does not redeclare (#2997
     });
 
     // All three were triplicated before #2997, not just the row height — a gate
-    // that only watches ROW_HEIGHT leaves the other two free to drift back.
-    const DECLARATION = /\b(?:const|let|var)\s+(ROW_HEIGHT|BAR_TOP_OFFSET|BAR_HEIGHT)\s*=/g;
+    // that only watches ROW_HEIGHT leaves the other two free to drift back. The
+    // header trio joined in #3012 for the same reason and one more: splitting
+    // one constant into two meanings ("the ruler band" vs "where row 0 starts")
+    // is exactly the moment somebody re-declares the old name locally to avoid
+    // touching an import.
+    const DECLARATION =
+      /\b(?:const|let|var)\s+(ROW_HEIGHT|BAR_TOP_OFFSET|BAR_HEIGHT|HEADER_HEIGHT|CHART_HEADER_HEIGHT|CADENCE_RAIL_HEIGHT)\s*=/g;
     const offenders: string[] = [];
     for (const [path, source] of Object.entries(modules)) {
       if (/\.test\.tsx?$/.test(path)) continue;
@@ -249,7 +254,10 @@ describe('one definition — the engine re-exports, it does not redeclare (#2997
 
     expect(offenders.sort()).toEqual([
       './scheduleConstants.ts: const BAR_HEIGHT =',
+      './scheduleConstants.ts: const CADENCE_RAIL_HEIGHT =',
+      './scheduleConstants.ts: const HEADER_HEIGHT =',
       './scheduleConstants.ts: let BAR_TOP_OFFSET =',
+      './scheduleConstants.ts: let CHART_HEADER_HEIGHT =',
       './scheduleConstants.ts: let ROW_HEIGHT =',
     ]);
   });
@@ -267,7 +275,11 @@ describe('one definition — the engine re-exports, it does not redeclare (#2997
       eager: true,
     });
 
-    const LIVE = /\b(?:ROW_HEIGHT|BAR_TOP_OFFSET)\b/;
+    // `CHART_HEADER_HEIGHT` is live from #3012; `HEADER_HEIGHT` is deliberately
+    // NOT in this set — it is a genuine constant (the ruler's own height) and
+    // capturing it is fine. Note `\b` cannot match inside `CHART_HEADER_HEIGHT`,
+    // so the two names never shadow each other here.
+    const LIVE = /\b(?:ROW_HEIGHT|BAR_TOP_OFFSET|CHART_HEADER_HEIGHT)\b/;
     // Column 0 = module scope; anything indented is inside a function body.
     const TOP_LEVEL_DECL = /^(?:export\s+)?(?:const|let|var)\s+[\w$]+[^\n;]*=[^\n;]*$/gm;
 

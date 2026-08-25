@@ -27,7 +27,8 @@ import { ancestorIdsOf } from './unscheduledSelection';
 import type { GanttEngine, GanttScaleData } from './engine';
 import { dateToLeft, leftToDate, ZOOM_STEP_FACTOR } from './engine';
 import { computeInitialFraming, type RowBar } from './scheduleUtils';
-import { resolveOutlineLeftReserve, HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
+import { resolveOutlineLeftReserve, CHART_HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
+import { useCadenceRail, useChartHeaderHeight } from '@/hooks/useChartHeaderHeight';
 import { useRowHeight, useRowMetrics, useComfortableRows } from '@/hooks/useRowHeight';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
@@ -138,7 +139,7 @@ import { BeforeProjectStartDialog } from './BeforeProjectStartDialog';
 import { useScheduleCommit } from './useScheduleCommit';
 import { useProject } from '@/hooks/useProject';
 import { useSprints } from '@/hooks/useSprints';
-import { computeSprintBands } from './sprintBands';
+import { computeCadenceSegments, computeSprintBands } from './sprintBands';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { SchedulePrintLayout } from './export/SchedulePrintLayout';
 import { useScheduleExport } from './export/useScheduleExport';
@@ -746,7 +747,7 @@ function runTaskHashDeepLink(ctx: {
   if (dateIso) {
     ctx.engine.scrollToDate(dateIso, 'instant');
     const x = dateToLeft(dateIso, ctx.scheduleScales);
-    const y = HEADER_HEIGHT + rowIdx * ROW_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
+    const y = CHART_HEADER_HEIGHT + rowIdx * ROW_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
     // Guard on the value, not on an exception. This was a try/catch commented
     // "dateToLeft can throw on out-of-range dates" — it cannot: it is
     // `parseUTCDate(iso).getTime() - start.getTime()` times a scalar, and an
@@ -994,6 +995,34 @@ export function ScheduleView() {
     () => computeSprintBands(visibleTasks, sprints),
     [visibleTasks, sprints],
   );
+
+  /**
+   * The cadence rail's cells (#3012) — the named sprint windows on the time axis.
+   *
+   * Derived from `sprints` ALONE, not from `visibleTasks`, and that is the whole
+   * point of the rail: a window exists whether or not any row is committed to
+   * it, so an empty sprint — a planning fact the row bands structurally cannot
+   * show — appears here. It also means filtering the outline cannot silently
+   * rewrite the cadence.
+   *
+   * Memoized for the same reason the bands are: the engine compares by
+   * reference.
+   */
+  const cadenceSegments = useMemo(() => computeCadenceSegments(sprints), [sprints]);
+
+  /**
+   * Install the rail's height into the row model (#3012).
+   *
+   * Two conditions, both required: there has to be a drawable window, and the
+   * "Sprint windows" display option has to be on. It is the SAME toggle the row
+   * bands use — the rail and the bands are two readings of one fact, and a
+   * second control for one fact is how two controls drift apart.
+   *
+   * When either is false the rail's height is 0 and the chart's geometry is
+   * byte-identical to a waterfall project's, which is what lets this ship
+   * without a visual diff on every non-agile plan.
+   */
+  useCadenceRail(cadenceSegments.length > 0 && chartPrefs.sprintBandsVisible !== false);
 
   // Wrap toggle to announce the new state to the polite aria-live region.
   // Written via DOM ref (rule 30) — avoids a state-driven re-render on every toggle.
@@ -1429,7 +1458,7 @@ export function ScheduleView() {
     // emptiness the user reads as "the schedule is broken" (#2423).
     const rowsInView = Math.max(
       1,
-      Math.ceil((container.clientHeight - HEADER_HEIGHT) / rowHeight),
+      Math.ceil((container.clientHeight - CHART_HEADER_HEIGHT) / rowHeight),
     );
     const bars: (RowBar | null)[] = visibleTasks.slice(0, rowsInView).map((t) => {
       if (!t.start || !t.finish) return null;
@@ -2699,7 +2728,7 @@ export function ScheduleView() {
         const x = dateToLeft(dateIso, scheduleScales);
         const rowIdx = visibleTasks.findIndex((t) => t.id === taskId);
         const idx = rowIdx >= 0 ? rowIdx : visibleTasks.length;
-        const y = HEADER_HEIGHT + idx * rowHeight + rowHeight / 2;
+        const y = CHART_HEADER_HEIGHT + idx * rowHeight + rowHeight / 2;
         // The second of the two identical dead guards (see runTaskHashDeepLink).
         // `dateToLeft` cannot throw — it is arithmetic, and an unparseable date
         // yields NaN — so the catch never fired and NaN reached the style prop,
@@ -4041,6 +4070,7 @@ export function ScheduleView() {
         handleCanvasScroll={handleCanvasScroll}
         links={links}
         sprintBands={sprintBands}
+        cadenceSegments={cadenceSegments}
         zoomLevel={zoomLevel}
         chartOptions={chartOptions}
         handleEngineReady={handleEngineReady}
@@ -5262,6 +5292,8 @@ interface ScheduleMainAreaProps {
   links: ComponentProps<typeof CanvasScheduleTimeline>['links'];
   /** Sprint-window bands for the canvas (#2738), row-indexed against visibleTasks. */
   sprintBands: ComponentProps<typeof CanvasScheduleTimeline>['sprintBands'];
+  /** Cadence-rail cells for the canvas (#3012), addressed by date, not by row. */
+  cadenceSegments: ComponentProps<typeof CanvasScheduleTimeline>['cadenceSegments'];
   zoomLevel: ComponentProps<typeof CanvasScheduleTimeline>['zoomLevel'];
   chartOptions: ComponentProps<typeof CanvasScheduleTimeline>['chartOptions'];
   handleEngineReady: (eng: GanttEngine) => void;
@@ -5356,6 +5388,10 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
   // DOM (#2997) — it is what makes the last row reachable. Read through the hook
   // so a pointer-class flip resizes it, not just the canvas.
   const rowHeight = useRowHeight();
+  // The other half of that spacer: its origin. The cadence rail grows the chart
+  // header band, and a spacer still sized from the ruler alone makes the last
+  // row unreachable by exactly the rail's height (#3012).
+  const chartHeaderHeight = useChartHeaderHeight();
   // The split pane, measured once for BOTH writers of `widths.task` — the
   // splitter and the outline header's own Task resize handle (#2960). Two
   // controls over one persisted value must enforce and announce one range, or
@@ -5418,6 +5454,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
     handleCanvasScroll,
     links,
     sprintBands,
+    cadenceSegments,
     zoomLevel,
     chartOptions,
     handleEngineReady,
@@ -5592,7 +5629,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
               style={{
                 width: totalCanvasWidth > 0 ? totalCanvasWidth : '100%',
                 minWidth: '100%',
-                height: HEADER_HEIGHT + visibleTasks.length * rowHeight,
+                height: chartHeaderHeight + visibleTasks.length * rowHeight,
                 position: 'relative',
               }}
             >
@@ -5614,6 +5651,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
                   tasks={visibleTasks}
                   links={links ?? []}
                   sprintBands={sprintBands}
+                  cadenceSegments={cadenceSegments}
                   zoomLevel={zoomLevel}
                   chartOptions={chartOptions}
                   containerRef={canvasScrollRef}

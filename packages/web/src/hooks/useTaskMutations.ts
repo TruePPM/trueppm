@@ -724,14 +724,22 @@ export interface TaskBulkResponse {
  * as an error here: the caller (paste-many's receipt strip) reports applied vs.
  * rejected counts itself, since "35 of 38 rows landed" is the expected everyday
  * outcome of a pasted block, not a failure.
+ *
+ * `origin` (#3038): this same endpoint also backs the `⌘⌥P` phase-adopt create in
+ * `ScheduleView`, and the server has no other way to tell the two callers apart —
+ * so a hook instance states its own origin once, at the call site that knows what
+ * it is, rather than the server guessing from op shape. Omitted (`ScheduleView`'s
+ * usage) keeps today's default provenance (`hand`); `usePasteMany` passes
+ * `'paste'` so a pasted row records as pasted, not hand-authored.
  */
-export function useBulkCreateTasks(projectId: string | null) {
+export function useBulkCreateTasks(projectId: string | null, origin?: 'paste') {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (operations: BulkCreateOperation[]) => {
       const res = await apiClient.post<TaskBulkResponse>(`/projects/${projectId}/tasks/bulk/`, {
         operations,
+        ...(origin ? { origin } : {}),
       });
       return res.data;
     },

@@ -2218,6 +2218,16 @@ class TaskSource(models.TextChoices):
     one row at a time is ``HAND``, which is the field default so no existing row
     needs a backfill. ``HAND`` rows carry ``seeded_at IS NULL`` and are therefore
     outside the untouched-seed sweep by construction, whatever else is true of them.
+
+    A member here is only correct if some write path actually sets it (#3038: a
+    declared-and-never-written member answers the provenance question wrong rather
+    than not at all — worse than no value). Every task creation path is responsible
+    for stamping the member that names it explicitly; relying on the field default
+    is only correct for a genuinely hand-authored row. See ``TaskBulkView``
+    (``task_bulk.py``, ``TASK_BULK_ORIGIN_SOURCE_KINDS``) for how a single shared
+    endpoint tells its distinct callers apart, and the importers
+    (``msproject/importer.py``, ``csvimport/tasks.py``, ``jiraimport/tasks.py``,
+    ``seed/importer.py``) for the bulk_create path.
     """
 
     HAND = "hand", "Hand-authored"

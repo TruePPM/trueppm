@@ -1,9 +1,9 @@
+import { useChartHeaderHeight } from '@/hooks/useChartHeaderHeight';
 import { useEffect, useRef, type RefObject } from 'react';
 import type { MonteCarloResult } from '@/types';
 import { fmtUtcShort, fmtUtcLong } from '@/lib/formatUtcDate';
 import type { GanttScaleData } from './engine';
 import { dateToLeft } from './engine';
-import { HEADER_HEIGHT } from './scheduleConstants';
 
 interface Props {
   result: MonteCarloResult | null;
@@ -45,6 +45,10 @@ const MARKERS = [
  */
 export function MonteCarloGanttMarkers({ result, scaleData, canvasScrollRef }: Props) {
   const markerRefs = useRef<(HTMLDivElement | null)[]>([null, null, null]);
+  // Subscribed, not merely read: the cadence rail appears asynchronously when a
+  // project's sprints resolve, and a marker line that kept its old `top` would
+  // start inside the rail rather than at the first row (web rule 315c).
+  const chartHeaderHeight = useChartHeaderHeight();
 
   useEffect(() => {
     if (!result || !scaleData) return;
@@ -87,7 +91,7 @@ export function MonteCarloGanttMarkers({ result, scaleData, canvasScrollRef }: P
             }}
             data-testid={`mc-marker-${key}`}
             aria-hidden="true"
-            style={{ top: HEADER_HEIGHT, bottom: 0, position: 'absolute', left: 0, width: 1 }}
+            style={{ top: chartHeaderHeight, bottom: 0, position: 'absolute', left: 0, width: 1 }}
             className={`pointer-events-none ${lineClass}`}
             title={`${label}: ${fmtUtcLong(isoDate)}`}
           >

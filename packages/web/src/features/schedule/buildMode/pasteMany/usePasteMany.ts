@@ -44,7 +44,7 @@ export function usePasteMany({
   focusedRowId: string | null;
   onFocusRow: (id: string) => void;
 }) {
-  const bulkCreate = useBulkCreateTasks(projectId);
+  const bulkCreate = useBulkCreateTasks(projectId, 'paste');
   const bulkDelete = useBulkDeleteTasks(projectId);
   const undoOperation = useUndoPasteManyOperation(projectId);
   const [receipt, setReceipt] = useState<PasteReceiptState | null>(null);
