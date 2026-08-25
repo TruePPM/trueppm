@@ -6044,7 +6044,8 @@ class TaskViewSet(
         projects the requester is an active member of, and ``?project=`` is required.
 
         Comment-body search is out of scope until task comments land an indexed body.
-        # TODO(#311): include TaskComment.body once threaded comments merge.
+        # TODO(#3058): include TaskComment.body — #311 (task comments) has since
+        # shipped, so the remaining work is wiring the search query itself.
         """
         from django.db.models import Case, IntegerField, Q, Value, When
 

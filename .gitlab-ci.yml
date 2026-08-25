@@ -721,9 +721,25 @@ lint:todo-grep:
   # point at an open issue. Bare TODOs warn only. Excludes packages/web/e2e
   # (Playwright follow-up TODOs are valid), docs/, and *.md.
   #
+  # Auth (#3043): CI_JOB_TOKEN cannot read the Issues API at all (not in
+  # GitLab's job-token-supported endpoint list), so the script sends no auth
+  # header by default and relies on this project's issue tracker being
+  # public. The `variables:` self-reference below is a no-op unless a
+  # project/group-level access token (`read_api` scope) is provisioned as
+  # the masked, protected TODO_GREP_TOKEN CI/CD variable — it exists so that
+  # dependency is visible here rather than only inside the script. Required
+  # for a private project or a self-hosted fork whose issue tracker is not
+  # publicly readable; not required for trueppm/trueppm itself.
+  #
+  # An issue-state lookup that fails (network error, private project with no
+  # token) fails the job — TODO_GREP_ALLOW_UNRESOLVED=1 is the explicit,
+  # opt-out escape hatch, not set here.
+  #
   # Runs on every MR pipeline. ~5–10s incl. issue-state lookups.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  variables:
+    TODO_GREP_TOKEN: $TODO_GREP_TOKEN
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -828,12 +844,16 @@ lint:adr-collisions:
   # In an MR pipeline the script also runs a cross-branch scan so the collision
   # is caught *before* merge, not on the post-merge main job: it compares the
   # ADR number(s) this MR adds against (a) the numbers already on the target
-  # branch (git-only) and (b) the numbers other open MRs add (GitLab API). Half
-  # (b) uses the built-in CI_JOB_TOKEN — the same credential check-issue-boundary
-  # and check-todo-grep already use for same-project reads, so no extra token is
-  # provisioned. (The optional ADR_GATE_TOKEN is only for instances that lock
-  # down the job-token API scope.) GIT_DEPTH:0 gives the merge-base history the
-  # diff needs. ~2s.
+  # branch (git-only) and (b) the numbers other open MRs add (GitLab API,
+  # merge_requests endpoint). Half (b) uses the built-in CI_JOB_TOKEN — this
+  # is a *different* endpoint than the one behind check-todo-grep.sh's rule 2
+  # (Issues, not Merge Requests), and #3043 established that CI_JOB_TOKEN
+  # cannot authenticate against the Issues API at all — do not assume that
+  # finding also applies here without checking GitLab's job-token-supported
+  # endpoint list for whichever API the script in question actually calls.
+  # (The optional ADR_GATE_TOKEN is only for instances that lock down the
+  # job-token API scope.) GIT_DEPTH:0 gives the merge-base history the diff
+  # needs. ~2s.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
   variables:
