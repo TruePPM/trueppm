@@ -633,6 +633,14 @@ def _compute_skill_fit(
     return "missing", missing
 
 
+# Default fractional allocation assumed for a bare-assignee task with no
+# TaskResource row (see the fallback in _check_overallocation below). Mirrors
+# TaskResource.units' own model default — "assigned" without a tracked
+# fraction is treated as full-time, the same assumption Task.assignee already
+# encodes everywhere else it is read as a "who owns this" signal.
+_BARE_ASSIGNEE_DEFAULT_UNITS = Decimal("1.0")
+
+
 def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str, str]]:
     """Return a warnings list if the resource is overallocated on active tasks.
 
@@ -641,23 +649,67 @@ def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str,
     single warning entry is returned so the caller can include it in the 201
     response without blocking the save (ADR-0028 — soft warning, not a hard error).
 
+    A task whose only assignment signal is a bare ``Task.assignee`` (no
+    TaskResource row) previously contributed **zero** load here, silently
+    understating this resource's real allocation (#3047 — the read-side half
+    of the #2718/#2900 write/seed fixes). When ``resource.user`` links the
+    Resource to the User account ``Task.assignee`` points at, those tasks are
+    now folded into the total at ``_BARE_ASSIGNEE_DEFAULT_UNITS`` and flagged
+    with a separate ``assignment_not_unit_tracked`` warning, so the caller
+    knows the total includes an estimate rather than a real
+    ``TaskResource.units`` figure. Resources with no linked user account
+    (teams, equipment, or legacy rows predating the FK) cannot be correlated
+    to ``Task.assignee`` and are unaffected — same as before this fix.
+
     Args:
         resource: The Resource being assigned.
         project_id: The project UUID to scope the utilisation sum.
 
     Returns:
-        A list containing at most one warning dict, or an empty list.
+        A list of warning dicts (overallocation and/or unit-tracking caveat),
+        or an empty list.
     """
     # Capacity check counts only committed delivery — BACKLOG and COMPLETE are
     # excluded. BACKLOG via Task.committed (ADR-0057), COMPLETE via the
     # historical exclude (units are no longer demanding capacity).
-    committed_task_ids = Task.committed.filter(project_id=project_id).values_list("pk", flat=True)
-    total: Decimal = TaskResource.objects.filter(
+    committed_tasks = Task.committed.filter(project_id=project_id).exclude(status="COMPLETE")
+    task_resource_qs = TaskResource.objects.filter(
         resource=resource,
-        task_id__in=committed_task_ids,
-    ).exclude(task__status="COMPLETE").aggregate(total=Sum("units"))["total"] or Decimal("0")
+        task_id__in=committed_tasks.values_list("pk", flat=True),
+    )
+    total: Decimal = task_resource_qs.aggregate(total=Sum("units"))["total"] or Decimal("0")
+
+    warnings: list[dict[str, str]] = []
+
+    # Bare-assignee fallback: only resources linked to a user account can be
+    # correlated to Task.assignee at all.
+    bare_assignee_tasks: list[Task] = []
+    if resource.user_id is not None:
+        unit_tracked_task_ids = set(task_resource_qs.values_list("task_id", flat=True))
+        bare_assignee_tasks = list(
+            committed_tasks.filter(assignee_id=resource.user_id).exclude(
+                pk__in=unit_tracked_task_ids
+            )
+        )
+
+    if bare_assignee_tasks:
+        total += Decimal(len(bare_assignee_tasks)) * _BARE_ASSIGNEE_DEFAULT_UNITS
+        warnings.append(
+            {
+                "code": "assignment_not_unit_tracked",
+                "resource_id": str(resource.pk),
+                "resource_name": resource.name,
+                "detail": (
+                    f"{resource.name} is assigned to {len(bare_assignee_tasks)} "
+                    "task(s) with no tracked allocation units; the capacity "
+                    "figures below assume full-time allocation for those tasks."
+                ),
+                "task_ids": ",".join(str(t.pk) for t in bare_assignee_tasks),
+            }
+        )
+
     if total > resource.max_units:
-        return [
+        warnings.append(
             {
                 "code": "resource_overallocated",
                 "resource_id": str(resource.pk),
@@ -667,8 +719,8 @@ def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str,
                     f"(capacity: {resource.max_units:.0%})."
                 ),
             }
-        ]
-    return []
+        )
+    return warnings
 
 
 @extend_schema_view(
