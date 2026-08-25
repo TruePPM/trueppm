@@ -2798,7 +2798,7 @@ api:fuzz:
   # thousands of conformance nits. Tighten the schema first, then add those
   # checks back if we want a documentation-accuracy gate.
   #
-  # `--suppress-health-check=filter_too_much` (#2364) silences a Hypothesis
+  # `--suppress-health-check=all` (#2364, widened in #2768) silences the Hypothesis
   # *generation-efficiency* alarm, NOT a check. It fired on
   # `PUT /projects/{id}/calendars/` and errored the whole job without testing
   # anything. Reproduced off the committed schema alone: 23/60 seeds trip it at
@@ -2929,6 +2929,7 @@ api:fuzz:
   script:
     # Prove the coverage guard can fail before trusting the run it will judge.
     - python scripts/check_fuzz_coverage.py --self-test
+    - python scripts/check_fuzz_suppression.py --self-test
     - cd packages/api
     # `packages/api/schemathesis.toml` also carries --suppress-health-check
     # (#2768). Running from this directory is what makes Schemathesis discover
@@ -2939,6 +2940,13 @@ api:fuzz:
     # the run itself reported failures. The worse of the two exit codes is
     # returned at the end, so a real fuzz finding is never masked by a clean
     # coverage check.
+    # Pre-flight (#2768): prove the shipped config actually resolves to FULL
+    # health-check suppression before fuzzing. A health check aborts
+    # generation for an operation rather than reducing it, so one that fires
+    # costs that operation all of its coverage while the run still reports
+    # nearly all green. `filter_too_much` alone was configured for months and
+    # was not the member that fired.
+    - python ../../scripts/check_fuzz_suppression.py
     - FUZZ_STATUS=0
     - >
       schemathesis run http://127.0.0.1:8000/api/schema/
@@ -2948,7 +2956,7 @@ api:fuzz:
       --request-timeout "$FUZZ_REQUEST_TIMEOUT"
       --header "Authorization: Bearer $FUZZ_TOKEN"
       --workers 4
-      --suppress-health-check=filter_too_much
+      --suppress-health-check=all
       --report junit --report-junit-path junit-fuzz.xml
       || FUZZ_STATUS=$?
     # Nothing else distinguishes "581 operations fuzzed, all clean" from "580
