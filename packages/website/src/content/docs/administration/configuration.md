@@ -530,6 +530,7 @@ A [JSON program seed](/administration/management-commands/#sample-data--json-see
 | Variable | Default | Unit | What it bounds |
 |----------|---------|------|----------------|
 | `SEED_MAX_UPLOAD_MB` | `5` | MB | Maximum size of a single JSON program seed payload |
+| `SEED_IMPORT_MAX_CONCURRENT_JOBS` | `3` | jobs | Seed imports one account may have queued or running at once. `0` disables the bound. |
 
 Seeds are bounded relative to the other importers because they are a different
 kind of payload: the largest bundled sample seed is a few hundred KB, so 5 MB is
@@ -542,6 +543,22 @@ arrived rather than a declared `Content-Length`, which a chunked request may omi
 above for the separate `TRUEPPM_THROTTLE_SEED_IMPORT_RATE` /
 `TRUEPPM_THROTTLE_SEED_VALIDATE_RATE` throttles that bound *how often* a caller
 may hit this endpoint, independent of payload size.
+
+`SEED_IMPORT_MAX_CONCURRENT_JOBS` bounds a third, independent thing: how many
+imports one account may have **outstanding**. The rebuild runs on a worker, so
+the rate throttle alone lets a caller keep adding full subtree builds to the
+queue at its permitted rate without ever waiting for one to finish. Over the cap
+the endpoint answers `429` with `code: seed_import_concurrency_limit`, which —
+unlike a throttle `429` — is cleared by an outstanding import finishing rather
+than by waiting out a window. Raise it if your operators legitimately run
+imports in parallel; set it to `0` to leave the rate throttle as the only limit.
+
+The seed document itself is bounded field by field as well as in total: prose
+fields (`description`) accept up to 100,000 characters and narrative fields
+(`notes`, `goal`, `trigger`, `contingency`) up to 10,000, and the top-level
+`accounts`, `calendars`, `resources` and `risks` collections carry item ceilings.
+These are schema-level and not configurable; a document that exceeds one is
+rejected with a `400` naming the field.
 
 ## Monte Carlo simulation caps
 

@@ -292,6 +292,84 @@ and therefore invisible to the row-driven purge. That pre-check is unlocked and 
 the authoritative resolve still runs under `select_for_update` inside the transaction and
 re-applies the same guards, discarding the stored payload on the rare race.
 
+### 12. Outstanding work is bounded per **user**, not per program (#2615)
+
+The in-flight de-dupe in `enqueue_program_import` reads as a queue-growth bound and
+is not one on this path. `ProgramViewSet.import_seed` creates a fresh `Program` three
+lines before enqueuing, so a brand-new program can never already have a
+`pending`/`running` job and the filter never matches. It is a correct **re-delivery**
+guard — that is all it was ever able to be here. This ADR's original queue-growth
+argument leaned on it and has been corrected in place.
+
+The real bound was `SeedImportThrottle` at 6/min/account, which caps how *often* a job
+is created and says nothing about how many are outstanding. Once the rebuild is async
+(decision 4), those are different quantities: a caller can add a full subtree build to
+the queue at its permitted rate forever without waiting for one to finish.
+
+`SEED_IMPORT_MAX_CONCURRENT_JOBS` (default 3) caps `pending` + `running` rows per
+**user** — the only thing stable across the requests, since the program differs on
+every one. Over the cap the endpoint answers `429` with
+`code: seed_import_concurrency_limit`, distinguishable from a throttle `429` because it
+clears when an import finishes rather than when a window rolls. `0` disables it.
+
+Deliberately **best-effort, not a locked invariant.** It is a resource bound, not a
+security boundary, and a caller who wins a race to N+1 has gained nothing the throttle
+does not re-bound one tick later — so serializing every import against a shared lock is
+not worth paying for. The check runs twice: once before the document is parsed (so an
+over-cap caller does not spend the validation pass) and once inside the transaction.
+
+**The second check's placement is load-bearing.** It sits *above*
+`resolve_replace_candidates`, not next to `create_program` where it reads more
+naturally. Everything below that line is destructive, and a refusal here returns a
+`Response` rather than raising — so under `transaction.atomic()` a refusal placed after
+`soft_delete_program_subtree` would **commit the teardown** and answer 429: the caller
+loses their program to a rate limit. A regression test stages the race explicitly rather
+than trusting the ordering to survive an edit.
+
+### 13. The payload is bounded field by field, not only in total (#2615)
+
+`MAX_SEED_NODES` counts entities; it counted neither the *containers* nor the
+free text inside them.
+
+- **Free text.** `program.description`, `project.description`, `task.notes`,
+  `risk.description` / `trigger` / `contingency` / `notes` and `sprint.goal` / `notes`
+  carried no `maxLength`, so a schema-valid document could be padded to the full
+  `SEED_MAX_UPLOAD_MB` ceiling with a single project while scoring near zero against the
+  node budget. Prose fields are capped at 100,000 characters (matching the ceiling the
+  integration ingest serializer already applies to a description) and narrative fields at
+  10,000 (matching `MAX_NOTE_BODY_CHARS` and v2's `event.body`). Both are generous enough
+  that an export of anything the API itself accepts still re-imports.
+- **Containers.** `projects` and `resources` were absent from the node budget entirely —
+  a project costs ~5 statements plus a `cascade_project_soft_delete` enqueue on the
+  replace path, and each distinct resource ~2 round-trips through
+  `ensure_project_resource`. Both now count, along with `accounts`, `calendars`,
+  per-project `baselines` and `labels`. The top-level `accounts`, `calendars`,
+  `resources` and `risks` arrays, which carried no `maxItems`, now do.
+
+**Correction to the record.** #2615 stated that "a seed of thousands of empty projects
+passes validation". It does not, and did not: `projects` has carried `maxItems: 200`
+since the original node-budget work. The real residue was the budget's blind spot above,
+and the O(#projects) replace loop bounded at 200 rather than unbounded.
+
+**The loop itself is not batched, and that is a decision.** #2615 offered a project-count
+ceiling *and/or* batching `soft_delete_program_subtree` into a bulk `update()`. The
+ceiling is taken; the batching is not. `soft_delete_project` bumps `server_version`,
+writes a history row and emits an offline tombstone per project — a bulk `update()`
+bypasses all three, and the sync protocol is the one consumer that cannot tolerate a
+silent write. Bounded at 200 projects the loop is a cost, not a hazard; making it a
+correctness problem to save that cost is the wrong trade.
+
+### 14. A diagnostic must not echo the payload back (#2615)
+
+`jsonschema` renders the whole offending instance into `ValidationError.message` for
+container keywords, so a `maxItems` breach on `projects` returned every project to the
+caller: 10 KB from 201 empty ones, and megabytes from a document sized at the upload
+ceiling — in a `400` whose body size the caller chose. Each diagnostic is now clamped to
+`MAX_SEED_ERROR_CHARS`, truncated in the **middle** so both the offending value's head
+and the trailing phrase naming the violated keyword survive. Clipping the tail, the
+obvious implementation, keeps the megabytes and discards the only part that says what is
+wrong.
+
 ## Alternatives Considered
 
 | Option | Pros | Cons |
@@ -402,7 +480,8 @@ re-applies the same guards, discarding the stored payload on the rare race.
    time under the outbox pattern.
 6. **Outbox cleanup:** a dedicated nightly `purge_expired_program_imports` beat task
    deletes each terminal row **and** its stored payload file once `expires_at` passes,
-   using the `TRUEPPM_IMPORT_RETENTION_DAYS` window (7 days). It is *not* registered in
+   using the `TRUEPPM_IMPORT_RETENTION_DAYS` window (7 days). Bounded to
+   `PURGE_BATCH_SIZE` rows per run since #2615 — see decision 12. It is *not* registered in
    `observability/purge_registry.py`: that registry holds one spec per retention key for
    the ADR-0173 coordinator, `TRUEPPM_IMPORT_RETENTION_DAYS` is already claimed there by
    the MS Project import outbox, and a second spec under the same key would be shadowed.
@@ -419,3 +498,11 @@ re-applies the same guards, discarding the stored payload on the rare race.
    and visibly failed, so the Owner can delete it or retry. It is deliberately **not**
    auto-deleted: the replaced subtree is in Trash, and the operator needs the failed job
    row to reason about what happened.
+
+   **Amended by #2615:** the shell is retained *for as long as its explanation is*.
+   The reasoning this item protects requires the failed job row, and the retention
+   purge deletes that row — so past `TRUEPPM_IMPORT_RETENTION_DAYS` the shell is no
+   longer evidence of anything, it is an empty program nothing reaps. It is now
+   tombstoned in the same purge pass that removes its job, and only when it is still
+   empty and no other non-failed job targets it. Nothing about the failure window
+   changes; only the state after it.
