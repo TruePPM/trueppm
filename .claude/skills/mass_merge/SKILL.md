@@ -121,6 +121,50 @@ and report if any MR is:
 
 Print the validated, ordered list back to the user before doing anything else.
 
+### A competing session can land the whole batch out from under you
+
+**Validation in Step 0 is a snapshot, not a lock.** Nothing in GitLab or in this
+skill reserves the MRs, so another local Claude session — or a human in the UI —
+can merge them while Phase A is still running. On 2026-08-23 that is exactly what
+happened: a second session merged **eight** MRs (!2058–!2065) back-to-back in ~90
+seconds during Phase A, and this run only discovered it when `wt prune` reported
+their worktrees as "merged to main, remote gone." Every Phase B safeguard —
+serialized merges, the post-merge main gate — was bypassed, because Phase B never
+got to run.
+
+Check for other live sessions before starting, and say so in the opening report:
+
+```bash
+ps aux | grep -c "[c]laude"          # >1 means another session may be active
+git worktree list                    # worktrees you did not create
+git reflog -5                        # a checkout/pull you did not issue = someone else drives this checkout
+```
+
+The tells that a competing session is acting on **your** batch, and what each means:
+
+- `git reflog` shows a `checkout:` or `pull` you did not issue → another session
+  is driving the shared main checkout. Your sim branch can be yanked mid-gate-run
+  (see Step 2 — run Phase A in its own worktree, which makes this harmless).
+- A batch branch's local ref moved without you rebasing it → someone pushed to it.
+- `wt prune` reports a batch branch as "merged to main, remote gone" → **that MR
+  has already been merged by someone else.** This is authoritative, not a false
+  prune: verify with `glab mr view <iid>`, and do not confuse it with the
+  rebase/squash false-unmerged case in `feedback_wt_prune_false_unmerged_gitlab_rebase`.
+
+**Re-verify state immediately before each act, never trust Step 0's snapshot.**
+Before rebasing/pushing an MR and again before merging it, re-read its state; if
+it is no longer `opened`, skip it and re-plan the remainder of the batch:
+
+```bash
+ST=$(glab mr view <iid> --output json | python3 -c 'import sys,json;print(json.load(sys.stdin)["state"])')
+[ "$ST" = opened ] || { echo "!<iid> is now $ST — merged elsewhere; skip and re-plan"; }
+```
+
+If a competing session lands part of the batch, **stop and report** rather than
+racing it. Re-run Phase A from the new `origin/main` over whatever is genuinely
+still open — the old simulation is void, because it was computed against a base
+that no longer exists.
+
 ---
 
 ## Step 1 — Detect shared-file hotspots (ordering hint)
@@ -149,8 +193,31 @@ order, running the **aggregate gate suite** after each add. This reproduces the
 exact combined tree that would land on main — the thing each MR's own pipeline
 never sees.
 
+**Run Phase A in a dedicated throwaway worktree, never in the shared main
+checkout.** Two independent failures make the shared checkout the wrong place,
+both observed on 2026-08-23:
+
+1. **Another session's `git checkout main` yanks your sim branch mid-gate-run.**
+   The branch survives (the gates just start running against `main` instead), so
+   this fails *silently* — gates report PASS against the wrong tree, and a
+   newly-added script from an unmerged MR reads as `MISSING`. Verify
+   `git rev-parse --short HEAD` after every gate batch if you ignore this advice.
+2. **`make pre-push` runs `wt prune` as a side effect, which deletes other
+   sessions' worktrees.** In the shared checkout that reaped seven worktrees in
+   one go. A dedicated worktree does not prevent the prune, but it does keep the
+   sim itself off the chopping block (fresh worktrees get the 30-minute grace).
+
 ```bash
-git checkout -B _mass_merge_sim origin/main
+SIM=../trueppm-wt/_mmsim
+git branch -f _mass_merge_sim origin/main
+git worktree add "$SIM" _mass_merge_sim
+# symlink the shared deps — wt new does this; a bare `worktree add` does not, and
+# without them tsc/eslint/astro all die (website node_modules included — see
+# feedback_worktree_website_node_modules_and_pipefail)
+ln -sfn "$PWD/packages/api/.venv"            "$SIM/packages/api/.venv"
+ln -sfn "$PWD/packages/web/node_modules"     "$SIM/packages/web/node_modules"
+ln -sfn "$PWD/packages/website/node_modules" "$SIM/packages/website/node_modules"
+cd "$SIM"
 ```
 
 For each `iid` in order (let `B` = its `source_branch`):
@@ -176,16 +243,44 @@ python3 scripts/check-migration-numbering.py origin/main   # duplicate migration
 bash   scripts/check-issue-boundary.sh || true  # OSS/enterprise label boundary (network-dependent; advisory here)
 bash   scripts/check-version-status.sh          # version-tense vs roadmap
 bash   scripts/check-todo-grep.sh               # STUB/WIP/closed-issue TODOs
+bash   scripts/check-extension-signals.sh       # bare Signal.send() on extension points
+bash   scripts/check-enterprise-imports.sh      # OSS↔Enterprise boundary
+bash   scripts/check-ws-event-reachability.sh   # advertised-but-undeliverable WS events
+bash   scripts/check-e2e-catchall.sh
+bash   scripts/check-playwright-pins.sh
+bash   scripts/check-web-rule-numbers.sh       # duplicate packages/web/CLAUDE.md rule numbers
 ```
+
+`check-web-rule-numbers.sh` is the one that guards the hotspot Step 1 names most
+often: `packages/web/CLAUDE.md` collects a numbered rule per UI branch, so a batch
+routinely has two or three MRs appending to it. A duplicate number exists **only**
+on the merged tree — each branch is self-consistent — which is exactly the class
+Phase A is for.
+
+**If a batch MR adds a new gate script, run that too** — it applies to the whole
+combined tree the moment it lands. Sweep for them rather than hardcoding the list:
+
+```bash
+for s in scripts/check-*.sh; do [ -x "$s" ] || true; done   # new ones appear here
+```
+
+Two practical notes on running the suite:
+
+- **`check-adr-status.sh` and `check-issue-boundary.sh` hit the network and can
+  hang indefinitely.** Bound them. macOS has no `timeout` — use `gtimeout`
+  (coreutils) or skip them; they are advisory in Phase A either way.
+- Wrap each gate so one failure does not abort the sweep, and print PASS/FAIL per
+  gate rather than relying on the exit code of the last command.
 
 Record, per MR, which gates passed on the cumulative tree. **The first MR whose
 add turns a gate red is the one that breaks main** when combined with the MRs
 before it — even though its own pipeline is green in isolation.
 
-Clean up:
+Clean up (from the main checkout, once Phase A is done):
 
 ```bash
-git checkout <original-branch-or-main>
+cd <main-checkout>
+git worktree remove ../trueppm-wt/_mmsim --force
 git branch -D _mass_merge_sim
 ```
 
@@ -329,7 +424,46 @@ rather than looping forever if CI hangs. Terminal-failure states (`failed`,
 `canceled`) stop the whole run — do not merge a red pipeline, and do not silently
 wait through a crash.
 
-**Before treating a `failed` as terminal, triage the failing job — a known
+**First, rule out a zero-job pipeline — a `failed` with no jobs never tested
+anything.** Before reading any trace, check whether the pipeline actually ran.
+A pipeline that reports `failed` with `jobs: 0`, `started_at: null`, and
+`finished_at == created_at` (instant) **failed at creation** — it is not a code
+failure, and treating it as one will halt a run over nothing:
+
+```bash
+glab api "projects/:id/pipelines/$PID" \
+  | python3 -c "import sys,json;d=json.load(sys.stdin);print('status',d['status'],'| started',d['started_at'],'| yaml_errors',d['yaml_errors'])"
+glab api "projects/:id/pipelines/$PID/jobs?per_page=100" \
+  | python3 -c "import sys,json;print('jobs:',len(json.load(sys.stdin)))"
+```
+
+With `jobs: 0` and `yaml_errors: null`, the cause is capacity, not code. Confirm
+it by asking GitLab to create one more pipeline — the API returns the real reason
+where the pipeline record does not:
+
+```bash
+glab ci run -b main
+# 400 {message: {base: [Project exceeded the allowed number of jobs in active pipelines. Retry later.]}}
+```
+
+**This is the failure mode a fast batch creates for itself.** Each main pipeline
+here is 82–91 jobs, and the project has a cap on jobs across *active* pipelines.
+On 2026-08-23 eight merges in ~90 seconds put four consecutive `ref: main`
+pipelines over that cap; all four showed `failed` in the pipeline list while
+never running a single job, so **the merged tip was never actually tested** — the
+red was pure capacity, and the genuine verdict on main was simply unknown. Two
+consequences for this skill:
+
+- **Pace the merges.** The one-merge-at-a-time rule already spaces them out
+  naturally; do not batch-merge to "catch up" after a slow stretch. If the
+  post-merge poll reports `none` or a zero-job `failed`, treat it as *capacity
+  backpressure* — wait for the active pipelines to drain, then re-trigger.
+- **Re-trigger, don't conclude.** A zero-job failure is never evidence about the
+  code. Wait for capacity, run `glab ci run -b main` against the current tip, and
+  gate on *that* pipeline. Only a pipeline that actually ran jobs can certify main
+  green or red.
+
+**Then, if the pipeline did run jobs, triage the failing job — a known
 flake is retried once, not a stop.** A rebased branch re-runs the full suite,
 which includes the flaky `web:e2e` specs (`task-collaboration.spec.ts` `?task=`
 deep-link, `board-space-pan.spec.ts`, `schedule` dep-milestone row — see the
@@ -485,6 +619,25 @@ before merging rather than after.
 - **Never `--force`; always `--force-with-lease`** — pin the expected sha
   (`--force-with-lease="$BR:<old-sha>"`) for worktree-held branches.
 - **Never resolve a rebase/merge conflict by guessing** — stop and hand it back.
+- **A zero-job `failed` pipeline is capacity, not code — never conclude from it.**
+  `jobs: 0` + `started_at: null` + instant finish + `yaml_errors: null` means the
+  pipeline failed at *creation*, most often "Project exceeded the allowed number
+  of jobs in active pipelines" (each main pipeline here is 82–91 jobs). It tested
+  nothing. Wait for the active pipelines to drain, re-trigger with
+  `glab ci run -b main`, and gate on the pipeline that actually runs jobs. Merging
+  fast is what causes this, so never batch-merge to catch up.
+- **Step 0's validation is a snapshot, not a lock — re-verify before every act.**
+  Another session (or a human) can merge the batch mid-run; on 2026-08-23 eight
+  MRs were landed by a competing session during Phase A, bypassing every Phase B
+  safeguard. Re-read `glab mr view <iid>` state immediately before rebasing and
+  again before merging; if it is no longer `opened`, skip it and re-plan. If a
+  competing session lands part of the batch, stop and report — the simulation is
+  void, because its base no longer exists.
+- **Run Phase A in a dedicated worktree, never the shared main checkout.** Another
+  session's `git checkout main` silently yanks the sim branch (gates then pass
+  against the wrong tree), and `make pre-push` runs `wt prune`, which deletes
+  other sessions' worktrees. Symlink `.venv` and both `node_modules` into the
+  worktree — a bare `git worktree add` does not, and the toolchain dies without them.
 - **Restore the user's original branch** (Step 0) when the run ends, on success
   or failure.
 - If merged-results pipelines / merge trains get enabled in the project, tell the

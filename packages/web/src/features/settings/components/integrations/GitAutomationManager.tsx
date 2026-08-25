@@ -290,7 +290,7 @@ const PROVIDER_LABEL: Record<string, string> = { github: 'GitHub', gitlab: 'GitL
 
 /** Turn an unmapped server token into something a human can read (rule 301c). */
 function humanizeOutcome(token: string): string {
-  return token.replace(/_/g, ' ');
+  return token.replaceAll('_', ' ');
 }
 
 const TONE_CLASS: Record<'ok' | 'problem' | 'idle', string> = {

@@ -107,6 +107,16 @@ describe('describeEntry — the rounding must never be silent', () => {
   it('explains a rounded day entry too', () => {
     expect(describeEntry(toStoredDays(2.5, 'days', 8), 'days')).toContain('whole working days');
   });
+
+  it('keeps both decimals when neither is a trailing zero', () => {
+    // Guards the trailing-zero trim: it must strip only a zero in the final
+    // place, never a significant digit. 18h @ 8h/day is exactly 2.25 days.
+    expect(describeEntry(toStoredDays(18, 'hours', 8), 'hours')).toContain('2.25 days');
+  });
+
+  it('strips a single trailing zero but leaves the point intact', () => {
+    expect(describeEntry(toStoredDays(20, 'hours', 8), 'hours')).toContain('2.5 days');
+  });
 });
 
 describe('spellDuration — the accessible name must not be the abbreviation', () => {

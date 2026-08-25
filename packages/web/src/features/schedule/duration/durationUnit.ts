@@ -93,7 +93,10 @@ export function describeEntry(entry: DurationEntry, unit: DurationUnit): string 
   if (unit === 'days') {
     return `Stored as ${entry.days} d — durations are whole working days.`;
   }
-  const exact = entry.exactDays.toFixed(2).replace(/\.?0+$/, '');
+  // `toFixed(2)` always yields exactly two decimals, so the only trailing-zero
+  // shapes are `.00` (drop the point too) and a single `0`. Enumerating them
+  // avoids the unbounded `0+$` quantifier, which backtracks (Sonar S8786).
+  const exact = entry.exactDays.toFixed(2).replace(/\.00$|0$/, '');
   const dayWord = entry.days === 1 ? 'day' : 'days';
   return `That is ${exact} days — stored as ${entry.days} ${dayWord}, because the schedule engine works in whole days.`;
 }
