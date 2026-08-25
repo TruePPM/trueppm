@@ -108,7 +108,7 @@ test.describe('Schedule outline row chrome (#3025, #3026)', () => {
     await setupApiMocks(page, { projects: PROJECTS, projectId: PROJECT_ID, tasks: TASKS });
     await mockBaselines(page);
     await page.goto(BASE_URL);
-    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({
+    await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({
       timeout: 10_000,
     });
   });
@@ -221,7 +221,7 @@ test.describe('Schedule outline row chrome (#3025, #3026)', () => {
     // equivalent cannot see a regression that only zeroes the fine branch.
     const header = page.getByRole('row', { name: 'Item list columns' });
     const headerWbs = await header.getByRole('columnheader', { name: /Work breakdown/ }).boundingBox();
-    const outlineBox = await page.getByRole('treegrid', { name: 'Task list' }).boundingBox();
+    const outlineBox = await page.getByRole('treegrid', { name: 'Item list' }).boundingBox();
     expect(headerWbs).not.toBeNull();
     expect(outlineBox).not.toBeNull();
     // The WBS column starts a full lane in from the panel's left edge.

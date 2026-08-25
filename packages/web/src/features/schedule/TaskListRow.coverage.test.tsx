@@ -641,7 +641,7 @@ describe('TaskListRow — startInlineEditOnMount', () => {
         onAutoEditConsumed={onAutoEditConsumed}
       />,
     );
-    expect(screen.getByLabelText(/Rename task/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Rename item/)).toBeInTheDocument();
     expect(onAutoEditConsumed).toHaveBeenCalledTimes(1);
   });
 });

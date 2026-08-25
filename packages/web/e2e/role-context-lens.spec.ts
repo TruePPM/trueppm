@@ -85,7 +85,7 @@ test.describe('Role-context lens (ADR-0162)', () => {
   // landed view rendered, not merely that the URL changed (a redirect can land the
   // URL and then error the view out).
   for (const { lens, view, rendered } of [
-    { lens: 'pm', view: 'schedule', rendered: (p: Page) => p.getByRole('treegrid', { name: 'Task list' }) },
+    { lens: 'pm', view: 'schedule', rendered: (p: Page) => p.getByRole('treegrid', { name: 'Item list' }) },
     { lens: 'scrum_master', view: 'board', rendered: (p: Page) => p.getByRole('heading', { name: /To Do/ }) },
     { lens: 'unified', view: 'today', rendered: (p: Page) => p.getByRole('heading', { level: 1, name: 'Today' }) },
   ]) {

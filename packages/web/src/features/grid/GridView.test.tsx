@@ -322,7 +322,7 @@ describe('GridView — methodology default', () => {
     await waitFor(() => {
       // Flat mode renders role="grid"; outline renders role="treegrid".
       expect(screen.queryByRole('treegrid')).not.toBeInTheDocument();
-      expect(screen.getByRole('grid', { name: /task list/i })).toBeInTheDocument();
+      expect(screen.getByRole('grid', { name: /item list/i })).toBeInTheDocument();
     });
   });
 });
@@ -341,12 +341,12 @@ describe('GridView — mode toggle', () => {
     expect(screen.getByRole('treegrid', { name: /outline task tree/i })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Flat list' }));
-    expect(await screen.findByRole('grid', { name: /task list/i })).toBeInTheDocument();
+    expect(await screen.findByRole('grid', { name: /item list/i })).toBeInTheDocument();
     expect(screen.queryByRole('treegrid')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Grouped' }));
     // Grouped also uses role="grid"
-    expect(screen.getByRole('grid', { name: /task list/i })).toBeInTheDocument();
+    expect(screen.getByRole('grid', { name: /item list/i })).toBeInTheDocument();
     // Group-by selector now visible
     expect(screen.getByLabelText(/group by dimension/i)).toBeInTheDocument();
   });
@@ -372,7 +372,7 @@ describe('GridView — mode toggle', () => {
     await renderGrid(['/?due=overdue']);
     await waitFor(() => {
       // Derived flat view — outline (the methodology default) is not rendered.
-      expect(screen.getByRole('grid', { name: /task list/i })).toBeInTheDocument();
+      expect(screen.getByRole('grid', { name: /item list/i })).toBeInTheDocument();
       expect(screen.queryByRole('treegrid')).not.toBeInTheDocument();
     });
     // Crucially, the persisted preference is untouched (regression guard):
@@ -383,7 +383,7 @@ describe('GridView — mode toggle', () => {
     const user = userEvent.setup();
     projectMethodology = 'HYBRID';
     await renderGrid(['/?due=overdue']);
-    await screen.findByRole('grid', { name: /task list/i }); // derived flat
+    await screen.findByRole('grid', { name: /item list/i }); // derived flat
     await user.click(screen.getByRole('button', { name: 'Outline tree' }));
     await waitFor(() => {
       expect(screen.getByRole('treegrid', { name: /outline task tree/i })).toBeInTheDocument();
@@ -877,7 +877,7 @@ describe('GridView — chip removal branches (#2046)', () => {
     const user = userEvent.setup();
     await renderGrid(['/projects/proj-1/grid?due=overdue']);
     // Derived flat view while overdue.
-    await screen.findByRole('grid', { name: /task list/i });
+    await screen.findByRole('grid', { name: /item list/i });
     await user.click(screen.getByLabelText(/Remove Overdue filter/i));
     // Overdue cleared → effective mode falls back to the HYBRID outline default.
     await waitFor(() => {
@@ -1179,7 +1179,7 @@ describe('GridView — no project in scope', () => {
     const user = userEvent.setup();
     await renderGrid();
     // AGILE ⇒ flat, straight from methodologyDefaultMode (no localStorage read).
-    expect(await screen.findByRole('grid', { name: /task list/i })).toBeInTheDocument();
+    expect(await screen.findByRole('grid', { name: /item list/i })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Outline tree' }));
     expect(await screen.findByRole('treegrid', { name: /outline task tree/i })).toBeInTheDocument();
     // The mode change is honored in-session but never written to storage — there
@@ -1205,7 +1205,7 @@ describe('GridView — no project in scope', () => {
 
   it('ignores a ?task= deep link when there is no project', async () => {
     await renderGrid(['/grid?task=t2']);
-    await screen.findByRole('grid', { name: /task list/i });
+    await screen.findByRole('grid', { name: /item list/i });
     expect(useTaskDrawerStore.getState().task).toBeNull();
   });
 

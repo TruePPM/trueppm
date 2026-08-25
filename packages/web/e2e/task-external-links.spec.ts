@@ -199,7 +199,7 @@ async function openDrawerLinksSection(page: Page): Promise<Locator> {
   // drawer via the row's Properties button so the assertions below stay
   // independent of the deep-link path (which has its own dedicated test).
   await page.goto(`/projects/${PROJECT_ID}/schedule`);
-  const grid = page.getByRole('treegrid', { name: 'Task list' });
+  const grid = page.getByRole('treegrid', { name: 'Item list' });
   await grid.getByRole('button', { name: 'Open properties for Foundation' }).click();
   const drawer = page.getByRole('dialog', { name: /Foundation/ }).first();
   await expect(drawer).toBeVisible({ timeout: 5_000 });

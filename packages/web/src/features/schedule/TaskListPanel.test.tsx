@@ -223,7 +223,7 @@ describe('TaskListPanel — grid + row wiring', () => {
     expect(screen.getByTestId('row-b')).toHaveTextContent('Beta');
     // Header row (1) + one row per task (2) = 3 (#2204: aria-rowindex on the
     // header is 1 and on data rows is 2-based, so the count includes the header).
-    expect(screen.getByRole('treegrid', { name: 'Task list' })).toHaveAttribute('aria-rowcount', '3');
+    expect(screen.getByRole('treegrid', { name: 'Item list' })).toHaveAttribute('aria-rowcount', '3');
   });
 
   it('assigns 2-based aria-rowindex to data rows (header is row 1) (#2204)', () => {
@@ -249,7 +249,7 @@ describe('TaskListPanel — grid + row wiring', () => {
     const { container } = renderPanel({ tasks: [task({ id: 'a', name: 'Alpha' })] });
     // No bare unroled div may sit between role="grid" and the rows; the scroll
     // wrapper, sizer, and per-row wrapper are all role="presentation".
-    const grid = screen.getByRole('treegrid', { name: 'Task list' });
+    const grid = screen.getByRole('treegrid', { name: 'Item list' });
     const presentationWrappers = container.querySelectorAll('[role="presentation"]');
     expect(presentationWrappers.length).toBeGreaterThanOrEqual(3);
     // The active row still lives inside the grid subtree.
@@ -698,7 +698,7 @@ describe('TaskListPanel — append-at-the-end footer (#2957)', () => {
     const footer = screen.getByTestId('schedule-append-task-footer');
     expect(footer).toBeInTheDocument();
     // Header (1) + two tasks (2,3) + footer (4).
-    expect(screen.getByRole('treegrid', { name: 'Task list' })).toHaveAttribute(
+    expect(screen.getByRole('treegrid', { name: 'Item list' })).toHaveAttribute(
       'aria-rowcount',
       '4',
     );
@@ -737,7 +737,7 @@ describe('TaskListPanel — append-at-the-end footer (#2957)', () => {
   it('is absent without a handler — no dimmed control for a reader with no rights', () => {
     renderPanel({ tasks: [task({ id: 'a', name: 'Alpha' })] });
     expect(screen.queryByTestId('schedule-append-task-footer')).toBeNull();
-    expect(screen.getByRole('treegrid', { name: 'Task list' })).toHaveAttribute(
+    expect(screen.getByRole('treegrid', { name: 'Item list' })).toHaveAttribute(
       'aria-rowcount',
       '2',
     );

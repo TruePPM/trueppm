@@ -1,3 +1,4 @@
+import { renameRowLabel } from './rowVocabulary';
 import { memo, useState, useRef, useCallback, useEffect } from 'react';
 import { formatChord } from '@/lib/platform';
 import type React from 'react';
@@ -3047,7 +3048,7 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
         value={isPristine ? '' : task.name}
         isEditing={true}
         inputType="text"
-        ariaLabel={`Rename task ${task.name}`}
+        ariaLabel={renameRowLabel(task.name)}
         className="flex-1 min-w-0 w-full"
         caretPosition={isCaretAtEnd ? 'end' : 'select-all'}
         onEmptyBackspace={() => buildMode.mergeIntoPreviousRow(task.id)}
@@ -3228,7 +3229,7 @@ function TaskNameEditInput(props: TaskNameContentProps) {
       className="flex-1 min-w-0 bg-brand-primary/10 text-neutral-text-primary text-xs px-1 rounded-control
         outline-none ring-1 ring-brand-primary truncate"
       style={{ height: 20 }}
-      aria-label={`Rename task ${task.name}`}
+      aria-label={renameRowLabel(task.name)}
     />
   );
 }

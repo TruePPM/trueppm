@@ -145,7 +145,7 @@ test.describe('Grid view — Flat mode (#334)', () => {
     // exercise the former Table-view behaviour.
     await page.goto(`${BASE_URL}/grid`);
     await page.getByRole('button', { name: 'Flat list' }).click();
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('grid', { name: 'Item list' })).toBeVisible({ timeout: 10_000 });
   });
 
   test('renders search input in the toolbar', async ({ page }) => {

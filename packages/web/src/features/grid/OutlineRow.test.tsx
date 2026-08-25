@@ -159,7 +159,7 @@ describe('OutlineRow', () => {
     const onRename = vi.fn();
     const node = makeNode({ id: 't1', wbs: '1.1' });
     renderRow(node, { isRenaming: true, onRename });
-    const input = screen.getByLabelText('Rename task');
+    const input = screen.getByLabelText('Rename item');
     fireEvent.change(input, { target: { value: 'Renamed' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onRename).toHaveBeenCalledWith('Renamed');
@@ -169,7 +169,7 @@ describe('OutlineRow', () => {
     const onCancelRename = vi.fn();
     const node = makeNode({ id: 't1', wbs: '1.1' });
     renderRow(node, { isRenaming: true, onCancelRename });
-    fireEvent.keyDown(screen.getByLabelText('Rename task'), { key: 'Escape' });
+    fireEvent.keyDown(screen.getByLabelText('Rename item'), { key: 'Escape' });
     expect(onCancelRename).toHaveBeenCalled();
   });
 

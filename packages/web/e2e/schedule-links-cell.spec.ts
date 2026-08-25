@@ -83,7 +83,7 @@ const DEPENDENCIES = [
   { id: 'd5', predecessor: 'slab', successor: 'cure', dep_type: 'FS', lag: 0 },
 ];
 
-const outline = (page: Page) => page.getByRole('treegrid', { name: 'Task list' });
+const outline = (page: Page) => page.getByRole('treegrid', { name: 'Item list' });
 const row = (page: Page, id: string) => page.locator(`[data-row-id="${id}"]`);
 const linksCell = (page: Page, id: string) => row(page, id).getByTestId('links-cell');
 

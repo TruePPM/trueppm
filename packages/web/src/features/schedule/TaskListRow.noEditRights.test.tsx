@@ -239,7 +239,7 @@ describe('no edit rights — mutation gestures are silent no-ops', () => {
     renderBuild();
     await user.dblClick(screen.getByRole('row'));
     expect(mocks.enterCellEdit).not.toHaveBeenCalled();
-    expect(screen.queryByLabelText(/Rename task/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Rename item/i)).not.toBeInTheDocument();
   });
 
   it('right-click opens no row menu', () => {
@@ -286,7 +286,7 @@ describe('an editor outside build mode keeps the classic inline rename', () => {
     const row = screen.getByRole('row');
     row.focus();
     fireEvent.keyDown(row, { key: 'F2' });
-    expect(screen.getByLabelText(/Rename task/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Rename item/i)).toBeInTheDocument();
   });
 
   it('and a viewer outside build mode does not', () => {
@@ -294,7 +294,7 @@ describe('an editor outside build mode keeps the classic inline rename', () => {
     const row = screen.getByRole('row');
     row.focus();
     fireEvent.keyDown(row, { key: 'F2' });
-    expect(screen.queryByLabelText(/Rename task/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Rename item/i)).not.toBeInTheDocument();
   });
 });
 

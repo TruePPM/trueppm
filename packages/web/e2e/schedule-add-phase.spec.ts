@@ -242,7 +242,7 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
     });
 
     await page.goto(BASE_URL);
-    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({ timeout: 10_000 });
   });
 
   test('+ Phase button is a visible peer to + Item and + Milestone, brand-primary (not gold)', async ({ page }) => {
@@ -259,13 +259,13 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
     // The PHASE opens straight into the inline rename input — not the task inside it.
     // The button said "Phase", and naming it is the one decision still owed; the design
     // names the phase last precisely because everything else about it is derived.
-    const nameInput = page.getByRole('textbox', { name: 'Rename task Untitled phase' });
+    const nameInput = page.getByRole('textbox', { name: 'Rename item Untitled phase' });
     await expect(nameInput).toBeVisible();
 
     await nameInput.fill('Design Phase');
     await nameInput.press('Enter');
 
-    const grid = page.getByRole('treegrid', { name: 'Task list' });
+    const grid = page.getByRole('treegrid', { name: 'Item list' });
     await expect(grid.getByText('Design Phase')).toBeVisible();
   });
 
@@ -275,7 +275,7 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
     // The gesture the design writes as "type *Mobilization*, press the key". It rides
     // ⌘⌥P rather than ⌥→: indent means "move this row under the one above", which makes
     // the row ABOVE the phase — not the row you just named.
-    const grid = page.getByRole('treegrid', { name: 'Task list' });
+    const grid = page.getByRole('treegrid', { name: 'Item list' });
     const leaf = grid.getByRole('row').filter({ hasText: 'Existing Task' }).first();
     await leaf.getByRole('gridcell').first().click();
     await expect(leaf).toHaveAttribute('aria-selected', 'true');
@@ -308,12 +308,12 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
     // and offered a ghost "⊕ Add first item to this phase"; a planner who ignored it was
     // left with an empty phase in the plan. Now the first task arrives with the phase.
     await page.getByRole('button', { name: /^Add new phase, with its first task/ }).click();
-    const nameInput = page.getByRole('textbox', { name: 'Rename task Untitled phase' });
+    const nameInput = page.getByRole('textbox', { name: 'Rename item Untitled phase' });
     await expect(nameInput).toBeVisible();
     await nameInput.fill('Design Phase');
     await nameInput.press('Enter');
 
-    const grid = page.getByRole('treegrid', { name: 'Task list' });
+    const grid = page.getByRole('treegrid', { name: 'Item list' });
     await expect(grid.getByText('Design Phase')).toBeVisible();
 
     // Settle past `HOVER_SETTLE_MS` (80ms, useDependencyHover) so this reads the

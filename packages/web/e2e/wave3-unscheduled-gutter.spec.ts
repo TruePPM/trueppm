@@ -231,7 +231,7 @@ async function setupRoutes(page: import('@playwright/test').Page, tasks: Record<
 async function gotoSchedule(page: import('@playwright/test').Page, tasks: Record<string, unknown>[] = FIXTURE_API_TASKS) {
   await setupRoutes(page, tasks);
   await page.goto(`/projects/${FIXTURE_PROJECT_ID}/schedule`);
-  await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({ timeout: 10_000 });
 }
 
 // 401-guard safety net, registered once before each test so it is the EARLIEST

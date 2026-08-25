@@ -300,7 +300,7 @@ test.describe('Task notes — freshness chip on the schedule row (#740)', () => 
     await setup(page, { role: 300 });
     await page.goto(`/projects/${FIXTURE_PROJECT_ID}/schedule`);
 
-    const grid = page.getByRole('treegrid', { name: 'Task list' });
+    const grid = page.getByRole('treegrid', { name: 'Item list' });
     await expect(grid).toBeVisible({ timeout: 10_000 });
     // t1 has latest_note_at; t2 does not — exactly one row carries the chip.
     await expect(page.getByTestId('note-freshness-chip')).toHaveCount(1);

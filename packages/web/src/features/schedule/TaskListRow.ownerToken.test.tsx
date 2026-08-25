@@ -153,7 +153,7 @@ function startEditing(focus: () => FocusApi) {
     focus().focusRow('t1');
     focus().enterCellEdit('t1', 'name');
   });
-  return screen.getByLabelText('Rename task Design Phase');
+  return screen.getByLabelText('Rename item Design Phase');
 }
 
 beforeEach(() => {

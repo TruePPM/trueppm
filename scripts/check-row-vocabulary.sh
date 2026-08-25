@@ -27,7 +27,7 @@
 #       must appear nowhere else in packages/web/src. There is no list here to
 #       drift: the strings come from the file the gate is protecting.
 #
-#   (b) NO LITERAL MINTED NAME. Inside features/schedule/, a `name:` property
+#   (b) NO LITERAL MINTED NAME. Inside the outline's trees, a `name:` property
 #       assigned a multi-word capitalized string literal — or a blank-name
 #       fallback (`x.name || 'Untitled task'`) that names a row TYPE — is a name
 #       a human will read in a Name cell — and if they abandon the edit it becomes a real
@@ -77,6 +77,14 @@ if [[ "${1:-}" == "--self-test" ]]; then
       '// prose about the rule is not a breach of it.' \
       'export const Clean = () => <span>{ROW_VOCABULARY.empty.title}</span>;' \
       > "$tmp/$SRC_REL/features/schedule/Clean.tsx"
+    # EVERY governed scope needs an innocent file, not just the first one: the
+    # gate refuses to scan a scope that contributes nothing, so seeding only
+    # features/schedule would make the clean-tree case below fail for a reason
+    # that says nothing about the patterns (#3052).
+    mkdir -p "$tmp/$SRC_REL/features/grid"
+    printf '%s\n' \
+      'export const CleanGrid = () => <span>{ROW_VOCABULARY.outline.label}</span>;' \
+      > "$tmp/$SRC_REL/features/grid/Clean.tsx"
   }
 
   # (a) a second copy of a governed string
@@ -154,16 +162,28 @@ if len(governed) < MIN_TOKENS:
           f"gate would pass by matching nothing", file=sys.stderr)
     sys.exit(1)
 
-SCOPE = 'features/schedule/'   # the outline's own tree — see header
+# The outline's own trees. BOTH surfaces, because `scheduleSurface` models the
+# Timeline and the Grid as two renderings of ONE row model (#2960) — a rule that
+# governed one of them would be a rule the user can walk around by switching
+# view, which is the drift that module exists to prevent (#3052).
+SCOPES = ('features/schedule/', 'features/grid/')
 files = [q for q in list(src.rglob('*.ts')) + list(src.rglob('*.tsx'))
          if '.test.' not in q.name
          and q.name != 'rowVocabulary.ts'
-         and SCOPE in str(q).replace('\\', '/')]
+         and any(sc in str(q).replace('\\', '/') for sc in SCOPES)]
 
 if not files:
-    print(f"✖ scanned 0 files under {SCOPE} — the gate would pass by matching "
-          f"nothing", file=sys.stderr)
+    print(f"✖ scanned 0 files under {' / '.join(SCOPES)} — the gate would pass "
+          f"by matching nothing", file=sys.stderr)
     sys.exit(1)
+
+# Each scope must contribute, or a renamed/moved tree silently drops out of
+# coverage while the total file count still looks healthy.
+for sc in SCOPES:
+    if not any(sc in str(q).replace('\\', '/') for q in files):
+        print(f"✖ scanned 0 files under {sc} — that tree has moved or been "
+              f"renamed, and is no longer governed", file=sys.stderr)
+        sys.exit(1)
 
 def code_lines(text):
     """Yield (lineno, line) for lines that render copy, skipping prose.

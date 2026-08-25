@@ -159,7 +159,7 @@ test.describe('Inline authoring tokens', () => {
     // Enter the Name cell of the third row.
     await page.getByText('Draft row').click();
     await page.keyboard.press('F2');
-    const input = page.getByRole('textbox', { name: /Rename task Draft row/ });
+    const input = page.getByRole('textbox', { name: /Rename item Draft row/ });
     await expect(input).toBeVisible();
 
     await input.fill('Wireframes #5d @ana >2 [Discovery]');
@@ -207,7 +207,7 @@ test.describe('Inline authoring tokens', () => {
     await expect(page.getByText('Draft row')).toBeVisible();
     await page.getByText('Draft row').click();
     await page.keyboard.press('F2');
-    const input = page.getByRole('textbox', { name: /Rename task Draft row/ });
+    const input = page.getByRole('textbox', { name: /Rename item Draft row/ });
     await input.fill('Wireframes #5d @nobody');
     await page.keyboard.press('Enter');
 
@@ -227,7 +227,7 @@ test.describe('Inline authoring tokens', () => {
     await expect(page.getByText('Draft row')).toBeVisible();
     await page.getByText('Draft row').click();
     await page.keyboard.press('F2');
-    const input = page.getByRole('textbox', { name: /Rename task Draft row/ });
+    const input = page.getByRole('textbox', { name: /Rename item Draft row/ });
 
     await input.fill('Wireframes @an');
     const picker = page.getByRole('listbox', { name: 'Assign owner' });
@@ -246,7 +246,7 @@ test.describe('Inline authoring tokens', () => {
     await expect(page.getByText('Draft row')).toBeVisible();
     await page.getByText('Draft row').click();
     await page.keyboard.press('F2');
-    const input = page.getByRole('textbox', { name: /Rename task Draft row/ });
+    const input = page.getByRole('textbox', { name: /Rename item Draft row/ });
 
     await input.fill('Wireframes /');
     const menu = page.getByRole('listbox', { name: 'Insert' });

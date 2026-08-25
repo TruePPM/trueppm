@@ -1,4 +1,4 @@
-import { ROW_VOCABULARY } from './rowVocabulary';
+import { ROW_VOCABULARY, outlineWidthValueText } from './rowVocabulary';
 import {
   useRef,
   useCallback,
@@ -517,12 +517,12 @@ function PanelSplitter({ currentTaskWidth, setWidth, maxTaskWidth }: PanelSplitt
     <div
       role="separator"
       aria-orientation="vertical"
-      aria-label="Resize task list panel"
+      aria-label={ROW_VOCABULARY.outline.resizePanel}
       tabIndex={0}
       aria-valuenow={Math.round(currentTaskWidth)}
       aria-valuemin={MIN_TASK_WIDTH}
       aria-valuemax={Math.round(maxTaskWidth)}
-      aria-valuetext={`Task list ${Math.round(currentTaskWidth)} pixels`}
+      aria-valuetext={outlineWidthValueText(Math.round(currentTaskWidth))}
       // `focus:`, not `focus-visible:` — this control takes focus from a pointer
       // drag on every single use, and Firefox and desktop Safari paint no
       // `:focus-visible` for pointer-driven focus (web rule 6.1).

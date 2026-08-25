@@ -419,35 +419,35 @@ describe('TaskListRow', () => {
     const row = screen.getByRole('row');
     row.focus();
     await userEvent.keyboard('{F2}');
-    expect(screen.getByLabelText(/Rename task/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Rename item/i)).toBeInTheDocument();
   });
 
   it('double-click enters edit mode', async () => {
     renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} />);
     await userEvent.dblClick(screen.getByRole('row'));
-    expect(screen.getByLabelText(/Rename task/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Rename item/i)).toBeInTheDocument();
   });
 
   it('Escape cancels edit', async () => {
     renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} />);
     await userEvent.dblClick(screen.getByRole('row'));
-    const input = screen.getByLabelText(/Rename task/i);
+    const input = screen.getByLabelText(/Rename item/i);
     await userEvent.type(input, 'New Name');
     await userEvent.keyboard('{Escape}');
     // Should exit edit mode without renaming
-    expect(screen.queryByLabelText(/Rename task/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Rename item/i)).not.toBeInTheDocument();
     expect(screen.getByText('Design Phase')).toBeInTheDocument();
   });
 
   it('Enter in edit mode commits the change', async () => {
     renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} />);
     await userEvent.dblClick(screen.getByRole('row'));
-    const input = screen.getByLabelText(/Rename task/i);
+    const input = screen.getByLabelText(/Rename item/i);
     await userEvent.clear(input);
     await userEvent.type(input, 'Updated Name');
     await userEvent.keyboard('{Enter}');
     // Should exit edit mode
-    expect(screen.queryByLabelText(/Rename task/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Rename item/i)).not.toBeInTheDocument();
   });
 
   it('blur commits edit', async () => {
@@ -458,11 +458,11 @@ describe('TaskListRow', () => {
       </div>,
     );
     await userEvent.dblClick(screen.getByRole('row'));
-    const input = screen.getByLabelText(/Rename task/i);
+    const input = screen.getByLabelText(/Rename item/i);
     await userEvent.clear(input);
     await userEvent.type(input, 'Blur Name');
     await userEvent.click(screen.getByText('Other'));
-    expect(screen.queryByLabelText(/Rename task/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Rename item/i)).not.toBeInTheDocument();
   });
 
   it('properties button selects the task', async () => {
@@ -572,7 +572,7 @@ describe('TaskListRow', () => {
     const user = userEvent.setup({ delay: null });
     renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} />);
     await user.dblClick(screen.getByRole('row'));
-    const input = screen.getByLabelText(/Rename task/i);
+    const input = screen.getByLabelText(/Rename item/i);
     // Enter in input commits, Space types a space
     await user.type(input, ' extra');
     await waitFor(() => expect(input).toHaveValue('Design Phase extra'));

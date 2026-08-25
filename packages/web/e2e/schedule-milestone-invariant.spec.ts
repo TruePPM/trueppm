@@ -76,7 +76,7 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
 test.describe('Schedule milestone invariant — !221 regression', () => {
   test.beforeEach(async ({ page }) => {
     await gotoSchedule(page);
-    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({ timeout: 10_000 });
   });
 
   test('milestone row Finish column renders single date, not a span', async ({ page }) => {

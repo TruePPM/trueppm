@@ -138,7 +138,7 @@ describe('FlatMode — rename', () => {
     renderFlat();
     const rows = screen.getAllByRole('row').filter((r) => r.querySelector('input[type="checkbox"]'));
     fireEvent.doubleClick(rows[0]);
-    const input = screen.getByLabelText('Rename task');
+    const input = screen.getByLabelText('Rename item');
     fireEvent.change(input, { target: { value: 'New name' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(updateMutate).toHaveBeenCalledWith(expect.objectContaining({ name: 'New name' }));
@@ -148,7 +148,7 @@ describe('FlatMode — rename', () => {
     renderFlat();
     const rows = screen.getAllByRole('row').filter((r) => r.querySelector('input[type="checkbox"]'));
     fireEvent.doubleClick(rows[0]);
-    const input = screen.getByLabelText('Rename task');
+    const input = screen.getByLabelText('Rename item');
     fireEvent.change(input, { target: { value: '   ' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(updateMutate).not.toHaveBeenCalled();
@@ -158,7 +158,7 @@ describe('FlatMode — rename', () => {
     renderFlat();
     const rows = screen.getAllByRole('row').filter((r) => r.querySelector('input[type="checkbox"]'));
     fireEvent.doubleClick(rows[0]);
-    const input = screen.getByLabelText('Rename task');
+    const input = screen.getByLabelText('Rename item');
     fireEvent.change(input, { target: { value: 'Cancelled' } });
     fireEvent.keyDown(input, { key: 'Escape' });
     expect(updateMutate).not.toHaveBeenCalled();
@@ -179,5 +179,25 @@ describe('FlatMode — rename', () => {
     const btn = nameHeader.querySelector('button')!;
     fireEvent.keyDown(btn, { key: ' ' });
     expect(nameHeader).toHaveAttribute('aria-sort', 'ascending');
+  });
+});
+
+describe('FlatMode — the vocabulary lock (#3052)', () => {
+  it('names the outline "Item list", never "Task list"', () => {
+    // The container's accessible name is a claim about everything inside it,
+    // and this surface holds rows of ANY structure_role — phases and milestones
+    // included. Pinned in BOTH directions: asserting only the new name would
+    // still pass if the old one came back alongside it, which is how a rename
+    // half-lands.
+    //
+    // The Grid is here rather than only the Schedule outline because
+    // `scheduleSurface` models them as two renderings of ONE row model (#2960);
+    // a rule that governed one would be a rule the user walks around by
+    // switching view. The DOM guard in
+    // `features/schedule/rowVocabularyLock.test.tsx` renders the Schedule
+    // shell, not this one, so without this the Grid half has no assertion.
+    renderFlat();
+    expect(screen.getByRole('grid', { name: 'Item list' })).toBeInTheDocument();
+    expect(screen.queryByRole('grid', { name: 'Task list' })).toBeNull();
   });
 });

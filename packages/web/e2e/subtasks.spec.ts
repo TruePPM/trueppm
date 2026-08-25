@@ -259,7 +259,7 @@ async function setupRoutes(page: Page, tasks: object[]) {
 
 async function openDrawer(page: Page, taskName: string) {
   await page.goto(`/projects/${PROJECT_ID}/schedule`);
-  const grid = page.getByRole('treegrid', { name: 'Task list' });
+  const grid = page.getByRole('treegrid', { name: 'Item list' });
   await expect(grid).toBeVisible({ timeout: 10_000 });
   await grid.getByRole('button', { name: `Open properties for ${taskName}` }).click();
   const drawer = page.getByRole('dialog', { name: new RegExp(taskName) }).first();

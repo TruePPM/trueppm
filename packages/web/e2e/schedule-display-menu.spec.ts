@@ -218,7 +218,7 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
     // list renders (Columns section only appears in Grid mode).
     await page.setViewportSize({ width: 1440, height: 900 });
     await gotoSchedule(page);
-    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({
+    await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({
       timeout: 10_000,
     });
   });

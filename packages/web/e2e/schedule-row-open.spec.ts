@@ -58,7 +58,7 @@ const TASKS = [
 ];
 
 const layout = (page: Page) => page.getByRole('radiogroup', { name: 'Schedule layout' });
-const outline = (page: Page) => page.getByRole('treegrid', { name: 'Task list' });
+const outline = (page: Page) => page.getByRole('treegrid', { name: 'Item list' });
 
 /**
  * The drawer is a permanently mounted, translated-off `role="dialog"`, so an

@@ -234,7 +234,7 @@ test.describe('Dependency cascade refresh (#314)', () => {
 
     await page.goto(`/projects/${PROJECT}/schedule`);
 
-    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({
+    await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({
       timeout: 10_000,
     });
 
