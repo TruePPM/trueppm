@@ -10,12 +10,22 @@ interface ApiTaskResource {
   units: number;
 }
 
-/** A warning returned by the POST /task-resources/ 201 response (ADR-0028, issue #150). */
+/**
+ * A warning returned by the POST /task-resources/ 201 response (ADR-0028, issue #150).
+ *
+ * `assignment_not_unit_tracked` (#3047) accompanies `resource_overallocated` when the
+ * total folds in a bare-`Task.assignee` task with no `TaskResource` row — the response
+ * carries it so a caller knows the total includes a full-unit estimate rather than a
+ * real `TaskResource.units` figure. No UI currently reads this code specifically; it
+ * falls through unrendered like any other unrecognized warning, same as before #3047.
+ */
 export interface AssignmentWarning {
-  code: 'resource_overallocated' | 'skill_mismatch';
+  code: 'resource_overallocated' | 'skill_mismatch' | 'assignment_not_unit_tracked';
   resource_id: string;
   resource_name: string;
   detail: string;
+  /** Comma-separated task ids, present only on `assignment_not_unit_tracked`. */
+  task_ids?: string;
 }
 
 /** Shape returned by the POST /task-resources/ endpoint including optional warnings. */
