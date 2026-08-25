@@ -9,7 +9,9 @@ Isolation & security posture (ADR-0097 §3 / §Threat Model → Resolution):
   project member, Admin, or Owner can see or touch another user's connection.
 - **Secret never serialized.** The Fernet-encrypted PAT (``secret_ciphertext``)
   is never returned — the summary exposes only ``{source, exists, base_url,
-  account_email, status, last_synced_at, config}``.
+  account_email, status, last_synced_at, jql, project_keys, last_sync}``. The
+  stored ``config`` is never echoed wholesale; every key it contributes is
+  projected explicitly (see :func:`last_sync_summary`).
 - **SSRF collapsed at connect.** ``base_url`` is Jira-Cloud-allow-listed
   (``providers.assert_base_url_allowed`` → ``*.atlassian.net``, https) *before*
   the token is ever put on the wire in the verify ping (#902 ordering).
@@ -74,6 +76,35 @@ STATUS_AUTH_FAILED = "auth_failed"
 # the cause is not the token — telling the user their token expired would send
 # them to re-issue a credential that was never the problem.
 STATUS_INVALID_FILTER = "invalid_filter"
+
+# ``config["last_sync"]["reason"]`` vocabulary (#2925), written by the pull worker
+# (``tasks.py``) and validated on the way out by :func:`last_sync_summary`. A
+# **fixed token set**, not a formatted message, and that is a security constraint
+# rather than a style one: ``config`` is owner-readable over this module's ``GET``,
+# and the exception text on those paths can carry the request URL (which embeds
+# the owner's JQL, and on some deployments the credential) or provider-echoed PII.
+# A closed vocabulary cannot leak either — the web maps the token to user-facing
+# copy. Never interpolate an exception, URL, or response body into this field.
+#
+# Defined *here*, not beside the writer, so the read surface can fail closed
+# against it without importing ``tasks`` (which imports this module). Writer
+# discipline alone would leave the guarantee unenforced at the one boundary that
+# serves it, and ``config`` is a schemaless column an Enterprise integration also
+# writes to.
+SYNC_REASON_AUTH_FAILED = "auth_failed"
+SYNC_REASON_INVALID_FILTER = "invalid_filter"
+SYNC_REASON_UNREACHABLE = "unreachable"
+SYNC_REASON_RATE_LIMITED = "rate_limited"
+SYNC_REASON_DECRYPT_FAILED = "credential_unreadable"
+SYNC_FAILURE_REASONS: frozenset[str] = frozenset(
+    {
+        SYNC_REASON_AUTH_FAILED,
+        SYNC_REASON_INVALID_FILTER,
+        SYNC_REASON_UNREACHABLE,
+        SYNC_REASON_RATE_LIMITED,
+        SYNC_REASON_DECRYPT_FAILED,
+    }
+)
 
 # Human-readable 422 detail per ``VerifyResult.reason`` (mirrors the credentials
 # viewset map, plus the Jira-specific ``missing_email``).
@@ -215,6 +246,33 @@ class ExternalConnectionUpsertSerializer(serializers.Serializer[Any]):
         return value
 
 
+class ExternalConnectionLastSyncSerializer(serializers.Serializer[Any]):
+    """What the last pull actually did (#2925) — the outcome, not just the clock.
+
+    Written by the pull worker into ``config["last_sync"]`` (``tasks.py``). Before
+    this, a connection reported ``status`` + ``last_synced_at`` and nothing else,
+    so "Connected, last synced 5 minutes ago" read identically whether the pull
+    returned 200 items, zero, or failed — and a contributor past the source's page
+    size got a silently partial My Work.
+
+    ``truncated`` is the load-bearing field: it says the source had more than this
+    pull stored, so the owner is looking at the first ``stored`` of their assigned
+    work. ``total_available`` is the provider's own count when it reported one and
+    ``null`` when it did not — ``null`` means *unknown*, never *zero*, and a client
+    must not render a denominator from it.
+    """
+
+    at = serializers.DateTimeField(allow_null=True)
+    ok = serializers.BooleanField()
+    # A fixed token from ``tasks.SYNC_FAILURE_REASONS`` (blank on success), never a
+    # formatted message — see that constant for why the vocabulary is closed.
+    reason = serializers.CharField(allow_blank=True)
+    fetched = serializers.IntegerField()
+    stored = serializers.IntegerField()
+    total_available = serializers.IntegerField(allow_null=True)
+    truncated = serializers.BooleanField()
+
+
 class ExternalConnectionSummarySerializer(serializers.Serializer[Any]):
     """Owner-facing summary of a connection — **never** the secret (ADR-0097 §3).
 
@@ -232,6 +290,10 @@ class ExternalConnectionSummarySerializer(serializers.Serializer[Any]):
     last_synced_at = serializers.DateTimeField(allow_null=True)
     jql = serializers.CharField(allow_blank=True)
     project_keys = serializers.ListField(child=serializers.CharField())
+    # ``null`` until the connection's first pull completes — a freshly-connected
+    # row has a status but no outcome yet, which is a different thing from a pull
+    # that returned nothing.
+    last_sync = ExternalConnectionLastSyncSerializer(allow_null=True)
 
 
 class ExternalConnectionErrorSerializer(serializers.Serializer[Any]):
@@ -240,6 +302,59 @@ class ExternalConnectionErrorSerializer(serializers.Serializer[Any]):
     detail = serializers.CharField()
     code = serializers.CharField()
     reason = serializers.CharField(allow_null=True)
+
+
+def last_sync_summary(config: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Project ``config["last_sync"]`` onto the owner-facing outcome shape (#2925).
+
+    Field-by-field with per-field type coercion rather than passing the stored
+    dict through. ``config`` is a schemaless ``JSONField`` that also holds the
+    connection's filter and (for other providers on the same model) whatever an
+    Enterprise integration put there — echoing it wholesale would turn any future
+    key into an unreviewed client-visible field, which is exactly the
+    over-exposure the summary's "never the secret" contract exists to prevent.
+    Anything absent or of the wrong type degrades to the neutral value, so a
+    hand-edited or pre-#2925 row renders as "no outcome recorded" instead of
+    raising.
+
+    Returns ``None`` when no pull has ever completed — distinct from a pull that
+    completed and stored nothing.
+    """
+    raw = (config or {}).get("last_sync")
+    if not isinstance(raw, dict):
+        return None
+    total = raw.get("total_available")
+    at = raw.get("at")
+    # Fail closed on ``reason``: only a token from the closed vocabulary leaves
+    # this boundary. Type-checking it would enforce nothing — the whole point of
+    # the vocabulary is that a *formatted* string must never reach a client, and
+    # a formatted string is a ``str``. Anything unrecognized degrades to blank,
+    # which the web already renders as its generic "didn't complete" sentence.
+    raw_reason = raw.get("reason")
+    reason = raw_reason if raw_reason in SYNC_FAILURE_REASONS else ""
+    # ``None`` is meaningful for the total ("the source did not say"), so it is
+    # not collapsed to 0 the way the two counts are.
+    total_ok = isinstance(total, int) and not isinstance(total, bool)
+    return {
+        "at": at if isinstance(at, str) else None,
+        "ok": bool(raw.get("ok")),
+        "reason": reason,
+        "fetched": _as_count(raw.get("fetched")),
+        "stored": _as_count(raw.get("stored")),
+        "total_available": total if total_ok else None,
+        "truncated": bool(raw.get("truncated")),
+    }
+
+
+def _as_count(value: Any) -> int:
+    """Narrow an untrusted stored value to a non-negative count (0 if it is not one).
+
+    ``bool`` is excluded explicitly because it is an ``int`` subclass, so ``True``
+    would otherwise read back as a count of 1.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        return 0
+    return max(int(value), 0)
 
 
 def _summary(label: str, row: IntegrationCredential | None) -> dict[str, Any]:
@@ -259,6 +374,8 @@ def _summary(label: str, row: IntegrationCredential | None) -> dict[str, Any]:
         "last_synced_at": row.last_used_at if row else None,
         "jql": cfg.get("jql", ""),
         "project_keys": cfg.get("project_keys", []),
+        # What the last pull did — counts, and whether a cap truncated it (#2925).
+        "last_sync": last_sync_summary(cfg),
     }
 
 
@@ -369,6 +486,10 @@ class ExternalConnectionView(IdempotencyMixin, APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Rebuilt from the payload, so a re-connect deliberately drops any stored
+        # ``last_sync``: the outcome described a pull made with the *previous*
+        # token and filter, and carrying it onto a connection whose filter just
+        # changed would report a truncation (or a count) that no longer applies.
         config: dict[str, Any] = {
             "deployment": data.get("deployment", DEPLOYMENT_CLOUD),
             "account_email": data.get("account_email", ""),

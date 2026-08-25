@@ -132,7 +132,13 @@ This is deliberately a different key from outdent (`⌥←`): outdenting *one* r
 
 ### `+ Phase` — `⌥⌘P` / `Alt + Ctrl + P`
 
-Creates a phase **with its first task already in it**, at your currently-focused insertion point (same phase-nesting inference as `+ Item` / `+ Milestone`), and opens the phase's name for editing. A button never leaves an empty phase behind.
+Does one of two things, and the button tells you which before you press it.
+
+**With a task selected**, it turns *that row* into a phase and puts a new task inside it, with the cursor in the new task ready to name. This is the fast way to build structure as you type: name a row, select it, press `⌥⌘P`, and keep going. The button reads **Make <row> a phase** while a row is selected.
+
+**With nothing selected**, it creates a new phase **with its first task already in it**, at your currently-focused insertion point (same phase-nesting inference as `+ Item` / `+ Milestone`), and opens the phase's name for editing.
+
+Either way it is a single action: one `⌘Z` takes the whole thing back, and a phase never appears in your plan without something in it.
 
 A **phase-in-waiting** — a summary row with no structural child yet — is still a legitimate state; you can reach one by other routes, and the row shows a dashed "⊕ Add first item to this phase" hint in place of the assignee display until it gains a child.
 

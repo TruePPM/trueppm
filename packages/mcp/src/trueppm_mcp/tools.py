@@ -564,6 +564,12 @@ async def _get_sprint(client: TruePPMClient, sprint_id: str) -> dict[str, Any]:
     return result
 
 
+async def _get_sprint_close_request(client: TruePPMClient, sprint_id: str) -> dict[str, Any]:
+    """The outcome of the sprint's most recent close attempt."""
+    payload = await client.get(f"sprints/{sprint_id}/close-request/")
+    return _compact_mapping(payload if isinstance(payload, Mapping) else {})
+
+
 async def _list_my_work(client: TruePPMClient) -> dict[str, Any]:
     """The caller's assigned tasks across every project they belong to."""
     rows, total, truncated = await client.get_paginated("me/work/")
@@ -845,6 +851,32 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
             sprint_id: The sprint's UUID.
         """
         return await _get_sprint(client, sprint_id)
+
+    @server.tool()
+    async def get_sprint_close_request(sprint_id: str) -> dict[str, Any]:
+        """Why a sprint that was asked to close is still open.
+
+        Closing a sprint is asynchronous, so ``get_sprint`` showing ``ACTIVE``
+        is ambiguous on its own: the close may still be running, or it may have
+        been abandoned and the sprint left open permanently. This resolves that
+        — ``terminal`` is the field to branch on, not ``status``, because a
+        FAILED attempt with a retry still scheduled is one the server will run
+        again. ``failure_reason`` names the cause. Returns nothing (404) if no
+        close was ever requested for this sprint.
+
+        An ``mcp:read`` token never receives the raw exception text in
+        ``error_message`` — the field carries a summary sentence instead,
+        because a database or broker failure puts internal hostnames and SQL
+        fragments in the original. (A ``legacy:full`` personal token is not
+        treated as an agent and will still see it; see #2938.)
+        ``failure_reason`` is the machine-readable cause and is served to every
+        caller, but only once the close has actually failed — it is absent
+        while a close is pending, in flight, or completed.
+
+        Args:
+            sprint_id: The sprint's UUID.
+        """
+        return await _get_sprint_close_request(client, sprint_id)
 
     @server.tool()
     async def list_my_work() -> dict[str, Any]:

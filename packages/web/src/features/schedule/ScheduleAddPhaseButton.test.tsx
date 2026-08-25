@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { formatChord } from '@/lib/platform';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { formatChord } from '@/lib/platform';
 import { ScheduleAddPhaseButton } from './ScheduleAddPhaseButton';
 
 describe('ScheduleAddPhaseButton', () => {
@@ -26,8 +26,19 @@ describe('ScheduleAddPhaseButton', () => {
 
   it('exposes a hotkey-aware accessible label', () => {
     render(<ScheduleAddPhaseButton onAddPhase={vi.fn()} />);
+    // The accessible name and the tooltip are now ONE derived string (#2951). Two
+    // pre-existing defects went with the split. They said different things — the
+    // tooltip "with its first task", the accessible name not — so a screen-reader user
+    // was told strictly less about what the press would do. And the accessible name
+    // HARDCODED the Mac chord, announcing "Option+Cmd+P" to a Windows or Linux user
+    // while the tooltip beside it correctly read "Ctrl+Alt+P" (rule 326 / #3028).
+    //
+    // Derived from `formatChord`, never restated: a literal here rots exactly the way
+    // the hardcoded label did, and would pass on whichever platform CI happens to run.
     expect(
-      screen.getByRole('button', { name: 'Add new phase (Option+Cmd+P)' }),
+      screen.getByRole('button', {
+        name: `Add new phase, with its first task (${formatChord('mod+alt+p')})`,
+      }),
     ).toBeInTheDocument();
   });
 
@@ -67,5 +78,29 @@ describe('ScheduleAddPhaseButton', () => {
     fireEvent.click(btn);
     expect(onAdd).not.toHaveBeenCalled();
     expect(btn.className).toMatch(/cursor-wait/);
+  });
+});
+
+describe('ScheduleAddPhaseButton — the control states which act it performs (#2951)', () => {
+  it('names the row it would adopt, in both the accessible name and the tooltip', () => {
+    render(<ScheduleAddPhaseButton onAddPhase={vi.fn()} adoptsRowName="Mobilization" />);
+    const btn = screen.getByTestId('add-phase-button');
+    // Derived once and used for both, so the two can never describe different acts.
+    expect(btn).toHaveAccessibleName(/Make Mobilization a phase, with a task inside it/);
+    expect(btn.getAttribute('title')).toMatch(/Make Mobilization a phase, with a task inside it/);
+  });
+
+  it('falls back to the new-phase wording when there is nothing to adopt', () => {
+    render(<ScheduleAddPhaseButton onAddPhase={vi.fn()} />);
+    const btn = screen.getByTestId('add-phase-button');
+    expect(btn).toHaveAccessibleName(/Add new phase, with its first task/);
+    // The two acts must not read the same — a label that did not change would be a
+    // claim about a write the user is about to make to a row it never mentions.
+    expect(btn).not.toHaveAccessibleName(/Make .* a phase/);
+  });
+
+  it('keeps the read-only tooltip regardless of what is focused', () => {
+    render(<ScheduleAddPhaseButton onAddPhase={vi.fn()} disabled adoptsRowName="Mobilization" />);
+    expect(screen.getByTestId('add-phase-button').getAttribute('title')).toBe('Read-only access');
   });
 });

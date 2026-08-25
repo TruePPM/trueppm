@@ -170,6 +170,54 @@ describe('TaskFormModal cycle detection (#356)', () => {
     expect(within(alert).queryByText(/pred-task/)).toBeNull();
   });
 
+  it('attempts the edge exactly ONCE, with the real orientation (#2952, from e2e)', async () => {
+    // Ported from `dependency-cycle.spec.ts`, which drove this through the board's lane
+    // `+` modal — an entry point that no longer exists (#2952). Two claims that file
+    // carried and this suite did not: a refused edge is attempted once and never
+    // silently retried, and the proposed edge names the selected task as PREDECESSOR
+    // and the new task as SUCCESSOR with a concrete `dep_type`, which is what makes the
+    // 400 the server's verdict on a genuine edge rather than a mock echoing any body.
+    //
+    // Honest about what moved and what did not. This asserts at the `useAddDependency`
+    // boundary, not on the wire, so it cannot catch a hook that reshapes the body on
+    // its way to the request — the e2e could. `dep_type` is added BELOW this boundary
+    // and is therefore not assertable here at all. And this exercises the EDIT path,
+    // where the successor is the open task; the deleted spec exercised create, where
+    // the successor is a row that does not exist yet. Two real gaps, recorded rather
+    // than papered over — the entry point that reached them is gone (#2952).
+    addDependencyMutate.mockRejectedValue({
+      response: {
+        status: 400,
+        data: {
+          detail: 'cyclic_dependency',
+          cycle: [
+            { id: 'pred-task', name: 'Find suppliers', hex_id: 'aa11' },
+            { id: 'edit-task-id', name: 'Validate', hex_id: 'bb22' },
+            { id: 'pred-task', name: 'Find suppliers', hex_id: 'aa11' },
+          ],
+        },
+      },
+    });
+
+    renderModal();
+    fireEvent.click(screen.getByRole('button', { name: /link predecessor/i }));
+    fireEvent.change(screen.getByLabelText(/search predecessor tasks/i), {
+      target: { value: 'Find' },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: /find suppliers/i }));
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+
+    await screen.findByRole('alert');
+    expect(addDependencyMutate).toHaveBeenCalledTimes(1);
+    // The orientation is the claim: the SELECTED task is the predecessor and the task
+    // being edited is the successor. Reversed, the server's 400 would be a verdict on
+    // an edge the user never proposed.
+    expect(addDependencyMutate.mock.calls[0][0]).toMatchObject({
+      predecessor: 'pred-task',
+      successor: 'edit-task-id',
+    });
+  });
+
   it('preserves the user’s predecessor selection across a cycle error', async () => {
     addDependencyMutate.mockRejectedValue({
       response: {

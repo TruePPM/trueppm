@@ -121,7 +121,7 @@ the [MCP server administration guide](/administration/mcp-server/).
 
 ## What it can answer
 
-The server registers **18 read-only tools**, each mapping to one existing REST
+The server registers **19 read-only tools**, each mapping to one existing REST
 endpoint and returning only what your role permits. Results are compacted for an
 LLM context budget: empty and null fields are omitted, long free-text fields are
 truncated (with a `"truncated": true` marker), and project/program results carry
@@ -180,6 +180,7 @@ only ever reflects data your token can already read.
 |------|-----------|---------|
 | `list_sprints` | `project_id` | The project's sprints (health bands and aggregates only — no per-person velocity). |
 | `get_sprint` | `sprint_id` | One sprint with its project's health band (aggregates only). |
+| `get_sprint_close_request` | `sprint_id` | The outcome of the sprint's most recent close attempt — closing is asynchronous, so this is what distinguishes "still running" from "abandoned, and the sprint stays open". Branch on `terminal`, not `status`. |
 
 ### Identity
 

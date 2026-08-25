@@ -310,6 +310,68 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
   });
 
+  // #2992 — a terminal close failure is pushed, not polled for -------------
+
+  it('invalidates sprints and the close-request read on sprint_close_failed', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({
+          event_type: 'sprint_close_failed',
+          payload: { id: 'sp-7', request_id: 'req-1', failure_reason: 'error', terminal: true },
+        }),
+      });
+    });
+
+    // The sprint is still ACTIVE, so the list on screen is wrong...
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['sprints', 'proj-1'] });
+    // ...and the surface reads its verdict (and the role-gated failure text)
+    // from the endpoint rather than from the broadcast.
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['sprint', 'sp-7', 'close-request'],
+    });
+  });
+
+  it('falls back to every mounted close-request query when the payload has no sprint id', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({ event_type: 'sprint_close_failed', payload: {} }),
+      });
+    });
+
+    const predicateCall = invalidateSpy.mock.calls.find(
+      (c) => typeof (c[0] as { predicate?: unknown } | undefined)?.predicate === 'function',
+    );
+    expect(predicateCall).toBeDefined();
+  });
+
+  it('renders nothing on receipt of sprint_close_failed — it only invalidates', () => {
+    // The event is persisted to the board-event buffer and replayed on every
+    // reconnect for the retention window. Anything that fired a toast here
+    // would re-alarm the user about the same dead close for the rest of the day,
+    // so the handler must be invalidation-only and let the refetched `terminal`
+    // decide what is shown.
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({
+          event_type: 'sprint_close_failed',
+          payload: { id: 'sp-7', terminal: true },
+        }),
+      });
+    });
+
+    expect(toastMock.error).not.toHaveBeenCalled();
+    expect(toastMock.success).not.toHaveBeenCalled();
+    expect(toastMock.warm).not.toHaveBeenCalled();
+  });
+
   // ADR-0113 — a sprint's velocity contribution changes on sprint state events
   // (close adds a data point, exclude_from_velocity drops one). A peer with the
   // velocity band or delivery forecast open must refetch, matching the local

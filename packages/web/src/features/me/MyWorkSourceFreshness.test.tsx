@@ -51,4 +51,104 @@ describe('MyWorkSourceFreshness', () => {
     wrap(<MyWorkSourceFreshness sources={[{ ...connected, last_synced_at: null }]} />);
     expect(screen.getByText('not synced yet')).toBeInTheDocument();
   });
+
+  it('states when the feed above it is only the first N of the assigned items (#2925)', () => {
+    wrap(
+      <MyWorkSourceFreshness
+        sources={[
+          {
+            ...connected,
+            last_sync: {
+              at: '2026-07-06T09:31:00Z',
+              ok: true,
+              reason: '',
+              fetched: 100,
+              stored: 100,
+              total_available: 412,
+              truncated: true,
+            },
+          },
+        ]}
+      />,
+    );
+    expect(
+      screen.getByText('Showing the first 100 of 412 items assigned to you.'),
+    ).toBeInTheDocument();
+  });
+
+  it('suppresses the truncation note when the connection needs fixing first', () => {
+    // A source that needs reconnecting has a bigger problem than a partial page,
+    // and the cached truncation describes a pull made with the dead token.
+    wrap(
+      <MyWorkSourceFreshness
+        sources={[
+          {
+            ...connected,
+            status: 'auth_failed',
+            last_sync: {
+              at: '2026-07-06T09:31:00Z',
+              ok: true,
+              reason: '',
+              fetched: 100,
+              stored: 100,
+              total_available: 412,
+              truncated: true,
+            },
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByRole('link', { name: 'Reconnect Jira' })).toBeInTheDocument();
+    expect(screen.queryByText(/Showing the first/)).not.toBeInTheDocument();
+  });
+
+  it('names a failed pull instead of reporting the clock (#2925)', () => {
+    // `unreachable` leaves status `connected`, so without this the line says
+    // "synced 3h ago" about a sync that did not happen — the same defect one
+    // surface down.
+    wrap(
+      <MyWorkSourceFreshness
+        sources={[
+          {
+            ...connected,
+            last_sync: {
+              at: '2026-07-06T09:31:00Z',
+              ok: false,
+              reason: 'unreachable',
+              fetched: 0,
+              stored: 0,
+              total_available: null,
+              truncated: false,
+            },
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByText(/Couldn't reach Jira on the last sync/)).toBeInTheDocument();
+    expect(screen.queryByText(/synced/)).not.toBeInTheDocument();
+    // Neither remedy lives on Connected Accounts — no dead trip.
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
+
+  it('says nothing extra when a pull was complete', () => {
+    wrap(
+      <MyWorkSourceFreshness
+        sources={[
+          {
+            ...connected,
+            last_sync: {
+              at: '2026-07-06T09:31:00Z',
+              ok: true,
+              reason: '',
+              fetched: 8,
+              stored: 8,
+              total_available: 8,
+              truncated: false,
+            },
+          },
+        ]}
+      />,
+    );
+    expect(screen.queryByText(/Showing the first/)).not.toBeInTheDocument();
+  });
 });

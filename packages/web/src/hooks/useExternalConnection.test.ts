@@ -34,6 +34,7 @@ const CONNECTED: ExternalConnectionSummary = {
   last_synced_at: '2026-05-20T14:00:00Z',
   jql: '',
   project_keys: [],
+  last_sync: null,
 };
 
 beforeEach(() => {

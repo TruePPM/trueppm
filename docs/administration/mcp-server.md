@@ -137,7 +137,7 @@ docker run --rm -p 8000:8000 \
 
 ## What it can answer
 
-The read-tool surface ships in 0.4: **18 read-only tools**, each mapping to one
+The read-tool surface ships in 0.4: **19 read-only tools**, each mapping to one
 existing REST endpoint and returning only what your role permits. Results are
 compacted for an LLM context budget (empty fields omitted, long free-text
 truncated), and project/program results carry a `caller_role` field passed
@@ -159,7 +159,7 @@ straight through from the API.
   server-computed *why* behind a CPM value or Monte Carlo percentile — the driving
   predecessor/successor, binding constraint, lag, and calendar contribution),
   `list_risks`.
-- **Sprints** — `list_sprints`, `get_sprint` (aggregates and health bands only).
+- **Sprints** — `list_sprints`, `get_sprint` (aggregates and health bands only), `get_sprint_close_request` (why a sprint asked to close is still open).
 - **Identity** — `whoami` (connection check).
 
 The dedicated `mcp:read` token scope marks a token read-only at the API layer

@@ -1,11 +1,20 @@
 /**
  * E2E for the unified task create/edit modal (issue #305 / ADR-0052).
  *
- * Covers the create flow (board phase + button → modal opens with the
- * phase context) and the edit flow (popover Edit → modal prefills with
- * task data). Mobile shell is unit-tested only — the e2e bottom-sheet
- * counterpart deterministically lands on login at 375×667 (the same
- * known auth flake as wave3-card-info-popover).
+ * **Create mode is entered from the Calendar's empty state, not the board (#2952).**
+ * These tests used to open the modal from the board lane `+`, which no longer opens a
+ * form at all — the lane now offers a one-field compose (see `board-lane-compose.spec.ts`).
+ * The modal itself still ships and is still reached from the Calendar, the Schedule's
+ * milestone mode, the Schedule empty state and mobile, so its create-mode contract stays
+ * covered here; only the *entry point* moved.
+ *
+ * One assertion did not survive the move and is deliberately not faked: the modal's
+ * "Add to {phase}" header and its parent-phase picker need a project that already has a
+ * phase, and every surviving create entry point is an EMPTY-state affordance. Phase
+ * context on create is now the Designer's job, and it is covered there.
+ *
+ * Mobile shell is unit-tested only — the e2e bottom-sheet counterpart deterministically
+ * lands on login at 375×667 (the same known auth flake as wave3-card-info-popover).
  */
 import { test, expect } from './fixtures/coverage';
 
@@ -21,32 +30,6 @@ const FIXTURE_PROJECTS = [
     calendar: 'default',
   },
 ];
-
-const PHASE_TASK = {
-  id: 'p1', wbs_path: '1', name: 'Alpha Phase',
-  early_start: '2026-04-05', early_finish: '2026-04-30',
-  planned_start: '2026-04-05',
-  duration: 20, percent_complete: 50, is_critical: false,
-  is_milestone: false, is_summary: true, parent_id: null,
-  status: 'IN_PROGRESS', assignees: [], total_float: null,
-  predecessor_count: 0, is_blocked: false,
-  linked_risks_count: 0, linked_risks_max_severity: null,
-};
-
-const TASK = {
-  id: 't1', wbs_path: '1.1', name: 'Build feature',
-  early_start: '2026-04-07', early_finish: '2026-04-14',
-  planned_start: '2026-04-07',
-  duration: 7, percent_complete: 30, is_critical: false,
-  is_milestone: false, is_summary: false, parent_id: 'p1',
-  status: 'IN_PROGRESS',
-  assignees: [],
-  total_float: 5,
-  predecessor_count: 0, is_blocked: false,
-  linked_risks_count: 0, linked_risks_max_severity: null,
-  readiness: 'ready',
-  notes: 'Existing notes',
-};
 
 interface SetupOptions {
   /** Resolved methodology (#2667) — drives the Classification defaults/grouping. */
@@ -71,7 +54,9 @@ async function setup(page: import('@playwright/test').Page, options: SetupOption
     );
   });
 
-  const tasks = [PHASE_TASK, TASK];
+  // Empty by construction: create mode is reached from an empty-state CTA, so a project
+  // with rows has no route to the modal at all (#2952).
+  const tasks: unknown[] = [];
 
   // Catch-all fallthrough, registered FIRST so every specific route below wins
   // (Playwright matches last-registered first). Without it, any endpoint this
@@ -230,16 +215,27 @@ async function setup(page: import('@playwright/test').Page, options: SetupOption
   );
 }
 
-test.describe('Task create/edit modal (#305)', () => {
-  test('clicking the phase + button opens the unified create modal with phase context', async ({ page }) => {
-    await setup(page);
-    await page.goto(`${BASE_URL}/board`);
-    const addButton = page.getByRole('button', { name: /Add task to Alpha Phase/ });
-    await expect(addButton).toBeVisible({ timeout: 10_000 });
-    await addButton.click();
+/**
+ * Open the create modal from the Calendar's empty-state CTA (#2952).
+ *
+ * One definition rather than four copies of the same three lines: the entry point moved
+ * once and will move again, and a spec file that spells it out per test is how a
+ * relocation turns into a five-test edit.
+ */
+async function openCreateModal(page: import('@playwright/test').Page) {
+  await page.goto(`${BASE_URL}/calendar?calAnchor=2026-04-01`);
+  const cta = page.getByRole('button', { name: '+ Add task' });
+  await expect(cta).toBeVisible({ timeout: 10_000 });
+  await cta.click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
 
-    const dialog = page.getByRole('dialog', { name: /Add to Alpha Phase/ });
-    await expect(dialog).toBeVisible();
+test.describe('Task create/edit modal (#305)', () => {
+  test('the create CTA opens the unified modal in create mode', async ({ page }) => {
+    await setup(page);
+    const dialog = await openCreateModal(page);
     await expect(dialog.getByText('NEW TASK', { exact: true })).toBeVisible();
     await expect(dialog.getByLabel('Task name *')).toBeVisible();
     // Progress slider should NOT show in create mode (Priya-priority spec).
@@ -250,13 +246,7 @@ test.describe('Task create/edit modal (#305)', () => {
 
   test('Classification group exposes the type / governance / delivery taxonomy with server defaults', async ({ page }) => {
     await setup(page);
-    await page.goto(`${BASE_URL}/board`);
-    const addButton = page.getByRole('button', { name: /Add task to Alpha Phase/ });
-    await expect(addButton).toBeVisible({ timeout: 10_000 });
-    await addButton.click();
-
-    const dialog = page.getByRole('dialog', { name: /Add to Alpha Phase/ });
-    await expect(dialog).toBeVisible();
+    const dialog = await openCreateModal(page);
     // The taxonomy editor (previously: stored + seeded but unreachable from the UI).
     await expect(dialog.getByText('Classification', { exact: true })).toBeVisible();
     // Exact match: each field now has a sibling FieldHelp button whose aria-label
@@ -271,82 +261,55 @@ test.describe('Task create/edit modal (#305)', () => {
     await expect(dialog.getByText(/item throughput on a WIP-limited board/)).toBeVisible();
   });
 
-  // #2667: the Classification defaults used to be hardcoded (Flow / Waterfall)
-  // regardless of the project's own methodology, opening a self-contradictory
-  // dialog on a WATERFALL project (Flow's own description reads "agile,
-  // sprint- or kanban-governed work") and a correctness bug on AGILE (a task
-  // stuck at delivery_mode=waterfall never engages point-burndown rollup).
-  test('WATERFALL project: create dialog opens on Gated governance / Waterfall delivery (#2667)', async ({
+  // The two #2667 methodology-default tests that lived here are gone (#2952). The AGILE
+  // one has no route left at all: an AGILE project with no tasks renders the Calendar's
+  // *methodology* empty state ("Calendar isn't part of this project's workflow") with no
+  // create CTA, and every surviving create entry point is an empty-state affordance.
+  //
+  // Nothing was lost by deleting rather than contorting a fixture to reach them.
+  // `TaskFormModal.test.tsx` asserts the same defaults directly and covers a third case
+  // these never did — AGILE on a continuous-flow board defaulting to kanban rather than
+  // scrum (ADR-0164). Which select a project's methodology drives is a component fact;
+  // a browser was the more expensive way to ask it.
+
+  // Relocated from `board.spec.ts` (#2952) — the board no longer opens this modal, but
+  // both claims are about the modal itself, so they follow it to the surviving entry
+  // point rather than being dropped.
+  test('story points are available on a non-agile project and are sent on create (#1961)', async ({
     page,
   }) => {
-    await setup(page, { effectiveMethodology: 'WATERFALL' });
-    await page.goto(`${BASE_URL}/board`);
-    const addButton = page.getByRole('button', { name: /Add task to Alpha Phase/ });
-    await expect(addButton).toBeVisible({ timeout: 10_000 });
-    await addButton.click();
-
-    const dialog = page.getByRole('dialog', { name: /Add to Alpha Phase/ });
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByLabel('Governance class', { exact: true })).toHaveValue('gated');
-    await expect(dialog.getByLabel('Delivery mode', { exact: true })).toHaveValue('waterfall');
-    // The selected value's own hint must not describe an agile overlay this
-    // project doesn't run.
-    await expect(dialog.getByText(/Phase-gate.{1,2}governed waterfall work/)).toBeVisible();
-  });
-
-  test('AGILE project: create dialog opens on Flow governance / Scrum delivery (#2667)', async ({
-    page,
-  }) => {
-    await setup(page, { effectiveMethodology: 'AGILE', boardCadence: 'sprint' });
-    await page.goto(`${BASE_URL}/board`);
-    const addButton = page.getByRole('button', { name: /Add task to Alpha Phase/ });
-    await expect(addButton).toBeVisible({ timeout: 10_000 });
-    await addButton.click();
-
-    const dialog = page.getByRole('dialog', { name: /Add to Alpha Phase/ });
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByLabel('Governance class', { exact: true })).toHaveValue('flow');
-    await expect(dialog.getByLabel('Delivery mode', { exact: true })).toHaveValue('scrum');
-  });
-
-  test('Parent phase picker resolves a leaf task label and shows the promotion hint (#378)', async ({ page }) => {
+    // `agileFeatures` defaults false, so this is a waterfall project. The estimate is
+    // decoupled from agile features (ADR-0418): Pts is available while the Sprint
+    // selector stays agile-only.
     await setup(page);
-    await page.goto(`${BASE_URL}/board`);
-    const addButton = page.getByRole('button', { name: /Add task to Alpha Phase/ });
-    await expect(addButton).toBeVisible({ timeout: 10_000 });
-    await addButton.click();
+    const dialog = await openCreateModal(page);
+    await expect(dialog.getByLabel('Pts')).toBeVisible();
+    await expect(dialog.getByLabel('Sprint')).toHaveCount(0);
 
-    const dialog = page.getByRole('dialog', { name: /Add to Alpha Phase/ });
-    await expect(dialog).toBeVisible();
-    const picker = dialog.getByLabel(/Parent phase/);
-    await expect(picker).toBeVisible();
+    await dialog.getByLabel('Task name *').fill('Estimated waterfall task');
+    // Points are a scale-aware <select> (ADR-0510, #2027) — pick, don't fill. No
+    // effective_estimation_scale mock → falls back to Fibonacci, where 8 is valid.
+    await dialog.getByLabel('Pts').selectOption('8');
 
-    // Default hint surfaces the seeded summary parent (Alpha Phase / `p1`).
-    await expect(
-      dialog.getByText('New task will be added as a child of this phase.'),
-    ).toBeVisible();
+    const [request] = await Promise.all([
+      page.waitForRequest((r) => r.url().includes('/api/v1/tasks/') && r.method() === 'POST'),
+      dialog.getByRole('button', { name: 'Create task' }).click(),
+    ]);
+    expect(request.postDataJSON()).toMatchObject({ story_points: 8 });
+  });
 
-    // Selecting the leaf task option swaps the hint to the leaf-promotion
-    // copy. Before #378 the leaf was filtered out of `parentOptions` entirely,
-    // so the hint never matched. The picker is a native <select> (issue #444);
-    // selectOption resolves by visible label.
-    await picker.selectOption({ label: '1.1 · Build feature' });
-    await expect(
-      dialog.getByText('Adding a task here will turn this task into a phase.'),
-    ).toBeVisible();
+  test('the create modal closes on Cancel', async ({ page }) => {
+    await setup(page);
+    const dialog = await openCreateModal(page);
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).not.toBeVisible();
   });
 
   test('Governance class field-help popover lists all options and deep-links to the docs (#1975)', async ({
     page,
   }) => {
     await setup(page);
-    await page.goto(`${BASE_URL}/board`);
-    const addButton = page.getByRole('button', { name: /Add task to Alpha Phase/ });
-    await expect(addButton).toBeVisible({ timeout: 10_000 });
-    await addButton.click();
-
-    const dialog = page.getByRole('dialog', { name: /Add to Alpha Phase/ });
-    await expect(dialog).toBeVisible();
+    const dialog = await openCreateModal(page);
 
     // The "?" info affordance sits in the Governance class label row.
     await dialog.getByRole('button', { name: 'About the Governance class options' }).click();
