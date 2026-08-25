@@ -556,8 +556,8 @@ marked 100% with no recorded actuals is still scheduled by the network and
 drags normally; it is the actuals, not the checkbox, that pin the dates. To
 move a pinned task, change its actual dates on the task itself.
 
-**The keyboard path draws the same line.** Pressing `Shift`+`Enter` or `r` on a
-pinned task does not start a reschedule, and says why — the same sentence the
+**The keyboard path draws the same line.** Pressing `r` (or `Shift`+`Enter`) on
+a pinned task does not start a reschedule, and says why — the same sentence the
 drag shows, announced to a screen reader. A task complete with no recorded
 actuals starts a keyboard reschedule normally, exactly as it drags normally.
 
@@ -597,7 +597,21 @@ The document is rasterized **entirely in your browser** (html-to-image + jsPDF) 
 
 ## Accessibility
 
-The canvas is `aria-hidden="true"`; a transparent DOM overlay (`ScheduleAriaOverlay`) provides the WCAG 2.1 grid structure (`role="grid"` → `role="row"` → `role="gridcell"`). Roving tabindex; `engine.scrollToDate()` is called before `.focus()` so virtualized rows scroll into view before keyboard focus lands. In the grid, `↑`/`↓` move between tasks and `Home`/`End` jump to the first and last task (each row is a single cell, so there is no horizontal cell navigation); `Shift`+`Enter` or `r` on a reschedulable task starts the keyboard reschedule described above (`←`/`→` nudge, `Enter` confirms, `Esc` cancels) — plain `Enter` opens the task drawer — and `Space` selects a task without rescheduling. Every task the pointer can drag is reachable this way: the keyboard refuses only summary tasks and tasks pinned by recorded actuals, and it announces which of the two it hit rather than ignoring the keypress.
+The canvas is `aria-hidden="true"`; a transparent DOM overlay (`ScheduleAriaOverlay`) provides the WCAG 2.1 grid structure (`role="grid"` → `role="row"` → `role="gridcell"`). Roving tabindex; `engine.scrollToDate()` is called before `.focus()` so virtualized rows scroll into view before keyboard focus lands. In the grid, `↑`/`↓` move between tasks and `Home`/`End` jump to the first and last task (each row is a single cell, so there is no horizontal cell navigation); `r` on a reschedulable task starts the keyboard reschedule described above (`←`/`→` nudge, `Enter` confirms, `Esc` cancels), and `Space` selects a task without rescheduling.
+
+**What `Enter` does on a bar depends on whether you can author the row**, and it matches the outline sitting beside it (ADR-0909):
+
+| Keys | On a row you can edit, in build mode | Otherwise |
+|---|---|---|
+| `Enter` | Add a task below this one | Open the task drawer |
+| `Shift`+`Enter` | Add a task above this one | Start a keyboard reschedule |
+| `⌘`/`Ctrl`+`Enter` | Add a task underneath this one | — |
+| `Alt`+`Enter` | Open the task drawer | Open the task drawer |
+| `r` | Start a keyboard reschedule | Start a keyboard reschedule |
+
+Two things follow that are worth knowing. `Alt`+`Enter` opens the drawer in **both** cases and on the outline row too, so it is the one binding you can always reach for. And `r` is always the reschedule key — `Shift`+`Enter` is a second way to reach it only when the Enter family is not being used to add rows. The overlay announces whichever map is live, so a screen-reader user is never told about a shortcut that does nothing.
+
+If you are a viewer, or you are not in build mode, none of this changes: `Enter` opens the drawer exactly as it always has. Every task the pointer can drag is reachable this way: the keyboard refuses only summary tasks and tasks pinned by recorded actuals, and it announces which of the two it hit rather than ignoring the keypress.
 
 ## Schedule deep-link
 

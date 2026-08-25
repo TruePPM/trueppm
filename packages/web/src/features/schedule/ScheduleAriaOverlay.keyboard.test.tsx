@@ -17,6 +17,7 @@ import { ScheduleAriaOverlay } from './ScheduleAriaOverlay';
 import { useKeyboardReschedule } from '@/hooks/useKeyboardReschedule';
 import { useDragStore } from '@/stores/dragStore';
 import type { Task, TaskLink } from '@/types';
+import type { BuildModeApi } from './buildMode/BuildModeContext';
 
 // jsdom has no ResizeObserver; the overlay only uses it to track viewport size.
 vi.stubGlobal(
@@ -98,7 +99,32 @@ const TASKS: Task[] = [
 ];
 const LINKS: TaskLink[] = [];
 
-function Harness({ engine, tasks }: { engine: GanttEngine; tasks: Task[] }) {
+/**
+ * A build-mode API stub with only the three inserts the Enter trio calls.
+ *
+ * Deliberately not a full `BuildModeApi`: the overlay must touch exactly these
+ * three, so a cast plus three spies is a tighter assertion than a complete fake
+ * would be — anything else it reached for would throw rather than no-op.
+ */
+function makeAuthoring() {
+  return {
+    insertBelow: vi.fn(),
+    insertAbove: vi.fn(),
+    insertChild: vi.fn(),
+  };
+}
+
+function Harness({
+  engine,
+  tasks,
+  authoring = null,
+  canEditRow,
+}: {
+  engine: GanttEngine;
+  tasks: Task[];
+  authoring?: ReturnType<typeof makeAuthoring> | null;
+  canEditRow?: (task: Task) => boolean;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const ariaLiveRef = useRef<HTMLDivElement>(null);
   const ariaAssertiveRef = useRef<HTMLDivElement>(null);
@@ -110,13 +136,22 @@ function Harness({ engine, tasks }: { engine: GanttEngine; tasks: Task[] }) {
     ariaLiveRef,
     ariaAssertiveRef,
     keyboardModeRef,
+    // Mirrors ScheduleView: the surface-level answer, not the per-row one.
+    authoringActive: authoring !== null,
     onOpenDatePopover: () => {},
   });
   return (
     <div ref={containerRef}>
       <div ref={ariaLiveRef} data-testid="live" />
       <div ref={ariaAssertiveRef} data-testid="assertive" />
-      <ScheduleAriaOverlay engine={engine} tasks={tasks} links={LINKS} containerRef={containerRef} />
+      <ScheduleAriaOverlay
+        engine={engine}
+        tasks={tasks}
+        links={LINKS}
+        authoring={authoring as unknown as BuildModeApi | null}
+        canEditRow={canEditRow}
+        containerRef={containerRef}
+      />
     </div>
   );
 }
@@ -242,5 +277,127 @@ describe('ScheduleAriaOverlay keyboard contract (#1776)', () => {
     expect(help?.textContent).toMatch(/Shift\+Enter or R to reschedule/i);
     expect(help?.textContent).toMatch(/left and right arrow keys nudge/i);
     expect(help?.textContent).toMatch(/Escape cancels/);
+  });
+});
+
+/**
+ * Enter-to-create parity on the canvas bar (#2784, closing ADR-0776 §7).
+ *
+ * The deferred question was "where do open-drawer and reschedule go once Enter
+ * is reassigned?" Both answers already existed elsewhere in the product:
+ * `Alt+Enter` opens details on `TaskListRow` (#2979) and on `BacklogListRow`,
+ * and `r` has been the reschedule key since #2205. So these specs pin that the
+ * bar adopts the outline's contract rather than inventing a third one.
+ *
+ * The hazard specific to this surface is that the two handlers are on different
+ * elements: the overlay's React handler on the bar, and `useKeyboardReschedule`
+ * on `document`, firing after it in bubble order and keyed on the *selection*
+ * rather than the event target. `Shift+Enter` must insert a row without also
+ * starting a reschedule, and that cannot be expressed with `preventDefault` —
+ * the working `Shift+Enter` path already calls it.
+ */
+describe('Enter-to-create parity on a focused bar (#2784)', () => {
+  const ALL_EDITABLE = () => true;
+
+  it('Enter inserts a sibling below instead of opening the drawer', () => {
+    const engine = makeEngine();
+    const onOpen = vi.fn();
+    engine.on('task-open', onOpen);
+    const authoring = makeAuthoring();
+    render(
+      <Harness engine={engine} tasks={TASKS} authoring={authoring} canEditRow={ALL_EDITABLE} />,
+    );
+    fireEvent.keyDown(cellFor('Design'), { key: 'Enter' });
+    expect(authoring.insertBelow).toHaveBeenCalledWith('t1');
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it('Shift+Enter inserts ABOVE and does not also start a reschedule', () => {
+    // The double-fire this whole gate exists for. Something must be selected
+    // first, because `tryInitiate` bails on a null selection — without a prior
+    // selection this spec would pass with the gate deleted.
+    const engine = makeEngine();
+    const authoring = makeAuthoring();
+    render(
+      <Harness engine={engine} tasks={TASKS} authoring={authoring} canEditRow={ALL_EDITABLE} />,
+    );
+    fireEvent.keyDown(cellFor('Build'), { key: ' ' });
+    expect(engine.selectedTaskIds.has('t2')).toBe(true);
+
+    fireEvent.keyDown(cellFor('Design'), { key: 'Enter', shiftKey: true });
+    expect(authoring.insertAbove).toHaveBeenCalledWith('t1');
+    expect(useDragStore.getState().isKeyboardMode).toBe(false);
+    expect(useDragStore.getState().draggedTaskId).toBeNull();
+  });
+
+  it('Cmd/Ctrl+Enter inserts a child', () => {
+    const engine = makeEngine();
+    const authoring = makeAuthoring();
+    render(
+      <Harness engine={engine} tasks={TASKS} authoring={authoring} canEditRow={ALL_EDITABLE} />,
+    );
+    fireEvent.keyDown(cellFor('Design'), { key: 'Enter', metaKey: true });
+    expect(authoring.insertChild).toHaveBeenCalledWith('t1');
+    fireEvent.keyDown(cellFor('Build'), { key: 'Enter', ctrlKey: true });
+    expect(authoring.insertChild).toHaveBeenCalledWith('t2');
+  });
+
+  it('Alt+Enter opens the drawer — the binding #2979 already established', () => {
+    const engine = makeEngine();
+    const onOpen = vi.fn();
+    engine.on('task-open', onOpen);
+    const authoring = makeAuthoring();
+    render(
+      <Harness engine={engine} tasks={TASKS} authoring={authoring} canEditRow={ALL_EDITABLE} />,
+    );
+    fireEvent.keyDown(cellFor('Design'), { key: 'Enter', altKey: true });
+    expect(onOpen).toHaveBeenCalledWith({ id: 't1' });
+    expect(authoring.insertBelow).not.toHaveBeenCalled();
+    expect(authoring.insertAbove).not.toHaveBeenCalled();
+    expect(authoring.insertChild).not.toHaveBeenCalled();
+  });
+
+  it("'r' still reschedules while authoring — it never had to move", () => {
+    const engine = makeEngine();
+    const authoring = makeAuthoring();
+    render(
+      <Harness engine={engine} tasks={TASKS} authoring={authoring} canEditRow={ALL_EDITABLE} />,
+    );
+    fireEvent.keyDown(cellFor('Design'), { key: 'r' });
+    expect(useDragStore.getState().isKeyboardMode).toBe(true);
+    expect(useDragStore.getState().draggedTaskId).toBe('t1');
+  });
+
+  it('a row this reader may NOT author keeps the #2205 contract exactly', () => {
+    // `BuildModeProvider` is mounted for every desktop user, viewers included,
+    // so a non-null `authoring` is not an entitlement check. A viewer must get
+    // Enter-opens and Shift+Enter-reschedules, unchanged — the Timeline's
+    // context menu shipped this bug once already.
+    const engine = makeEngine();
+    const onOpen = vi.fn();
+    engine.on('task-open', onOpen);
+    const authoring = makeAuthoring();
+    render(
+      <Harness engine={engine} tasks={TASKS} authoring={authoring} canEditRow={() => false} />,
+    );
+    fireEvent.keyDown(cellFor('Design'), { key: 'Enter' });
+    expect(onOpen).toHaveBeenCalledWith({ id: 't1' });
+    expect(authoring.insertBelow).not.toHaveBeenCalled();
+  });
+
+  it('announces the authoring key map, not the read-only one', () => {
+    const engine = makeEngine();
+    const authoring = makeAuthoring();
+    render(
+      <Harness engine={engine} tasks={TASKS} authoring={authoring} canEditRow={ALL_EDITABLE} />,
+    );
+    const help = document.getElementById('schedule-grid-help');
+    expect(help?.textContent).toMatch(/Enter to add a task below the focused one/i);
+    expect(help?.textContent).toMatch(/Shift\+Enter to add one above/i);
+    expect(help?.textContent).toMatch(/Alt\+Enter to open the focused task's details/i);
+    // And it must NOT still advertise Shift+Enter as the reschedule key, which
+    // is the shortcut that stopped initiating.
+    expect(help?.textContent).not.toMatch(/Shift\+Enter or R to reschedule/i);
+    expect(help?.textContent).toMatch(/press R to reschedule/i);
   });
 });
