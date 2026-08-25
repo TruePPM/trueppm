@@ -827,6 +827,27 @@ A `create` whose `id` already exists in this project is **not** a duplicate and 
 an error: it applies as an in-place edit (`"outcome": "updated"`) under the stricter
 edit permission, and never creates a second row.
 
+##### Declaring where rows came from
+
+An optional top-level `origin` names how the rows this batch **creates** were
+produced, which the server records on each created row's `source_kind` (the same
+provenance column `GET`/history responses expose elsewhere). Omit it and rows
+record as hand-authored (`source_kind: "hand"`) — the endpoint's own default,
+unchanged. The only value accepted today is `"paste"`, for a client submitting a
+pasted block of rows:
+
+```json
+{
+  "operations": [{ "op": "create", "data": { "name": "Survey", "duration": 3 } }],
+  "origin": "paste"
+}
+```
+
+An unrecognized `origin` is a `400` — it is validated against a closed set, not
+free text. `origin` has no effect on `update`/`delete` ops or on a `create` whose
+`id` resolves to an existing row (that applies as an edit, and an edit never
+rewrites the row's original provenance).
+
 ##### Dependencies
 
 An optional `dependencies.created` bucket writes edges after every task row exists,

@@ -26,6 +26,7 @@ from trueppm_api.apps.projects.models import (
     Program,
     Project,
     Task,
+    TaskSource,
 )
 from trueppm_api.apps.projects.task_bulk import TASK_BULK_MAX_OPERATIONS
 
@@ -170,6 +171,108 @@ def test_client_minted_id_becomes_the_primary_key(
     assert r.status_code == 207, r.data
     assert r.data["applied"][0]["id"] == minted
     assert Task.objects.filter(pk=minted, project=project).exists()
+
+
+@pytest.mark.django_db
+def test_create_defaults_to_hand_provenance(owner_client: APIClient, project: Project) -> None:
+    """No `origin` declared (the `⌘⌥P` phase-adopt create's shape) keeps `source_kind`
+    at the model's own default — today's behavior, unchanged (#3038)."""
+    with _no_side_effects():
+        r = owner_client.post(
+            url(project),
+            {"operations": [{"op": "create", "data": {"name": "Typed row", "duration": 1}}]},
+            format="json",
+        )
+    assert r.status_code == 207, r.data
+    task = Task.objects.get(pk=r.data["applied"][0]["id"])
+    assert task.source_kind == TaskSource.HAND
+    assert task.seeded_at is None
+
+
+@pytest.mark.django_db
+def test_paste_origin_stamps_source_kind_paste(owner_client: APIClient, project: Project) -> None:
+    """A batch declaring `origin: paste` (paste-many's shape) records rows as
+    `TaskSource.PASTE`, not the `HAND` default — the #3038 fix.
+
+    `seeded_at` semantics are deliberately unchanged: this still saves through
+    `TaskSerializer`/`Task.save()`, so `edited_at` is stamped and `seeded_at` stays
+    null, keeping the row outside `untouched_seeded()` exactly as before the fix.
+    """
+    with _no_side_effects():
+        r = owner_client.post(
+            url(project),
+            {
+                "operations": [
+                    {"op": "create", "data": {"name": "Pasted A", "duration": 1}},
+                    {"op": "create", "data": {"name": "Pasted B", "duration": 1}},
+                ],
+                "origin": "paste",
+            },
+            format="json",
+        )
+    assert r.status_code == 207, r.data
+    assert len(r.data["applied"]) == 2
+    created_ids = [e["id"] for e in r.data["applied"]]
+    tasks = Task.objects.filter(pk__in=created_ids)
+    assert tasks.count() == 2
+    for task in tasks:
+        assert task.source_kind == TaskSource.PASTE
+        # Not HAND — a pasted row must not report as hand-authored (the finding's
+        # consequence 1: the provenance question returning a wrong answer).
+        assert task.source_kind != TaskSource.HAND
+        # seeded_at stays null: paste-many is deliberately NOT part of the
+        # untouched-seed sweep (ADR-0786 §2, task_batch_services.py's docstring).
+        assert task.seeded_at is None
+        assert task.edited_at is not None
+    assert not Task.objects.untouched_seeded(project).filter(pk__in=created_ids).exists()
+
+
+@pytest.mark.django_db
+def test_recreate_as_edit_does_not_overwrite_existing_provenance(
+    owner_client: APIClient, project: Project
+) -> None:
+    """A create whose id already exists applies under the edit bar (ADR-0772 guard 4)
+    and must not reassign the row's original provenance — it is not a new row."""
+    minted = str(uuid.uuid4())
+    with _no_side_effects():
+        first = owner_client.post(
+            url(project),
+            {"operations": [{"op": "create", "id": minted, "data": {"name": "A", "duration": 1}}]},
+            format="json",
+        )
+        assert first.data["applied"][0]["outcome"] == "created"
+        second = owner_client.post(
+            url(project),
+            {
+                "operations": [
+                    {"op": "create", "id": minted, "data": {"name": "A", "duration": 2}}
+                ],
+                "origin": "paste",
+            },
+            format="json",
+        )
+    assert second.status_code == 207, second.data
+    assert second.data["applied"][0]["outcome"] == "updated"
+    task = Task.objects.get(pk=minted)
+    # The row was created without `origin`, so it is HAND. The second request's
+    # `origin: paste` must not retroactively relabel a row it only edited.
+    assert task.source_kind == TaskSource.HAND
+
+
+@pytest.mark.django_db
+def test_unknown_origin_is_rejected(owner_client: APIClient, project: Project) -> None:
+    """`origin` is validated against a closed set — a client cannot mint a new
+    provenance value the server doesn't know about."""
+    r = owner_client.post(
+        url(project),
+        {
+            "operations": [{"op": "create", "data": {"name": "A", "duration": 1}}],
+            "origin": "csv_import",
+        },
+        format="json",
+    )
+    assert r.status_code == 400, r.data
+    assert not Task.objects.filter(project=project).exists()
 
 
 @pytest.mark.django_db

@@ -91,6 +91,7 @@ from trueppm_api.apps.projects.models import (
     TaskNote,
     TaskRecurrenceRule,
     TaskRelation,
+    TaskSource,
     TaskStatus,
     format_short_id_display,
     three_point_estimates_ordered,
@@ -5684,6 +5685,21 @@ class TaskBulkDependencyBucketSerializer(serializers.Serializer[Any]):
     )
 
 
+#: Caller-declared provenance for rows this batch *creates* (#3038, ADR-0786).
+#:
+#: ``TaskBulkView`` is shared by several unrelated web gestures — the keyboard
+#: ``⌘⌥P`` phase-adopt create, and paste-many — and nothing about the request
+#: shape otherwise tells them apart, so ``source_kind`` defaulted to ``HAND`` for
+#: all of them, including pasted rows. Rather than infer origin from a header or
+#: from op count (fragile, and un-auditable after the fact), the caller states it
+#: explicitly and the server validates it against a closed set. Only ``paste`` is
+#: real today: no other web/mobile caller of this endpoint has a distinct
+#: provenance to declare. Add an entry here only when a genuine new caller needs
+#: one — a declared-but-unused origin is the same trap ``TaskSource.PASTE`` was in
+#: before this fix.
+TASK_BULK_ORIGIN_SOURCE_KINDS: dict[str, str] = {"paste": TaskSource.PASTE}
+
+
 class TaskBulkSerializer(serializers.Serializer[Any]):
     """Validate the body for POST /api/v1/projects/{pk}/tasks/bulk/.
 
@@ -5702,6 +5718,15 @@ class TaskBulkSerializer(serializers.Serializer[Any]):
         max_length=TASK_BULK_MAX_OPERATIONS,
     )
     dependencies = TaskBulkDependencyBucketSerializer(required=False)
+    # Optional and defaulting to null rather than "hand": a caller that says
+    # nothing gets today's behavior (HAND) unchanged, matching TaskSource.HAND
+    # being the model field's own default (#3038).
+    origin = serializers.ChoiceField(
+        choices=list(TASK_BULK_ORIGIN_SOURCE_KINDS),
+        required=False,
+        allow_null=True,
+        default=None,
+    )
 
     def validate_operations(self, ops: list[dict[str, Any]]) -> list[dict[str, Any]]:
         # Catch duplicate IDs within a single bulk request. This stays a whole-request
