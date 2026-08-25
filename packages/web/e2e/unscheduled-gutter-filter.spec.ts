@@ -107,6 +107,22 @@ async function setupRoutes(page: import('@playwright/test').Page) {
       body: JSON.stringify({ count: 1, next: null, previous: null, results: FIXTURE_API_PROJECTS }),
     }),
   );
+  // The project DETAIL read. Nothing above matches it -- Playwright's
+  // `**/api/v1/projects/` glob matches the collection only -- so without this it
+  // falls through to the catch-all's 404 and the route renders "This project
+  // isn't available" instead of the schedule. That empty state has no treegrid,
+  // so every interaction test in this file then fails on a missing chip or
+  // dialog rather than on what it is asserting, intermittently, depending on
+  // whether the 404 lands before or after the render seeded from the list cache
+  // (#3054). Raising a timeout cannot help: once the page has swapped to the
+  // empty state the chip never appears.
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(FIXTURE_API_PROJECTS[0]),
+    }),
+  );
   await page.route('**/api/v1/projects/*/presence/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   );
