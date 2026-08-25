@@ -750,6 +750,118 @@ describe('TaskListRow — phase-in-waiting ghost affordance (issue #1754)', () =
   });
 });
 
+describe('TaskListRow — the row has an Open affordance (#2979)', () => {
+  beforeEach(() => {
+    useScheduleStore.setState({ selectedTaskId: null });
+  });
+
+  it('renders an Open button naming the task', () => {
+    renderWithRouter(
+      <TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />,
+    );
+    const open = screen.getByTestId('row-open-task');
+    // The accessible name carries the task name: the button is icon-only, and a
+    // bare "button" is indistinguishable from the thirty others on screen.
+    expect(open).toHaveAccessibleName(`Open ${base.name}`);
+    // Rule 287: an icon-only control's explanation is the shared `Tooltip`, never
+    // a bare `title` — `title` is invisible to keyboard focus and unreachable on
+    // touch. Asserting its ABSENCE is what stops a future edit reintroducing the
+    // cheap version, which would still pass every other assertion here.
+    expect(open).not.toHaveAttribute('title');
+  });
+
+  it('clicking it opens the task detail drawer', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(
+      <TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />,
+    );
+    await user.click(screen.getByTestId('row-open-task'));
+    expect(useScheduleStore.getState().selectedTaskId).toBe(base.id);
+  });
+
+  it('opens rather than toggles — a second click on an already-open row keeps it open', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(
+      <TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />,
+    );
+    await user.click(screen.getByTestId('row-open-task'));
+    await user.click(screen.getByTestId('row-open-task'));
+    // The plain-Enter path toggles (`isSelected ? null : id`). This one must not,
+    // or the button and the keyboard binding would disagree about what "Open" means.
+    expect(useScheduleStore.getState().selectedTaskId).toBe(base.id);
+  });
+
+  it('is offered to a reader with no edit rights — opening a task is a read', () => {
+    renderWithRouter(
+      <TaskListRow
+        task={{ ...base, canEdit: false }}
+        level={1}
+        widths={defaultWidths}
+        visible={defaultVisible}
+        {...defaultTreeProps}
+      />,
+    );
+    // Web rule 302 removes what AUTHORS the plan, never what reads it. The row
+    // menu is gated on authoring and is empty here — which is exactly why the
+    // Open affordance could not live in it (#2979).
+    expect(screen.getByTestId('row-open-task')).toBeInTheDocument();
+  });
+
+  it('is visible at rest on a coarse pointer — a hover reveal never fires on touch', () => {
+    // Rule 287(a): `group-hover` does not exist on a touch device. Without this
+    // branch the Open button would be permanently invisible on a tablet, which is
+    // a supported Schedule surface — and a desktop review would never see it.
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn((query: string) => ({
+        matches: query.includes('pointer: coarse'),
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        onchange: null,
+        dispatchEvent: vi.fn(),
+      })),
+    );
+    try {
+      renderWithRouter(
+        <TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />,
+      );
+      const open = screen.getByTestId('row-open-task');
+      expect(open.className).toContain('opacity-100');
+      expect(open.className).not.toContain('opacity-0');
+      // …and the tap target reaches 44px through the `before:` overlay rather
+      // than by growing the icon, which would reflow the name cell.
+      expect(open.className).toContain('before:inset-[-13px]');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('Alt+Enter on the focused row opens the drawer', () => {
+    renderWithRouter(
+      <TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />,
+    );
+    fireEvent.keyDown(screen.getByRole('row'), { key: 'Enter', altKey: true });
+    expect(useScheduleStore.getState().selectedTaskId).toBe(base.id);
+  });
+
+  it('plain Enter is NOT the open binding — it stays the selection toggle', () => {
+    renderWithRouter(
+      <TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />,
+    );
+    const row = screen.getByRole('row');
+    fireEvent.keyDown(row, { key: 'Enter' });
+    expect(useScheduleStore.getState().selectedTaskId).toBe(base.id);
+    // …and toggles back off, which is the behavior Alt+Enter deliberately does
+    // not copy. Asserting the difference here is what stops a future
+    // "simplification" collapsing the two bindings into one.
+    fireEvent.keyDown(row, { key: 'Enter' });
+    expect(useScheduleStore.getState().selectedTaskId).toBeNull();
+  });
+});
+
 describe('TaskListRow — "N planned" badge (#1798)', () => {
   const summary: Task = { ...base, id: 'phase1', isSummary: true, name: 'Design Phase' };
 

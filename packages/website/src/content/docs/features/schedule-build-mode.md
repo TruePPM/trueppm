@@ -62,6 +62,7 @@ The Schedule list is in one of three focus states at any time. The same keys do 
 | Enter | Insert a new sibling row below (same level) and drop into its Name cell — the fast "type, Enter, type" flow |
 | Shift + Enter | Insert a new sibling row **above** the focused row |
 | ⌘ Enter / Ctrl + Enter | Insert a new **child** row one level deeper — the focused row becomes a summary as a side effect of gaining a child |
+| Alt + Enter | **Open the focused row's details** in the task drawer. Works in both Author and Read mode and at every role — opening a task is a read, not an edit |
 | F2 | Edit the focused cell (defaults to the Task name) |
 | Letter key | Start typing — opens the Task name cell |
 | Alt + → | Indent under the previous sibling row (forms an emergent phase) |
