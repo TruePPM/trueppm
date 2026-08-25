@@ -17,6 +17,8 @@
  * Pure on purpose: the wording is the part worth testing, and it can be tested
  * without a renderer or a server.
  */
+import { ROW_VOCABULARY, countRows } from '../rowVocabulary';
+
 
 /** A row, reduced to what a sentence needs to say about it. */
 export interface ActRow {
@@ -47,7 +49,7 @@ export function outdentSentence(row: ActRow, formerParent: ActRow): string {
 export function moveSentence(row: ActRow, direction: 'up' | 'down'): string {
   const carried =
     row.descendantCount && row.descendantCount > 0
-      ? ` with ${row.descendantCount} ${row.descendantCount === 1 ? 'item' : 'items'} under it`
+      ? ` with ${countRows(row.descendantCount)} under it`
       : '';
   return `${label(row)} moved ${direction}${carried}. Reordering does not change any dates.`;
 }
@@ -69,7 +71,7 @@ export function movedIntoSentence(
   destinationBecamePhase = false,
 ): string {
   const n = row.descendantCount ?? 0;
-  const carried = n > 0 ? ` with ${n} ${n === 1 ? 'item' : 'items'} under it` : '';
+  const carried = n > 0 ? ` with ${countRows(n)} under it` : '';
   const where = destination ? `into ${label(destination)}` : 'to the top level';
   const tail = destination && destinationBecamePhase ? ', which is now a phase' : '';
   return `${label(row)} moved ${where}${carried}${tail}. Moving does not change any dates.`;
@@ -77,7 +79,7 @@ export function movedIntoSentence(
 
 export function deleteSentence(row: ActRow): string {
   const n = row.descendantCount ?? 0;
-  const carried = n > 0 ? ` with ${n} ${n === 1 ? 'item' : 'items'} under it` : '';
+  const carried = n > 0 ? ` with ${countRows(n)} under it` : '';
   return `${label(row)} deleted${carried}.`;
 }
 
@@ -97,10 +99,10 @@ export type InsertPlacement = 'below' | 'above' | 'child' | 'end';
  */
 export function insertSentence(where: InsertPlacement, anchor: ActRow | null): string {
   if (where === 'end' || anchor === null) {
-    return 'New item added at the end of the plan, at the top level.';
+    return `${ROW_VOCABULARY.minted.newRow} added at the end of the plan, at the top level.`;
   }
-  if (where === 'child') return `New item added under ${label(anchor)}.`;
-  return `New item added ${where} ${label(anchor)}, at the same level.`;
+  if (where === 'child') return `${ROW_VOCABULARY.minted.newRow} added under ${label(anchor)}.`;
+  return `${ROW_VOCABULARY.minted.newRow} added ${where} ${label(anchor)}, at the same level.`;
 }
 
 /**
@@ -135,7 +137,7 @@ export function milestoneSentence(row: ActRow, becameMilestone: boolean): string
  */
 export function groupSentence(groupedCount: number, leftAloneCount = 0): string {
   const n = groupedCount;
-  const head = `${n} ${n === 1 ? 'item is' : 'items are'} now a phase.`;
+  const head = `${countRows(n)} ${n === 1 ? 'is' : 'are'} now a phase.`;
   if (leftAloneCount <= 0) return head;
   const k = leftAloneCount;
   return `${head} ${k} ${k === 1 ? 'row' : 'rows'} stayed where ${k === 1 ? 'it was' : 'they were'}.`;
@@ -146,7 +148,7 @@ export function ungroupSentence(container: ActRow, liftedCount: number): string 
   const moved =
     n === 0
       ? 'It was empty, so nothing moved.'
-      : `Its ${n} ${n === 1 ? 'item' : 'items'} moved up one level, keeping links, owners and estimates.`;
+      : `Its ${countRows(n)} moved up one level, keeping links, owners and estimates.`;
   return `${label(container)} is no longer a phase. ${moved}`;
 }
 
@@ -166,6 +168,6 @@ export function adoptedPhaseSentence(row: ActRow): string {
 
 export function duplicateSentence(row: ActRow): string {
   const n = row.descendantCount ?? 0;
-  const carried = n > 0 ? ` with ${n} ${n === 1 ? 'item' : 'items'} under it` : '';
+  const carried = n > 0 ? ` with ${countRows(n)} under it` : '';
   return `${label(row)} duplicated${carried}. Dependencies are not copied.`;
 }

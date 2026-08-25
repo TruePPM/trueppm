@@ -28,6 +28,7 @@
  * content-fingerprint stamp. The 3-page Layout B is issue 1439; week-boundary banding
  * + dense-arrow routing is issue 1440.
  */
+import { countRows } from '../rowVocabulary';
 import { Fragment, forwardRef, useMemo } from 'react';
 import {
   buildScaleDataFromPxPerDay,
@@ -859,7 +860,7 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                   Unscheduled — Planned Work
                 </span>
                 <span className="whitespace-nowrap text-xs text-neutral-text-secondary">
-                  {unscheduled.count} {unscheduled.count === 1 ? 'item' : 'items'} · planned, not a
+                  {countRows(unscheduled.count)} · planned, not a
                   committed date
                 </span>
               </div>

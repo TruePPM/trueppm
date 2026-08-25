@@ -49,12 +49,12 @@ afterEach(cleanup);
 describe('TaskListHeader column resize keyboard operability (#2205)', () => {
   it('exposes each handle as a focusable separator with aria-value*', () => {
     renderHeader();
-    const handle = screen.getByRole('separator', { name: 'Resize task column' });
+    const handle = screen.getByRole('separator', { name: 'Resize Item column' });
     expect(handle).toHaveAttribute('tabindex', '0');
     expect(handle).toHaveAttribute('aria-valuenow', '220');
     expect(handle).toHaveAttribute('aria-valuemin', String(MIN_COL_WIDTHS.task));
     expect(handle).toHaveAttribute('aria-orientation', 'vertical');
-    expect(handle).toHaveAttribute('aria-valuetext', 'task column 220 pixels');
+    expect(handle).toHaveAttribute('aria-valuetext', 'Item column 220 pixels');
   });
 
   it('gives the Links column a header and a working resize handle (#3023)', () => {
@@ -62,7 +62,7 @@ describe('TaskListHeader column resize keyboard operability (#2205)', () => {
     // in the suite would notice.
     const setWidth = renderHeader();
     expect(screen.getByRole('columnheader', { name: 'Dependency links' })).toBeInTheDocument();
-    const handle = screen.getByRole('separator', { name: 'Resize links column' });
+    const handle = screen.getByRole('separator', { name: 'Resize Dependency links column' });
     expect(handle).toHaveAttribute('aria-valuemin', String(MIN_COL_WIDTHS.links));
     fireEvent.keyDown(handle, { key: 'Home' });
     expect(setWidth).toHaveBeenCalledWith('links', MIN_COL_WIDTHS.links);
@@ -70,7 +70,7 @@ describe('TaskListHeader column resize keyboard operability (#2205)', () => {
 
   it('ArrowRight / ArrowLeft nudge the width by 16px', () => {
     const setWidth = renderHeader();
-    const handle = screen.getByRole('separator', { name: 'Resize task column' });
+    const handle = screen.getByRole('separator', { name: 'Resize Item column' });
     fireEvent.keyDown(handle, { key: 'ArrowRight' });
     expect(setWidth).toHaveBeenLastCalledWith('task', 236);
     fireEvent.keyDown(handle, { key: 'ArrowLeft' });
@@ -79,7 +79,7 @@ describe('TaskListHeader column resize keyboard operability (#2205)', () => {
 
   it('Home clamps to the column min; End jumps to the keyboard max', () => {
     const setWidth = renderHeader();
-    const handle = screen.getByRole('separator', { name: 'Resize dur column' });
+    const handle = screen.getByRole('separator', { name: 'Resize Duration column' });
     fireEvent.keyDown(handle, { key: 'Home' });
     expect(setWidth).toHaveBeenLastCalledWith('dur', MIN_COL_WIDTHS.dur);
     fireEvent.keyDown(handle, { key: 'End' });
@@ -97,7 +97,7 @@ describe('TaskListHeader column resize keyboard operability (#2205)', () => {
         nudgeReserve={0}
       />,
     );
-    const handle = screen.getByRole('separator', { name: 'Resize dur column' });
+    const handle = screen.getByRole('separator', { name: 'Resize Duration column' });
     fireEvent.keyDown(handle, { key: 'ArrowLeft' });
     // Already at the floor — the clamp keeps it at the min, not below.
     expect(setWidth).toHaveBeenLastCalledWith('dur', MIN_COL_WIDTHS.dur);
@@ -181,14 +181,16 @@ describe('TaskListHeader — the row\u2019s left-edge lanes (#2997, #3026)', () 
  */
 describe('TaskListHeader — the vocabulary lock (#3027)', () => {
   it('heads the name column "Item", never "Task"', () => {
-    // Matched with a prefix regex, not an exact name: the column's accessible
-    // name is composed from its contents, and the ResizeHandle inside it
-    // contributes `Resize task column` — a raw column KEY leaking into an
-    // accessible name, which is a separate defect on all eight columns and out
-    // of this issue's scope. What is pinned here is the word the header states.
+    // An EXACT name, where #3027 could only match a prefix. Two defects it
+    // recorded and deferred are gone: the resize handle no longer builds its
+    // label from the raw column KEY (`Resize task column`), and this column no
+    // longer composes its name from its own subtree — it was the only one of
+    // the eight without an `aria-label`, so it announced "Item Resize Item
+    // column" while its seven siblings suppressed their handles. Both were
+    // re-found by #3031's rendered-DOM guard without being told to look.
     renderHeader();
-    expect(screen.getByRole('columnheader', { name: /^Item\b/ })).toBeInTheDocument();
-    expect(screen.queryByRole('columnheader', { name: /^Task\b/ })).toBeNull();
+    expect(screen.getByRole('columnheader', { name: 'Item' })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /Task/i })).toBeNull();
   });
 
   it('names the header row itself with the generic word too', () => {

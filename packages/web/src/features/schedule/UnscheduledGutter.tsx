@@ -1,3 +1,4 @@
+import { countRows, ROW_NOUN, ROW_NOUN_PLURAL } from './rowVocabulary';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ApiSprint, Task } from '@/types';
@@ -384,7 +385,7 @@ export function UnscheduledGutter({
               onClick={handleScheduleClick}
               aria-label={
                 excludedCount > 0
-                  ? `Schedule ${datableIds.length} unscheduled ${datableIds.length === 1 ? 'task' : 'tasks'} — ${excludedCount} ${itl.lower}-targeted ${excludedCount === 1 ? 'item is' : 'items are'} excluded`
+                  ? `Schedule ${datableIds.length} unscheduled ${datableIds.length === 1 ? 'task' : 'tasks'} — ${excludedCount} ${itl.lower}-targeted ${excludedCount === 1 ? `${ROW_NOUN} is` : `${ROW_NOUN_PLURAL} are`} excluded`
                   : undefined
               }
             >
@@ -451,7 +452,7 @@ export function UnscheduledGutter({
             {/* Backlog section */}
             <section
               role="group"
-              aria-label={`Backlog, ${backlogTasks.length} ${backlogTasks.length === 1 ? 'item' : 'items'}`}
+              aria-label={`Backlog, ${countRows(backlogTasks.length)}`}
               className="border-t border-neutral-border"
             >
               <div className="sticky top-0 z-10 bg-neutral-surface-sunken flex items-baseline gap-2 px-4 py-1.5">

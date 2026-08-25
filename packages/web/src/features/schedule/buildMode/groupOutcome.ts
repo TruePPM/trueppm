@@ -27,12 +27,13 @@
  * Pure on purpose: the wording is the part worth testing, and it is testable without
  * a renderer or a server.
  */
+import { countRows } from '../rowVocabulary';
 import type { GroupTasksResponse, LeftAloneEntry, UngroupTasksResponse } from '@/hooks/useTaskGrouping';
 import { formatChord } from '@/lib/platform';
 
 /** `n item` / `n items`, since every sentence below needs it. */
 function items(n: number): string {
-  return `${n} ${n === 1 ? 'item' : 'items'}`;
+  return countRows(n);
 }
 
 function rows(n: number): string {

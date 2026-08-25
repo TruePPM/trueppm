@@ -1,3 +1,4 @@
+import { ROW_VOCABULARY } from './rowVocabulary';
 import {
   useCallback,
   useEffect,
@@ -479,7 +480,11 @@ export function TaskDetailDrawer({
   // now-orphaned drawer down via the normal close path (reset + focus restore).
   const [copiedDraft, setCopiedDraft] = useState(false);
   const handleCopyDeletedDraft = useCallback(() => {
-    const parts = [`Task: ${draft.name || 'Untitled task'}`];
+    // The blank-name fallback takes the neutral noun (#3031) — the drawer opens
+    // for whatever row was clicked. The `Task:` prefix is an older and wider
+    // claim (this component has no milestone or phase handling at all) and is
+    // tracked separately rather than changed in a mechanism branch.
+    const parts = [`Task: ${draft.name || ROW_VOCABULARY.minted.untitledRow}`];
     if (draft.notes.trim()) parts.push('', 'Notes:', draft.notes);
     const estimates = [
       draft.optimistic.trim() && `Optimistic: ${draft.optimistic}`,

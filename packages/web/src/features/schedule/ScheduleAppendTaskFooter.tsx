@@ -1,4 +1,5 @@
 import { useRowHeight } from '@/hooks/useRowHeight';
+import type { VocabularyToken } from './rowVocabulary';
 
 export interface ScheduleAppendTaskFooterProps {
   /** Appends a task at the end of the outline, at the top level. */
@@ -12,6 +13,15 @@ export interface ScheduleAppendTaskFooterProps {
   readOnly?: boolean;
   /** 1-based treegrid row index — the row after the last task. */
   ariaRowIndex: number;
+  /**
+   * The button's visible copy. Typed {@link VocabularyToken} and **required**,
+   * not defaulted (#3031): this is a create affordance, so its noun is governed
+   * — the row it appends has no type yet — and a `string` prop with a default
+   * is exactly the parameter the next caller omits and the next author
+   * overwrites with a literal. `rowVocabulary` is the only minter, so
+   * `label="Add a task at the end"` does not compile.
+   */
+  label: VocabularyToken;
 }
 
 /**
@@ -39,6 +49,7 @@ export function ScheduleAppendTaskFooter({
   onAppend,
   readOnly = false,
   ariaRowIndex,
+  label,
 }: ScheduleAppendTaskFooterProps) {
   const rowHeight = useRowHeight();
   return (
@@ -74,7 +85,7 @@ export function ScheduleAppendTaskFooter({
             disabled:cursor-not-allowed"
         >
           <span aria-hidden="true">+</span>
-          Add an item at the end
+          {label}
         </button>
       </div>
     </div>

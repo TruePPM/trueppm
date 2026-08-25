@@ -1,5 +1,6 @@
 import { useRef, type PointerEvent, type KeyboardEvent } from 'react';
 import { MIN_COL_WIDTHS, type ColumnKey, type ColumnWidths } from '@/hooks/useColumnWidths';
+import { ROW_VOCABULARY } from './rowVocabulary';
 
 interface ResizeHandleProps {
   colKey: ColumnKey;
@@ -24,7 +25,32 @@ interface ResizeHandleProps {
 // as well as Home/End + arrow nudges.
 const MAX_COL_WIDTH = 400;
 
+/**
+ * What each column is CALLED, as opposed to what its state key is.
+ *
+ * The resize handle used to build its accessible name from `colKey` — the
+ * internal key — which leaked `dur` and `task` to a screen reader and, worse,
+ * announced "Resize task column" for the column whose visible heading is
+ * "Item" (#3031). One control describing a column by a different noun than the
+ * heading above it is the same type claim the vocabulary lock exists to stop,
+ * arriving through the accessibility tree where no visual review would find it.
+ *
+ * Every entry matches the column's own `aria-label` (or its heading, where the
+ * heading IS the accessible name), so the two cannot drift.
+ */
+const COLUMN_DISPLAY_NAME: Record<ColumnKey, string> = {
+  wbs: 'Work breakdown structure',
+  task: ROW_VOCABULARY.header.rowColumn,
+  links: 'Dependency links',
+  dur: 'Duration',
+  start: 'Start date',
+  finish: 'Finish date',
+  progress: 'Progress',
+  owner: 'Owner',
+};
+
 function ResizeHandle({ colKey, setWidth, currentWidth, maxWidth }: ResizeHandleProps) {
+  const columnName = COLUMN_DISPLAY_NAME[colKey];
   const startXRef = useRef<number | null>(null);
   const startWidthRef = useRef<number>(currentWidth);
   const min = MIN_COL_WIDTHS[colKey];
@@ -76,12 +102,12 @@ function ResizeHandle({ colKey, setWidth, currentWidth, maxWidth }: ResizeHandle
     <div
       role="separator"
       aria-orientation="vertical"
-      aria-label={`Resize ${colKey} column`}
+      aria-label={`Resize ${columnName} column`}
       tabIndex={0}
       aria-valuenow={Math.round(currentWidth)}
       aria-valuemin={min}
       aria-valuemax={Math.round(max)}
-      aria-valuetext={`${colKey} column ${Math.round(currentWidth)} pixels`}
+      aria-valuetext={`${columnName} column ${Math.round(currentWidth)} pixels`}
       className="absolute right-0 top-0 bottom-0 w-3 cursor-col-resize z-10 flex items-center justify-end group focus-visible:outline-none"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -136,7 +162,7 @@ export function TaskListHeader({
         text-xs font-medium text-neutral-text-secondary select-none sticky top-0 z-10"
       role="row"
       aria-rowindex={1}
-      aria-label="Item list columns"
+      aria-label={ROW_VOCABULARY.header.columnsRow}
     >
       {gripReserve > 0 && (
         <span aria-hidden="true" className="shrink-0" style={{ width: gripReserve }} />
@@ -158,16 +184,26 @@ export function TaskListHeader({
         </span>
       )}
 
-      {/* Item column — always visible; pl-2 keeps text inset from the left edge.
-          "Item" not "Task": the header names a row of ANY structure_role, and a
-          phase or milestone under a column headed "Task" is a type claim the row
-          does not carry (#3027). */}
+      {/* Name column — always visible; pl-2 keeps text inset from the left edge.
+          The noun comes from `rowVocabulary` rather than being written here: the
+          header names a row of ANY structure_role, and a phase or milestone under
+          a column headed "Task" is a type claim the row does not carry (#3027).
+          Reading it from the module is what makes that a mechanism rather than a
+          third hand sweep (#3031). */}
       <span
         className="relative pl-2 truncate shrink-0"
         style={{ width: widths.task }}
         role="columnheader"
+        // The only one of the eight columns that had no explicit accessible
+        // name, so its name was COMPOSED from its subtree — which includes the
+        // resize handle's own label, giving "Item Resize Item column". The other
+        // seven carry an `aria-label`, which wins over subtree content and
+        // suppresses the handle; this one now matches them (#3031). Same word as
+        // the visible heading, so WCAG 2.5.3 (Label in Name) holds by
+        // construction rather than by the two happening to agree.
+        aria-label={ROW_VOCABULARY.header.rowColumn}
       >
-        Item
+        {ROW_VOCABULARY.header.rowColumn}
         <ResizeHandle
           colKey="task"
           setWidth={setWidth}

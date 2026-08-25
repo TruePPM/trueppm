@@ -1434,12 +1434,19 @@ describe('TaskDetailDrawer deleted-banner verbs (#2054)', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('labels an empty name draft as "Untitled task" in the rescued text', async () => {
+  it('labels an empty name draft with the NEUTRAL noun in the rescued text', async () => {
     const user = userEvent.setup({ delay: null });
     await deleteUnderDirtyDraft(user, '');
 
     await user.click(screen.getAllByRole('button', { name: 'Copy my text' })[0]);
-    expect(await navigator.clipboard.readText()).toContain('Untitled task');
+    // "Untitled item", not "Untitled task" (#3031): this drawer opens for
+    // whatever row was clicked and has no milestone or phase handling at all,
+    // so a blank-named row must not be rescued under a type it may not hold.
+    // Pinned in both directions — the retired word must be ABSENT, or the
+    // assertion would still pass if the noun regressed alongside it.
+    const rescued = await navigator.clipboard.readText();
+    expect(rescued).toContain('Untitled item');
+    expect(rescued).not.toContain('Untitled task');
   });
 
   it('keeps the banner usable when the clipboard write is blocked', async () => {
