@@ -473,7 +473,7 @@ describe('OutlineMode — row interactions in context', () => {
     const rows = screen.getAllByRole('row').filter((r) => r.getAttribute('data-task-id'));
     const t1Row = rows.find((r) => r.getAttribute('data-task-id') === 't1');
     fireEvent.doubleClick(t1Row!);
-    expect(screen.getByLabelText('Rename task')).toBeInTheDocument();
+    expect(screen.getByLabelText('Rename item')).toBeInTheDocument();
   });
 
   it('clicking the expand button toggles the wbs-store expanded set', () => {
@@ -489,11 +489,11 @@ describe('OutlineMode — row interactions in context', () => {
     const rows = screen.getAllByRole('row').filter((r) => r.getAttribute('data-task-id'));
     const t1Row = rows.find((r) => r.getAttribute('data-task-id') === 't1');
     fireEvent.doubleClick(t1Row!);
-    const input = screen.getByLabelText('Rename task');
+    const input = screen.getByLabelText('Rename item');
     fireEvent.change(input, { target: { value: 'Renamed' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     // After Enter the OutlineMode's renamingId is cleared.
-    expect(screen.queryByLabelText('Rename task')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Rename item')).not.toBeInTheDocument();
   });
 
   it('Escape inside the rename input invokes the cancel handler in OutlineMode', () => {
@@ -501,9 +501,9 @@ describe('OutlineMode — row interactions in context', () => {
     const rows = screen.getAllByRole('row').filter((r) => r.getAttribute('data-task-id'));
     const t1Row = rows.find((r) => r.getAttribute('data-task-id') === 't1');
     fireEvent.doubleClick(t1Row!);
-    const input = screen.getByLabelText('Rename task');
+    const input = screen.getByLabelText('Rename item');
     fireEvent.keyDown(input, { key: 'Escape' });
-    expect(screen.queryByLabelText('Rename task')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Rename item')).not.toBeInTheDocument();
   });
 });
 
@@ -516,7 +516,7 @@ describe('OutlineMode — handleRename branches', () => {
     const rows = screen.getAllByRole('row').filter((r) => r.getAttribute('data-task-id'));
     const t1Row = rows.find((r) => r.getAttribute('data-task-id') === 't1');
     fireEvent.doubleClick(t1Row!);
-    const input = screen.getByLabelText('Rename task');
+    const input = screen.getByLabelText('Rename item');
     fireEvent.change(input, { target: { value: '  Renamed Discovery  ' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(updateMutate).toHaveBeenCalledWith({
@@ -531,7 +531,7 @@ describe('OutlineMode — handleRename branches', () => {
     const rows = screen.getAllByRole('row').filter((r) => r.getAttribute('data-task-id'));
     const t1Row = rows.find((r) => r.getAttribute('data-task-id') === 't1');
     fireEvent.doubleClick(t1Row!);
-    const input = screen.getByLabelText('Rename task');
+    const input = screen.getByLabelText('Rename item');
     fireEvent.change(input, { target: { value: '   ' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(updateMutate).not.toHaveBeenCalled();
@@ -542,7 +542,7 @@ describe('OutlineMode — handleRename branches', () => {
     const rows = screen.getAllByRole('row').filter((r) => r.getAttribute('data-task-id'));
     const t1Row = rows.find((r) => r.getAttribute('data-task-id') === 't1');
     fireEvent.doubleClick(t1Row!);
-    const input = screen.getByLabelText('Rename task');
+    const input = screen.getByLabelText('Rename item');
     fireEvent.change(input, { target: { value: 'Discovery' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(updateMutate).not.toHaveBeenCalled();
@@ -554,7 +554,7 @@ describe('OutlineMode — handleRename branches', () => {
     const rows = screen.getAllByRole('row').filter((r) => r.getAttribute('data-task-id'));
     const t1Row = rows.find((r) => r.getAttribute('data-task-id') === 't1');
     fireEvent.doubleClick(t1Row!);
-    const input = screen.getByLabelText('Rename task');
+    const input = screen.getByLabelText('Rename item');
     fireEvent.change(input, { target: { value: 'Renamed' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(updateMutate).not.toHaveBeenCalled();

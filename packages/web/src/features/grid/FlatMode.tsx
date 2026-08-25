@@ -1,3 +1,4 @@
+import { ROW_VOCABULARY } from '../schedule/rowVocabulary';
 import { useEffect, useMemo, useCallback, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
@@ -122,7 +123,7 @@ export function FlatMode({
     // schedule TaskListPanel convention; body rows are numbered from 1.
     <div
       role="grid"
-      aria-label="Task list"
+      aria-label={ROW_VOCABULARY.outline.label}
       aria-rowcount={listItems.length}
       className="flex flex-col flex-1 min-h-0"
     >

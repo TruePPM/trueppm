@@ -1,3 +1,4 @@
+import { ROW_VOCABULARY } from '../schedule/rowVocabulary';
 import { useMemo, useCallback, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
@@ -125,7 +126,7 @@ export function GroupedMode({
     // column header excluded; body rows are numbered from 1.
     <div
       role="grid"
-      aria-label="Task list"
+      aria-label={ROW_VOCABULARY.outline.label}
       aria-rowcount={listItems.length}
       className="flex flex-col flex-1 min-h-0"
     >

@@ -122,7 +122,7 @@ async function setup(page: Page, opts: { applicationStatus?: string } = {}) {
 
 async function gotoAndWaitForSchedule(page: Page) {
   await page.goto(SCHEDULE_URL);
-  await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({ timeout: 10_000 });
 }
 
 test.describe('Seeded landing (#2731, ADR-0799)', () => {

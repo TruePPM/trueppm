@@ -1347,7 +1347,7 @@ describe('ScheduleView — PanelSplitter (keyboard + pointer resize)', () => {
   it('nudges the task-list width right by 16px on ArrowRight', () => {
     window.localStorage.clear();
     renderSchedule();
-    const sep = screen.getByRole('separator', { name: 'Resize task list panel' });
+    const sep = screen.getByRole('separator', { name: 'Resize item list panel' });
     const before = Number(sep.getAttribute('aria-valuenow'));
     fireEvent.keyDown(sep, { key: 'ArrowRight' });
     expect(Number(sep.getAttribute('aria-valuenow'))).toBe(before + 16);
@@ -1356,7 +1356,7 @@ describe('ScheduleView — PanelSplitter (keyboard + pointer resize)', () => {
   it('nudges the task-list width left by 16px on ArrowLeft', () => {
     window.localStorage.clear();
     renderSchedule();
-    const sep = screen.getByRole('separator', { name: 'Resize task list panel' });
+    const sep = screen.getByRole('separator', { name: 'Resize item list panel' });
     const before = Number(sep.getAttribute('aria-valuenow'));
     fireEvent.keyDown(sep, { key: 'ArrowLeft' });
     expect(Number(sep.getAttribute('aria-valuenow'))).toBe(before - 16);
@@ -1365,7 +1365,7 @@ describe('ScheduleView — PanelSplitter (keyboard + pointer resize)', () => {
   it('jumps to the min width on Home and the max width on End', () => {
     window.localStorage.clear();
     renderSchedule();
-    const sep = screen.getByRole('separator', { name: 'Resize task list panel' });
+    const sep = screen.getByRole('separator', { name: 'Resize item list panel' });
     fireEvent.keyDown(sep, { key: 'End' });
     expect(Number(sep.getAttribute('aria-valuenow'))).toBe(600);
     fireEvent.keyDown(sep, { key: 'Home' });
@@ -1375,7 +1375,7 @@ describe('ScheduleView — PanelSplitter (keyboard + pointer resize)', () => {
   it('ignores non-resize keys (no width change)', () => {
     window.localStorage.clear();
     renderSchedule();
-    const sep = screen.getByRole('separator', { name: 'Resize task list panel' });
+    const sep = screen.getByRole('separator', { name: 'Resize item list panel' });
     const before = sep.getAttribute('aria-valuenow');
     fireEvent.keyDown(sep, { key: 'a' });
     expect(sep.getAttribute('aria-valuenow')).toBe(before);
@@ -1384,7 +1384,7 @@ describe('ScheduleView — PanelSplitter (keyboard + pointer resize)', () => {
   it('resizes via a pointer drag (down → move updates aria-valuenow)', () => {
     window.localStorage.clear();
     renderSchedule();
-    const sep = screen.getByRole('separator', { name: 'Resize task list panel' });
+    const sep = screen.getByRole('separator', { name: 'Resize item list panel' });
     sep.setPointerCapture = vi.fn();
     const before = Number(sep.getAttribute('aria-valuenow'));
     fireEvent.pointerDown(sep, { clientX: 100, pointerId: 1 });
@@ -1404,7 +1404,7 @@ describe('ScheduleView — PanelSplitter (keyboard + pointer resize)', () => {
   it('clamps a runaway pointer drag at both ends', () => {
     window.localStorage.clear();
     renderSchedule();
-    const sep = screen.getByRole('separator', { name: 'Resize task list panel' });
+    const sep = screen.getByRole('separator', { name: 'Resize item list panel' });
     sep.setPointerCapture = vi.fn();
 
     fireEvent.pointerDown(sep, { clientX: 100, pointerId: 1 });
@@ -1422,7 +1422,7 @@ describe('ScheduleView — PanelSplitter (keyboard + pointer resize)', () => {
     // narrower bar-track floor in a real viewport.
     window.localStorage.clear();
     renderSchedule();
-    const sep = screen.getByRole('separator', { name: 'Resize task list panel' });
+    const sep = screen.getByRole('separator', { name: 'Resize item list panel' });
     expect(sep).toHaveAttribute('aria-valuemax', '600');
     expect(sep).toHaveAttribute('aria-valuemin', '120');
   });

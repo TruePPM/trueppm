@@ -201,7 +201,7 @@ test.describe('Schedule "+ Milestone" dialog', () => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
     });
     await gotoSchedule(page);
-    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({ timeout: 10_000 });
   });
 
   test('clicking + Milestone opens TaskFormModal in milestone mode', async ({ page }) => {

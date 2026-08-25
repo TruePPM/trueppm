@@ -103,7 +103,7 @@ describe('TaskRow', () => {
     const onRename = vi.fn();
     const task = makeTask({ id: 't1', wbs: '1.1' });
     render(<TaskRow {...baseProps} task={task} phase="—" isRenaming onRename={onRename} />);
-    const input = screen.getByLabelText('Rename task');
+    const input = screen.getByLabelText('Rename item');
     fireEvent.change(input, { target: { value: 'Renamed' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onRename).toHaveBeenCalledWith('Renamed');
@@ -115,7 +115,7 @@ describe('TaskRow', () => {
     render(
       <TaskRow {...baseProps} task={task} phase="—" isRenaming onCancelRename={onCancelRename} />,
     );
-    fireEvent.keyDown(screen.getByLabelText('Rename task'), { key: 'Escape' });
+    fireEvent.keyDown(screen.getByLabelText('Rename item'), { key: 'Escape' });
     expect(onCancelRename).toHaveBeenCalled();
   });
 
@@ -176,7 +176,7 @@ describe('TaskRow', () => {
         </button>
       </>,
     );
-    const input = screen.getByLabelText('Rename task');
+    const input = screen.getByLabelText('Rename item');
     const outside = screen.getByTestId('outside');
     fireEvent.change(input, { target: { value: 'Renamed' } });
     fireEvent.blur(input, { relatedTarget: outside });
@@ -188,7 +188,7 @@ describe('TaskRow', () => {
     const onRename = vi.fn();
     const task = makeTask({ id: 't1', wbs: '1.1' });
     render(<TaskRow {...baseProps} task={task} phase="—" isRenaming onRename={onRename} />);
-    const input = screen.getByLabelText('Rename task');
+    const input = screen.getByLabelText('Rename item');
     const checkbox = screen.getByLabelText(`Select ${task.name}`);
     fireEvent.change(input, { target: { value: 'Renamed' } });
     fireEvent.blur(input, { relatedTarget: checkbox });
@@ -286,7 +286,7 @@ describe('TaskRow', () => {
           <TaskRow {...baseProps} task={task} phase="—" isRenaming onOpenDetail={onOpenDetail} />,
         );
         // Click lands on the rename input (closest('input') guard) — no open.
-        fireEvent.click(screen.getByLabelText('Rename task'));
+        fireEvent.click(screen.getByLabelText('Rename item'));
         vi.advanceTimersByTime(400);
         expect(onOpenDetail).not.toHaveBeenCalled();
       } finally {
@@ -484,7 +484,7 @@ describe('TaskRow', () => {
         onCancelRename={onCancelRename}
       />,
     );
-    fireEvent.keyDown(screen.getByLabelText('Rename task'), { key: 'a' });
+    fireEvent.keyDown(screen.getByLabelText('Rename item'), { key: 'a' });
     expect(onRename).not.toHaveBeenCalled();
     expect(onCancelRename).not.toHaveBeenCalled();
   });
@@ -493,7 +493,7 @@ describe('TaskRow', () => {
     const onRename = vi.fn();
     const task = makeTask({ id: 't1', wbs: '1.1' });
     render(<TaskRow {...baseProps} task={task} phase="—" isRenaming onRename={onRename} />);
-    const input = screen.getByLabelText<HTMLInputElement>('Rename task');
+    const input = screen.getByLabelText<HTMLInputElement>('Rename item');
     fireEvent.change(input, { target: { value: 'Committed' } });
     fireEvent.blur(input);
     expect(onRename).toHaveBeenCalledWith('Committed');

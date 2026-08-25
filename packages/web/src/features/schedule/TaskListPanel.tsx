@@ -539,7 +539,7 @@ export function TaskListPanel({
       // real aria-level (WBS depth) and aria-expanded (summary rows only) —
       // the semantics `grid` doesn't define but `treegrid` does.
       role="treegrid"
-      aria-label="Task list"
+      aria-label={ROW_VOCABULARY.outline.label}
       // Header row (row 1) + one row per task, so the count and the 1-based
       // aria-rowindex on each data row (which starts at 2) stay consistent (#2204).
       aria-rowcount={tasks.length + 1 + (showAppendFooter ? 1 : 0)}

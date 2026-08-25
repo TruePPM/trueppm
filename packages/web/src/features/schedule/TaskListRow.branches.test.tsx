@@ -308,7 +308,7 @@ describe('TaskListRow — sprint-outcome panel key containment', () => {
       focus().focusRow('t1');
       focus().enterCellEdit('t1', 'name');
     });
-    const input = screen.getByLabelText('Rename task Design Phase');
+    const input = screen.getByLabelText('Rename item Design Phase');
     await user.clear(input);
     await user.type(input, 'Renamed{Enter}');
     await user.click(screen.getByTestId('sprint-pick'));
@@ -766,7 +766,7 @@ describe('TaskListRow — Name cell traversal (build mode)', () => {
       focus().focusRow('t1');
       focus().enterCellEdit('t1', 'name');
     });
-    const input = screen.getByLabelText('Rename task Design Phase');
+    const input = screen.getByLabelText('Rename item Design Phase');
     fireEvent.change(input, { target: { value: 'Renamed' } });
     fireEvent.keyDown(input, { key: 'Tab', shiftKey: true });
 
@@ -785,7 +785,7 @@ describe('TaskListRow — Name cell traversal (build mode)', () => {
       focus().focusRow('t1');
       focus().enterCellEdit('t1', 'name');
     });
-    const input = screen.getByLabelText('Rename task Design Phase');
+    const input = screen.getByLabelText('Rename item Design Phase');
     await user.clear(input);
     await user.type(input, 'Des');
     expect(await screen.findByRole('listbox', { name: 'Task name suggestions' })).toBeInTheDocument();
@@ -848,7 +848,7 @@ describe('TaskListRow — classic inline rename commit guard', () => {
   function startClassicRename() {
     renderPlain(<TaskListRow task={base} level={1} widths={widths} visible={visible} />);
     fireEvent.doubleClick(screen.getByRole('row'));
-    return screen.getByLabelText<HTMLInputElement>('Rename task Design Phase');
+    return screen.getByLabelText<HTMLInputElement>('Rename item Design Phase');
   }
 
   it('PATCHes a genuinely new name', () => {
@@ -870,7 +870,7 @@ describe('TaskListRow — classic inline rename commit guard', () => {
 
     expect(mocks.updateMutate).not.toHaveBeenCalled();
     // The edit still closes — a no-op commit is not a stuck input.
-    expect(screen.queryByLabelText('Rename task Design Phase')).toBeNull();
+    expect(screen.queryByLabelText('Rename item Design Phase')).toBeNull();
   });
 
   it('does not PATCH a blank name (whitespace trims to empty)', () => {
@@ -910,7 +910,7 @@ describe('TaskListRow — build-mode commits with no project id', () => {
       focus().focusRow('t1');
       focus().enterCellEdit('t1', 'name');
     });
-    const input = screen.getByLabelText('Rename task Design Phase');
+    const input = screen.getByLabelText('Rename item Design Phase');
     fireEvent.change(input, { target: { value: 'Discovery' } });
     fireEvent.keyDown(input, { key: 'Tab' });
 

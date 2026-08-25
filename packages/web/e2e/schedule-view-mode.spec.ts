@@ -61,7 +61,7 @@ const TASKS = [
 ];
 
 const layout = (page: Page) => page.getByRole('radiogroup', { name: 'Schedule layout' });
-const outline = (page: Page) => page.getByRole('treegrid', { name: 'Task list' });
+const outline = (page: Page) => page.getByRole('treegrid', { name: 'Item list' });
 
 /** Row id + depth + fold state, in render order — the whole shared row model. */
 async function rowModel(page: Page) {
@@ -207,7 +207,7 @@ test.describe('Grid ↔ Timeline — a viewer gets absence on BOTH surfaces (#29
       }),
     );
     await page.goto(BASE_URL);
-    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({
+    await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({
       timeout: 10_000,
     });
   });
@@ -269,7 +269,7 @@ test.describe('Grid ↔ Timeline — an empty project (#2960)', () => {
     await setupCatchAll(page);
     await setupApiMocks(page, { projects: PROJECTS, projectId: PROJECT_ID, tasks: [] });
     await page.goto(BASE_URL);
-    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({
+    await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({
       timeout: 10_000,
     });
 
@@ -279,7 +279,7 @@ test.describe('Grid ↔ Timeline — an empty project (#2960)', () => {
     await expect(page.getByRole('columnheader')).toHaveCount(8);
     await layout(page).getByRole('radio', { name: 'Timeline' }).click();
     await expect(page.getByRole('columnheader')).toHaveCount(2);
-    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible();
+    await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible();
     await expect(page.locator('[data-row-id]')).toHaveCount(0);
   });
 });

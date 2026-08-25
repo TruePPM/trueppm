@@ -4,6 +4,7 @@ import type { ColumnWidths } from '@/hooks/useColumnWidths';
 import { TaskListHeader } from './TaskListHeader';
 import { ScheduleAppendTaskFooter } from './ScheduleAppendTaskFooter';
 import { BlankOutlineDraftRow } from './buildMode/BlankOutlineDraftRow';
+import { TaskListPanel } from './TaskListPanel';
 import { ROW_VOCABULARY } from './rowVocabulary';
 
 /**
@@ -115,6 +116,29 @@ const GOVERNED_SURFACES: { name: string; render: () => void }[] = [
   {
     name: 'BlankOutlineDraftRow',
     render: () => void render(<BlankOutlineDraftRow onCommit={vi.fn()} nameWidth={220} />),
+  },
+  {
+    // The outline SHELL — its own accessible name is a claim about everything
+    // inside it, and a treegrid called "Task list" typed every row it held for
+    // as long as the surface existed (#3052). Rendered with no tasks on
+    // purpose: the shell, its header and its footer are what carry governed
+    // copy, and an empty outline needs no `TaskListRow` mock to reach them.
+    name: 'TaskListPanel (shell)',
+    render: () =>
+      void render(
+        <TaskListPanel
+          tasks={[]}
+          scrollRef={{ current: null }}
+          widths={WIDTHS}
+          visible={ALL_VISIBLE}
+          setWidth={vi.fn()}
+          totalWidth={640}
+          summaryIds={new Set()}
+          expandedIds={new Set()}
+          onToggle={vi.fn()}
+          onAppendTaskAtEnd={vi.fn()}
+        />,
+      ),
   },
 ];
 

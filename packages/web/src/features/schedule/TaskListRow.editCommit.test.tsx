@@ -227,7 +227,7 @@ describe('TaskListRow — Name cell commit (build mode)', () => {
     const user = userEvent.setup();
     const { focus } = renderBuild();
     act(() => { focus().focusRow('t1'); focus().enterCellEdit('t1', 'name'); });
-    const input = screen.getByLabelText('Rename task Design Phase');
+    const input = screen.getByLabelText('Rename item Design Phase');
     await user.clear(input);
     await user.type(input, 'Discovery{Enter}');
 
@@ -246,7 +246,7 @@ describe('TaskListRow — Name cell commit (build mode)', () => {
     const user = userEvent.setup();
     const { focus } = renderBuild();
     act(() => { focus().focusRow('t1'); focus().enterCellEdit('t1', 'name'); });
-    const input = screen.getByLabelText('Rename task Design Phase');
+    const input = screen.getByLabelText('Rename item Design Phase');
     await user.clear(input);
     await user.type(input, 'Scrapped{Escape}');
     expect(mocks.updateMutate).not.toHaveBeenCalled();
@@ -258,7 +258,7 @@ describe('TaskListRow — Name cell commit (build mode)', () => {
     const user = userEvent.setup();
     const { focus } = renderBuild();
     act(() => { focus().focusRow('t1'); focus().enterCellEdit('t1', 'name'); });
-    const input = screen.getByLabelText('Rename task Design Phase');
+    const input = screen.getByLabelText('Rename item Design Phase');
     await user.clear(input);
     await user.type(input, 'Renamed');
     fireEvent.keyDown(input, { key: 'Tab' });
@@ -274,7 +274,7 @@ describe('TaskListRow — Name cell commit (build mode)', () => {
     const user = userEvent.setup();
     const { focus } = renderBuild({ nameSuggestions: ['Design Review', 'Deploy'] });
     act(() => { focus().focusRow('t1'); focus().enterCellEdit('t1', 'name'); });
-    const input = screen.getByLabelText('Rename task Design Phase');
+    const input = screen.getByLabelText('Rename item Design Phase');
     await user.clear(input);
     await user.type(input, 'Des');
     // Substring match surfaces "Design Review" in the listbox.
@@ -452,7 +452,7 @@ describe('TaskListRow — SprintAssignmentRegion outcomes', () => {
     const user = userEvent.setup();
     const { focus } = renderBuild();
     act(() => { focus().focusRow('t1'); focus().enterCellEdit('t1', 'name'); });
-    const input = screen.getByLabelText('Rename task Design Phase');
+    const input = screen.getByLabelText('Rename item Design Phase');
     await user.clear(input);
     await user.type(input, 'Renamed{Enter}');
     // Clear the name PATCH so the subsequent sprint PATCH is calls[0].
@@ -546,7 +546,7 @@ describe('TaskListRow — SprintAssignmentRegion outcomes', () => {
     const user = userEvent.setup();
     const { focus } = renderBuild();
     act(() => { focus().focusRow('t1'); focus().enterCellEdit('t1', 'name'); });
-    const input = screen.getByLabelText('Rename task Design Phase');
+    const input = screen.getByLabelText('Rename item Design Phase');
     await user.clear(input);
     await user.type(input, 'Renamed{Enter}');
     mocks.updateMutate.mockClear();

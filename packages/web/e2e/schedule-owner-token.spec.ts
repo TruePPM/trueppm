@@ -155,7 +155,7 @@ async function setup(page: Page): Promise<TaskStoreHandle> {
 async function editName(page: Page) {
   await expect(page.getByText('Foundation')).toBeVisible();
   await page.getByText('Foundation').dblclick();
-  return page.getByLabel('Rename task Foundation');
+  return page.getByLabel('Rename item Foundation');
 }
 
 test.describe('@owner token — build-mode row entry', () => {

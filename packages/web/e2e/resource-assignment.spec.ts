@@ -258,7 +258,7 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
 
 /** Click a task row by name and wait for the detail drawer to appear. */
 async function openDrawer(page: import('@playwright/test').Page, taskName: string) {
-  const grid = page.getByRole('treegrid', { name: 'Task list' });
+  const grid = page.getByRole('treegrid', { name: 'Item list' });
   await expect(grid).toBeVisible({ timeout: 10_000 });
 
   // Build mode is always active on desktop (ADR-0054): a plain row click just

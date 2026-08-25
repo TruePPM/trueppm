@@ -333,7 +333,7 @@ async function groupSurveyAndPermits(page: Page, store: GroupStore) {
   // deterministic: `store.groups.length` rises when the REQUEST is recorded, which is
   // before `onSuccess` opens the editor, so an unconditional Escape here would fire into
   // the gap and the row would still be an `<input>` when the assertions read its text.
-  const nameInput = page.getByRole('textbox', { name: /Rename task New phase/ });
+  const nameInput = page.getByRole('textbox', { name: /Rename item New phase/ });
   await expect(nameInput).toBeVisible({ timeout: 15_000 });
   await nameInput.press('Escape');
 }
@@ -578,7 +578,7 @@ test.describe('Schedule outline — Group and Ungroup (#2955)', () => {
     await setupCatchAll(fresh);
     await setupApiMocks(fresh, { projects: PROJECTS, projectId: PROJECT_ID, tasks: TASKS });
     await fresh.goto(BASE_URL);
-    await expect(fresh.getByRole('treegrid', { name: 'Task list' })).toBeVisible({
+    await expect(fresh.getByRole('treegrid', { name: 'Item list' })).toBeVisible({
       timeout: 10_000,
     });
     await expect(fresh.getByTestId('group-rows-button')).toHaveCount(0);

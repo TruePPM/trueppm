@@ -1,3 +1,4 @@
+import { ROW_VOCABULARY } from '../schedule/rowVocabulary';
 import { useEffect, useRef, type FocusEvent, type KeyboardEvent, type MouseEvent } from 'react';
 import type { Task } from '@/types';
 import { StatusPill, OwnerAvatar, fmtDate, progressBarColor } from './ui';
@@ -62,7 +63,7 @@ function TaskRowName({
           defaultValue={task.name}
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
-          aria-label="Rename task"
+          aria-label={ROW_VOCABULARY.rename.row}
           className="
                 w-full bg-transparent border-b border-brand-primary
                 text-sm text-neutral-text-primary outline-none caret-neutral-text-primary px-0

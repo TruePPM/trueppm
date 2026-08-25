@@ -162,6 +162,32 @@ export const ROW_VOCABULARY = {
     phaseHasNoRows: lock('This phase has no items yet'),
   },
 
+  /**
+   * **The outline itself.** Its accessible name is the container's claim about
+   * everything inside it, so a treegrid called "Task list" — which is what both
+   * surfaces announced until #3052 — types every row it holds, including the
+   * phases and milestones the surface exists to show.
+   *
+   * The same token serves the Schedule outline and the Grid: `scheduleSurface`
+   * models them as two surfaces of ONE row model (#2960), so two names for the
+   * same collection would be the drift that module exists to prevent.
+   */
+  outline: {
+    /** `role="treegrid"` / `role="grid"` accessible name. */
+    label: lock('Item list'),
+    /** The vertical splitter that resizes the outline against the canvas. */
+    resizePanel: lock('Resize item list panel'),
+  },
+
+  /**
+   * **Rename affordances.** A rename input sits on a row whose type is exactly
+   * as undeclared as it was when the row was created.
+   */
+  rename: {
+    /** For a rename input that cannot name the row it acts on. */
+    row: lock('Rename item'),
+  },
+
   /** **Placeholders and empty states.** The copy shown where rows are not. */
   empty: {
     /** The outline's empty state, desktop and mobile. */
@@ -199,3 +225,24 @@ export function addFirstRowToLabel(phaseName: string): VocabularyToken {
 
 /** The same affordance's visible label, which names no particular phase. */
 export const ADD_FIRST_ROW_TO_PHASE = lock('Add first item to this phase');
+
+/**
+ * Accessible name for a rename input that CAN name its row.
+ *
+ * Same fallback discipline as {@link insertBelowRowLabel}: a blank-named row
+ * must not produce "Rename item " and rely on the accessible-name computation
+ * trimming it back to something ambiguous. The row is identified or the
+ * sentence says it could not be.
+ */
+export function renameRowLabel(rowName: string): VocabularyToken {
+  return lock(`${ROW_VOCABULARY.rename.row} ${rowName || 'this row'}`);
+}
+
+/**
+ * The outline splitter's `aria-valuetext`. Derived from the outline's own name
+ * rather than restating it, so the splitter and the thing it resizes cannot
+ * come to disagree — the defect #3031 found on the column resize handles.
+ */
+export function outlineWidthValueText(pixels: number): VocabularyToken {
+  return lock(`${ROW_VOCABULARY.outline.label} ${pixels} pixels`);
+}

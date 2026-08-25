@@ -599,7 +599,7 @@ test.describe('Schedule build-mode — Enter inserts a sibling row (#1666)', () 
   });
 
   const nameInput = (page: import('@playwright/test').Page) =>
-    page.locator('input[aria-label^="Rename task"]');
+    page.locator('input[aria-label^="Rename item"]');
 
   test('Enter inherits the focused row\'s delivery mode (#2727)', async ({ page }) => {
     await page.goto(BASE_URL);
@@ -763,7 +763,7 @@ test.describe('Schedule build-mode — Enter inserts a sibling row (#1666)', () 
     // task-b is deleted and the caret lands in task-a's Name cell.
     await expect.poll(() => deleteCount).toBe(1);
     await expect(page.locator('[data-row-id="task-b"]')).toHaveCount(0);
-    const mergedInput = page.locator('input[aria-label="Rename task Wireframes"]');
+    const mergedInput = page.locator('input[aria-label="Rename item Wireframes"]');
     await expect(mergedInput).toBeVisible();
 
     // Caret at the END (not select-all): typing appends rather than replaces.

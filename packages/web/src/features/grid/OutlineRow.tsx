@@ -1,3 +1,4 @@
+import { ROW_VOCABULARY } from '../schedule/rowVocabulary';
 import { useRef, useEffect, type KeyboardEvent } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import type { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
@@ -180,7 +181,7 @@ function OutlineRowName({
           defaultValue={task.name}
           onBlur={(e) => onRename(e.target.value)}
           onKeyDown={handleKeyDown}
-          aria-label="Rename task"
+          aria-label={ROW_VOCABULARY.rename.row}
           className="
               flex-1 bg-transparent border-b border-brand-primary
               text-sm text-neutral-text-primary outline-none caret-neutral-text-primary px-0

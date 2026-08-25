@@ -269,7 +269,7 @@ function renderSurface(surface: 'grid' | 'timeline', opts: { authorable?: boolea
     rowIndex: el.getAttribute('data-aria-rowindex'),
   }));
   const headers = screen.getAllByRole('columnheader').map((el) => el.textContent);
-  const panelWidth = screen.getByRole('treegrid', { name: 'Task list' }).style.width;
+  const panelWidth = screen.getByRole('treegrid', { name: 'Item list' }).style.width;
   const headerGripReserve = screen
     .getAllByRole('row')[0]
     .querySelector('span[aria-hidden="true"]')

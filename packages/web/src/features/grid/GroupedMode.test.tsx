@@ -129,7 +129,7 @@ function renderGrouped(
 function startRename(taskName: string): HTMLInputElement {
   const row = screen.getByLabelText(`Select ${taskName}`).closest('[role="row"]') as HTMLElement;
   fireEvent.doubleClick(row);
-  return screen.getByLabelText<HTMLInputElement>('Rename task');
+  return screen.getByLabelText<HTMLInputElement>('Rename item');
 }
 
 describe('GroupedMode — group key resolution', () => {
@@ -212,7 +212,7 @@ describe('GroupedMode — group key resolution', () => {
 
   it('exposes an aria-rowcount covering group headers and task rows', () => {
     renderGrouped('owner');
-    const grid = screen.getByRole('grid', { name: 'Task list' });
+    const grid = screen.getByRole('grid', { name: 'Item list' });
     // 2 owner groups (Alice, Unassigned) + 4 task rows.
     expect(grid).toHaveAttribute('aria-rowcount', '6');
   });
@@ -283,7 +283,7 @@ describe('GroupedMode — rename', () => {
     fireEvent.change(input, { target: { value: 'New name' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     // After Enter, the input is removed from the DOM (handleRename clears renamingId).
-    expect(screen.queryByLabelText('Rename task')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Rename item')).not.toBeInTheDocument();
     expect(updateMutate).toHaveBeenCalledWith({
       id: 't1',
       projectId: 'proj-1',
@@ -306,7 +306,7 @@ describe('GroupedMode — rename', () => {
     const input = startRename('Discover');
     // Commit without editing — the input is seeded with the current name.
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(screen.queryByLabelText('Rename task')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Rename item')).not.toBeInTheDocument();
     expect(updateMutate).not.toHaveBeenCalled();
   });
 
@@ -315,7 +315,7 @@ describe('GroupedMode — rename', () => {
     const input = startRename('Discover');
     fireEvent.change(input, { target: { value: '   ' } });
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(screen.queryByLabelText('Rename task')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Rename item')).not.toBeInTheDocument();
     expect(updateMutate).not.toHaveBeenCalled();
   });
 
@@ -324,7 +324,7 @@ describe('GroupedMode — rename', () => {
     const input = startRename('Discover');
     fireEvent.change(input, { target: { value: 'Abandoned' } });
     fireEvent.keyDown(input, { key: 'Escape' });
-    expect(screen.queryByLabelText('Rename task')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Rename item')).not.toBeInTheDocument();
     expect(updateMutate).not.toHaveBeenCalled();
   });
 
@@ -336,7 +336,7 @@ describe('GroupedMode — rename', () => {
     const input = startRename('Discover');
     fireEvent.change(input, { target: { value: 'Orphan rename' } });
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(screen.queryByLabelText('Rename task')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Rename item')).not.toBeInTheDocument();
     expect(updateMutate).not.toHaveBeenCalled();
     // The sprint list is likewise queried with no project id.
     expect(useSprintsSpy).toHaveBeenCalledWith(undefined);
@@ -353,7 +353,7 @@ describe('GroupedMode — rename', () => {
       .getByLabelText('Select Phase 1')
       .closest('[role="row"]') as HTMLElement;
     fireEvent.doubleClick(summaryRow);
-    expect(screen.queryByLabelText('Rename task')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Rename item')).not.toBeInTheDocument();
   });
 });
 
@@ -395,5 +395,25 @@ describe('GroupedMode — selection and detail', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+});
+
+describe('GroupedMode — the vocabulary lock (#3052)', () => {
+  it('names the outline "Item list", never "Task list"', () => {
+    // Both directions on purpose: asserting only the new name would still pass
+    // if the old one came back beside it, which is how a rename half-lands.
+    renderGrouped();
+    expect(screen.getByRole('grid', { name: 'Item list' })).toBeInTheDocument();
+    expect(screen.queryByRole('grid', { name: 'Task list' })).toBeNull();
+  });
+
+  it('names the rename input "Rename item", never "Rename task"', () => {
+    // A rename input sits on a row whose type is exactly as undeclared as it
+    // was when the row was created — the noun cannot harden between creating a
+    // row and renaming it.
+    renderGrouped();
+    startRename('Discover');
+    expect(screen.getByLabelText('Rename item')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Rename task')).toBeNull();
   });
 });

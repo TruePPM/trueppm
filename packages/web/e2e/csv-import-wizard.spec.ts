@@ -257,7 +257,7 @@ async function routeImport(
 
 async function openWizard(page: Page) {
   // Gate on the schedule having painted before touching toolbar chrome.
-  await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({ timeout: 10_000 });
   await page.getByRole('button', { name: 'Project actions' }).click();
   await page.getByRole('menuitem', { name: /Import from spreadsheet/ }).click();
   await expect(page.getByRole('dialog', { name: 'Import from a spreadsheet' })).toBeVisible();
@@ -530,7 +530,7 @@ test.describe('CSV/Excel import wizard (#746)', () => {
     // offer, and whose server (IsProjectScheduler, ADR-0632) would reject anyway.
     await gotoSchedule(page, { search: '?import=csv', role: 1 });
 
-    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({
+    await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({
       timeout: 10_000,
     });
     await expect(

@@ -320,7 +320,7 @@ describe('TaskListRow — build-mode keyboard', () => {
     const c = renderHarness();
     act(() => c.current.focus.focusRow('t-build-1'));
     fireEvent.keyDown(screen.getByRole('row'), { key: 'F2' });
-    const input = screen.getByLabelText(/Rename task/i);
+    const input = screen.getByLabelText(/Rename item/i);
     fireEvent.change(input, { target: { value: '' } });
     fireEvent.keyDown(input, { key: 'Backspace' });
     expect(c.current.mergeIntoPreviousRow).toHaveBeenCalledWith('t-build-1');
@@ -330,7 +330,7 @@ describe('TaskListRow — build-mode keyboard', () => {
     const c = renderHarness();
     act(() => c.current.focus.focusRow('t-build-1'));
     fireEvent.keyDown(screen.getByRole('row'), { key: 'F2' });
-    const input = screen.getByLabelText(/Rename task/i);
+    const input = screen.getByLabelText(/Rename item/i);
     fireEvent.keyDown(input, { key: 'Backspace' });
     expect(c.current.mergeIntoPreviousRow).not.toHaveBeenCalled();
   });
@@ -340,7 +340,7 @@ describe('TaskListRow — build-mode keyboard', () => {
     const c = renderHarness();
     act(() => c.current.focus.focusRow('t-build-1'));
     fireEvent.keyDown(screen.getByRole('row'), { key: 'F2' });
-    const input = screen.getByLabelText(/Rename task/i);
+    const input = screen.getByLabelText(/Rename item/i);
     fireEvent.keyDown(input, { key: 'Escape' });
     expect(c.current.deleteTask).toHaveBeenCalledWith('t-build-1');
   });
@@ -350,7 +350,7 @@ describe('TaskListRow — build-mode keyboard', () => {
     const c = renderHarness();
     act(() => c.current.focus.focusRow('t-build-1'));
     fireEvent.keyDown(screen.getByRole('row'), { key: 'F2' });
-    const input = screen.getByLabelText(/Rename task/i);
+    const input = screen.getByLabelText(/Rename item/i);
     fireEvent.change(input, { target: { value: 'Something typed' } });
     fireEvent.keyDown(input, { key: 'Escape' });
     expect(c.current.deleteTask).not.toHaveBeenCalled();

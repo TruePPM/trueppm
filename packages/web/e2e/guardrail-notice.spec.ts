@@ -163,7 +163,7 @@ async function setup(page: Page, opts: SetupOptions = {}) {
 }
 
 async function openSprintSection(page: Page) {
-  const grid = page.getByRole('treegrid', { name: 'Task list' });
+  const grid = page.getByRole('treegrid', { name: 'Item list' });
   await expect(grid).toBeVisible({ timeout: 10_000 });
   await grid.getByRole('button', { name: 'Open properties for Migrate billing service' }).click();
   const drawer = page.getByRole('dialog', { name: /Migrate billing service/ }).first();

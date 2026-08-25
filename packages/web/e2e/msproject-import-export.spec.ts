@@ -147,7 +147,7 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
 
 async function openImportModal(page: import('@playwright/test').Page) {
   await gotoSchedule(page);
-  await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({ timeout: 10_000 });
   await page.getByRole('button', { name: 'Project actions' }).click();
   await page.getByRole('menuitem', { name: 'Import from MS Project…' }).click();
   await expect(page.getByRole('dialog', { name: 'Import from MS Project' })).toBeVisible();
@@ -272,7 +272,7 @@ test.describe('MS Project export', () => {
       }),
     );
     await gotoSchedule(page);
-    await expect(page.getByRole('treegrid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({ timeout: 10_000 });
 
     await page.getByRole('button', { name: 'Project actions' }).click();
     const [response] = await Promise.all([
