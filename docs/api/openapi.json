@@ -40748,7 +40748,7 @@
         "/api/v1/tasks/search/": {
             "get": {
                 "operationId": "v1_tasks_search_list",
-                "description": "Board card full-text search (#323, ADR-0145).\n\nReturns a slim ``[{id, name, status, short_id}]`` list of cards whose title\n(``name``) or description (``notes``) contains ``?q=`` (case-insensitive\nsubstring), so the board client can dim non-matching cards in place. The\nslim shape deliberately carries no cost/budget/sensitive fields, so\nrole-based field visibility is moot — project membership is the only gate.\nIDOR-safe: ``ProjectScopedViewSet`` already restricts the queryset to\nprojects the requester is an active member of, and ``?project=`` is required.\n\nComment-body search is out of scope until task comments land an indexed body.\n# TODO(#311): include TaskComment.body once threaded comments merge.",
+                "description": "Board card full-text search (#323, ADR-0145).\n\nReturns a slim ``[{id, name, status, short_id}]`` list of cards whose title\n(``name``) or description (``notes``) contains ``?q=`` (case-insensitive\nsubstring), so the board client can dim non-matching cards in place. The\nslim shape deliberately carries no cost/budget/sensitive fields, so\nrole-based field visibility is moot — project membership is the only gate.\nIDOR-safe: ``ProjectScopedViewSet`` already restricts the queryset to\nprojects the requester is an active member of, and ``?project=`` is required.\n\nComment-body search is out of scope until task comments land an indexed body.\n# TODO(#3058): include TaskComment.body — #311 (task comments) has since\n# shipped, so the remaining work is wiring the search query itself.",
                 "summary": "Full-text search board cards by title and description (#323)",
                 "parameters": [
                     {
@@ -49487,6 +49487,13 @@
                 "required": [
                     "task"
                 ]
+            },
+            "OriginEnum": {
+                "enum": [
+                    "paste"
+                ],
+                "type": "string",
+                "description": "* `paste` - paste"
             },
             "OutcomeEnum": {
                 "enum": [
@@ -61537,6 +61544,17 @@
                     },
                     "dependencies": {
                         "$ref": "#/components/schemas/TaskBulkDependencyBucketRequest"
+                    },
+                    "origin": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/OriginEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
                     }
                 },
                 "required": [

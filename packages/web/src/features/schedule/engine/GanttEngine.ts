@@ -12,7 +12,7 @@
  */
 
 import type { Task, TaskLink } from '@/types';
-import type { SprintBand } from '../sprintBands';
+import type { CadenceSegment, SprintBand } from '../sprintBands';
 import type { FiscalConfig, GanttScaleData, ZoomLevel } from './GanttScaleData';
 import type { ChartRenderOptions } from './GanttRenderer';
 
@@ -319,6 +319,27 @@ export interface GanttEngine {
    * Passing an empty array clears them.
    */
   setSprintBands(bands: SprintBand[]): void;
+
+  // ── Sprint cadence rail (#3012) ───────────────────────────────────────────
+
+  /**
+   * Push the cells of the cadence rail — the strip of named sprint windows on
+   * the time axis, under the date ruler (ADR-0803).
+   *
+   * Same one-way contract as {@link setSprintBands}: the host resolves the
+   * windows (`computeCadenceSegments`) and the engine only paints them. Note
+   * these are **not** the bands: a band is a row range, a segment is a stretch
+   * of the axis, and a sprint with no committed work has a segment and no band.
+   * That is the whole reason the rail exists — an empty sprint is a planning
+   * fact the row bands structurally cannot show.
+   *
+   * The rail's *height* is not the engine's to choose: it feeds
+   * `CHART_HEADER_HEIGHT`, which the outline header and the scroll spacer also
+   * read. The host installs that via `useCadenceRail`; passing segments here
+   * only decides what is painted inside the band the host already sized.
+   * Passing an empty array clears the rail.
+   */
+  setCadenceSegments(segments: CadenceSegment[]): void;
 
   // ── Event emitter ─────────────────────────────────────────────────────────
 

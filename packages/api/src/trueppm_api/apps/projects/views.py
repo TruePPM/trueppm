@@ -138,6 +138,7 @@ from trueppm_api.apps.projects.models import (
     TaskNote,
     TaskRecurrenceRule,
     TaskRelation,
+    TaskSource,
     TaskStatus,
     TaskType,
     format_short_id_display,
@@ -151,6 +152,7 @@ from trueppm_api.apps.projects.schema_migrations import (
 )
 from trueppm_api.apps.projects.serializers import (
     _DEFAULT_COLUMNS,
+    TASK_BULK_ORIGIN_SOURCE_KINDS,
     AcceptanceCriterionSerializer,
     ApiTokenAuditEntrySerializer,
     AppliedCalendarsSerializer,
@@ -6044,7 +6046,8 @@ class TaskViewSet(
         projects the requester is an active member of, and ``?project=`` is required.
 
         Comment-body search is out of scope until task comments land an indexed body.
-        # TODO(#311): include TaskComment.body once threaded comments merge.
+        # TODO(#3058): include TaskComment.body — #311 (task comments) has since
+        # shipped, so the remaining work is wiring the search query itself.
         """
         from django.db.models import Case, IntegerField, Q, Value, When
 
@@ -8878,6 +8881,13 @@ class TaskBulkView(IdempotencyMixin, APIView):
         edge_rows: list[dict[str, Any]] = (serializer.validated_data.get("dependencies") or {}).get(
             "created"
         ) or []
+        # #3038: a caller-declared origin (validated against TASK_BULK_ORIGIN_SOURCE_KINDS
+        # by the serializer) maps to the source_kind stamped on every row this batch
+        # creates. No origin declared → TaskSource.HAND, the BulkContext field default —
+        # today's behavior for the keyboard phase-adopt create and any other caller that
+        # says nothing.
+        origin: str | None = serializer.validated_data.get("origin")
+        source_kind = TASK_BULK_ORIGIN_SOURCE_KINDS[origin] if origin else TaskSource.HAND
 
         from django.contrib.auth.models import User as _User
 
@@ -8897,6 +8907,7 @@ class TaskBulkView(IdempotencyMixin, APIView):
             caller=_caller,
             locked_by_id=locked_by_id,
             foreign_ids=foreign_ids,
+            source_kind=source_kind,
         )
         out = BulkOutcome()
         project_id = str(project.pk)

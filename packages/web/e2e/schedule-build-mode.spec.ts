@@ -633,6 +633,37 @@ test.describe('Schedule build-mode — Enter inserts a sibling row (#1666)', () 
     await expect(nameInput(page)).toBeVisible();
   });
 
+  test('Enter on a focused canvas BAR inserts a row too (#2784)', async ({ page }) => {
+    // Parity with the outline row above, and the one assertion jsdom cannot
+    // fully stand in for: the row insert happens in the overlay's React handler
+    // while `useKeyboardReschedule` listens on `document` and fires after it in
+    // bubble order. In a real browser this must insert exactly one row and start
+    // no reschedule.
+    await page.goto(BASE_URL);
+    const bar = page.getByRole('option', { name: /Wireframes/ }).first();
+    await expect(bar).toBeVisible();
+    await bar.focus();
+    await page.keyboard.press('Enter');
+
+    await expect.poll(() => postBodies.length).toBe(1);
+    // The reschedule instruction strip (rule 51) must be absent — Enter created
+    // a row, it did not start a keyboard move.
+    await expect(page.getByText(/Esc cancel/i)).toHaveCount(0);
+  });
+
+  test('Alt+Enter on a focused canvas bar opens the drawer, not a row (#2784/#2979)', async ({
+    page,
+  }) => {
+    await page.goto(BASE_URL);
+    const bar = page.getByRole('option', { name: /Wireframes/ }).first();
+    await expect(bar).toBeVisible();
+    await bar.focus();
+    await page.keyboard.press('Alt+Enter');
+
+    await expect(page.getByRole('dialog')).toBeVisible();
+    expect(postBodies).toHaveLength(0);
+  });
+
   test('⌘+Enter inserts a child of the focused row (#2727)', async ({ page }) => {
     await page.goto(BASE_URL);
     const row = page.locator('[data-row-id="task-a"]');

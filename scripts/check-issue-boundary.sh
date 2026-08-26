@@ -21,10 +21,14 @@ if [ -z "$PROJECT" ]; then
   exit 2
 fi
 
-# Prefer a project- or group-level access token (BOUNDARY_CHECK_TOKEN) so the
-# audit can run against issues regardless of CI_JOB_TOKEN scope settings.
-# Falls back to CI_JOB_TOKEN, which works for same-project issue reads on
-# default GitLab token scopes.
+# Prefer a project- or group-level access token (BOUNDARY_CHECK_TOKEN) — this
+# is not optional in practice. #3043 established that CI_JOB_TOKEN cannot
+# authenticate against the GitLab Issues API at all, on any project — it is
+# not in GitLab's job-token-supported endpoint list, so the JOB-TOKEN fallback
+# below 401s regardless of the token's validity. This script hard-fails
+# (exit 2) rather than silently skipping when that happens, so if this job is
+# green, BOUNDARY_CHECK_TOKEN (or an equivalent group-level variable) is
+# actually configured; do not treat the fallback as a working substitute.
 if [ -n "${BOUNDARY_CHECK_TOKEN:-}" ]; then
   AUTH_HEADER="PRIVATE-TOKEN: ${BOUNDARY_CHECK_TOKEN}"
 else

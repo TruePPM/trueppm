@@ -48,7 +48,7 @@ import {
   drawGridLines,
   drawTodayLine,
   drawSprintBands,
-  drawSprintBandLabels,
+  drawCadenceRail,
   sprintBandFadeAlpha,
   drawTimelineHeader,
   drawTaskBar,
@@ -64,8 +64,8 @@ import {
   drawScheduleVarianceBadge,
 } from './GanttRenderer';
 import type { ChartRenderOptions, DependencyLayout } from './GanttRenderer';
-import type { SprintBand } from '../sprintBands';
-import { HEADER_HEIGHT } from '../scheduleConstants';
+import type { CadenceSegment, SprintBand } from '../sprintBands';
+import { CHART_HEADER_HEIGHT } from '../scheduleConstants';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -207,9 +207,9 @@ export class GanttEngineImpl implements GanttEngine {
   // Header-band repaint tracking (issue 1523). The two-row timeline header and
   // the vertical grid walk depend only on scrollLeft, scales, fiscal mode, dark
   // mode, and viewport width — never on scrollTop. A pure vertical scroll leaves
-  // the header band (y 0..HEADER_HEIGHT) pixel-identical, yet _onScroll still
-  // marks a full bg repaint because the row bands and horizontal separators DO
-  // move with scrollTop. Re-walking the (viewport-clamped, but still O(visible
+  // the retained header band (y 0..CHART_HEADER_HEIGHT — the ruler plus the
+  // cadence rail) pixel-identical, yet _onScroll still marks a full bg repaint
+  // because the row bands and horizontal separators DO move with scrollTop. Re-walking the (viewport-clamped, but still O(visible
   // days)) header date range twice — major + minor rows — on every vertical
   // scroll frame was the dominant per-frame cost the audit flagged. _paintBg
   // therefore skips drawTimelineHeader and retains the prior header band unless
@@ -239,6 +239,13 @@ export class GanttEngineImpl implements GanttEngine {
   // Sprint-window bands (#2738, ADR-0803). Row-indexed against _tasks; the host
   // recomputes and re-pushes them whenever that array changes.
   private _sprintBands: SprintBand[] = [];
+  /**
+   * The cadence rail's cells (#3012). Separate from `_sprintBands` because they
+   * answer a different question: bands are row ranges, segments are stretches of
+   * the time axis, and a sprint with no committed work has the second without
+   * the first.
+   */
+  private _cadenceSegments: CadenceSegment[] = [];
   /**
    * `performance.now()` at which the band fade-in began, or null when no fade is
    * running. Non-null is the ONLY thing that keeps the rAF loop re-arming for
@@ -664,8 +671,22 @@ export class GanttEngineImpl implements GanttEngine {
     // sprints, a row is added) must not restart the fade — that would flash the
     // whole region on every keystroke in the outline.
     if (!wasDrawn && this._sprintBandsDrawn()) this._beginSprintBandFade();
-    // Bands live on the bg layer and their labels on the bars layer, so this is
-    // a genuine full repaint, not a bars-only one.
+    // Bands live on the bg layer, so this is a genuine full repaint rather than
+    // a bars-only one.
+    this._fullRepaintPending = true;
+    this._requestRepaint();
+  }
+
+  setCadenceSegments(segments: CadenceSegment[]): void {
+    // Reference comparison, same contract as setSprintBands — ScheduleView
+    // memoizes the computation, so identity is stable until the sprint list
+    // changes.
+    if (this._cadenceSegments === segments) return;
+    this._cadenceSegments = segments;
+    // The rail lives inside the retained header band, which `_paintBg` only
+    // redraws on a full repaint — a bars-only repaint would leave the old rail
+    // on screen.
+    this._headerContentDirty = true;
     this._fullRepaintPending = true;
     this._requestRepaint();
   }
@@ -1093,7 +1114,7 @@ export class GanttEngineImpl implements GanttEngine {
     const overscan = OVERSCAN_ROWS * ROW_HEIGHT;
     // The usable viewport height for tasks is reduced by the fixed header band.
     const minY = this._scrollTop - overscan;
-    const maxY = this._scrollTop + this._viewportHeight - HEADER_HEIGHT + overscan;
+    const maxY = this._scrollTop + this._viewportHeight - CHART_HEADER_HEIGHT + overscan;
     const firstRow = Math.max(0, Math.floor(minY / ROW_HEIGHT));
     const lastRow = Math.min(this._tasks.length - 1, Math.ceil(maxY / ROW_HEIGHT));
     return { firstRow, lastRow };
@@ -1127,11 +1148,11 @@ export class GanttEngineImpl implements GanttEngine {
       // the clip is what keeps them from bleeding over the retained header.
       ctx.save();
       ctx.beginPath();
-      ctx.rect(0, HEADER_HEIGHT, w, h - HEADER_HEIGHT);
+      ctx.rect(0, CHART_HEADER_HEIGHT, w, h - CHART_HEADER_HEIGHT);
       ctx.clip();
-      ctx.clearRect(0, HEADER_HEIGHT, w, h - HEADER_HEIGHT);
+      ctx.clearRect(0, CHART_HEADER_HEIGHT, w, h - CHART_HEADER_HEIGHT);
       ctx.fillStyle = this._isDark ? COLOR_DARK.surface : COLOR.surface;
-      ctx.fillRect(0, HEADER_HEIGHT, w, h - HEADER_HEIGHT);
+      ctx.fillRect(0, CHART_HEADER_HEIGHT, w, h - CHART_HEADER_HEIGHT);
     }
 
     if (!this._scales) {
@@ -1166,6 +1187,13 @@ export class GanttEngineImpl implements GanttEngine {
     if (drawHeader) {
       // Timeline header drawn last so it paints over any content in the header band
       drawTimelineHeader(ctx, this._scales, this._scrollLeft, w, this._fiscal);
+      // The cadence rail sits directly under the ruler and inside the same
+      // retained band. It follows `showSprintBands` rather than carrying a
+      // toggle of its own — the rail and the row bands are two readings of one
+      // fact, and two controls for one fact is how they drift apart.
+      if (this._chartOptions.showSprintBands) {
+        drawCadenceRail(ctx, this._cadenceSegments, this._scales, this._scrollLeft, w);
+      }
       this._headerContentDirty = false;
       this._lastHeaderScrollLeft = this._scrollLeft;
     } else {
@@ -1196,17 +1224,6 @@ export class GanttEngineImpl implements GanttEngine {
     // bars layer (not bg) because hover invalidates only this layer.
     if (this._hoverRowIndex >= 0) {
       drawHoverRowBand(ctx, this._hoverRowIndex, this._scrollTop, w, h);
-    }
-
-    // Sprint-window name pills (#2738). The band itself paints on the bg layer;
-    // its label has to be on THIS layer to be readable at all, but early in the
-    // pass rather than last: the 3px of the pill that reach into a bar box are
-    // where the critical-path frame lives, and a decorative label must never
-    // occlude a risk signal (rule 235). The bar wins that sliver; the pill keeps
-    // the 10px inter-bar gutter its text actually sits in. Screen coords — the
-    // helper applies scrollTop itself, so no translate here.
-    if (this._chartOptions.showSprintBands) {
-      this._paintSprintBandLabels(ctx, w, h);
     }
 
     // Layer order on canvas-bars: bars (no labels) → arrows → labels.
@@ -1294,27 +1311,6 @@ export class GanttEngineImpl implements GanttEngine {
     return groups;
   }
 
-  /** Paint every band's name pill, at each band's filter-resolved alpha (#2738). */
-  private _paintSprintBandLabels(
-    ctx: CanvasRenderingContext2D,
-    w: number,
-    h: number,
-  ): void {
-    if (!this._scales) return;
-    for (const group of this._sprintBandGroups()) {
-      drawSprintBandLabels(
-        ctx,
-        group.bands,
-        this._scales,
-        this._scrollLeft,
-        this._scrollTop,
-        w,
-        h,
-        group.alpha,
-      );
-    }
-  }
-
   /**
    * Paint the drag-to-link handle on the hovered row (#2702).
    *
@@ -1352,11 +1348,11 @@ export class GanttEngineImpl implements GanttEngine {
     setRendererChartOptions(this._chartOptions);
     if (!this._scales) return;
     const ctx = this._barsCtx;
-    const rowTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT - this._scrollTop;
+    const rowTop = rowIndex * ROW_HEIGHT + CHART_HEADER_HEIGHT - this._scrollTop;
     const rowBottom = rowTop + ROW_HEIGHT;
 
     // Clamp to avoid overwriting the fixed header band
-    const clampedTop = Math.max(rowTop, HEADER_HEIGHT);
+    const clampedTop = Math.max(rowTop, CHART_HEADER_HEIGHT);
     const clampedHeight = rowBottom - clampedTop;
     if (clampedHeight <= 0) return;
 
@@ -1367,7 +1363,7 @@ export class GanttEngineImpl implements GanttEngine {
     ctx.fillStyle = this._isDark ? COLOR_DARK.surface : COLOR.surface;
     ctx.fillRect(0, clampedTop, this._viewportWidth, clampedHeight);
 
-    if (rowTop > this._viewportHeight || rowBottom < HEADER_HEIGHT) return;
+    if (rowTop > this._viewportHeight || rowBottom < CHART_HEADER_HEIGHT) return;
 
     this._paintTaskAt(ctx, rowIndex);
   }
@@ -1512,7 +1508,7 @@ export class GanttEngineImpl implements GanttEngine {
         snapToDayBoundary(currentX - this._dragOffsetX, this._scales) - this._scrollLeft;
       drawDragShadow(ctx, task, snappedX, rowIndex, this._scales);
     } else if (fsm.state === 'RESIZING') {
-      const barTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
+      const barTop = rowIndex * ROW_HEIGHT + CHART_HEADER_HEIGHT + BAR_TOP_OFFSET;
       // currentX is canvas-origin; convert to viewport-relative for drawing.
       drawResizeIndicator(ctx, currentX - this._scrollLeft, barTop);
     }
@@ -1547,9 +1543,10 @@ export class GanttEngineImpl implements GanttEngine {
     if (this._tryBeginPinch(e)) return;
     if (this._tryBeginPan(e)) return;
 
-    // Ignore pointer events in the fixed header band (viewport y < HEADER_HEIGHT)
+    // Ignore pointer events in the fixed header band — ruler AND cadence rail
+    // (viewport y < CHART_HEADER_HEIGHT). The rail is a label, not a control.
     const rect = this._ixCanvas.getBoundingClientRect();
-    if (e.clientY - rect.top < HEADER_HEIGHT) return;
+    if (e.clientY - rect.top < CHART_HEADER_HEIGHT) return;
 
     const { x, y } = this._pointerToCanvas(e);
     const isTouch = e.pointerType === 'touch';

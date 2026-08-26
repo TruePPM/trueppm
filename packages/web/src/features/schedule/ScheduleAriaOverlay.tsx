@@ -30,6 +30,7 @@
  * - Rule 69: buildTaskAriaLabel canonical format
  */
 
+import { useChartHeaderHeight } from '@/hooks/useChartHeaderHeight';
 import {
   useState,
   useEffect,
@@ -45,9 +46,9 @@ import type { GanttEngine } from './engine';
 import { dateToLeft, dateToRight } from './engine';
 import { BAR_HEIGHT } from './engine/GanttHitIndex';
 import { useRowMetrics } from '@/hooks/useRowHeight';
-import { HEADER_HEIGHT } from './scheduleConstants';
 import { sprintBandByTaskId, type SprintBand } from './sprintBands';
 import { isPinnedByActuals } from './pinnedByActuals';
+import type { BuildModeApi } from './buildMode/BuildModeContext';
 
 const OVERSCAN_ROWS = 5;
 
@@ -171,8 +172,32 @@ interface ScheduleAriaOverlayProps {
   links: TaskLink[];
   /** Sprint-window bands (#2738) — the non-visual carrier for the canvas band. */
   sprintBands?: SprintBand[];
+  /**
+   * The build-mode API, when this surface is authorable (#2784). Absent on the
+   * read-only program schedule, which mounts no `BuildModeProvider` — so the
+   * Enter-creates-a-row trio simply does not exist there.
+   */
+  authoring?: BuildModeApi | null;
+  /**
+   * May this reader author a given row? (web rule 302)
+   *
+   * Separate from `authoring` and NOT redundant with it: `BuildModeProvider` is
+   * mounted for **every desktop user, viewers included**, so a non-null
+   * `authoring` is not an entitlement check. The Timeline's context menu learned
+   * this the hard way — it offered a viewer Indent / Duplicate / Delete over the
+   * bar track while the outline two feet away correctly offered nothing. Same
+   * per-row resolver the outline uses, so the two panes cannot disagree about
+   * one row.
+   *
+   * Defaults to "nobody may author", so a host that forgets to pass it gets the
+   * safe answer rather than the permissive one.
+   */
+  canEditRow?: (task: Task) => boolean;
   containerRef: RefObject<HTMLDivElement | null>;
 }
+
+/** Default for {@link ScheduleAriaOverlayProps.canEditRow} — deny, not allow. */
+const NO_ROW_IS_EDITABLE = (): boolean => false;
 
 // ---------------------------------------------------------------------------
 // Component
@@ -192,9 +217,17 @@ interface ScheduleAriaOverlayProps {
  * completion alone does not pin a task, and a task complete by progress with no
  * actuals is reschedulable and must be announced as such.
  */
-export function rescheduleHint(task: Task): string | null {
+export function rescheduleHint(task: Task, authorable = false): string | null {
   if (task.isSummary || isPinnedByActuals(task)) return null;
-  return `${task.name}. Press Enter to open details, Shift+Enter to reschedule via keyboard. Arrow keys to navigate rows.`;
+  // The hint has to state the keys that are actually live on THIS row, and
+  // while authoring the Enter family belongs to row creation (#2784). Announcing
+  // "Press Enter to open details" there would be false, and announcing
+  // "Shift+Enter to reschedule" would advertise a shortcut that no longer
+  // initiates — the exact divergence this function's docstring warns about, one
+  // mode over.
+  const open = authorable ? 'Alt+Enter to open details' : 'Enter to open details';
+  const reschedule = authorable ? 'R to reschedule' : 'Shift+Enter to reschedule';
+  return `${task.name}. Press ${open}, ${reschedule} via keyboard. Arrow keys to navigate rows.`;
 }
 
 export function ScheduleAriaOverlay({
@@ -202,6 +235,8 @@ export function ScheduleAriaOverlay({
   tasks,
   links,
   sprintBands,
+  authoring = null,
+  canEditRow = NO_ROW_IS_EDITABLE,
   containerRef,
 }: ScheduleAriaOverlayProps) {
   // Row geometry follows the pointer class (#2997): 28px on a mouse, 44px on a
@@ -280,10 +315,16 @@ export function ScheduleAriaOverlay({
     [tasks, sprintBands],
   );
 
+  // The chart's row origin — the date ruler plus the cadence rail when one is
+  // drawn (#3012). Subscribed rather than read, so the overlay's row rects move
+  // with the canvas's the first time a project's sprints resolve; a silent
+  // disagreement here puts the focus ring on the neighbouring row.
+  const chartHeaderHeight = useChartHeaderHeight();
+
   // Virtualised row range — viewportHeight is reduced by fixed header band
   const overscan = OVERSCAN_ROWS * rowHeight;
   const minY = scrollTop - overscan;
-  const maxY = scrollTop + viewportHeight - HEADER_HEIGHT + overscan;
+  const maxY = scrollTop + viewportHeight - chartHeaderHeight + overscan;
   const firstRow = Math.max(0, Math.floor(minY / rowHeight));
   const lastRow = Math.min(tasks.length - 1, Math.ceil(maxY / rowHeight));
 
@@ -322,14 +363,14 @@ export function ScheduleAriaOverlay({
         setFocusedTaskId(target.id);
         // Announce the reschedule convention for reschedulable rows; stay
         // silent on summary/complete rows to avoid spamming (#1031).
-        setLiveMessage(rescheduleHint(target) ?? '');
+        setLiveMessage(rescheduleHint(target, canEditRow(target) && authoring !== null) ?? '');
         pendingFocusRef.current = target.id;
         // Bring the row into the virtualized window (Home/End can jump far
         // outside it) and the bar into horizontal view.
         const container = containerRef.current;
         if (container) {
           const rowTop = tasks.indexOf(target) * rowHeight;
-          const viewH = container.clientHeight - HEADER_HEIGHT;
+          const viewH = container.clientHeight - chartHeaderHeight;
           if (rowTop < container.scrollTop) container.scrollTop = rowTop;
           else if (rowTop + rowHeight > container.scrollTop + viewH)
             container.scrollTop = rowTop + rowHeight - viewH;
@@ -357,30 +398,53 @@ export function ScheduleAriaOverlay({
           e.preventDefault();
           moveTo(tasks[tasks.length - 1]);
           break;
-        case 'Enter':
-          // Enter opens the task detail drawer (#2205, WCAG 2.1.1 consistency:
-          // Enter on a focused bar opens details, mirroring the task-list rows
-          // and the canvas double-click). Shift+Enter starts a keyboard
-          // reschedule instead — see the Shift branch below.
+        case 'Enter': {
           e.preventDefault();
           if (!engine) break;
-          if (e.shiftKey) {
-            // Select so the document-level useKeyboardReschedule listener —
-            // which fires after this React handler in bubble order — sees the
-            // selection and starts the reschedule on this same Shift+Enter
-            // (covered by ScheduleAriaOverlay.keyboard.test.tsx; keep that
-            // interplay in mind before reordering listeners or making
-            // selection async).
-            engine.selectTask(taskId);
-          } else {
+          // Alt+Enter always opens the drawer, in both modes (#2784). This is
+          // NOT a new binding invented here: #2979 established Alt+Enter as
+          // "show me the details of this thing" on `TaskListRow` — the outline
+          // sitting a few inches to the left of this canvas — and
+          // `BacklogListRow` carries it too. Before this change Alt+Enter opened
+          // the drawer in the outline and did nothing on the bar, on one screen.
+          if (e.altKey) {
             engine.openTask(taskId);
+            break;
           }
+          // ADR-0909 §1 — the full key table, and why nothing changes outside
+          // build mode.
+          const row = tasks[idx];
+          // Gated per ROW on `canEditRow`, not on `authoring != null`: the
+          // provider is mounted for viewers too, so the latter is not an
+          // entitlement check (see the prop's docstring).
+          const rowAuthoring = row && canEditRow(row) ? authoring : null;
+          if (rowAuthoring) {
+            // The same trio as an outline row, in the same order (#2727,
+            // ADR-0776 §7 — the parity this closes). The insert focuses the new
+            // row's Name cell in the outline, which is where you type, so Enter
+            // on a bar hands you straight into naming it.
+            if (e.metaKey || e.ctrlKey) rowAuthoring.insertChild(taskId);
+            else if (e.shiftKey) rowAuthoring.insertAbove(taskId);
+            else rowAuthoring.insertBelow(taskId);
+            break;
+          }
+          // Not authorable — nothing about #2205 changes. Enter opens; Shift
+          // selects so the document-level useKeyboardReschedule listener, which
+          // fires after this React handler in bubble order, sees the selection
+          // and starts the reschedule on this same press (covered by
+          // ScheduleAriaOverlay.keyboard.test.tsx; keep that interplay in mind
+          // before reordering listeners or making selection async).
+          if (e.shiftKey) engine.selectTask(taskId);
+          else engine.openTask(taskId);
           break;
+        }
         case 'r':
         case 'R':
-          // 'r' is the single-key alias for Shift+Enter — start a keyboard
-          // reschedule. Selecting hands off to useKeyboardReschedule, which now
-          // initiates on Shift+Enter / 'r' rather than plain Enter (#2205).
+          // 'r' starts a keyboard reschedule, unconditionally and in both modes.
+          // It never needed relocating for #2784: it has been the single-key
+          // alias since #2205, so the deferred question — "where do open-drawer
+          // and reschedule go once Enter is reassigned?" — only ever had ONE
+          // binding to rehome. Selecting hands off to useKeyboardReschedule.
           e.preventDefault();
           if (engine) engine.selectTask(taskId);
           break;
@@ -391,8 +455,19 @@ export function ScheduleAriaOverlay({
           break;
       }
     },
-    [tasks, engine, containerRef, rowHeight],
+    [tasks, engine, containerRef, rowHeight, chartHeaderHeight, authoring, canEditRow],
   );
+
+  /**
+   * Does the Enter family belong to row creation anywhere on this surface?
+   *
+   * Drives the static help text and the `authoringActive` gate the reschedule
+   * listener reads. Surface-wide rather than per-row because the help text is
+   * one static string read once, while the *handler* still resolves per row —
+   * a mixed project (some rows editable, some not) announces the authoring key
+   * map and each row still enforces its own answer.
+   */
+  const anyRowAuthorable = authoring !== null && tasks.some((t) => canEditRow(t));
 
   const scales = engine?.scales ?? null;
 
@@ -414,10 +489,19 @@ export function ScheduleAriaOverlay({
           keys inside a reschedule; Up/Down navigate rows. */}
       <span id="schedule-grid-help" className="sr-only">
         Use arrow up and down to move between tasks, and Home and End to jump to the first and
-        last task. Press Enter to open the focused task&apos;s details. On a reschedulable task,
-        press Shift+Enter or R to reschedule it with the keyboard: left and right arrow keys nudge the
-        start date, Enter confirms, Escape cancels. Press Space to select a task without
-        rescheduling.
+        last task.{' '}
+        {anyRowAuthorable ? (
+          <>
+            Press Enter to add a task below the focused one, Shift+Enter to add one above, and
+            Command or Control plus Enter to add one underneath it. Press Alt+Enter to open the
+            focused task&apos;s details.
+          </>
+        ) : (
+          <>Press Enter to open the focused task&apos;s details.</>
+        )}{' '}
+        On a reschedulable task, press {anyRowAuthorable ? 'R' : 'Shift+Enter or R'} to reschedule
+        it with the keyboard: left and right arrow keys nudge the start date, Enter confirms,
+        Escape cancels. Press Space to select a task without rescheduling.
       </span>
       {/* Polite live region — names the focused row and its reschedule hint. */}
       <span role="status" aria-live="polite" className="sr-only">
@@ -425,7 +509,7 @@ export function ScheduleAriaOverlay({
       </span>
       {tasks.slice(firstRow, lastRow + 1).map((task, sliceIdx) => {
         const rowIndex = firstRow + sliceIdx;
-        const rowTop = rowIndex * rowHeight + HEADER_HEIGHT - scrollTop;
+        const rowTop = rowIndex * rowHeight + chartHeaderHeight - scrollTop;
         // Roving tabindex: until the user has focused a row, the first task is the
         // tab stop so the listbox is reachable by Tab on initial load. Without the
         // `?? tasks[0]?.id` fallback every option was tabIndex=-1 and keyboard/AT

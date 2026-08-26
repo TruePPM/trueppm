@@ -48,6 +48,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from trueppm_api.apps.access.models import Role
 from trueppm_api.apps.access.permissions import can_user_edit_task
+from trueppm_api.apps.projects.models import TaskSource
 from trueppm_api.apps.projects.row_identity import (
     is_tombstoned,
     parse_row_uuid,
@@ -226,6 +227,12 @@ class BulkContext:
     locked_by_id: dict[str, Task]
     #: Ids that resolve to a task in another project (guard 2).
     foreign_ids: set[str]
+    #: Provenance to stamp on rows this batch *creates* (#3038, ADR-0786). Defaults
+    #: to ``TaskSource.HAND`` — a caller that declares nothing keeps today's
+    #: behavior. Never applied to a recreate-as-edit (``_apply_recreate_as_edit``):
+    #: that path edits a row that already exists, so its provenance was set when
+    #: the row was first created and is not this write's to overwrite.
+    source_kind: str = TaskSource.HAND
     #: Mutated in place across rows (#2724) — frozen only blocks reassigning the
     #: attribute itself, not mutating what it points to.
     placement_cache: _PlacementCache = dataclasses.field(default_factory=_PlacementCache)
@@ -478,7 +485,21 @@ def _apply_create(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOut
     # passed as an explicit save() kwarg rather than made writable on TaskSerializer,
     # which is shared by the plain REST create and the sync upload: making the field
     # writable would silently hand a caller-supplied PK to every one of them.
-    save_kwargs: dict[str, Any] = {"wbs_path": wbs_path, "is_subtask": is_subtask}
+    #
+    # source_kind rides the same mechanism (#3038): it answers "what wrote this row"
+    # and TaskSource.PASTE sat declared and unwritten until this fix. Deliberately
+    # NOT paired with a seeded_at stamp — this path saves through TaskSerializer /
+    # Task.save(), which stamps edited_at on the very write that creates the row
+    # (task_batch_services.py's module docstring), so seeded_at is meant to stay
+    # null here. Setting it would pull every pasted row into
+    # TaskManager.untouched_seeded()'s "Delete untouched rows (N)" sweep — a
+    # different, already-decided question (ADR-0786 §2) that this fix does not
+    # reopen. Do not "fix" that by adding seeded_at alongside it.
+    save_kwargs: dict[str, Any] = {
+        "wbs_path": wbs_path,
+        "is_subtask": is_subtask,
+        "source_kind": ctx.source_kind,
+    }
     if row_id is not None:
         save_kwargs["id"] = row_id
     task = ser.save(**save_kwargs)

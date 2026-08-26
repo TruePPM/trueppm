@@ -204,6 +204,146 @@ class TestTaskResourceCreateWarnings:
 
 
 # ---------------------------------------------------------------------------
+# Bare-assignee fallback tests (#3047 — read-side half of #2718/#2900)
+#
+# A task whose only assignment signal is Task.assignee (no TaskResource row)
+# must not silently contribute zero load to _check_overallocation once the
+# Resource is linked to that assignee's user account via Resource.user.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def assignee_user(db: object) -> object:
+    """A second user, distinct from the API caller, to act as Task.assignee."""
+    User = get_user_model()
+    return User.objects.create_user(username="carol", password="pw")
+
+
+@pytest.fixture
+def resource_with_user(assignee_user: object, db: object) -> Resource:
+    """A 100%-capacity resource linked to assignee_user via Resource.user."""
+    return Resource.objects.create(
+        name="Carol", email="carol@example.com", max_units=Decimal("1.0"), user=assignee_user
+    )
+
+
+@pytest.mark.django_db
+class TestTaskResourceBareAssigneeFallback:
+    """POST /api/v1/task-resources/ — bare Task.assignee folded into the sum."""
+
+    def test_bare_assignee_task_counts_toward_overallocation(
+        self,
+        client: APIClient,
+        membership: ProjectMembership,
+        project: Project,
+        assignee_user: object,
+        resource_with_user: Resource,
+    ) -> None:
+        """A bare-assignee task (no TaskResource row) counts at full units.
+
+        Carol already carries a full-time (1.0-unit) bare-assignee task with no
+        TaskResource row. Assigning her to a second task at even 50% via a real
+        TaskResource row must push the total past her 100% capacity and surface
+        both the unit-tracking caveat and the overallocation warning.
+        """
+        Task.objects.create(project=project, name="Untracked", duration=5, assignee=assignee_user)
+        new_task = Task.objects.create(project=project, name="Tracked", duration=5)
+
+        r = client.post(
+            "/api/v1/task-resources/",
+            {"task": str(new_task.pk), "resource": str(resource_with_user.pk), "units": "0.5"},
+        )
+        assert r.status_code == 201
+        codes = {w["code"] for w in r.data["warnings"]}
+        assert codes == {"assignment_not_unit_tracked", "resource_overallocated"}
+        tracking_warning = next(
+            w for w in r.data["warnings"] if w["code"] == "assignment_not_unit_tracked"
+        )
+        assert tracking_warning["resource_id"] == str(resource_with_user.pk)
+
+    def test_bare_assignee_task_ignored_without_linked_user(
+        self,
+        client: APIClient,
+        membership: ProjectMembership,
+        project: Project,
+        resource: Resource,
+        user: object,
+    ) -> None:
+        """A bare-assignee task cannot be correlated when Resource.user is unset.
+
+        resource (Alice) has no linked user account, so a bare-assignee task —
+        even one assigned to the API caller — must not be folded in: behavior
+        is unchanged from before #3047.
+        """
+        Task.objects.create(project=project, name="Untracked", duration=5, assignee=user)
+        new_task = Task.objects.create(project=project, name="Tracked", duration=5)
+
+        r = client.post(
+            "/api/v1/task-resources/",
+            {"task": str(new_task.pk), "resource": str(resource.pk), "units": "1.0"},
+        )
+        assert r.status_code == 201
+        assert r.data["warnings"] == []
+
+    def test_bare_assignee_task_not_double_counted_with_taskresource_row(
+        self,
+        client: APIClient,
+        membership: ProjectMembership,
+        project: Project,
+        assignee_user: object,
+        resource_with_user: Resource,
+    ) -> None:
+        """A task with BOTH assignee and a TaskResource row counts once, not twice.
+
+        Regression guard for the already-working #2718/#2900 write-side fix:
+        once a task has a real TaskResource row, the bare-assignee fallback
+        must not add a second, phantom allocation for the same task.
+        """
+        tracked_task = Task.objects.create(
+            project=project, name="Both", duration=5, assignee=assignee_user
+        )
+        TaskResource.objects.create(
+            task=tracked_task, resource=resource_with_user, units=Decimal("0.6")
+        )
+        new_task = Task.objects.create(project=project, name="Second", duration=5)
+
+        r = client.post(
+            "/api/v1/task-resources/",
+            {"task": str(new_task.pk), "resource": str(resource_with_user.pk), "units": "0.3"},
+        )
+        assert r.status_code == 201
+        # 0.6 (tracked) + 0.3 (new) = 0.9 <= 1.0 capacity — no warnings at all,
+        # proving the already-tracked task was not also folded in via the
+        # bare-assignee fallback (which would have pushed the total to 1.9).
+        assert r.data["warnings"] == []
+
+    def test_bare_assignee_complete_task_excluded(
+        self,
+        client: APIClient,
+        membership: ProjectMembership,
+        project: Project,
+        assignee_user: object,
+        resource_with_user: Resource,
+    ) -> None:
+        """A COMPLETE bare-assignee task does not count toward the sum."""
+        Task.objects.create(
+            project=project,
+            name="Done",
+            duration=3,
+            assignee=assignee_user,
+            status="COMPLETE",
+        )
+        new_task = Task.objects.create(project=project, name="Active", duration=5)
+
+        r = client.post(
+            "/api/v1/task-resources/",
+            {"task": str(new_task.pk), "resource": str(resource_with_user.pk), "units": "1.0"},
+        )
+        assert r.status_code == 201
+        assert r.data["warnings"] == []
+
+
+# ---------------------------------------------------------------------------
 # Broadcast event tests
 # ---------------------------------------------------------------------------
 
