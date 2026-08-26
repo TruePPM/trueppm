@@ -365,7 +365,7 @@ load-bearing. The forward claim rests on group/ungroup not writing dependency ed
 write, so the differential compares against the true pre-undo graph.
 
 Its differential escape remains a real gap — if the project is *already* infeasible for an
-unrelated reason, `_verdict(before)` is non-`None` and undo commits regardless. That is why
+unrelated reason, `_is_schedulable(before)` is `False` and undo commits regardless. That is why
 §3b's per-edge validity guard is the primary control and this guard is the backstop, not
 the reverse.
 
