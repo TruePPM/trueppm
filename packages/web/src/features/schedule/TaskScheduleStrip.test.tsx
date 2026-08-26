@@ -416,4 +416,135 @@ describe('TaskScheduleStrip', () => {
       expect(screen.queryByText('(computed, not committed)')).not.toBeInTheDocument();
     });
   });
+
+  describe('uncommitted-start note for work not yet in progress (#3063)', () => {
+    beforeEach(() => {
+      mutate.mockReset();
+      policy = 'keep';
+      coarse = false;
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    const editableProps = { projectId: 'p1', canEdit: true };
+    // The gutter case: NOT_STARTED, no committed start, CPM has filled `start`.
+    // This task draws no bar on the canvas and sits in the Unscheduled tray.
+    const uncommitted = () => makeTask({ status: 'NOT_STARTED', plannedStart: null });
+
+    it('marks the Start value as computed — the regression #3063 fixes', () => {
+      // Before the predicate split this rendered as a plain, committed-looking
+      // date: the cue was gated on isMissingCommittedStart, which excludes
+      // NOT_STARTED, i.e. exactly the status with no bar to explain.
+      render(<TaskScheduleStrip task={uncommitted()} {...editableProps} />);
+      expect(screen.getByText('(computed, not committed)')).toBeInTheDocument();
+      expect(
+        within(screen.getByRole('group', { name: 'Start' })).getByText('computed'),
+      ).toBeInTheDocument();
+    });
+
+    it('marks it computed on the read-only path too', () => {
+      render(<TaskScheduleStrip task={uncommitted()} />);
+      expect(screen.getByText('(computed, not committed)')).toBeInTheDocument();
+    });
+
+    it('explains the blank row and offers the commit', () => {
+      render(<TaskScheduleStrip task={uncommitted()} {...editableProps} />);
+      expect(screen.getByText('Not on the timeline')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Set committed start/i })).toBeInTheDocument();
+    });
+
+    it('does not scold — no amber advisory and no no-op demotion', () => {
+      // NOT_STARTED without a committed start is ordinary unplanned work, not the
+      // data-integrity defect the #2314 advisory marks. "Move to To Do" would be
+      // a no-op here (the task is already To Do).
+      render(<TaskScheduleStrip task={uncommitted()} {...editableProps} />);
+      expect(screen.queryByText('No committed start')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Move to To Do' })).not.toBeInTheDocument();
+    });
+
+    it('commits the CPM-computed start as planned_start', async () => {
+      render(<TaskScheduleStrip task={uncommitted()} {...editableProps} />);
+      await userEvent.click(screen.getByRole('button', { name: /Set committed start/i }));
+      expect(mutate).toHaveBeenCalledTimes(1);
+      expect(mutate).toHaveBeenCalledWith(
+        { id: 't1', projectId: 'p1', planned_start: '2026-01-13' },
+        expect.anything(),
+      );
+    });
+
+    it('names the date it will commit, so the button is not a blind write', () => {
+      render(<TaskScheduleStrip task={uncommitted()} {...editableProps} />);
+      expect(screen.getByRole('button', { name: /Set committed start \(Jan 13\)/i })).toBeInTheDocument();
+    });
+
+    it('carries the same docs deep-link as the advisory and the row chip', () => {
+      render(<TaskScheduleStrip task={uncommitted()} {...editableProps} />);
+      expect(screen.getByRole('link', { name: /how dates work/i })).toHaveAttribute(
+        'href',
+        'https://docs.trueppm.com/features/schedule/#committed-vs-computed-start-dates',
+      );
+    });
+
+    it('disappears entirely once a start is committed', () => {
+      render(
+        <TaskScheduleStrip
+          task={makeTask({ status: 'NOT_STARTED', plannedStart: '2026-01-13' })}
+          {...editableProps}
+        />,
+      );
+      expect(screen.queryByText('Not on the timeline')).not.toBeInTheDocument();
+      expect(screen.queryByText('(computed, not committed)')).not.toBeInTheDocument();
+    });
+
+    it('never renders alongside the #2314 advisory — the two branches are exclusive', () => {
+      render(
+        <TaskScheduleStrip
+          task={makeTask({ status: 'IN_PROGRESS', plannedStart: null })}
+          {...editableProps}
+        />,
+      );
+      expect(screen.getByText('No committed start')).toBeInTheDocument();
+      expect(screen.queryByText('Not on the timeline')).not.toBeInTheDocument();
+    });
+
+    it('announces the commit — the write is otherwise silent to a screen reader', async () => {
+      // The visible proof of success is the note DISAPPEARING, which announces
+      // nothing. The strip already owns an aria-live region that the duration
+      // commit writes into; the start commit must reach it too.
+      render(<TaskScheduleStrip task={uncommitted()} {...editableProps} />);
+      await userEvent.click(screen.getByRole('button', { name: /Set committed start/i }));
+      // Drive the mutation's success path the way the hook's caller would.
+      const opts = mutate.mock.calls[0][1] as { onSuccess?: () => void };
+      opts.onSuccess?.();
+      expect(
+        await screen.findByText(/Committed start set to Jan 13\. This task is now on the timeline\./),
+      ).toBeInTheDocument();
+    });
+
+    it('still marks the date computed for a sprint-assigned task, but claims no missing bar', () => {
+      // A sprint IS a commitment to the canvas: drawTaskBar gates on
+      // `!plannedStart && !sprintId`, so this row draws a bar (floored to the
+      // sprint window, ADR-0168) and useUnscheduledTasks leaves it out of the
+      // gutter. The date is still CPM-derived, so the cue is right — but "Not on
+      // the timeline" would be false, and the commit would overwrite the floor.
+      render(
+        <TaskScheduleStrip
+          task={makeTask({ status: 'NOT_STARTED', plannedStart: null, sprintId: 's1' })}
+          {...editableProps}
+        />,
+      );
+      expect(screen.getByText('(computed, not committed)')).toBeInTheDocument();
+      expect(screen.queryByText('Not on the timeline')).not.toBeInTheDocument();
+    });
+
+    it('stays silent for a summary row, whose dates roll up from children', () => {
+      render(
+        <TaskScheduleStrip
+          task={makeTask({ status: 'NOT_STARTED', plannedStart: null, isSummary: true })}
+          {...editableProps}
+        />,
+      );
+      expect(screen.queryByText('Not on the timeline')).not.toBeInTheDocument();
+      expect(screen.queryByText('(computed, not committed)')).not.toBeInTheDocument();
+    });
+  });
 });

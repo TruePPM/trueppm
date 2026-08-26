@@ -21,7 +21,7 @@ import {
 import { RecalcPercentChip } from './RecalcPercentChip';
 import { buildRecalcPrompt, type RecalcPromptState } from './recalcPercentPrompt';
 import { useCommitStartOrTodo } from './useCommitStartOrTodo';
-import { isMissingCommittedStart } from './missingCommittedStart';
+import { isMissingCommittedStart, isStartComputed } from './missingCommittedStart';
 
 /**
  * Format an ISO date (YYYY-MM-DD) as "Mon D", omitting the year when it is the
@@ -562,8 +562,19 @@ function StripFrame({
  * as the chip does; the write path is never duplicated. Only mounted inside
  * `EditableStrip`, so the caller is already an editor (no `canEdit` re-gate).
  */
-function NoCommittedStartAdvisory({ task, projectId }: { task: Task; projectId: string }) {
-  const { commitStart, moveToTodo, error } = useCommitStartOrTodo(task, projectId);
+function NoCommittedStartAdvisory({
+  task,
+  projectId,
+  onAnnounce,
+}: {
+  task: Task;
+  projectId: string;
+  onAnnounce: (sentence: string) => void;
+}) {
+  const { commitStart, moveToTodo, error } = useCommitStartOrTodo(task, projectId, {
+    onCommitted: (iso) => onAnnounce(`Committed start set to ${fmtUtcShort(iso)}.`),
+    onMovedToTodo: () => onAnnounce('Moved to To Do.'),
+  });
   const startLabel = task.start
     ? `Set committed start (${fmtUtcShort(task.start)})`
     : 'Set committed start';
@@ -602,6 +613,84 @@ function NoCommittedStartAdvisory({ task, projectId }: { task: Task; projectId: 
             <HowDatesWorkLink />
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The uncommitted-start note (#3063) — the calm counterpart to
+ * {@link NoCommittedStartAdvisory}.
+ *
+ * Fires when the Start on display is CPM-computed but the task has *not* reached
+ * IN_PROGRESS, which is the state that fills the Unscheduled gutter: no bar on
+ * the timeline, no explanation anywhere in the drawer. The dotted `computed` cue
+ * on the Start cell says the date is not committed; this says what follows from
+ * that — the row is not on the timeline, and here is the one action that puts it
+ * there.
+ *
+ * It carries one condition the cue does not: `!sprintId`. The two answer different
+ * questions and must not be fused (the mistake this issue is about, made one level
+ * down). *Is this date computed?* is about provenance and is true of a sprint-
+ * assigned task too — its start is floored to the sprint window by CPM (ADR-0168),
+ * not committed by a PM. *Is this row missing from the timeline?* is about the
+ * canvas, and there a sprint IS a commitment: `drawTaskBar` gates on
+ * `!plannedStart && !sprintId`, so a sprint-assigned task draws a bar and
+ * `useUnscheduledTasks` correctly leaves it out of the gutter. Telling that user
+ * the task is "not on the timeline" would be false, and offering to commit a start
+ * would invite them to overwrite the sprint floor.
+ *
+ * Deliberately **not** the amber advisory. That treatment marks a data-integrity
+ * defect (work reported underway against dates nobody committed) and offers
+ * "Move to To Do" as the demotion out of it. An uncommitted NOT_STARTED task is
+ * not a defect — it is ordinary unplanned work, it is already in To Do, and the
+ * demotion would be a no-op. Scolding it in at-risk amber would train the user to
+ * ignore the color that means something on the other branch (web-rules 8b/12).
+ *
+ * The commit reuses {@link useCommitStartOrTodo}, so the write path stays single.
+ * One behavior worth knowing: unlike the IN_PROGRESS case the hook was written
+ * for, committing a start `<= today` on a NOT_STARTED task DOES trip the server's
+ * date-gated auto-promote to IN_PROGRESS (`_apply_date_gated_start_transition`,
+ * #336), back-stamping `actual_start` for a past date. That is not a surprise
+ * introduced here — it is exactly what dragging the same chip out of the gutter
+ * onto the timeline already does, and the two paths must not disagree.
+ */
+function UncommittedStartNote({
+  task,
+  projectId,
+  onAnnounce,
+}: {
+  task: Task;
+  projectId: string;
+  onAnnounce: (sentence: string) => void;
+}) {
+  const { commitStart, error, isPending } = useCommitStartOrTodo(task, projectId, {
+    onCommitted: (iso) =>
+      onAnnounce(`Committed start set to ${fmtUtcShort(iso)}. This task is now on the timeline.`),
+  });
+
+  return (
+    <div
+      role="status"
+      className="px-3.5 py-2.5 border-t border-neutral-border bg-neutral-surface-sunken text-xs"
+    >
+      <p className="font-semibold text-neutral-text-primary">Not on the timeline</p>
+      <p className="mt-0.5 leading-relaxed text-neutral-text-secondary">
+        Start and Finish are auto-calculated by the scheduler (CPM), so they shift whenever a
+        predecessor moves. Commit a start to place this task on the timeline.
+      </p>
+      {error && (
+        <p role="alert" className="mt-1 font-medium text-semantic-critical">
+          {error}
+        </p>
+      )}
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Button variant="secondary" size="sm" onClick={commitStart} disabled={isPending}>
+          {`Set committed start (${fmtUtcShort(task.start)})`}
+        </Button>
+      </div>
+      <div className="mt-2 border-t border-neutral-border pt-1.5">
+        <HowDatesWorkLink />
       </div>
     </div>
   );
@@ -685,8 +774,13 @@ function EditableStrip({
 
   const belowGrid = (
     <>
-      {isMissingCommittedStart(task) && (
-        <NoCommittedStartAdvisory task={task} projectId={projectId} />
+      {isMissingCommittedStart(task) ? (
+        <NoCommittedStartAdvisory task={task} projectId={projectId} onAnnounce={setLive} />
+      ) : (
+        isStartComputed(task) &&
+        !task.sprintId && (
+          <UncommittedStartNote task={task} projectId={projectId} onAnnounce={setLive} />
+        )
       )}
 
       {error && (
@@ -717,7 +811,7 @@ function EditableStrip({
     <div aria-label="Schedule" role="group">
       <StripFrame
         task={task}
-        startComputed={isMissingCommittedStart(task)}
+        startComputed={isStartComputed(task)}
         durationCell={
           <DurationCell
             days={task.duration}
@@ -794,7 +888,7 @@ export function TaskScheduleStrip({
         // The computed-Start cue is a drawer treatment scoped to non-milestones
         // (#2314); a milestone's "Date" is a single committed point, not a
         // CPM-computed span endpoint. The editable path is already non-milestone.
-        startComputed={isMissingCommittedStart(task) && !task.isMilestone}
+        startComputed={isStartComputed(task) && !task.isMilestone}
         durationCell={
           task.isMilestone ? null : (
             <Cell label="Duration">

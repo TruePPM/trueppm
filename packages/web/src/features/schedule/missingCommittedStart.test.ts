@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Task } from '@/types';
-import { isMissingCommittedStart } from './missingCommittedStart';
+import { isMissingCommittedStart, isStartComputed } from './missingCommittedStart';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -56,5 +56,47 @@ describe('isMissingCommittedStart (#317 / ADR-0603)', () => {
     expect(
       isMissingCommittedStart(makeTask({ status: 'IN_PROGRESS', isSummary: true, plannedStart: null })),
     ).toBe(false);
+  });
+});
+
+describe('isStartComputed (#3063)', () => {
+  it('fires for every status once plannedStart is absent — including NOT_STARTED', () => {
+    // The regression this file exists to prevent. NOT_STARTED is the status that
+    // fills the Unscheduled gutter, so it is the one case that MUST carry the
+    // computed cue; gating the cue on isMissingCommittedStart excluded exactly it.
+    for (const status of ['BACKLOG', 'NOT_STARTED', 'IN_PROGRESS', 'REVIEW', 'COMPLETE'] as const) {
+      expect(isStartComputed(makeTask({ status, plannedStart: null }))).toBe(true);
+    }
+  });
+
+  it('stops firing once the PM commits a start', () => {
+    for (const status of ['NOT_STARTED', 'IN_PROGRESS'] as const) {
+      expect(isStartComputed(makeTask({ status, plannedStart: '2026-01-13' }))).toBe(false);
+    }
+  });
+
+  it('does not fire when CPM has produced no start to qualify', () => {
+    expect(isStartComputed(makeTask({ status: 'NOT_STARTED', start: '', plannedStart: null }))).toBe(
+      false,
+    );
+  });
+
+  it('excludes summary tasks, matching the gutter and the renderer', () => {
+    expect(
+      isStartComputed(makeTask({ status: 'NOT_STARTED', isSummary: true, plannedStart: null })),
+    ).toBe(false);
+  });
+
+  it('is strictly wider than isMissingCommittedStart — every flagged task is also computed', () => {
+    // The two predicates must never disagree in the direction that would let a
+    // flagged task render a plain, committed-looking date.
+    for (const status of ['BACKLOG', 'NOT_STARTED', 'IN_PROGRESS', 'REVIEW', 'COMPLETE'] as const) {
+      for (const plannedStart of [null, '2026-01-13']) {
+        for (const isSummary of [false, true]) {
+          const task = makeTask({ status, plannedStart, isSummary });
+          if (isMissingCommittedStart(task)) expect(isStartComputed(task)).toBe(true);
+        }
+      }
+    }
   });
 });
