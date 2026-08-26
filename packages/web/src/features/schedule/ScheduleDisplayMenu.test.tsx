@@ -2,6 +2,7 @@ import { type ComponentProps } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { ScheduleDisplayMenu, type DisplayMenuRow } from './ScheduleDisplayMenu';
+import { DEFAULT_DISPLAY_OPTIONS } from '@/hooks/useScheduleDisplayOptions';
 
 type MenuProps = ComponentProps<typeof ScheduleDisplayMenu>;
 
@@ -483,22 +484,83 @@ describe('ScheduleDisplayMenu — section assembly edge cases', () => {
 
 describe('ScheduleDisplayMenu — Outline chrome section (#2959, #2955)', () => {
   const OUTLINE_OPTIONS = {
-    displayOptions: { structureButtons: false, coach: true, comfortableRows: false },
+    displayOptions: { ...DEFAULT_DISPLAY_OPTIONS, structureButtons: false, coach: true, comfortableRows: false },
   };
 
-  it('offers the structure-buttons toggle now that it governs real controls (#2955)', () => {
+  it('offers the structure-buttons toggle as a toolbar pin (#2955, moved in #3076)', () => {
     // It was deliberately withheld while nothing depended on it — a toggle that changes
     // nothing is a dead control. This is also the pointer-only user's route in, which is
     // why the label names the three buttons rather than something abstract.
+    //
+    // Since #3076 it lives in the "In the toolbar" section rather than "Outline":
+    // same stored key, same default, but now visibly one of the set of settings
+    // that govern toolbar width rather than a second concept beside them.
     const onToggle = vi.fn();
-    setup({ ...OUTLINE_OPTIONS, onToggleDisplayOption: onToggle });
+    setup({
+      ...OUTLINE_OPTIONS,
+      onToggleDisplayOption: onToggle,
+      toolbarPins: {
+        rows: [
+          {
+            id: 'structure-buttons',
+            label: 'Phase, Group and Ungroup buttons',
+            checked: false,
+            where: 'in ···',
+            onToggle: () => {
+              onToggle('structureButtons');
+            },
+          },
+        ],
+        footer: 'Nothing is pinned. Everything above is in ··· .',
+      },
+    });
     const menu = openMenu();
     const item = within(menu).getByRole('menuitemcheckbox', {
-      name: 'Phase, Group and Ungroup buttons',
+      // The location is part of the NAME, not a visual-only column (#3076).
+      name: 'Phase, Group and Ungroup buttons, in ···',
     });
     expect(item).toHaveAttribute('aria-checked', 'false');
     fireEvent.click(item);
     expect(onToggle).toHaveBeenCalledWith('structureButtons');
+  });
+
+  it('states where each pinned control currently is, and counts the pins honestly', () => {
+    setup({
+      ...OUTLINE_OPTIONS,
+      toolbarPins: {
+        rows: [
+          { id: 'pin-today', label: 'Today', checked: true, where: 'in the bar' },
+          { id: 'pin-milestone', label: 'Milestone', checked: true, where: 'in ···' },
+          {
+            id: 'locked-tier-a',
+            label: 'Item, Grid / Timeline, Display, ···',
+            sub: 'Always in the toolbar.',
+            checked: true,
+            where: 'always',
+            locked: true,
+          },
+        ],
+        footer: '1 of 2 pinned controls fit at this width. Collapse the sidebar or unpin one to get the rest back.',
+      },
+    });
+    const menu = openMenu();
+    expect(
+      within(menu).getByRole('menuitemcheckbox', { name: 'Today, in the bar' }),
+    ).toBeInTheDocument();
+    expect(
+      within(menu).getByRole('menuitemcheckbox', { name: 'Milestone, in ···' }),
+    ).toBeInTheDocument();
+    // A pin the ladder could not honour says so in words rather than being
+    // silently dropped or allowed to clip the bar.
+    expect(
+      within(menu).getByText(/1 of 2 pinned controls fit at this width/),
+    ).toBeVisible();
+    // Tier-A rows are shown, inert, and explained — a complete inventory, so
+    // the user learns that zoom and the mode chip collapse rather than vanish.
+    const locked = within(menu).getByRole('menuitemcheckbox', {
+      name: 'Item, Grid / Timeline, Display, ···, always',
+    });
+    expect(locked).toHaveAttribute('aria-disabled', 'true');
   });
 
   /**
@@ -520,7 +582,7 @@ describe('ScheduleDisplayMenu — Outline chrome section (#2959, #2955)', () => 
 
   it('reflects the Comfortable rows on state', () => {
     setup({
-      displayOptions: { structureButtons: false, coach: true, comfortableRows: true },
+      displayOptions: { ...DEFAULT_DISPLAY_OPTIONS, structureButtons: false, coach: true, comfortableRows: true },
       onToggleDisplayOption: vi.fn(),
     });
     const menu = openMenu();
@@ -532,12 +594,25 @@ describe('ScheduleDisplayMenu — Outline chrome section (#2959, #2955)', () => 
 
   it('reflects the on state', () => {
     setup({
-      displayOptions: { structureButtons: true, coach: true, comfortableRows: false },
+      displayOptions: { ...DEFAULT_DISPLAY_OPTIONS, structureButtons: true, coach: true, comfortableRows: false },
       onToggleDisplayOption: vi.fn(),
+      toolbarPins: {
+        rows: [
+          {
+            id: 'structure-buttons',
+            label: 'Phase, Group and Ungroup buttons',
+            checked: true,
+            where: 'in the bar',
+          },
+        ],
+        footer: 'All 1 pinned control fits at this width.',
+      },
     });
     const menu = openMenu();
     expect(
-      within(menu).getByRole('menuitemcheckbox', { name: 'Phase, Group and Ungroup buttons' }),
+      within(menu).getByRole('menuitemcheckbox', {
+        name: 'Phase, Group and Ungroup buttons, in the bar',
+      }),
     ).toHaveAttribute('aria-checked', 'true');
   });
 

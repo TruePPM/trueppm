@@ -545,16 +545,29 @@ vi.mock('@/features/board/TaskFormModal', () => ({
     </div>
   ),
 }));
+type StubItem = {
+  kind: string;
+  id: string;
+  label: string;
+  disabled?: boolean;
+  onSelect?: () => void;
+};
+// The real component takes EITHER a flat `items` list or grouped `sections`
+// (#3076). A stub that reads only `items` throws the moment the Schedule
+// toolbar starts passing sections — which is exactly what happened, so it
+// flattens both here rather than knowing which API the caller used.
 vi.mock('@/components/toolbar/ToolbarOverflowMenu', () => ({
   ToolbarOverflowMenu: ({
     triggerAriaLabel,
     items,
+    sections,
   }: {
     triggerAriaLabel: string;
-    items: { kind: string; id: string; label: string; disabled?: boolean; onSelect?: () => void }[];
+    items?: StubItem[];
+    sections?: { id: string; label: string; items: StubItem[] }[];
   }) => (
     <div role="group" aria-label={triggerAriaLabel}>
-      {items.map((it) =>
+      {(sections ? sections.flatMap((s) => s.items) : (items ?? [])).map((it) =>
         it.kind === 'action' ? (
           <button key={it.id} type="button" disabled={it.disabled} onClick={it.onSelect}>
             {it.label}
@@ -667,7 +680,11 @@ function getScheduleStatus(): HTMLElement {
     .filter(
       (n) =>
         n.getAttribute('data-testid') !== 'reconcile-live' &&
-        n.getAttribute('data-testid') !== 'schedule-act-live',
+        n.getAttribute('data-testid') !== 'schedule-act-live' &&
+        // The toolbar's demotion announcer (#3076) — mounted unconditionally
+        // so the region is already in the a11y tree when its text changes, so
+        // it is always present and never the one these tests mean.
+        n.getAttribute('data-testid') !== 'schedule-demotion-live',
     );
   expect(regions).toHaveLength(1);
   return regions[0];

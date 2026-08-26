@@ -1,4 +1,9 @@
-import { describeInsertTarget, type InsertTarget } from './buildMode/insertTarget';
+import {
+  describeInsertTarget,
+  describeInsertTargetShort,
+  type InsertTarget,
+} from './buildMode/insertTarget';
+import type { SentenceDensity } from './toolbar/toolbarLadder';
 
 /**
  * Stable id the `+ Item` button points `aria-describedby` at. Fixed rather than
@@ -15,6 +20,16 @@ export interface ScheduleInsertTargetStatementProps {
    * mutation nothing offers is noise, not help.
    */
   hasEditRights: boolean;
+  /**
+   * How much room the fit ladder left for it (#3076).
+   *
+   * `none` renders the FULL sentence `sr-only` — it never unmounts. The width
+   * is what ran out, not the user's need for the description, and unmounting
+   * would take the `+ Item` button's own `aria-describedby` target with it
+   * (rule 316(c)). A screen-reader user therefore hears the same complete
+   * sentence at 1024 as at 1920; only the ink is rationed.
+   */
+  density?: SentenceDensity;
 }
 
 /**
@@ -22,15 +37,20 @@ export interface ScheduleInsertTargetStatementProps {
  *
  * Three deliberate choices:
  *
- * - **`sr-only` below `lg`, never `hidden`.** There is no room to draw a
- *   sentence in the 768–1023px toolbar, but "no room to draw it" is not a
- *   reason to withhold it: `display:none` takes the button's own description
- *   out of the accessibility tree along with the pixels, so a screen-reader
- *   user would lose it at every width — and the button still branches three
- *   ways on focus state down there. It stays readable to AT at all widths and
- *   becomes visible where it fits. The `min-w-` floor rides with the `max-w-`
- *   cap because a shrinkable `truncate` span in a `flex-nowrap` bar collapses
- *   to zero width and ships "present" but invisible (rule 316(c)).
+ * - **`sr-only`, never `hidden`.** There is no room to draw a sentence in a
+ *   crowded toolbar, but "no room to draw it" is not a reason to withhold it:
+ *   `display:none` takes the button's own description out of the accessibility
+ *   tree along with the pixels, so a screen-reader user would lose it at every
+ *   width — and the button still branches three ways on focus state down there.
+ *   It stays readable to AT at all widths and becomes visible where it fits.
+ *   The `min-w-` floor rides with the `max-w-` cap because a shrinkable
+ *   `truncate` span in a `flex-nowrap` bar collapses to zero width and ships
+ *   "present" but invisible (rule 316(c)).
+ *
+ *   Since #3076 the *width* decision belongs to the fit ladder (`density`)
+ *   rather than to a `lg:` breakpoint. The old form branched on the viewport,
+ *   which could not see the things that actually consume the bar — the rail
+ *   being collapsed, the user's pins, whether this reader may author at all.
  * - **No `aria-live`.** The sentence changes on every arrow-key row move, so a
  *   live region would speak over the row announcement a planner is navigating
  *   by — the same reasoning that keeps `BuildModeHintStrip` silent (web rule
@@ -44,20 +64,62 @@ export interface ScheduleInsertTargetStatementProps {
 export function ScheduleInsertTargetStatement({
   target,
   hasEditRights,
+  density = 'full',
 }: ScheduleInsertTargetStatementProps) {
   if (!hasEditRights) return null;
-  const statement = describeInsertTarget(target);
-  if (!statement) return null;
+  const full = describeInsertTarget(target);
+  if (!full) return null;
+  const short = describeInsertTargetShort(target);
+
+  // AT always hears the full sentence; only the drawn form shortens. The two
+  // never disagree because both come from the same target (rule 316(a)).
+  if (density === 'none') {
+    return (
+      <span
+        id={INSERT_TARGET_STATEMENT_ID}
+        data-testid="schedule-insert-target"
+        data-target-kind={target.kind}
+        data-density="none"
+        className="sr-only"
+      >
+        {full}
+      </span>
+    );
+  }
+
+  const visible = density === 'short' ? (short ?? full) : full;
   return (
     <span
       id={INSERT_TARGET_STATEMENT_ID}
       data-testid="schedule-insert-target"
       data-target-kind={target.kind}
-      className="sr-only lg:not-sr-only lg:inline-flex lg:items-center
-        lg:min-w-[8rem] lg:max-w-[18rem] lg:truncate lg:whitespace-nowrap
-        text-xs text-neutral-text-secondary"
+      data-density={density}
+      className={[
+        'inline-flex shrink-0 items-center truncate whitespace-nowrap',
+        // The `min-w-` floor rides with the `max-w-` cap: a shrinkable
+        // `truncate` span in a `flex-nowrap` bar otherwise collapses to zero
+        // width and ships "present" but invisible (rule 316(c)). `shrink-0` is
+        // also what makes the bar's overflow measurable at all (#3076).
+        density === 'short' ? 'min-w-[5rem] max-w-[10rem]' : 'min-w-[8rem] max-w-[18rem]',
+        'text-xs text-neutral-text-secondary',
+      ].join(' ')}
     >
-      {statement}
+      {/* The full sentence is always real TEXT, never only an `aria-label`.
+          `+ Item` points `aria-describedby` at this element, and a description
+          is computed from the referenced node's text — an `aria-label` on a
+          bare `<span>` produces no accessible name at all, because a generic
+          element is name-prohibited. So the drawn short form is `aria-hidden`
+          and the complete claim rides in an `sr-only` sibling: one sentence to
+          AT at every density (rule 171 — never both forms of one claim), and
+          the ladder rations only the ink. */}
+      {density === 'short' ? (
+        <>
+          <span aria-hidden="true">{visible}</span>
+          <span className="sr-only">{full}</span>
+        </>
+      ) : (
+        visible
+      )}
     </span>
   );
 }

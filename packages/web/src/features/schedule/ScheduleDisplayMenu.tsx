@@ -82,17 +82,59 @@ const TASK_NAME_OPTIONS: ReadonlyArray<{ value: TaskNamePlacement; label: string
 
 // Internal flattened, focusable menu item — checkbox or radio. Roving focus and
 // keyboard nav operate over this uniform list regardless of source section.
+interface FlatItemBase {
+  id: string;
+  label: string;
+  checked: boolean;
+  activate: () => void;
+  /** Secondary line under the label. */
+  sub?: string;
+  /**
+   * Where this control is *right now* — `in the bar` / `in ···` / `always`
+   * (#3076). Rendered as a right-hand column AND folded into the row's
+   * accessible name, because a location that exists only as a visual column is
+   * not a statement (rule 328(b)).
+   */
+  where?: string;
+  /**
+   * A control that cannot be unpinned (tier A) or is a mode/readout that
+   * collapses rather than moving. Shown, inert, and explained — a configuration
+   * surface is the one place a disabled row is right, because it is a statement
+   * about the setting rather than an offer of an act (web rule 302).
+   */
+  locked?: boolean;
+}
+
 type FlatItem =
-  | { kind: 'checkbox'; id: string; label: string; checked: boolean; activate: () => void }
-  | { kind: 'radio'; id: string; label: string; checked: boolean; activate: () => void };
+  | (FlatItemBase & { kind: 'checkbox' })
+  | (FlatItemBase & { kind: 'radio' });
 
 // A rendered section may contain a nested radio group with its own sub-label.
 interface RenderSection {
   id: string;
   label: string;
+  /** Explanatory clause beside the heading. */
+  note?: string;
   items: FlatItem[];
   /** ids of items that begin a labeled radio sub-group, keyed to the sub-label. */
   radioGroup?: { afterItemId: string; label: string; itemIds: string[] } | null;
+}
+
+/** One pin row's live state, resolved by the toolbar (#3076). */
+export interface ToolbarPinRow {
+  id: string;
+  label: string;
+  sub?: string;
+  checked: boolean;
+  where: string;
+  locked?: boolean;
+  onToggle?: () => void;
+}
+
+export interface ToolbarPinsConfig {
+  rows: ToolbarPinRow[];
+  /** The honest count — "4 of 5 pinned controls fit at this width." */
+  footer: string;
 }
 
 export interface ScheduleDisplayMenuProps {
@@ -120,6 +162,15 @@ export interface ScheduleDisplayMenuProps {
   /** Collapse the trigger to icon-only (md/sm) — the "Display" label is dropped
    *  but the accessible name (with any active-filter count) is retained. */
   iconOnly: boolean;
+  /**
+   * Toolbar pinning (#3076). The Display popover is the one place in the
+   * product that can answer "where did my button go", which is why the pins
+   * live here rather than in a settings page: the question is asked at the
+   * toolbar, and this is the toolbar's own menu.
+   *
+   * Absent for a reader with no authoring apparatus to arrange.
+   */
+  toolbarPins?: ToolbarPinsConfig | null;
 }
 
 export function ScheduleDisplayMenu({
@@ -137,6 +188,7 @@ export function ScheduleDisplayMenu({
   iconOnly,
   displayOptions,
   onToggleDisplayOption,
+  toolbarPins = null,
 }: ScheduleDisplayMenuProps) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -154,20 +206,11 @@ export function ScheduleDisplayMenu({
           {
             id: 'outline-chrome',
             label: 'Outline',
-            // 'structureButtons' is live as of #2955 — it now governs the Phase,
-            // Group and Ungroup buttons in the toolbar. It stays **off by default**:
-            // ⌥⌘G and ⇥ already make phases, so the buttons are the discoverable
-            // route rather than the primary one. This row is also the pointer-only
-            // user's way in, which is why it names the three controls rather than
-            // calling itself something abstract like "Structure".
+            // 'structureButtons' used to live here. Since #3076 it is one of the
+            // toolbar *pins* below — same stored value, same default (off), one
+            // row. It always governed toolbar width; it is now visibly one of a
+            // set that does, rather than a second concept beside them.
             items: [
-              {
-                kind: 'checkbox' as const,
-                id: 'structure-buttons',
-                label: 'Phase, Group and Ungroup buttons',
-                checked: displayOptions.structureButtons,
-                activate: () => onToggleDisplayOption('structureButtons'),
-              },
               {
                 kind: 'checkbox' as const,
                 id: 'coach',
@@ -227,6 +270,24 @@ export function ScheduleDisplayMenu({
       ],
     },
   ];
+
+  if (toolbarPins && toolbarPins.rows.length > 0) {
+    sections.push({
+      id: 'toolbar-pins',
+      label: 'In the toolbar',
+      note: 'pinned controls stay as long as they fit',
+      items: toolbarPins.rows.map((row) => ({
+        kind: 'checkbox' as const,
+        id: row.id,
+        label: row.label,
+        sub: row.sub,
+        where: row.where,
+        locked: row.locked,
+        checked: row.checked,
+        activate: () => row.onToggle?.(),
+      })),
+    });
+  }
 
   if (columns && columns.length > 0) {
     sections.push({
@@ -387,13 +448,35 @@ export function ScheduleDisplayMenu({
         type="button"
         role={item.kind === 'radio' ? 'menuitemradio' : 'menuitemcheckbox'}
         aria-checked={item.checked}
+        aria-disabled={item.locked || undefined}
+        // The location is part of the NAME, not a visual-only column — a row
+        // that reads "Milestone" to a screen reader and "Milestone · in ···"
+        // to everyone else has withheld the answer from the person most likely
+        // to be asking it (#3076, rule 328(b)).
+        aria-label={item.where ? `${item.label}, ${item.where}` : undefined}
         tabIndex={index === activeIndex ? 0 : -1}
-        onClick={item.activate}
-        className="flex items-center w-full px-3 py-1.5 gap-2 text-left text-xs
+        onClick={item.locked ? undefined : item.activate}
+        className={`flex items-start w-full px-3 py-1.5 gap-2 text-left text-xs
           text-neutral-text-primary hover:bg-neutral-surface-raised
-          focus-visible:outline-none focus-visible:bg-neutral-surface-raised"
+          focus-visible:outline-none focus-visible:bg-neutral-surface-raised
+          ${item.locked ? 'cursor-default text-neutral-text-secondary' : ''}`}
       >
-        <span className="flex-1">{item.label}</span>
+        <span className="flex-1 min-w-0">
+          <span aria-hidden={item.where ? 'true' : undefined}>{item.label}</span>
+          {item.sub && (
+            <span className="block text-xs text-neutral-text-secondary">{item.sub}</span>
+          )}
+        </span>
+        {item.where && (
+          <span
+            aria-hidden="true"
+            className={`shrink-0 whitespace-nowrap tppm-mono ${
+              item.where === 'in the bar' ? 'text-brand-primary' : 'text-neutral-text-secondary'
+            }`}
+          >
+            {item.where}
+          </span>
+        )}
         {/* A radio row marks its selection with a dot, a checkbox row with a check —
             the shape distinguishes "one of these" from "any of these" (issue 1749). */}
         <span aria-hidden="true" className="flex w-3 shrink-0 justify-end text-brand-primary">
@@ -464,12 +547,18 @@ export function ScheduleDisplayMenu({
             return (
               <div key={section.id} role="group" aria-labelledby={headingId}>
                 {si > 0 && <div role="separator" className="my-1 border-t border-neutral-border" />}
-                <div
-                  id={headingId}
-                  className="px-3 pt-1 pb-0.5 text-xs font-semibold uppercase tracking-[.06em]
-                    text-neutral-text-secondary"
-                >
-                  {section.label}
+                <div id={headingId} className="flex items-baseline gap-2 px-3 pt-1 pb-0.5">
+                  <span
+                    className="text-xs font-semibold uppercase tracking-[.06em]
+                      text-neutral-text-secondary"
+                  >
+                    {section.label}
+                  </span>
+                  {section.note && (
+                    <span className="text-xs font-normal normal-case text-neutral-text-secondary">
+                      {section.note}
+                    </span>
+                  )}
                 </div>
                 {section.items.map((item) => {
                   const isFirstRadio = radioGroup?.itemIds[0] === item.id;
@@ -494,6 +583,17 @@ export function ScheduleDisplayMenu({
               </div>
             );
           })}
+          {/* The footer counts honestly. A pin that cannot be honoured at this
+              width says so here — in words, naming the two ways to fix it —
+              rather than being silently dropped or allowed to clip the bar. */}
+          {toolbarPins && (
+            <p
+              className="border-t border-neutral-border px-3 pt-1.5 pb-1 text-xs
+                text-neutral-text-secondary"
+            >
+              {toolbarPins.footer}
+            </p>
+          )}
         </div>
       )}
     </div>

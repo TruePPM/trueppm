@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CloseIcon } from '@/components/Icons';
+import { CloseIcon, UndoIcon } from '@/components/Icons';
 import { newestUndoableEntry, useTrailStore } from './trailStore';
 
 /**
@@ -25,9 +25,23 @@ export interface SessionTrailProps {
   onUndo?: (entryId: number, operationId: string) => void;
   /** True while an undo is in flight, so the control cannot be double-fired. */
   undoPending?: boolean;
+  /**
+   * Drop the trigger's label, keeping the count and an undo glyph (#3076).
+   *
+   * The trail **compacts and never demotes into `···`**: it is the only
+   * inspectable route to undo, and a record you must open a menu to discover
+   * is not a record that the plan changed. At 62px the compact form is the
+   * cheapest thing in the bar, which is why it survives to the narrowest
+   * composition while commands around it move out.
+   */
+  compact?: boolean;
 }
 
-export function SessionTrail({ onUndo, undoPending = false }: SessionTrailProps = {}) {
+export function SessionTrail({
+  onUndo,
+  undoPending = false,
+  compact = false,
+}: SessionTrailProps = {}) {
   const entries = useTrailStore((s) => s.entries);
   const [open, setOpen] = useState(false);
   const popRef = useRef<HTMLDivElement>(null);
@@ -54,7 +68,7 @@ export function SessionTrail({ onUndo, undoPending = false }: SessionTrailProps 
   const undoable = onUndo ? newestUndoableEntry(entries) : null;
 
   return (
-    <div className="relative">
+    <div className="relative shrink-0">
       <button
         ref={triggerRef}
         type="button"
@@ -65,12 +79,31 @@ export function SessionTrail({ onUndo, undoPending = false }: SessionTrailProps 
         // count-bearing button that announces just "changes" tells a screen
         // reader user nothing (ux-review §6.1).
         aria-label={`${count} structural ${count === 1 ? 'change' : 'changes'} this session. Review.`}
-        className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-control border border-neutral-border
+        // `shrink-0 whitespace-nowrap` matches every one of its toolbar peers
+        // (`BuildModePill`, `AuthorModePill`, `ScheduleSummaryChip`). Without
+        // them this was the one flexible item in a `flex-nowrap` bar, so it
+        // absorbed the whole overflow alone and its label wrapped inside a
+        // 40px-tall strip — the visible artifact #3076 was filed for. It is
+        // also what makes the bar's overflow *measurable*: a child that
+        // squeezes hides the very condition the fit ladder reads.
+        className="inline-flex shrink-0 whitespace-nowrap items-center gap-1.5 h-7 px-2.5
+          rounded-control border border-neutral-border
           bg-neutral-surface-raised text-xs font-medium text-neutral-text-secondary
           hover:text-neutral-text-primary hover:border-brand-primary
           focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
-        {count} {count === 1 ? 'change' : 'changes'} this session
+        {/* The count is the part that cannot go: it is the whole signal that
+            the plan moved. The label is the part that can. Both forms are
+            `aria-hidden` because the button's own `aria-label` above already
+            says it in words (rule 171). */}
+        <span aria-hidden="true">{count}</span>
+        {compact ? (
+          <UndoIcon className="h-3 w-3 shrink-0" aria-hidden="true" />
+        ) : (
+          <span aria-hidden="true">
+            {count === 1 ? 'change' : 'changes'} this session
+          </span>
+        )}
       </button>
 
       {open && (
