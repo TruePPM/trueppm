@@ -1,6 +1,7 @@
 ---
 title: Deployment
 description: Deploy TruePPM with Docker Compose, the Kubernetes Helm chart, or a single server managed by systemd — plus how to verify image and chart signatures.
+documentedFor: "0.4"
 ---
 
 :::caution[Pre-GA]
@@ -665,9 +666,60 @@ restore:
 - `projects.0019_backfill_wbs_paths` — backfills WBS `ltree` paths. The
   pre-backfill state was empty paths; reverse accepts that data loss.
 
-To roll back across either of these, restore the PostgreSQL backup taken before
+- `projects.0148_task_unique_task_wbs_path_per_project_live` — repairs duplicate
+  WBS paths before adding the constraint that forbids them (see below). Reverse
+  drops the constraint, which makes the old state legal again, but does not put
+  the repaired rows back.
+
+To roll back across any of these, restore the PostgreSQL backup taken before
 the upgrade rather than relying on `migrate <app> <prior>`. All other migrations
 reverse cleanly.
+
+### Upgrading to 0.4: duplicate WBS paths are repaired automatically
+
+:::note[Ships in 0.4]
+One item on this page — this section — ships in **TruePPM 0.4**, the first beta,
+and is **not** in `v0.3.0-alpha.3`, the latest release. Everything else on this
+page describes the current release.
+:::
+
+A task's `wbs_path` is the only thing that records its place in the work
+breakdown; there is no `parent_id` column. Before 0.4 nothing stopped two live
+tasks in one project from being written to the same path, and several code paths
+did exactly that. 0.4 adds a database constraint that forbids it.
+
+That constraint is **validated against every existing row** when it is created, so
+on a database that already holds a duplicate the upgrade would otherwise fail —
+and because migrations run on container start, it would fail on every restart.
+
+So the migration repairs first, rather than refusing:
+
+- One row keeps the path: the one that reached the project's write sequence
+  earliest.
+- Every other row moves to the next free path **among its own siblings** — a
+  duplicate at `4.2` becomes `4.9`, not a new top-level item — so it stays inside
+  the phase it was planned in.
+- **Rows underneath a duplicated path do not move.** A row at `4.2.1` is a child
+  of "the `4.2` in this project"; when there were two of those, nothing in the
+  data says which. The whole subtree stays with the row that kept the path.
+
+**Every move is logged at `WARNING`** with the project, the task, and the old and
+new path. Capture the migration output on upgrade — it is the only record of what
+changed:
+
+```
+wbs_path repair (#3068): project=<uuid> task=<uuid> moved 4.2 -> 4.9 (kept task=<uuid>)
+```
+
+Most databases have no duplicates, and for those the step is a single query and a
+no-op. If the log shows moves, review the named tasks afterwards: their numbering
+changed, and if any of them owned a subtree, that subtree is now attached to the
+task that kept the original path.
+
+One further note for large installs: the constraint is an `EXCLUDE USING GIST`,
+which PostgreSQL cannot build concurrently. It takes an `ACCESS EXCLUSIVE` lock on
+the task table for the duration of the index build, blocking reads as well as
+writes. Plan a maintenance window proportional to your task count.
 
 ## Monitoring
 
