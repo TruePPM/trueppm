@@ -139,7 +139,7 @@ import { BeforeProjectStartDialog } from './BeforeProjectStartDialog';
 import { useScheduleCommit } from './useScheduleCommit';
 import { useProject } from '@/hooks/useProject';
 import { useSprints } from '@/hooks/useSprints';
-import { computeCadenceSegments, computeSprintBands } from './sprintBands';
+import { computeCadenceSegments, computeSprintBands, emptySprintWindows } from './sprintBands';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { SchedulePrintLayout } from './export/SchedulePrintLayout';
 import { useScheduleExport } from './export/useScheduleExport';
@@ -1009,6 +1009,19 @@ export function ScheduleView() {
    * reference.
    */
   const cadenceSegments = useMemo(() => computeCadenceSegments(sprints), [sprints]);
+
+  /**
+   * The rail cells with no band under them (#3060) — the text channel for the
+   * one fact the rail adds over the bands.
+   *
+   * Derived from `sprintBands`, NOT from `sprints` alone, so "empty" means empty
+   * on this screen: a sprint whose only rows a filter or a collapsed phase has
+   * hidden is announced as empty, which is what the rail beside it is showing.
+   */
+  const emptySprints = useMemo(
+    () => emptySprintWindows(sprints, sprintBands),
+    [sprints, sprintBands],
+  );
 
   /**
    * Install the rail's height into the row model (#3012).
@@ -4093,6 +4106,7 @@ export function ScheduleView() {
         links={links}
         sprintBands={sprintBands}
         cadenceSegments={cadenceSegments}
+        emptySprints={emptySprints}
         zoomLevel={zoomLevel}
         chartOptions={chartOptions}
         handleEngineReady={handleEngineReady}
@@ -5316,6 +5330,9 @@ interface ScheduleMainAreaProps {
   sprintBands: ComponentProps<typeof CanvasScheduleTimeline>['sprintBands'];
   /** Cadence-rail cells for the canvas (#3012), addressed by date, not by row. */
   cadenceSegments: ComponentProps<typeof CanvasScheduleTimeline>['cadenceSegments'];
+  /** Rail cells with no band under them (#3060) — the ARIA overlay's only
+   *  channel for a sprint that has no committed work on this screen. */
+  emptySprints: ComponentProps<typeof CanvasScheduleTimeline>['emptySprints'];
   zoomLevel: ComponentProps<typeof CanvasScheduleTimeline>['zoomLevel'];
   chartOptions: ComponentProps<typeof CanvasScheduleTimeline>['chartOptions'];
   handleEngineReady: (eng: GanttEngine) => void;
@@ -5476,6 +5493,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
     handleCanvasScroll,
     links,
     sprintBands,
+    emptySprints,
     cadenceSegments,
     zoomLevel,
     chartOptions,
@@ -5674,6 +5692,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
                   links={links ?? []}
                   sprintBands={sprintBands}
                   cadenceSegments={cadenceSegments}
+                  emptySprints={emptySprints}
                   rowModes={rowModes}
                   authoring={timelineBuildMode}
                   canEditRow={canEditRow}

@@ -18,7 +18,11 @@ import { render, screen, cleanup, fireEvent, act } from '@testing-library/react'
 import type { RefObject } from 'react';
 import type { GanttEngine, GanttEngineEventMap, GanttScaleData } from './engine';
 import { buildScaleData, dateToLeft } from './engine';
-import { ScheduleAriaOverlay, buildTaskAriaLabel } from './ScheduleAriaOverlay';
+import {
+  ScheduleAriaOverlay,
+  buildTaskAriaLabel,
+  emptySprintCadenceSentence,
+} from './ScheduleAriaOverlay';
 import type { SprintBand } from './sprintBands';
 import { useDragStore } from '@/stores/dragStore';
 import type { Task, TaskLink } from '@/types';
@@ -697,5 +701,87 @@ describe('ScheduleAriaOverlay at the coarse row height (#2997)', () => {
     // The bar's inset is derived, so it re-centers instead of hugging the top.
     const bar = screen.getByRole('option', { name: /Task 0,/ });
     expect(bar.style.top).toBe('13px');
+  });
+});
+
+// #3060: the rail draws an empty sprint window precisely because the row bands
+// structurally cannot; the canvas is aria-hidden, so without this the one fact
+// the rail adds reaches a screen reader through nothing at all.
+describe('emptySprintCadenceSentence (#3060)', () => {
+  const win = (id: string, name: string, startDate: string, finishDate: string) => ({
+    id,
+    name,
+    startDate,
+    finishDate,
+  });
+
+  it('says nothing when every sprint has committed work', () => {
+    expect(emptySprintCadenceSentence([])).toBeNull();
+  });
+
+  it('names the window and its DATES, not just the sprint', () => {
+    expect(emptySprintCadenceSentence([win('s1', 'Sprint 5', '2026-04-06', '2026-04-17')])).toBe(
+      'One sprint window has no committed work on this schedule: Sprint 5 (Apr 6 – Apr 17).',
+    );
+  });
+
+  it('counts and lists several, in the order given', () => {
+    expect(
+      emptySprintCadenceSentence([
+        win('s1', 'Sprint 5', '2026-04-06', '2026-04-17'),
+        win('s2', 'Sprint 6', '2026-04-20', '2026-05-01'),
+      ]),
+    ).toBe(
+      '2 sprint windows have no committed work on this schedule: Sprint 5 (Apr 6 – Apr 17), Sprint 6 (Apr 20 – May 1).',
+    );
+  });
+});
+
+describe('the chart description carries the empty-sprint sentence (#3060)', () => {
+  afterEach(cleanup);
+
+  const EMPTY = [
+    { id: 's5', name: 'Sprint 5', startDate: '2026-04-06', finishDate: '2026-04-17' },
+  ];
+
+  function mountWith(emptySprints?: typeof EMPTY) {
+    const host = document.createElement('div');
+    Object.defineProperty(host, 'clientHeight', { value: 300, configurable: true });
+    document.body.appendChild(host);
+    render(
+      <ScheduleAriaOverlay
+        engine={null}
+        tasks={TASKS}
+        links={[]}
+        emptySprints={emptySprints}
+        containerRef={{ current: host } as RefObject<HTMLDivElement | null>}
+      />,
+    );
+  }
+
+  it('names the empty window inside the listbox’s own aria-describedby target', () => {
+    mountWith(EMPTY);
+    const grid = screen.getByRole('listbox', { name: 'Schedule chart' });
+    // The listbox points at it, so a screen reader reads it on entering the chart
+    // and browse mode can reach it — with NO new tab stop ahead of the rows.
+    expect(grid).toHaveAttribute('aria-describedby', 'schedule-grid-help');
+    expect(document.getElementById('schedule-grid-help')!.textContent).toContain(
+      'One sprint window has no committed work on this schedule: Sprint 5 (Apr 6 – Apr 17).',
+    );
+  });
+
+  it('adds no focusable stop — the option count is unchanged', () => {
+    mountWith(EMPTY);
+    const options = screen.getAllByRole('option');
+    expect(options).toHaveLength(TASKS.length);
+    // Nothing focusable exists outside the rows.
+    expect(document.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+  });
+
+  it('says nothing at all when every sprint has committed work', () => {
+    mountWith([]);
+    expect(document.getElementById('schedule-grid-help')!.textContent).not.toContain(
+      'no committed work',
+    );
   });
 });

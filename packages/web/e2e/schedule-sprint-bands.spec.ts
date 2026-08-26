@@ -293,3 +293,73 @@ test.describe('Sprint windows on the schedule canvas (#2738)', () => {
     await expect(page.getByRole('option', { name: /^Site preparation/ })).toBeVisible();
   });
 });
+
+/**
+ * The empty sprint's text channel (#3060).
+ *
+ * The rail exists so a sprint with NO committed work appears — it drives no
+ * rows, so the row bands structurally cannot show it. But the canvas is
+ * `aria-hidden` and the rail's only text channel is the per-row band
+ * description, which an empty sprint by definition has no row to carry. A
+ * sighted user sees a window sitting there waiting; a screen-reader user saw
+ * nothing at all.
+ */
+test.describe('An empty sprint window is announced, without a new tab stop (#3060)', () => {
+  // Sprint 5 is planned and nothing is committed to it — no task carries its id.
+  const EMPTY_SPRINT = {
+    ...SPRINTS[0],
+    id: 'e2e-sprint-0000-0000-0000-000000003060',
+    short_id: 'SP02',
+    short_id_display: 'SP-02',
+    name: 'Sprint 5',
+    goal: '',
+    start_date: '2026-05-04',
+    finish_date: '2026-05-15',
+    state: 'PLANNED',
+  };
+
+  test.beforeEach(async ({ page }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projects: PROJECTS,
+      projectId: PROJECT_ID,
+      tasks: TASKS,
+      dependencies: DEPENDENCIES,
+    });
+    const results = [...SPRINTS, EMPTY_SPRINT];
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/**`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: results.length, next: null, previous: null, results }),
+      });
+    });
+    await page.setViewportSize({ width: 1280, height: 800 });
+  });
+
+  test('the chart’s description names the window with no committed work, and only that one', async ({
+    page,
+  }) => {
+    await page.goto(BASE_URL);
+    const grid = page.getByRole('listbox', { name: 'Schedule chart' });
+    await expect(grid).toBeVisible();
+
+    const help = page.locator('#schedule-grid-help');
+    await expect(help).toContainText(
+      'One sprint window has no committed work on this schedule: Sprint 5 (May 4 – May 15).',
+    );
+    // Sprint 4 DOES drive rows, so it is already named on each of those bars.
+    // Naming it here too would read it twice to a screen reader.
+    await expect(help).not.toContainText('Sprint 4');
+  });
+
+  test('adds no focusable stop ahead of the task rows', async ({ page }) => {
+    await page.goto(BASE_URL);
+    await expect(page.getByRole('listbox', { name: 'Schedule chart' })).toBeVisible();
+    // #3012 ruled out a focusable stop per window: N sprint stops would land
+    // ahead of every row. The sentence rides the listbox's own description
+    // instead, so the option count is exactly the task count.
+    await expect(page.locator('[role="option"]')).toHaveCount(TASKS.length);
+  });
+});

@@ -46,7 +46,7 @@ import type { GanttEngine } from './engine';
 import { dateToLeft, dateToRight } from './engine';
 import { BAR_HEIGHT } from './engine/GanttHitIndex';
 import { useRowMetrics } from '@/hooks/useRowHeight';
-import { sprintBandByTaskId, type SprintBand } from './sprintBands';
+import { sprintBandByTaskId, type EmptySprintWindow, type SprintBand } from './sprintBands';
 import { rowModeSpeech, type RowMode } from './deliveryModePresentation';
 import { isPinnedByActuals } from './pinnedByActuals';
 import type { BuildModeApi } from './buildMode/BuildModeContext';
@@ -129,6 +129,38 @@ export function buildTaskAriaLabel(task: Task, band?: SprintBand, rowMode?: RowM
 }
 
 /**
+ * The sentence naming sprint windows that have no committed work (#3060), or
+ * `null` when there are none.
+ *
+ * Appended to the chart's own `aria-describedby`, which a screen reader reads on
+ * entering the listbox and which browse mode can reach at any time. That
+ * placement is the decision, not an implementation detail — the two rejected
+ * alternatives from #3060 were:
+ *
+ * - **A focusable stop per window.** #3012 ruled this out and it stays ruled
+ *   out: N sprint stops would land ahead of every task row in the tab order.
+ * - **A region listing the whole cadence.** Every non-empty sprint is already
+ *   named on each of its rows by `buildTaskAriaLabel`, so this reads each one
+ *   twice. What the rail adds over the bands is exactly the sprints with no
+ *   rows; naming only those is the honest scope, and it shrinks to nothing on a
+ *   plan where every sprint is committed.
+ *
+ * "no committed work" is scoped to what is on screen — `emptySprints` is derived
+ * from the bands, which come from `visibleTasks` — so a sprint whose only rows a
+ * filter has hidden is announced as empty, matching the rail the sighted user is
+ * looking at rather than contradicting it.
+ */
+export function emptySprintCadenceSentence(windows: readonly EmptySprintWindow[]): string | null {
+  if (!windows.length) return null;
+  const named = windows
+    .map((w) => `${w.name} (${formatAriaDate(w.startDate)} – ${formatAriaDate(w.finishDate)})`)
+    .join(', ');
+  const subject =
+    windows.length === 1 ? 'One sprint window has' : `${windows.length} sprint windows have`;
+  return `${subject} no committed work on this schedule: ${named}.`;
+}
+
+/**
  * Builds a per-task dependency description map for aria-describedby.
  *
  * Returns a Map<taskId, string> where each entry describes the task's
@@ -193,6 +225,12 @@ interface ScheduleAriaOverlayProps {
   links: TaskLink[];
   /** Sprint-window bands (#2738) — the non-visual carrier for the canvas band. */
   sprintBands?: SprintBand[];
+  /**
+   * Sprint windows the cadence rail draws but no band covers (#3060) — the one
+   * fact the rail adds over the bands, and the one with no row to announce it.
+   * See {@link emptySprintCadenceSentence}.
+   */
+  emptySprints?: EmptySprintWindow[];
   /**
    * Rolled-up delivery mode per task id (#3040) — the same map the outline's
    * chip is built from, and the same one pushed to the renderer. Absent on the
@@ -262,6 +300,7 @@ export function ScheduleAriaOverlay({
   tasks,
   links,
   sprintBands,
+  emptySprints,
   rowModes,
   authoring = null,
   canEditRow = NO_ROW_IS_EDITABLE,
@@ -338,6 +377,13 @@ export function ScheduleAriaOverlay({
   // Band per row (#2738) — the band's text equivalent for screen readers, and
   // the hover recovery path for a name the canvas had to truncate (rule 255):
   // a canvas has no `title`, so the overlay's own row node carries it.
+  // Only the sprints with no rows — see emptySprintCadenceSentence for why the
+  // whole cadence is deliberately NOT listed here.
+  const emptyCadenceSentence = useMemo(
+    () => emptySprintCadenceSentence(emptySprints ?? []),
+    [emptySprints],
+  );
+
   const sprintBandByTask = useMemo(
     () => sprintBandByTaskId(tasks, sprintBands ?? []),
     [tasks, sprintBands],
@@ -530,6 +576,7 @@ export function ScheduleAriaOverlay({
         On a reschedulable task, press {anyRowAuthorable ? 'R' : 'Shift+Enter or R'} to reschedule
         it with the keyboard: left and right arrow keys nudge the start date, Enter confirms,
         Escape cancels. Press Space to select a task without rescheduling.
+        {emptyCadenceSentence ? ` ${emptyCadenceSentence}` : ''}
       </span>
       {/* Polite live region — names the focused row and its reschedule hint. */}
       <span role="status" aria-live="polite" className="sr-only">
