@@ -247,6 +247,32 @@ describe('buildTaskAriaLabel (rule 69 canonical format)', () => {
     ).toBe('Design, 5 days, unscheduled, Kanban delivery');
   });
 
+  // #3040: the canvas is aria-hidden, so this label is the ONLY channel by which
+  // a bar's mode reaches a screen reader. Before this the label was built from
+  // the row's OWN stored field while the outline chip two feet away was built
+  // from the rolled-up subtree, so a MIXED phase announced a single mode and the
+  // mixed state was carried by a color band and a texture alone (WCAG 1.4.1).
+  it('announces the ROLLED-UP mode over the row’s own field, and names the constituents', () => {
+    const phase = makeTask('p1', 'Phase 4', { deliveryMode: 'scrum' });
+    expect(buildTaskAriaLabel(phase, undefined, { kind: 'mixed', parts: ['gated', 'scrum'] })).toBe(
+      'Phase 4, 5 days, starts Apr 6, finishes Apr 10, Mixed delivery — this branch contains gated and scrum work',
+    );
+  });
+
+  it('drops the suffix for a baseline row, matching the chip that draws nothing', () => {
+    const t = makeTask('t1', 'Design', { deliveryMode: 'waterfall' });
+    expect(buildTaskAriaLabel(t, undefined, { kind: 'gated', parts: ['gated'] })).toBe(
+      'Design, 5 days, starts Apr 6, finishes Apr 10',
+    );
+  });
+
+  it('keeps the row’s own field when no rollup is passed (the program schedule)', () => {
+    const phase = makeTask('p1', 'Phase 4', { deliveryMode: 'scrum' });
+    expect(buildTaskAriaLabel(phase)).toBe(
+      'Phase 4, 5 days, starts Apr 6, finishes Apr 10, Scrum delivery',
+    );
+  });
+
   // #2738: the sprint-window band is paint on an aria-hidden canvas, so without
   // this suffix a screen-reader user cannot learn a bar sits inside a sprint.
   const BAND: SprintBand = {

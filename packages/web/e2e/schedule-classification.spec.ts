@@ -184,6 +184,35 @@ test.describe('Hybrid classification — declare it once, then see it (#2736/#27
     await expect(gate.getByTestId('mode-chip')).toHaveCount(0);
   });
 
+  // #3040: the canvas is aria-hidden, so the overlay's option IS the timeline's
+  // only text channel. It used to build its mode suffix from the row's own
+  // stored field while the chip two feet to the left was built from the rolled-up
+  // subtree — so the mixed state reached a sighted user as a color band and a
+  // texture and reached a screen-reader user not at all (WCAG 1.4.1).
+  test('the timeline announces the phase as MIXED, in the same words as the outline chip', async ({
+    page,
+  }) => {
+    await page.goto(BASE_URL);
+    await page.getByText('Control software').click();
+    await page.keyboard.press('ControlOrMeta+Shift+KeyM');
+    await page.getByTestId('classification-cascade').uncheck();
+    await page.getByTestId('classification-preset-scrum').click();
+    await page.getByTestId('classification-apply').click();
+
+    const phase = page.getByRole('row').filter({ hasText: 'Build & integration' });
+    await expect(phase.getByTestId('mode-chip')).toHaveText('MIXED');
+
+    const phaseBar = page.locator('[role="option"][data-task-id="t4"]');
+    await expect(phaseBar).toHaveAttribute('aria-label', /Mixed delivery/);
+    // Names the constituents, not just that something is mixed.
+    await expect(phaseBar).toHaveAttribute('aria-label', /gated and scrum/);
+
+    // And the leaf that was actually cascaded says the single mode, so the two
+    // rows are distinguishable by speech alone.
+    const leafBar = page.locator('[role="option"][data-task-id="t42"]');
+    await expect(leafBar).toHaveAttribute('aria-label', /Scrum delivery/);
+  });
+
   test('a gated plan carries no mode chips at all', async ({ page }) => {
     // The baseline draws nothing, matching the canvas. A 400-row gated plan
     // must not carry 400 identical marks.

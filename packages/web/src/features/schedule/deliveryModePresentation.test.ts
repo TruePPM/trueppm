@@ -5,6 +5,7 @@ import {
   gutterBackground,
   isModeVisible,
   modePresentation,
+  rowModeSpeech,
 } from './deliveryModePresentation';
 
 function task(
@@ -157,5 +158,27 @@ describe('gutterBackground', () => {
 
   it('splits evenly across the modes present', () => {
     expect(gutterBackground(['a', 'b'])).toBe('linear-gradient(180deg, a 0% 50%, b 50% 100%)');
+  });
+});
+
+// #3040: the canvas is aria-hidden, so this phrase is the ONLY channel by which
+// a bar's mode reaches a screen reader.
+describe('rowModeSpeech', () => {
+  it('says nothing for the baseline, matching the chip that draws nothing', () => {
+    expect(rowModeSpeech({ kind: 'gated', parts: ['gated'] })).toBeNull();
+  });
+
+  it('names a single mode', () => {
+    expect(rowModeSpeech({ kind: 'scrum', parts: ['scrum'] })).toBe('Scrum delivery');
+    expect(rowModeSpeech({ kind: 'kanban', parts: ['kanban'] })).toBe('Kanban delivery');
+  });
+
+  it('names every constituent of a mixed subtree, not just that it is mixed', () => {
+    expect(rowModeSpeech({ kind: 'mixed', parts: ['gated', 'scrum'] })).toBe(
+      'Mixed delivery — this branch contains gated and scrum work',
+    );
+    expect(rowModeSpeech({ kind: 'mixed', parts: ['gated', 'scrum', 'kanban'] })).toBe(
+      'Mixed delivery — this branch contains gated and scrum and kanban work',
+    );
   });
 });

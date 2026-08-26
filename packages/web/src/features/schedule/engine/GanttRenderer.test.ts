@@ -29,6 +29,8 @@ import {
   chipFont,
   refreshFontScale,
   getFontScale,
+  setRendererRowModes,
+  SUMMARY_BAR_HEIGHT,
 } from './GanttRenderer';
 import { buildScaleData, dateToLeft, dateToRight } from './GanttScaleData';
 import { CADENCE_RAIL_HEIGHT, HEADER_HEIGHT } from '../scheduleConstants';
@@ -3460,5 +3462,116 @@ describe('drawCadenceRail — naming every window on the time axis (#3012)', () 
     const { ctx, calls } = makeCtxSpy();
     drawCadenceRail(ctx, [], scales, 0, VIEW_W);
     expect(calls).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #3040 — the outline and the canvas draw the mode from ONE value
+// ---------------------------------------------------------------------------
+
+describe('delivery-mode mark reads the outline rollup (#3040)', () => {
+  const scales = buildScaleData('week', '2026-04-01', '2026-05-01');
+  const VIEWPORT_W = 800;
+  const styles = (calls: Array<{ name: string; args: unknown[] }>, kind: string): unknown[] =>
+    calls.filter((c) => c.name === kind).map((c) => c.args[0]);
+  /** Gutter bands are the 3px-wide fillRects; the bar fill is full width. */
+  const gutterBands = (calls: Array<{ name: string; args: unknown[] }>) =>
+    calls.filter((c) => c.name === 'fillRect' && c.args[2] === 3);
+  /** The summary bar's top edge, from the roundRect it fills itself with. */
+  const barTopOf = (calls: Array<{ name: string; args: unknown[] }>) =>
+    (calls.find((c) => c.name === 'roundRect')!.args[1] as number);
+
+  afterEach(() => setRendererRowModes(new Map()));
+
+  it('draws the ROLLED-UP mode on a phase, not the phase’s own stored field', () => {
+    // The #3040 case exactly: phase 4 was cascaded to scrum, child 4.1 kept a
+    // gated override, so `computeRowModes` reads the phase MIXED while its own
+    // `delivery_mode` still says scrum.
+    const phase = { ...SUMMARY_TASK, id: 'p1', deliveryMode: 'scrum' } as Task;
+    setRendererRowModes(new Map([['p1', { kind: 'mixed', parts: ['gated', 'scrum'] } as const]]));
+    const { ctx, calls } = makeCtxSpy();
+    drawSummaryBar(ctx, phase, 0, scales, 0, false);
+    const bands = gutterBands(calls);
+    expect(bands).toHaveLength(1);
+    expect(styles(calls, 'fillStyle')).toContain(COLOR.deliveryScrum);
+    // HALF height, not the full-height band the row's own scrum field would give
+    // — the gated half is a gap, so band GEOMETRY is what says "mixed".
+    expect(bands[0].args[3] as number).toBeLessThan(SUMMARY_BAR_HEIGHT * 0.6);
+    // ...and it sits in the LOWER slot, because `gated` is first in canonical order.
+    expect(bands[0].args[1] as number).toBeGreaterThan(barTopOf(calls));
+  });
+
+  it('draws a full-height band for a single-mode phase, so a mixed row is not just a shorter one', () => {
+    const phase = { ...SUMMARY_TASK, id: 'p1' } as Task;
+    setRendererRowModes(new Map([['p1', { kind: 'scrum', parts: ['scrum'] } as const]]));
+    const { ctx, calls } = makeCtxSpy();
+    drawSummaryBar(ctx, phase, 0, scales, 0, false);
+    const bands = gutterBands(calls);
+    expect(bands).toHaveLength(1);
+    expect(bands[0].args[3]).toBe(SUMMARY_BAR_HEIGHT);
+  });
+
+  it('separates two drawn bands by a gap — the split survives forced-colors, where every delivery hue is CanvasText', () => {
+    const phase = { ...SUMMARY_TASK, id: 'p1' } as Task;
+    setRendererRowModes(new Map([['p1', { kind: 'mixed', parts: ['scrum', 'kanban'] } as const]]));
+    const { ctx, calls } = makeCtxSpy();
+    drawSummaryBar(ctx, phase, 0, scales, 0, false);
+    const bands = gutterBands(calls);
+    expect(bands).toHaveLength(2);
+    const [first, second] = bands;
+    const firstBottom = (first.args[1] as number) + (first.args[3] as number);
+    // A gap, not an abutment: two touching bands in one color read as one band.
+    expect(second.args[1] as number).toBeGreaterThan(firstBottom);
+  });
+
+  it('never paints a gated band in the bar’s own fill color — the slot is left empty', () => {
+    // `--ink-2`, the outline's neutral for gated, maps to `barSummary` on the
+    // canvas, which IS a phase bar's fill. A gated band would be the bar painted
+    // onto itself: invisible, and indistinguishable from a single-mode row.
+    const phase = { ...SUMMARY_TASK, id: 'p1' } as Task;
+    setRendererRowModes(new Map([['p1', { kind: 'mixed', parts: ['gated', 'kanban'] } as const]]));
+    const { ctx, calls } = makeCtxSpy();
+    drawSummaryBar(ctx, phase, 0, scales, 0, false);
+    expect(gutterBands(calls)).toHaveLength(1);
+    expect(styles(calls, 'fillStyle')).toContain(COLOR.deliveryKanban);
+  });
+
+  it('draws the phase gutter AFTER the diamond end-caps, which would otherwise cover it', () => {
+    // The left cap is a 12px square rotated 45°, so it reaches 8.49px right of
+    // barLeft at the row centerline — over the whole 3px gutter, in barSummary.
+    // Painted before the caps the mark is invisible on every phase.
+    const phase = { ...SUMMARY_TASK, id: 'p1' } as Task;
+    setRendererRowModes(new Map([['p1', { kind: 'scrum', parts: ['scrum'] } as const]]));
+    const { ctx, calls } = makeCtxSpy();
+    drawSummaryBar(ctx, phase, 0, scales, 0, false);
+    const lastCapRotate = calls.map((c) => c.name).lastIndexOf('rotate');
+    const gutterIdx = calls.findIndex((c) => c.name === 'fillRect' && c.args[2] === 3);
+    expect(lastCapRotate).toBeGreaterThan(-1);
+    expect(gutterIdx).toBeGreaterThan(lastCapRotate);
+  });
+
+  it('draws NO body texture for mixed — two overlaid textures would name a mode neither half has', () => {
+    const leaf = makeBarTask({ deliveryMode: 'scrum' });
+    setRendererRowModes(new Map([[leaf.id, { kind: 'mixed', parts: ['gated', 'scrum'] } as const]]));
+    const { ctx, calls } = makeCtxSpy();
+    drawTaskBar(ctx, leaf, 0, scales, 0, false, VIEWPORT_W);
+    expect(styles(calls, 'strokeStyle')).not.toContain(COLOR.deliveryTexture);
+  });
+
+  it('falls back to the row’s own field when no rollup is pushed (program schedule)', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawTaskBar(ctx, makeBarTask({ deliveryMode: 'scrum' }), 0, scales, 0, false, VIEWPORT_W);
+    expect(styles(calls, 'fillStyle')).toContain(COLOR.deliveryScrum);
+  });
+
+  it('keeps the milestone cross-hatch ahead of the rollup — computeRowModes cannot describe a milestone', () => {
+    // `contributedMode` returns null for a milestone so a gate inside a scrum
+    // phase does not read MIXED; consulting the rollup here would silently
+    // report `gated` and drop the mark this edge case has drawn since #2727.
+    const t = makeBarTask({ deliveryMode: 'milestone' });
+    setRendererRowModes(new Map([[t.id, { kind: 'gated', parts: ['gated'] } as const]]));
+    const { ctx, calls } = makeCtxSpy();
+    drawTaskBar(ctx, t, 0, scales, 0, false, VIEWPORT_W);
+    expect(styles(calls, 'fillStyle')).toContain(COLOR.milestone);
   });
 });
