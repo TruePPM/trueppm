@@ -58,11 +58,16 @@ def _project(program: Program, name: str, code: str, *users: object) -> Project:
     return project
 
 
-def _task_with_label(project: Project, task_name: str, label_name: str, color: str) -> Task:
+def _task_with_label(
+    project: Project, task_name: str, label_name: str, color: str, wbs_path: str = "1.1"
+) -> Task:
     label, _ = Label.objects.get_or_create(
         project=project, name=label_name, defaults={"color": color}
     )
-    task = Task.objects.create(project=project, name=task_name, wbs_path="1.1")
+    # wbs_path only needs to be unique per project here (#3048) — the tests in this
+    # file exercise label filtering, not WBS structure, so the value itself is
+    # arbitrary as long as two tasks in the same project never share one.
+    task = Task.objects.create(project=project, name=task_name, wbs_path=wbs_path)
     task.labels.add(label)
     return task
 
@@ -78,7 +83,7 @@ def seeded(program: Program, lead: object, partial: object) -> dict[str, object]
     beacon = _project(program, "Beacon API", "BCN", lead)
     _task_with_label(ares, "Threat model", "security-review", "teal")
     _task_with_label(beacon, "Auth review", "Security-Review", "amber")
-    _task_with_label(beacon, "Unrelated work", "performance", "blue")
+    _task_with_label(beacon, "Unrelated work", "performance", "blue", wbs_path="1.2")
     return {"ares": ares, "beacon": beacon}
 
 

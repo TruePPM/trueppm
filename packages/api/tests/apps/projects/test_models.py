@@ -274,6 +274,69 @@ class TestTaskSoftDelete:
 
 
 @pytest.mark.django_db
+class TestTaskWbsPathUniqueConstraint:
+    """DB-level UniqueConstraint on (project, wbs_path) for live tasks (#3048).
+
+    ``wbs_path`` is the ONLY parenthood/ordering mechanism for the WBS tree — there
+    is no ``parent_id`` column (see ``structural_parent()``'s docstring) — so
+    nothing previously stopped two live tasks in the same project from silently
+    sharing a path. A duplicate corrupted the next ``rewrite_level`` pass instead of
+    raising anywhere; this constraint makes it a hard DB error at write time.
+    """
+
+    def setup_method(self) -> None:
+        self.project = Project.objects.create(name="WbsUniq", start_date=date(2026, 3, 2))
+
+    def test_duplicate_live_wbs_path_same_project_raises(self) -> None:
+        from django.db import IntegrityError
+
+        Task.objects.create(project=self.project, name="A", wbs_path="1")
+        with pytest.raises(IntegrityError):
+            Task.objects.create(project=self.project, name="B", wbs_path="1")
+
+    def test_update_onto_colliding_live_wbs_path_raises(self) -> None:
+        """The constraint also catches a collision introduced by an UPDATE, not just INSERT."""
+        from django.db import IntegrityError
+
+        Task.objects.create(project=self.project, name="A", wbs_path="1")
+        b = Task.objects.create(project=self.project, name="B", wbs_path="2")
+        b.wbs_path = "1"
+        with pytest.raises(IntegrityError):
+            b.save(update_fields=["wbs_path"])
+
+    def test_distinct_wbs_paths_same_project_allowed(self) -> None:
+        Task.objects.create(project=self.project, name="A", wbs_path="1")
+        Task.objects.create(project=self.project, name="B", wbs_path="2")
+        Task.objects.create(project=self.project, name="C", wbs_path="1.1")
+        assert Task.objects.filter(project=self.project).count() == 3
+
+    def test_same_wbs_path_different_projects_allowed(self) -> None:
+        """Scoped per-project — two projects numbering from '1' never collide."""
+        other = Project.objects.create(name="Other", start_date=date(2026, 3, 2))
+        Task.objects.create(project=self.project, name="A", wbs_path="1")
+        Task.objects.create(project=other, name="A", wbs_path="1")
+        assert Task.objects.filter(wbs_path="1").count() == 2
+
+    def test_soft_deleted_wbs_path_freed_for_reuse(self) -> None:
+        """A tombstoned task's path does not block a new live task from taking it.
+
+        Scoped ``is_deleted=False``, matching every other partial index on this
+        model: a soft-deleted row keeps its old path for tombstone/history purposes,
+        and that path must be free for reassignment to a new live task.
+        """
+        original = Task.objects.create(project=self.project, name="A", wbs_path="1")
+        original.soft_delete()
+        # Must not raise — the tombstoned row is excluded from the constraint.
+        Task.objects.create(project=self.project, name="B", wbs_path="1")
+
+    def test_multiple_null_wbs_paths_allowed(self) -> None:
+        """Subtasks / recurrence templates with no wbs_path stay unconstrained (NULLS DISTINCT)."""
+        Task.objects.create(project=self.project, name="A", wbs_path=None)
+        Task.objects.create(project=self.project, name="B", wbs_path=None)
+        assert Task.objects.filter(project=self.project, wbs_path__isnull=True).count() == 2
+
+
+@pytest.mark.django_db
 class TestDependency:
     def setup_method(self) -> None:
         self.project = Project.objects.create(name="P", start_date=date(2026, 3, 2))
