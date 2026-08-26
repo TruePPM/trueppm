@@ -637,6 +637,38 @@ class TestGraphGuard:
         assert caught.value.code == "cyclic_dependency"
         assert "No rows were moved" in caught.value.detail
 
+    def test_the_refusal_chains_the_guard_s_own_exception_as_its_cause(
+        self, project: Project
+    ) -> None:
+        """``raise ... from`` must carry the guard's error, not ``None`` and not a lie.
+
+        The cause is what a reader of the traceback (and Sentry) gets to explain *why*
+        the graph is infeasible — ``GroupingRejected`` itself only says that it is.
+        Asserted because the chaining was previously fed from a nullable return, which
+        would raise ``TypeError`` at the ``raise`` if it ever came back ``None``.
+        """
+        from trueppm_scheduler import InvalidScheduleInput
+
+        from trueppm_api.apps.projects.task_grouping import (
+            GroupingRejected,
+            assert_graph_feasible,
+            capture_graph_state,
+        )
+        from trueppm_api.apps.scheduling.graph_guard import InfeasibleGraphError
+
+        first = make_task(project, "First", "1")
+        second = make_task(project, "Second", "2")
+        healthy = capture_graph_state(str(project.id))
+
+        Dependency.objects.create(predecessor=first, successor=second)
+        Dependency.objects.create(predecessor=second, successor=first)
+
+        with pytest.raises(GroupingRejected) as caught:
+            assert_graph_feasible(str(project.id), healthy)
+
+        cause = caught.value.__cause__
+        assert isinstance(cause, InfeasibleGraphError | InvalidScheduleInput)
+
     def test_a_pre_existing_cycle_is_not_this_operation_s_to_refuse(self, project: Project) -> None:
         """Otherwise a project that arrived cyclic could never be restructured to fix it.
 

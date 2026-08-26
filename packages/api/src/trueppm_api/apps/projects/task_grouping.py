@@ -321,26 +321,41 @@ def capture_graph_state(project_id: Any) -> GraphState:
     return edges, children_map
 
 
-def _verdict(state: GraphState) -> Exception | None:
-    """``None`` when this graph is schedulable, else the guard's own exception."""
+def _guard_errors() -> tuple[type[Exception], ...]:
+    """The exception types the ADR-0259 guard raises, as a single ``except`` target."""
     from trueppm_scheduler import InvalidScheduleInput
 
-    from trueppm_api.apps.scheduling.graph_guard import (
-        InfeasibleGraphError,
-        validate_task_graph,
-    )
+    from trueppm_api.apps.scheduling.graph_guard import InfeasibleGraphError
+
+    return (InfeasibleGraphError, InvalidScheduleInput)
+
+
+def _assert_schedulable(state: GraphState) -> None:
+    """Return cleanly when this graph is schedulable, else re-raise the guard's error.
+
+    The exception propagates rather than being returned, so a caller that wants to
+    chain it into its own refusal binds it with ``except ... as`` — the cause of a
+    ``raise ... from`` is then an exception by construction rather than by a nullable
+    return the reader (and every static analyzer) has to prove non-``None`` themselves.
+    """
+    from trueppm_api.apps.scheduling.graph_guard import validate_task_graph
 
     edges, children_map = state
     if not edges:
         # No edges, no cycle — and no reason to expand a whole project's children_map
         # to prove it. A plan with no dependencies is the common case for the outline
         # this endpoint serves, so the cheap exit is the usual one.
-        return None
+        return
+    validate_task_graph(edges, children_map=children_map)
+
+
+def _is_schedulable(state: GraphState) -> bool:
+    """Whether ``state`` passes the guard, discarding the reason it does not."""
     try:
-        validate_task_graph(edges, children_map=children_map)
-    except (InfeasibleGraphError, InvalidScheduleInput) as exc:
-        return exc
-    return None
+        _assert_schedulable(state)
+    except _guard_errors():
+        return False
+    return True
 
 
 def assert_graph_feasible(project_id: Any, before: GraphState) -> None:
@@ -373,26 +388,19 @@ def assert_graph_feasible(project_id: Any, before: GraphState) -> None:
     silently.
     """
     after = capture_graph_state(project_id)
-    verdict = _verdict(after)
-    if verdict is None:
-        return
-    if _verdict(before) is not None:
-        # Already broken when we arrived. Not ours to refuse.
-        return
-
-    # Re-bound to a non-nullable name: `verdict` is `Exception | None`, and the `raise
-    # ... from` clause below requires an actual exception (or None) at runtime — a
-    # `TypeError` otherwise. The `is None` check above already guarantees that, but
-    # binding it to a name typed `Exception` keeps the guarantee legible to static
-    # analysis, not just to the reader (SonarCloud python:S5707).
-    failure: Exception = verdict
-    offending = getattr(failure, "offending", None)
-    reason = getattr(failure, "reason", "invalid_graph_input")
-    raise GroupingRejected(
-        reason,
-        "This restructure would make the dependency graph infeasible. No rows were moved.",
-        extra={"offending": offending} if offending is not None else None,
-    ) from failure
+    try:
+        _assert_schedulable(after)
+    except _guard_errors() as failure:
+        if not _is_schedulable(before):
+            # Already broken when we arrived. Not ours to refuse.
+            return
+        offending = getattr(failure, "offending", None)
+        reason = getattr(failure, "reason", "invalid_graph_input")
+        raise GroupingRejected(
+            reason,
+            "This restructure would make the dependency graph infeasible. No rows were moved.",
+            extra={"offending": offending} if offending is not None else None,
+        ) from failure
 
 
 # ── Guards shared by both operations ────────────────────────────────────────────
