@@ -909,3 +909,101 @@ class TestPublishIsAudited:
         self._publish(admin_client, source_project)
         assert self._publish(admin_client, source_project).status_code == 409
         assert AuditEvent.objects.filter(event_type="template_published").count() == 1
+
+
+# ---------------------------------------------------------------------------
+# Seeded WBS paths must not land on rows that are already there (#3061)
+# ---------------------------------------------------------------------------
+
+
+def _doc(*paths: str) -> dict[str, Any]:
+    """A structure document whose nodes sit at exactly ``paths``."""
+    return {
+        "version": STRUCTURE_VERSION,
+        "methodology": "HYBRID",
+        "carries": ["structure"],
+        "tasks": [
+            {
+                "ref": f"t{i}",
+                "name": f"Node {path}",
+                "duration": 3,
+                "wbs_path": path,
+                "parent": None,
+                "is_milestone": False,
+                "type": "waterfall",
+            }
+            for i, path in enumerate(paths)
+        ],
+    }
+
+
+def _live_paths(project: Project) -> list[str]:
+    return sorted(
+        str(p)
+        for p in Task.objects.filter(project=project, is_deleted=False).values_list(
+            "wbs_path", flat=True
+        )
+        if p is not None
+    )
+
+
+@pytest.mark.django_db
+def test_first_adoption_keeps_the_documents_paths_verbatim(target_project: Project) -> None:
+    """An empty project shifts by nothing — the offset must not perturb the common case."""
+    template = ProjectTemplate.objects.create(name="Skeleton", structure=_doc("1", "1.1", "2"))
+
+    materialize_structure(template, target_project)
+
+    assert _live_paths(target_project) == ["1", "1.1", "2"]
+
+
+@pytest.mark.django_db
+def test_second_adoption_appends_past_the_rows_already_there(target_project: Project) -> None:
+    """Template paths are relative to a fresh project, so a second adoption must shift.
+
+    Writing them verbatim put two live tasks on one ``wbs_path``, which corrupts the
+    next ``rewrite_level`` pass rather than raising anywhere (#3061, #3048).
+    """
+    first = ProjectTemplate.objects.create(name="Skeleton", structure=_doc("1", "1.1", "2"))
+    second = ProjectTemplate.objects.create(name="Overlay", structure=_doc("1", "2"))
+
+    materialize_structure(first, target_project)
+    materialize_structure(second, target_project)
+
+    assert _live_paths(target_project) == ["1", "1.1", "2", "3", "4"]
+
+
+@pytest.mark.django_db
+def test_adoption_shifts_a_whole_subtree_not_just_its_root(target_project: Project) -> None:
+    """Only the leading segment moves, so the document's tree shape survives intact."""
+    Task.objects.create(project=target_project, name="Ours", duration=2, wbs_path="1")
+    template = ProjectTemplate.objects.create(name="Overlay", structure=_doc("1", "1.1", "1.1.2"))
+
+    materialize_structure(template, target_project)
+
+    assert _live_paths(target_project) == ["1", "2", "2.1", "2.1.2"]
+
+
+@pytest.mark.django_db
+def test_adoption_offsets_past_hand_typed_rows_not_just_seeded_ones(
+    target_project: Project,
+) -> None:
+    """The offset reads the project's live rows, whatever wrote them."""
+    Task.objects.create(project=target_project, name="Ours", duration=2, wbs_path="4")
+    template = ProjectTemplate.objects.create(name="Overlay", structure=_doc("1", "2"))
+
+    materialize_structure(template, target_project)
+
+    assert _live_paths(target_project) == ["4", "5", "6"]
+
+
+@pytest.mark.django_db
+def test_a_soft_deleted_row_does_not_push_the_offset_up(target_project: Project) -> None:
+    """Tombstones are excluded from the uniqueness constraint, so they must not shift it."""
+    tombstone = Task.objects.create(project=target_project, name="Gone", duration=2, wbs_path="7")
+    tombstone.soft_delete()
+    template = ProjectTemplate.objects.create(name="Overlay", structure=_doc("1", "2"))
+
+    materialize_structure(template, target_project)
+
+    assert _live_paths(target_project) == ["1", "2"]
