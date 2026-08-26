@@ -509,6 +509,42 @@ test.describe('TaskDetailDrawer redesign — tabs', () => {
     await expect(schedule.getByText('(computed, not committed)')).toBeAttached();
   });
 
+  test('an uncommitted NOT_STARTED task explains its blank row and offers the commit (#3063)', async ({
+    page,
+  }) => {
+    // t2 (Backend Implementation) is NOT_STARTED with no committed planned_start
+    // — the state that fills the Unscheduled gutter and draws no bar. Before
+    // #3063 the drawer showed the CPM early_start as a plain, committed-looking
+    // date with nothing explaining the blank row: the computed cue and the
+    // advisory were both gated on a predicate that excludes NOT_STARTED.
+    const drawer = await openDrawer(page, 'Backend Implementation');
+    const schedule = drawer.getByRole('group', { name: 'Schedule', exact: true });
+
+    // The Start cell no longer reads as committed.
+    await expect(
+      schedule.getByRole('group', { name: 'Start' }).getByText('computed', { exact: true }),
+    ).toBeVisible();
+    await expect(schedule.getByText('(computed, not committed)')).toBeAttached();
+
+    // The calm note, not the amber data-integrity advisory: this task is
+    // unscheduled, not reported-underway-without-dates.
+    const note = schedule.getByRole('status').filter({ hasText: 'Not on the timeline' });
+    await expect(note).toBeVisible();
+    await expect(schedule.getByText('No committed start')).toHaveCount(0);
+    await expect(schedule.getByRole('button', { name: 'Move to To Do' })).toHaveCount(0);
+
+    // The commit names the date it will write and PATCHes it as planned_start.
+    // Asserted on the request rather than on post-write DOM state: useUpdateTask
+    // invalidates on success and the list mock is stateless, so a DOM assertion
+    // here would race the refetch that erases it.
+    const patch = page.waitForRequest(
+      (req) => req.method() === 'PATCH' && /\/tasks\/t2\//.test(req.url()),
+    );
+    await note.getByRole('button', { name: /Set committed start \(Oct 19\)/i }).click();
+    const body = (await patch).postDataJSON() as Record<string, unknown>;
+    expect(body).toMatchObject({ planned_start: '2026-10-19' });
+  });
+
   test('Details tab surfaces an inline "Recent changes" audit trail (#2315 slice 3)', async ({
     page,
   }) => {

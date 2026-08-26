@@ -33,9 +33,28 @@ export interface CommitStartOrTodo {
   clearError: () => void;
 }
 
-export function useCommitStartOrTodo(task: Task, projectId: string): CommitStartOrTodo {
+/**
+ * Optional post-commit hooks (#3063). Added rather than returning the mutation
+ * so the two existing call sites keep working unchanged: both surfaces render
+ * inside a component that owns an `aria-live` region they cannot reach from
+ * here, and a silent write is the one outcome a screen-reader user cannot
+ * detect — the visible proof is the advisory *disappearing*.
+ */
+export interface CommitStartOrTodoOptions {
+  /** Fired after `planned_start` lands, with the committed ISO date. */
+  onCommitted?: (iso: string) => void;
+  /** Fired after the demote to To Do lands. */
+  onMovedToTodo?: () => void;
+}
+
+export function useCommitStartOrTodo(
+  task: Task,
+  projectId: string,
+  options: CommitStartOrTodoOptions = {},
+): CommitStartOrTodo {
   const updateTask = useUpdateTask();
   const [error, setError] = useState<string | null>(null);
+  const { onCommitted, onMovedToTodo } = options;
 
   const guardOnline = useCallback((): boolean => {
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
@@ -52,20 +71,27 @@ export function useCommitStartOrTodo(task: Task, projectId: string): CommitStart
       return;
     }
     setError(null);
+    const iso = task.start;
     updateTask.mutate(
-      { id: task.id, projectId, planned_start: task.start },
-      { onError: () => setError('Could not set the committed start. Try again.') },
+      { id: task.id, projectId, planned_start: iso },
+      {
+        onSuccess: () => onCommitted?.(iso),
+        onError: () => setError('Could not set the committed start. Try again.'),
+      },
     );
-  }, [guardOnline, task.start, task.id, projectId, updateTask]);
+  }, [guardOnline, task.start, task.id, projectId, updateTask, onCommitted]);
 
   const moveToTodo = useCallback(() => {
     if (!guardOnline()) return;
     setError(null);
     updateTask.mutate(
       { id: task.id, projectId, status: 'NOT_STARTED' },
-      { onError: () => setError('Could not move the task to To Do. Try again.') },
+      {
+        onSuccess: () => onMovedToTodo?.(),
+        onError: () => setError('Could not move the task to To Do. Try again.'),
+      },
     );
-  }, [guardOnline, task.id, projectId, updateTask]);
+  }, [guardOnline, task.id, projectId, updateTask, onMovedToTodo]);
 
   const clearError = useCallback(() => setError(null), []);
 
