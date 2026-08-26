@@ -262,6 +262,18 @@ describe('the Display popover can always account for every control', () => {
     );
   });
 
+  it('does not count a pin whose control this reader does not have', () => {
+    // The client-guard-grain finding (#3076): three of the five pinned
+    // controls — Export PDF, the counts readout and Today — are offered to a
+    // viewer in the bar, so a viewer gets pin rows for those. Their stored
+    // milestone/structure pins must NOT be counted: those controls are absent
+    // by entitlement, not crowded out by width, and reporting them as a
+    // shortfall promises that widening the window would bring them back.
+    const viewer: ToolbarPins = { ...ALL_PINNED, milestone: false, structure: false };
+    const roomy = resolveComposition(viewer, 0);
+    expect(pinFooterSentence(viewer, roomy)).toMatch(/All 3 pinned controls fit/);
+  });
+
   it('does not claim a shortfall when nothing was pinned', () => {
     const none: ToolbarPins = {
       milestone: false,

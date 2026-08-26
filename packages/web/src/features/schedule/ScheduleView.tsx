@@ -5492,26 +5492,38 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
         hiddenChartCount={hiddenChartCount}
         iconOnly={breakpoint !== 'lg'}
         toolbarPins={
-          // Absent for a reader with no authoring apparatus: there is nothing
-          // to arrange, and offering the arrangement would put an affordance
-          // back on a surface whose point is that it offers none (rule 302).
-          hasEditRights
-            ? {
+          // The pin rows a READER can arrange are gated one by one, not behind
+          // a single `hasEditRights` guard on the section.
+          //
+          // Three of the five controls here — Export PDF, the counts readout
+          // and Today — are offered to a viewer in the bar itself (they carry
+          // no rights gate on their own render), so a section-level guard would
+          // show someone a control and then deny them any say over whether it
+          // takes toolbar width. That is the coarse-client-guard failure: it
+          // strands capability the server never withheld, and it is invisible
+          // from the API side because no endpoint is involved. Only the two
+          // authoring rows follow `hasEditRights`, matching the gate on the
+          // buttons they govern (rule 302: absent, not disabled).
+          {
                 rows: [
-                  {
-                    id: 'pin-milestone',
-                    label: 'Milestone',
-                    checked: displayOptions.pinMilestone,
-                    where: placementLabel(composition.milestone),
-                    onToggle: () => onToggleDisplayOption('pinMilestone'),
-                  },
-                  {
-                    id: 'structure-buttons',
-                    label: 'Phase, Group and Ungroup buttons',
-                    checked: displayOptions.structureButtons,
-                    where: placementLabel(composition.structure),
-                    onToggle: () => onToggleDisplayOption('structureButtons'),
-                  },
+                  ...(hasEditRights
+                    ? [
+                        {
+                          id: 'pin-milestone',
+                          label: 'Milestone',
+                          checked: displayOptions.pinMilestone,
+                          where: placementLabel(composition.milestone),
+                          onToggle: () => onToggleDisplayOption('pinMilestone'),
+                        },
+                        {
+                          id: 'structure-buttons',
+                          label: 'Phase, Group and Ungroup buttons',
+                          checked: displayOptions.structureButtons,
+                          where: placementLabel(composition.structure),
+                          onToggle: () => onToggleDisplayOption('structureButtons'),
+                        },
+                      ]
+                    : []),
                   {
                     id: 'pin-export-pdf',
                     label: 'Export PDF',
@@ -5539,7 +5551,12 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
                   // vanish.
                   {
                     id: 'locked-tier-a',
-                    label: 'Item, Grid / Timeline, Display, ···',
+                    // Named for what this reader actually has: a viewer has no
+                    // `+ Item`, so listing it as "always in the toolbar" would
+                    // be a claim about a control that is not there.
+                    label: hasEditRights
+                      ? 'Item, Grid / Timeline, Display, ···'
+                      : 'Grid / Timeline, Display, ···',
                     sub: 'Always in the toolbar.',
                     checked: true,
                     where: 'always',
@@ -5547,16 +5564,24 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
                   },
                   {
                     id: 'locked-state',
-                    label: 'Zoom, mode, engine status',
+                    label: hasEditRights
+                      ? 'Zoom, mode, engine status'
+                      : 'Zoom, engine status',
                     sub: 'Always present; collapse to a chip when narrow.',
                     checked: true,
                     where: 'always',
                     locked: true,
                   },
                 ],
-                footer: pinFooterSentence(pins, composition),
+                footer: pinFooterSentence(
+                  // A viewer has no authoring controls, so their pins are not
+                  // "pinned but crowded out" — they are not applicable, and
+                  // counting them would report a shortfall that no amount of
+                  // widening could fix.
+                  hasEditRights ? pins : { ...pins, milestone: false, structure: false },
+                  composition,
+                ),
               }
-            : null
         }
       />
 
