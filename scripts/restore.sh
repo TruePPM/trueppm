@@ -6,9 +6,10 @@
 #   - reloads db.dump with pg_restore --clean --if-exists (idempotent: safe to
 #     re-run against a partially-restored or already-populated database)
 #   - restores media.tar.gz into the target media directory when present
-#   - verifies the required PostgreSQL extensions (ltree, pg_trgm) exist after
-#     the restore — these back the wbs_path ltree column / GiST index and the
-#     trigram search indexes, and a schema missing them is silently broken
+#   - verifies the required PostgreSQL extensions (ltree, pg_trgm, btree_gist)
+#     exist after the restore — these back the wbs_path ltree column / GiST
+#     index, the trigram search indexes, and the (project, wbs_path) exclusion
+#     constraint, and a schema missing them is silently broken
 #
 # The Redis snapshot, if present in the artifact, is intentionally NOT restored:
 # the cache and Celery broker are reconstructible from PostgreSQL, and forcing a
@@ -65,7 +66,7 @@ client accepted). The downloaded copy is deleted when the script exits; pass
 Idempotency: pg_restore runs with --clean --if-exists, so re-running against an
 already-populated database drops and recreates each object rather than erroring
 on a duplicate. The extension check fails the whole restore (non-zero exit) if
-ltree or pg_trgm is missing.
+ltree, pg_trgm or btree_gist is missing.
 EOF
 }
 
@@ -198,8 +199,8 @@ pg_restore --clean --if-exists --no-owner --no-privileges \
   || log "pg_restore reported non-fatal notices (expected with --clean on a clean target); verifying result"
 
 # ---- verify required extensions --------------------------------------------
-log "verifying required PostgreSQL extensions (ltree, pg_trgm)..."
-for ext in ltree pg_trgm; do
+log "verifying required PostgreSQL extensions (ltree, pg_trgm, btree_gist)..."
+for ext in ltree pg_trgm btree_gist; do
   present="$(psql "$DB_URL" -tAc \
     "SELECT 1 FROM pg_extension WHERE extname = '$ext';")"
   if [ "$present" != "1" ]; then

@@ -8,6 +8,7 @@ from datetime import time, timedelta
 from typing import Any, TypeGuard
 
 from django.conf import settings
+from django.contrib.postgres.constraints import ExclusionConstraint
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
@@ -3389,26 +3390,31 @@ class Task(VersionedModel):
             # index on this model (task_assignee_status_idx et al.): a soft-deleted row
             # keeps its old path for tombstone/history purposes, and that path must be
             # free for reassignment to a new live task without tripping the constraint.
-            # Postgres's ltree type carries a default btree opclass, so a plain unique
-            # index works for equality without a raw-SQL operator class override; NULL
-            # wbs_path (subtasks mid-flight, recurrence templates) stays unconstrained
-            # under Postgres's default NULLS DISTINCT behavior, same as every other
-            # nullable column in a UniqueConstraint in this codebase.
+            # NULL wbs_path (subtasks mid-flight, recurrence templates) stays
+            # unconstrained under Postgres's default NULLS DISTINCT behavior.
             #
-            # The issue's other proposed guard — validating that a path's parent
-            # prefix exists before the write — is deliberately not added here. Many
-            # existing tests and fixtures construct a Task directly with a synthetic
-            # multi-segment wbs_path (no materialized ancestor chain) to exercise
-            # unrelated behavior in isolation; a save()-time parent-exists check would
-            # need every one of those call sites audited and updated. This constraint
-            # is the highest-value, lowest-risk half of the fix (stops the corrupting
-            # case outright, at the DB level, for every write path including bulk
-            # writes); the orphan-prefix guard is left as follow-up work scoped to the
-            # actual WBS-rewrite call sites rather than the shared save() path.
-            models.UniqueConstraint(
-                fields=["project", "wbs_path"],
-                condition=models.Q(is_deleted=False),
+            # This is an ExclusionConstraint, not a plain UniqueConstraint, because it
+            # must be DEFERRABLE — checked at COMMIT, not after each row's UPDATE.
+            # Every WBS-rewrite path (indent/outdent/reorder/group/ungroup, structural
+            # undo) assigns final positions to a whole sibling level one row at a time
+            # inside one transaction.atomic() block, and that necessarily passes
+            # through invalid intermediate states: moving task A from position 1 to
+            # position 3 writes some row to "1" before A vacates it. A non-deferred
+            # constraint (Django's UniqueConstraint) raises IntegrityError on that
+            # intermediate UPDATE even though the transaction's *final* state is
+            # unique — which is the only state the invariant actually cares about.
+            # Django's UniqueConstraint refuses condition + deferrable together
+            # (ValueError: "cannot be deferred") because a plain partial unique INDEX
+            # is not backed by a real constraint object in Postgres; ExclusionConstraint
+            # is, because EXCLUDE is implemented as a GiST index plus a true deferrable
+            # constraint. The GiST index needs the btree_gist extension for the `=`
+            # operator on the UUID `project` column (see the migration) — wbs_path's
+            # own ltree GiST opclass already supports `=` natively.
+            ExclusionConstraint(
                 name="unique_task_wbs_path_per_project_live",
+                expressions=[("project", "="), ("wbs_path", "=")],
+                condition=models.Q(is_deleted=False),
+                deferrable=models.Deferrable.DEFERRED,
             ),
         ]
 

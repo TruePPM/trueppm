@@ -66,13 +66,16 @@ def client(scheduler_user: object, scheduler_membership: ProjectMembership) -> A
 def _milestone(
     project: Project, *, name: str = "Phase 1 Gate", early_finish: date | None = None
 ) -> Task:
+    # A distinct path per call: (project, wbs_path) is unique among live tasks
+    # (#3048), and several tests below build two milestones in one project.
+    ordinal = 9 + Task.objects.filter(project=project).count()
     return Task.objects.create(
         project=project,
         name=name,
         duration=0,
         is_milestone=True,
         early_finish=early_finish,
-        wbs_path="9",
+        wbs_path=str(ordinal),
     )
 
 
