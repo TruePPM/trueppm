@@ -78,7 +78,20 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
     await useFullToolbar(page);
     await setupCatchAll(page);
     await setupAuth(page);
-    await setupScheduleDisplayOptions(page, FIXTURE_PROJECT_ID, { structureButtons: true });
+    await setupScheduleDisplayOptions(page, FIXTURE_PROJECT_ID, {
+      structureButtons: true,
+      // Unpinned to buy the structure trio room, not because this spec has an
+      // opinion about them: `structure-collapse` is only the ladder's third
+      // rung, and at 1920 the default composition sits close enough to it that
+      // the CI image's font metrics tip over where a dev machine's do not (the
+      // first fix for #3076's spec fallout picked a width and got exactly that).
+      // Export, the counts readout and Today are asserted nowhere below, so
+      // spending them is free and makes the trio's presence a fact rather than
+      // a margin. + Milestone stays pinned — a peer assertion needs its peer.
+      pinExportPdf: false,
+      pinCounts: false,
+      pinToday: false,
+    });
     await setupApiMocks(page, {
       projects: FIXTURE_PROJECTS,
       projectId: FIXTURE_PROJECT_ID,
