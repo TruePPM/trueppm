@@ -228,3 +228,30 @@ export function gutterBackground(colors: string[]): string {
   const stops = colors.map((c, i) => `${c} ${i * step}% ${(i + 1) * step}%`);
   return `linear-gradient(180deg, ${stops.join(', ')})`;
 }
+
+/**
+ * The delivery-mode phrase a screen reader hears for a row, or `null` when the
+ * row draws nothing (#3040).
+ *
+ * The canvas is `aria-hidden`, so `ScheduleAriaOverlay` is the ONLY channel by
+ * which a bar's mode reaches a screen reader. Before this existed the overlay
+ * built its suffix from the row's own `delivery_mode` while the outline chip
+ * three inches to the left built its label from the rolled-up subtree, so a
+ * `MIXED` phase announced a single mode and the mixed state was carried by a
+ * color band and a texture alone — information in a visual channel only
+ * (WCAG 1.4.1).
+ *
+ * `gated` returns `null` on purpose, matching {@link isModeVisible}: the
+ * baseline draws no gutter and no chip, so announcing "Waterfall delivery" on
+ * every row of a 400-row gated plan would put a suffix in speech that has no
+ * counterpart on screen — the same noise the chip convention exists to avoid.
+ *
+ * Deliberately SHORTER than {@link modePresentation}'s `description`. The chip
+ * is read once, on demand; this suffix is read on every bar a user arrows
+ * through, so it names the constituents and stops.
+ */
+export function rowModeSpeech(mode: RowMode): string | null {
+  if (mode.kind === 'gated') return null;
+  if (mode.kind !== 'mixed') return `${mode.kind === 'scrum' ? 'Scrum' : 'Kanban'} delivery`;
+  return `Mixed delivery — this branch contains ${mode.parts.join(' and ')} work`;
+}

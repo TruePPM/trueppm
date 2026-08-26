@@ -18,6 +18,7 @@
 
 import type { DeliveryMode, ExternalLinkStatus, Task, TaskLink } from '@/types';
 import type { CadenceSegment, SprintBand } from '../sprintBands';
+import type { RowMode, SingleModeKind } from '../deliveryModePresentation';
 import type { FiscalConfig, GanttScaleData } from './GanttScaleData';
 import {
   CALENDAR_QUARTERS,
@@ -463,6 +464,44 @@ export function setRendererChartOptions(opts: ChartRenderOptions): void {
 /** Read the active chart options (for callers that must skip a whole draw pass). */
 export function getRendererChartOptions(): ChartRenderOptions {
   return _chartOptions;
+}
+
+/**
+ * Rolled-up delivery mode per task id — the SAME map the outline's gutter and
+ * chip are built from (`computeRowModes`, #2737), pushed by GanttEngineImpl
+ * before each bar-painting pass (#3040).
+ *
+ * Module state mirroring the `_palette` / `_chartOptions` pattern: synchronous
+ * access only, set immediately before any draw call.
+ *
+ * Empty is a legitimate state, not a bug — a host with no rollup to push (the
+ * read-only program schedule) gets the pre-#3040 behavior, each bar drawn from
+ * its own stored field. `resolveBarMode` implements that fallback.
+ */
+let _rowModes: ReadonlyMap<string, RowMode> = new Map();
+
+/** Push the outline's rolled-up row modes for subsequent draw calls (#3040). */
+export function setRendererRowModes(modes: ReadonlyMap<string, RowMode>): void {
+  _rowModes = modes;
+}
+
+/**
+ * What a bar's mode mark should draw.
+ *
+ * `'milestone'` is returned for a row whose OWN stored field is `milestone`,
+ * ahead of any rollup lookup, and that ordering is load-bearing: `computeRowModes`
+ * deliberately treats milestones as contributing nothing (a gate inside a scrum
+ * phase must not make the phase read MIXED), so the rollup can never describe a
+ * milestone row — it would report `gated` and silently drop the cross-hatch this
+ * rare edge case has drawn since #2727.
+ */
+function resolveBarMode(task: Task): RowMode | 'milestone' {
+  if (task.deliveryMode === 'milestone') return 'milestone';
+  const rolled = _rowModes.get(task.id);
+  if (rolled) return rolled;
+  if (task.deliveryMode === 'scrum') return { kind: 'scrum', parts: ['scrum'] };
+  if (task.deliveryMode === 'kanban') return { kind: 'kanban', parts: ['kanban'] };
+  return { kind: 'gated', parts: ['gated'] };
 }
 
 // ---------------------------------------------------------------------------
@@ -1558,7 +1597,7 @@ export function drawTaskBar(
   // real paint path (GanttEngineImpl); the guard here is defensive for
   // direct callers, matching the existing `criticalFrame` guard below.
   if (!task.isExternal && !task.isSummary) {
-    drawDeliveryModeMark(ctx, task.deliveryMode, barLeft, barTop, barWidth);
+    drawDeliveryModeMark(ctx, resolveBarMode(task), barLeft, barTop, barWidth);
   }
 
   // Redacted external task (ADR-0120 D5 / ADR-0182): a task in a member project
@@ -1648,64 +1687,136 @@ export function drawTaskBar(
  * only repaints on scroll/data/selection change, not every frame), so no new
  * caching layer is needed.
  */
+/**
+ * Canvas hue per contributing mode. `gated` is absent on purpose — see
+ * {@link drawModeGutter}.
+ */
+const PART_GUTTER_COLOR: Record<Exclude<SingleModeKind, 'gated'>, keyof ColorPalette> = {
+  scrum: 'deliveryScrum',
+  kanban: 'deliveryKanban',
+};
+
+/**
+ * The left-edge gutter, split into one band per contributing mode — the canvas
+ * counterpart of the outline's `gutterBackground()` (#2737), so a `scrum +
+ * kanban` phase and a `gated + scrum` phase read as different branches on both
+ * surfaces instead of both saying "mixed, somehow".
+ *
+ * Bands are separated by a 1px gap, and that gap is the part that carries the
+ * signal rather than decorating it: under forced-colors every delivery hue
+ * collapses to `CanvasText` (see COLOR_FORCED), so N bands in N colors is N
+ * bands in ONE color and the split would convey nothing. Separated bands stay
+ * countable in any palette, which is what keeps `mixed` off the color channel.
+ */
+function drawModeGutter(
+  ctx: CanvasRenderingContext2D,
+  parts: readonly SingleModeKind[],
+  barLeft: number,
+  barTop: number,
+  barHeight: number,
+): void {
+  const gap = parts.length > 1 ? 1 : 0;
+  const band = (barHeight - gap * (parts.length - 1)) / parts.length;
+  parts.forEach((part, i) => {
+    // `gated` occupies its slot and paints nothing — the bar fill shows through.
+    // That is the same "the baseline is silent" convention the chip and the
+    // gutter already use, and it beats every candidate color: the band has to
+    // read on a summary bar, a normal bar and a complete bar, and the one hue
+    // that matches the outline's neutral IS `barSummary`, so a gated band on a
+    // phase would have been the bar's own fill painted onto itself. A gap needs
+    // no contrast to work, and it survives forced-colors, where every delivery
+    // hue collapses to CanvasText.
+    if (part === 'gated') return;
+    ctx.fillStyle = _palette[PART_GUTTER_COLOR[part]];
+    ctx.fillRect(barLeft, barTop + i * (band + gap), 3, band);
+  });
+}
+
 function drawDeliveryModeMark(
   ctx: CanvasRenderingContext2D,
-  mode: DeliveryMode | undefined,
+  mode: RowMode | 'milestone',
   barLeft: number,
   barTop: number,
   barWidth: number,
+  barHeight: number = BAR_HEIGHT,
+  gutterOnly = false,
 ): void {
-  if (!mode || mode === 'waterfall') return;
-  const gutterColor =
-    mode === 'scrum' ? _palette.deliveryScrum
-    : mode === 'kanban' ? _palette.deliveryKanban
-    : _palette.milestone;
+  if (mode !== 'milestone' && mode.kind === 'gated') return;
 
   ctx.save();
   ctx.beginPath();
-  ctx.roundRect(barLeft, barTop, barWidth, BAR_HEIGHT, 3);
+  ctx.roundRect(barLeft, barTop, barWidth, barHeight, 3);
   ctx.clip();
 
-  // Gutter: solid left-edge accent, 3px wide — visible even on a bar clamped
-  // to the 2px minimum width.
-  ctx.fillStyle = gutterColor;
-  ctx.fillRect(barLeft, barTop, 3, BAR_HEIGHT);
+  // Gutter: left-edge accent, 3px wide — visible even on a bar clamped to the
+  // 2px minimum width.
+  if (mode === 'milestone') {
+    ctx.fillStyle = _palette.milestone;
+    ctx.fillRect(barLeft, barTop, 3, barHeight);
+    if (!gutterOnly) {
+      // 'milestone' delivery mode landing on an actual bar rather than a
+      // diamond — cross-hatch, the most visually distinct pattern, reserved
+      // for this rare edge case.
+      ctx.strokeStyle = _palette.deliveryTexture;
+      ctx.lineWidth = 1;
+      for (let hx = barLeft - barHeight; hx < barLeft + barWidth; hx += 6) {
+        ctx.beginPath();
+        ctx.moveTo(hx, barTop + barHeight);
+        ctx.lineTo(hx + barHeight, barTop);
+        ctx.stroke();
+      }
+      for (let hx = barLeft; hx < barLeft + barWidth + barHeight; hx += 6) {
+        ctx.beginPath();
+        ctx.moveTo(hx, barTop);
+        ctx.lineTo(hx - barHeight, barTop + barHeight);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+    return;
+  }
+  drawModeGutter(ctx, mode.parts, barLeft, barTop, barHeight);
+
+  // A summary bar is 6px tall and carries no chip and no label — a body texture
+  // at that height is a smear, not a pattern. The gutter is the whole mark
+  // there, which is why it had to become countable rather than merely colored.
+  if (gutterOnly) {
+    ctx.restore();
+    return;
+  }
+
+  // `mixed` draws NO body texture, deliberately (`gated` never reaches here —
+  // it returned at the top). The three textures name three single modes;
+  // overlaying two of them produces a fourth pattern that means neither, and
+  // picking one of them would state something false about half the subtree. The
+  // split gutter says "more than one", the outline chip says which, and
+  // `rowModeSpeech` says both to a screen reader.
+  if (mode.kind !== 'scrum' && mode.kind !== 'kanban') {
+    ctx.restore();
+    return;
+  }
+  const textureMode = mode.kind;
 
   // Texture: low-alpha pattern across the bar body, independent of the
   // gutter hue — a wider 6px pitch than drawExternalRedaction's 5px hatch so
   // the two patterns read as visually distinct from each other.
   ctx.strokeStyle = _palette.deliveryTexture;
   ctx.lineWidth = 1;
-  if (mode === 'scrum') {
-    for (let hx = barLeft - BAR_HEIGHT; hx < barLeft + barWidth; hx += 6) {
+  if (textureMode === 'scrum') {
+    for (let hx = barLeft - barHeight; hx < barLeft + barWidth; hx += 6) {
       ctx.beginPath();
-      ctx.moveTo(hx, barTop + BAR_HEIGHT);
-      ctx.lineTo(hx + BAR_HEIGHT, barTop);
+      ctx.moveTo(hx, barTop + barHeight);
+      ctx.lineTo(hx + barHeight, barTop);
       ctx.stroke();
     }
-  } else if (mode === 'kanban') {
+  } else {
     ctx.fillStyle = _palette.deliveryTexture;
     for (let dx = barLeft + 3; dx < barLeft + barWidth; dx += 6) {
-      for (let dy = barTop + 3; dy < barTop + BAR_HEIGHT; dy += 6) {
+      for (let dy = barTop + 3; dy < barTop + barHeight; dy += 6) {
         ctx.beginPath();
         ctx.arc(dx, dy, 1, 0, Math.PI * 2);
         ctx.fill();
       }
-    }
-  } else {
-    // 'milestone' delivery mode on an actual bar — cross-hatch, the most
-    // visually distinct pattern, reserved for this rare edge case.
-    for (let hx = barLeft - BAR_HEIGHT; hx < barLeft + barWidth; hx += 6) {
-      ctx.beginPath();
-      ctx.moveTo(hx, barTop + BAR_HEIGHT);
-      ctx.lineTo(hx + BAR_HEIGHT, barTop);
-      ctx.stroke();
-    }
-    for (let hx = barLeft; hx < barLeft + barWidth + BAR_HEIGHT; hx += 6) {
-      ctx.beginPath();
-      ctx.moveTo(hx, barTop);
-      ctx.lineTo(hx - BAR_HEIGHT, barTop + BAR_HEIGHT);
-      ctx.stroke();
     }
   }
   ctx.restore();
@@ -2117,6 +2228,29 @@ export function drawSummaryBar(
     ctx.fill();
     ctx.restore();
   }
+
+  // Delivery-mode gutter (#3040). A phase is the ONLY row that can read MIXED —
+  // `computeRowModes` rolls descendants up, so a leaf always resolves to a single
+  // mode — and until this call existed the phase bar was the one place the mark
+  // was never drawn at all. The outline said MIXED and the bar three inches away
+  // said nothing, which is the divergence #3040 reports.
+  //
+  // Drawn AFTER the end-caps, and that ordering is the whole mark: the left cap
+  // is a 12px square rotated 45°, so it reaches 8.49px right of `barLeft` at the
+  // row centerline — it covers the entire 3px gutter, in the bar's own fill
+  // color. Painted before the caps this mark is invisible on every phase, which
+  // is exactly the row class it exists for.
+  //
+  // Gutter only: see drawDeliveryModeMark's `gutterOnly` comment.
+  drawDeliveryModeMark(
+    ctx,
+    resolveBarMode(task),
+    barLeft,
+    barTop,
+    barWidth,
+    SUMMARY_BAR_HEIGHT,
+    true,
+  );
 
   ctx.restore();
 }

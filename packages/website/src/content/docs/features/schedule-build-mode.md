@@ -500,6 +500,14 @@ delivery mode when the task has one ("Design review, 3 days, starts Aug 4, finis
 Aug 6, Scrum delivery"). Every bar is independently reachable and readable by a screen
 reader; nothing on the Timeline is a decorative image.
 
+The mode named in that label is the **rolled-up** one — the same value the outline's mode
+chip shows, not the row's own stored field. A phase whose subtree mixes modes is announced
+as mixed and names what it is mixed from ("…, Mixed delivery — this branch contains gated
+and scrum work"). A waterfall row is announced without a mode suffix at all, matching the
+outline, where the baseline deliberately draws no chip and no gutter: on a 400-row gated
+plan the alternative is 400 identical announcements with nothing on screen to match them.
+See [Task classification](/features/task-classification/#seeing-the-split-without-auditing-it).
+
 A task's delivery mode (Waterfall, Scrum, Kanban) is never shown by color alone on the
 Gantt bars. Each mode gets a left-edge gutter accent, a low-contrast texture across the
 bar body (diagonal stripes for Scrum, a dot grid for Kanban — Waterfall, the default, gets

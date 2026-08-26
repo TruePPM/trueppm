@@ -13,6 +13,7 @@
 
 import type { Task, TaskLink } from '@/types';
 import type { CadenceSegment, SprintBand } from '../sprintBands';
+import type { RowMode } from '../deliveryModePresentation';
 import type { FiscalConfig, GanttScaleData, ZoomLevel } from './GanttScaleData';
 import type { ChartRenderOptions } from './GanttRenderer';
 
@@ -340,6 +341,26 @@ export interface GanttEngine {
    * Passing an empty array clears the rail.
    */
   setCadenceSegments(segments: CadenceSegment[]): void;
+
+  // ── Rolled-up delivery mode (#3040) ───────────────────────────────────────
+
+  /**
+   * Push the outline's rolled-up delivery mode per task id, so the bar's mode
+   * mark and the outline's gutter/chip are drawn from ONE value.
+   *
+   * Same one-way contract as {@link setSprintBands}: the host resolves the
+   * rollup (`computeRowModes`) and the engine only paints it. The engine must
+   * not compute this itself — a parent reads from its DESCENDANTS, not from its
+   * own `delivery_mode`, and a second implementation of that walk is a second
+   * thing to drift. Before #3040 the canvas read each row's own stored field
+   * while the outline read the rollup, so a phase said MIXED in one pane and
+   * drew a single mode (or, on a summary bar, nothing) in the other.
+   *
+   * Keyed by task id rather than row index, so it survives a re-sort without
+   * being recomputed. An empty map is legitimate: a host with no rollup to push
+   * gets the pre-#3040 per-row behavior.
+   */
+  setRowModes(modes: ReadonlyMap<string, RowMode>): void;
 
   // ── Event emitter ─────────────────────────────────────────────────────────
 

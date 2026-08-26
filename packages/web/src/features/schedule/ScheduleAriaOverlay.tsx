@@ -47,6 +47,7 @@ import { dateToLeft, dateToRight } from './engine';
 import { BAR_HEIGHT } from './engine/GanttHitIndex';
 import { useRowMetrics } from '@/hooks/useRowHeight';
 import { sprintBandByTaskId, type SprintBand } from './sprintBands';
+import { rowModeSpeech, type RowMode } from './deliveryModePresentation';
 import { isPinnedByActuals } from './pinnedByActuals';
 import type { BuildModeApi } from './buildMode/BuildModeContext';
 
@@ -82,6 +83,19 @@ const DELIVERY_MODE_LABEL: Record<DeliveryMode, string> = {
  * field is optional; a task fetched before the server always resolved a
  * default could still be missing it).
  *
+ * `rowMode` is that suffix's rolled-up form (#3040), and passing it changes
+ * which fact is spoken: the row's OWN stored `delivery_mode`, or the mode of
+ * the subtree beneath it — which is what the outline's chip has always said.
+ * A phase whose own field is scrum but whose child keeps a gated override reads
+ * MIXED on the outline, and before #3040 announced ", Scrum delivery" here. The
+ * mixed state was then carried by a color band and a texture alone, which is a
+ * WCAG 1.4.1 gap on the one surface (`aria-hidden` canvas) where this overlay is
+ * the only text channel.
+ *
+ * Omitting `rowMode` keeps the pre-#3040 behavior, and that is not dead code:
+ * the read-only program schedule has no rollup to push, and its bars fall back
+ * to their own field on the canvas too, so the two stay consistent there as well.
+ *
  * `band` closes the same gap for the sprint-window band (#2738). The band is
  * paint on an `aria-hidden` canvas, so without this suffix a screen-reader user
  * has no way to learn that a bar sits inside a sprint window at all. It names
@@ -91,9 +105,16 @@ const DELIVERY_MODE_LABEL: Record<DeliveryMode, string> = {
  * a commitment that overruns its sprint is the whole reason to look. Omitted for
  * rows no band covers, which is most rows on a gated plan.
  */
-export function buildTaskAriaLabel(task: Task, band?: SprintBand): string {
+export function buildTaskAriaLabel(task: Task, band?: SprintBand, rowMode?: RowMode): string {
   const cp = task.isCritical ? ', on the critical path' : '';
-  const mode = task.deliveryMode ? `, ${DELIVERY_MODE_LABEL[task.deliveryMode]} delivery` : '';
+  let mode = task.deliveryMode ? `, ${DELIVERY_MODE_LABEL[task.deliveryMode]} delivery` : '';
+  if (rowMode) {
+    const speech = rowModeSpeech(rowMode);
+    // `null` means the baseline, which draws no gutter and no chip — so it says
+    // nothing here either, rather than reading "Waterfall delivery" on all 400
+    // rows of a gated plan with nothing on screen to match it.
+    mode = speech ? `, ${speech}` : '';
+  }
   let sprint = '';
   if (band) {
     sprint = `, in ${band.name} (${formatAriaDate(band.startDate)} – ${formatAriaDate(band.finishDate)})`;
@@ -173,6 +194,12 @@ interface ScheduleAriaOverlayProps {
   /** Sprint-window bands (#2738) — the non-visual carrier for the canvas band. */
   sprintBands?: SprintBand[];
   /**
+   * Rolled-up delivery mode per task id (#3040) — the same map the outline's
+   * chip is built from, and the same one pushed to the renderer. Absent on the
+   * read-only program schedule; see {@link buildTaskAriaLabel}.
+   */
+  rowModes?: ReadonlyMap<string, RowMode>;
+  /**
    * The build-mode API, when this surface is authorable (#2784). Absent on the
    * read-only program schedule, which mounts no `BuildModeProvider` — so the
    * Enter-creates-a-row trio simply does not exist there.
@@ -235,6 +262,7 @@ export function ScheduleAriaOverlay({
   tasks,
   links,
   sprintBands,
+  rowModes,
   authoring = null,
   canEditRow = NO_ROW_IS_EDITABLE,
   containerRef,
@@ -550,7 +578,11 @@ export function ScheduleAriaOverlay({
               role="option"
               data-task-id={task.id}
               tabIndex={isFocused ? 0 : -1}
-              aria-label={buildTaskAriaLabel(task, sprintBandByTask.get(task.id))}
+              aria-label={buildTaskAriaLabel(
+                task,
+                sprintBandByTask.get(task.id),
+                rowModes?.get(task.id),
+              )}
               title={sprintBandByTask.get(task.id)?.name}
               aria-describedby={depDescId}
               aria-selected={selectedTaskIds.has(task.id)}
