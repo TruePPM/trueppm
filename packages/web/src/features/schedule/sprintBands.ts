@@ -281,6 +281,82 @@ export function sprintBandByTaskId(
   return byTask;
 }
 
+/**
+ * Whether a sprint draws a cell on the cadence rail at all.
+ *
+ * The single admission rule, shared by `computeCadenceSegments` and
+ * {@link emptySprintWindows} — a sprint the rail never draws is not "missing"
+ * from the announcement, and two copies of this predicate would eventually
+ * disagree about which.
+ *
+ * An inverted window covers no days, so dropping it is the only honest option:
+ * drawing it normalized would invent a window nobody planned.
+ */
+function drawsARailCell(sprint: SprintWindowSource): boolean {
+  if (!sprint.start_date || !sprint.finish_date) return false;
+  if (!drawsABand(sprint.state)) return false;
+  const startMs = isoToUtcMs(sprint.start_date);
+  const endMs = isoToUtcMs(sprint.finish_date);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return false;
+  return endMs >= startMs;
+}
+
+/**
+ * A sprint window that the cadence rail draws but no row band covers (#3060).
+ *
+ * This is the one fact the rail adds over the bands, and the one with nothing to
+ * announce it. #3012 drew every sprint window on the time axis precisely so a
+ * sprint with **no committed work** would appear — it drives no rows, so a row
+ * band structurally cannot show it. But the canvas is `aria-hidden` and the
+ * rail's only text channel is the per-row band description, which an empty
+ * sprint by definition has no row to carry. A sighted user sees a window sitting
+ * there waiting; a screen-reader user saw nothing at all.
+ *
+ * Only the empty ones, deliberately. #3012 ruled out a focusable stop in the
+ * header — it would land N sprint stops ahead of every task row — and listing
+ * the WHOLE cadence in a description region would read every non-empty sprint
+ * twice, once here and once on each of its rows. What is missing is exactly the
+ * sprints with no rows, so that is what gets named.
+ */
+export interface EmptySprintWindow {
+  id: string;
+  name: string;
+  /** ISO date — window start (inclusive). */
+  startDate: string;
+  /** ISO date — window finish (inclusive). */
+  finishDate: string;
+}
+
+/**
+ * The drawable sprint windows that no band covers, in start order.
+ *
+ * Takes the bands rather than the tasks so it cannot disagree with what the
+ * canvas actually painted: `computeSprintBands` is derived from `visibleTasks`,
+ * so a sprint whose only rows are hidden by a filter or a collapsed phase is
+ * empty *on this screen* — which is what the reader needs told, and what the
+ * rail is already showing them.
+ *
+ * Mirrors `computeCadenceSegments`' admission rules exactly (cancelled sprints
+ * and unparseable or inverted windows draw no cell, so they are not "missing"
+ * from anything). Two functions applying one rule is a drift risk; the shared
+ * predicate is {@link drawsARailCell}.
+ */
+export function emptySprintWindows(
+  sprints: readonly SprintWindowSource[],
+  bands: readonly SprintBand[],
+): EmptySprintWindow[] {
+  const banded = new Set(bands.map((b) => b.sprintId));
+  return sprints
+    .filter((s) => !banded.has(s.id) && drawsARailCell(s))
+    .map((s) => ({
+      id: s.id,
+      name: s.name,
+      startDate: s.start_date,
+      finishDate: s.finish_date,
+    }))
+    .sort((a, b) => a.startDate.localeCompare(b.startDate) || a.name.localeCompare(b.name));
+}
+
 // ---------------------------------------------------------------------------
 // The cadence rail (#3012)
 // ---------------------------------------------------------------------------
@@ -375,14 +451,9 @@ export function computeCadenceSegments(
   const windows: Array<{ id: string; name: string; startMs: number; endMs: number; active: boolean }> =
     [];
   for (const sprint of sprints) {
-    if (!sprint.start_date || !sprint.finish_date) continue;
-    if (!drawsABand(sprint.state)) continue;
+    if (!drawsARailCell(sprint)) continue;
     const startMs = isoToUtcMs(sprint.start_date);
     const endMs = isoToUtcMs(sprint.finish_date);
-    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) continue;
-    // An inverted window covers no days at all. Dropping it is the only honest
-    // option: drawing it normalized would invent a window nobody planned.
-    if (endMs < startMs) continue;
     windows.push({
       id: sprint.id,
       name: sprint.name,

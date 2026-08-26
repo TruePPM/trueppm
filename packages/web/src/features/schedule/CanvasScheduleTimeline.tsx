@@ -19,7 +19,7 @@
 import { useRef, useEffect, useMemo, type CSSProperties, type RefObject } from 'react';
 import type { Task, TaskLink } from '@/types';
 import type { ChartRenderOptions, GanttEngine, ZoomLevel } from './engine';
-import type { CadenceSegment, SprintBand } from './sprintBands';
+import type { CadenceSegment, EmptySprintWindow, SprintBand } from './sprintBands';
 import type { BuildModeApi } from './buildMode/BuildModeContext';
 import { useGanttEngine } from '@/hooks/useGanttEngine';
 import { useIsDark } from '@/hooks/useIsDark';
@@ -47,6 +47,12 @@ interface CanvasScheduleTimelineProps {
    * sprint context, which draws no rail.
    */
   cadenceSegments?: CadenceSegment[];
+  /**
+   * Sprint windows the rail draws that no band covers (#3060). Passed straight
+   * through to the ARIA overlay — the canvas already paints these as rail cells;
+   * this is the text channel for them.
+   */
+  emptySprints?: EmptySprintWindow[];
   /**
    * Build-mode API and the per-row edit predicate, for the Enter-creates-a-row
    * trio on a focused bar (#2784). Both omitted on the read-only program
@@ -81,6 +87,7 @@ export function CanvasScheduleTimeline({
   links,
   sprintBands = NO_SPRINT_BANDS,
   cadenceSegments = NO_CADENCE_SEGMENTS,
+  emptySprints,
   authoring = null,
   canEditRow,
   zoomLevel,
@@ -211,6 +218,7 @@ export function CanvasScheduleTimeline({
         tasks={tasks}
         links={links}
         sprintBands={sprintBands}
+        emptySprints={emptySprints}
         authoring={authoring}
         canEditRow={canEditRow}
         containerRef={containerRef}

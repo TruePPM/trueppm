@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   computeCadenceSegments,
   computeSprintBands,
+  emptySprintWindows,
   sprintBandByTaskId,
   type SprintWindowSource,
 } from './sprintBands';
@@ -381,5 +382,52 @@ describe('computeCadenceSegments — naming every window on the axis (#3012)', (
         active: false,
       },
     ]);
+  });
+});
+
+// #3060: the one fact the rail adds over the bands, and the one with no row to
+// announce it.
+describe('emptySprintWindows — the rail cells no band covers (#3060)', () => {
+  it('names a sprint with no committed work', () => {
+    const sprints = [sprint('s1')];
+    const bands = computeSprintBands([], sprints);
+    expect(bands).toEqual([]);
+    expect(emptySprintWindows(sprints, bands)).toEqual([
+      { id: 's1', name: 'Sprint s1', startDate: '2026-04-06', finishDate: '2026-04-17' },
+    ]);
+  });
+
+  it('says nothing about a sprint that DOES drive rows — those are on the bars already', () => {
+    const sprints = [sprint('s1')];
+    const bands = computeSprintBands([task('a', { sprintId: 's1' })], sprints);
+    expect(bands).toHaveLength(1);
+    expect(emptySprintWindows(sprints, bands)).toEqual([]);
+  });
+
+  it('reports empty ON THIS SCREEN — a sprint whose only rows are filtered out is empty', () => {
+    // `computeSprintBands` runs over `visibleTasks`, so this matches the rail the
+    // sighted user is looking at rather than contradicting it.
+    const sprints = [sprint('s1')];
+    expect(emptySprintWindows(sprints, computeSprintBands([], sprints))).toHaveLength(1);
+  });
+
+  it('excludes sprints the rail itself does not draw — cancelled, dateless, inverted', () => {
+    const sprints = [
+      sprint('cancelled', { state: 'CANCELLED' as SprintState }),
+      sprint('nodates', { start_date: '', finish_date: '' }),
+      sprint('inverted', { start_date: '2026-04-17', finish_date: '2026-04-06' }),
+    ];
+    // None of these draws a rail cell, so none of them is "missing" from it.
+    expect(computeCadenceSegments(sprints)).toEqual([]);
+    expect(emptySprintWindows(sprints, [])).toEqual([]);
+  });
+
+  it('orders by window start so the sentence reads in cadence order', () => {
+    const sprints = [
+      sprint('c', { start_date: '2026-05-04', finish_date: '2026-05-15' }),
+      sprint('a', { start_date: '2026-04-06', finish_date: '2026-04-17' }),
+      sprint('b', { start_date: '2026-04-20', finish_date: '2026-05-01' }),
+    ];
+    expect(emptySprintWindows(sprints, []).map((w) => w.id)).toEqual(['a', 'b', 'c']);
   });
 });

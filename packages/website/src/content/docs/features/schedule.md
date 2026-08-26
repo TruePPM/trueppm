@@ -359,6 +359,10 @@ At a wide zoom a window can get too narrow to hold its name. Below about 24 pixe
 
 On a project with no drawable sprint window, the rail takes up no space at all — the chart's geometry is identical to a pure waterfall plan's.
 
+The rail is painted on a canvas, which assistive technology cannot read, so every sprint window also reaches a screen reader in text. For a sprint that drives rows, each of those bars already names its window and dates. For a sprint with **no committed work** there is no bar to carry it — the very case the rail exists for — so the chart's own description names those windows instead: *"One sprint window has no committed work on this schedule: Sprint 5 (May 4 – May 15)."*
+
+Only the empty ones are named there. A sprint that drives rows is already announced on each of its bars, and repeating it would read the same sprint twice. And the sentence rides the chart's existing description rather than adding a focusable stop per window — N sprint stops ahead of every task row would be a worse tab order than the problem it solved. "Empty" means empty *on this screen*: if a filter or a collapsed phase hides a sprint's only rows, the rail shows an uncovered window and the description agrees with it.
+
 ### Which rows a band covers
 
 A band covers a **contiguous run of rows** that all resolve to the same sprint. If a sprint's work sits in two places in the WBS with other work between them, you get two bands — never one tall band claiming the rows in between, which are in no sprint at all.
