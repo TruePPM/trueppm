@@ -64,6 +64,16 @@ def _all_hypothesis_checks() -> set[str]:
     return {member.name for member in HealthCheck}
 
 
+def _missing(expected: set[str], resolved: set[str]) -> list[str]:
+    """Health checks ``expected`` requires that ``resolved`` does not suppress.
+
+    Shared by :func:`check` and :func:`self_test` on purpose. The self-test's job
+    is to prove this comparison can fail; re-deriving the subtraction there would
+    leave it asserting against its own copy rather than against what ships.
+    """
+    return sorted(expected - resolved)
+
+
 def check() -> int:
     try:
         resolved = _resolved_suppression()
@@ -77,7 +87,7 @@ def check() -> int:
         )
         return 2
 
-    missing = sorted(expected - resolved)
+    missing = _missing(expected, resolved)
     if missing:
         print(
             "ERROR: the fuzz config does not suppress every Hypothesis health check.\n"
@@ -119,13 +129,20 @@ def self_test() -> int:
 
     every = {m.name for m in HealthCheck}
 
-    if every - every:
+    # What an `["all"]` config resolves to — every member, plus one the running
+    # Hypothesis does not define, which is how a version that adds a check to the
+    # config's vocabulary looks from here. Extra suppression is not a shortfall.
+    #
+    # Compared through `_missing` against a distinct set rather than `every` against
+    # itself: `every - every` is a branch that cannot fail, so it asserted nothing
+    # about the comparison that ships (SonarCloud python:S1764).
+    resolved_full = every | {"a_check_this_hypothesis_does_not_define"}
+    if _missing(every, resolved_full):
         print("SELF-TEST FAILED: a full set reported missing members.", file=sys.stderr)
         return 1
     print("SELF-TEST OK: a full suppression set is accepted.")
 
-    partial = {"filter_too_much"}
-    missing = every - partial
+    missing = _missing(every, {"filter_too_much"})
     if not missing:
         print(
             "SELF-TEST FAILED: a filter_too_much-only set was accepted as complete "
