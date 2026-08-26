@@ -10,6 +10,7 @@ import type {
 } from '@/api/types';
 import type { BoardCadence, Methodology } from '@/types';
 import type { DurationChangePercentPolicy, EstimationScale, PrioritizationModel } from '@/api/types';
+import { safeHoursPerDay } from '@/features/schedule/duration/durationUnit';
 
 /**
  * Resolved visibility of the four independently-toggleable leaf surfaces
@@ -330,4 +331,18 @@ export function useEffectiveDurationPolicy(
 ): DurationChangePercentPolicy {
   const { data } = useProject(projectId);
   return data?.effective_task_duration_change_percent_policy ?? 'keep';
+}
+
+/**
+ * The project's resolved working-day length (`effective_calendar.hours_per_day`,
+ * ADR-0441), defaulting to 8 until the detail resolves.
+ *
+ * Read by every surface that converts an hours entry to stored working days —
+ * the `#Nh` authoring token and the task drawer's duration cell — so the two
+ * agree on a non-8h calendar (#3042, completing #2975). Shares the cached
+ * `useProject` query, so the ~30 virtualized rows add no extra fetch.
+ */
+export function useProjectHoursPerDay(projectId: string | null | undefined): number {
+  const { data } = useProject(projectId);
+  return safeHoursPerDay(data?.effective_calendar?.hours_per_day);
 }

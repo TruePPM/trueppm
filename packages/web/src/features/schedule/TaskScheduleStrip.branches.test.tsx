@@ -18,8 +18,13 @@ vi.mock('@/hooks/useTaskMutations', () => ({
   useUpdateTask: () => ({ mutate, mutateAsync }),
 }));
 let policy: DurationChangePercentPolicy = 'keep';
+// The strip resolves the project's working-day length itself (#3042); it is only
+// ever mounted under a QueryClient, so the hook is real in production and mocked
+// here alongside the policy it already reads.
+let projectHoursPerDay = 8;
 vi.mock('@/hooks/useProject', () => ({
   useEffectiveDurationPolicy: () => policy,
+  useProjectHoursPerDay: () => projectHoursPerDay,
 }));
 let coarse = false;
 vi.mock('@/hooks/useIsCoarsePointer', () => ({

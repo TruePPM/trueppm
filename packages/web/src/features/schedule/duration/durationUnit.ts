@@ -30,9 +30,14 @@ export interface DurationEntry {
   exactDays: number;
 }
 
-function safeHoursPerDay(hoursPerDay: number | null | undefined): number {
-  // A zero or negative hours-per-day would make every hours entry infinite or
-  // negative. The calendar validator should prevent it; this is the belt.
+/**
+ * The one rate resolver. Exported so the authoring-token lexer shares it (#3042)
+ * rather than carrying a second `> 0` guard that can drift from this one.
+ *
+ * A zero or negative hours-per-day would make every hours entry infinite or
+ * negative. The calendar validator should prevent it; this is the belt.
+ */
+export function safeHoursPerDay(hoursPerDay: number | null | undefined): number {
   return hoursPerDay != null && hoursPerDay > 0 ? hoursPerDay : DEFAULT_HOURS_PER_DAY;
 }
 
