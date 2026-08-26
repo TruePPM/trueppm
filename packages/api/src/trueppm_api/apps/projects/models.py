@@ -8,6 +8,7 @@ from datetime import time, timedelta
 from typing import Any, TypeGuard
 
 from django.conf import settings
+from django.contrib.postgres.constraints import ExclusionConstraint
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
@@ -3379,6 +3380,41 @@ class Task(VersionedModel):
                         & models.Q(most_likely_duration__lte=models.F("pessimistic_duration"))
                     )
                 ),
+            ),
+            # #3048: wbs_path is the ONLY parenthood/ordering mechanism for this tree
+            # (see structural_parent()'s docstring — there is no parent_id column), and
+            # nothing previously stopped two live tasks in the same project from holding
+            # the same path. A duplicate silently corrupts the next rewrite_level pass
+            # (a collapsed _subtree_snapshot and a stale sibling offset) instead of
+            # raising anywhere. Scoped to is_deleted=False, matching every other partial
+            # index on this model (task_assignee_status_idx et al.): a soft-deleted row
+            # keeps its old path for tombstone/history purposes, and that path must be
+            # free for reassignment to a new live task without tripping the constraint.
+            # NULL wbs_path (subtasks mid-flight, recurrence templates) stays
+            # unconstrained under Postgres's default NULLS DISTINCT behavior.
+            #
+            # This is an ExclusionConstraint, not a plain UniqueConstraint, because it
+            # must be DEFERRABLE — checked at COMMIT, not after each row's UPDATE.
+            # Every WBS-rewrite path (indent/outdent/reorder/group/ungroup, structural
+            # undo) assigns final positions to a whole sibling level one row at a time
+            # inside one transaction.atomic() block, and that necessarily passes
+            # through invalid intermediate states: moving task A from position 1 to
+            # position 3 writes some row to "1" before A vacates it. A non-deferred
+            # constraint (Django's UniqueConstraint) raises IntegrityError on that
+            # intermediate UPDATE even though the transaction's *final* state is
+            # unique — which is the only state the invariant actually cares about.
+            # Django's UniqueConstraint refuses condition + deferrable together
+            # (ValueError: "cannot be deferred") because a plain partial unique INDEX
+            # is not backed by a real constraint object in Postgres; ExclusionConstraint
+            # is, because EXCLUDE is implemented as a GiST index plus a true deferrable
+            # constraint. The GiST index needs the btree_gist extension for the `=`
+            # operator on the UUID `project` column (see the migration) — wbs_path's
+            # own ltree GiST opclass already supports `=` natively.
+            ExclusionConstraint(
+                name="unique_task_wbs_path_per_project_live",
+                expressions=[("project", "="), ("wbs_path", "=")],
+                condition=models.Q(is_deleted=False),
+                deferrable=models.Deferrable.DEFERRED,
             ),
         ]
 

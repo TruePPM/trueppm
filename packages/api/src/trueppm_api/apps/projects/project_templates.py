@@ -269,6 +269,54 @@ def validate_structure(structure: Any) -> dict[str, Any]:
     return document
 
 
+def _root_ordinal_offset(project: Project) -> int:
+    """How far to shift a template's root WBS ordinals so they land past what exists.
+
+    Template documents number their tasks from ``1``, which is only correct for the
+    first adoption. Applying a second template — or any template into a project that
+    already has hand-typed rows — used to write new tasks straight onto the existing
+    ``1``, ``2``, … paths (#3061). ``wbs_path`` is the only parenthood/ordering
+    mechanism there is (no ``parent_id`` column), so two live rows sharing a path
+    corrupt the next ``rewrite_level`` pass rather than raising anywhere.
+
+    Returns the highest numeric root label already live in the project, or 0 for an
+    empty one — so a first adoption is shifted by nothing and keeps today's paths
+    exactly. Only distinct root labels come back, not one row per task.
+    """
+    from django.db.models.expressions import RawSQL
+
+    from trueppm_api.apps.projects.models import Task
+
+    labels = (
+        Task.objects.filter(project=project, is_deleted=False, wbs_path__isnull=False)
+        # nosec B611 — static SQL literal (no user input), empty params list; the
+        # ltree subpath() call can't be expressed in the ORM. Bandit flags any RawSQL.
+        # nosemgrep: avoid-raw-sql
+        .annotate(root_label=RawSQL("subpath(projects_task.wbs_path, 0, 1)::text", []))  # nosec B611
+        .values_list("root_label", flat=True)
+        .distinct()
+    )
+    return max((int(label) for label in labels if str(label).isdigit()), default=0)
+
+
+def _offset_wbs_path(path: str | None, offset: int) -> str | None:
+    """Shift a template path's leading segment by ``offset``, preserving its subtree.
+
+    Only the leading segment moves: every template path is relative to a fresh
+    project rooted at ``1``, so remapping just the head keeps the document's whole
+    tree shape intact ("2.1.3" under offset 4 becomes "6.1.3"). A non-numeric root
+    label is left alone — it cannot be offset meaningfully, and the (project,
+    wbs_path) constraint now rejects it loudly if it does collide.
+    """
+    if not path or offset == 0:
+        return path or None
+    head, _, rest = str(path).partition(".")
+    if not head.isdigit():
+        return str(path)
+    shifted = str(int(head) + offset)
+    return f"{shifted}.{rest}" if rest else shifted
+
+
 def _build_template_task_row(
     node: dict[str, Any],
     *,
@@ -276,6 +324,7 @@ def _build_template_task_row(
     template: ProjectTemplate,
     short_id: str,
     seeded_at: Any,
+    wbs_offset: int = 0,
 ) -> Task:
     """Build one unsaved ``Task`` from a template node.
 
@@ -292,7 +341,7 @@ def _build_template_task_row(
         is_milestone=bool(node.get("is_milestone")),
         notes=str(node.get("notes") or ""),
         short_id=short_id,
-        wbs_path=node.get("wbs_path") or None,
+        wbs_path=_offset_wbs_path(node.get("wbs_path"), wbs_offset),
         server_version=1,
     )
     for field in ("delivery_mode", "governance_class", "type"):
@@ -360,6 +409,10 @@ def materialize_structure(
     start_seq = end_seq - count + 1
 
     seeded_at = timezone.now()
+    # Second and later adoptions append past the rows already there rather than
+    # writing onto their paths (#3061). Zero for an empty project, so a first
+    # adoption keeps the document's paths verbatim.
+    wbs_offset = _root_ordinal_offset(project)
     ref_to_task: dict[str, Task] = {}
     rows: list[Task] = []
     for i, node in enumerate(nodes):
@@ -369,6 +422,7 @@ def materialize_structure(
             template=template,
             short_id=f"{start_seq + i:06X}"[-8:],
             seeded_at=seeded_at,
+            wbs_offset=wbs_offset,
         )
         rows.append(row)
         ref_to_task[str(node["ref"])] = row

@@ -2084,7 +2084,7 @@ helm:netpol:
 backup:restore-drill:
   # Restore drill (#320): the standing evidence that scripts/backup.sh and
   # scripts/restore.sh actually work end to end. Seeds a database (required
-  # ltree + pg_trgm extensions and two tables with known row counts), backs it up
+  # ltree + pg_trgm + btree_gist extensions and two tables with known row counts), backs it up
   # into a single artifact, DROPs the database, restores from the artifact, and
   # asserts the row counts match and the extensions survived. A schema-only proof
   # — it deliberately does NOT boot Django, so it stays self-contained on the
@@ -2138,13 +2138,15 @@ backup:restore-drill:
     - echo "waiting for the postgres service..."
     - until pg_isready -h postgres -U trueppm >/dev/null 2>&1; do sleep 1; done
     - psql -h postgres -U trueppm -d trueppm_test -c "CREATE DATABASE drilldb;"
-    # Seed a representative schema: the two extensions the real schema depends on
-    # (ltree powers wbs_path, pg_trgm powers trigram search) plus two tables with
-    # known row counts to assert against after the round-trip.
+    # Seed a representative schema: the three extensions the real schema depends on
+    # (ltree powers wbs_path, pg_trgm powers trigram search, btree_gist backs the
+    # (project, wbs_path) exclusion constraint) plus two tables with known row
+    # counts to assert against after the round-trip.
     - |
       psql "$DATABASE_URL" <<'SQL'
       CREATE EXTENSION IF NOT EXISTS ltree;
       CREATE EXTENSION IF NOT EXISTS pg_trgm;
+      CREATE EXTENSION IF NOT EXISTS btree_gist;
       CREATE TABLE projects_project (id serial PRIMARY KEY, name text);
       INSERT INTO projects_project (name) SELECT 'p' || g FROM generate_series(1, 42) g;
       CREATE TABLE projects_task (id serial PRIMARY KEY, wbs_path ltree, title text);
@@ -2161,7 +2163,7 @@ backup:restore-drill:
     # 2. destroy the source (FORCE drops any lingering connection from pg_dump)
     - psql -h postgres -U trueppm -d trueppm_test -c "DROP DATABASE drilldb WITH (FORCE);"
     - psql -h postgres -U trueppm -d trueppm_test -c "CREATE DATABASE drilldb;"
-    # 3. restore (restore.sh verifies ltree + pg_trgm internally and exits non-zero if absent)
+    # 3. restore (restore.sh verifies ltree + pg_trgm + btree_gist internally and exits non-zero if absent)
     - ./scripts/restore.sh --artifact "$ARTIFACT" --yes
     # 4. assert the round-trip preserved every row
     - AFTER_PROJECTS=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM projects_project;")

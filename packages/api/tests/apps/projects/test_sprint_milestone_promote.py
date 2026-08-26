@@ -64,8 +64,11 @@ def client(scheduler_user: object, scheduler_membership: ProjectMembership) -> A
 
 
 def _milestone(project: Project, name: str = "Phase 1 Gate") -> Task:
+    # A distinct path per call: (project, wbs_path) is unique among live tasks
+    # (#3048), and several tests below build two milestones in one project.
+    ordinal = 9 + Task.objects.filter(project=project).count()
     return Task.objects.create(
-        project=project, name=name, duration=0, is_milestone=True, wbs_path="9"
+        project=project, name=name, duration=0, is_milestone=True, wbs_path=str(ordinal)
     )
 
 
@@ -175,8 +178,6 @@ def test_promote_to_different_milestone_while_bound_is_409(
     sprint = _sprint(project)
     m1 = _milestone(project, name="Gate A")
     m2 = _milestone(project, name="Gate B")
-    m2.wbs_path = "10"
-    m2.save(update_fields=["wbs_path"])
 
     client.post(
         f"/api/v1/sprints/{sprint.id}/promote-to-milestone/",

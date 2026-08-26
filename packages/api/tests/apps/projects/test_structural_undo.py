@@ -433,6 +433,17 @@ def test_undo_refuses_when_the_deleted_wrapper_was_restored_by_another_route(
     assert refusal.status_code == 409
     assert any(entry["change"] == "restored_elsewhere" for entry in refusal.json()["changed"])
 
+    # The direct .restore() above is standing in for "another route" reviving the
+    # wrapper without going through undo — a genuinely corrupted state (the lifted
+    # child now also lives at "1"), which is exactly what undo's refusal above is
+    # protecting against. #3048's wbs_path uniqueness constraint is DEFERRED (checked
+    # at COMMIT, not per-statement — see TestTaskWbsPathUniqueConstraint), so this test
+    # can create it without raising immediately; but it never resolves the duplicate,
+    # and Django's teardown forces a deferred-constraint check before rolling back.
+    # Undo the erroneous restore the same way a real caller would, so no unresolved
+    # violation reaches teardown.
+    container.soft_delete()
+
 
 # ---------------------------------------------------------------------------
 # Stack discipline and idempotency

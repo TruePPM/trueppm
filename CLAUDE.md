@@ -244,6 +244,10 @@ originals via `replaces=` instead of starting from scratch. The operations that
 cannot be regenerated, and therefore depend on the originals being retained:
 - `CREATE EXTENSION ltree` and `CREATE EXTENSION pg_trgm` — `RunSQL`, must run
   *before* any `CreateModel` that uses an ltree field or `gin_trgm_ops`;
+- `CREATE EXTENSION btree_gist` — `RunSQL`, must run *before* the
+  `(project, wbs_path)` `ExclusionConstraint` on `projects_task`, which needs GiST
+  support for `=` on the UUID `project` column (`wbs_path`'s own ltree GiST opclass
+  already has it);
 - the GiST index on `projects_task.wbs_path` — `RunSQL` (powers ltree subtree /
   ancestor queries);
 - the composite `(project_id, history_date)` index on `projects_historicaltask` —
