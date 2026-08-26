@@ -7,7 +7,8 @@ import { setupCatchAll } from './fixtures/api-mocks';
  * - Task rows appear for NOT_STARTED tasks with no start date and no sprint (#317)
  * - Collapse / expand toggle persists
  * - "All tasks have planned dates" message when no unscheduled tasks
- * - Overflow menu → "Set planned start" → submit → PATCH sent with planned_start
+ * - Overflow menu → one-click quick action, or "Or pick a date" → submit → PATCH
+ *   sent with planned_start
  * - Esc dismisses overflow menu
  */
 
@@ -366,21 +367,62 @@ test.describe('Unscheduled gutter — overflow menu promote (#213)', () => {
 
   test('overflow menu opens on button click', async ({ page }) => {
     await page.getByRole('button', { name: 'Actions for Parking Lot Item' }).click();
-    await expect(page.getByText('Set planned start')).toBeVisible();
+    await expect(page.getByText('Or pick a date')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Promote to schedule' })).toBeVisible();
   });
 
-  test('Promote to schedule button is disabled when no date entered', async ({ page }) => {
+  test('the picker opens seeded and submittable, and only blocks once cleared (#3064)', async ({
+    page,
+  }) => {
+    // This assertion is the inverse of the one it replaces. The old test pinned
+    // "opens empty, so the submit is disabled" — which was the friction #3064
+    // removes, not a contract worth keeping: the planner was asked to invent a
+    // date from nothing before the menu would do anything. Parking Lot Item has
+    // no early_start, so the seed falls back to today.
     await page.getByRole('button', { name: 'Actions for Parking Lot Item' }).click();
     const promoteBtn = page.getByRole('button', { name: 'Promote to schedule' });
+    const dateInput = page.locator('input[type="date"]').first();
+
+    await expect(dateInput).not.toHaveValue('');
+    await expect(promoteBtn).toBeEnabled();
+
+    // Clearing it by hand is still a refusal — there is nothing to commit.
+    await dateInput.fill('');
     await expect(promoteBtn).toBeDisabled();
+  });
+
+  test('a one-click quick action commits without touching the date field (#3064)', async ({
+    page,
+  }) => {
+    let patchBody: Record<string, unknown> | null = null;
+    await page.route('**/api/v1/tasks/*/', async (route) => {
+      if (route.request().method() === 'PATCH') {
+        patchBody = route.request().postDataJSON() as Record<string, unknown>;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ id: 'unscheduled-1', status: 'NOT_STARTED' }),
+        });
+      } else {
+        await route.continue();
+      }
+    });
+
+    await page.getByRole('button', { name: 'Actions for Parking Lot Item' }).click();
+    await page.getByRole('menuitem', { name: /Start today/ }).click();
+
+    await expect.poll(() => patchBody).not.toBeNull();
+    // Only planned_start goes on the wire — the NOT_STARTED → IN_PROGRESS
+    // transition is the server's call (#336), exactly as on the picker path.
+    expect(patchBody!['planned_start']).toEqual(expect.any(String));
+    expect(patchBody!['status']).toBeUndefined();
   });
 
   test('Esc closes overflow menu', async ({ page }) => {
     await page.getByRole('button', { name: 'Actions for Parking Lot Item' }).click();
-    await expect(page.getByText('Set planned start')).toBeVisible();
+    await expect(page.getByText('Or pick a date')).toBeVisible();
     await page.keyboard.press('Escape');
-    await expect(page.getByText('Set planned start')).not.toBeVisible();
+    await expect(page.getByText('Or pick a date')).not.toBeVisible();
   });
 });
 

@@ -16,7 +16,7 @@ import { createRef, type ReactElement, type RefObject } from 'react';
 import type { ApiSprint, Task } from '@/types';
 import type { GanttScaleData } from './engine';
 import { UnscheduledGutter } from './UnscheduledGutter';
-import { formatShortDate } from './scheduleUtils';
+import { formatShortDate, todayLocalIso } from './scheduleUtils';
 import { useScheduleStore } from '@/stores/scheduleStore';
 
 const { patchMock } = vi.hoisted(() => ({
@@ -344,7 +344,7 @@ describe('UnscheduledGutter — set-date (menu) promote path', () => {
     // Open the To Do row's overflow menu (keyboard/menu alternative to drag).
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Wire login' }));
 
-    const dateInput = await screen.findByLabelText('Set planned start');
+    const dateInput = await screen.findByLabelText('Or pick a date');
     fireEvent.change(dateInput, { target: { value: '2026-08-01' } });
     fireEvent.click(screen.getByRole('button', { name: 'Promote to schedule' }));
 
@@ -360,11 +360,193 @@ describe('UnscheduledGutter — set-date (menu) promote path', () => {
     renderGutter([makeTask({ id: 'todo-2', name: 'Offline task', status: 'NOT_STARTED' })]);
 
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Offline task' }));
-    const dateInput = await screen.findByLabelText('Set planned start');
+    const dateInput = await screen.findByLabelText('Or pick a date');
     fireEvent.change(dateInput, { target: { value: '2026-08-02' } });
     fireEvent.click(screen.getByRole('button', { name: 'Promote to schedule' }));
 
     // Offline guard short-circuits before the mutation fires.
+    await Promise.resolve();
+    expect(patchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('UnscheduledGutter — one-click quick actions (#3064)', () => {
+  // The menu's labels and its collapse rule are both functions of "today", so
+  // pin the clock. The expected strings are DERIVED from the pinned instant via
+  // the same local-date helper the component uses — hardcoding "Aug 26" would
+  // pass in one timezone and fail in another, which is the bug this helper
+  // exists to prevent.
+  beforeEach(() => {
+    // `shouldAdvanceTime` is required, not incidental: a plain fake clock stops
+    // Testing Library's findBy* polling dead, and every assertion here times out
+    // at 5s rather than failing on its own merits.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date('2026-08-26T12:00:00Z'));
+    Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('offers both answers, each naming its own date, when they differ', async () => {
+    // A predecessor pushes CPM's earliest past today: the two commits are
+    // genuinely different dates and the planner has to be able to tell which.
+    renderGutter([
+      makeTask({ id: 'q1', name: 'Blocked work', status: 'NOT_STARTED', start: '2026-09-07' }),
+    ]);
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Blocked work' }));
+
+    expect(
+      await screen.findByRole('menuitem', {
+        name: `Start at the earliest (${formatShortDate('2026-09-07')})`,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: `Start today (${formatShortDate(todayLocalIso())})` }),
+    ).toBeInTheDocument();
+  });
+
+  it('collapses to one item when the earliest IS today', async () => {
+    // Two entries with identical outcomes is a choice the user cannot make
+    // wrong, which is worse than no choice at all.
+    renderGutter([
+      makeTask({ id: 'q2', name: 'Ready now', status: 'NOT_STARTED', start: todayLocalIso() }),
+    ]);
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Ready now' }));
+
+    await screen.findByRole('menuitem', { name: /Start at the earliest/ });
+    expect(screen.queryByRole('menuitem', { name: /Start today/ })).not.toBeInTheDocument();
+  });
+
+  it('offers only "Start today" when CPM has produced no start', async () => {
+    renderGutter([makeTask({ id: 'q3', name: 'No dates', status: 'NOT_STARTED', start: '' })]);
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for No dates' }));
+
+    expect(await screen.findByRole('menuitem', { name: /Start today/ })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /Start at the earliest/ })).not.toBeInTheDocument();
+  });
+
+  it('commits the CPM start in one click, with no date entry', async () => {
+    renderGutter([
+      makeTask({ id: 'q4', name: 'One click', status: 'NOT_STARTED', start: '2026-09-07' }),
+    ]);
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for One click' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Start at the earliest/ }));
+
+    await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(1));
+    expect(patchMock).toHaveBeenCalledWith(
+      '/tasks/q4/',
+      expect.objectContaining({ planned_start: '2026-09-07' }),
+    );
+  });
+
+  it('"Start today" commits today even when the earliest is later', async () => {
+    // Deliberately NOT suppressed: the resulting gap between the committed and
+    // the computed start is a real schedule conflict, and the menu's job is to
+    // let the planner express it, not to quietly prevent them.
+    renderGutter([
+      makeTask({ id: 'q5', name: 'Push it', status: 'NOT_STARTED', start: '2026-09-07' }),
+    ]);
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Push it' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Start today/ }));
+
+    await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(1));
+    expect(patchMock).toHaveBeenCalledWith(
+      '/tasks/q5/',
+      expect.objectContaining({ planned_start: todayLocalIso() }),
+    );
+  });
+
+  it('sends only planned_start — the status transition stays the server\'s call (#336)', async () => {
+    renderGutter([
+      makeTask({ id: 'q6', name: 'Wire shape', status: 'NOT_STARTED', start: '2026-09-07' }),
+    ]);
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Wire shape' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Start at the earliest/ }));
+
+    await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(1));
+    // Exact object, not objectContaining — the point is that nothing ELSE is on
+    // the wire, which objectContaining could never prove.
+    expect(patchMock).toHaveBeenCalledWith('/tasks/q6/', { planned_start: '2026-09-07' });
+  });
+
+  it('seeds the picker with the CPM start so the submit is live on open', async () => {
+    renderGutter([
+      makeTask({ id: 'q7', name: 'Seeded', status: 'NOT_STARTED', start: '2026-09-07' }),
+    ]);
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Seeded' }));
+
+    expect(await screen.findByLabelText('Or pick a date')).toHaveValue('2026-09-07');
+    expect(screen.getByRole('button', { name: 'Promote to schedule' })).toBeEnabled();
+  });
+
+  it('falls back to today when there is no CPM start to seed from', async () => {
+    renderGutter([makeTask({ id: 'q8', name: 'Undated', status: 'NOT_STARTED', start: '' })]);
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Undated' }));
+
+    expect(await screen.findByLabelText('Or pick a date')).toHaveValue(todayLocalIso());
+  });
+
+  it('announces the commit — the chip leaving the tray is silent to a screen reader', async () => {
+    const { container } = renderGutter([
+      makeTask({ id: 'q11', name: 'Announce me', status: 'NOT_STARTED', start: '2026-09-07' }),
+    ]);
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Announce me' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Start at the earliest/ }));
+
+    await waitFor(() =>
+      expect(container.querySelector('[aria-live="polite"]')).toHaveTextContent(
+        `Scheduled Announce me to start ${formatShortDate('2026-09-07')}.`,
+      ),
+    );
+  });
+
+  it('focuses the first quick action on open, not the picker below it', async () => {
+    renderGutter([
+      makeTask({ id: 'k1', name: 'Keyboard first', status: 'NOT_STARTED', start: '2026-09-07' }),
+    ]);
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Keyboard first' }));
+
+    const first = await screen.findByRole('menuitem', { name: /Start at the earliest/ });
+    await waitFor(() => expect(document.activeElement).toBe(first));
+  });
+
+  it('moves between quick actions with Arrow keys, and wraps', async () => {
+    renderGutter([
+      makeTask({ id: 'k3', name: 'Arrow me', status: 'NOT_STARTED', start: '2026-09-07' }),
+    ]);
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Arrow me' }));
+
+    const earliest = await screen.findByRole('menuitem', { name: /Start at the earliest/ });
+    const today = screen.getByRole('menuitem', { name: /Start today/ });
+    await waitFor(() => expect(document.activeElement).toBe(earliest));
+
+    const menu = screen.getByRole('menu');
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(today);
+    // Wraps rather than dead-ending at the last item.
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(earliest);
+    fireEvent.keyDown(menu, { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(today);
+  });
+
+  it('offers no quick actions on a backlog chip — that path owns its own dialog', () => {
+    renderGutter([
+      makeTask({ id: 'q9', name: 'Spike', status: 'BACKLOG', start: '2026-09-07' }),
+    ]);
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Spike' }));
+
+    expect(screen.queryByRole('menuitem', { name: /Start at the earliest/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /Start today/ })).not.toBeInTheDocument();
+  });
+
+  it('refuses the quick commit offline, like every other schedule write (rule 29)', async () => {
+    Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+    renderGutter([
+      makeTask({ id: 'q10', name: 'Offline quick', status: 'NOT_STARTED', start: '2026-09-07' }),
+    ]);
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Offline quick' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Start at the earliest/ }));
+
     await Promise.resolve();
     expect(patchMock).not.toHaveBeenCalled();
   });
