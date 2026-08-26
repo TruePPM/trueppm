@@ -16,6 +16,7 @@
 
 import type { Task, TaskLink } from '@/types';
 import type { CadenceSegment, SprintBand } from '../sprintBands';
+import type { RowMode } from '../deliveryModePresentation';
 import type {
   FilterHighlight,
   GanttEngine,
@@ -78,6 +79,7 @@ export class GanttEngineStub implements GanttEngine {
 
   setSprintBands(_bands: SprintBand[]): void {}
   setCadenceSegments(_segments: CadenceSegment[]): void {}
+  setRowModes(_modes: ReadonlyMap<string, RowMode>): void {}
 
   // ── Event emitter ─────────────────────────────────────────────────────────
 

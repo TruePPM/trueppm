@@ -159,6 +159,20 @@ fill texture (diagonal hatching for scrum, dots for kanban), with a legend entry
 each. Color is never the only signal — the chip states the mode in text, and the textures
 survive a monochrome print.
 
+The outline and the timeline read the **same** rolled-up value, so they cannot disagree
+about a row. A phase that reads `MIXED` on the outline carries a **split gutter** on its
+bar: one band per mode actually present, separated by a visible gap. The gap is what does
+the work — under a forced-colors theme every delivery hue collapses to a single system
+color, so bands that merely differed in color would read as one band, while bands you can
+count stay countable. A mixed bar draws no body texture: the three textures each name one
+mode, so overlaying two of them would produce a fourth pattern that means neither.
+
+Screen-reader users get the same fact in words. The timeline's bars live on a canvas, so
+each one is described by an accessible overlay — and that description names the rolled-up
+mode, including the modes a mixed phase is composed of ("…, Mixed delivery — this branch
+contains gated and scrum work"). A baseline row says nothing, matching the chip that draws
+nothing.
+
 **Nothing forks.** Dependencies cross the boundary freely: a gated 4.1 still drives a
 sprint 4.2, on one plan and one timeline.
 

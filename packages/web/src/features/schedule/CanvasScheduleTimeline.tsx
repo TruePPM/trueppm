@@ -20,6 +20,7 @@ import { useRef, useEffect, useMemo, type CSSProperties, type RefObject } from '
 import type { Task, TaskLink } from '@/types';
 import type { ChartRenderOptions, GanttEngine, ZoomLevel } from './engine';
 import type { CadenceSegment, SprintBand } from './sprintBands';
+import type { RowMode } from './deliveryModePresentation';
 import type { BuildModeApi } from './buildMode/BuildModeContext';
 import { useGanttEngine } from '@/hooks/useGanttEngine';
 import { useIsDark } from '@/hooks/useIsDark';
@@ -47,6 +48,13 @@ interface CanvasScheduleTimelineProps {
    * sprint context, which draws no rail.
    */
   cadenceSegments?: CadenceSegment[];
+  /**
+   * Rolled-up delivery mode per task id (#3040) — the SAME map the outline's
+   * gutter and chip are built from, so the two panes cannot disagree about one
+   * row. Defaults to none for hosts with no rollup (the read-only program
+   * schedule), where each bar falls back to its own stored field.
+   */
+  rowModes?: ReadonlyMap<string, RowMode>;
   /**
    * Build-mode API and the per-row edit predicate, for the Enter-creates-a-row
    * trio on a focused bar (#2784). Both omitted on the read-only program
@@ -76,11 +84,15 @@ const NO_SPRINT_BANDS: SprintBand[] = [];
 /** Same, for the cadence rail. */
 const NO_CADENCE_SEGMENTS: CadenceSegment[] = [];
 
+/** Same, for the delivery-mode rollup. */
+const NO_ROW_MODES: ReadonlyMap<string, RowMode> = new Map();
+
 export function CanvasScheduleTimeline({
   tasks,
   links,
   sprintBands = NO_SPRINT_BANDS,
   cadenceSegments = NO_CADENCE_SEGMENTS,
+  rowModes = NO_ROW_MODES,
   authoring = null,
   canEditRow,
   zoomLevel,
@@ -157,6 +169,13 @@ export function CanvasScheduleTimeline({
     engine.setCadenceSegments(cadenceSegments);
   }, [engine, cadenceSegments]);
 
+  // Rolled-up delivery mode per row (#3040). Same reference-comparison contract
+  // as the two above — ScheduleView memoizes `computeRowModes(allTasks)`.
+  useEffect(() => {
+    if (!engine) return;
+    engine.setRowModes(rowModes);
+  }, [engine, rowModes]);
+
   // Push Chart menu toggles (name placement / progress pills) to the engine (#2097).
   useEffect(() => {
     if (!engine) return;
@@ -211,6 +230,7 @@ export function CanvasScheduleTimeline({
         tasks={tasks}
         links={links}
         sprintBands={sprintBands}
+        rowModes={rowModes}
         authoring={authoring}
         canEditRow={canEditRow}
         containerRef={containerRef}

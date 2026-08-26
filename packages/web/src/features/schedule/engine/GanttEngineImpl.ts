@@ -38,6 +38,7 @@ import {
   COLOR_DARK,
   setRendererColorMode,
   setRendererChartOptions,
+  setRendererRowModes,
   drawFilterMatchMarker,
   FILTER_DIM_ALPHA,
   canvasFont,
@@ -65,6 +66,7 @@ import {
 } from './GanttRenderer';
 import type { ChartRenderOptions, DependencyLayout } from './GanttRenderer';
 import type { CadenceSegment, SprintBand } from '../sprintBands';
+import type { RowMode } from '../deliveryModePresentation';
 import { CHART_HEADER_HEIGHT } from '../scheduleConstants';
 
 // ---------------------------------------------------------------------------
@@ -239,6 +241,9 @@ export class GanttEngineImpl implements GanttEngine {
   // Sprint-window bands (#2738, ADR-0803). Row-indexed against _tasks; the host
   // recomputes and re-pushes them whenever that array changes.
   private _sprintBands: SprintBand[] = [];
+  /** Rolled-up delivery mode per task id (#3040) — pushed by the host, painted
+   *  by `drawDeliveryModeMark`. Empty until a host with a rollup pushes one. */
+  private _rowModes: ReadonlyMap<string, RowMode> = new Map();
   /**
    * The cadence rail's cells (#3012). Separate from `_sprintBands` because they
    * answer a different question: bands are row ranges, segments are stretches of
@@ -688,6 +693,15 @@ export class GanttEngineImpl implements GanttEngine {
     // on screen.
     this._headerContentDirty = true;
     this._fullRepaintPending = true;
+    this._requestRepaint();
+  }
+
+  setRowModes(modes: ReadonlyMap<string, RowMode>): void {
+    // Reference comparison, same contract as setSprintBands.
+    if (this._rowModes === modes) return;
+    this._rowModes = modes;
+    // Bars only — the mark is painted inside drawTaskBar/drawSummaryBar, so the
+    // header band and the background do not need to be redrawn.
     this._requestRepaint();
   }
 
@@ -1213,6 +1227,7 @@ export class GanttEngineImpl implements GanttEngine {
     // Apply Chart menu toggles (name placement / progress pills) for this pass —
     // the bars layer reads them from module state, same as the palette (#2097).
     setRendererChartOptions(this._chartOptions);
+    setRendererRowModes(this._rowModes);
 
     ctx.clearRect(0, 0, w, h);
 
@@ -1346,6 +1361,7 @@ export class GanttEngineImpl implements GanttEngine {
   private _paintRow(rowIndex: number): void {
     setRendererColorMode(this._isDark, this._forcedColors);
     setRendererChartOptions(this._chartOptions);
+    setRendererRowModes(this._rowModes);
     if (!this._scales) return;
     const ctx = this._barsCtx;
     const rowTop = rowIndex * ROW_HEIGHT + CHART_HEADER_HEIGHT - this._scrollTop;

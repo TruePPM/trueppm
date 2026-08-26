@@ -5674,6 +5674,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
                   links={links ?? []}
                   sprintBands={sprintBands}
                   cadenceSegments={cadenceSegments}
+                  rowModes={rowModes}
                   authoring={timelineBuildMode}
                   canEditRow={canEditRow}
                   zoomLevel={zoomLevel}
