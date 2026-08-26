@@ -3525,15 +3525,23 @@ function TaskNameTrailing(props: TaskNameContentProps) {
             e.stopPropagation();
             onAddPhaseFirstChild?.(task.id);
           }}
-          className="inline-flex shrink-0 items-center gap-1 rounded-chip border border-dashed border-neutral-border
+          // `shrink min-w-0`, not `shrink-0` (#3057). The name label is the only
+          // other shrinkable item in this fixed-width cell, so a `shrink-0` hint
+          // 181px wide took the whole cell and squeezed the name to zero — a row
+          // that says "I am a phase" and will not say *which* phase. Yielding
+          // degrades this to the glyph plus clipped text; `title`/`aria-label`
+          // still carry the full string, so nothing is lost to AT.
+          className="inline-flex shrink min-w-0 items-center gap-1 rounded-chip border border-dashed border-neutral-border
             px-1.5 py-0.5 text-xs text-neutral-text-secondary hover:border-brand-primary hover:text-brand-primary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           title={ROW_VOCABULARY.create.phaseHasNoRows}
           aria-label={addFirstRowToLabel(task.name)}
           data-testid="phase-in-waiting-hint"
         >
-          <span aria-hidden="true">⊕</span>
-          <span>{ADD_FIRST_ROW_TO_PHASE}</span>
+          <span aria-hidden="true" className="shrink-0">
+            ⊕
+          </span>
+          <span className="truncate">{ADD_FIRST_ROW_TO_PHASE}</span>
         </button>
       )}
     </>

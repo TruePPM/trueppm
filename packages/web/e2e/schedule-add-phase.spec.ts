@@ -331,6 +331,68 @@ test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
   });
 });
 
+test.describe('Phase-in-waiting hint layout (#3057)', () => {
+  test.use({ viewport: { width: 1440, height: 700 } });
+
+  test('the ghost affordance yields to the row name instead of starving it', async ({ page }) => {
+    await setupCatchAll(page);
+    await setupAuth(page);
+    await setupApiMocks(page, {
+      projects: FIXTURE_PROJECTS,
+      projectId: FIXTURE_PROJECT_ID,
+      tasks: [
+        {
+          id: 't-empty-phase',
+          wbs_path: '1',
+          name: 'Regulatory approvals',
+          early_start: '2026-04-05',
+          early_finish: '2026-04-09',
+          planned_start: '2026-04-05',
+          duration: 5,
+          percent_complete: 0,
+          is_critical: false,
+          is_milestone: false,
+          is_summary: false,
+          parent_id: null,
+          status: 'NOT_STARTED',
+          assignees: [],
+          total_float: null,
+          predecessor_count: 0,
+          is_blocked: false,
+          linked_risks_count: 0,
+          linked_risks_max_severity: null,
+        },
+      ],
+    });
+
+    // `phaseInWaitingIds` is session-scoped state owned by ScheduleView, so seeding
+    // sessionStorage puts a row in the hinted state without driving the create flow
+    // that produces it — the layout is what is under test, not how the row got there.
+    await page.addInitScript(
+      ([key, ids]: [string, string[]]) => {
+        window.sessionStorage.setItem(key, JSON.stringify(ids));
+      },
+      [`trueppm.schedule.phaseInWaiting.${FIXTURE_PROJECT_ID}`, ['t-empty-phase']] as [
+        string,
+        string[],
+      ],
+    );
+
+    await page.goto(BASE_URL);
+    const grid = page.getByRole('treegrid', { name: 'Item list' });
+    const hint = grid.getByTestId('phase-in-waiting-hint');
+    await expect(hint).toBeVisible();
+
+    // The name is in the DOM and in the accessible name either way — the defect was
+    // that it had no *width*. `toBeVisible()` would pass with the bug in place, which
+    // is why this measures instead (the issue's own 1440x700 measurement read
+    // `width: 0` for the label beside a 181px hint).
+    const nameBox = await grid.locator('[aria-label="1 Regulatory approvals"]').boundingBox();
+    expect(nameBox).not.toBeNull();
+    expect(nameBox!.width).toBeGreaterThan(40);
+  });
+});
+
 test.describe('Contributor-surface exclusion — a phase never appears in Quick Log Time (issue #1754)', () => {
   test('the global Log Time picker excludes a phase entirely', async ({ page }) => {
     await setupCatchAll(page);
