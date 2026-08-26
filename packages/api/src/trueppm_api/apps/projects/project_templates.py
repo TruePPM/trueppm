@@ -289,8 +289,10 @@ def _root_ordinal_offset(project: Project) -> int:
 
     labels = (
         Task.objects.filter(project=project, is_deleted=False, wbs_path__isnull=False)
-        # nosec B611 — static SQL literal (no user input), empty params list.
-        .annotate(root_label=RawSQL("subpath(projects_task.wbs_path, 0, 1)::text", []))
+        # nosec B611 — static SQL literal (no user input), empty params list; the
+        # ltree subpath() call can't be expressed in the ORM. Bandit flags any RawSQL.
+        # nosemgrep: avoid-raw-sql
+        .annotate(root_label=RawSQL("subpath(projects_task.wbs_path, 0, 1)::text", []))  # nosec B611
         .values_list("root_label", flat=True)
         .distinct()
     )
