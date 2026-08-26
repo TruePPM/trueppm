@@ -16,7 +16,7 @@
  * re-derived the gate from the ordinal, which is the exact regression to catch.
  */
 import { test, expect } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import { setupAuth, setupApiMocks, setupCatchAll, useFullToolbar } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-authgate-0000-0000-0000-000000003034';
 const BASE_URL = `/projects/${FIXTURE_PROJECT_ID}/schedule`;
@@ -59,6 +59,16 @@ const FIXTURE_TASKS = [
 ];
 
 test.describe('Schedule authoring gate — can_author (#3034)', () => {
+  // Both tests below reason about the mode pills, and since #3076 the fit
+  // ladder collapses those into a single chip at Playwright's 1280 default.
+  // That matters in BOTH directions: the allowed reader stops finding the pill
+  // it asserts is visible, and — worse — the refused reader's
+  // `toHaveCount(0)` starts passing because the pill was rationed rather than
+  // withheld, which is the one thing this spec exists to tell apart.
+  test.beforeEach(async ({ page }) => {
+    await useFullToolbar(page);
+  });
+
   test('a reader the server refuses gets the View only badge, not the apparatus', async ({
     page,
   }) => {

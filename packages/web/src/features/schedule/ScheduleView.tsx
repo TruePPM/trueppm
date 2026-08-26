@@ -118,7 +118,20 @@ import { useBreakpoint } from '@/hooks/useBreakpoint';
 import {
   ToolbarOverflowMenu,
   type ToolbarOverflowItem,
+  type ToolbarOverflowSection,
 } from '@/components/toolbar/ToolbarOverflowMenu';
+import {
+  pinFooterSentence,
+  pinsFromDisplayOptions,
+  placementLabel,
+  resolveComposition,
+  type StructurePlacement,
+  type ToolbarComposition,
+  type ToolbarPins,
+} from './toolbar/toolbarLadder';
+import { useToolbarFit } from './toolbar/useToolbarFit';
+import { useDemotionAnnounce } from './toolbar/useDemotionAnnounce';
+import { ScheduleModeChip } from './toolbar/ScheduleModeChip';
 import { ImportModal } from '@/components/import/ImportModal';
 import { CsvImportWizard } from '@/components/import/CsvImportWizard';
 import { EmptyState } from '@/components/EmptyState';
@@ -4762,11 +4775,24 @@ type ColWidthsHook = ReturnType<typeof useColumnWidths>;
 type NamePlacement = ChartPrefsHook['prefs']['taskNamePlacementByView']['grid'];
 
 /**
- * Build the Project-actions (···) overflow items. Each entry is conditional on
- * the project id plus the relevant capability/breakpoint (#1741) — extracted so
- * the spread-ternaries live outside the toolbar's render.
+ * The `···` menu, sectioned (#3076).
+ *
+ * One trigger, not two. A second overflow button beside the first is
+ * unlearnable — but a control the toolbar had no room for must not read as a
+ * sibling of "Import from MS Project…" either, so the demoted controls get
+ * their own leading group with the reason on the heading line. They are view
+ * controls; everything below them is a project act.
+ *
+ * The demoted group is present **only when something was demoted**, so at a
+ * width where nothing has moved the menu opens straight onto Baselines and the
+ * muscle memory of today's users is untouched. Empty sections are dropped by
+ * `ToolbarOverflowMenu`, and headings render only when two or more survive —
+ * so a viewer left with three export rows sees three plain rows, not three
+ * headings over one row each.
  */
-function buildProjectActionsItems(ctx: {
+function buildOverflowSections(ctx: {
+  crowdedOut: ToolbarOverflowItem[];
+  unpinned: ToolbarOverflowItem[];
   projectId: string | null;
   canImport: boolean;
   canShare: boolean;
@@ -4780,94 +4806,276 @@ function buildProjectActionsItems(ctx: {
   setCaptureBaselineConfirmOpen: (v: boolean) => void;
   setBaselineManagerOpen: (v: boolean) => void;
   setTaskTrashOpen: (v: boolean) => void;
-}): ToolbarOverflowItem[] {
+}): ToolbarOverflowSection[] {
   const { projectId, isExporting, exportProject } = ctx;
   return [
-    ...(projectId && ctx.canImport
+    {
+      id: 'from-the-toolbar',
+      label: 'From the toolbar',
+      note: 'no room at this width',
+      items: ctx.crowdedOut,
+    },
+    {
+      id: 'not-pinned',
+      label: 'Not in the toolbar',
+      note: 'pin in Display',
+      items: ctx.unpinned,
+    },
+    {
+      id: 'baselines',
+      label: 'Baselines',
+      items: [
+        ...(projectId && ctx.canCaptureBaseline
+          ? [
+              {
+                kind: 'action' as const,
+                id: 'capture-baseline',
+                label: 'Capture baseline',
+                onSelect: () => ctx.setCaptureBaselineConfirmOpen(true),
+              },
+            ]
+          : []),
+        ...(projectId
+          ? [
+              {
+                kind: 'action' as const,
+                id: 'manage-baselines',
+                label: 'Baselines…',
+                onSelect: () => ctx.setBaselineManagerOpen(true),
+              },
+            ]
+          : []),
+      ],
+    },
+    {
+      // "Bring work in" / "Take work out" is the split users describe, and it
+      // is what puts a demoted Export PDF beside Export to MS Project rather
+      // than in a flat list where its neighbours are imports.
+      id: 'bring-work-in',
+      label: 'Bring work in',
+      items: [
+        ...(projectId && ctx.canImport
+          ? [
+              {
+                kind: 'action' as const,
+                id: 'import-msproject',
+                label: 'Import from MS Project…',
+                onSelect: () => ctx.setImportOpen(true),
+              },
+            ]
+          : []),
+        ...(projectId && ctx.canImportCsv
+          ? [
+              {
+                kind: 'action' as const,
+                id: 'import-csv',
+                label: 'Import from spreadsheet (CSV/Excel)…',
+                onSelect: () => ctx.setCsvImportOpen(true),
+              },
+            ]
+          : []),
+      ],
+    },
+    {
+      id: 'take-work-out',
+      label: 'Take work out',
+      items: [
+        ...(projectId
+          ? [
+              {
+                kind: 'action' as const,
+                id: 'export-msproject',
+                label: isExporting ? 'Exporting…' : 'Export to MS Project (.xml)',
+                disabled: isExporting,
+                onSelect: () => {
+                  void exportProject();
+                },
+              },
+            ]
+          : []),
+        // Share (#1486) — Admin+ only.
+        ...(projectId && ctx.canShare
+          ? [
+              {
+                kind: 'action' as const,
+                id: 'share-schedule',
+                label: 'Share this schedule…',
+                onSelect: () => ctx.setShareOpen(true),
+              },
+            ]
+          : []),
+      ],
+    },
+    {
+      id: 'project',
+      label: 'Project',
+      items: [
+        // Recently deleted (#2494) — offered to every member, not just those who
+        // can restore: seeing that a task still exists is the recovery, and each
+        // row carries its own server-decided `can_restore`.
+        ...(projectId
+          ? [
+              {
+                kind: 'action' as const,
+                id: 'task-trash',
+                label: 'Recently deleted…',
+                onSelect: () => ctx.setTaskTrashOpen(true),
+              },
+            ]
+          : []),
+      ],
+    },
+  ];
+}
+
+/**
+ * The three structure acts as menu rows, for the collapsed `Structure ▾`
+ * trigger and for the demoted group.
+ *
+ * Same names, same chords, same disabled reasoning as the buttons — a control
+ * that changes identity when it moves is a control the user has to find again.
+ */
+function structureOverflowItems(ctx: {
+  handleAddPhase: () => void;
+  onGroup: () => void;
+  onUngroup: () => void;
+  groupTarget: GroupTarget;
+  ungroupTarget: UngroupTarget;
+  readOnly: boolean;
+  pending: boolean;
+}): ToolbarOverflowItem[] {
+  return [
+    {
+      kind: 'action',
+      id: 'add-phase',
+      label: 'Add phase',
+      disabled: ctx.readOnly || ctx.pending,
+      onSelect: ctx.handleAddPhase,
+      shortcut: formatChord('mod+alt+p'),
+      ariaKeyShortcuts: 'Alt+Meta+P',
+    },
+    {
+      kind: 'action',
+      id: 'group-rows',
+      label: 'Group into a phase',
+      disabled: ctx.readOnly || ctx.pending || ctx.groupTarget.blocked !== null,
+      onSelect: ctx.onGroup,
+      shortcut: formatChord('mod+alt+g'),
+      ariaKeyShortcuts: 'Alt+Meta+G',
+    },
+    {
+      kind: 'action',
+      id: 'ungroup-rows',
+      label: 'Ungroup',
+      disabled: ctx.readOnly || ctx.pending || ctx.ungroupTarget.blocked !== null,
+      onSelect: ctx.onUngroup,
+      shortcut: formatChord('mod+alt+shift+g'),
+      ariaKeyShortcuts: 'Alt+Shift+Meta+G',
+    },
+  ];
+}
+
+/**
+ * Everything that is not in the bar, split by WHY.
+ *
+ * The split is not cosmetic. "No room at this width" is a true sentence about a
+ * control the ladder overruled and a **false** one about a control the person
+ * deliberately left unpinned — and a heading that lies about why a button moved
+ * is worse than no heading, because it sends them resizing the window to get
+ * back something only the Display menu can return. So the reason is the
+ * grouping key: pinned-but-overruled reads "no room at this width", unpinned
+ * reads "turn on in Display".
+ *
+ * Each row keeps the name and the chord its toolbar button carries, so the menu
+ * teaches the way to stop needing the menu. Nothing appears here that is also in
+ * the bar — one identity at a time — and nothing appears here that the reader
+ * has no rights to (web rule 302: absent, not demoted).
+ */
+function buildDemotedItems(ctx: {
+  composition: ToolbarComposition;
+  structurePlacement: StructurePlacement | 'absent';
+  projectId: string | null;
+  hasEditRights: boolean;
+  readOnly: boolean;
+  handleScrollToToday: () => void;
+  handleAddMilestone: () => void;
+  handleAddPhase: () => void;
+  onGroup: () => void;
+  onUngroup: () => void;
+  groupTarget: GroupTarget;
+  ungroupTarget: UngroupTarget;
+  createPending: boolean;
+  restructurePending: boolean;
+  scheduleExport: ReturnType<typeof useScheduleExport>;
+  pins: ToolbarPins;
+}): { crowdedOut: ToolbarOverflowItem[]; unpinned: ToolbarOverflowItem[] } {
+  const authoring = ctx.projectId !== null && ctx.hasEditRights;
+  const rows: Array<{ pinned: boolean; item: ToolbarOverflowItem }> = [
+    ...(ctx.composition.today === 'overflow'
       ? [
           {
-            kind: 'action' as const,
-            id: 'import-msproject',
-            label: 'Import from MS Project…',
-            onSelect: () => ctx.setImportOpen(true),
-          },
-        ]
-      : []),
-    ...(projectId && ctx.canImportCsv
-      ? [
-          {
-            kind: 'action' as const,
-            id: 'import-csv',
-            label: 'Import from spreadsheet (CSV/Excel)…',
-            onSelect: () => ctx.setCsvImportOpen(true),
-          },
-        ]
-      : []),
-    ...(projectId
-      ? [
-          {
-            kind: 'action' as const,
-            id: 'export-msproject',
-            label: isExporting ? 'Exporting…' : 'Export to MS Project (.xml)',
-            disabled: isExporting,
-            onSelect: () => {
-              void exportProject();
+            pinned: ctx.pins.today,
+            item: {
+              kind: 'action' as const,
+              id: 'today',
+              label: 'Scroll to today',
+              onSelect: ctx.handleScrollToToday,
             },
           },
         ]
       : []),
-    // Schedule PDF export (issue 1438) moved out of this menu and into a
-    // dedicated, primary toolbar button (#2703) — it is a weekly-cadence,
-    // client-facing task for the PM/PMO personas, not a secondary action, and
-    // this codebase's convention (rule 243: the Display popover, Today, Zoom)
-    // is one home per control, not a toolbar+overflow duplicate. See
-    // `ScheduleToolbar`'s render for the button.
-    // Share (#1486) — Admin+ only.
-    ...(projectId && ctx.canShare
+    ...(authoring && ctx.composition.milestone === 'overflow'
       ? [
           {
-            kind: 'action' as const,
-            id: 'share-schedule',
-            label: 'Share this schedule…',
-            onSelect: () => ctx.setShareOpen(true),
+            pinned: ctx.pins.milestone,
+            item: {
+              kind: 'action' as const,
+              id: 'add-milestone',
+              label: 'Add milestone',
+              disabled: ctx.readOnly || ctx.createPending,
+              onSelect: ctx.handleAddMilestone,
+              shortcut: formatChord('mod+alt+m'),
+              ariaKeyShortcuts: 'Alt+Meta+M',
+            },
           },
         ]
       : []),
-    // Baselines (#1864) — capture (Admin+) then the manager.
-    ...(projectId && ctx.canCaptureBaseline
+    ...(ctx.structurePlacement === 'overflow'
+      ? structureOverflowItems({
+          handleAddPhase: ctx.handleAddPhase,
+          onGroup: ctx.onGroup,
+          onUngroup: ctx.onUngroup,
+          groupTarget: ctx.groupTarget,
+          ungroupTarget: ctx.ungroupTarget,
+          readOnly: ctx.readOnly,
+          pending: ctx.createPending || ctx.restructurePending,
+        }).map((item) => ({ pinned: ctx.pins.structure, item }))
+      : []),
+    // Export PDF goes through the reason split like every other demoted
+    // control rather than landing quietly beside "Export to MS Project".
+    // Sorting it by topic would have read better and would have dropped the
+    // one thing a user who just lost a visible button actually needs: why.
+    ...(ctx.projectId && ctx.composition.pdf === 'overflow'
       ? [
           {
-            kind: 'action' as const,
-            id: 'capture-baseline',
-            label: 'Capture baseline',
-            onSelect: () => ctx.setCaptureBaselineConfirmOpen(true),
+            pinned: ctx.pins.exportPdf,
+            item: {
+              kind: 'action' as const,
+              id: 'export-pdf',
+              label: 'Export schedule as PDF…',
+              disabled: !ctx.scheduleExport.canExport,
+              onSelect: ctx.scheduleExport.openDialog,
+              shortcut: formatChord('mod+shift+e'),
+              ariaKeyShortcuts: 'Shift+Meta+E',
+            },
           },
         ]
       : []),
-    ...(projectId
-      ? [
-          {
-            kind: 'action' as const,
-            id: 'manage-baselines',
-            label: 'Baselines…',
-            onSelect: () => ctx.setBaselineManagerOpen(true),
-          },
-        ]
-      : []),
-    // Recently deleted (#2494) — offered to every member, not just those who can
-    // restore: seeing that a task still exists is the recovery, and each row
-    // carries its own server-decided `can_restore`.
-    ...(projectId
-      ? [
-          {
-            kind: 'action' as const,
-            id: 'task-trash',
-            label: 'Recently deleted…',
-            onSelect: () => ctx.setTaskTrashOpen(true),
-          },
-        ]
-      : []),
-  ] as ToolbarOverflowItem[];
+  ];
+  return {
+    crowdedOut: rows.filter((r) => r.pinned).map((r) => r.item),
+    unpinned: rows.filter((r) => !r.pinned).map((r) => r.item),
+  };
 }
 
 interface ScheduleToolbarProps {
@@ -5013,14 +5221,67 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
     setTaskTrashOpen,
   } = props;
 
+  // --- Fit ladder (#3076) ------------------------------------------------
+  // The bar's default composition asks for ~1,862px and the widest desktop
+  // gives it 1,648, so before this it clipped at EVERY supported width and the
+  // parent's `overflow-hidden` ate the difference in silence. `useToolbarFit`
+  // measures and walks the ladder until the contents fit.
+  //
+  // Deliberately NOT `overflow-x-auto`: scrolling would satisfy "reachable"
+  // and break two other things. It establishes a clipping context on both
+  // axes, which would clip every in-flow `absolute` popover in this bar —
+  // Display, the mode chip, the trail, `···` (web rule 290's overlay
+  // corollary) — and it leaves a control's location dependent on a scroll
+  // offset nothing announces. The ladder demotes instead, so every control has
+  // exactly one place at any given width.
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const overflowSlotRef = useRef<HTMLButtonElement>(null);
+  const demotionLiveRef = useRef<HTMLSpanElement>(null);
+  // Everything that changes the bar's NATURAL width without changing its box,
+  // so the loop re-measures on a pin toggle, a mode flip, rights resolving, or
+  // the trail gaining its first entry — none of which a ResizeObserver can see.
+  const inventorySignature = [
+    displayOptions.pinMilestone,
+    displayOptions.pinExportPdf,
+    displayOptions.pinCounts,
+    displayOptions.pinToday,
+    displayOptions.structureButtons,
+    hasEditRights,
+    readOnly,
+    buildModeActive,
+    authorMode,
+    projectId ?? '',
+    pendingCount > 0,
+    visibleTasks.length,
+  ].join('|');
+  const { step: fitStep } = useToolbarFit(toolbarRef, !isMobile, inventorySignature);
+  useDemotionAnnounce({
+    toolbarRef,
+    overflowTriggerRef: overflowSlotRef,
+    liveRegionRef: demotionLiveRef,
+    step: fitStep,
+    overflowLabel: 'Project actions',
+  });
+  const pins = pinsFromDisplayOptions(displayOptions);
+  const composition = resolveComposition(pins, fitStep);
+  // Structure is edit-rights gated independently of the pin: without rights the
+  // apparatus is absent, not demoted (web rule 302), so it never reaches `···`.
+  const structurePlacement = hasEditRights && projectId ? composition.structure : 'absent';
+
   // The whole toolbar is desktop-only (mobile is forced to full-width Timeline,
   // #1670), so it renders nothing on a phone.
   if (isMobile) return null;
 
   return (
     <div
+      ref={toolbarRef}
       role="toolbar"
       aria-label="Schedule toolbar"
+      data-fit-step={fitStep}
+      // `flex-nowrap` + every child `shrink-0` is what makes the overflow REAL
+      // and therefore measurable. A child that squeezes instead hides the
+      // condition the ladder reads — which is exactly how the session trail's
+      // label came to wrap inside this 40px strip.
       className="flex flex-nowrap items-center gap-2 px-4 h-10 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0"
     >
       {/* "+ Item" button — shown when a project is selected AND the user may
@@ -5071,10 +5332,16 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           position-implies-the-wrong-thing defect this issue is about, one level
           up. Not in `BuildModeHintStrip` either: the strip teaches the keyboard
           mode, not one control's outcome. Absent without edit rights. */}
-      <ScheduleInsertTargetStatement target={insertTarget} hasEditRights={hasEditRights} />
+      <ScheduleInsertTargetStatement
+        target={insertTarget}
+        hasEditRights={hasEditRights}
+        density={composition.sentence}
+      />
       {/* "+ Milestone" peer button (#340). Absent without edit rights (#2949),
-          disabled for an editor who chose Read — the two are different states. */}
-      {projectId && hasEditRights && (
+          disabled for an editor who chose Read — the two are different states.
+          Unpinned or demoted it moves into `···` (#3076) rather than
+          disappearing; the entry there carries the same name and chord. */}
+      {projectId && hasEditRights && composition.milestone === 'bar' && (
         <ScheduleAddMilestoneButton
           onAddMilestone={handleAddMilestone}
           disabled={readOnly}
@@ -5091,7 +5358,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           a complete keyboard path, and turning the group on once is a complete pointer
           path. Same edit-rights gate as "+ Item" / "+ Milestone": absent without
           rights, present-and-inert for an editor who chose Read (#2949, rule 302). */}
-      {projectId && hasEditRights && displayOptions.structureButtons && (
+      {structurePlacement === 'bar' && (
         <>
           <ScheduleAddPhaseButton
             onAddPhase={handleAddPhase}
@@ -5109,13 +5376,45 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           />
         </>
       )}
-      {buildModeActive && hasEditRights && (
-        <BuildModePill onShowCheatsheet={() => setCheatsheetOpen(true)} />
+      {/* One `Structure ▾` trigger before the trio demotes (#3076 rung 4). A
+          collapse, not a demotion: three related acts stay together under a
+          name that says what they do, rather than scattering into a menu whose
+          other rows are project-level acts. */}
+      {structurePlacement === 'collapsed' && (
+        <ToolbarOverflowMenu
+          triggerAriaLabel="Structure"
+          triggerLabel={<span className="whitespace-nowrap">Structure</span>}
+          items={structureOverflowItems({
+            handleAddPhase,
+            onGroup,
+            onUngroup,
+            groupTarget,
+            ungroupTarget,
+            readOnly,
+            pending: createPending || restructurePending,
+          })}
+        />
       )}
-      {/* The Read/Author toggle is meaningless without rights: there is no mode
-          to leave. It goes, and the View-only badge takes its place. */}
-      {buildModeActive && hasEditRights && (
-        <AuthorModePill mode={authorMode} onToggle={onToggleAuthorMode} />
+      {/* Mode cluster (#3076 rung 8). Split into two pills while there is room;
+          one chip that still shows its value when there is not. It has no
+          `overflow` state at all — a mode you have to open a menu to read is a
+          mode you forget you are in, and the cost of that is typing into a plan
+          you believe is read-only. */}
+      {buildModeActive && hasEditRights && composition.mode === 'split' && (
+        <>
+          <BuildModePill onShowCheatsheet={() => setCheatsheetOpen(true)} />
+          {/* The Read/Author toggle is meaningless without rights: there is no
+              mode to leave. It goes, and the View-only badge takes its place. */}
+          <AuthorModePill mode={authorMode} onToggle={onToggleAuthorMode} />
+        </>
+      )}
+      {buildModeActive && hasEditRights && composition.mode === 'chip' && (
+        <ScheduleModeChip
+          mode={authorMode}
+          onToggleMode={onToggleAuthorMode}
+          buildModeActive={buildModeActive}
+          onShowCheatsheet={() => setCheatsheetOpen(true)}
+        />
       )}
       {buildModeActive && !hasEditRights && <ScheduleViewOnlyBadge />}
       {/* Session trail (#2948). Lives in the toolbar rather than the Forecast
@@ -5123,7 +5422,11 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           is no Monte Carlo result yet, which is exactly the fresh project where
           someone is authoring structure. It renders null with no acts, so a
           viewer never sees it. */}
-      <SessionTrail onUndo={props.onUndoStructuralAct} undoPending={props.undoPending} />
+      <SessionTrail
+        onUndo={props.onUndoStructuralAct}
+        undoPending={props.undoPending}
+        compact={composition.trail === 'min'}
+      />
       {/* Show the badge for in-flight optimistic edits, and also while a
           freshly-imported sample's first post-import CPM pass is still pending
           (recalculated_at null) so the demo never reads as broken (#1053). */}
@@ -5132,12 +5435,18 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           pendingCount > 0 ||
           (projectDetail?.is_sample === true && projectDetail?.recalculated_at == null)
         }
+        compact={composition.recalc === 'min'}
       />
 
-      <div className="flex-1" />
+      {/* The spacer holds at every width, so authoring stays left and reading
+          stays right and no control crosses the gap as the bar compacts — the
+          thing you looked at last time is in the same half of the bar.
+          `data-toolbar-spacer` is what lets the fit measurement charge it its
+          floor rather than its stretch (see `measureToolbarContent`). */}
+      <div data-toolbar-spacer className="flex-1 min-w-[8px]" />
 
       {/* Project-health summary chip (#248) — standalone read-only status. */}
-      <ScheduleSummaryChip visibleTasks={visibleTasks} />
+      <ScheduleSummaryChip visibleTasks={visibleTasks} density={composition.counts} />
 
       <div aria-hidden="true" className="mx-0.5 h-5 w-px bg-neutral-border shrink-0" />
 
@@ -5182,21 +5491,124 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
         }}
         hiddenChartCount={hiddenChartCount}
         iconOnly={breakpoint !== 'lg'}
+        toolbarPins={
+          // The pin rows a READER can arrange are gated one by one, not behind
+          // a single `hasEditRights` guard on the section.
+          //
+          // Three of the five controls here — Export PDF, the counts readout
+          // and Today — are offered to a viewer in the bar itself (they carry
+          // no rights gate on their own render), so a section-level guard would
+          // show someone a control and then deny them any say over whether it
+          // takes toolbar width. That is the coarse-client-guard failure: it
+          // strands capability the server never withheld, and it is invisible
+          // from the API side because no endpoint is involved. Only the two
+          // authoring rows follow `hasEditRights`, matching the gate on the
+          // buttons they govern (rule 302: absent, not disabled).
+          {
+                rows: [
+                  ...(hasEditRights
+                    ? [
+                        {
+                          id: 'pin-milestone',
+                          label: 'Milestone',
+                          checked: displayOptions.pinMilestone,
+                          where: placementLabel(composition.milestone),
+                          onToggle: () => onToggleDisplayOption('pinMilestone'),
+                        },
+                        {
+                          id: 'structure-buttons',
+                          label: 'Phase, Group and Ungroup buttons',
+                          checked: displayOptions.structureButtons,
+                          where: placementLabel(composition.structure),
+                          onToggle: () => onToggleDisplayOption('structureButtons'),
+                        },
+                      ]
+                    : []),
+                  {
+                    id: 'pin-export-pdf',
+                    label: 'Export PDF',
+                    checked: displayOptions.pinExportPdf,
+                    where: placementLabel(composition.pdf),
+                    onToggle: () => onToggleDisplayOption('pinExportPdf'),
+                  },
+                  {
+                    id: 'pin-counts',
+                    label: 'Task and critical counts',
+                    checked: displayOptions.pinCounts,
+                    where: placementLabel(composition.counts),
+                    onToggle: () => onToggleDisplayOption('pinCounts'),
+                  },
+                  {
+                    id: 'pin-today',
+                    label: 'Today',
+                    checked: displayOptions.pinToday,
+                    where: placementLabel(composition.today),
+                    onToggle: () => onToggleDisplayOption('pinToday'),
+                  },
+                  // Shown, inert, and explained — two rows rather than silence,
+                  // so the list is a complete inventory of the bar and a user
+                  // learns that zoom and the mode chip *collapse* rather than
+                  // vanish.
+                  {
+                    id: 'locked-tier-a',
+                    // Named for what this reader actually has: a viewer has no
+                    // `+ Item`, so listing it as "always in the toolbar" would
+                    // be a claim about a control that is not there.
+                    label: hasEditRights
+                      ? 'Item, Grid / Timeline, Display, ···'
+                      : 'Grid / Timeline, Display, ···',
+                    sub: 'Always in the toolbar.',
+                    checked: true,
+                    where: 'always',
+                    locked: true,
+                  },
+                  {
+                    id: 'locked-state',
+                    label: hasEditRights
+                      ? 'Zoom, mode, engine status'
+                      : 'Zoom, engine status',
+                    sub: 'Always present; collapse to a chip when narrow.',
+                    checked: true,
+                    where: 'always',
+                    locked: true,
+                  },
+                ],
+                footer: pinFooterSentence(
+                  // A viewer has no authoring controls, so their pins are not
+                  // "pinned but crowded out" — they are not applicable, and
+                  // counting them would report a shortfall that no amount of
+                  // widening could fix.
+                  hasEditRights ? pins : { ...pins, milestone: false, structure: false },
+                  composition,
+                ),
+              }
+        }
       />
 
       <div aria-hidden="true" className="mx-0.5 h-5 w-px bg-neutral-border shrink-0" />
 
       {/* Time cluster (#1741) — timeline navigation: jump-to-today, zoom, quarter toggle. */}
-      <div role="group" aria-label="Timeline navigation" className="flex items-center gap-1">
-        {/* "Today" button (rule 82) */}
-        <button
-          type="button"
-          onClick={handleScrollToToday}
-          className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium flex-shrink-0 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
-        >
-          Today
-        </button>
-        <ZoomControl onFit={() => engine?.fitToProject()} />
+      <div
+        role="group"
+        aria-label="Timeline navigation"
+        className="flex shrink-0 items-center gap-1"
+      >
+        {/* "Today" button (rule 82). The last tier-A control to demote, and the
+            only one that ever does — a Team Member's whole set is otherwise
+            untouched by the ladder at any width. */}
+        {composition.today === 'bar' && (
+          <button
+            type="button"
+            onClick={handleScrollToToday}
+            className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium flex-shrink-0 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+          >
+            Today
+          </button>
+        )}
+        <ZoomControl
+          onFit={() => engine?.fitToProject()}
+          collapsed={composition.zoom === 'collapsed'}
+        />
         <QuarterModeControl />
       </div>
 
@@ -5211,7 +5623,7 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
           cluster. Disabled (not hidden) when nothing is exportable so it
           stays discoverable, matching the disabled-not-hidden convention the
           overflow entry used. */}
-      {projectId && (
+      {projectId && composition.pdf === 'bar' && (
         <button
           type="button"
           onClick={scheduleExport.openDialog}
@@ -5232,10 +5644,40 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
       <div aria-hidden="true" className="mx-0.5 h-5 w-px bg-neutral-border shrink-0" />
       {/* Project actions (···) — always present so Import/Export are discoverable
           at every width. */}
+      {/* Polite, and written to only on a demotion. Mounted unconditionally so
+          the region is already in the accessibility tree when its text
+          changes — a live region created in the same commit as its content is
+          announced inconsistently across AT (rule 297/335). */}
+      <span
+        ref={demotionLiveRef}
+        role="status"
+        aria-live="polite"
+        data-testid="schedule-demotion-live"
+        className="sr-only"
+      />
       {(projectId || breakpoint === 'sm') && (
         <ToolbarOverflowMenu
+          triggerRef={overflowSlotRef}
           triggerAriaLabel="Project actions"
-          items={buildProjectActionsItems({
+          sections={buildOverflowSections({
+            ...buildDemotedItems({
+              composition,
+              structurePlacement,
+              projectId,
+              hasEditRights,
+              readOnly,
+              handleScrollToToday,
+              handleAddMilestone,
+              handleAddPhase,
+              onGroup,
+              onUngroup,
+              groupTarget,
+              ungroupTarget,
+              createPending,
+              restructurePending,
+              scheduleExport,
+              pins,
+            }),
             projectId,
             canImport,
             canShare,

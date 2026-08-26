@@ -13,7 +13,7 @@
  * the vitest layer where they can be asserted without canvas/network coupling.
  */
 import { test, expect } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import { setupAuth, setupApiMocks, setupCatchAll, useFullToolbar } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-build-00000000-0000-0000-0000-000000000349';
 const BASE_URL = `/projects/${FIXTURE_PROJECT_ID}/schedule`;
@@ -53,6 +53,12 @@ const FIXTURE_TASKS = [
 
 test.describe('Schedule build-mode — default on desktop (#2682)', () => {
   test.beforeEach(async ({ page }) => {
+    // The pill is a toolbar control, so since #3076 its presence is a function
+    // of width: at Playwright's 1280 default the fit ladder has collapsed
+    // `Read / Author` into a single chip and there is no pill to click. This
+    // spec is about build mode and the cheatsheet, not about the ladder — what
+    // the bar does as it narrows belongs to schedule-toolbar-fit.spec.ts.
+    await useFullToolbar(page);
     await setupAuth(page);
     await setupCatchAll(page);
     await setupApiMocks(page, {

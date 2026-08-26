@@ -15,6 +15,58 @@ The Schedule view's toolbar gives you the at-a-glance project status (rightmost 
 [ {N} tasks · {C} critical · CPM ✓ ]   [ Grid | Timeline ]   [ Today ]   [ − {level} + ] [ Fit ]
 ```
 
+## Fitting the window
+
+The toolbar is one row at every width, and it never scrolls or cuts a control off.
+Instead it measures itself and gives ground in a fixed order until everything fits.
+
+It concedes in two stages, and the first is always spent before the second:
+
+1. **Things shorten in place.** The summary chip drops its words before its numbers
+   (`142 tasks · 9 critical · CPM ✓` → `142 · 9 ▲ · ✓` → `CPM ✓`), the insert sentence
+   shortens, the zoom stepper becomes a `Month ▾` menu, and Read/Author and Build mode
+   merge into one `Author · Build ▾` chip. Nothing has left the toolbar at this point —
+   each control still shows its current value, and the parts that no longer fit are in
+   its own menu.
+2. **Then commands move into `···`.** Export PDF goes first, then Milestone, and
+   **Today** last of all. A control that moves keeps its name and its keyboard shortcut,
+   and the menu says why it moved: **From the toolbar — no room at this width** for one
+   the window squeezed out, **Not in the toolbar** for one you unpinned yourself.
+
+The mode chip is never one of them. Whether you are in Read or Author mode stays visible
+in the toolbar at every width, because a mode you cannot see is a mode you will be
+surprised by. The same goes for the session-trail count and the recalculating indicator:
+they compact to a glyph, but they never move behind a click.
+
+Widening the window gives everything back, in reverse.
+
+## Choosing what stays
+
+**Display → In the toolbar** is where you decide which controls get toolbar width.
+Each row states where that control is **right now** — `in the bar` or `in ···` — which
+makes this the one place that answers "where did my button go".
+
+| Control | Default |
+| --- | --- |
+| Milestone | in the toolbar |
+| Phase, Group and Ungroup buttons | in `···` |
+| Export PDF | in the toolbar |
+| Task and critical counts | in the toolbar |
+| Today | in the toolbar |
+
+Two rows at the bottom are shown but cannot be changed: `+ Item`, `Grid / Timeline`,
+`Display` and `···` are always in the toolbar, and zoom, the mode chip and the engine
+status are always present but collapse when the bar is narrow. They are listed so the
+inventory is complete rather than leaving you to guess what happened to them.
+
+A pin is a request, not a guarantee. If the window is too narrow to honour all of them
+the toolbar still refuses to clip, and the footer tells you plainly — *"2 of 4 pinned
+controls fit at this width. Collapse the sidebar or unpin one to get the rest back."*
+Collapsing the sidebar buys back roughly a full tier.
+
+These choices are yours alone: they are stored per person, per project, in your browser,
+and change nothing about the plan or what anyone else sees.
+
 ## Layout: Grid and Timeline
 
 :::note[Ships in 0.4]

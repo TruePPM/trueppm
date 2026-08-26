@@ -21,3 +21,4 @@ export {
   type StatusSummaryFixture,
   type BoardColumnConfig,
 } from './api-mocks';
+export { useFullToolbar, FULL_TOOLBAR_VIEWPORT } from './toolbar-width';

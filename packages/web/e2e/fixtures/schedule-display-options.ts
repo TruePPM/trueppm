@@ -19,7 +19,19 @@ import type { Page } from '@playwright/test';
 export async function setupScheduleDisplayOptions(
   page: Page,
   projectId: string,
-  options: Partial<{ structureButtons: boolean; coach: boolean; comfortableRows: boolean }>,
+  options: Partial<{
+    structureButtons: boolean;
+    coach: boolean;
+    comfortableRows: boolean;
+    // The #3076 toolbar pins live in this same stored object. A spec that needs
+    // a specific control to be a BUTTON can unpin the ones it does not assert
+    // on, which buys the fit ladder room and stops the control it does care
+    // about riding on a marginal rung.
+    pinMilestone: boolean;
+    pinExportPdf: boolean;
+    pinCounts: boolean;
+    pinToday: boolean;
+  }>,
   userId = 'e2e-user',
 ): Promise<void> {
   await page.addInitScript(

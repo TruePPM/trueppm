@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { ToolbarOverflowMenu } from '@/components/toolbar/ToolbarOverflowMenu';
 import { modifierKeyLabel } from '@/lib/platform';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import {
@@ -35,6 +36,15 @@ const MOD_GLYPH = modifierKeyLabel();
 interface ZoomControlProps {
   /** Fit the whole project into the viewport (⌘0). Wired to engine.fitToProject(). */
   onFit?: () => void;
+  /**
+   * Collapse the stepper + Fit button into one `Month ▾` trigger (#3076).
+   *
+   * Collapsed is not demoted: the trigger still shows the current tier, which
+   * is the readout half of this control and the thing a Timeline user is
+   * orienting by. Only the three *acts* — step out, step in, fit — move into
+   * the popover.
+   */
+  collapsed?: boolean;
 }
 
 /** Capitalize the derived tier for the readout, e.g. "week" → "Week". */
@@ -42,7 +52,7 @@ function tierLabel(tier: string): string {
   return tier.charAt(0).toUpperCase() + tier.slice(1);
 }
 
-export function ZoomControl({ onFit }: ZoomControlProps) {
+export function ZoomControl({ onFit, collapsed = false }: ZoomControlProps) {
   const pxPerDay = useScheduleStore((s) => s.pxPerDay);
   const zoomLevel = useScheduleStore((s) => s.zoomLevel);
   const setPxPerDay = useScheduleStore((s) => s.setPxPerDay);
@@ -76,6 +86,48 @@ export function ZoomControl({ onFit }: ZoomControlProps) {
     'hover:bg-neutral-surface-raised transition-colors ' +
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary ' +
     'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent';
+
+  if (collapsed) {
+    return (
+      <div className="flex items-center flex-shrink-0">
+        <ToolbarOverflowMenu
+          triggerAriaLabel={`Zoom: ${tierLabel(zoomLevel)}`}
+          triggerLabel={<span className="whitespace-nowrap">{tierLabel(zoomLevel)}</span>}
+          items={[
+            {
+              kind: 'action',
+              id: 'zoom-out',
+              label: 'Zoom out',
+              onSelect: zoomOut,
+              disabled: atMin,
+              shortcut: `${MOD_GLYPH}−`,
+            },
+            {
+              kind: 'action',
+              id: 'zoom-in',
+              label: 'Zoom in',
+              onSelect: zoomIn,
+              disabled: atMax,
+              shortcut: `${MOD_GLYPH}=`,
+            },
+            {
+              kind: 'action',
+              id: 'fit',
+              label: 'Fit to project',
+              onSelect: () => onFit?.(),
+              shortcut: `${MOD_GLYPH}0`,
+            },
+          ]}
+        />
+        {/* The debounced tier announcement is a property of the control, not of
+            its layout — it survives the collapse so a screen-reader user hears
+            the same settled tier at every width. */}
+        <span className="sr-only" role="status" aria-live="polite">
+          {tierLabel(announcedTier)}
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center gap-2 flex-shrink-0">

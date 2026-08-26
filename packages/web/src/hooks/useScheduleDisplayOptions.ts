@@ -27,12 +27,43 @@ export interface ScheduleDisplayOptions {
   coach: boolean;
   /** 44px rows and larger controls — the same sizing coarse pointers get automatically. */
   comfortableRows: boolean;
+  /**
+   * Toolbar pins (#3076). Whether each promotable control gets toolbar width,
+   * as opposed to living in the `···` menu.
+   *
+   * `structureButtons` above is the fourth pin, kept under its original name so
+   * the value people have already stored carries over — the setting that has
+   * governed toolbar width since #2955 is now visibly one of a set that does,
+   * rather than a second concept beside them.
+   *
+   * A pin is a request, not a guarantee. The fit ladder still demotes a pinned
+   * control before any tier-A one, and the Display popover states the refusal
+   * ("pinned · no room at 1280") rather than letting the bar clip to honour it.
+   */
+  pinMilestone: boolean;
+  /**
+   * Defaults **on**, keeping #2703's ruling. The #3076 design classifies Export
+   * PDF as overflow-only, but #2703 deliberately moved it *out* of the `···`
+   * menu and into the bar, on the finding that a client-ready PDF is a
+   * weekly-cadence, client-facing task for the PM/PMO personas rather than a
+   * secondary action. A pin lets both hold: it is a visible button wherever it
+   * fits, and it is still the first command the ladder demotes (rung 3) when it
+   * does not.
+   */
+  pinExportPdf: boolean;
+  /** A readout: unpinned it is absent, not moved — a count in a menu is not a count. */
+  pinCounts: boolean;
+  pinToday: boolean;
 }
 
 export const DEFAULT_DISPLAY_OPTIONS: ScheduleDisplayOptions = {
   structureButtons: false,
   coach: true,
   comfortableRows: false,
+  pinMilestone: true,
+  pinExportPdf: true,
+  pinCounts: true,
+  pinToday: true,
 };
 
 export type ScheduleDisplayOptionKey = keyof ScheduleDisplayOptions;

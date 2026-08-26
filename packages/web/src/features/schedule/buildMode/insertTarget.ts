@@ -126,3 +126,24 @@ export function describeInsertTarget(target: InsertTarget): string | null {
       return null;
   }
 }
+
+/**
+ * The same claim, shortened for a crowded toolbar (#3076, ladder rung 2).
+ *
+ * Derived here rather than by trimming the full sentence in the component, for
+ * rule 316(a)'s reason: two renderings of one placement rule must come from one
+ * function or they drift, and a *confident wrong* sentence about where a row
+ * lands is worse than no sentence. It keeps the WBS — which is the only part
+ * that answers "where" — and drops the keystroke and the depth qualifier, both
+ * of which the full form still carries to a screen reader at every width.
+ */
+export function describeInsertTargetShort(target: InsertTarget): string | null {
+  switch (target.kind) {
+    case 'after':
+      return `after ${target.landsAfterWbs}`;
+    case 'unnamed':
+      return `saves ${target.wbs}`;
+    default:
+      return null;
+  }
+}

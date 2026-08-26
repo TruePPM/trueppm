@@ -202,33 +202,40 @@ test.describe('Schedule export surfaces (issue 1438)', () => {
     await expect(dialog.getByRole('button', { name: 'Open printable PDF' })).toBeVisible();
   });
 
-  test('Export is a visible toolbar button (short label) at the md breakpoint (#2703)', async ({
+  test('at md the bar cannot hold Export, so it moves to ··· with its name and chord (#3076)', async ({
     page,
   }) => {
+    // #2703 promoted Export out of `···` into the bar and this test asserted it
+    // was visible "at every width the toolbar renders". #3076 measured the bar:
+    // its natural width is ~1,862px, so that claim only ever held because the
+    // toolbar was CLIPPING other controls to make room. At 900px something has
+    // to go, and Export — a weekly, session-ending act — is the first command
+    // the ladder demotes.
+    //
+    // What #2703 actually established survives, and is what this now asserts:
+    // Export is a *pinned primary* control (it outranks the structure trio and
+    // is a visible button wherever it fits — see the lg test below), and when
+    // it cannot fit it keeps its exact name and chord one hop away rather than
+    // disappearing.
     await page.setViewportSize({ width: 900, height: 800 });
     await setup(page);
     await page.goto(BASE_URL);
 
     const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
     await expect(toolbar).toBeVisible({ timeout: 10_000 });
+    await expect(toolbar.getByRole('button', { name: 'Export schedule as PDF' })).toHaveCount(0);
 
-    // Primary control (rule 110): present at md with its accessible name intact,
-    // but the visible label is the short "Export" — " PDF" is CSS-hidden (`hidden
-    // lg:inline`, same technique as ZoomControl's "Fit to project") until lg.
-    // `textContent()`/default `toHaveText` would still see the hidden span, so
-    // assert on the rendered (`innerText`-equivalent) text instead.
-    const exportButton = toolbar.getByRole('button', { name: 'Export schedule as PDF' });
-    await expect(exportButton).toBeVisible();
-    await expect(exportButton).toHaveText('Export', { useInnerText: true });
-
-    // It is never duplicated in the Project-actions ⋯ menu (one home per control).
     await toolbar.getByRole('button', { name: 'Project actions' }).click();
-    await expect(
-      page.getByRole('menu', { name: 'Project actions' }).getByRole('menuitem', { name: /Export schedule as PDF/ }),
-    ).toHaveCount(0);
-    await page.keyboard.press('Escape');
+    const menu = page.getByRole('menu', { name: 'Project actions' });
+    const row = menu.getByRole('menuitem', { name: /Export schedule as PDF/ });
+    await expect(row).toBeVisible();
+    // One identity at a time, and the row teaches the way to stop needing it.
+    await expect(row).toHaveAttribute('aria-keyshortcuts', 'Shift+Meta+E');
+    // …under the heading that says WHY it moved, not one that implies the user
+    // chose to put it there.
+    await expect(menu.getByText('no room at this width')).toBeVisible();
 
-    await exportButton.click();
+    await row.click();
     await expect(page.getByRole('dialog', { name: 'Export schedule' })).toBeVisible();
   });
 

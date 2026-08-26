@@ -27,6 +27,7 @@ import {
   setupApiMocks,
   setupCatchAll,
   setupScheduleDisplayOptions,
+  useFullToolbar,
 } from './fixtures';
 
 const PROJECT_ID = 'e2e-group-0000000-0000-0000-0000-000000002955';
@@ -376,9 +377,29 @@ async function leaveCellEdit(page: Page) {
 
 test.describe('Schedule outline — Group and Ungroup (#2955)', () => {
   test.beforeEach(async ({ page }) => {
+    // Opting the buttons in is necessary but no longer sufficient: since #3076
+    // the fit ladder collapses the structure trio into a `Structure ▾` menu
+    // before it demotes anything, and it reaches that rung well above 1280. The
+    // subject here is what a group/ungroup does to the OUTLINE, so the spec
+    // takes the width at which the trio is buttons rather than re-deriving
+    // where the ladder moved them.
+    await useFullToolbar(page);
     await setupAuth(page);
     await setupCatchAll(page);
-    await setupScheduleDisplayOptions(page, PROJECT_ID, { structureButtons: true });
+    await setupScheduleDisplayOptions(page, PROJECT_ID, {
+      structureButtons: true,
+      // Unpinned to buy the structure trio room, not because this spec has an
+      // opinion about them: `structure-collapse` is only the ladder's third
+      // rung, and at 1920 the default composition sits close enough to it that
+      // the CI image's font metrics tip over where a dev machine's do not (the
+      // first fix for #3076's spec fallout picked a width and got exactly that).
+      // Export, the counts readout and Today are asserted nowhere below, so
+      // spending them is free and makes the trio's presence a fact rather than
+      // a margin. + Milestone stays pinned — a peer assertion needs its peer.
+      pinExportPdf: false,
+      pinCounts: false,
+      pinToday: false,
+    });
     await setupApiMocks(page, { projects: PROJECTS, projectId: PROJECT_ID, tasks: TASKS });
   });
 
@@ -472,6 +493,11 @@ test.describe('Schedule outline — Group and Ungroup (#2955)', () => {
     // `deriveUngroupTarget` reads the focused row either way — cell-edit is a state of
     // the same focused row, not a different one.
     await clickRowName(page, 'New phase');
+    // The group this test just performed adds the session trail and the insert
+    // sentence to the bar, so the trio only stays a set of buttons here because
+    // the unpins above bought the room for it. Without them the ladder takes
+    // its structure-collapse rung at this point and Ungroup is behind
+    // `Structure ▾` instead.
     await expect(page.getByTestId('ungroup-rows-button')).toBeEnabled();
     await page.getByTestId('ungroup-rows-button').click();
     await expect.poll(() => store.ungroups.length, { timeout: 10_000 }).toBe(1);

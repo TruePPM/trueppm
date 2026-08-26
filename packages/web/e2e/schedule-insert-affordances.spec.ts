@@ -91,7 +91,11 @@ test.describe('Schedule — each insert affordance lands where its position impl
     // text, so a text-only assertion passes on a sentence nobody can read
     // (web rule 316(c)).
     await expect(statement).toBeVisible();
-    await expect(statement).toHaveText('⏎ adds a row after 1.2 · same level');
+    // The claim is asserted as the ACCESSIBLE NAME, which #3076 holds invariant
+    // at every width; the *drawn* form is what the fit ladder rations, and at a
+    // crowded width it is the short "after 1.2". `toBeVisible` above still
+    // guards rule 316(c)'s collapse-to-zero-width failure.
+    await expect(statement).toContainText('⏎ adds a row after 1.2 · same level');
     await expect(statement).toHaveAttribute('data-target-kind', 'after');
     // The button describes itself with that same sentence, so a screen-reader
     // user hears it on focus rather than never.
@@ -146,6 +150,8 @@ test.describe('Schedule — each insert affordance lands where its position impl
     // say that rather than keep promising another row.
     const statement = page.getByTestId('schedule-insert-target');
     await expect(statement).toHaveAttribute('data-target-kind', 'unnamed');
+    // Accessible name, for the #3076 reason above: the drawn form may be the
+    // short "saves 1.3" at a crowded width, but the claim never shortens.
     await expect(statement).toContainText('name it to add the next');
     await expect(statement).not.toContainText('adds a row');
 
@@ -169,7 +175,11 @@ test.describe('Schedule — each insert affordance lands where its position impl
 
     await page.getByText('Survey the site').click();
     const statement = page.getByTestId('schedule-insert-target');
-    await expect(statement).toHaveText('⏎ adds a row after 1.2 · same level');
+    // The ACCESSIBLE NAME, not the ink. Since #3076 the fit ladder shortens the
+    // drawn form ("after 1.2") and, at the last rung, stops drawing it at all —
+    // but the sentence a screen reader gets is the same at every width, which
+    // is the contract this test exists to hold.
+    await expect(statement).toContainText('⏎ adds a row after 1.2 · same level');
     await expect(page.getByRole('button', { name: 'Add item' })).toHaveAttribute(
       'aria-describedby',
       'schedule-insert-target-statement',
