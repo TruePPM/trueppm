@@ -14,6 +14,7 @@ import {
   type ParentCandidate,
   type DependencyType,
 } from './authoringTokens';
+import { toStoredDays } from '../duration/durationUnit';
 
 function resource(id: string, name: string): ProjectResource {
   return { resourceId: id, resource: { id, name } } as unknown as ProjectResource;
@@ -54,6 +55,41 @@ describe('parseAuthoringTokens', () => {
 
   it('converts weeks to working days', () => {
     expect(parseAuthoringTokens('Survey #2w')[0]).toMatchObject({ kind: 'duration', days: 10 });
+  });
+
+  // #3042: the rate reaches the lexer, and the lexer and the drawer's entry path
+  // agree. Both assertions use inputs where `ceil()` does NOT hide the divergence
+  // — at 8h, `#7h` is also 1 day, so a test at the default rate proves nothing.
+  it('converts hours through the supplied rate, not a fixed 8h day', () => {
+    expect(parseAuthoringTokens('Survey #7h', 4)[0]).toMatchObject({ kind: 'duration', days: 2 });
+    expect(parseAuthoringTokens('Survey #9h', 12)[0]).toMatchObject({ kind: 'duration', days: 1 });
+  });
+
+  it('agrees with the task drawer for the same value on the same calendar', () => {
+    for (const [hours, rate] of [
+      [7, 4],
+      [9, 12],
+      [20, 7.5],
+      [1, 4],
+    ] as const) {
+      const [token] = parseAuthoringTokens(`Survey #${hours}h`, rate);
+      expect(token).toMatchObject({ days: toStoredDays(hours, 'hours', rate).days });
+    }
+  });
+
+  it('falls back to the 8h default only when no rate is supplied', () => {
+    expect(parseAuthoringTokens('Survey #9h')[0]).toMatchObject({ days: 2 });
+  });
+
+  it('guards a zero or negative rate with the same resolver the drawer uses', () => {
+    // One `> 0` guard, shared — a second implementation here could drift from it.
+    expect(parseAuthoringTokens('Survey #9h', 0)[0]).toMatchObject({ days: 2 });
+    expect(parseAuthoringTokens('Survey #9h', -4)[0]).toMatchObject({ days: 2 });
+  });
+
+  it('threads the rate from the resolution context', () => {
+    expect(resolveAuthoringDraft('Survey #7h', { hoursPerDay: 4 }).duration).toBe(2);
+    expect(resolveAuthoringDraft('Survey #7h').duration).toBe(1);
   });
 
   it('reads #0 as a milestone, not a zero-duration task', () => {

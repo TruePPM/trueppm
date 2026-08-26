@@ -54,6 +54,7 @@ import {
 // Imported as well as re-exported: this module uses both names internally, and
 // a bare `export … from` re-exports without binding them in local scope.
 import { LINK_TYPES, cycleLinkType, type CanonicalLinkType } from '../deps/linkTypes';
+import { DEFAULT_HOURS_PER_DAY, safeHoursPerDay } from '../duration/durationUnit';
 
 export const DEPENDENCY_TYPE_CYCLE = LINK_TYPES;
 export const cycleDependencyType = cycleLinkType;
@@ -166,15 +167,18 @@ const MILESTONE_RE = /(?:^|\s)(!)(?=\s|$)/g;
  * Hours (#2975) divide by the project calendar's `hours_per_day` and round **up**
  * — `Task.duration` is an integer working-day count by engine invariant
  * (ADR-0132), and rounding an estimate down silently under-plans the task. The
- * lexer is pure, so it takes the rate rather than reading a calendar; callers
- * that have no calendar loaded pass the 8h default.
+ * lexer is pure, so it takes the rate rather than reading a calendar.
+ *
+ * The rate is **required** (#3042). It carried a `= 8` default until the one call
+ * site was found never to pass one, so every `#Nh` token on a non-8h calendar
+ * computed against the wrong day length while the docstring above described the
+ * correct behavior. A parameter that is optional at the only place it matters is
+ * indistinguishable from one that is missing; requiring it makes the next caller
+ * that forgets a type error instead of a silent miscalculation.
  */
-function toDays(count: number, unit: string | undefined, hoursPerDay = 8): number {
+function toDays(count: number, unit: string | undefined, hoursPerDay: number): number {
   if (unit === 'w') return count * 5;
-  if (unit === 'h') {
-    const rate = hoursPerDay > 0 ? hoursPerDay : 8;
-    return Math.max(0, Math.ceil(count / rate));
-  }
+  if (unit === 'h') return Math.max(0, Math.ceil(count / safeHoursPerDay(hoursPerDay)));
   return count;
 }
 
@@ -185,7 +189,10 @@ function toDays(count: number, unit: string | undefined, hoursPerDay = 8): numbe
  * Tokens come back sorted by position, which is what lets `stripTokens` remove them
  * without re-scanning and lets the renderer segment the string in one pass.
  */
-export function parseAuthoringTokens(raw: string): AnyAuthoringToken[] {
+export function parseAuthoringTokens(
+  raw: string,
+  hoursPerDay: number = DEFAULT_HOURS_PER_DAY,
+): AnyAuthoringToken[] {
   const tokens: AnyAuthoringToken[] = [];
 
   // A fresh RegExp per call: a module-level /g regex carries `lastIndex` across
@@ -197,7 +204,7 @@ export function parseAuthoringTokens(raw: string): AnyAuthoringToken[] {
   }
   for (const m of durationMatches) {
     const count = Number.parseInt(m[2], 10);
-    const days = toDays(count, m[3]);
+    const days = toDays(count, m[3], hoursPerDay);
     const start = (m.index ?? 0) + m[0].indexOf(m[1]);
     // `#0` is the milestone spelling of a duration, and the two encodings must not
     // both be emitted — a milestone token plus a zero-duration token would make the
@@ -218,7 +225,7 @@ export function parseAuthoringTokens(raw: string): AnyAuthoringToken[] {
       raw: m[1],
       start: m.index + m[0].indexOf(m[1]),
       query,
-      lag: toDays(lagCount, m[6]),
+      lag: toDays(lagCount, m[6], hoursPerDay),
       // Omitted means FS — the default, and by far the common case.
       depType: (m[4]?.toUpperCase() as DependencyType | undefined) ?? 'FS',
     };
@@ -299,6 +306,12 @@ export interface AuthoringResolutionContext {
   pool?: ProjectResource[];
   tasks?: PredecessorCandidate[];
   phases?: ParentCandidate[];
+  /**
+   * The project calendar's hours per working day, for `#Nh` (#3042). Omitted
+   * falls back to `DEFAULT_HOURS_PER_DAY` — which is correct only while the
+   * project detail is still loading, so callers that have it must pass it.
+   */
+  hoursPerDay?: number;
 }
 
 export interface AuthoringDraftParse {
@@ -386,8 +399,8 @@ export function resolveAuthoringDraft(
   raw: string,
   context: AuthoringResolutionContext = {},
 ): AuthoringDraftParse {
-  const { pool = [], tasks = [], phases = [] } = context;
-  const tokens = parseAuthoringTokens(raw);
+  const { pool = [], tasks = [], phases = [], hoursPerDay = DEFAULT_HOURS_PER_DAY } = context;
+  const tokens = parseAuthoringTokens(raw, hoursPerDay);
 
   const unresolved: AnyAuthoringToken[] = [];
   const overridden: AnyAuthoringToken[] = [];
@@ -603,6 +616,8 @@ export function segmentAuthoringName(
  * is negative for `⌥←`.
  */
 export function cycleDependencyTypeInDraft(draft: string, caret: number, steps = 1): string | null {
+  // No rate: this keeps only predecessor tokens, and the grammar's lag units are
+  // `d`/`w`, so `hours_per_day` cannot reach the result (#3042).
   const tokens = parseAuthoringTokens(draft).filter(
     (t): t is PredecessorToken => t.kind === 'predecessor',
   );

@@ -145,6 +145,7 @@ leaving the cell. Each one opens a picker, so nothing has to be memorized.
 | You type | What it does |
 |---|---|
 | `#5d` `#2w` | Duration — 5 days, 2 weeks. A bare `#3` is 3 days |
+| `#4h` | Duration in hours — divided by the project calendar's hours per working day and rounded **up** to whole days, so an estimate is never quietly under-planned |
 | `@ana` `@ana:50` | Owner, at 100% or at 50% |
 | `>2.3` `>Survey` | Predecessor, by WBS path or by name |
 | `>2.3+2d` `>2.3-1d` | …with 2 days of lag, or 1 day of lead |

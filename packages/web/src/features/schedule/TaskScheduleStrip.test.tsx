@@ -13,8 +13,13 @@ vi.mock('@/hooks/useTaskMutations', () => ({
   useUpdateTask: () => ({ mutate, mutateAsync }),
 }));
 let policy = 'keep';
+// The strip resolves the project's working-day length itself (#3042); it is only
+// ever mounted under a QueryClient, so the hook is real in production and mocked
+// here alongside the policy it already reads.
+let projectHoursPerDay = 8;
 vi.mock('@/hooks/useProject', () => ({
   useEffectiveDurationPolicy: () => policy,
+  useProjectHoursPerDay: () => projectHoursPerDay,
 }));
 let coarse = false;
 vi.mock('@/hooks/useIsCoarsePointer', () => ({
@@ -143,6 +148,7 @@ describe('TaskScheduleStrip', () => {
       mutateAsync.mockReset().mockResolvedValue(undefined);
       policy = 'keep';
       coarse = false;
+      projectHoursPerDay = 8;
     });
     afterEach(() => vi.restoreAllMocks());
 
@@ -188,6 +194,26 @@ describe('TaskScheduleStrip', () => {
       expect(mutate.mock.calls[0][0]).toEqual({ id: 't1', projectId: 'p1', duration: 20 });
       // Commit announced on the live region.
       expect(screen.getByRole('status')).toHaveTextContent('Duration set to 20 days');
+    });
+
+    it('converts an hours entry through the project calendar, not a fixed 8h day', async () => {
+      // #3042 (completing #2975). 7h at 4h/day is 1.75 days → 2. At the 8h default
+      // it would be 1, so this pair fails if the strip stops reading the calendar.
+      // The `#Nh` token asserts the same pair in `buildMode/authoringTokens.test.ts`;
+      // the two paths agreeing on a non-8h calendar is the whole point of the fix.
+      const user = userEvent.setup();
+      projectHoursPerDay = 4;
+      mutate.mockImplementation((_vars, opts) => opts?.onSuccess?.());
+      render(<TaskScheduleStrip task={makeTask({ durationUnit: 'hours' })} {...editableProps} />);
+
+      await user.click(screen.getByRole('button', { name: /Duration/ }));
+      const input = screen.getByRole('textbox', { name: 'Duration in days' });
+      await user.clear(input);
+      await user.type(input, '7');
+      await user.keyboard('{Enter}');
+
+      expect(mutate).toHaveBeenCalledTimes(1);
+      expect(mutate.mock.calls[0][0]).toEqual({ id: 't1', projectId: 'p1', duration: 2 });
     });
 
     it('accepts the "2w" weeks shorthand (reuses parseDurationInput → 10)', async () => {

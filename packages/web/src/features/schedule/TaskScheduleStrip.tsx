@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Task } from '@/types';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
-import { useEffectiveDurationPolicy } from '@/hooks/useProject';
+import { useEffectiveDurationPolicy, useProjectHoursPerDay } from '@/hooks/useProject';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { PencilIcon, WarningIcon } from '@/components/Icons';
 import { Button } from '@/components/Button';
@@ -624,6 +624,14 @@ function EditableStrip({
 }) {
   const updateTask = useUpdateTask();
   const policy = useEffectiveDurationPolicy(projectId);
+  // The entry path converts hours through the project calendar (#3042, completing
+  // #2975). Resolved here rather than passed down because this component is the
+  // one that is guaranteed a QueryClient: the read-only strip above renders in
+  // print layouts and harnesses that have none, which is why the prop exists at
+  // all. An explicit prop still wins, so a caller that already holds the rate can
+  // supply it without a second fetch.
+  const projectHoursPerDay = useProjectHoursPerDay(projectId);
+  const rate = hoursPerDay ?? projectHoursPerDay;
   const isCoarse = useIsCoarsePointer();
   const durationUnit: DurationUnit = task.durationUnit ?? 'days';
   const onDurationUnitChange = (unit: DurationUnit) => {
@@ -719,7 +727,7 @@ function EditableStrip({
             onParseError={() => setError('Enter a whole number of days (e.g. 10).')}
             onClearError={() => setError(null)}
             unit={durationUnit}
-            hoursPerDay={hoursPerDay}
+            hoursPerDay={rate}
             onUnitChange={onDurationUnitChange}
           />
         }

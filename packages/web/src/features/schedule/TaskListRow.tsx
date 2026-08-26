@@ -4,7 +4,7 @@ import { formatChord } from '@/lib/platform';
 import type React from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
-import { useEffectiveDurationPolicy } from '@/hooks/useProject';
+import { useEffectiveDurationPolicy, useProjectHoursPerDay } from '@/hooks/useProject';
 import { RecalcPercentChip } from './RecalcPercentChip';
 import { buildRecalcPrompt, type RecalcPromptState } from './recalcPercentPrompt';
 import {
@@ -3102,10 +3102,14 @@ function TaskNameBuildEditCell(props: TaskNameContentProps) {
     authoringCandidates,
   } = props;
   const pool = resourcePool ?? [];
+  // The `#Nh` token converts through the project calendar, not a fixed 8h day
+  // (#3042). Shares the cached project query, so this costs no extra fetch per row.
+  const hoursPerDay = useProjectHoursPerDay(projectId);
   const suggestionContext = {
     pool,
     tasks: authoringCandidates?.tasks ?? [],
     phases: authoringCandidates?.phases ?? [],
+    hoursPerDay,
   };
   // `autocompleteQuery` carries the whole live draft (EditableCell's `onQueryChange`),
   // so the active token is derivable without EditableCell exposing its internal state.

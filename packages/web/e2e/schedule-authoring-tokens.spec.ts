@@ -188,6 +188,67 @@ test.describe('Inline authoring tokens', () => {
     });
   });
 
+  test('#Nh converts through the project calendar, not a fixed 8h day', async ({ page }) => {
+    // #3042. The rate is 4h/day and the entry is 7h, chosen because `ceil()` hides
+    // the divergence at most other pairs: at 8h/day `#7h` is also 1 day, so a
+    // fixture on the default calendar would pass with the bug still in place.
+    const patches: Record<string, unknown>[] = [];
+
+    // Registered after `setupApiMocks`, so this handler wins for the detail route —
+    // the base fixture project carries no `effective_calendar` at all.
+    await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/`, async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ...FIXTURE_PROJECTS[0],
+            calendar_source: 'project',
+            effective_calendar: {
+              id: 'cal-half-day',
+              name: 'Half day',
+              working_days: 31,
+              hours_per_day: 4,
+              timezone: 'UTC',
+              holiday_count: 0,
+            },
+          }),
+        });
+        return;
+      }
+      await route.fallback();
+    });
+    await page.route('**/api/v1/tasks/tk3/', async (route) => {
+      if (route.request().method() === 'PATCH') {
+        patches.push(route.request().postDataJSON() as Record<string, unknown>);
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ...FIXTURE_TASKS[2], name: 'Survey run', duration: 2 }),
+        });
+        return;
+      }
+      await route.fallback();
+    });
+
+    await page.goto(BASE_URL);
+    await expect(page.getByText('Draft row')).toBeVisible();
+
+    await page.getByText('Draft row').click();
+    await page.keyboard.press('F2');
+    const input = page.getByRole('textbox', { name: /Rename item Draft row/ });
+    await expect(input).toBeVisible();
+
+    await input.fill('Survey run #7h');
+    await page.keyboard.press('Enter');
+
+    await expect.poll(() => patches.length).toBeGreaterThan(0);
+    // 7h / 4h-per-day = 1.75, rounded UP: a task that does not fit in one day is
+    // not planned as one (ADR-0132 keeps `duration` an integer day count).
+    expect(patches[0].duration).toBe(2);
+    expect(patches[0].name).toBe('Survey run');
+  });
+
   test('an unresolvable token does not block the commit', async ({ page }) => {
     const patches: Record<string, unknown>[] = [];
     await page.route('**/api/v1/tasks/tk3/', async (route) => {
