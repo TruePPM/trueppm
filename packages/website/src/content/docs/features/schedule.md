@@ -482,6 +482,28 @@ Only the earlier direction is automatic. Moving the project start *later* (past 
 
 Because this lives at the API layer, every write path behaves the same way, including integrations and imports that set task dates directly.
 
+## Put an unscheduled task on the timeline
+
+:::note[Ships in 0.4]
+The one-click **Start at the earliest** and **Start today** actions described below ship in 0.4. On 0.3 the gutter's `···` menu offers only an empty date picker.
+:::
+
+A task with no **committed start** draws no bar. It has dates — CPM calculates an earliest start for everything it schedules — but those are the scheduler's answer, not yours, and they move whenever a predecessor does. Until you commit a start, the task waits in the **To Do** section of the Unscheduled gutter beneath the timeline.
+
+Three ways to commit one, from its `···` menu:
+
+- **Start at the earliest** — commits the date CPM already calculated: the soonest the task can begin given its predecessors and the project calendar. One click, nothing to type.
+- **Start today** — commits today's date. If a predecessor means the task cannot actually begin today, this still commits — the resulting gap between your committed date and the calculated one is a real conflict worth seeing, not one the menu should hide from you.
+- **Or pick a date** — the date field, pre-filled with the calculated earliest start so you are adjusting a real answer rather than starting from a blank.
+
+Each action names the date it will commit, because the first two are frequently *different* dates: on a task waiting behind unfinished work, "the earliest" is later than today; on a plan that has already slipped, it is in the past. When the two resolve to the same day the menu shows a single action instead of two identical ones.
+
+You can also **drag the chip from the gutter onto the timeline** to commit the date you drop it on. All four paths write the same field, and CPM cascades the rest of the plan in the same motion.
+
+:::tip
+Committing a start that has already arrived also moves the task to **In progress** — the same rule that applies to any committed date reaching today, wherever it is set from.
+:::
+
 ## Promote a backlog idea onto the schedule
 
 The **Unscheduled gutter** beneath the timeline now includes a **Backlog** section listing tasks that have been captured but not yet scheduled. Backlog cards are visually distinct — a dashed edge and a readiness label — so it's clear that placing one on the timeline does more than move it.

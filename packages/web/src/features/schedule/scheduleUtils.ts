@@ -156,3 +156,21 @@ export function computeInitialFraming(
 
   return { kind: 'scroll', scrollLeft };
 }
+
+/**
+ * Today as a `YYYY-MM-DD` ISO date in the **viewer's local** timezone (#3064).
+ *
+ * `toISOString()` alone would answer in UTC, which is the wrong day for anyone
+ * west of Greenwich for part of every day — a planner in Los Angeles clicking
+ * "Start today" at 5pm would commit tomorrow. Shifting by the offset first makes
+ * the slice read the local calendar day.
+ *
+ * This is the client's answer, and the server's date-gated auto-promote (#336)
+ * compares against `timezone.localdate()` — its own. The two can disagree by a
+ * day at the boundary; see #3075, which owns disclosing that transition.
+ */
+export function todayLocalIso(): string {
+  const now = new Date();
+  const offsetMs = now.getTimezoneOffset() * 60_000;
+  return new Date(now.getTime() - offsetMs).toISOString().slice(0, 10);
+}

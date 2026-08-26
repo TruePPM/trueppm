@@ -294,9 +294,42 @@ export function UnscheduledGutter({
     };
   }, [drag, canvasScrollRef, scaleData, projectId, promoteMutation, promoteBacklogTask]);
 
+  /**
+   * Commit a To Do row's planned start — the ··· menu's quick actions and its
+   * date picker both land here (#3064).
+   *
+   * Announces the outcome (#3064). The only visible proof of success is the chip
+   * LEAVING the tray, which tells a screen-reader user nothing; the backlog
+   * promote path beside this one has always announced, and two paths writing the
+   * same field with different feedback is the drift #3063 was about.
+   *
+   * Sends `planned_start` alone. The NOT_STARTED → IN_PROGRESS transition for a
+   * date that has already arrived is the server's call (#336) and is deliberately
+   * not pre-empted here — see #3075, which owns disclosing it.
+   */
   const handleSetDate = useCallback((task: Task, date: string) => {
-    if (!navigator.onLine) return;
-    promoteMutation.mutate({ id: task.id, projectId, planned_start: date });
+    if (!navigator.onLine) {
+      if (ariaLiveRef.current) {
+        ariaLiveRef.current.textContent = 'You are offline — reconnect to schedule this task.';
+      }
+      return;
+    }
+    promoteMutation.mutate(
+      { id: task.id, projectId, planned_start: date },
+      {
+        onSuccess: () => {
+          if (ariaLiveRef.current) {
+            ariaLiveRef.current.textContent =
+              `Scheduled ${task.name} to start ${formatShortDate(date)}.`;
+          }
+        },
+        onError: () => {
+          if (ariaLiveRef.current) {
+            ariaLiveRef.current.textContent = `Could not schedule ${task.name}.`;
+          }
+        },
+      },
+    );
   }, [projectId, promoteMutation]);
 
   const canvasRect = canvasScrollRef.current?.getBoundingClientRect() ?? null;

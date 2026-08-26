@@ -3,7 +3,7 @@ import type { Task } from '@/types';
 import { usePromoteTask } from '@/hooks/useTaskMutations';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useScheduleStore } from '@/stores/scheduleStore';
-import { formatShortDate } from './scheduleUtils';
+import { formatShortDate, todayLocalIso } from './scheduleUtils';
 import { CloseIcon } from '@/components/Icons';
 
 interface ScheduleTaskDialogProps {
@@ -27,13 +27,6 @@ interface ScheduleTaskDialogProps {
   assignSprint?: { id: string; name: string; pending: boolean } | null;
   /** Close the dialog and return focus to the trigger (handled by caller). */
   onClose: () => void;
-}
-
-/** Local-time ISO `YYYY-MM-DD` for today — the date input's default value. */
-function todayLocalIso(): string {
-  const now = new Date();
-  const offsetMs = now.getTimezoneOffset() * 60_000;
-  return new Date(now.getTime() - offsetMs).toISOString().slice(0, 10);
 }
 
 /**

@@ -1,6 +1,7 @@
-import React, { useState, useRef, useCallback, useId, useLayoutEffect } from 'react';
+import React, { useState, useRef, useCallback, useId, useLayoutEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import type { Task, TaskReadiness } from '@/types';
+import { formatShortDate, todayLocalIso } from './scheduleUtils';
 
 export type UnscheduledRowVariant = 'todo' | 'backlog' | 'planned';
 
@@ -68,7 +69,11 @@ export function UnscheduledTaskRow({
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
-  const [dateInput, setDateInput] = useState('');
+  // Seeded, not empty (#3064). An empty picker is born with its submit button
+  // disabled and asks the planner to invent a date from nothing; the scheduler
+  // has already computed the earliest one the network allows, so that is the
+  // honest default. Falls back to today when CPM has produced no start.
+  const [dateInput, setDateInput] = useState(() => task.start || todayLocalIso());
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
@@ -110,8 +115,77 @@ export function UnscheduledTaskRow({
     dragStarted.current = false;
   }, []);
 
+  /**
+   * The one-click commits (#3064): "Start at the earliest" and "Start today".
+   *
+   * Before this, dating an unscheduled row cost four interactions and an empty
+   * date field the planner had to fill from nothing — for the two answers that
+   * are wanted the overwhelming majority of the time, and one of which the
+   * scheduler has already computed.
+   *
+   * Both carry their date in the label. That is not decoration: the two answers
+   * DIFFER whenever a predecessor is unsatisfied (CPM's earliest is then later
+   * than today) or the plan has already slipped (earliest is in the past), and a
+   * planner choosing between them needs to see which is which before clicking,
+   * not discover it from the bar afterwards.
+   *
+   * When the two resolve to the same day the list collapses to one item — two
+   * entries with identical outcomes is a choice the user cannot make wrong, which
+   * is worse than no choice at all.
+   *
+   * "Start today" is deliberately NOT suppressed when the earliest is later. That
+   * commitment is unachievable, and saying so is the point: the resulting gap
+   * between the committed and computed start is a real schedule conflict the
+   * planner should see, not one the menu should quietly prevent them expressing.
+   */
+  const quickActions = useMemo(() => {
+    if (isBacklog || variant === 'planned') return [];
+    const today = todayLocalIso();
+    const earliest = task.start;
+    const actions: { key: string; label: string; date: string }[] = [];
+    if (earliest) {
+      actions.push({
+        key: 'earliest',
+        label: `Start at the earliest (${formatShortDate(earliest)})`,
+        date: earliest,
+      });
+    }
+    if (earliest !== today) {
+      actions.push({ key: 'today', label: `Start today (${formatShortDate(today)})`, date: today });
+    }
+    return actions;
+  }, [isBacklog, variant, task.start]);
+
+  const handleQuickAction = useCallback(
+    (date: string) => {
+      onSetDate?.(task, date);
+      setMenuOpen(false);
+    },
+    [onSetDate, task],
+  );
+
   const handleMenuKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') setMenuOpen(false);
+    if (e.key === 'Escape') {
+      setMenuOpen(false);
+      return;
+    }
+    // The container has always declared `role="menu"`; until #3064 it held only
+    // a form, so there was nothing for Arrow keys to move between and their
+    // absence cost nothing. Now that it has real menuitems, a menu that ignores
+    // Arrow keys is a role that lies about its own interaction model. Tab still
+    // works and still reaches the picker below — this adds movement, it does not
+    // trap it (APG: Escape closes, Tab leaves).
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    const items = Array.from(
+      menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [],
+    );
+    if (items.length === 0) return;
+    e.preventDefault();
+    const at = items.indexOf(document.activeElement as HTMLButtonElement);
+    const delta = e.key === 'ArrowDown' ? 1 : -1;
+    // Wraps, so ArrowUp from the first item reaches the last rather than dead-ending.
+    const next = at === -1 ? 0 : (at + delta + items.length) % items.length;
+    items[next].focus();
   }, []);
 
   const handleMenuOpen = useCallback((e: React.MouseEvent) => {
@@ -126,8 +200,15 @@ export function UnscheduledTaskRow({
     setMenuOpen((v) => {
       const next = !v;
       if (next) {
-        // Focus the date input after the menu mounts
-        setTimeout(() => dateInputRef.current?.focus(), 0);
+        // Focus the FIRST QUICK ACTION when there is one, falling back to the
+        // date input (#3064). Focusing the picker unconditionally would land a
+        // keyboard user *past* the one-click commits and make them shift-tab
+        // back — putting the slow path in front of the fast one for exactly the
+        // users who benefit most from the fast one.
+        setTimeout(() => {
+          const first = menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]');
+          (first ?? dateInputRef.current)?.focus();
+        }, 0);
       }
       return next;
     });
@@ -140,13 +221,14 @@ export function UnscheduledTaskRow({
       return;
     }
     const rect = buttonRef.current.getBoundingClientRect();
-    const MENU_WIDTH = 200;
-    const MENU_HEIGHT = 110;
+    const MENU_WIDTH = 220;
+    // Two quick actions (one when their dates coincide) sit above the picker.
+    const MENU_HEIGHT = quickActions.length > 1 ? 210 : 175;
     setMenuPos({
       top: rect.top - MENU_HEIGHT - 4,
       left: rect.right - MENU_WIDTH,
     });
-  }, [menuOpen]);
+  }, [menuOpen, quickActions.length]);
 
   // Close the menu on outside click.
   React.useEffect(() => {
@@ -166,7 +248,7 @@ export function UnscheduledTaskRow({
     if (dateInput) {
       onSetDate?.(task, dateInput);
       setMenuOpen(false);
-      setDateInput('');
+      setDateInput(task.start || todayLocalIso());
     }
   }, [dateInput, task, onSetDate]);
 
@@ -267,12 +349,32 @@ export function UnscheduledTaskRow({
           style={{ position: 'fixed', top: menuPos.top, left: menuPos.left, width: 200 }}
           className="z-50 bg-neutral-surface border border-neutral-border rounded-card py-2"
         >
-          <form onSubmit={handleDateSubmit} className="px-3 py-2 flex flex-col gap-2">
+          {quickActions.length > 0 && (
+            <div className="px-1 pb-1 flex flex-col">
+              {quickActions.map((a) => (
+                <button
+                  key={a.key}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => handleQuickAction(a.date)}
+                  className="text-left text-xs px-2 py-1.5 rounded-control text-neutral-text-primary
+                    hover:bg-neutral-surface-sunken hover:text-brand-primary
+                    focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                >
+                  {a.label}
+                </button>
+              ))}
+            </div>
+          )}
+          <form
+            onSubmit={handleDateSubmit}
+            className="px-3 py-2 flex flex-col gap-2 border-t border-neutral-border"
+          >
             <label
               htmlFor={inputId}
               className="text-xs text-neutral-text-secondary font-medium"
             >
-              Set planned start
+              Or pick a date
             </label>
             <input
               ref={dateInputRef}
