@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures/coverage';
-import { setupCatchAll } from './fixtures';
+import { setupCatchAll, useFullToolbar } from './fixtures';
 
 /**
  * Schedule view E2E tests — toolbar, task list panel, and accessibility basics.
@@ -54,6 +54,11 @@ const FIXTURE_API_TASKS = [
 
 /** Set up API route interception and navigate to the Schedule view. */
 async function gotoSchedule(page: import('@playwright/test').Page) {
+  // Today/Fit and the zoom stepper are the subjects below, and #3076's fit
+  // ladder collapses the stepper into a single `Zoom: Week` button — and pushes
+  // Fit out of the bar — at Playwright's 1280 default. What the bar concedes as
+  // it narrows is schedule-toolbar-fit.spec.ts's subject, not this file's.
+  await useFullToolbar(page);
   // Seed auth state so RequireAuth lets the test through.
   await page.addInitScript(() => {
     localStorage.setItem(

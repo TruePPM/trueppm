@@ -17,7 +17,7 @@
  * claim the whole issue exists to make, so it is asserted, not assumed.
  */
 import { test, expect } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import { setupAuth, setupApiMocks, setupCatchAll, useFullToolbar } from './fixtures';
 
 const PROJECT_ID = 'e2e-band-0000-0000-0000-000000002738';
 const BASE_URL = `/projects/${PROJECT_ID}/schedule`;
@@ -156,7 +156,10 @@ test.describe('Sprint windows on the schedule canvas (#2738)', () => {
         body: JSON.stringify({ count: SPRINTS.length, next: null, previous: null, results: SPRINTS }),
       }),
     );
-    await page.setViewportSize({ width: 1280, height: 800 });
+    // Was a bare 1280, where #3076's fit ladder now collapses the zoom stepper
+    // into a single `Zoom: Week` button — and the Quarter test below zooms with
+    // the stepper's `zoom out`. Sprint bands are the subject here, not the bar.
+    await useFullToolbar(page);
   });
 
   test('names the sprint window, with its dates, on every row the band covers', async ({

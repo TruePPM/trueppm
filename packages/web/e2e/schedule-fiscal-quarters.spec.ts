@@ -6,7 +6,7 @@
  * non-January fiscal workspace, switches mode, and persists the choice.
  */
 import { test, expect, type Page } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import { setupAuth, setupApiMocks, setupCatchAll, useFullToolbar } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-fixture-00000000-0000-0000-0000-000000000755';
 
@@ -34,7 +34,10 @@ const FIXTURE_TASKS = [
 ];
 
 async function gotoSchedule(page: Page, fiscalMonth: number) {
-  await page.setViewportSize({ width: 1280, height: 800 });
+  // Was a bare 1280. Since #3076 that width is one the fit ladder collapses the
+  // zoom stepper at, and this spec reaches quarter zoom *through* the stepper —
+  // the fiscal toggle is the subject, not where the ladder puts a button.
+  await useFullToolbar(page);
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page, {

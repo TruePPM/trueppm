@@ -25,6 +25,7 @@ import {
   setupApiMocks,
   setupCatchAll,
   setupScheduleDisplayOptions,
+  useFullToolbar,
 } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-phase-00000000-0000-0000-0000-000000001754';
@@ -69,6 +70,12 @@ function recomputeFlags(tasks: MockTask[]): void {
 
 test.describe('Schedule "+ Phase" golden path (issue #1754)', () => {
   test.beforeEach(async ({ page }) => {
+    // `structureButtons: true` pins the trio to the bar, but a pin is not a
+    // guarantee of a button: #3076's ladder still collapses the trio behind a
+    // `Structure ▾` trigger once the bar runs out of room, and Playwright's
+    // 1280 default is well past that point. The pin plus the width is what
+    // actually puts `+ Phase` in the bar as the visible peer this spec names.
+    await useFullToolbar(page);
     await setupCatchAll(page);
     await setupAuth(page);
     await setupScheduleDisplayOptions(page, FIXTURE_PROJECT_ID, { structureButtons: true });

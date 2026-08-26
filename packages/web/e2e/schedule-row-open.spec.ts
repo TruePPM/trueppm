@@ -19,7 +19,7 @@
  * `data-row-id` and the layout radiogroup are the same handles #2960's spec uses.
  */
 import { test, expect, type Page } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import { setupAuth, setupApiMocks, setupCatchAll, useFullToolbar } from './fixtures';
 
 const PROJECT_ID = 'e2e-open-0000-0000-0000-000000002979';
 const BASE_URL = `/projects/${PROJECT_ID}/schedule`;
@@ -69,6 +69,9 @@ const drawer = (page: Page, taskName: string) =>
   page.getByRole('dialog', { name: new RegExp(taskName) }).first();
 
 async function goto(page: Page) {
+  // The cheatsheet is opened from the build-mode pill, which #3076's ladder
+  // collapses into the mode chip at Playwright's 1280 default.
+  await useFullToolbar(page);
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page, { projects: PROJECTS, projectId: PROJECT_ID, tasks: TASKS });
