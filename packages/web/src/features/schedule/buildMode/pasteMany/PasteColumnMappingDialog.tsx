@@ -8,6 +8,7 @@ const FIELD_OPTIONS: { value: PasteField | ''; label: string }[] = [
   { value: 'name', label: 'Name' },
   { value: 'duration', label: 'Duration' },
   { value: 'owner', label: 'Owner' },
+  { value: 'units', label: 'Allocation' },
 ];
 
 interface PasteColumnMappingDialogProps {

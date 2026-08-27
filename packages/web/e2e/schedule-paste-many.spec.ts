@@ -169,6 +169,45 @@ test.describe('paste-many — spreadsheet rows into the outline (#2724)', () => 
     await expect(page.getByRole('row').filter({ hasText: 'Foundation' })).toHaveCount(1);
   });
 
+  // #3102 — the allocation column. Before this, `buildPasteOperations` wrote a
+  // hard-coded `units: 1`, so a pasted plan committed everyone at full capacity
+  // however the spreadsheet's allocation column read. Asserted on the wire rather
+  // than in the DOM: `units` is what creates demand on a resource manager's people,
+  // and it is not rendered on the outline row that carries it.
+  test('an allocation column commits partial units, and the receipt names it', async ({ page }) => {
+    await setup(page);
+
+    // Observed with a request listener rather than a `page.route` interception: the
+    // batch endpoint is `projects/{pk}/tasks/bulk/`, and `setupTaskStore` already owns
+    // that route to keep the outline stateful. Listening leaves its handler intact.
+    const batches: unknown[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && request.url().includes('/tasks/bulk/')) {
+        batches.push(request.postDataJSON());
+      }
+    });
+
+    await page.goto(SCHEDULE_URL);
+    await expect(page.getByText('Foundation')).toBeVisible();
+
+    await pasteOntoRow(
+      page,
+      'Foundation',
+      'Task\tDuration\tOwner\tAllocation\nDesign\t5\tAna Rivera\t50%',
+    );
+
+    const receipt = page.getByTestId('paste-receipt-strip');
+    await expect(receipt).toBeVisible();
+    await expect(receipt).toContainText('name · duration · owner · allocation matched');
+
+    // 50% reaches the API as the 0.5 fraction `TaskResource.units` stores — not 1,
+    // and not the raw 50.
+    expect(batches.length).toBeGreaterThan(0);
+    const payload = JSON.stringify(batches);
+    expect(payload).toContain('"units":0.5');
+    expect(payload).not.toContain('"units":1');
+  });
+
   test('F8 walks to the row a paste flagged as needing a duration', async ({ page }) => {
     await setup(page);
     await page.goto(SCHEDULE_URL);

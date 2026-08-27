@@ -93,9 +93,32 @@ export function tokenFragmentQuery(fragment: string): string {
 }
 
 /** Clamp a parsed percent into the API's supported allocation range. */
-function clampPercent(value: number): number {
+export function clampPercent(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_OWNER_PERCENT;
   return Math.min(MAX_OWNER_PERCENT, Math.max(MIN_OWNER_PERCENT, value));
+}
+
+/**
+ * Parse an allocation cell pasted from a spreadsheet — `50`, `50%`, `50 %`, `62.5%`.
+ *
+ * Deliberately NOT `EditableCell`'s `parsePercentInput`, which caps at 100 and rejects
+ * decimals: that function backs a progress cell, where >100% is meaningless. Allocation
+ * runs to `MAX_OWNER_PERCENT` because over-committing a person is a real thing a plan
+ * says, and the `@ana:150` token already accepts it (#3102). Two callers with the same
+ * word and different ranges is exactly the kind of near-duplicate that gets "unified"
+ * later by someone reading only one of them — hence this comment rather than a shared
+ * helper.
+ *
+ * Returns null when the cell is blank or unparseable, which the caller reads as "this
+ * row said nothing about allocation" and falls back to `DEFAULT_OWNER_PERCENT`. An
+ * in-range-but-extreme value is clamped rather than rejected, matching the token path.
+ */
+export function parseAllocationPercent(raw: string): number | null {
+  const trimmed = raw.trim().replace(/%$/, '').trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return clampPercent(n);
 }
 
 /**

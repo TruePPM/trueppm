@@ -196,4 +196,69 @@ describe('buildPasteOperations', () => {
     expect(result.summary.matchedFields.sort()).toEqual(['duration', 'name']);
     expect(result.summary.ignoredColumnCount).toBe(1);
   });
+  // #3102 — allocation. `units` was a hard-coded literal 1 here, so a pasted plan
+  // committed everyone at 100% no matter what its allocation column said, silently
+  // reproducing the binary-allocation failure #2718 landed the units path to remove.
+  describe('allocation column', () => {
+    it('commits the pasted percent as a fraction, not a hard-coded 1', () => {
+      const rows = parsePastedText('Name\tOwner\tAllocation\nSurvey\tAna\t50%');
+      const columns = inferColumns(rows, true);
+      const result = buildPasteOperations(rows, columns, POOL, null, true, sequentialIds());
+
+      expect(result.operations[0].data.owners).toEqual([{ resource: 'r-ana', units: 0.5 }]);
+    });
+
+    it('falls back to 100% when the allocation cell is blank', () => {
+      const rows = parsePastedText('Name\tOwner\tAllocation\nSurvey\tAna\t');
+      const columns = inferColumns(rows, true);
+      const result = buildPasteOperations(rows, columns, POOL, null, true, sequentialIds());
+
+      expect(result.operations[0].data.owners).toEqual([{ resource: 'r-ana', units: 1 }]);
+    });
+
+    it('falls back to 100% when the allocation cell does not parse', () => {
+      const rows = parsePastedText('Name\tOwner\tAllocation\nSurvey\tAna\thalf-time');
+      const columns = inferColumns(rows, true);
+      const result = buildPasteOperations(rows, columns, POOL, null, true, sequentialIds());
+
+      expect(result.operations[0].data.owners).toEqual([{ resource: 'r-ana', units: 1 }]);
+    });
+
+    it('clamps to the same 1-200% band as the @ana:50 token', () => {
+      const rows = parsePastedText(
+        'Name\tOwner\tAllocation\nOver\tAna\t500%\nUnder\tAna\t0.4%\nHigh\tAna\t150%',
+      );
+      const columns = inferColumns(rows, true);
+      const result = buildPasteOperations(rows, columns, POOL, null, true, sequentialIds());
+
+      expect(result.operations[0].data.owners).toEqual([{ resource: 'r-ana', units: 2 }]);
+      expect(result.operations[1].data.owners).toEqual([{ resource: 'r-ana', units: 0.01 }]);
+      expect(result.operations[2].data.owners).toEqual([{ resource: 'r-ana', units: 1.5 }]);
+    });
+
+    it('drops an allocation with no owner to apply it to, rather than inventing one', () => {
+      const rows = parsePastedText('Name\tOwner\tAllocation\nSurvey\tNobody Here\t50%');
+      const columns = inferColumns(rows, true);
+      const result = buildPasteOperations(rows, columns, POOL, null, true, sequentialIds());
+
+      expect(result.operations[0].data.owners).toBeUndefined();
+      expect(result.summary.unmatchedOwnerCount).toBe(1);
+    });
+
+    it('reports allocation among the matched fields', () => {
+      const rows = parsePastedText('Name\tOwner\tAllocation\nSurvey\tAna\t50%');
+      const columns = inferColumns(rows, true);
+      const result = buildPasteOperations(rows, columns, POOL, null, true, sequentialIds());
+
+      expect(result.summary.matchedFields).toContain('units');
+    });
+
+    it('a paste with no allocation column is unchanged — owners still land at 100%', () => {
+      const rows = parsePastedText('Name\tOwner\nSurvey\tAna');
+      const columns = inferColumns(rows, true);
+      const result = buildPasteOperations(rows, columns, POOL, null, true, sequentialIds());
+
+      expect(result.operations[0].data.owners).toEqual([{ resource: 'r-ana', units: 1 }]);
+    });
+  });
 });
