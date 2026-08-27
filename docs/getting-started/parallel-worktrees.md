@@ -9,7 +9,7 @@ dev dependencies.
 ## Safe by construction
 
 Parallel agents can self-serve `wt new` / `wt remove` without a human
-coordinating who owns which checkout. Three **structural** guards — not process
+coordinating who owns which checkout. Four **structural** guards — not process
 discipline — stop one session from stomping another's worktree:
 
 1. **Fresh branches don't track `origin/main`.** `wt new` creates the branch
@@ -27,6 +27,9 @@ discipline — stop one session from stomping another's worktree:
    their **own** Postgres test DB. Parallel `pytest` runs no longer collide on a
    shared `test_trueppm`, which removes the need for an external run lock (and
    `flock(1)` isn't available on macOS anyway).
+4. **A worktree-private stash.** `git stash` is *not* worktree-scoped — see
+   [Stashing](#stashing) below. `wt stash` keeps entries under
+   `refs/wt-stash/<worktree>` so one session cannot consume another's.
 
 Those local guards stop two *worktrees* from editing the same files. A second,
 distinct hazard is two *agents* independently implementing the **same issue** and
@@ -222,6 +225,57 @@ yourself first whether finishing what you started would be cheaper.
 - The shared `trueppm-api-1` Docker container is running
 
 If anything is amber, the message tells you what to fix.
+
+## Stashing
+
+**Do not run `git stash` in a worktree while other worktrees are active.** Use
+`scripts/wt stash`.
+
+`git stash` stores to `refs/stash`, which lives in the git *common* directory —
+the one thing every worktree of a repo shares. So there is a single stash stack
+across all of them:
+
+```
+worktree A:  git stash push     # stash@{0} is A's
+worktree B:  git stash push     # stash@{0} is now B's; A's is stash@{1}
+worktree A:  git stash pop      # applies B's work into A's tree
+```
+
+Neither session did anything unusual, and neither can see the other's push. The
+outcome is worse than a wrong file landing in the wrong tree: because `pop`
+drops the entry it successfully applies, **B's uncommitted work is now gone from
+the stash and sitting in A's working tree**, with nothing in either session's
+output naming what happened. (If the apply *conflicts*, git keeps the entry —
+which is the lucky branch of the same bug.) There is no `pre-stash` hook, so
+this cannot be caught where it happens; it has to be replaced.
+
+```bash
+scripts/wt stash                  # stash this worktree's changes, privately
+scripts/wt stash "wip: probe"     # ... with a message
+scripts/wt stash list             # only this worktree's entries
+scripts/wt stash pop              # restore the newest; keeps it if the apply fails
+scripts/wt stash apply            # restore without removing the entry
+scripts/wt stash show             # diff of the newest entry
+scripts/wt stash drop             # discard the newest entry
+```
+
+Entries live under `refs/wt-stash/<worktree>`; `refs/stash` is never read or
+written. `git stash create` builds the stash commit without touching any ref,
+which is the primitive that makes this possible, and `git stash apply` accepts
+the result — so this is ordinary git plumbing, not a parallel implementation of
+stashing.
+
+Two things to know:
+
+- **Untracked files are not stashed.** `git stash create` does not capture them
+  (there is no `--include-untracked` equivalent). `wt stash` warns when it
+  leaves untracked files behind rather than letting you assume otherwise.
+- **`wt doctor` reports a non-empty `refs/stash`** when more than one worktree is
+  active, listing the branch each entry was made on — so an entry belonging to
+  another session is visible *before* somebody pops it.
+
+For a one-file, one-minute detour, copying the file aside and back is still the
+simplest thing that cannot go wrong.
 
 ## Shared infrastructure ground rules
 
