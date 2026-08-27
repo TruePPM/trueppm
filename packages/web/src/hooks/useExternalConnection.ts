@@ -244,10 +244,17 @@ export function useSyncExternalSource(
  *
  * A separate call from `useConnectExternalSource` because the `PUT` requires the
  * user's API token, which is write-only and can never be read back — a toggle
- * that reused it would demand the PAT again to change one boolean. The response
- * is the full connection summary, so the switch renders from the server's answer
- * rather than from local optimism; the connection query is invalidated so every
- * other consumer of that summary (My Work's freshness line) agrees.
+ * that reused it would demand the PAT again to change one boolean.
+ *
+ * The response *is* the connection summary, so `setQueryData` seeds it directly
+ * and there is deliberately **no** `invalidateQueries` beside it. Adding one
+ * would cost a second request per flip against a view whose throttle bucket
+ * (`credential_rotate`, 10/min) covers `GET` as well as `PATCH` — and the read
+ * hook is fail-soft by design, so a throttled refetch resolves to `null` and
+ * collapses a live connection to "Not connected" with nothing shown to explain
+ * it. `externalConnectionKey` has one consumer (`useExternalConnection`); My
+ * Work's freshness line is served by `/me/work/` under a different key, which no
+ * invalidation here would have reached anyway.
  */
 export function useSetExternalPoll(
   source: string,
@@ -262,7 +269,6 @@ export function useSetExternalPoll(
     },
     onSuccess: (data) => {
       qc.setQueryData(externalConnectionKey(source), data);
-      void qc.invalidateQueries({ queryKey: externalConnectionKey(source) });
     },
   });
 }

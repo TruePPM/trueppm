@@ -99,6 +99,20 @@ describe('useSetExternalPoll (#3104)', () => {
     expect(client.getQueryData(externalConnectionKey('jira'))).toEqual(updated);
   });
 
+  it('does not force a refetch after the write — the response already is the summary', async () => {
+    // A refetch here would cost a second request per flip against a bucket that
+    // throttles GET too (`credential_rotate`, 10/min), and the read hook is
+    // fail-soft: a throttled refetch resolves to `null`, which reads as "not
+    // connected" and collapses a live connection with nothing to explain it.
+    patchMock.mockResolvedValue({ data: { ...CONNECTED, poll_enabled: true } });
+    const { result } = renderHook(() => useSetExternalPoll('jira'), {
+      wrapper: wrapper(),
+    });
+    result.current.mutate(true);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(getMock).not.toHaveBeenCalled();
+  });
+
   it('surfaces a failed PATCH instead of failing soft like the read', async () => {
     // The read hook swallows errors on purpose (a source you cannot connect must
     // not render as broken); a *write* that silently no-ops would leave the switch

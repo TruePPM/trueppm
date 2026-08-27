@@ -550,3 +550,22 @@ def test_opted_in_connection_is_picked_up_by_the_poll(
     _do_poll()
 
     assert ExternalSyncRequest.objects.filter(user=user, source="jira").exists()
+
+
+def test_summary_reports_a_non_boolean_flag_as_off(
+    client: APIClient, user: AbstractBaseUser
+) -> None:
+    """The summary must agree with the poll, not with Python truthiness.
+
+    ``config`` is schemaless and shared, and ``_do_poll`` selects on
+    ``config__poll_enabled=True`` — strict JSON equality. A hand-edited (or
+    Enterprise-written) row carrying the *string* ``"false"`` is truthy in Python
+    and is not something the poll will ever match, so reporting it as on would
+    render a switch claiming a refresh that never happens.
+    """
+    client.put("/api/v1/me/connections/jira/", _connect_body(), format="json")
+    row = IntegrationCredential.objects.get(user=user, provider="jira")
+    row.config = {**row.config, "poll_enabled": "false"}
+    row.save(update_fields=["config"])
+
+    assert client.get("/api/v1/me/connections/jira/").json()["poll_enabled"] is False

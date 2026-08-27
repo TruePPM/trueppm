@@ -410,11 +410,12 @@ def _summary(label: str, row: IntegrationCredential | None) -> dict[str, Any]:
         "last_synced_at": row.last_used_at if row else None,
         "jql": cfg.get("jql", ""),
         "project_keys": cfg.get("project_keys", []),
-        # Coerced with ``bool()`` rather than passed through: ``config`` is a
-        # schemaless column, and the poll worker's own belt-and-suspenders check
-        # exists because a row can carry ``poll_enabled`` as a string. The summary
-        # must report the same truthiness the poll acts on, not the raw value.
-        "poll_enabled": bool(cfg.get("poll_enabled", False)),
+        # ``is True``, not ``bool()``: ``config`` is a schemaless column, and the
+        # poll selects on ``config__poll_enabled=True`` — strict JSON equality. A
+        # row carrying the string ``"false"`` is truthy in Python and *not* what
+        # the poll matches, so a ``bool()`` coercion would render the switch on for
+        # a connection that is never polled. Report what the poll acts on.
+        "poll_enabled": cfg.get("poll_enabled") is True,
         # What the last pull did — counts, and whether a cap truncated it (#2925).
         "last_sync": last_sync_summary(cfg),
     }

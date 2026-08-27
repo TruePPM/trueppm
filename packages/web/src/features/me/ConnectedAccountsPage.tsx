@@ -1019,13 +1019,22 @@ function BackgroundPollToggle({
           ariaLabel={`Check ${sourceName} for new items automatically`}
         />
       </div>
+      {/*
+        `aria-live="polite"` rather than `role="status"`, which would otherwise be
+        the obvious choice: the card already carries exactly one `role="status"`
+        node — the health / reconnect banner — and several specs locate it with an
+        unscoped `getByRole('status')` inside the card. A second status node here
+        would turn those into strict-mode multi-matches the moment a write is
+        pending or errored. The announcement is identical; only the role is not
+        claimed.
+      */}
       {setPoll.isPending ? (
-        <p role="status" className="text-xs text-neutral-text-secondary">
+        <p aria-live="polite" className="text-xs text-neutral-text-secondary">
           Saving…
         </p>
       ) : null}
       {error ? (
-        <p role="status" className="text-xs text-semantic-critical">
+        <p aria-live="polite" className="text-xs text-semantic-critical">
           {error}
         </p>
       ) : null}
