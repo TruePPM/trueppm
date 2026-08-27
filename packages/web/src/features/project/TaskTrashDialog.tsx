@@ -4,7 +4,12 @@ import { CloseIcon, InboxIcon } from '@/components/Icons';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { toast } from '@/components/Toast';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
-import { useRestoreTask, useTrashedTasks, type TrashedTask } from '@/hooks/useTaskMutations';
+import {
+  restoreRefusalMessage,
+  useRestoreTask,
+  useTrashedTasks,
+  type TrashedTask,
+} from '@/hooks/useTaskMutations';
 
 interface TaskTrashDialogProps {
   projectId: string;
@@ -40,7 +45,10 @@ export function TaskTrashDialog({ projectId, onClose }: TaskTrashDialogProps) {
     }
     restore.mutate(task.id, {
       onSuccess: () => toast.success(`"${task.name}" restored`),
-      onError: () => toast.error("Couldn't restore that task — try again."),
+      onError: (error) =>
+        // "try again" is wrong for a 409: the position is occupied until somebody
+        // moves the task holding it, and the server's detail names which one (#3071).
+        toast.error(restoreRefusalMessage(error) ?? "Couldn't restore that task — try again."),
     });
   }
 

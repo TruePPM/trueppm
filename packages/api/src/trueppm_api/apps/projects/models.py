@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Callable, Iterable, Sequence
 from datetime import time, timedelta
@@ -1844,6 +1845,68 @@ def cascade_project_children_restore(project: Project | uuid.UUID | str) -> None
         risk.restore()
 
 
+class WbsPathOccupied(Exception):
+    """A tombstoned task's ``wbs_path`` was taken by a live row while it was deleted.
+
+    Raised by :meth:`Task.restore` under its default ``refuse`` policy. Carries the
+    occupying row so a caller can name it — a 409 that says only "conflict" leaves the
+    user with a task they cannot get back and no way to find out why (#3071).
+    """
+
+    def __init__(self, task: Task, occupant: Task) -> None:
+        self.task = task
+        self.occupant = occupant
+        super().__init__(f"WBS position {task.wbs_path} is held by a live task ({occupant.pk}).")
+
+
+def wbs_path_occupant(project_id: Any, wbs_path: Any, *, exclude_pk: Any = None) -> Task | None:
+    """The live task holding ``wbs_path`` in this project, if any.
+
+    ``unique_task_wbs_path_per_project_live`` is scoped to live rows, so a tombstone
+    never occupies anything — which is precisely why a tombstone's number can be handed
+    out again while it is deleted, and why the row cannot simply be un-deleted later.
+    """
+    if not wbs_path:
+        return None
+    rows = Task.objects.filter(project_id=project_id, wbs_path=str(wbs_path), is_deleted=False)
+    if exclude_pk is not None:
+        rows = rows.exclude(pk=exclude_pk)
+    return rows.first()
+
+
+def next_free_wbs_path(project_id: Any, wbs_path: Any) -> str:
+    """``wbs_path`` if it is free, otherwise the next free position at its own level.
+
+    "Next" is one past the highest numeric label among that level's **live and
+    tombstoned** rows, not one past the count: a level with a gap in it would otherwise
+    be handed a number it already holds. Tombstones are counted for the same reason
+    :func:`_next_root_wbs_path` counts them — a number a tombstone still holds is a
+    number some later restore is going to want back.
+
+    Only the last segment moves, so the row returns to the same parent it was deleted
+    from. Its own descendants are **not** followed; a caller re-pathing a row that has a
+    live subtree must move the subtree too, which is why the endpoint refuses instead.
+    """
+    path = str(wbs_path)
+    prefix, _, _ = path.rpartition(".")
+    if wbs_path_occupant(project_id, path) is None:
+        return path
+
+    level = Task.objects.filter(project_id=project_id, wbs_path__isnull=False)
+    if prefix:
+        level = level.filter(wbs_path__startswith=f"{prefix}.").exclude(
+            wbs_path__regex=rf"^{re.escape(prefix)}\.\d+\."
+        )
+    else:
+        level = level.filter(wbs_path__regex=r"^\d+$")
+    highest = 0
+    for taken in level.values_list("wbs_path", flat=True):
+        label = str(taken).rpartition(".")[2]
+        if label.isdigit():
+            highest = max(highest, int(label))
+    return f"{prefix}.{highest + 1}" if prefix else str(highest + 1)
+
+
 def cascade_task_children_restore(task: Task) -> None:
     """Restore a task's tombstoned subtree and dependency edges — inverse of
     :meth:`Task.soft_delete`'s cascade (#2078).
@@ -1881,6 +1944,7 @@ def cascade_task_children_restore(task: Task) -> None:
     seq = _allocate_cascade_seq(task.project_id)
 
     if task.wbs_path:
+        _repath_occupied_descendants(task, seq)
         Task.objects.filter(
             # `wbs_path` is project-scoped and every project numbers from "1", so the
             # prefix alone is not a subtree — it matches the same-shaped path in EVERY
@@ -1925,6 +1989,53 @@ def cascade_task_children_restore(task: Task) -> None:
         deleted_version=None,
         deleted_at=None,
     )
+
+
+def _repath_occupied_descendants(task: Task, seq: int) -> None:
+    """Move any descendant whose path was taken while the subtree was tombstoned (#3071).
+
+    The cascade below un-deletes the subtree with one bulk ``.update()``, which cannot
+    see a per-row conflict — and ``unique_task_wbs_path_per_project_live`` is
+    ``DEFERRED``, so the collision it creates surfaces at ``COMMIT`` as an
+    ``IntegrityError`` naming a constraint and no row. A tombstoned subtask's slot can
+    be reallocated the moment it is deleted, because the constraint covers live rows
+    only, so this is reachable from delete-a-subtask / add-a-subtask / undo.
+
+    **Re-path rather than refuse**, the opposite of the single-row endpoint's policy.
+    A cascade has no person to ask and no useful partial outcome: abandoning the restore
+    because one of forty descendants lost its slot leaves the caller with neither the
+    old state nor the new one. A row that comes back one position over is findable; a
+    row that does not come back is not.
+
+    Runs *before* the bulk update, while the rows are still tombstoned, so each
+    re-pathed row is written by a plain ``.update()`` that is itself collision-free —
+    ``next_free_wbs_path`` reads live *and* tombstoned labels, so two conflicted
+    siblings cannot be handed the same replacement.
+    """
+    occupied = (
+        Task.objects.filter(
+            project_id=task.project_id,
+            is_deleted=True,
+            is_subtask=True,
+            wbs_path__startswith=str(task.wbs_path) + ".",
+        )
+        .filter(
+            Exists(
+                Task.objects.filter(
+                    project_id=task.project_id,
+                    wbs_path=OuterRef("wbs_path"),
+                    is_deleted=False,
+                )
+            )
+        )
+        .order_by("wbs_path")
+    )
+    for row in occupied:
+        Task.objects.filter(pk=row.pk).update(
+            wbs_path=next_free_wbs_path(task.project_id, row.wbs_path),
+            server_version=F("server_version") + 1,
+            sync_seq=seq,
+        )
 
 
 def cascade_project_children_soft_delete(project: Project | uuid.UUID | str) -> None:
@@ -3623,7 +3734,7 @@ class Task(VersionedModel):
         finally:
             self._system_write = False
 
-    def restore(self) -> None:
+    def restore(self, *, on_conflict: str = "refuse") -> None:
         """Un-tombstone this single task, clearing ``deleted_at`` (#2078).
 
         The symmetric inverse of :meth:`soft_delete`'s ``deleted_at`` stamping, mirroring
@@ -3632,7 +3743,38 @@ class Task(VersionedModel):
         clock) must be cleared too or a nightly reap could still consider the live row eligible.
         The subtree + dependency-edge cascade is a separate module function
         (:func:`cascade_task_children_restore`); this covers only the single top row.
+
+        **The tombstone's ``wbs_path`` may no longer be free (#3071).** The uniqueness
+        constraint is scoped to live rows, so a tombstone occupies nothing while it is
+        deleted and its number can be allocated to a new task. Un-deleting the row then
+        puts two live tasks on one path — which, because ``wbs_path`` is the *only* thing
+        recording parenthood, is not a numbering clash but a corrupted tree. The
+        constraint is ``DEFERRED``, so it raises at ``COMMIT``, far from the call that
+        caused it. This is the same reasoning step 2 of ``undo_structural_operation``
+        already applies to ``unique_dependency``, carried to rows.
+
+        Args:
+            on_conflict: What to do when a live row already holds this path.
+
+                * ``"refuse"`` (default) — raise :class:`WbsPathOccupied` naming the
+                  occupant. Correct for an explicit single-row restore: the user asked
+                  for *this* row back *here*, a person is present to decide, and moving
+                  it silently would also strand any live subtree that is still hanging
+                  off the old path.
+                * ``"repath"`` — move onto the next free position at the same level and
+                  restore there. Correct inside a cascade or an undo, where refusing one
+                  row would abandon the operation part-way; a row that comes back
+                  somewhere findable beats a row that does not come back.
+
+        Raises:
+            WbsPathOccupied: Under ``on_conflict="refuse"`` when the path is taken.
         """
+        occupant = wbs_path_occupant(self.project_id, self.wbs_path, exclude_pk=self.pk)
+        if occupant is not None:
+            if on_conflict == "repath":
+                self.wbs_path = next_free_wbs_path(self.project_id, self.wbs_path)
+            else:
+                raise WbsPathOccupied(self, occupant)
         self.deleted_at = None
         # Symmetric with soft_delete: restoring a row is not editing it, so an
         # undo of B4's sweep returns rows to the untouched set rather than

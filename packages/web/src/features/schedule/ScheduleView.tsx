@@ -189,6 +189,7 @@ import {
   useOutdentTask,
   useUpdateTask,
   useDeleteTask,
+  restoreRefusalMessage,
   useRestoreTask,
   useCreateTask,
   useReorderTasks,
@@ -2018,8 +2019,12 @@ export function ScheduleView() {
           focus.focusRow(taskId);
           setScheduleActionToast({ message: 'Restored', durationMs: 2000 });
         },
-        onError: () => {
-          setScheduleActionToast({ message: 'Couldn’t restore the task.' });
+        onError: (error) => {
+          // A 409 refusal is permanent until the occupying task moves, so it must not
+          // wear the generic retryable copy (#3071).
+          setScheduleActionToast({
+            message: restoreRefusalMessage(error) ?? 'Couldn’t restore the task.',
+          });
         },
       });
     },
