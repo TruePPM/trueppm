@@ -55202,6 +55202,11 @@
                         "description": "Whether the caller may author this project's plan (ADR-0773 §2).\n\nPrefers the viewset's ``_my_role`` annotation so a project list costs no\nextra query per row, and falls back to the request-scoped predicate when the\nannotation is absent (a freshly-created instance, or a detail route that does\nnot annotate). Both paths end in ``role_can_author_plan``, so the field can\nnever disagree with ``IsProjectPlanAuthor``.\n\nFails closed to ``False`` without a request.",
                         "readOnly": true
                     },
+                    "server_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
                     "lifecycle": {
                         "allOf": [
                             {
@@ -55279,6 +55284,7 @@
                     "open_task_count",
                     "overdue_count",
                     "percent_complete",
+                    "server_date",
                     "server_version",
                     "start_date"
                 ]
@@ -55887,6 +55893,11 @@
                         "description": "Whether the caller may author this project's plan (ADR-0773 §2).\n\nPrefers the viewset's ``_my_role`` annotation so a project list costs no\nextra query per row, and falls back to the request-scoped predicate when the\nannotation is absent (a freshly-created instance, or a detail route that does\nnot annotate). Both paths end in ``role_can_author_plan``, so the field can\nnever disagree with ``IsProjectPlanAuthor``.\n\nFails closed to ``False`` without a request.",
                         "readOnly": true
                     },
+                    "server_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
                     "lifecycle": {
                         "allOf": [
                             {
@@ -56004,6 +56015,7 @@
                     "percent_complete",
                     "program_detail",
                     "recalculated_at",
+                    "server_date",
                     "server_version",
                     "start_date",
                     "start_floor",

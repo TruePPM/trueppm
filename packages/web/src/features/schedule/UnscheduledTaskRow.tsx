@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback, useId, useLayoutEffect, useMemo }
 import { createPortal } from 'react-dom';
 import type { Task, TaskReadiness } from '@/types';
 import { formatShortDate, todayLocalIso } from './scheduleUtils';
+import { startCommitClause } from './startCommitDisclosure';
 
 export type UnscheduledRowVariant = 'todo' | 'backlog' | 'planned';
 
@@ -21,6 +22,19 @@ interface UnscheduledTaskRowProps {
   /** Backlog path — open the shared ScheduleTaskDialog. The row passes its own
    *  `···` button as the trigger so focus can be returned on close. */
   onScheduleRequest?: (task: Task, trigger: HTMLElement) => void;
+  /**
+   * The server's `YYYY-MM-DD`, from the project payload's `server_date` (#3075).
+   *
+   * Every date control here writes `planned_start`, which on a NOT_STARTED task also
+   * flips it to In progress once the date has arrived — and "has arrived" is judged by
+   * Django's `timezone.localdate()`, not this browser's. Passed down rather than fetched
+   * here so this stays a presentational row, and so the drawer and the gutter disclose
+   * the same rule from the same value.
+   *
+   * Undefined until the project query resolves; `startCommitClause` then says nothing
+   * rather than guessing, and the labels read exactly as they do today.
+   */
+  serverDate?: string;
 }
 
 /**
@@ -62,6 +76,7 @@ export function UnscheduledTaskRow({
   onDragStart,
   onSetDate,
   onScheduleRequest,
+  serverDate,
 }: UnscheduledTaskRowProps) {
   const isBacklog = variant === 'backlog';
   const readiness: TaskReadiness = task.readiness ?? 'idea';
@@ -142,19 +157,36 @@ export function UnscheduledTaskRow({
     if (isBacklog || variant === 'planned') return [];
     const today = todayLocalIso();
     const earliest = task.start;
+    // Each action's label says what the write will do beyond setting the date, because
+    // a date-named control that also changes Status is the defect this discloses
+    // (#3075). "Start today" always carries it; "Start at the earliest" only when CPM's
+    // earliest has already passed.
+    const withClause = (label: string, date: string): string => {
+      const clause = task.status === 'NOT_STARTED' ? startCommitClause(date, serverDate) : null;
+      return clause ? `${label} — ${clause}` : label;
+    };
     const actions: { key: string; label: string; date: string }[] = [];
     if (earliest) {
       actions.push({
         key: 'earliest',
-        label: `Start at the earliest (${formatShortDate(earliest)})`,
+        label: withClause(`Start at the earliest (${formatShortDate(earliest)})`, earliest),
         date: earliest,
       });
     }
     if (earliest !== today) {
-      actions.push({ key: 'today', label: `Start today (${formatShortDate(today)})`, date: today });
+      actions.push({
+        key: 'today',
+        label: withClause(`Start today (${formatShortDate(today)})`, today),
+        date: today,
+      });
     }
     return actions;
-  }, [isBacklog, variant, task.start]);
+  }, [isBacklog, variant, task.start, task.status, serverDate]);
+
+  // The "Or pick a date" field's own disclosure. Recomputed as the user types, so it
+  // appears the moment they pick a date that has already arrived (#3075).
+  const promoteClause =
+    task.status === 'NOT_STARTED' ? startCommitClause(dateInput, serverDate) : null;
 
   const handleQuickAction = useCallback(
     (date: string) => {
@@ -388,12 +420,23 @@ export function UnscheduledTaskRow({
             <button
               type="submit"
               disabled={!dateInput}
+              // The picked date decides whether the promote also changes Status, so the
+              // accessible name tracks the input rather than being fixed (#3075). The
+              // visible text stays "Promote to schedule": the clause is announced beside
+              // the field below, where a sighted user reads it without the button
+              // resizing on every keystroke.
+              aria-label={promoteClause ? `Promote to schedule — ${promoteClause}` : undefined}
               className="h-7 rounded-control border border-neutral-border text-xs font-medium
                 disabled:opacity-40 hover:border-brand-primary hover:text-brand-primary
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             >
               Promote to schedule
             </button>
+            {promoteClause && (
+              <p className="text-xs text-neutral-text-secondary leading-snug">
+                That date has arrived — this {promoteClause.replace(/^also /, '')}.
+              </p>
+            )}
           </form>
         </div>,
         document.body,

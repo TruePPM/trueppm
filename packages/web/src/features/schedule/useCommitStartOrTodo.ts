@@ -41,8 +41,16 @@ export interface CommitStartOrTodo {
  * detect — the visible proof is the advisory *disappearing*.
  */
 export interface CommitStartOrTodoOptions {
-  /** Fired after `planned_start` lands, with the committed ISO date. */
-  onCommitted?: (iso: string) => void;
+  /**
+   * Fired after `planned_start` lands, with the committed ISO date and the status the
+   * server came back with.
+   *
+   * `statusAfter` is the *response's* status, not a prediction: committing a start
+   * `<= today` on a NOT_STARTED task also promotes it to IN_PROGRESS (#336), and the
+   * announcement must say what actually happened rather than what was expected to
+   * (#3075). `undefined` when the response carried no status.
+   */
+  onCommitted?: (iso: string, statusAfter?: string) => void;
   /** Fired after the demote to To Do lands. */
   onMovedToTodo?: () => void;
 }
@@ -75,7 +83,7 @@ export function useCommitStartOrTodo(
     updateTask.mutate(
       { id: task.id, projectId, planned_start: iso },
       {
-        onSuccess: () => onCommitted?.(iso),
+        onSuccess: (updated) => onCommitted?.(iso, updated?.status),
         onError: () => setError('Could not set the committed start. Try again.'),
       },
     );

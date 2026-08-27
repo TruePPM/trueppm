@@ -365,6 +365,49 @@ test.describe('Unscheduled gutter — overflow menu promote (#213)', () => {
     await gotoSchedule(page);
   });
 
+  test('discloses the status change when the picked date has already arrived (#3075)', async ({
+    page,
+  }) => {
+    // Promoting a NOT_STARTED task onto a date that has arrived does not only set the
+    // date — the server also flips it to In progress (#336). The control is named for
+    // the date and used to say nothing about that.
+    //
+    // Both dates are fixed and neither comes from a clock: the server's "today" is
+    // mocked to June and the date picked is April, so "has arrived" is settled by the
+    // fixture rather than by when the suite happens to run. That is also the real
+    // contract — the rule is judged against the SERVER's date, and this spec would be
+    // testing the browser's if it used one.
+    await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...FIXTURE_API_PROJECTS[0], server_date: '2026-06-01' }),
+      }),
+    );
+    await page.reload();
+    await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    await page.getByRole('button', { name: 'Actions for Parking Lot Item' }).click();
+    await page.locator('input[type="date"]').first().fill('2026-04-10');
+
+    await expect(
+      page.getByRole('button', { name: /Promote to schedule.*In progress, backdated/i }),
+    ).toBeVisible();
+    await expect(page.getByText(/marks this task In progress, backdated/i)).toBeVisible();
+  });
+
+  test('stays silent when the server sends no date of its own (#3075)', async ({ page }) => {
+    // The default fixture has no project-detail mock, so `server_date` is absent — the
+    // older-server / not-yet-loaded case. The labels must read exactly as they did
+    // before the disclosure existed rather than falling back to the browser clock,
+    // and the exact-name locator below is what the rest of this spec relies on.
+    await page.getByRole('button', { name: 'Actions for Parking Lot Item' }).click();
+    await expect(page.getByRole('button', { name: 'Promote to schedule' })).toBeVisible();
+    await expect(page.getByText(/In progress/i)).toHaveCount(0);
+  });
+
   test('overflow menu opens on button click', async ({ page }) => {
     await page.getByRole('button', { name: 'Actions for Parking Lot Item' }).click();
     await expect(page.getByText('Or pick a date')).toBeVisible();

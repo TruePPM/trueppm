@@ -299,6 +299,20 @@ export interface ApiProjectDetail {
    * "nobody may author" instead of failing the typecheck. See `canAuthorPlan`.
    */
   can_author: boolean;
+  /**
+   * The server's current date, `YYYY-MM-DD` (#3075).
+   *
+   * Several server rules fire on `timezone.localdate()` — most visibly the
+   * NOT_STARTED → IN_PROGRESS promote when a committed start has already arrived
+   * (#336) — and a client that compares against the browser's date gets a different
+   * answer across a timezone boundary, which is the one case where it matters.
+   *
+   * **Optional on purpose**, unlike `can_author` above. Its consumers disclose what a
+   * write will do, and their documented behavior when it is absent is to say nothing
+   * and keep the existing copy — so a server that does not send it degrades to today's
+   * wording rather than to a wrong promise. Never substitute a browser clock for it.
+   */
+  server_date?: string;
 }
 
 /**

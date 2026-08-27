@@ -22,9 +22,15 @@ let policy: DurationChangePercentPolicy = 'keep';
 // ever mounted under a QueryClient, so the hook is real in production and mocked
 // here alongside the policy it already reads.
 let projectHoursPerDay = 8;
+// The server's own date, which the strip reads to disclose the date-gated
+// NOT_STARTED → IN_PROGRESS promote before the user commits a start (#3075).
+// `undefined` is the "project not loaded / older server" case, in which the labels
+// must read exactly as they did before that disclosure existed.
+let serverDate: string | undefined;
 vi.mock('@/hooks/useProject', () => ({
   useEffectiveDurationPolicy: () => policy,
   useProjectHoursPerDay: () => projectHoursPerDay,
+  useProject: () => ({ data: serverDate === undefined ? {} : { server_date: serverDate } }),
 }));
 let coarse = false;
 vi.mock('@/hooks/useIsCoarsePointer', () => ({

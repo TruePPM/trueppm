@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Task } from '@/types';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
-import { useEffectiveDurationPolicy, useProjectHoursPerDay } from '@/hooks/useProject';
+import { useEffectiveDurationPolicy, useProject, useProjectHoursPerDay } from '@/hooks/useProject';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { PencilIcon, WarningIcon } from '@/components/Icons';
 import { Button } from '@/components/Button';
@@ -21,6 +21,7 @@ import {
 import { RecalcPercentChip } from './RecalcPercentChip';
 import { buildRecalcPrompt, type RecalcPromptState } from './recalcPercentPrompt';
 import { useCommitStartOrTodo } from './useCommitStartOrTodo';
+import { startCommitAnnouncement, startCommitClause } from './startCommitDisclosure';
 import { isMissingCommittedStart, isStartComputed } from './missingCommittedStart';
 
 /**
@@ -664,10 +665,22 @@ function UncommittedStartNote({
   projectId: string;
   onAnnounce: (sentence: string) => void;
 }) {
+  // The server's date, not the browser's — the promote is gated on Django's
+  // `timezone.localdate()`, and the two disagree exactly at the boundary where the
+  // answer matters (#3075). Undefined until the project query resolves, which
+  // `startCommitClause` treats as "say nothing" rather than "nothing will happen".
+  const { data: project } = useProject(projectId);
+  const statusBefore = task.status;
   const { commitStart, error, isPending } = useCommitStartOrTodo(task, projectId, {
-    onCommitted: (iso) =>
-      onAnnounce(`Committed start set to ${fmtUtcShort(iso)}. This task is now on the timeline.`),
+    onCommitted: (iso, statusAfter) =>
+      onAnnounce(startCommitAnnouncement(fmtUtcShort(iso), statusBefore, statusAfter)),
   });
+  const clause = startCommitClause(task.start, project?.server_date);
+  // One string for the visible label and the accessible name, so a screen-reader user
+  // and a sighted user are told the same thing about the same button (rule 8b).
+  const commitLabel = `Set committed start (${fmtUtcShort(task.start)})${
+    clause ? ` — ${clause}` : ''
+  }`;
 
   return (
     <div
@@ -685,8 +698,14 @@ function UncommittedStartNote({
         </p>
       )}
       <div className="mt-2 flex flex-wrap gap-2">
-        <Button variant="secondary" size="sm" onClick={commitStart} disabled={isPending}>
-          {`Set committed start (${fmtUtcShort(task.start)})`}
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={commitStart}
+          disabled={isPending}
+          aria-label={commitLabel}
+        >
+          {commitLabel}
         </Button>
       </div>
       <div className="mt-2 border-t border-neutral-border pt-1.5">

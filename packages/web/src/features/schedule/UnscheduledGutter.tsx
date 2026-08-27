@@ -6,6 +6,7 @@ import type { GanttScaleData } from './engine';
 import { leftToDate } from './engine';
 import { usePromoteTask } from '@/hooks/useTaskMutations';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { useProject } from '@/hooks/useProject';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { UnscheduledTaskRow } from './UnscheduledTaskRow';
 import { UnscheduledDragPreview } from './UnscheduledDragPreview';
@@ -77,6 +78,8 @@ export function UnscheduledGutter({
   onScheduleMany,
 }: UnscheduledGutterProps) {
   const itl = useIterationLabel();
+  // Server-resolved today for the rows' date-gated disclosure (#3075).
+  const { data: project } = useProject(projectId);
   // Absent a persisted choice, default to collapsed when there is nothing
   // unscheduled — the reassurance message is a one-time confirmation, not
   // chrome worth showing forever on an otherwise fully-scheduled project.
@@ -477,6 +480,7 @@ export function UnscheduledGutter({
                     variant="todo"
                     onDragStart={handleDragStart}
                     onSetDate={handleSetDate}
+                    serverDate={project?.server_date}
                   />
                 ))
               )}
@@ -514,6 +518,7 @@ export function UnscheduledGutter({
                     onDragStart={handleDragStart}
                     onSetDate={handleSetDate}
                     onScheduleRequest={handleScheduleRequest}
+                    serverDate={project?.server_date}
                   />
                 ))
               )}
