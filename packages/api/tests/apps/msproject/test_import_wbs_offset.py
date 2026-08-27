@@ -55,6 +55,14 @@ MSP_MINIMAL = pathlib.Path(__file__).parent / "fixtures" / "minimal.xml"
 # same seam as the other cross-importer test file.
 BROADCAST = "trueppm_api.apps.sync.broadcast.broadcast_board_event"
 
+# The same problem one seam further in: a committed import schedules a CPM
+# recalculation through Celery, whose broker is that same unreachable Valkey. It is
+# irrelevant to what these tests assert — recalculation moves dates, never
+# ``wbs_path`` — but an unpatched dispatch fails the commit and rolls the import
+# back, so every assertion below reads an empty project. Patched at the seam
+# ``test_msproject.py`` and ``jiraimport/test_tasks.py`` already use.
+RECALC = "trueppm_api.apps.scheduling.services.enqueue_recalculate"
+
 
 @pytest.fixture
 def calendar(db: object) -> Calendar:
@@ -105,7 +113,7 @@ def _run_csv(project: Project) -> None:
         file_content_b64=base64.b64encode(INDENTED_CSV).decode("ascii"),
         status=CsvImportStatus.DISPATCHED,
     )
-    with patch(BROADCAST):
+    with patch(BROADCAST), patch(RECALC):
         import_csv.apply(
             kwargs={
                 "project_id": str(project.pk),
@@ -126,7 +134,7 @@ def _run_jira(project: Project) -> None:
         file_content_b64=base64.b64encode(CHAIN_EXPORT).decode("ascii"),
         status=JiraImportStatus.DISPATCHED,
     )
-    with patch(BROADCAST):
+    with patch(BROADCAST), patch(RECALC):
         import_jira.apply(
             kwargs={
                 "project_id": str(project.pk),
@@ -141,7 +149,7 @@ def _run_jira(project: Project) -> None:
 def _run_msproject(project: Project) -> None:
     from trueppm_api.apps.msproject.tasks import import_msproject
 
-    with patch(BROADCAST):
+    with patch(BROADCAST), patch(RECALC):
         import_msproject.apply(
             kwargs={
                 "project_id": str(project.pk),
@@ -246,7 +254,7 @@ def test_create_from_import_writes_verbatim_even_over_existing_rows(
     from trueppm_api.apps.msproject.parser import parse_xml
 
     data = parse_xml(MSP_MINIMAL.read_bytes())
-    with patch(BROADCAST):
+    with patch(BROADCAST), patch(RECALC):
         import_project(str(occupied_project.pk), data, wipe_existing=True)
 
     assert _paths(occupied_project) == {"1"}
