@@ -42,7 +42,7 @@ import dataclasses
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from django.db import DatabaseError, transaction
+from django.db import DatabaseError, connection, transaction
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
@@ -601,6 +601,62 @@ def _note_project_start_shift(task: Task, out: BulkOutcome) -> None:
 _OP_HANDLERS = {"create": _apply_create, "update": _apply_update, "delete": _apply_delete}
 
 
+#: The deferred exclusion constraint that guards one live task per (project, wbs_path).
+#:
+#: Declared ``Deferrable.DEFERRED`` on ``Task.Meta`` because every WBS-rewrite path
+#: (indent/outdent/reorder/group/ungroup, structural undo) renumbers a whole sibling
+#: level one row at a time and necessarily passes through duplicate intermediate
+#: states. See the constraint's own comment in ``models.py`` for the full reasoning.
+WBS_PATH_CONSTRAINT = "unique_task_wbs_path_per_project_live"
+
+
+def _settle_wbs_path_constraint() -> None:
+    """Check the deferred wbs_path constraint now, while the caller's savepoint is open.
+
+    Postgres evaluates a ``DEFERRED`` constraint at ``COMMIT``, **not** at
+    ``RELEASE SAVEPOINT``. Without this the per-row savepoint in
+    :func:`apply_task_operations` releases cleanly on a colliding row, the handler
+    reports success, the 207 body is assembled with that row marked applied — and the
+    violation then surfaces when ``ATOMIC_REQUESTS`` commits *after* the view has
+    returned, outside DRF's ``exception_handler``. The client gets an opaque 500 in
+    place of the 207 the endpoint's contract promises, and the failure names a
+    constraint with no row attribution (#3070).
+
+    Setting the constraint ``IMMEDIATE`` drains its pending events right here, so a
+    violation is raised inside the savepoint and is attributable to the op that caused
+    it. The mode is then restored to ``DEFERRED`` so the *next* row is free to pass
+    through its own transient duplicates again — the property the constraint was
+    deferred for in the first place. On the failure path the restore is not needed:
+    the savepoint rollback reverts ``SET CONSTRAINTS`` along with everything else.
+
+    Postgres-only, and a no-op elsewhere; ``SET CONSTRAINTS`` has no portable
+    equivalent and no other backend is supported for this deployment.
+    """
+    if connection.vendor != "postgresql":
+        return
+    with connection.cursor() as cursor:
+        cursor.execute(f'SET CONSTRAINTS "{WBS_PATH_CONSTRAINT}" IMMEDIATE')
+        cursor.execute(f'SET CONSTRAINTS "{WBS_PATH_CONSTRAINT}" DEFERRED')
+
+
+def _conflict_message(exc: DatabaseError) -> str:
+    """Render a row-level conflict for the 207 body without leaking database text.
+
+    A wbs_path collision arrives as Postgres's exclusion-constraint message, which
+    names the constraint and repeats the raw key — neither of which means anything to
+    an API client, and the row attribution the client actually needs is already
+    carried by the report's ``index``. Every other ``DatabaseError`` keeps its own
+    text: those are unclassified by definition, and hiding them would leave the caller
+    with no signal at all.
+    """
+    if WBS_PATH_CONSTRAINT in str(exc):
+        return (
+            "Another live task in this project already holds this WBS position. "
+            "Move or reorder the row and retry."
+        )
+    return str(exc)
+
+
 def apply_task_operations(
     operations: list[dict[str, Any]], ctx: BulkContext, out: BulkOutcome
 ) -> None:
@@ -611,6 +667,11 @@ def apply_task_operations(
     poisons the enclosing transaction; without a savepoint to roll back to, the very
     next query would raise ``TransactionManagementError`` and the remaining rows
     would fail for a reason that has nothing to do with them.
+
+    A savepoint alone is not enough for a **deferred** constraint, though: Postgres
+    checks those at ``COMMIT``, so the savepoint releases cleanly and the failure lands
+    after the view has returned. :func:`_settle_wbs_path_constraint` closes that gap
+    for the one deferred constraint task rows can violate (#3070).
     """
     for index, op in enumerate(operations):
         handler = _OP_HANDLERS.get(op.get("op", ""))
@@ -624,6 +685,13 @@ def apply_task_operations(
                 if _outcome_lengths(out) == before:
                     # The handler neither applied nor reported — defensive only.
                     out.reject(index, op.get("id"), CODE_INVALID, "Operation produced no result.")
+                elif op.get("op") != "delete" and len(out.applied) > before[0]:
+                    # Only a row that actually wrote can have collided, and a delete
+                    # only ever *frees* a path: soft-delete flips ``is_deleted``, which
+                    # takes the row out of the constraint's partial condition. Skipping
+                    # those two cases keeps the two extra statements off the rows that
+                    # cannot need them, which matters on a large batch.
+                    _settle_wbs_path_constraint()
         except PermissionDenied as exc:
             _rollback_bookkeeping(out, before)
             out.reject(index, op.get("id"), CODE_FORBIDDEN, str(exc.detail))
@@ -634,7 +702,7 @@ def apply_task_operations(
             # The savepoint has rolled back, so the transaction is usable again and
             # the next row may proceed.
             _rollback_bookkeeping(out, before)
-            out.reject(index, op.get("id"), CODE_CONFLICT, str(exc))
+            out.reject(index, op.get("id"), CODE_CONFLICT, _conflict_message(exc))
 
     _declare_parents_of_created_rows(ctx, out)
 
