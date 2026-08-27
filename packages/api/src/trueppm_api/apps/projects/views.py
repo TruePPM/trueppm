@@ -4574,6 +4574,12 @@ def _next_root_wbs_path(project: Any) -> str:
     Numbering past tombstones means ordinals are not reused after a delete. That is the
     intended trade: a WBS number is an identifier a PM refers to, and silently reissuing
     a deleted task's number to a different task is worse than a gap.
+
+    Reading the labels back also makes the lock in the first line real. Postgres refuses
+    ``FOR UPDATE`` alongside an aggregate, so the previous ``.count()`` form compiled to
+    a bare ``SELECT COUNT(*)`` — the "under the same lock as the INSERT" this docstring
+    has always claimed was not a property the query had. ``test_next_root_wbs_path_locks``
+    pins it.
     """
     highest = 0
     for path in (
