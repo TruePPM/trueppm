@@ -244,13 +244,13 @@ export function SettingsContextSwitcher({
           <div
             ref={popoverRef}
             style={popoverStyle}
-            className="z-50 rounded border border-neutral-border bg-neutral-surface"
+            className="z-50 flex flex-col overflow-hidden rounded border border-neutral-border bg-neutral-surface"
           >
             {/* Search box — always present, pinned above the scrolling list.
               focus-within (not focus-visible) so the programmatic open-focus
               shows a ring too. */}
             <div
-              className="flex items-center gap-1.5 px-2 h-7 border-b border-neutral-border
+              className="flex shrink-0 items-center gap-1.5 px-2 h-7 border-b border-neutral-border
             focus-within:ring-2 focus-within:ring-inset focus-within:ring-brand-primary"
             >
               <svg
@@ -292,7 +292,7 @@ export function SettingsContextSwitcher({
               id={listboxId}
               role="listbox"
               aria-label={`Switch ${entityLabel}`}
-              className="max-h-56 overflow-y-auto py-1"
+              className="flex-1 min-h-0 overflow-y-auto py-1"
             >
               {filtered.length === 0 ? (
                 <div

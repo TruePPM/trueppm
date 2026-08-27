@@ -268,8 +268,8 @@ export function ToolbarOverflowMenu({
           tabIndex={-1}
           onKeyDown={onMenuKeyDown}
           className={[
-            'absolute z-30 top-full mt-1 min-w-[200px]',
-            'rounded-card border border-neutral-border bg-neutral-surface',
+            'absolute z-30 top-full mt-1 min-w-[200px] max-h-[min(70vh,32rem)]',
+            'overflow-y-auto rounded-card border border-neutral-border bg-neutral-surface',
             'py-1',
             align === 'right' ? 'right-0' : 'left-0',
           ].join(' ')}

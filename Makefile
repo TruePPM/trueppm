@@ -5,7 +5,7 @@
         migrations-check migrations-numbering schema-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks \
         pre-push-behind-warn pre-push-collision-check pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web sonar \
-        release-smoke screenshots wt-new wt-list wt-remove wt-prune wt-doctor
+        release-smoke screenshots wt-new wt-list wt-remove wt-prune wt-doctor dropdown-scroll-check
 
 # Diff-coverage gate config. New code on this branch (vs $(COVERAGE_DIFF_BASE))
 # must hit at least $(COVERAGE_DIFF_MIN)% line coverage.
@@ -55,7 +55,7 @@ wt-doctor: ## Verify worktree symlinks + shared Docker stack are healthy
 	@bash scripts/wt doctor
 
 # ─── Lint ─────────────────────────────────────────────────────────────────────
-lint: lint-scheduler lint-api web-lint design-system-check ## Lint all packages
+lint: lint-scheduler lint-api web-lint design-system-check dropdown-scroll-check ## Lint all packages
 
 lint-scheduler: ## Lint packages/scheduler (ruff)
 	cd packages/scheduler && ruff check src/ tests/ && ruff format --check src/ tests/
@@ -270,6 +270,13 @@ sonar-exclusions-check: ## Fail if a sonar-project.properties exclusion has gone
 	@# under-matches, which is how #2517 dropped the reliability rating A → D.
 	@bash scripts/check-sonar-exclusions.sh
 
+dropdown-scroll-check: ## Fail if a role="menu"/role="listbox" panel has no scroll guard (web-rule 351, #3109)
+	@# A panel taller than the viewport with no overflow-y-auto + height guard
+	@# spills off-screen with nothing to scroll it into view (the Schedule
+	@# Display menu bug). Ratchet with named, reviewed exclusions for panels
+	@# that are genuinely safe by construction — see the script header.
+	@bash scripts/check-dropdown-scroll.sh
+
 extension-signals-check: ## Fail if an OSS→Enterprise extension signal uses plain .send() (#2606)
 	@# A receiver's exception propagates through .send(), so a bug in enterprise
 	@# code breaks the OSS write path that fired the signal. Grep + sed, ~1s.
@@ -383,7 +390,7 @@ nginx-headers-check: ## Fail if the five nginx configs disagree on the hardening
 	@# are skipped (loudly) when helm is not on PATH — CI always has it.
 	@bash scripts/check-nginx-security-headers.sh
 
-pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check playwright-pins-check web-rule-numbers-check web-row-vocabulary-check design-system-check adr-status-check version-status-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check prepush-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check sonar-exclusions-check extension-signals-check enterprise-boundary-check boundary-doc-check demo-readonly-check helm-metric-names-check nginx-headers-check playwright-pins-check web-rule-numbers-check web-row-vocabulary-check design-system-check dropdown-scroll-check adr-status-check version-status-check docs-tree-split-check ws-event-reachability-check e2e-catchall-check demo-nginx-allowlist-check prepush-parity-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
 pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/

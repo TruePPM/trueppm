@@ -67,6 +67,16 @@ describe('ScheduleDisplayMenu (#1741)', () => {
     expect(screen.getByRole('button', { name: 'Display, 1 active filter' })).toBeInTheDocument();
   });
 
+  it('caps the panel height and lets it scroll on a short viewport (#3109)', () => {
+    setup();
+    const menu = openMenu();
+    // Outline + View filters + Render filters can exceed a short viewport with no
+    // scrollbar (#3109) — the panel must cap its own height and scroll rather than
+    // spill past the screen edge with the remaining options unreachable.
+    expect(menu.className).toMatch(/max-h-\[min\(70vh,32rem\)\]/);
+    expect(menu.className).toMatch(/overflow-y-auto/);
+  });
+
   it('opens the popover and toggles a filter in place (menu stays open)', () => {
     const props = setup();
     fireEvent.click(screen.getByRole('button', { name: 'Display' }));

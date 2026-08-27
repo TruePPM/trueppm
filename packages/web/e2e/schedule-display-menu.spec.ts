@@ -435,3 +435,48 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
     );
   });
 });
+
+test.describe('Schedule Display menu — short viewport scroll (#3109)', () => {
+  test('caps the panel to the viewport and keeps every option reachable by scroll', async ({
+    page,
+  }) => {
+    // Short enough that Outline + View filters + Render filters + Columns + Chart
+    // together exceed the available height — the reported bug: the panel spilled
+    // off the bottom of the screen with no scrollbar and no way to reach the rest.
+    await page.setViewportSize({ width: 1024, height: 480 });
+    await gotoSchedule(page);
+    await expect(page.getByRole('treegrid', { name: 'Item list' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    await page
+      .getByRole('toolbar', { name: 'Schedule toolbar' })
+      .getByRole('button', { name: 'Display' })
+      .click();
+    const menu = page.getByRole('menu', { name: 'Display options' });
+    await expect(menu).toBeVisible();
+
+    // The panel must not extend past the bottom of the viewport...
+    const box = await menu.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.y + box!.height).toBeLessThanOrEqual(480);
+
+    // ...and this viewport is short enough that its content genuinely overflows
+    // (otherwise the assertions below would pass trivially without exercising
+    // the fix at all).
+    await expect
+      .poll(() =>
+        menu.evaluate((el) => el.scrollHeight > el.clientHeight),
+      )
+      .toBe(true);
+
+    // The last control in the panel — the Grid task-name placement's "Hidden"
+    // radio — must still be reachable and operable via scroll, not stranded
+    // below the fold.
+    const hidden = menu.getByRole('menuitemradio', { name: 'Hidden' });
+    await hidden.scrollIntoViewIfNeeded();
+    await expect(hidden).toBeVisible();
+    await hidden.click();
+    await expect(hidden).toHaveAttribute('aria-checked', 'true');
+  });
+});

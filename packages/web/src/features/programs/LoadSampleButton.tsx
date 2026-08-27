@@ -92,7 +92,7 @@ export function LoadSampleButton({ variant = 'hero' }: LoadSampleButtonProps) {
           role="menu"
           className={`${
             isHeader ? 'absolute right-0 top-full z-10' : ''
-          } mt-2 w-80 overflow-hidden rounded-card border border-neutral-border bg-neutral-surface text-left shadow-pop`}
+          } mt-2 w-80 max-h-[min(70vh,28rem)] overflow-y-auto rounded-card border border-neutral-border bg-neutral-surface text-left shadow-pop`}
         >
           {samples.map((s) => (
             <li key={s.key} role="none">

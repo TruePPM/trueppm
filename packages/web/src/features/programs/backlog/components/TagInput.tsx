@@ -263,13 +263,13 @@ export function TagInput({ tags, onChange, suggestions = [], id }: TagInputProps
             style={popoverStyle}
             // z-[60] to sit above the mobile BottomSheet panel (z-50) that hosts
             // the create form; portaled to body so it escapes the pane's clip.
-            className="z-[60] rounded-card border border-neutral-border bg-neutral-surface py-0.5"
+            className="z-[60] flex flex-col overflow-hidden rounded-card border border-neutral-border bg-neutral-surface py-0.5"
           >
             <div
               role="listbox"
               id={listboxId}
               aria-label="Tags"
-              className="max-h-56 overflow-y-auto"
+              className="flex-1 min-h-0 overflow-y-auto"
             >
               {rows.length === 0 ? (
                 <div role="status" className="px-2 py-1.5 text-xs text-neutral-text-secondary">

@@ -482,7 +482,7 @@ export function UserMenu() {
             aria-modal="false"
             aria-label="User menu"
             data-testid="user-menu-dropdown"
-            className="absolute top-full right-0 mt-1 z-50 w-64 bg-chrome-surface rounded-card border border-neutral-border flex flex-col py-1 focus:outline-none"
+            className="absolute top-full right-0 mt-1 z-50 w-64 max-h-[min(70vh,32rem)] overflow-y-auto bg-chrome-surface rounded-card border border-neutral-border flex flex-col py-1 focus:outline-none"
           >
             <MenuContent {...sharedContentProps} isMobile={false} />
           </div>
@@ -515,7 +515,7 @@ export function UserMenu() {
               aria-modal="true"
               aria-label="User menu"
               data-testid="user-menu-sheet"
-              className="fixed bottom-0 inset-x-0 z-50 bg-chrome-surface rounded-t-card border-t border-neutral-border flex flex-col py-2 focus:outline-none"
+              className="fixed bottom-0 inset-x-0 z-50 max-h-[85vh] overflow-y-auto bg-chrome-surface rounded-t-card border-t border-neutral-border flex flex-col py-2 focus:outline-none"
             >
               <MenuContent {...sharedContentProps} isMobile={true} />
             </div>

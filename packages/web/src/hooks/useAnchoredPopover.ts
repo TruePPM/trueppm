@@ -21,7 +21,11 @@ import {
  *      escape an overflow-clipping ancestor; only leaving the subtree can).
  *   2. Position it `fixed`, computed from the trigger's `getBoundingClientRect()`:
  *      below the trigger, FLIPPING above when there is not enough room, and
- *      CLAMPED horizontally so it never leaves the viewport.
+ *      CLAMPED horizontally so it never leaves the viewport. `popoverStyle` also
+ *      carries a `maxHeight` derived from the real gap to whichever viewport edge
+ *      the panel opened toward (web-rule 351) — the caller still owns its own
+ *      `overflow-y-auto`, but never has to guess a `max-h-NN` pixel value that
+ *      silently swallows content on a short viewport (issue #3109).
  *   3. Because a `fixed` panel cannot track its anchor, re-derive its coords on
  *      scroll (capture phase, so nested scroll containers count) and resize.
  *   4. Dismiss on an outside pointer-down that spans BOTH the trigger and the
@@ -81,8 +85,11 @@ export interface AnchoredPopover<T extends HTMLElement, P extends HTMLElement> {
   popoverRef: RefObject<P | null>;
   /**
    * Ready to spread onto the portaled panel: `{ position: 'fixed', top, left,
-   * width }`. `null` while closed or before the first measure — render the portal
-   * only when this is non-null.
+   * width, maxHeight }`. `maxHeight` is the real gap (in px) between the panel's
+   * chosen edge and the viewport boundary it opened toward — pair it with
+   * `overflow-y-auto` on the panel so long content scrolls instead of spilling
+   * off-screen (web-rule 351). `null` while closed or before the first measure —
+   * render the portal only when this is non-null.
    */
   popoverStyle: CSSProperties | null;
   /** Recompute coords now (rarely needed; scroll/resize are already wired). */
@@ -140,11 +147,16 @@ export function useAnchoredPopover<
     const flipUp = below + height > vh - margin;
     const top = flipUp ? Math.max(margin, rect.top - height - gap) : below;
 
+    // The real gap to the edge the panel opened toward, not the estimate/measured
+    // height used only to decide the flip direction above — content taller than
+    // that guess must scroll within this, never spill past the viewport edge.
+    const maxHeight = Math.max(0, flipUp ? rect.top - gap - margin : vh - margin - below);
+
     // Horizontal: align to a trigger edge, then clamp inside the viewport.
     const rawLeft = align === 'right' ? rect.right - resolvedWidth : rect.left;
     const left = Math.max(margin, Math.min(rawLeft, vw - resolvedWidth - margin));
 
-    setStyle({ position: 'fixed', top, left, width: resolvedWidth });
+    setStyle({ position: 'fixed', top, left, width: resolvedWidth, maxHeight });
   }, [width, estimatedHeight, align, gap, margin]);
 
   // Measure when opening; clear when closed so the portal unmounts.
