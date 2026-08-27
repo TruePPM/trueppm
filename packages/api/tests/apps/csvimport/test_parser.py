@@ -75,11 +75,84 @@ class TestReferenceFixture:
         assert by_name["Data model"].duration_days == 10
 
     def test_wbs_column_drives_the_hierarchy(self) -> None:
+        """Every row, in file order — not a sample (#3082).
+
+        This used to assert Discovery, Stakeholder interviews and Web UI, which is three
+        of seven and misses the only shape that fails. ``Discovery`` is row 1 and its
+        code is ``1``, so the positional fallback and the intended code agree by
+        coincidence; the dotted rows were always read correctly. ``Build`` — a *second*
+        bare-integer row — is the one that landed at its row index instead of its code,
+        and it was not asserted.
+        """
+        result = parse_spreadsheet(REFERENCE_CSV, "plan.csv")
+        numbers = [(t.name, t.outline_number) for t in result.project_data.tasks]
+        assert numbers == [
+            ("Discovery", "1"),
+            ("Stakeholder interviews", "1.1"),
+            ("Requirements draft", "1.2"),
+            ("Build", "2"),
+            ("Data model", "2.1"),
+            ("API endpoints", "2.2"),
+            ("Web UI", "2.3"),
+        ]
+
+    def test_the_second_phase_row_is_read_as_a_code_not_a_depth(self) -> None:
+        """The defect in isolation, stated as what went wrong rather than as a shape.
+
+        A bare cell in a column that also holds dotted cells is an outline *code* — a
+        phase's own number. Reading it as a depth left ``outline_number`` at the
+        positional fallback ``str(task_count + 1)``, so ``Build`` (4th row) became ``4``
+        while its children stayed at ``2.1``/``2.2``/``2.3``, pointing at a number no
+        live row held. ``wbs_path`` is the only record of parenthood, so those three
+        rendered at project root and the WBS had a hole at ``2``.
+        """
         result = parse_spreadsheet(REFERENCE_CSV, "plan.csv")
         by_name = {t.name: t for t in result.project_data.tasks}
-        assert by_name["Discovery"].outline_number == "1"
-        assert by_name["Stakeholder interviews"].outline_number == "1.1"
-        assert by_name["Web UI"].outline_number == "2.3"
+
+        assert by_name["Build"].outline_number == "2"
+        assert by_name["Build"].outline_level == 0, "a top-level code is depth 0, not 2"
+
+        parents = {(t.outline_number or "").rsplit(".", 1)[0] for t in result.project_data.tasks}
+        numbers = {t.outline_number for t in result.project_data.tasks}
+        orphans = {p for p in parents if p and "." not in p and p not in numbers}
+        assert orphans == set(), f"these codes have no row holding them: {orphans}"
+
+    def test_a_bare_integer_column_is_still_read_as_depths(self) -> None:
+        """The ``Level``/``Outline`` convention ``_apply_wbs`` was written for.
+
+        The fix must not regress it: a column with no dotted cell anywhere is a depth
+        column, and its bare integers keep meaning depth. This is the branch that lets
+        ``_append_review_branch`` rely on ``outline_number`` still being the positional
+        sequence when the file is not dotted.
+        """
+        depths_csv = (
+            b"Task,Level,Days\n"
+            b"Discovery,0,1\n"
+            b"Stakeholder interviews,1,5\n"
+            b"Build,0,1\n"
+            b"Data model,1,10\n"
+        )
+        result = parse_spreadsheet(depths_csv, "levels.csv")
+        tasks = result.project_data.tasks
+        assert [t.outline_level for t in tasks] == [0, 1, 0, 1]
+        assert [t.outline_number for t in tasks] == ["1", "2", "3", "4"], (
+            "a depth column leaves outline_number as the positional sequence"
+        )
+
+    def test_one_dotted_cell_settles_the_whole_column(self) -> None:
+        """The scan is over the column, not the cell — one dotted row is enough.
+
+        Mirrors ``_slash_date_evidence``: a convention that consecutive rows are allowed
+        to disagree about is not a convention. Here only the last row is dotted, and it
+        still has to decide how the three bare rows above it are read — including the
+        two the parser has already walked past by then, which is why the scan runs
+        before any row is built rather than during the loop.
+        """
+        mixed_csv = b"Task,WBS,Days\nAlpha,1,1\nBeta,2,1\nGamma,3,1\nGamma detail,3.1,1\n"
+        result = parse_spreadsheet(mixed_csv, "mixed.csv")
+        tasks = result.project_data.tasks
+        assert [t.outline_number for t in tasks] == ["1", "2", "3", "3.1"]
+        assert [t.outline_level for t in tasks] == [0, 0, 0, 1]
 
     def test_predecessors_resolve_against_the_id_column(self) -> None:
         result = parse_spreadsheet(REFERENCE_CSV, "plan.csv")
