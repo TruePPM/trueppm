@@ -503,6 +503,44 @@ def _apply_task_comment(beat: _Beat, ctx: ReplayContext) -> None:
     comment = TaskComment.objects.create(task=task, author=beat.actor, body=body)
     # created_at is auto_now_add (stamped now() on insert); backdate it.
     TaskComment.objects.filter(pk=comment.pk).update(created_at=beat.when)
+    _fan_out_mentions(comment, task, beat)
+
+
+def _fan_out_mentions(comment: TaskComment, task: Task, beat: _Beat) -> None:
+    """Create Mention + Notification rows for an @mention in a seeded comment.
+
+    Only the live view path parsed mentions, so a seeded ``@mei`` was plain text:
+    it *read* like a mention and produced no Mention row and no notification, and
+    a persona signing in landed on an empty notification list. That is the shape
+    of defect this seed audit keeps finding — a surface that looks populated and
+    is not.
+
+    Resolution filters user mentions to current **project members**, which is why
+    this only became possible once seeded accounts held ProjectMemberships
+    (#3092). ``now=beat.when`` keeps the notification contemporaneous with the
+    comment rather than stamping import day; a mention of a non-member resolves
+    to ``skipped_users`` and is silently dropped, exactly as the live path
+    reports it.
+    """
+    from trueppm_api.apps.notifications.services import (
+        create_mention_notifications,
+        parse_mentions,
+        resolve_parsed_mentions,
+    )
+
+    parsed = parse_mentions(comment.body)
+    if not parsed:
+        return
+    resolved = resolve_parsed_mentions(parsed, task.project_id)
+    if not resolved.user_targets and not resolved.group_targets:
+        return
+    create_mention_notifications(
+        task_comment=comment,
+        mentioner=beat.actor,
+        parsed_result=resolved,
+        project_id=task.project_id,
+        now=beat.when,
+    )
 
 
 def _apply_sprint_activate(beat: _Beat, ctx: ReplayContext) -> None:

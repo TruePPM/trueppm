@@ -354,6 +354,60 @@ PC_STORY_LABELS = {
 # Informational task-to-task relations (ADR-0455). Non-scheduling "see also" /
 # dedupe cross-references, distinct from the CPM dependencies below. Kept few and
 # meaningful. wbs -> [{target, link_type, note}].
+# External references (#3094 surface, #3095 content). URL-only: TaskAttachment
+# is file XOR external_url and a seed carries no bytes. Hung off the work they
+# actually document, not scattered for coverage.
+PC_STORY_ATTACHMENTS = {
+    "1.1": [
+        {
+            "external_url": "https://example.com/atlas/design/sso-oidc-flow",
+            "external_title": "SSO / OIDC flow design",
+            "is_pinned": True,
+            "uploaded_by": "mei",
+        },
+        {
+            "external_url": "https://example.com/atlas/security/csrf-finding-0142",
+            "external_title": "Security review finding SR-0142 (CSRF on callback)",
+            "uploaded_by": "priya",
+        },
+    ],
+    "1.10": [
+        {
+            "external_url": "https://example.com/atlas/spikes/fallback-idp",
+            "external_title": "Fallback IdP spike — findings",
+            "uploaded_by": "mei",
+        }
+    ],
+    "4.5": [
+        {
+            "external_url": "https://example.com/atlas/legal/tax-jurisdiction-scope",
+            "external_title": "Tax jurisdiction scope decision",
+            "is_pinned": True,
+            "uploaded_by": "jordan",
+        }
+    ],
+    "3.4": [
+        {
+            "external_url": "https://example.com/atlas/runbooks/warehouse-backfill",
+            "external_title": "Warehouse backfill runbook",
+            "uploaded_by": "yuki",
+        }
+    ],
+}
+
+# Explicit allocations (#3095). Everywhere else the importer synthesizes one full
+# unit from `assignee`, which cannot express a split or a shared specialist —
+# the two things the array exists for. Ivan is a 0.2 solutions architect spread
+# across three concurrent stories, which is the designed over-allocation an
+# evaluator can find on the heatmap and resolve by moving one of them.
+PC_STORY_ASSIGNMENTS = {
+    "1.7": [{"resource": "mei", "units": 0.6}, {"resource": "diego", "units": 0.4}],
+    "3.6": [{"resource": "yuki", "units": 0.5}, {"resource": "omar", "units": 0.5}],
+    "4.5": [{"resource": "tom", "units": 0.75}, {"resource": "ivan", "units": 0.2}],
+    "3.4": [{"resource": "yuki", "units": 0.8}, {"resource": "ivan", "units": 0.2}],
+    "5.3": [{"resource": "diego", "units": 0.7}, {"resource": "ivan", "units": 0.2}],
+}
+
 PC_STORY_LINKS = {
     # The cutover hook's human "see also" pointer at its cross-project predecessor
     # (also a hard FS dependency — the relation is the readable cross-reference).
@@ -435,6 +489,10 @@ PC_STORIES = [
     ("1.7", "Passwordless login", 8, 6, "BACKLOG", "mei", None, None),
     ("1.8", "Access reviews", 5, 7, "BACKLOG", "diego", None, None),
     ("1.9", "Delegated admin", 5, 8, "BACKLOG", "nadia", None, None),
+    # Risk mitigation action for pc-sso-vendor (#3095). Not the exposed work
+    # (that is 1.1) — this is what somebody DID about it, done before the risk
+    # was walked down, so the register shows a mitigation and not just a status.
+    ("1.10", "Fallback IdP spike", 3, 5, "COMPLETE", "mei", None, None),
     ("2.1", "Tenant model", 8, 1, "COMPLETE", "omar", None, None),
     ("2.2", "Rate limiting", 5, 2, "COMPLETE", "tom", None, None),
     ("2.3", "Webhook delivery", 8, 2, "COMPLETE", "diego", None, None),
@@ -558,6 +616,10 @@ def _pc_story(row: tuple) -> dict:
         story["labels"] = PC_STORY_LABELS[wbs]
     if wbs in PC_STORY_LINKS:
         story["links"] = PC_STORY_LINKS[wbs]
+    if wbs in PC_STORY_ATTACHMENTS:
+        story["attachments"] = PC_STORY_ATTACHMENTS[wbs]
+    if wbs in PC_STORY_ASSIGNMENTS:
+        story["assignments"] = PC_STORY_ASSIGNMENTS[wbs]
     if wbs == "2.6":
         # Near-infeasible commitment (#372): committed to the ACTIVE sprint but
         # gated by a cross-project FS predecessor — Migration Tooling's
@@ -668,6 +730,9 @@ def build_platform_core() -> dict:
                 "impact": 3,
                 "category": "ORGANIZATIONAL",
                 "response": "MITIGATE",
+                "trigger": "Two consecutive sprints close below 80% of committed points.",
+                "contingency": "Re-baseline Sprint 6-8 commitments against the post-onboarding run rate rather than the pre-expansion average.",
+                "mitigation_due_date": d(66),
                 "owner": "priya",
                 "tasks": ["2.1"],
             },
@@ -675,11 +740,16 @@ def build_platform_core() -> dict:
                 "slug": "pc-scope-creep",
                 "title": "Billing scope creep",
                 "description": "Tax-engine requirements are still firming up and may expand the billing epic.",
-                "status": "OPEN",
+                "status": "RESOLVED",
                 "probability": 4,
                 "impact": 3,
                 "category": "PROJECT_MANAGEMENT",
-                "response": "MITIGATE",
+                # AVOID, not MITIGATE: the exposure was removed by cutting the
+                # scope rather than managed down. The only AVOID in any pack.
+                "response": "AVOID",
+                "trigger": "A second tax jurisdiction is requested before the billing epic closes.",
+                "contingency": "n/a — the exposure was removed rather than managed: multi-jurisdiction tax moved out of 1.0 by decision, not deferred within it.",
+                "mitigation_due_date": d(60),
                 "owner": "jordan",
                 "tasks": ["4.5"],
             },
@@ -692,8 +762,14 @@ def build_platform_core() -> dict:
                 "impact": 4,
                 "category": "EXTERNAL",
                 "response": "MITIGATE",
+                "trigger": "Vendor misses a sandbox milestone, or certification slips past the Sprint 6 gate.",
+                "contingency": "Ship with the interim OIDC profile and defer enterprise SSO to 1.1; the fallback IdP spike (1.6) is what makes that a decision rather than a scramble.",
+                "mitigation_due_date": d(72),
                 "owner": "mei",
-                "tasks": ["1.1"],
+                # 1.1 is the exposed work; 1.6 is the mitigation ACTION. A risk
+                # that links only the task it threatens records what is at stake
+                # and never what anyone did about it.
+                "tasks": ["1.1", "1.10"],
             },
             {
                 "slug": "pc-data-platform",
@@ -1367,7 +1443,27 @@ def build_atlas() -> dict:
             "priya",
             to="MITIGATING",
         ),
+        # A risk.status flip on its own records THAT a risk moved and never why.
+        # The note is the mitigation on the record; the spike (1.10) is the work.
+        _ev(
+            ts(36, 9, 45),
+            "risk.note",
+            "risk:pc-sso-vendor",
+            "mei",
+            body="Vendor slipped their sandbox milestone by a week. Raising to "
+            "mitigating and spiking a fallback IdP (1.10) so a slip past the "
+            "Sprint 6 gate is a decision we make, not one made for us.",
+        ),
         _ev(ts(36, 10, 0), "risk.status", "risk:pc-sso-vendor", "mei", to="MITIGATING"),
+        _ev(
+            ts(74, 16, 0),
+            "risk.note",
+            "risk:pc-sso-vendor",
+            "mei",
+            body="Fallback spike done — the interim OIDC profile carries login "
+            "and defers only enterprise SSO. Certification is still open, but the "
+            "critical path no longer runs through it.",
+        ),
         _ev(
             ts(38, 14, 0),
             "task.comment",
@@ -1577,7 +1673,98 @@ def build_atlas() -> dict:
         # Tax engine's acceptance criteria are agreed — the story is ready.
         _ev(ts(86, 11, 0), "task.ac_met", pc_task("4.5"), "jordan"),
         _ev(
+            ts(86, 14, 30),
+            "risk.note",
+            "risk:pc-notif-throttle",
+            "tom",
+            body="Per-tenant throttle shipped with the delivery queue; load test "
+            "held at 5x the observed peak. Closing this out.",
+        ),
+        _ev(
             ts(86, 15, 0), "risk.status", "risk:pc-notif-throttle", "tom", to="RESOLVED"
+        ),
+        # The AVOID: the exposure is removed by cutting scope, not managed down.
+        _ev(
+            ts(60, 11, 0),
+            "risk.note",
+            "risk:pc-scope-creep",
+            "jordan",
+            body="@atlas-priya @atlas-alex — decision: multi-jurisdiction tax moves out of "
+            "1.0 rather than being deferred inside it. Avoiding the exposure "
+            "instead of managing it; the billing epic scope is now fixed.",
+        ),
+        _ev(
+            ts(60, 11, 30),
+            "risk.status",
+            "risk:pc-scope-creep",
+            "jordan",
+            to="RESOLVED",
+        ),
+        # A blocked span with real duration (#3094 surface, #3095 content). 5.3
+        # is genuinely IN_PROGRESS in the ACTIVE sprint, so the blocked lane, the
+        # "Xd blocked" age badge and the thread are all live on import day —
+        # blocking a completed story would have read as incoherent history.
+        _ev(
+            ts(80, 9, 15),
+            "task.block",
+            pc_task("5.3"),
+            "diego",
+            body="Email provider hasn't verified our sending domain — digests "
+            "can't go out to real addresses until DKIM is signed off, so the "
+            "scheduler is built but untestable end to end.",
+            blocker_type="vendor",
+        ),
+        _ev(
+            ts(81, 10, 0),
+            "task.comment",
+            pc_task("5.3"),
+            "diego",
+            body="@atlas-priya this is a vendor wait, not an estimate miss — the "
+            "scheduler itself is done. Flagging it so the burndown reads honestly "
+            "if it slips past Friday.",
+        ),
+        _ev(
+            ts(82, 16, 30),
+            "task.comment",
+            pc_task("5.3"),
+            "priya",
+            body="Acknowledged. @atlas-alex I'd rather carry this than fake a close — "
+            "it's four days of vendor latency, not scope.",
+        ),
+        _ev(
+            ts(84, 11, 0),
+            "task.unblock",
+            pc_task("5.3"),
+            "diego",
+            body="DKIM verified, digests sending against the sandbox domain.",
+        ),
+        _ev(
+            ts(84, 11, 30),
+            "task.comment",
+            pc_task("5.3"),
+            "diego",
+            body="Unblocked after four days. Back in progress with the sprint's "
+            "remaining point on it.",
+        ),
+        # Still blocked on import day: 4.5 waits on a legal answer nobody has
+        # yet, so the Blocked lane has a card and the age badge reads a real
+        # multi-day span the moment an evaluator opens the board.
+        _ev(
+            ts(85, 9, 0),
+            "task.block",
+            pc_task("4.5"),
+            "tom",
+            body="Waiting on legal for the jurisdiction list — we cannot pick a "
+            "tax provider until we know which jurisdictions are in scope for 1.0.",
+            blocker_type="decision",
+        ),
+        _ev(
+            ts(86, 9, 30),
+            "task.comment",
+            pc_task("4.5"),
+            "tom",
+            body="@atlas-jordan this is the one still holding the billing epic. "
+            "Not an estimate problem — we're waiting on an answer.",
         ),
         # Mid-sprint scope injection: Backfill tool pulled into the active sprint.
         _ev(
