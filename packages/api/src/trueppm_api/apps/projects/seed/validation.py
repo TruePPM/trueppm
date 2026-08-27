@@ -283,6 +283,8 @@ _EVENT_TARGET_KIND = {
     "task.points": "task",
     "task.comment": "task",
     "task.ac_met": "task",
+    "task.block": "task",
+    "task.unblock": "task",
     "sprint.activate": "sprint",
     "sprint.close": "sprint",
     # Scope inject/resolve target the task being injected; its ACTIVE sprint is
@@ -291,6 +293,7 @@ _EVENT_TARGET_KIND = {
     "sprint.scope_resolve": "task",
     "baseline.capture": "project",
     "risk.status": "risk",
+    "risk.note": "risk",
     # retro.action creates an action item on the sprint's retro; retro.promote
     # promotes one (matched by `body`) to a backlog task. Both are per-sprint —
     # SprintRetro is 1:1 with Sprint — so the target is the sprint (ADR-0114 §7).

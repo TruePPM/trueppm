@@ -39,6 +39,7 @@ from trueppm_api.apps.projects.models import (
     Project,
     RetroActionItem,
     Risk,
+    RiskComment,
     ScopeChangeStatus,
     Sprint,
     SprintRetro,
@@ -212,6 +213,10 @@ class _Exporter:
         self.task_ref: dict[Any, tuple[str, str]] = {}
         # sprint pk -> slug, scoped per project.
         self.sprint_slugs: dict[Any, str] = {}
+        # Risk slugs are allocated per project inside ``_risk_blocks``; recorded
+        # here so ``risk.note`` events can target them. Projects are serialized
+        # before events, so this is populated by the time the timeline is built.
+        self.risk_slugs: dict[Any, str] = {}
         # task pk -> [label slug, …], populated per project in ``_project_block``
         # (ADR-0400 labels folded into the seed, #1958). Label slugs are
         # project-scoped, matching the slug-based (no-UUID) seed contract.
@@ -572,6 +577,8 @@ class _Exporter:
         block: dict[str, Any] = {"wbs_path": str(task.wbs_path), "name": task.name}
         self._put_task_core(block, task)
         self._put_task_agile(block, task)
+        self._put_task_blocker(block, task)
+        self._put_task_attachments(block, task)
         self._put_task_estimate(block, task)
         self._put_task_assignments(block, task)
         self._put_task_labels_and_links(block, task)
@@ -606,11 +613,59 @@ class _Exporter:
         _put(block, "sprint_rank", task.sprint_rank)
         if task.dor and task.dor != "idea":
             block["dor"] = task.dor
+        _put(block, "board_lane", task.board_lane)
         if task.governance_class and task.governance_class != "flow":
             block["governance_class"] = task.governance_class
         if task.delivery_mode and task.delivery_mode != "waterfall":
             block["delivery_mode"] = task.delivery_mode
         _put(block, "color", task.color)
+
+    def _put_task_blocker(self, block: dict[str, Any], task: Task) -> None:
+        """Emit the blocker cluster when the flag is raised (#3094).
+
+        ``blocked_reason`` is the flag-of-record, so its emptiness decides. The
+        derived companions are emitted only when set, and ``blocked_since`` rides
+        along as ``since`` — an unstamped blocker renders no age, and age is the
+        triage signal the flag exists to carry.
+        """
+        reason = (task.blocked_reason or "").strip()
+        if not reason:
+            return
+        blocked: dict[str, Any] = {"reason": task.blocked_reason}
+        if task.blocked_since is not None:
+            blocked["since"] = self._date_str(task.blocked_since.date())
+        _put(blocked, "type", task.blocker_type)
+        if task.blocking_task_id is not None and task.blocking_task_id in self.task_ref:
+            blocked["blocking_task"] = self.task_ref[task.blocking_task_id][1]
+        if task.blocked_by_id is not None:
+            blocked["by"] = self._user_slug(task.blocked_by)
+        block["blocked"] = blocked
+
+    def _put_task_attachments(self, block: dict[str, Any], task: Task) -> None:
+        """Emit external-link attachments, ordered for a stable round-trip.
+
+        File attachments are skipped rather than half-emitted: a seed is a text
+        document and ``TaskAttachment`` is file XOR ``external_url``, so a file
+        row has nothing expressible. Soft-deleted rows are skipped too — they
+        exist only to keep ``[[attachment:uuid]]`` comment references resolvable.
+        """
+        rows = [
+            row
+            for row in task.attachments.filter(is_deleted=False).order_by("created_at", "pk")
+            if row.external_url
+        ]
+        if not rows:
+            return
+        entries: list[dict[str, Any]] = []
+        for row in rows:
+            entry: dict[str, Any] = {"external_url": row.external_url}
+            _put(entry, "external_title", row.external_title)
+            if row.is_pinned:
+                entry["is_pinned"] = True
+            if row.uploaded_by_id is not None:
+                entry["uploaded_by"] = self._user_slug(row.uploaded_by)
+            entries.append(entry)
+        block["attachments"] = entries
 
     def _put_task_estimate(self, block: dict[str, Any], task: Task) -> None:
         if task.optimistic_duration is not None:
@@ -746,8 +801,10 @@ class _Exporter:
         )
         slug_alloc = _SlugAllocator()
         for risk in risks:
+            risk_slug = slug_alloc.take(risk.title)
+            self.risk_slugs[risk.pk] = risk_slug
             block: dict[str, Any] = {
-                "slug": slug_alloc.take(risk.title),
+                "slug": risk_slug,
                 "title": risk.title,
                 "status": risk.status,
                 "probability": risk.probability,
@@ -868,6 +925,7 @@ class _Exporter:
                 self._emit_sprint_lifecycle(sprint, pslug, emit)
                 self._emit_retro_actions(sprint, pslug, emit)
             self._emit_scope_injections(project, emit)
+            self._emit_risk_notes(project, emit)
 
         # Chronological order; ties broken deterministically so re-export is
         # byte-identical. The array index is the replay tiebreak for same-instant
@@ -946,6 +1004,29 @@ class _Exporter:
                 "task.comment",
                 target,
                 {"actor": self._actor_slug(c.author), "body": c.body},
+            )
+
+    def _emit_risk_notes(self, project: Project, emit: _Emit) -> None:
+        """Emit ``risk.note`` events from RiskComment rows (#3094).
+
+        Safe to reconstruct, unlike ``risk.status``: a comment is an append-only
+        artifact that does not depend on the risk's current status, so replaying
+        it reproduces exactly the rows it came from — the same reason
+        ``task.comment`` round-trips.
+        """
+        for comment in (
+            RiskComment.objects.filter(risk__project=project, risk__is_deleted=False)
+            .select_related("author", "risk")
+            .order_by("created_at", "pk")
+        ):
+            slug = self.risk_slugs.get(comment.risk_id)
+            if slug is None:
+                continue
+            emit(
+                comment.created_at,
+                "risk.note",
+                f"risk:{slug}",
+                {"actor": self._actor_slug(comment.author), "body": comment.message},
             )
 
     def _emit_sprint_lifecycle(self, sprint: Sprint, pslug: str, emit: _Emit) -> None:
