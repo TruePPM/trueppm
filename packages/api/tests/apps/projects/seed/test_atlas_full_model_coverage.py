@@ -20,6 +20,7 @@ from trueppm_api.apps.projects.models import (
     Project,
     Task,
 )
+from trueppm_api.apps.projects.seed import export_program, validate_seed
 from trueppm_api.apps.projects.seed.importer import import_seed
 
 FIXTURE = (
@@ -198,3 +199,28 @@ def test_platform_core_baseline_covers_the_day_zero_backlog(owner):
     # committed to work that did not exist yet.
     assert "Service accounts" not in names
     assert "Fallback IdP spike" not in names
+
+
+@pytest.mark.django_db
+def test_the_health_override_survives_an_export_import_round_trip(owner):
+    """The key has three implementations and all three have to agree.
+
+    Schema, importer and exporter are separate readers of the same key, and a
+    key that imports but does not export is invisible until someone downloads a
+    pack, re-imports it, and quietly loses the override. Exporting an AUTO
+    project would be the mirror failure — it turns "defers to the rollup" into
+    "pinned to AUTO", which is a different claim on re-import.
+    """
+    program = _import_and_schedule(_doc(), owner)
+    exported = export_program(program)
+    validate_seed(exported)
+
+    by_slug = {p["slug"]: p for p in exported["projects"]}
+    assert by_slug["migration-tooling"]["health"] == "AT_RISK"
+    assert "health" not in by_slug["platform-core"]
+    assert "health" not in by_slug["gtm-readiness"]
+
+    reimported = import_seed(exported, owner=owner, create_users=True, replace=True)
+    round_tripped = {p.name: p.health for p in Project.objects.filter(program=reimported)}
+    assert round_tripped["Migration Tooling"] == "AT_RISK"
+    assert round_tripped["Platform Core"] == "AUTO"
