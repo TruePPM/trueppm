@@ -6,6 +6,22 @@
  * here as the single source so chips never hardcode one platform.
  */
 
+/**
+ * Keys that print as a glyph rather than as their own name.
+ *
+ * Module scope, not a per-call literal: `formatChord` runs once per shortcut
+ * chip — several times per rendered schedule row, unmemoized — and this record
+ * is never mutated.
+ */
+const ARROWS: Record<string, string> = {
+  arrowright: '→',
+  arrowleft: '←',
+  arrowup: '↑',
+  arrowdown: '↓',
+  enter: '⏎',
+  tab: '⇥',
+};
+
 /** True when running on a Mac/iOS-family platform. SSR/test-safe (false when no navigator). */
 export function isMacPlatform(): boolean {
   if (typeof navigator === 'undefined') return false;
@@ -42,6 +58,31 @@ export function altKeyLabel(): string {
 }
 
 /**
+ * The label for a modifier token, or `null` when the token is not a modifier.
+ *
+ * `null` rather than a thrown or empty string because "not a modifier" is the
+ * signal the caller routes on: everything the grammar does not name here is the
+ * chord's key.
+ */
+function modLabel(token: string, mac: boolean): string | null {
+  if (token === 'mod') return mac ? '⌘' : 'Ctrl';
+  if (token === 'alt' || token === 'option') return mac ? '⌥' : 'Alt';
+  if (token === 'shift') return mac ? '⇧' : 'Shift';
+  return null;
+}
+
+/**
+ * The label for the chord's key.
+ *
+ * Takes the raw token as well as its lowercased form: a single letter is
+ * uppercased, but anything longer (`F2`) keeps the casing the binding was
+ * written with.
+ */
+function keyLabel(token: string, raw: string): string {
+  return ARROWS[token] ?? (token.length === 1 ? token.toUpperCase() : raw);
+}
+
+/**
  * Render a binding as the keystroke the reader can actually press (#3028).
  *
  * The Schedule's keyboard layer resolves `mod` to **Meta on Mac and Ctrl
@@ -62,25 +103,15 @@ export function altKeyLabel(): string {
  */
 export function formatChord(chord: string): string {
   const mac = isMacPlatform();
-  const ARROWS: Record<string, string> = {
-    arrowright: '→',
-    arrowleft: '←',
-    arrowup: '↑',
-    arrowdown: '↓',
-    enter: '⏎',
-    tab: '⇥',
-  };
-
   const tokens = chord.split('+').filter(Boolean);
   const mods: string[] = [];
   let key = '';
 
   for (const raw of tokens) {
     const t = raw.toLowerCase();
-    if (t === 'mod') mods.push(mac ? '⌘' : 'Ctrl');
-    else if (t === 'alt' || t === 'option') mods.push(mac ? '⌥' : 'Alt');
-    else if (t === 'shift') mods.push(mac ? '⇧' : 'Shift');
-    else key = ARROWS[t] ?? (t.length === 1 ? t.toUpperCase() : raw);
+    const mod = modLabel(t, mac);
+    if (mod) mods.push(mod);
+    else key = keyLabel(t, raw);
   }
 
   // Mac stacks glyphs with no separator (⌥⌘G) — that is the platform's own

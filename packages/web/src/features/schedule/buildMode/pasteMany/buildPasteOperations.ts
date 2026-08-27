@@ -1,6 +1,6 @@
 import type { ProjectResource } from '@/types';
 import { parseDurationInput } from '../EditableCell';
-import { resolveRosterMember } from '../ownerToken';
+import { resolveRosterMember, type RosterMatch } from '../ownerToken';
 import type { PasteColumnMapping, PasteField } from './inferColumns';
 import type { ParsedPasteRow } from './parsePastedText';
 
@@ -50,6 +50,48 @@ export interface DroppedOwner {
   reason: 'unmatched' | 'ambiguous';
 }
 
+interface PasteColumnIndices {
+  /** Column 0 when nothing claimed `name` — a block with no header still has to build. */
+  nameIndex: number;
+  durationIndex: number | null;
+  ownerIndex: number | null;
+}
+
+function columnIndices(columns: PasteColumnMapping[]): PasteColumnIndices {
+  return {
+    nameIndex: columns.find((c) => c.field === 'name')?.index ?? 0,
+    durationIndex: columns.find((c) => c.field === 'duration')?.index ?? null,
+    ownerIndex: columns.find((c) => c.field === 'owner')?.index ?? null,
+  };
+}
+
+/** An unmapped field and a ragged row short of that column read the same: blank. */
+function cellAt(row: ParsedPasteRow, index: number | null): string {
+  return index != null ? (row.cells[index] ?? '') : '';
+}
+
+function resolveRowDuration(row: ParsedPasteRow, durationIndex: number | null): number | null {
+  const raw = cellAt(row, durationIndex);
+  return raw.trim() ? parseDurationInput(raw) : null;
+}
+
+function resolveRowOwner(ownerRaw: string, pool: ProjectResource[]): RosterMatch | null {
+  return ownerRaw.trim() ? resolveRosterMember(ownerRaw, pool) : null;
+}
+
+function buildRowData(
+  name: string,
+  parentId: string | null,
+  duration: number | null,
+  owner: RosterMatch | null,
+): Record<string, unknown> {
+  const data: Record<string, unknown> = { name };
+  if (parentId) data.parent_id = parentId;
+  if (duration !== null) data.duration = duration;
+  if (owner?.member) data.owners = [{ resource: owner.member.resourceId, units: 1 }];
+  return data;
+}
+
 /**
  * Turn parsed rows + a column mapping into an ordered `tasks/bulk` create batch.
  *
@@ -70,9 +112,7 @@ export function buildPasteOperations(
   hasHeaderRow: boolean,
   mintId: () => string = () => crypto.randomUUID(),
 ): BuiltPasteBatch {
-  const nameIndex = columns.find((c) => c.field === 'name')?.index ?? 0;
-  const durationIndex = columns.find((c) => c.field === 'duration')?.index ?? null;
-  const ownerIndex = columns.find((c) => c.field === 'owner')?.index ?? null;
+  const { nameIndex, durationIndex, ownerIndex } = columnIndices(columns);
   // The header row named the columns, it did not describe a task — it must never
   // reach the batch as a row of its own (`inferColumns` already excluded it from
   // its own shape-sampling; this is the corresponding exclusion for row building).
@@ -99,27 +139,21 @@ export function buildPasteOperations(
     stack.length = row.depth + 2;
     depthsUsed.add(row.depth);
 
-    const durationRaw = durationIndex != null ? (row.cells[durationIndex] ?? '') : '';
-    const duration = durationRaw.trim() ? parseDurationInput(durationRaw) : null;
+    const duration = resolveRowDuration(row, durationIndex);
     if (duration === null) needsDurationIds.add(id);
 
-    const ownerRaw = ownerIndex != null ? (row.cells[ownerIndex] ?? '') : '';
+    const ownerRaw = cellAt(row, ownerIndex);
     // An owner the roster cannot resolve is still dropped from the payload — the
     // server rejects an off-roster id and binding the wrong person is worse than
     // binding none (ADR-0774 §3). What changes here is that the drop is now
     // *recorded* rather than silent: `matchRosterMember` collapsed "nobody" and
     // "several people" to the same null, so neither reached the receipt (#2905).
-    const owner = ownerRaw.trim() ? resolveRosterMember(ownerRaw, resourcePool) : null;
+    const owner = resolveRowOwner(ownerRaw, resourcePool);
     if (owner && owner.status !== 'matched') {
       droppedOwners.push({ id, value: ownerRaw.trim(), reason: owner.status });
     }
 
-    const data: Record<string, unknown> = { name };
-    if (parentId) data.parent_id = parentId;
-    if (duration !== null) data.duration = duration;
-    if (owner?.member) data.owners = [{ resource: owner.member.resourceId, units: 1 }];
-
-    operations.push({ op: 'create', id, data });
+    operations.push({ op: 'create', id, data: buildRowData(name, parentId, duration, owner) });
     createdIds.push(id);
   }
 

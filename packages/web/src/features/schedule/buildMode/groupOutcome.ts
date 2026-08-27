@@ -61,6 +61,61 @@ export interface GroupingOutcome {
   warning: string | null;
 }
 
+/** `n <singular>` / `n <plural>` — every clause below is counted and agrees with its count. */
+function pluralClause(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+interface LeftAloneTally {
+  ancestor: number;
+  differentParent: number;
+  /** Reason token to count, for tokens this client does not recognize (rule 301(c)). */
+  unknown: Map<string, number>;
+}
+
+function tallyReasons(entries: readonly LeftAloneEntry[]): LeftAloneTally {
+  const tally: LeftAloneTally = { ancestor: 0, differentParent: 0, unknown: new Map() };
+  for (const entry of entries) {
+    if (entry.reason === 'ancestor_selected') tally.ancestor += 1;
+    else if (entry.reason === 'different_parent') tally.differentParent += 1;
+    else tally.unknown.set(entry.reason, (tally.unknown.get(entry.reason) ?? 0) + 1);
+  }
+  return tally;
+}
+
+/** Known reasons first, in a fixed order; unknown ones after, in first-seen order. */
+function reasonClauses(tally: LeftAloneTally): string[] {
+  const clauses: string[] = [];
+  if (tally.ancestor > 0) {
+    clauses.push(
+      pluralClause(
+        tally.ancestor,
+        'already sits inside another row you selected',
+        'already sit inside another row you selected',
+      ),
+    );
+  }
+  if (tally.differentParent > 0) {
+    clauses.push(
+      pluralClause(
+        tally.differentParent,
+        'sits under a different parent',
+        'sit under a different parent',
+      ),
+    );
+  }
+  for (const [reason, count] of tally.unknown) {
+    clauses.push(
+      pluralClause(
+        count,
+        `was held back — ${humanize(reason)}`,
+        `were held back — ${humanize(reason)}`,
+      ),
+    );
+  }
+  return clauses;
+}
+
 /**
  * Why a row was left where it was.
  *
@@ -72,36 +127,12 @@ export interface GroupingOutcome {
 export function describeLeftAlone(entries: readonly LeftAloneEntry[]): string | null {
   if (entries.length === 0) return null;
 
-  let ancestor = 0;
-  let differentParent = 0;
-  const unknown = new Map<string, number>();
-  for (const entry of entries) {
-    if (entry.reason === 'ancestor_selected') ancestor += 1;
-    else if (entry.reason === 'different_parent') differentParent += 1;
-    else unknown.set(entry.reason, (unknown.get(entry.reason) ?? 0) + 1);
-  }
-
-  const clauses: string[] = [];
-  if (ancestor > 0) {
-    clauses.push(
-      ancestor === 1
-        ? '1 already sits inside another row you selected'
-        : `${ancestor} already sit inside another row you selected`,
-    );
-  }
-  if (differentParent > 0) {
-    clauses.push(
-      differentParent === 1
-        ? '1 sits under a different parent'
-        : `${differentParent} sit under a different parent`,
-    );
-  }
-  for (const [reason, count] of unknown) {
-    clauses.push(`${count} ${count === 1 ? 'was' : 'were'} held back — ${humanize(reason)}`);
-  }
-
-  const total = entries.length;
-  const stayed = total === 1 ? '1 row stayed where it was' : `${total} rows stayed where they were`;
+  const clauses = reasonClauses(tallyReasons(entries));
+  const stayed = pluralClause(
+    entries.length,
+    'row stayed where it was',
+    'rows stayed where they were',
+  );
   return `${stayed}: ${joinClauses(clauses)}.`;
 }
 
