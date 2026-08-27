@@ -33,6 +33,7 @@ import { useRowHeight, useRowMetrics, useComfortableRows } from '@/hooks/useRowH
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useProjectResourcePool } from '@/hooks/useProjectResourcePool';
+import { restoreRefusalMessage } from '@/hooks/restoreRefusal';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { useWbsStore } from '@/stores/wbsStore';
 import { useDragCpm } from '@/hooks/useDragCpm';
@@ -189,7 +190,6 @@ import {
   useOutdentTask,
   useUpdateTask,
   useDeleteTask,
-  restoreRefusalMessage,
   useRestoreTask,
   useCreateTask,
   useReorderTasks,

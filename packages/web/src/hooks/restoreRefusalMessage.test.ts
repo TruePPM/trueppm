@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { restoreRefusalMessage } from './useTaskMutations';
+import { restoreRefusalMessage } from './restoreRefusal';
 
 /** Shaped so the real `axios.isAxiosError` recognizes it (it checks `isAxiosError`). */
 function axiosError(status: number, data: unknown): unknown {

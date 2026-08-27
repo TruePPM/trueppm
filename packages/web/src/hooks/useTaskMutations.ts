@@ -1,4 +1,3 @@
-import axios from 'axios';
 import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
@@ -863,21 +862,6 @@ export function useTrashedTasks(projectId: string | null, enabled = true) {
  * the old create-a-new-row Undo. Returns the restored task. A double-restore of an
  * already-live id 404s; the caller treats that as a benign no-op.
  */
-/**
- * The sentence to show when a restore is refused, or `null` for anything else.
- *
- * `POST /tasks/:id/restore/` answers **409** when the task's WBS position was given to
- * another live task while it sat in the trash (#3071). Retrying can never clear that —
- * the occupant has to move first — so the generic "try again" copy is actively wrong
- * here, and the server's `detail` already names the occupying task.
- */
-export function restoreRefusalMessage(error: unknown): string | null {
-  if (!axios.isAxiosError(error) || error.response?.status !== 409) return null;
-  const data = error.response.data as { detail?: unknown; code?: unknown } | undefined;
-  if (data?.code !== 'wbs_path_occupied') return null;
-  return typeof data.detail === 'string' ? data.detail : null;
-}
-
 export function useRestoreTask(projectId: string | null) {
   const queryClient = useQueryClient();
 

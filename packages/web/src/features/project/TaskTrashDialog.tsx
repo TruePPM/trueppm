@@ -4,12 +4,8 @@ import { CloseIcon, InboxIcon } from '@/components/Icons';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { toast } from '@/components/Toast';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
-import {
-  restoreRefusalMessage,
-  useRestoreTask,
-  useTrashedTasks,
-  type TrashedTask,
-} from '@/hooks/useTaskMutations';
+import { useRestoreTask, useTrashedTasks, type TrashedTask } from '@/hooks/useTaskMutations';
+import { restoreRefusalMessage } from '@/hooks/restoreRefusal';
 
 interface TaskTrashDialogProps {
   projectId: string;
