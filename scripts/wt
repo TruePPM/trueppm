@@ -20,6 +20,13 @@
 #                                         worktree yet (you picked it up but haven't
 #                                         started). Same lock as `new`.
 #   scripts/wt release <issue>            Release an issue check-out (clear the label).
+#   scripts/wt stash [push] [msg]         Stash this worktree's changes PRIVATELY.
+#                                         `git stash` is NOT worktree-scoped: it uses
+#                                         refs/stash in the shared git common dir, so
+#                                         a pop in one worktree takes whatever another
+#                                         pushed last — and drops it. Use this instead.
+#   scripts/wt stash pop|apply|list|drop|show
+#                                         Operate on THIS worktree's entries only.
 #   scripts/wt list                       List active worktrees and WIP count.
 #   scripts/wt remove <issue|name>        Remove a worktree by issue # or name; if the
 #                                         issue is closed, clears its status::wip
@@ -43,6 +50,10 @@
 #      worktree younger than it unless --force.
 #   3. Each worktree gets its OWN Postgres test DB (TRUEPPM_TEST_DB in .envrc), so
 #      parallel `pytest` runs never collide — no external mutex required.
+#   4. `wt stash` keeps stashes under refs/wt-stash/<worktree>, because git's own
+#      refs/stash is shared across worktrees and a pop from the wrong one both
+#      applies AND drops another session's work (#3110). `wt doctor` warns when
+#      refs/stash is non-empty while several worktrees are active.
 #
 # Issue check-out lock: because all agents share one GitLab identity, an assignee
 # or a claim-comment does not stop a parallel agent from grabbing the same issue.
@@ -105,6 +116,11 @@ WT_LEDGER_LOCK="${GIT_COMMON_DIR_ABS}/trueppm-wt-reservations.lock"
 # A crashed reservation leaves the mkdir-lock behind; break it once it's older
 # than this (seconds) so the ledger can never wedge permanently.
 WT_LEDGER_LOCK_STALE_SEC="${TRUEPPM_WT_LOCK_STALE_SEC:-30}"
+# Ref namespace for `wt stash`. `git stash` writes refs/stash, which lives in the
+# git COMMON dir and is therefore shared by every worktree — two worktrees see one
+# stack, and a `pop` in one takes whatever the other pushed most recently (#3110).
+# Entries here are keyed by worktree so they cannot be reached from anywhere else.
+WT_STASH_NS="refs/wt-stash"
 
 # ---------------------------------------------------------------------------
 # Output helpers
@@ -193,6 +209,48 @@ find_worktree() {
     | awk '/^worktree /{print $2}' \
     | { grep -v "^${REPO_ROOT}$" | grep -E "/${needle}(-|$)" || true; } \
     | head -n1
+}
+
+# ---------------------------------------------------------------------------
+# Worktree-private stash
+# ---------------------------------------------------------------------------
+#
+# `git stash` is not worktree-scoped. It stores to `refs/stash`, which lives in
+# the git COMMON dir, so every worktree of a repo shares ONE stack: worktree A
+# pushes, worktree B pushes, and A's `pop` now applies B's work into A's tree.
+# When that pop applies cleanly git also DROPS the entry, so B's uncommitted work
+# is gone from the stash and mixed into an unrelated tree, with nothing in either
+# session's output naming what happened. There is no pre-stash hook, so this
+# cannot be caught where it occurs — it has to be replaced (#3110).
+#
+# The primitive that makes a private stash possible is `git stash create`: it
+# builds the same stash commit `push` would, but writes NO ref. We store that
+# commit under `refs/wt-stash/<slug>` ourselves. `git stash apply` accepts any
+# stash-shaped commit, so restoring needs nothing special. `refs/stash` is never
+# read or written by any of this.
+
+# A stable, filesystem-derived key for the current worktree. The path is what
+# distinguishes worktrees (two can sit on the same branch, and a branch can be
+# renamed under a live worktree), so key on its basename plus a short hash of the
+# full path — readable in `git for-each-ref` output, still unique.
+wt_stash_slug() {
+  local base hash
+  base="$(basename "$CURRENT_TOPLEVEL" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-40)"
+  hash="$(printf '%s' "$CURRENT_TOPLEVEL" | git hash-object --stdin | cut -c1-8)"
+  printf '%s-%s' "${base:-worktree}" "$hash"
+}
+
+wt_stash_ref() { printf '%s/%s' "$WT_STASH_NS" "$(wt_stash_slug)"; }
+
+# Every entry for THIS worktree, newest first. Entries are a chain: each new one
+# records the previous as its second parent, exactly as refs/stash does, so the
+# reflog of our ref is the stack.
+wt_stash_entries() {
+  git -C "$CURRENT_TOPLEVEL" reflog show "$(wt_stash_ref)" --format='%gd %gs' 2>/dev/null || true
+}
+
+wt_stash_has_entries() {
+  [[ -n "$(git -C "$CURRENT_TOPLEVEL" rev-parse --verify --quiet "$(wt_stash_ref)" 2>/dev/null || true)" ]]
 }
 
 # ---------------------------------------------------------------------------
@@ -858,6 +916,32 @@ cmd_doctor() {
     warn "  docker not installed; can't verify stack"
   fi
 
+  # Shared-stash warning (#3110). `git stash` writes refs/stash in the git COMMON
+  # dir, so with several worktrees active an entry here may belong to a session
+  # that is still using it — and a `git stash pop` from the wrong worktree applies
+  # it, then drops it. Name the branch each entry was made on so the owner is
+  # identifiable before anyone reaches for pop.
+  say ""
+  local stash_count
+  stash_count="$(git -C "$REPO_ROOT" stash list 2>/dev/null | wc -l | tr -d ' ')"
+  if [[ "${stash_count:-0}" -gt 0 ]]; then
+    if [[ "$(wt_count)" -gt 0 ]]; then
+      warn "  refs/stash has ${stash_count} entr$([[ "$stash_count" == 1 ]] && echo y || echo ies) and is SHARED by every worktree:"
+      git -C "$REPO_ROOT" stash list 2>/dev/null | sed 's/^/      /' >&2
+      warn "  a 'git stash pop' from any worktree takes the newest of these, whoever made it."
+      warn "  use 'scripts/wt stash' instead — it is per-worktree and cannot be reached from elsewhere."
+    else
+      dim "  refs/stash has ${stash_count} entry/entries (only the main checkout is active)"
+    fi
+  else
+    ok "  refs/stash is empty"
+  fi
+  local own_ref
+  own_ref="$(wt_stash_ref)"
+  if wt_stash_has_entries; then
+    ok "  ${own_ref} has $(wt_stash_entries | wc -l | tr -d ' ') private entr$([[ "$(wt_stash_entries | wc -l | tr -d ' ')" == 1 ]] && echo y || echo ies)"
+  fi
+
   say ""
   say "WIP: $(wt_count)/$WT_CAP active worktrees"
 }
@@ -931,6 +1015,93 @@ cmd_reserve() {
   esac
 }
 
+# Worktree-private stash. See the "Worktree-private stash" helper block above for
+# why `git stash` cannot be used here.
+cmd_stash() {
+  local sub="${1:-push}"
+  case "$sub" in push|pop|apply|list|drop|show) shift || true ;; *) sub="push" ;; esac
+
+  local ref slug
+  ref="$(wt_stash_ref)"; slug="$(wt_stash_slug)"
+
+  case "$sub" in
+    push)
+      local msg="${1:-}" commit
+      [[ -n "$msg" ]] || msg="wt-stash on $(git -C "$CURRENT_TOPLEVEL" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '-')"
+      # `create` builds the stash commit and prints its sha WITHOUT writing any
+      # ref — the whole reason a private stash is possible. Empty output means a
+      # clean tree; that is not an error, but it must not be reported as a save.
+      commit="$(git -C "$CURRENT_TOPLEVEL" stash create "$msg" 2>/dev/null || true)"
+      if [[ -z "$commit" ]]; then
+        say "wt: nothing to stash — the worktree is clean"
+        return 0
+      fi
+      # The reflog IS the stack — each push is one entry, newest first, exactly
+      # like refs/stash. `--create-reflog` is required: git only auto-logs refs
+      # under refs/heads, refs/remotes, refs/notes and HEAD unless
+      # core.logAllRefUpdates=always, and a custom namespace is none of those.
+      # Without it the ref still moves but every earlier entry is unreachable, so
+      # `list` comes back empty and `pop` cannot find the previous entry to
+      # restore — the stack silently becomes a single slot.
+      git -C "$CURRENT_TOPLEVEL" update-ref --create-reflog -m "$msg" "$ref" "$commit"
+      # Match `git stash push`: the working tree goes back to HEAD. Untracked
+      # files are left alone, as `git stash create` does not capture them —
+      # said out loud rather than silently differing from what push would do.
+      git -C "$CURRENT_TOPLEVEL" reset --hard -q HEAD
+      ok "stashed to ${ref} — restore with: scripts/wt stash pop"
+      if [[ -n "$(git -C "$CURRENT_TOPLEVEL" ls-files --others --exclude-standard 2>/dev/null | head -n1)" ]]; then
+        warn "untracked files were NOT stashed (git stash create does not capture them)"
+      fi
+      ;;
+
+    pop|apply)
+      wt_stash_has_entries || die "no wt stash entries for this worktree ($slug)"
+      local target="${1:-$ref}"
+      git -C "$CURRENT_TOPLEVEL" stash apply "$target" || die "apply failed — nothing was dropped; resolve, then: scripts/wt stash drop"
+      if [[ "$sub" == "pop" ]]; then
+        # Only reached when apply succeeded (the || die above returns otherwise),
+        # so a conflicted restore never loses the entry.
+        local prev
+        prev="$(git -C "$CURRENT_TOPLEVEL" rev-parse --verify --quiet "${ref}@{1}" 2>/dev/null || true)"
+        if [[ -n "$prev" ]]; then
+          git -C "$CURRENT_TOPLEVEL" update-ref --create-reflog -m "wt-stash pop" "$ref" "$prev"
+        else
+          git -C "$CURRENT_TOPLEVEL" update-ref -d "$ref"
+        fi
+        ok "popped ${ref}"
+      else
+        ok "applied ${ref} (entry kept)"
+      fi
+      ;;
+
+    list)
+      if ! wt_stash_has_entries; then
+        say "no wt stash entries for this worktree ($slug)"
+      else
+        say "wt stash entries for $slug:"
+        wt_stash_entries | sed 's/^/  /'
+      fi
+      ;;
+
+    show)
+      wt_stash_has_entries || die "no wt stash entries for this worktree ($slug)"
+      git -C "$CURRENT_TOPLEVEL" stash show -p "${1:-$ref}"
+      ;;
+
+    drop)
+      wt_stash_has_entries || die "no wt stash entries for this worktree ($slug)"
+      local prev
+      prev="$(git -C "$CURRENT_TOPLEVEL" rev-parse --verify --quiet "${ref}@{1}" 2>/dev/null || true)"
+      if [[ -n "$prev" ]]; then
+        git -C "$CURRENT_TOPLEVEL" update-ref --create-reflog -m "wt-stash drop" "$ref" "$prev"
+      else
+        git -C "$CURRENT_TOPLEVEL" update-ref -d "$ref"
+      fi
+      ok "dropped the newest entry on ${ref}"
+      ;;
+  esac
+}
+
 cmd_help() {
   sed -n '2,/^$/p' "$0" | sed -E 's/^# ?//'
 }
@@ -943,6 +1114,7 @@ case "${1:-help}" in
   new)     shift; cmd_new "$@" ;;
   reserve) shift; cmd_reserve "$@" ;;
   claim)   shift; cmd_claim "$@" ;;
+  stash)   shift; cmd_stash "$@" ;;
   release) shift; cmd_release "$@" ;;
   list|ls) cmd_list ;;
   remove|rm) shift; cmd_remove "$@" ;;
