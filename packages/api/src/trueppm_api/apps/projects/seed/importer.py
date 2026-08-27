@@ -48,9 +48,11 @@ from trueppm_api.apps.access.services import create_program
 from trueppm_api.apps.projects.models import (
     Baseline,
     BaselineTask,
+    BoardColumnConfig,
     Calendar,
     CalendarException,
     Dependency,
+    DorState,
     EstimateStatus,
     Label,
     Program,
@@ -890,6 +892,7 @@ class _SeedImporter:
             project=project, user=self.owner, defaults={"role": Role.OWNER}
         )
         self._grant_project_memberships(project, data)
+        self._create_board_config(project, data)
 
         # Labels (ADR-0400, #1958): the project's curated label catalog. Created
         # here in Pass A so the Pass B ``_link_task_labels`` step can attach each
@@ -1088,6 +1091,12 @@ class _SeedImporter:
             assignee=assignee,
             sprint=sprint,
             sprint_rank=data.get("sprint_rank"),
+            # Declared in the schema with an enum since v1 and read by nothing
+            # (#3093): aurora authored 23 `ready` + 2 `refine` and every one of
+            # them landed on the model default. `task.ac_met` was the only writer,
+            # so the pure-scrum pack's Definition of Ready — the whole point of its
+            # sprint-picker story — was uniformly `idea` on screen.
+            dor=data.get("dor", DorState.IDEA),
             governance_class=data.get("governance_class", "flow"),
             # Couple delivery_mode to the milestone flag (#1773) so seeded
             # milestones satisfy the canonical invariant like every other path.
@@ -1297,6 +1306,49 @@ class _SeedImporter:
         for resource in used.values():
             ensure_project_resource(project, resource)
 
+    def _create_board_config(self, project: Project, data: dict[str, Any]) -> None:
+        """Materialize the project's Kanban board configuration (#3093).
+
+        ``board_columns`` was declared in the schema as a bare list of label
+        strings and read by nothing, so a pack could author "Backlog / To Do /
+        In Progress / In Review / Done" and get the API's hardcoded defaults —
+        no renamed column, no WIP limit, no lane. The old shape could not have
+        worked even if it had been read: ``BoardColumnConfig.columns`` is keyed
+        on the canonical ``status``, and a label list carries none.
+
+        Entries are stored as authored. The board serializer requires all five
+        canonical statuses exactly once and the JSON Schema enforces the same
+        five-value enum, so a seed cannot express a config the board API would
+        reject — but the serializer is the authority at read time, not this.
+        """
+        columns = data.get("board_columns")
+        if not columns:
+            return
+        BoardColumnConfig.objects.update_or_create(
+            project=project,
+            defaults={
+                "columns": [
+                    {
+                        "status": column["status"],
+                        "label": column["label"],
+                        "visible": column.get("visible", True),
+                        "color": column.get("color"),
+                        "wip_limit": column.get("wip_limit"),
+                        "age_threshold_days": column.get("age_threshold_days"),
+                        "lanes": [
+                            {
+                                "key": lane["key"],
+                                "label": lane["label"],
+                                "wip_limit": lane.get("wip_limit"),
+                            }
+                            for lane in column.get("lanes", [])
+                        ],
+                    }
+                    for column in columns
+                ]
+            },
+        )
+
     def _capture_baselines(self, project: Project, data: dict[str, Any]) -> None:
         slug = data["slug"]
         for bl_data in data.get("baselines", []):
@@ -1305,6 +1357,19 @@ class _SeedImporter:
                 name=bl_data["name"],
                 is_active=bl_data.get("is_active", False),
             )
+            # ``captured_at`` has been in the schema and authored by every bundled
+            # pack since v1, and nothing read it (#3093). ``Baseline.created_at`` is
+            # auto_now_add, so each declared baseline recorded the moment somebody
+            # clicked "Load demo data" — collapsing Bayside's 75-day gap between its
+            # contract baseline and its change-order rebaseline onto one afternoon,
+            # which is exactly the interval every planned-vs-actual view reads.
+            # The replay path (``_apply_baseline_capture``) already backdates this
+            # way; the declarative path simply never did.
+            captured = self._date_opt(bl_data.get("captured_at"), slug)
+            if captured is not None:
+                Baseline.objects.filter(pk=baseline.pk).update(
+                    created_at=self._creation_dt(captured)
+                )
             rows = []
             has_dates = True
             for bt in bl_data.get("tasks", []):

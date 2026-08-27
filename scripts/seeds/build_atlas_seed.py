@@ -290,6 +290,43 @@ def members(slug: str) -> list[dict[str, str]]:
     ]
 
 
+# Kanban board configuration (#3093). ``board_columns`` used to be a list of
+# label strings that the importer ignored; it now mirrors BoardColumnConfig,
+# which is keyed on the canonical status a label list cannot carry. Labels stay
+# the team's own vocabulary — the status underneath is what every downstream
+# reader (burndown, WIP, velocity) uses.
+def board_columns(
+    *,
+    labels: dict[str, str] | None = None,
+    wip: dict[str, int] | None = None,
+    lanes: dict[str, list[dict[str, object]]] | None = None,
+) -> list[dict[str, object]]:
+    """Build a full five-status board config, overriding labels/WIP/lanes by status."""
+    defaults = {
+        "BACKLOG": "Backlog",
+        "NOT_STARTED": "To Do",
+        "IN_PROGRESS": "In Progress",
+        "REVIEW": "In Review",
+        "COMPLETE": "Done",
+    }
+    labels = labels or {}
+    wip = wip or {}
+    lanes = lanes or {}
+    out: list[dict[str, object]] = []
+    for status, default_label in defaults.items():
+        column: dict[str, object] = {
+            "status": status,
+            "label": labels.get(status, default_label),
+            "visible": True,
+        }
+        if status in wip:
+            column["wip_limit"] = wip[status]
+        if status in lanes:
+            column["lanes"] = lanes[status]
+        out.append(column)
+    return out
+
+
 PC_LABELS = [
     {"slug": "security", "name": "Security", "color": "rose", "position": 0},
     {"slug": "tech-debt", "name": "Tech debt", "color": "slate", "position": 1},
@@ -579,9 +616,19 @@ def build_platform_core() -> dict:
         "calendar": "standard",
         "members": members("platform-core"),
         "default_view": "BOARD",
-        "agile_features": True,
         "forecast_history": FORECAST_HISTORY["platform-core"],
-        "board_columns": ["Backlog", "To Do", "In Progress", "In Review", "Done"],
+        # WIP 2 on Review is the retro action this pack already records
+        # ("Cap review WIP at 2", sprint 3) — the board now shows the team
+        # acting on their own retrospective rather than just minuting it.
+        "board_columns": board_columns(
+            wip={"IN_PROGRESS": 5, "REVIEW": 2},
+            lanes={
+                "IN_PROGRESS": [
+                    {"key": "building", "label": "Building"},
+                    {"key": "blocked", "label": "Blocked", "wip_limit": 3},
+                ]
+            },
+        ),
         "labels": PC_LABELS,
         "tasks": tasks,
         "dependencies": [
@@ -1174,7 +1221,6 @@ def build_gtm_readiness() -> dict:
         "calendar": "gtm-regional",
         "members": members("gtm-readiness"),
         "default_view": "OVERVIEW",
-        "agile_features": True,
         "forecast_history": FORECAST_HISTORY["gtm-readiness"],
         "labels": GTM_LABELS,
         "tasks": tasks,

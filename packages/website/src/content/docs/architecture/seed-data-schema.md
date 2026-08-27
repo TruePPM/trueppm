@@ -30,6 +30,36 @@ Schema is the contract:
 then runs a referential-integrity pass (no dangling slug or task references)
 that JSON Schema cannot express. Every error is anchored to a JSON path.
 
+### The schema is a two-way contract
+
+`additionalProperties: false` is set on every definition, so an **unknown** key
+is a validation error. The reverse — a key the schema *declares* that no reader
+implements — is the more dangerous direction, because the schema tells an author
+it works. Four keys shipped that way and were only found by audit:
+`task.dor`, `project.board_columns`, `project.agile_features`, and
+`baseline.captured_at`.
+
+`test_declared_keys_are_implemented` now closes that direction: every key
+declared in either schema must be mentioned by `importer.py`, `replay.py`, or
+`forecast_backfill.py`. A key that is genuinely read some other way needs an
+entry in that test's `_EXEMPT` map **with the reason** — an unexplained
+exemption would let the gate be silenced by adding a line, which is the failure
+it exists to prevent.
+
+Two consequences worth knowing when authoring:
+
+- **`baseline.captured_at` is honored.** It sets `Baseline.created_at`, which is
+  otherwise `auto_now_add`. The interval between two baselines is what
+  planned-vs-actual is measured over, so a rebaseline authored 75 days after its
+  contract baseline must land 75 days after it.
+- **`board_columns` mirrors `BoardColumnConfig`**, not a list of labels. Each
+  entry is `{status, label, visible, color?, wip_limit?, age_threshold_days?,
+  lanes?}` and all five canonical statuses must appear exactly once — `status` is
+  what every downstream reader (burndown, WIP, velocity) keys on, and a label
+  list cannot carry it. Omit the key entirely to leave a project on the API's
+  defaults; emitting them would turn "uses the defaults" into "pinned today's
+  defaults", which is a different claim on re-import.
+
 ### Who can see a project: `accounts[].role` vs `projects[].members[]`
 
 A seed carries two different membership levels, and confusing them produces a

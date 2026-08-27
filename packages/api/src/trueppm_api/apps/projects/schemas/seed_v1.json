@@ -111,6 +111,38 @@
         }
       }
     },
+    "boardLane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "label"],
+      "description": "A named lane WITHIN a board column (#2967). Keys are unique project-wide.",
+      "properties": {
+        "key": { "$ref": "#/$defs/slug" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "wip_limit": { "type": ["integer", "null"], "minimum": 1 }
+      }
+    },
+    "boardColumn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "label"],
+      "description": "One Kanban column. Mirrors BoardColumnConfig.columns; the seed cannot express a shape the board API would reject.",
+      "properties": {
+        "status": {
+          "enum": ["BACKLOG", "NOT_STARTED", "IN_PROGRESS", "REVIEW", "COMPLETE"]
+        },
+        "label": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "visible": { "type": "boolean" },
+        "color": { "type": ["string", "null"], "pattern": "^#[0-9A-Fa-f]{6}$" },
+        "wip_limit": { "type": ["integer", "null"], "minimum": 1 },
+        "age_threshold_days": { "type": ["integer", "null"], "minimum": 1 },
+        "lanes": {
+          "type": "array",
+          "maxItems": 6,
+          "items": { "$ref": "#/$defs/boardLane" }
+        }
+      }
+    },
     "calendar": {
       "type": "object",
       "additionalProperties": false,
@@ -280,6 +312,11 @@
       "properties": {
         "name": { "type": "string", "minLength": 1, "maxLength": 255 },
         "is_active": { "type": "boolean" },
+        "captured_at": {
+          "type": "string",
+          "format": "date",
+          "description": "When this baseline was captured. Sets Baseline.created_at, which is otherwise auto_now_add — the interval between two baselines is what planned-vs-actual is measured over."
+        },
         "tasks": {
           "type": "array",
           "items": { "$ref": "#/$defs/baselineTask" }
@@ -346,11 +383,16 @@
           "description": "Per-project memberships. Omit to grant every account its program-level accounts[].role on this project. Final-state data, so it lives in v1 as well as v2.",
           "items": { "$ref": "#/$defs/projectMember" }
         },
-        "agile_features": { "type": "boolean" },
+        "agile_features": {
+          "type": "boolean",
+          "deprecated": true,
+          "description": "Accepted and ignored. The model field was removed in migration 0123 and the value is now derived from the project's own sprints; a document carrying this key still imports so an existing hand-authored seed does not break on upgrade."
+        },
         "board_columns": {
           "type": "array",
-          "description": "Kanban column labels, in order.",
-          "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+          "maxItems": 5,
+          "description": "Kanban board configuration (BoardColumnConfig). All five canonical statuses must appear exactly once. Omit to leave the project on the API's hardcoded defaults.",
+          "items": { "$ref": "#/$defs/boardColumn" }
         },
         "labels": {
           "type": "array",
