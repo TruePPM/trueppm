@@ -892,6 +892,37 @@ def _split_values(raw: str) -> list[str]:
     return [part.strip() for part in re.split(r"[,;/]", raw) if part.strip()]
 
 
+def _wbs_column_holds_codes(data_rows: list[list[Any]], by_field: dict[str, list[int]]) -> bool:
+    """Decide once, for the whole column, whether its cells are outline codes or depths.
+
+    Whether a WBS column holds *codes* (``1``, ``1.1``, ``2``) or *depths*
+    (``0``, ``1``, ``1``) is a property of the column, not of the individual cell — but
+    ``_apply_wbs`` used to decide per row, on whether that one value contained a dot.
+    A real-world WBS column mixes both spellings, because a phase's own code is bare and
+    only its children are dotted. Every dotted row was then read as a code and every
+    phase row as a depth, inside one file (#3082).
+
+    The phase rows are the ones that break. A bare cell taken as a depth leaves
+    ``outline_number`` at the positional fallback ``_build_task`` assigned, so the second
+    phase of a file lands at its row index instead of its code — and since ``wbs_path``
+    is the only record of parenthood, its children are left pointing at a number no live
+    row holds. They render at project root, and the WBS has a hole where the phase was.
+
+    The first phase always looks correct, which is why this went unnoticed: it is row 1
+    and its code is ``1``, so the fallback and the intended code agree by coincidence.
+
+    One dotted cell anywhere settles the file, for the same reason one unambiguous slash
+    date does in :func:`_slash_date_evidence`: a convention that consecutive rows are
+    allowed to disagree about is not a convention. A column with no dotted cell at all is
+    the ``Level``/``Outline`` depth convention ``_apply_wbs`` was written for, and keeps
+    being read that way.
+    """
+    if "wbs" not in by_field:
+        return False
+    wbs_index = _one(by_field, "wbs")
+    return any("." in _cell(row, wbs_index) for row in data_rows)
+
+
 def _build_tasks(
     result: ParseResult,
     data_rows: list[list[Any]],
@@ -902,6 +933,9 @@ def _build_tasks(
     name_index = _one(by_field, "name")
     result.date_order = _resolve_date_convention(result, data_rows, by_field, date_order)
     order = result.date_order.resolved
+    # Settled across every row before any is read, not per cell — see the function's
+    # docstring for why the per-cell call orphaned every phase but the first (#3082).
+    wbs_is_codes = _wbs_column_holds_codes(data_rows, by_field)
     tasks: list[TaskData] = []
 
     for offset, row in enumerate(data_rows):
@@ -923,7 +957,17 @@ def _build_tasks(
             )
             continue
         tasks.append(
-            _build_task(offset, raw_name, row, by_field, result, row_number, order, len(tasks))
+            _build_task(
+                offset,
+                raw_name,
+                row,
+                by_field,
+                result,
+                row_number,
+                order,
+                len(tasks),
+                wbs_is_codes=wbs_is_codes,
+            )
         )
 
     result.project_data.tasks = tasks
@@ -1243,6 +1287,8 @@ def _build_task(
     row_number: int,
     order: str,
     task_count: int,
+    *,
+    wbs_is_codes: bool,
 ) -> TaskData:
     """Build one ``TaskData`` from a named row, applying every mapped column."""
     task = TaskData(uid=offset + 1, name=raw_name.strip()[:255])
@@ -1255,7 +1301,14 @@ def _build_task(
         wbs_index = _one(by_field, "wbs")
         wbs_raw = _cell(row, wbs_index).strip()
         if wbs_raw:
-            _apply_wbs(task, wbs_raw, result, row_number, result.headers[wbs_index])
+            _apply_wbs(
+                task,
+                wbs_raw,
+                result,
+                row_number,
+                result.headers[wbs_index],
+                is_code=wbs_is_codes,
+            )
 
     _apply_duration(task, row, by_field, result, row_number)
     _apply_dates(task, row, by_field, result, row_number, order)
@@ -1278,14 +1331,23 @@ def _apply_wbs(
     result: ParseResult,
     row_number: int,
     column: str,
+    *,
+    is_code: bool,
 ) -> None:
-    """Apply a WBS column value as either a dotted code or a bare depth."""
-    if "." in wbs_raw and all(p.strip().isdigit() for p in wbs_raw.split(".")):
-        # A dotted outline code carries the hierarchy directly; the importer's
-        # _build_wbs_paths prefers this over the level sequence.
+    """Apply one WBS cell under the convention settled for its whole column.
+
+    ``is_code`` comes from :func:`_wbs_column_holds_codes`, which reads every cell in
+    the column before any of them is applied. It is not re-derived here: deciding per
+    cell is the defect this argument exists to remove (#3082), and a bare integer is a
+    perfectly ordinary *code* in a column whose other rows are dotted.
+    """
+    if is_code and all(p.strip().isdigit() for p in wbs_raw.split(".")):
+        # An outline code carries the hierarchy directly; the importer's
+        # _build_wbs_paths prefers this over the level sequence. A bare integer here is
+        # a top-level code (a phase's own number), not a depth.
         task.outline_number = wbs_raw.strip()
         task.outline_level = wbs_raw.count(".")
-    elif wbs_raw.isdigit():
+    elif not is_code and wbs_raw.isdigit():
         # A bare integer in a "Level"/"Outline" column is a depth, not a code.
         # The length gate avoids handing an enormous digit string straight to
         # int(): Python's int-from-str conversion limit would raise before
