@@ -25,10 +25,49 @@ exclusions.
 :::note[This is an offline import, not a live Jira connector]
 Jira import is an **offline, one-way, file-based** migration — the same shape as
 [MS Project import](/features/msproject-import-export/). You export a file from
-Jira and upload it; TruePPM never talks to Jira, never authenticates against it,
-and never writes anything back. It is **not** the bidirectional, org-wide
-Integration Hub (that lives in the enterprise edition), and it does **not** imply
-ongoing Jira ↔ TruePPM synchronization. It is a point-in-time snapshot import.
+Jira and upload it; **this importer** never talks to Jira, never authenticates
+against it, and never writes anything back. It is a point-in-time snapshot
+import, and it is **not** the bidirectional, org-wide Integration Hub (that
+lives in the enterprise edition).
+
+TruePPM does have a **live, read-only Jira connection** — it is a different
+feature with a different job. See
+[Import a file, or connect your account?](#import-a-file-or-connect-your-account)
+below.
+:::
+
+## Import a file, or connect your account?
+
+Two separate Jira features ship in 0.4, and they solve different problems. Pick
+by what you want at the end:
+
+|  | **Jira import** (this page) | **Jira personal pull** |
+|---|---|---|
+| What you get | Tasks in a TruePPM project | Your assigned Jira issues mirrored into [My Work](/features/my-work/) |
+| Enters the schedule? | **Yes** — real tasks with durations and Finish-to-Start dependencies, scheduled by CPM | **No** — a read-only pointer; never enters CPM, sprints, the board, or your load |
+| How it connects | An `.xml` file you upload; no connection to Jira | A live, authenticated connection to your own Jira account |
+| Jira Cloud | **Not supported** — Cloud has no XML export | **Supported**, as well as Data Center / Server |
+| Who sets it up | A **Project Admin**, once per file | **You**, for your own account |
+| How it refreshes | It doesn't. Importing the same issues again **adds a second set of tasks** rather than updating the first — the import-into-existing-project path is additive | **Sync now**, plus an automatic pull when you open My Work and the cached items have gone stale |
+
+Use the **import** to lift a Jira issue set into a schedule you will manage in
+TruePPM. Use the **personal pull** to keep working in Jira while still seeing
+your Jira work beside your TruePPM tasks. They are independent — you can use
+either, both, or neither.
+
+The personal pull is set up under **Settings → Connected Accounts**; see
+[Connected Accounts](/features/connected-accounts/#available-sources) for the
+connect wizard, the JQL and project filters, and what it does and does not
+mirror. It is **read-only, one-way, and never writes back to Jira**, and it is
+per-user — only you see your own items.
+
+:::note[The pull refreshes on demand, not continuously]
+Today the personal pull happens when you ask for one (**Sync now**) or when
+opening My Work finds a stale cache — it is **not** a continuously-polling sync.
+A background poll exists behind it but is **dormant**: it is off for every
+connection and there is no switch in the UI to turn it on yet. An opt-in switch
+that makes the pull genuinely continuous is tracked separately
+([#3104](https://gitlab.com/trueppm/trueppm/-/issues/3104)).
 :::
 
 ## Export your issues from Jira (Server / Data Center)
@@ -45,9 +84,14 @@ computable. (CSV does not include issue links, so it is not accepted.)
 :::caution[Server / Data Center only — Jira Cloud has no XML export]
 This importer targets **Jira Server / Data Center**, which offers **Export →
 XML**. **Jira Cloud removed the XML export**, so there is no Cloud file to
-upload here — Cloud migration is a separate track and is out of scope for this
-offline importer. (Ongoing one-way Jira → TruePPM card sync is a distinct,
-later feature; see the [roadmap](/overview/roadmap/).)
+upload here — a one-time Cloud *migration* into a project is a separate track
+and is out of scope for this offline importer.
+
+On Cloud you are not stuck, though: the
+[Jira personal pull](#import-a-file-or-connect-your-account) **does** support
+Cloud. It mirrors your assigned issues into My Work read-only rather than
+creating schedulable tasks, so it is a different outcome from this importer —
+but it needs no file, and no XML export.
 :::
 
 ## Import the file into a project (Admin only)
