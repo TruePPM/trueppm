@@ -518,6 +518,19 @@ def _project_reference_errors(
     _check_ref(project.get("calendar"), ctx.calendar_slugs, f"{base}.calendar", "calendar", errors)
     own_tasks = ctx.task_index.get(slug, set())
 
+    # members[].account -> accounts[] (#3092). A dangling ref here is silent
+    # otherwise: the importer resolves it to None and skips the grant, so the
+    # persona simply cannot see the project — the exact failure this key exists
+    # to fix, reintroduced by a typo.
+    for k, member in enumerate(project.get("members", [])):
+        _check_ref(
+            member.get("account"),
+            ctx.account_slugs,
+            f"{base}.members[{k}].account",
+            "account",
+            errors,
+        )
+
     sprint_slugs = _collect_slugs(project.get("sprints", []), f"{base}.sprints", errors)
     # Project labels (ADR-0400, #1958): collect the label catalog so each task's
     # label slug refs can be checked against it (dangling label ref).

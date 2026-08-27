@@ -28,7 +28,7 @@ from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from trueppm_api.apps.access.models import ProgramMembership, Role
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
     Baseline,
     BaselineTask,
@@ -435,6 +435,9 @@ class _Exporter:
             block["default_view"] = project.default_view
         if project.estimation_mode and project.estimation_mode != "open":
             block["estimation_mode"] = project.estimation_mode
+        member_blocks = self._member_blocks(project)
+        if member_blocks:
+            block["members"] = member_blocks
 
         # Project-scoped labels (ADR-0400, #1089) folded into the seed (#1958) so a
         # re-seed round-trips board-card labels. Slugs are allocated per project
@@ -461,6 +464,32 @@ class _Exporter:
         if risk_blocks:
             block["risks"] = risk_blocks
         return block
+
+    def _member_blocks(self, project: Project) -> list[dict[str, Any]]:
+        """Emit this project's memberships so project-scoped roles round-trip (#3092).
+
+        Emitted unconditionally rather than only when the roles differ from the
+        program roster. A "same as the program" shortcut would make the export
+        lossy the moment a role was later changed to match by coincidence, and the
+        fixpoint (export -> import -> export) is byte-identical either way because
+        a declared ``members`` list re-imports to exactly itself.
+
+        Only users already carrying an account slug are emitted. ``_user_slug``
+        *allocates* on first call, and allocation order is what keeps the export
+        byte-stable (see ``_collect_account_users``), so minting one here would
+        reorder the roster. Every seeded project member also holds a
+        ``ProgramMembership`` and is therefore already slugged; a member without
+        an account entry could not be re-imported anyway.
+        """
+        rows = ProjectMembership.objects.filter(project=project, is_deleted=False).select_related(
+            "user"
+        )
+        blocks = [
+            {"account": self.user_slugs[m.user_id], "role": _ROLE_NAME[m.role]}
+            for m in rows
+            if m.user_id in self.user_slugs
+        ]
+        return sorted(blocks, key=lambda b: b["account"])
 
     def _label_blocks(self, project: Project) -> list[dict[str, Any]]:
         """Emit the project's labels and index each task's label slugs (#1958).

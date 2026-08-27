@@ -98,6 +98,19 @@
         }
       }
     },
+    "projectMember": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["account", "role"],
+      "description": "One project-level membership. See project.members.",
+      "properties": {
+        "account": { "$ref": "#/$defs/slug" },
+        "role": {
+          "enum": ["VIEWER", "MEMBER", "SCHEDULER", "ADMIN", "OWNER"],
+          "description": "Project membership role granted on import."
+        }
+      }
+    },
     "calendar": {
       "type": "object",
       "additionalProperties": false,
@@ -327,6 +340,12 @@
         "code": { "type": "string", "maxLength": 12 },
         "default_view": { "enum": ["SCHEDULE", "BOARD", "TABLE", "OVERVIEW"] },
         "estimation_mode": { "enum": ["open", "suggest_approve", "pm_only"] },
+        "members": {
+          "type": "array",
+          "maxItems": 2000,
+          "description": "Per-project memberships. Omit to grant every account its program-level accounts[].role on this project. Final-state data, so it lives in v1 as well as v2.",
+          "items": { "$ref": "#/$defs/projectMember" }
+        },
         "agile_features": { "type": "boolean" },
         "board_columns": {
           "type": "array",

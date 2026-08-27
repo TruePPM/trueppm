@@ -30,6 +30,45 @@ Schema is the contract:
 then runs a referential-integrity pass (no dangling slug or task references)
 that JSON Schema cannot express. Every error is anchored to a JSON path.
 
+### Who can see a project: `accounts[].role` vs `projects[].members[]`
+
+A seed carries two different membership levels, and confusing them produces a
+pack whose personas cannot open anything:
+
+- **`accounts[].role`** grants a **program** membership. That reaches the program
+  rail and **no project**.
+- **`projects[].members[]`** grants **project** memberships — `{account, role}` —
+  and project access is scoped by these. This is the one a persona needs in order
+  to see a project at all.
+
+Omit `members` and every account is granted its program-level role on that
+project, so a pack written before the key existed still works. Declare it and it
+**replaces** the fallback for that project: only the accounts listed become
+members. That replacement is the point — it is what lets one person hold
+different roles on different projects, which is the only way a seed can
+demonstrate project-scoped RBAC:
+
+```json
+{
+  "slug": "platform-core",
+  "members": [
+    { "account": "priya", "role": "ADMIN" },
+    { "account": "jordan", "role": "MEMBER" }
+  ]
+}
+```
+
+In `atlas-platform-launch.json`, `priya` is `ADMIN` on Platform Core, `MEMBER` on
+Migration Tooling, and absent from GTM Readiness.
+
+Two rules the importer enforces regardless of what a seed says. The importing
+user is always granted `OWNER` and can never be demoted by a `members` entry
+naming them. And an account that resolved to `None` — a pre-existing real user on
+an untrusted import — is skipped, so a crafted seed cannot pull a stranger into a
+program. A `members` entry naming no `accounts[]` slug is a validation error
+rather than a silent skip, because the silent version reproduces exactly the
+blindness the key exists to fix.
+
 ## Worked examples: the bundled fixtures
 
 The prose below explains the format's shape. The four bundled fixtures *are* the

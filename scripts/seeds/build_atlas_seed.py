@@ -231,6 +231,65 @@ def three_point(most_likely: int, risk: float = 1.0) -> dict:
 # Categorical label palette (ADR-0400): color is a stable enum key, never hex.
 # The agile stream tags work by cross-cutting theme so the board's label filter
 # has something real to slice on.
+# Per-project rosters (#3092). Project access is scoped by ProjectMembership;
+# a ProgramMembership reaches the program rail and no project. Declaring
+# ``members`` on a project *replaces* the program-role fallback for it, which is
+# what lets one person hold different roles on different projects — the only way
+# a sample can demonstrate project-scoped RBAC.
+#
+# The rule this matrix follows: every account the project's own content names —
+# task assignee, risk owner, event actor — is a member of it, and nobody else is.
+# ``test_project_memberships`` additionally requires every account to reach at
+# least one project, so a person dropped from every list is a failing test rather
+# than a persona who silently cannot sign in anywhere.
+PROJECT_MEMBERS: dict[str, list[tuple[str, str]]] = {
+    "platform-core": [
+        ("alex", "OWNER"),
+        ("priya", "ADMIN"),
+        ("sam", "SCHEDULER"),
+        ("jordan", "MEMBER"),
+        ("mei", "MEMBER"),
+        ("diego", "MEMBER"),
+        ("nadia", "MEMBER"),
+        ("tom", "MEMBER"),
+        ("yuki", "MEMBER"),
+        ("omar", "MEMBER"),
+        ("lena", "MEMBER"),
+        ("ivan", "VIEWER"),
+        ("ada", "VIEWER"),
+    ],
+    # raj is the DevOps engineer and works only this stream, at SCHEDULER — the
+    # clearest "same person, different authority" contrast with priya below.
+    "migration-tooling": [
+        ("alex", "OWNER"),
+        ("sam", "SCHEDULER"),
+        ("raj", "SCHEDULER"),
+        ("priya", "MEMBER"),
+        ("omar", "MEMBER"),
+        ("yuki", "MEMBER"),
+        ("tom", "MEMBER"),
+        ("ivan", "VIEWER"),
+        ("ada", "VIEWER"),
+    ],
+    # jordan owns GTM outright while holding only MEMBER on platform-core.
+    "gtm-readiness": [
+        ("alex", "OWNER"),
+        ("jordan", "OWNER"),
+        ("sam", "SCHEDULER"),
+        ("clara", "MEMBER"),
+        ("lena", "MEMBER"),
+        ("ada", "VIEWER"),
+    ],
+}
+
+
+def members(slug: str) -> list[dict[str, str]]:
+    """Render one project's roster as seed ``members`` entries."""
+    return [
+        {"account": account, "role": role} for account, role in PROJECT_MEMBERS[slug]
+    ]
+
+
 PC_LABELS = [
     {"slug": "security", "name": "Security", "color": "rose", "position": 0},
     {"slug": "tech-debt", "name": "Tech debt", "color": "slate", "position": 1},
@@ -518,6 +577,7 @@ def build_platform_core() -> dict:
         "methodology": "AGILE",
         "start_date": d(0),
         "calendar": "standard",
+        "members": members("platform-core"),
         "default_view": "BOARD",
         "agile_features": True,
         "forecast_history": FORECAST_HISTORY["platform-core"],
@@ -825,6 +885,7 @@ def build_migration_tooling() -> dict:
         "methodology": "WATERFALL",
         "start_date": d(0),
         "calendar": "standard",
+        "members": members("migration-tooling"),
         "default_view": "SCHEDULE",
         "forecast_history": FORECAST_HISTORY["migration-tooling"],
         "labels": MT_LABELS,
@@ -1111,6 +1172,7 @@ def build_gtm_readiness() -> dict:
         "methodology": "HYBRID",
         "start_date": d(40),
         "calendar": "gtm-regional",
+        "members": members("gtm-readiness"),
         "default_view": "OVERVIEW",
         "agile_features": True,
         "forecast_history": FORECAST_HISTORY["gtm-readiness"],
