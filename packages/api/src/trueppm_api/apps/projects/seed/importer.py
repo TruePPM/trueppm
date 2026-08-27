@@ -885,6 +885,9 @@ class _SeedImporter:
             code=data.get("code", ""),
             default_view=data.get("default_view", "SCHEDULE"),
             estimation_mode=data.get("estimation_mode", "open"),
+            # PM health override (#520). Seeds may pin a project off AUTO so the
+            # program overview shows a mix of computed and hand-set chips.
+            health=data.get("health", "AUTO"),
             # is_sample is owned by the importer so the idempotency guard in
             # _replace_existing can distinguish disposable demo data from real
             # work on a later reload (#994).

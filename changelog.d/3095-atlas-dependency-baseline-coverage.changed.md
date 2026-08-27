@@ -1,0 +1,3 @@
+The Atlas Platform Launch sample now exercises the full scheduling model on its own: finish-to-finish and start-to-finish dependency edges and a lead (negative lag) alongside the existing finish-to-start and start-to-start ones, a company-shutdown calendar exception sized to actually move the program finish rather than be absorbed by float, a second baseline on Migration Tooling recording the post-dry-run re-plan (the kickoff capture is retained but no longer active), a launch-planning baseline on GTM Readiness, which previously had none, and a manual `AT_RISK` health override on the one project whose plan slipped.
+
+Seed documents can now declare `project.health`. Omitting it leaves the project on `AUTO`, where the chip is computed rather than asserted.

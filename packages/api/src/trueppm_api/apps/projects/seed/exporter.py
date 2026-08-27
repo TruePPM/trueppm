@@ -441,6 +441,8 @@ class _Exporter:
             block["default_view"] = project.default_view
         if project.estimation_mode and project.estimation_mode != "open":
             block["estimation_mode"] = project.estimation_mode
+        if project.health and project.health != "AUTO":
+            block["health"] = project.health
         board_columns = self._board_column_blocks(project)
         if board_columns:
             block["board_columns"] = board_columns
