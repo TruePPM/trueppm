@@ -41,6 +41,55 @@ export function looksLikeHeaderRow(cells: string[]): boolean {
 }
 
 /**
+ * Claim a column for the first unclaimed field its header names. Mutates `fields`,
+ * `confidences` and `claimed` in place, since the two fallbacks below read what this
+ * left behind. Left to right across every column, and every field is claimable at
+ * most once — a second "Days" column stays unmapped rather than stealing the first.
+ */
+function applyHeaderMatches(
+  header: string[],
+  columnCount: number,
+  claimed: Set<PasteField>,
+  fields: (PasteField | null)[],
+  confidences: PasteColumnConfidence[],
+): void {
+  for (let index = 0; index < columnCount; index++) {
+    const headerText = header[index];
+    if (!headerText) continue;
+    for (const candidate of Object.keys(KEYWORDS) as PasteField[]) {
+      if (claimed.has(candidate)) continue;
+      const m = matchKeyword(headerText, KEYWORDS[candidate]);
+      if (m !== 'none') {
+        fields[index] = candidate;
+        confidences[index] = m;
+        claimed.add(candidate);
+        break;
+      }
+    }
+  }
+}
+
+/**
+ * The leftmost unclaimed column whose sample values mostly parse as durations, or
+ * null. Sampled rather than exhaustive (20 rows) and thresholded at 70%, so a stray
+ * "TBD" in an otherwise numeric column does not cost the whole mapping.
+ */
+function findDurationColumnByShape(
+  dataRows: ParsedPasteRow[],
+  columnCount: number,
+  fields: (PasteField | null)[],
+): number | null {
+  for (let index = 0; index < columnCount; index++) {
+    if (fields[index] !== null) continue;
+    const sample = dataRows.slice(0, 20).map((row) => row.cells[index] ?? '');
+    const nonBlank = sample.filter((v) => v.trim().length > 0);
+    const parseable = nonBlank.filter((v) => parseDurationInput(v) !== null);
+    if (nonBlank.length > 0 && parseable.length / nonBlank.length >= 0.7) return index;
+  }
+  return null;
+}
+
+/**
  * Guess which column is name / duration / owner. Pure — like
  * `authoringTokens.ts`'s lexer, guessing never touches the roster; only the
  * owner *value* resolution downstream in `buildPasteOperations` does that.
@@ -65,20 +114,7 @@ export function inferColumns(rows: ParsedPasteRow[], hasHeaderRow: boolean): Pas
   // completion BEFORE any fallback: a header match on column 2 must win over
   // column 0's "first column is the name" convention, which only applies once
   // every header has had its chance.
-  for (let index = 0; index < columnCount; index++) {
-    const headerText = header[index];
-    if (!headerText) continue;
-    for (const candidate of Object.keys(KEYWORDS) as PasteField[]) {
-      if (claimed.has(candidate)) continue;
-      const m = matchKeyword(headerText, KEYWORDS[candidate]);
-      if (m !== 'none') {
-        fields[index] = candidate;
-        confidences[index] = m;
-        claimed.add(candidate);
-        break;
-      }
-    }
-  }
+  applyHeaderMatches(header, columnCount, claimed, fields, confidences);
 
   // Pass 2 — shape fallbacks, only for what no header claimed.
   if (!claimed.has('name') && columnCount > 0 && fields[0] === null) {
@@ -87,16 +123,12 @@ export function inferColumns(rows: ParsedPasteRow[], hasHeaderRow: boolean): Pas
     claimed.add('name');
   }
   if (!claimed.has('duration')) {
-    for (let index = 0; index < columnCount; index++) {
-      if (fields[index] !== null) continue;
-      const sample = dataRows.slice(0, 20).map((row) => row.cells[index] ?? '');
-      const nonBlank = sample.filter((v) => v.trim().length > 0);
-      const parseable = nonBlank.filter((v) => parseDurationInput(v) !== null);
-      if (nonBlank.length > 0 && parseable.length / nonBlank.length >= 0.7) {
-        fields[index] = 'duration';
-        confidences[index] = 'fuzzy';
-        break;
-      }
+    // After the name fallback, so a first column it just claimed is no longer a
+    // candidate for duration.
+    const index = findDurationColumnByShape(dataRows, columnCount, fields);
+    if (index !== null) {
+      fields[index] = 'duration';
+      confidences[index] = 'fuzzy';
     }
   }
 

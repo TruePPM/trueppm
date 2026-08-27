@@ -188,6 +188,54 @@ function resolveRowSprints(tasks: Task[]): Map<string, string | null> {
 }
 
 /**
+ * The sprints a band can be drawn for, indexed by id.
+ *
+ * A sprint missing either end of its window has no window to claim rows inside
+ * of, and a cancelled one draws nothing (see {@link drawsABand}).
+ */
+function usableSprintWindows(
+  sprints: readonly SprintWindowSource[],
+): Map<string, SprintWindowSource> {
+  const windows = new Map<string, SprintWindowSource>();
+  for (const sprint of sprints) {
+    if (!sprint.start_date || !sprint.finish_date) continue;
+    if (!drawsABand(sprint.state)) continue;
+    windows.set(sprint.id, sprint);
+  }
+  return windows;
+}
+
+/** One band: the run of rows, and the window they sit inside. */
+function makeBand(window: SprintWindowSource, firstRow: number, lastRow: number): SprintBand {
+  return {
+    sprintId: window.id,
+    name: window.name,
+    startDate: window.start_date,
+    finishDate: window.finish_date,
+    firstRow,
+    lastRow,
+  };
+}
+
+/**
+ * The band-drawing sprint a row belongs to, or `null`.
+ *
+ * An unknown sprint id (cancelled, or a sprint past `useSprints`' first page)
+ * resolves to `null` so it breaks the run rather than extending it — the row is
+ * genuinely not covered by a band, and merging across it would span rows in no
+ * window.
+ */
+function bandedSprintId(
+  task: Task | undefined,
+  rowSprint: ReadonlyMap<string, string | null>,
+  windows: ReadonlyMap<string, SprintWindowSource>,
+): string | null {
+  const raw = task ? (rowSprint.get(task.id) ?? null) : null;
+  if (raw === null || !windows.has(raw)) return null;
+  return raw;
+}
+
+/**
  * Group the outline into the sprint-window bands the canvas should draw.
  *
  * Bands are **maximal contiguous runs** of rows resolving to the same sprint, so
@@ -208,12 +256,7 @@ export function computeSprintBands(
 ): SprintBand[] {
   if (!tasks.length || !sprints.length) return [];
 
-  const windows = new Map<string, SprintWindowSource>();
-  for (const sprint of sprints) {
-    if (!sprint.start_date || !sprint.finish_date) continue;
-    if (!drawsABand(sprint.state)) continue;
-    windows.set(sprint.id, sprint);
-  }
+  const windows = usableSprintWindows(sprints);
   if (!windows.size) return [];
 
   const rowSprint = resolveRowSprints(tasks);
@@ -225,26 +268,12 @@ export function computeSprintBands(
   const closeRun = (endRow: number): void => {
     if (runSprintId === null) return;
     const window = windows.get(runSprintId);
-    if (window) {
-      bands.push({
-        sprintId: window.id,
-        name: window.name,
-        startDate: window.start_date,
-        finishDate: window.finish_date,
-        firstRow: runStart,
-        lastRow: endRow,
-      });
-    }
+    if (window) bands.push(makeBand(window, runStart, endRow));
     runSprintId = null;
   };
 
   for (let i = 0; i < tasks.length; i++) {
-    const task = tasks[i];
-    // An unknown sprint id (cancelled, or a sprint past `useSprints`' first
-    // page) breaks the run rather than extending it — the row is genuinely not
-    // covered by a band, and merging across it would span rows in no window.
-    const raw = task ? (rowSprint.get(task.id) ?? null) : null;
-    const id = raw !== null && windows.has(raw) ? raw : null;
+    const id = bandedSprintId(tasks[i], rowSprint, windows);
     if (id === runSprintId) continue;
     closeRun(i - 1);
     if (id !== null) {

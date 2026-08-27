@@ -386,7 +386,7 @@ export function ResourceView({
   if (!roleLoading && roleError) {
     return (
       <div className="flex flex-col h-full overflow-hidden">
-        <RoleReadFailedNotice onRetry={() => void refetchRole?.()} />
+        <RoleReadFailedNotice onRetry={() => refetchRole?.()} />
       </div>
     );
   }

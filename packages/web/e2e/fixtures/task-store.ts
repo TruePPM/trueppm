@@ -67,10 +67,87 @@ function wbsOf(row: TaskRow): string {
 /** `/api/v1/tasks/<id>/` and nothing deeper — a nested path is not this store's. */
 const DETAIL_PATH = /\/api\/v1\/tasks\/([^/]+)\/$/;
 
-export async function setupTaskStore(
-  page: Page,
-  opts: TaskStoreOptions,
-): Promise<TaskStoreHandle> {
+/**
+ * The classification cascade's PATCH body, as the popover sends it.
+ *
+ * A `type` and not an `interface` on purpose: only a type alias gets an implicit
+ * index signature, which is what lets the parsed body go straight into the
+ * `Record<string, unknown>[]` the handle exposes as `classifications`.
+ */
+type ClassificationRequest = {
+  subtree?: string;
+  cascade?: boolean;
+  governance_class?: string | null;
+  delivery_mode?: string | null;
+  preserve_governance_overrides?: boolean;
+  skip_milestones?: boolean;
+};
+
+/** What one row's classification pass wrote — the caller sums these into its report. */
+interface ClassifyOutcome {
+  /** Axes the milestone gate held back; a non-empty list puts the row in `skipped`. */
+  withheld: string[];
+  govApplied: number;
+  govKept: number;
+  deliveryApplied: number;
+}
+
+/**
+ * The ids a cascade covers: `rootId` plus every descendant of it within `rows`.
+ *
+ * Repeats to depth because a child can appear before its parent in the array, so a
+ * single pass would miss a grandchild whose parent is only added later in that pass.
+ * Passing an empty `rows` yields the seed alone, which is the non-cascading request.
+ */
+function expandSubtree(rows: TaskRow[], rootId: string | undefined): Set<string> {
+  const ids = new Set<string>(rootId ? [rootId] : []);
+  for (let pass = 0; pass < rows.length; pass++) {
+    for (const row of rows) {
+      const parent = row.parent_id as string | null | undefined;
+      if (parent && ids.has(parent)) ids.add(row.id as string);
+    }
+  }
+  return ids;
+}
+
+/**
+ * One row's half of the classification cascade — the mirror of the server's
+ * `task_classification._classify_row`. Mutates `row` in place the way the endpoint
+ * does and reports what it wrote, so the caller can sum the counters for its report.
+ */
+function classifyRow(row: TaskRow, body: ClassificationRequest, isRoot: boolean): ClassifyOutcome {
+  const isMilestone = Boolean(row.is_milestone);
+  const withheld: string[] = [];
+  let govApplied = 0;
+  let govKept = 0;
+  let deliveryApplied = 0;
+
+  if (body.governance_class != null) {
+    const inherited = (row.parent_governance_inherited as boolean | undefined) ?? true;
+    if (isMilestone && body.skip_milestones !== false) {
+      withheld.push('governance_class');
+    } else if (!isRoot && body.preserve_governance_overrides !== false && !inherited) {
+      govKept += 1;
+    } else {
+      row.governance_class = body.governance_class;
+      row.parent_governance_inherited = !isRoot;
+      govApplied += 1;
+    }
+  }
+
+  if (body.delivery_mode != null) {
+    if (isMilestone) {
+      withheld.push('delivery_mode');
+    } else {
+      row.delivery_mode = body.delivery_mode;
+      deliveryApplied += 1;
+    }
+  }
+
+  return { withheld, govApplied, govKept, deliveryApplied };
+}
+
+export async function setupTaskStore(page: Page, opts: TaskStoreOptions): Promise<TaskStoreHandle> {
   const rows: TaskRow[] = opts.tasks.map((t) => ({ ...t }));
   const patches: Record<string, unknown>[] = [];
   const creates: Record<string, unknown>[] = [];
@@ -84,7 +161,8 @@ export async function setupTaskStore(
   // exactly what the most recent `tasks/bulk/` create batch wrote.
   let lastPasteManyUndo: string[] | null = null;
   const applyPatch =
-    opts.applyPatch ?? ((body: Record<string, unknown>, current: TaskRow) => ({ ...current, ...body }));
+    opts.applyPatch ??
+    ((body: Record<string, unknown>, current: TaskRow) => ({ ...current, ...body }));
 
   const json = (body: unknown, status = 200) => ({
     status,
@@ -92,30 +170,84 @@ export async function setupTaskStore(
     body: JSON.stringify(body),
   });
 
+  // The methods this store owns, lifted out of the route callback below so the
+  // dispatch stays readable. Each keeps the same `rows` / `json` / `applyPatch`
+  // closure, and each fulfils the route itself.
+  const handleGet = async (route: Route, id: string | undefined) => {
+    if (id === undefined) {
+      return route.fulfill(json({ count: rows.length, next: null, previous: null, results: rows }));
+    }
+    const row = rows.find((r) => r.id === id);
+    return row ? route.fulfill(json(row)) : route.fulfill(json({ detail: 'Not found.' }, 404));
+  };
+
+  // `POST /tasks/` (#2957). The three insert affordances are only testable
+  // through *where the row ends up*, so the store has to place a create the
+  // way the server does: append within the requested parent, derive the WBS
+  // path from that parent's, and promote the parent to a summary. Asserting
+  // that a request fired proves nothing here — a request firing is exactly
+  // what the three affordances already had in common while landing in the
+  // wrong place.
+  const handleCreate = async (route: Route) => {
+    const body = (route.request().postDataJSON() ?? {}) as Record<string, unknown>;
+    creates.push(body);
+    const parentId = (body.parent_id ?? null) as string | null;
+    const parent = parentId === null ? undefined : rows.find((r) => r.id === parentId);
+    const parentWbs = parent ? wbsOf(parent) : '';
+    const siblings = rows.filter((r) => (r.parent_id ?? null) === parentId);
+    createSeq += 1;
+    const created: TaskRow = {
+      early_start: '2026-04-05',
+      early_finish: '2026-04-09',
+      planned_start: '2026-04-05',
+      duration: 1,
+      percent_complete: 0,
+      is_critical: false,
+      is_milestone: false,
+      is_summary: false,
+      status: 'NOT_STARTED',
+      assignees: [],
+      total_float: null,
+      predecessor_count: 0,
+      is_blocked: false,
+      linked_risks_count: 0,
+      linked_risks_max_severity: null,
+      ...body,
+      id: `created-${createSeq}`,
+      parent_id: parentId,
+      wbs_path: parentWbs ? `${parentWbs}.${siblings.length + 1}` : `${siblings.length + 1}`,
+    };
+    // The server appends within the parent's subtree; at the root that is the
+    // end of the whole list, which is what the footer affordance relies on.
+    const lastOfSubtree = parentWbs
+      ? rows.reduce((acc, r, i) => {
+          const w = wbsOf(r);
+          return w === parentWbs || w.startsWith(`${parentWbs}.`) ? i : acc;
+        }, -1)
+      : rows.length - 1;
+    rows.splice(lastOfSubtree + 1, 0, created);
+    if (parent) parent.is_summary = true;
+    return route.fulfill(json(created, 201));
+  };
+
+  const handlePatch = async (route: Route, id: string) => {
+    const body = (route.request().postDataJSON() ?? {}) as Record<string, unknown>;
+    patches.push(body);
+    const index = rows.findIndex((r) => r.id === id);
+    if (index < 0) return route.fulfill(json({ detail: 'Not found.' }, 404));
+    // The write lands in the store BEFORE the response resolves, so the refetch the
+    // app fires from `onSuccess` can only ever observe the committed state.
+    rows[index] = applyPatch(body, rows[index]);
+    return route.fulfill(json(rows[index]));
+  };
+
   await page.route('**/api/v1/tasks/**', async (route: Route) => {
     const request = route.request();
     const method = request.method();
     const id = DETAIL_PATH.exec(new URL(request.url()).pathname)?.[1];
 
-    if (method === 'GET') {
-      if (id === undefined) {
-        return route.fulfill(
-          json({ count: rows.length, next: null, previous: null, results: rows }),
-        );
-      }
-      const row = rows.find((r) => r.id === id);
-      return row
-        ? route.fulfill(json(row))
-        : route.fulfill(json({ detail: 'Not found.' }, 404));
-    }
+    if (method === 'GET') return handleGet(route, id);
 
-    // `POST /tasks/` (#2957). The three insert affordances are only testable
-    // through *where the row ends up*, so the store has to place a create the
-    // way the server does: append within the requested parent, derive the WBS
-    // path from that parent's, and promote the parent to a summary. Asserting
-    // that a request fired proves nothing here — a request firing is exactly
-    // what the three affordances already had in common while landing in the
-    // wrong place.
     // The LIST path only. `id === undefined` would also be true for every
     // nested action (`tasks/{id}/restore/`, `/indent/`, `/comments/`, …),
     // because `DETAIL_PATH` matches the detail path and nothing deeper — so a
@@ -123,57 +255,10 @@ export async function setupTaskStore(
     // used to `route.fallback()` to their own mock, and the spec would present
     // as "a nonsense row appeared" rather than "a mock is missing".
     if (method === 'POST' && new URL(request.url()).pathname.endsWith('/api/v1/tasks/')) {
-      const body = (request.postDataJSON() ?? {}) as Record<string, unknown>;
-      creates.push(body);
-      const parentId = (body.parent_id ?? null) as string | null;
-      const parent = parentId === null ? undefined : rows.find((r) => r.id === parentId);
-      const parentWbs = parent ? wbsOf(parent) : '';
-      const siblings = rows.filter((r) => (r.parent_id ?? null) === parentId);
-      createSeq += 1;
-      const created: TaskRow = {
-        early_start: '2026-04-05',
-        early_finish: '2026-04-09',
-        planned_start: '2026-04-05',
-        duration: 1,
-        percent_complete: 0,
-        is_critical: false,
-        is_milestone: false,
-        is_summary: false,
-        status: 'NOT_STARTED',
-        assignees: [],
-        total_float: null,
-        predecessor_count: 0,
-        is_blocked: false,
-        linked_risks_count: 0,
-        linked_risks_max_severity: null,
-        ...body,
-        id: `created-${createSeq}`,
-        parent_id: parentId,
-        wbs_path: parentWbs ? `${parentWbs}.${siblings.length + 1}` : `${siblings.length + 1}`,
-      };
-      // The server appends within the parent's subtree; at the root that is the
-      // end of the whole list, which is what the footer affordance relies on.
-      const lastOfSubtree = parentWbs
-        ? rows.reduce((acc, r, i) => {
-            const w = wbsOf(r);
-            return w === parentWbs || w.startsWith(`${parentWbs}.`) ? i : acc;
-          }, -1)
-        : rows.length - 1;
-      rows.splice(lastOfSubtree + 1, 0, created);
-      if (parent) parent.is_summary = true;
-      return route.fulfill(json(created, 201));
+      return handleCreate(route);
     }
 
-    if (method === 'PATCH' && id !== undefined) {
-      const body = (request.postDataJSON() ?? {}) as Record<string, unknown>;
-      patches.push(body);
-      const index = rows.findIndex((r) => r.id === id);
-      if (index < 0) return route.fulfill(json({ detail: 'Not found.' }, 404));
-      // The write lands in the store BEFORE the response resolves, so the refetch the
-      // app fires from `onSuccess` can only ever observe the committed state.
-      rows[index] = applyPatch(body, rows[index]);
-      return route.fulfill(json(rows[index]));
-    }
+    if (method === 'PATCH' && id !== undefined) return handlePatch(route, id);
 
     return route.fallback();
   });
@@ -235,7 +320,12 @@ export async function setupTaskStore(
         applied.push({ index, id: op.id, op: 'update', outcome: 'updated' });
         return;
       }
-      rejected.push({ index, id: op.id ?? null, code: 'invalid', message: `Unknown op '${op.op}'.` });
+      rejected.push({
+        index,
+        id: op.id ?? null,
+        code: 'invalid',
+        message: `Unknown op '${op.op}'.`,
+      });
     });
     // ADR-0810 (#2756): the ⌘Z undo ledger id — a fixed fixture id whenever the
     // batch created at least one row, matching the real server's "any create
@@ -272,26 +362,12 @@ export async function setupTaskStore(
   await page.route(/\/api\/v1\/projects\/[^/]+\/tasks\/classification\/$/, async (route: Route) => {
     const request = route.request();
     if (request.method() !== 'PATCH') return route.fallback();
-    const body = (request.postDataJSON() ?? {}) as {
-      subtree?: string;
-      cascade?: boolean;
-      governance_class?: string | null;
-      delivery_mode?: string | null;
-      preserve_governance_overrides?: boolean;
-      skip_milestones?: boolean;
-    };
+    const body = (request.postDataJSON() ?? {}) as ClassificationRequest;
     classifications.push(body);
 
-    const subtreeIds = new Set<string>(body.subtree ? [body.subtree] : []);
-    if (body.cascade !== false) {
-      // Repeat to depth: a child can appear before its parent in the array.
-      for (let pass = 0; pass < rows.length; pass++) {
-        for (const row of rows) {
-          const parent = row.parent_id as string | null | undefined;
-          if (parent && subtreeIds.has(parent)) subtreeIds.add(row.id as string);
-        }
-      }
-    }
+    // `cascade: false` classifies the root alone — walking no rows finds no
+    // descendants, which leaves the seed and nothing else.
+    const subtreeIds = expandSubtree(body.cascade === false ? [] : rows, body.subtree);
 
     const matched = rows.filter((r) => subtreeIds.has(r.id as string));
     // ADR-0810 (#2756): snapshot before the mutation loop below — this is what
@@ -308,31 +384,10 @@ export async function setupTaskStore(
     let deliveryApplied = 0;
 
     for (const row of matched) {
-      const isRoot = row.id === body.subtree;
-      const isMilestone = Boolean(row.is_milestone);
-      const withheld: string[] = [];
-
-      if (body.governance_class != null) {
-        const inherited = (row.parent_governance_inherited as boolean | undefined) ?? true;
-        if (isMilestone && body.skip_milestones !== false) {
-          withheld.push('governance_class');
-        } else if (!isRoot && body.preserve_governance_overrides !== false && !inherited) {
-          govKept += 1;
-        } else {
-          row.governance_class = body.governance_class;
-          row.parent_governance_inherited = !isRoot;
-          govApplied += 1;
-        }
-      }
-
-      if (body.delivery_mode != null) {
-        if (isMilestone) {
-          withheld.push('delivery_mode');
-        } else {
-          row.delivery_mode = body.delivery_mode;
-          deliveryApplied += 1;
-        }
-      }
+      const { withheld, ...counters } = classifyRow(row, body, row.id === body.subtree);
+      govApplied += counters.govApplied;
+      govKept += counters.govKept;
+      deliveryApplied += counters.deliveryApplied;
 
       if (withheld.length) {
         skipped.push({

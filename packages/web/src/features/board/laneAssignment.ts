@@ -58,6 +58,42 @@ function isContainer(task: Task, parentIds: ReadonlySet<string>): boolean {
 }
 
 /**
+ * Every id observed as some row's parent — the fallback half of
+ * {@link isContainer}, shared so the lane index and the lane heads cannot
+ * disagree about which rows are containers.
+ */
+function collectParentIds(allTasks: readonly Task[]): Set<string> {
+  const parentIds = new Set<string>();
+  for (const t of allTasks) {
+    if (t.parentId) parentIds.add(t.parentId);
+  }
+  return parentIds;
+}
+
+/**
+ * Walk to the top of `task`'s container chain, remembering the first step: the
+ * top-most ancestor is the lane, the nearest is the crumb.
+ *
+ * A cycle in `parentId` terminates the walk rather than hanging the board, and
+ * a parent id pointing outside the loaded set stops it at the last row we hold.
+ */
+function resolveChain(
+  task: Task,
+  byId: ReadonlyMap<string, Task>,
+): { top: Task | undefined; nearest: Task | undefined } {
+  const nearest = task.parentId ? byId.get(task.parentId) : undefined;
+  let top = nearest;
+  const seen = new Set<string>();
+  while (top?.parentId && !seen.has(top.id)) {
+    seen.add(top.id);
+    const next = byId.get(top.parentId);
+    if (!next) break;
+    top = next;
+  }
+  return { top, nearest };
+}
+
+/**
  * Assign every non-container task to a lane, with a crumb for the deeper
  * structure the lane cannot show.
  *
@@ -68,27 +104,14 @@ function isContainer(task: Task, parentIds: ReadonlySet<string>): boolean {
  */
 export function buildLaneIndex(allTasks: readonly Task[]): Map<string, LanePlacement> {
   const byId = new Map(allTasks.map((t) => [t.id, t]));
-  const parentIds = new Set<string>();
-  for (const t of allTasks) {
-    if (t.parentId) parentIds.add(t.parentId);
-  }
+  const parentIds = collectParentIds(allTasks);
 
   const placements = new Map<string, LanePlacement>();
 
   for (const task of allTasks) {
     if (isContainer(task, parentIds)) continue;
 
-    // Walk to the top of the container chain, remembering the first step: the
-    // top-most ancestor is the lane, the nearest is the crumb.
-    const nearest = task.parentId ? byId.get(task.parentId) : undefined;
-    let top = nearest;
-    const seen = new Set<string>();
-    while (top?.parentId && !seen.has(top.id)) {
-      seen.add(top.id);
-      const next = byId.get(top.parentId);
-      if (!next) break;
-      top = next;
-    }
+    const { top, nearest } = resolveChain(task, byId);
 
     if (!top) {
       placements.set(task.id, { laneId: ROOT_LANE_ID, crumb: null });
@@ -111,9 +134,6 @@ export function buildLaneIndex(allTasks: readonly Task[]): Map<string, LanePlace
  * producing a lane per node.
  */
 export function collectLaneHeads(allTasks: readonly Task[]): Task[] {
-  const parentIds = new Set<string>();
-  for (const t of allTasks) {
-    if (t.parentId) parentIds.add(t.parentId);
-  }
+  const parentIds = collectParentIds(allTasks);
   return allTasks.filter((t) => t.parentId === null && isContainer(t, parentIds));
 }
