@@ -153,7 +153,7 @@ rather than only from a repository checkout:
 | Sample | Download | What it demonstrates |
 | --- | --- | --- |
 | Atlas Platform Launch | `GET /api/v1/programs/samples/atlas-platform-launch/download/` | The largest surface — a hybrid multi-project program, cross-project dependencies, all four dependency types plus a lead, three-point estimates, two baselines on one project (a kickoff capture and the re-plan that superseded it), a calendar exception that moves the program finish, a manual health override, and a populated risk register with mitigation arcs. |
-| Aurora Mobile App | `.../aurora-mobile-app/download/` | Pure agile — an epic-grouped backlog, sprints with velocity history, no CPM. |
+| Aurora Mobile App | `.../aurora-mobile-app/download/` | Pure agile — an epic-grouped backlog and a sprint history that goes wrong and recovers: an epic descoped mid-sprint after beta feedback, the velocity dip that causes and the sprint that climbs back out, a cancelled sprint whose scope folds forward, capacity that moves with leave and holidays, and a sprint-zero baseline to measure the pivot against. No CPM. |
 | Bayside Civic Center | `.../bayside-civic-center/download/` | Pure waterfall — all four dependency types, working calendars, calendar-aware lag, a contract baseline plus a change-order rebaseline. |
 | Helios CRM Replacement | `.../helios-crm-replacement/download/` | The entry-level hybrid — a completed waterfall phase feeding an agile build phase across one cross-phase dependency. |
 

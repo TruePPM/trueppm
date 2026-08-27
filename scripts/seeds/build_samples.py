@@ -127,19 +127,30 @@ def _accounts(rows: list[tuple[str, str, str]]) -> list[dict]:
 
 
 def _aurora_sprints(
-    states: list[str], committed: list, completed: list, date_fn
+    states: list[str],
+    committed: list,
+    completed: list,
+    capacity: list[int],
+    goals: list[str],
+    date_fn,
 ) -> list[dict]:
-    """Aurora's sprint dicts; point aggregates are omitted when unset."""
+    """Aurora's sprint dicts; point aggregates are omitted when unset.
+
+    Capacity is per-sprint rather than a constant. A team's capacity moves with
+    leave, holidays and ramp-up, and a flat number makes every velocity change
+    look like a performance change — which is the opposite of what a sprint
+    review is for (#3096).
+    """
     sprints = []
     for i, (state, com, vel) in enumerate(zip(states, committed, completed)):
         sp = {
             "slug": f"au-sprint-{i + 1}",
             "name": f"Sprint {i + 1}",
-            "goal": f"Mobile increment {i + 1}.",
+            "goal": goals[i],
             "state": state,
             "start_date": date_fn(i * 14),
             "finish_date": date_fn(i * 14 + 13),
-            "capacity_points": 28,
+            "capacity_points": capacity[i],
         }
         if com is not None:
             sp["committed_points"] = com
@@ -157,6 +168,8 @@ def _aurora_epic_story_tasks(
     story_labels: dict[str, list[str]],
     devs: list[str],
     wbs: dict[str, str],
+    descoped: frozenset[str] = frozenset(),
+    day_zero_points: dict[str, int] | None = None,
 ) -> list[dict]:
     """Epic grouping nodes plus their stories; ``wbs`` is filled name -> wbs_path.
 
@@ -178,7 +191,7 @@ def _aurora_epic_story_tasks(
             }
         )
         for s_idx, name in enumerate(feats, start=1):
-            sprint_idx = story_idx % 4
+            sprint_idx = story_idx % 5
             state = states[sprint_idx]
             status = {
                 "COMPLETED": "COMPLETE",
@@ -209,6 +222,21 @@ def _aurora_epic_story_tasks(
                 "governance_class": "flow",
                 "dor": "ready" if state != "PLANNED" else "idea",
             }
+            if name in descoped:
+                # Descoped by the Sprint 3 pivot: back to the backlog, out of its
+                # sprint entirely. Leaving the `sprint` key set would keep the
+                # story counted in that sprint's membership, so the velocity dip
+                # the pivot caused would not actually show up anywhere.
+                story["status"] = "BACKLOG"
+                story["percent_complete"] = 0.0
+                story["dor"] = "refine"
+                story.pop("sprint", None)
+            # Recorded BEFORE overrides, so the sprint-zero baseline holds the
+            # points the team planned with rather than the ones they later
+            # re-pointed to — otherwise every baseline row matches the current
+            # plan and the variance view is a column of zeroes.
+            if day_zero_points is not None:
+                day_zero_points[name] = points[story_idx % len(points)]
             story.update(overrides.get(name, {}))
             if name in story_labels:
                 story["labels"] = story_labels[name]
@@ -223,12 +251,16 @@ def _aurora_backlog_tasks(wbs: dict[str, str]) -> list[dict]:
     actual intake to groom instead of rendering empty. ``wbs`` is filled with
     each backlog story's name -> wbs_path."""
     tasks: list[dict] = []
-    for epic_wbs, slot, name, pts, dor in [
-        ("1", 6, "App shortcuts", 3, "refine"),
-        ("2", 6, "Contact import", 5, "refine"),
-        ("3", 6, "Video capture", 8, "idea"),
-        ("5", 6, "Promo codes", 3, "idea"),
-        ("6", 6, "Sound design", 2, "idea"),
+    # The first two carry `sprint`: they are the scope folded forward out of the
+    # cancelled Sprint 6, so the PLANNED sprint is not an empty container. The
+    # rest stay unowned and uncommitted — a backlog with nothing loose in it is
+    # not a backlog.
+    for epic_wbs, slot, name, pts, dor, sprint_slug in [
+        ("1", 6, "App shortcuts", 3, "refine", "au-sprint-7"),
+        ("2", 6, "Contact import", 5, "refine", "au-sprint-7"),
+        ("3", 6, "Video capture", 8, "idea", None),
+        ("5", 6, "Promo codes", 3, "idea", None),
+        ("6", 6, "Sound design", 2, "idea", None),
     ]:
         story_wbs = f"{epic_wbs}.{slot}"
         wbs[name] = story_wbs
@@ -246,6 +278,8 @@ def _aurora_backlog_tasks(wbs: dict[str, str]) -> list[dict]:
                 "dor": dor,
             }
         )
+        if sprint_slug:
+            tasks[-1]["sprint"] = sprint_slug
     return tasks
 
 
@@ -283,10 +317,15 @@ def build_aurora() -> dict:
         "Widget gallery": ["polish"],
     }
 
-    # Anchor placed inside the active sprint (#1253): two completed sprints in the
-    # recent past, Sprint 3 bracketing "today", Sprint 4 ahead. 14-day sprints, so
-    # Sprint 3 starts on day 28 and "today" at day 35 lands a week into it.
-    anchor = 35
+    # Anchor placed inside the active sprint (#1253). Four completed sprints sit
+    # in the recent past, Sprint 5 brackets "today", and two sit ahead. 14-day
+    # sprints, so Sprint 5 starts on day 56 and "today" at day 63 lands a week in.
+    #
+    # Four *closed* sprints is the point, not padding: a velocity dip and its
+    # recovery cannot both be read off a chart with two closed sprints on it,
+    # and the pivot this pack exists to show is only legible as a dip that the
+    # team then climbs out of (#3096).
+    anchor = 63
 
     def D(offset: int) -> str:
         return d(offset, anchor)
@@ -294,18 +333,29 @@ def build_aurora() -> dict:
     def T(offset: int, hour: int = 10, minute: int = 0) -> str:
         return ts(offset, hour, minute, anchor)
 
-    states = ["COMPLETED", "COMPLETED", "ACTIVE", "PLANNED"]
-    # A realistic ramp with reconciled aggregates (#1784): Sprint 1 closed
-    # PARTIAL — 20 of 25 committed points landed and Profile editor (5 pts)
-    # carried into Sprint 2, where it finished (sprint membership is final, so
-    # its `sprint` field reads au-sprint-2; the carry is narrated in events).
-    # Sprint 2 delivered its full 27, carry included. Sprint 3's commitment (21)
-    # is the activation-time membership — the injected Widget gallery (5 pts)
-    # sits outside it. The closed sprints carry an honest goal_outcome, set on
-    # the authored sprint.close beats.
-    committed = [25, 27, 21, None]
-    completed = [20, 27, None, None]
-    sprints = _aurora_sprints(states, committed, completed, D)
+    states = [
+        "COMPLETED",
+        "COMPLETED",
+        "COMPLETED",
+        "COMPLETED",
+        "ACTIVE",
+        "CANCELLED",
+        "PLANNED",
+    ]
+    # Capacity is not a constant. Sprint 3 runs short with Nadia on leave, Sprint 4
+    # with a new joiner still ramping, and Sprint 6 lands on a holiday week — which
+    # is why Sprint 6 was cancelled outright rather than run at a quarter strength
+    # (see the sprint.close/cancel narration in the events below).
+    capacity = [28, 28, 24, 26, 30, 8, 30]
+    goals = [
+        "Ship a usable first run: onboarding, media upload and localization.",
+        "Make the app dependable — push, search, maps and the accessibility pass.",
+        "Land the monetization increment end to end.",
+        "Rebuild the run rate on core polish after the re-plan.",
+        "Close out first-run quality: biometrics, settings sync and crash reporting.",
+        "Ship the ratings prompt and the empty-state pass.",
+        "Sprint 6's folded-forward scope plus the promoted spike work.",
+    ]
 
     # The backlog is grouped into epics so the board and timeline read as themed
     # initiatives, not a flat 30-story list — the epic → story hierarchy an agile
@@ -369,46 +419,114 @@ def build_aurora() -> dict:
             ],
         ),
     ]
+    # The Sprint 3 pivot. Beta feedback said the monetization bet was premature,
+    # so the unshipped half of the "Growth & monetization" epic went back to the
+    # backlog mid-sprint. Referral program and Payment sheet had already shipped
+    # in Sprints 1 and 2 and stay shipped — a pivot that retroactively unships
+    # delivered work is not a pivot, it is a rewrite of history.
+    descoped = frozenset({"Receipt export", "Activity feed", "Bookmark sync"})
+
     # Final-state overrides by story name (#1784), applied on top of the formula
-    # placement so the sprint aggregates reconcile with their member stories:
-    # - Sprint 2 trims to 27 pts (== committed == completed, carry included).
-    # - Sprint 3 (ACTIVE) reads as a mid-flight board: a completed story, one in
-    #   review, in-progress work at ragged percentages with partially-burned
-    #   remaining points, and untouched starts.
-    # - Sprint 4 (PLANNED) varies its points and fits the 28-pt capacity.
+    # placement. Sprint aggregates are derived from actual membership further
+    # down, so these only have to describe the board — the numbers follow.
     overrides: dict[str, dict[str, object]] = {
-        # Sprint 2 rebalance.
-        "Payment sheet": {"story_points": 3},
-        "Empty states": {"story_points": 2},
-        # Sprint 3 mixed statuses.
-        "Offline cache": {"status": "COMPLETE", "percent_complete": 100.0},
-        "Search": {"percent_complete": 40.0, "remaining_points": 1},
-        "Photo upload": {
+        # Carried out of Sprint 1 into Sprint 2 (sprint membership is final; the
+        # carry itself is narrated in the events).
+        "Profile editor": {"sprint": "au-sprint-2"},
+        # Sprint 2 rebalance so the commitment fits the 28-point capacity.
+        "Map view": {"story_points": 5},
+        # Re-planned out of the gutted Sprint 3 and into the current sprint.
+        "Share sheet": {
+            "sprint": "au-sprint-5",
+            "status": "IN_PROGRESS",
+            "percent_complete": 30.0,
+            "story_points": 3,
+            "remaining_points": 2,
+        },
+        "Pull-to-refresh": {
+            "sprint": "au-sprint-5",
+            "status": "NOT_STARTED",
+            "percent_complete": 0.0,
+            "story_points": 3,
+        },
+        # Sprint 5 (ACTIVE) reads as a mid-flight board: a story done, one in
+        # review, ragged in-progress percentages, and untouched work.
+        "Biometric login": {"status": "COMPLETE", "percent_complete": 100.0},
+        "Settings sync": {"percent_complete": 40.0, "remaining_points": 1},
+        "Crash reporting": {
             "status": "REVIEW",
             "percent_complete": 80.0,
             "remaining_points": 1,
         },
-        "Crash reporting": {"status": "NOT_STARTED", "percent_complete": 0.0},
-        "Widget gallery": {"percent_complete": 30.0, "remaining_points": 4},
-        "Receipt export": {"status": "NOT_STARTED", "percent_complete": 0.0},
-        "Haptics": {"percent_complete": 60.0, "remaining_points": 2},
-        # Sprint 4 varied points (sum 26 <= capacity 28).
-        "Dark mode": {"story_points": 5},
-        "Share sheet": {"story_points": 3},
-        "Map view": {"story_points": 5},
-        "Localization": {"story_points": 3},
-        "App rating prompt": {"story_points": 2},
-        "Activity feed": {"story_points": 5},
-        "Pull-to-refresh": {"story_points": 3},
+        "App rating prompt": {
+            "status": "NOT_STARTED",
+            "percent_complete": 0.0,
+            "story_points": 2,
+        },
+        "Empty states": {"percent_complete": 60.0, "remaining_points": 2},
     }
     # Story name -> wbs_path, so the event/risk authoring below references a story
     # by name and stays correct regardless of how the epic grouping is sliced.
     wbs: dict[str, str] = {}
     points = [2, 3, 5, 8, 3, 5, 2, 8]
+    day_zero_points: dict[str, int] = {}
     tasks: list[dict] = _aurora_epic_story_tasks(
-        epics, states, points, overrides, story_labels, devs, wbs
+        epics,
+        states,
+        points,
+        overrides,
+        story_labels,
+        devs,
+        wbs,
+        descoped,
+        day_zero_points,
     )
     tasks.extend(_aurora_backlog_tasks(wbs))
+
+    # Sprint aggregates are DERIVED from the stories that actually sit in each
+    # sprint, never hand-authored. test_sprint_points_reconcile_with_member_stories
+    # requires completed_points to equal the member COMPLETE points exactly and
+    # committed_points to stay within capacity, and hand-tuned constants drift out
+    # of agreement with the board the moment a story is re-pointed or re-placed.
+    def _members(slug: str) -> list[dict]:
+        return [t for t in tasks if t.get("sprint") == slug]
+
+    def _pts(rows: list[dict], complete_only: bool = False) -> int:
+        return sum(
+            t.get("story_points") or 0
+            for t in rows
+            if not complete_only or t.get("status") == "COMPLETE"
+        )
+
+    descoped_points = _pts([t for t in tasks if t["name"] in descoped])
+    # What each closed sprint committed *over* what it delivered: Sprint 1 carried
+    # Profile editor out, and Sprint 3 committed the whole monetization increment
+    # that the pivot then took away.
+    over_commitment = {0: 5, 2: descoped_points}
+    committed: list[int | None] = []
+    completed: list[int | None] = []
+    for i, state in enumerate(states):
+        members = _members(f"au-sprint-{i + 1}")
+        if state == "COMPLETED":
+            done = _pts(members, complete_only=True)
+            completed.append(done)
+            committed.append(done + over_commitment.get(i, 0))
+        elif state == "ACTIVE":
+            completed.append(None)
+            committed.append(_pts(members))
+        else:
+            completed.append(None)
+            committed.append(None)
+        assert committed[i] is None or committed[i] <= capacity[i], (
+            f"au-sprint-{i + 1}: committed {committed[i]} over capacity {capacity[i]}"
+        )
+    sprints = _aurora_sprints(states, committed, completed, capacity, goals, D)
+    # Sprint 6 was cancelled rather than run; the reason belongs on the sprint.
+    sprints[5]["notes"] = (
+        "Cancelled at Sprint 5 planning. The holiday week left 8 points of "
+        "capacity against a 30-point cadence, so the scope was folded forward "
+        "into Sprint 7 rather than run a token sprint."
+    )
 
     # Informational task-to-task relations (ADR-0455): non-scheduling "see also"
     # cross-references. Authored by story name (resolved to wbs) and attached to
@@ -452,6 +570,11 @@ def build_aurora() -> dict:
     promoted_action = (
         "Spike unfamiliar integrations before committing them — the biometric "
         "work stalled two days on the secure-enclave path."
+    )
+    pivot_action = (
+        "Validate demand with the beta cohort before committing a whole "
+        "increment to it — three monetization stories went back to the backlog "
+        "after we had already planned around them."
     )
 
     events: list[dict] = [
@@ -588,7 +711,7 @@ def build_aurora() -> dict:
             sprint("au-sprint-1"),
             "sam",
             body="Right-size sprint commitments to recent velocity — Profile "
-            "editor carried after we committed 25 against a 20-point run rate.",
+            "editor carried after we committed 26 against a 21-point run rate.",
         ),
         _ev(
             T(13, 17, 40),
@@ -655,34 +778,122 @@ def build_aurora() -> dict:
             "sam",
             goal_outcome="MET",
         ),
-        # Sprint 3 (active) — activated on its start day; a mid-sprint scope
-        # injection the PO pulls in and the team accepts after protecting the
-        # goal (wires the SprintScopeChange audit); and authored arcs that leave
-        # the board mid-flight on import day.
+        # --- Sprint 3: the pivot -------------------------------------------
+        # The sprint this pack exists for. The team commits the monetization
+        # increment, the beta cohort says it is premature, and three stories go
+        # back to the backlog mid-sprint — so the sprint closes MISSED with a
+        # velocity of 11 against a run rate of 27, and the next sprint has to
+        # climb back out. The dip is not a number typed into the fixture: the
+        # stories genuinely leave the sprint, and the aggregate follows.
         _ev(T(28, 9, 0), "sprint.activate", sprint("au-sprint-3"), "sam"),
         _ev(
-            T(29, 9, 0),
+            T(29, 9, 30),
             "task.comment",
             task(wbs["Offline cache"]),
             "mei",
             body="Cache invalidation strategy settled — wiring the sync journal now.",
         ),
         _ev(
-            T(29, 9, 30),
+            T(32, 11, 0),
+            "task.comment",
+            task(wbs["Receipt export"]),
+            "priya",
+            body="Beta cohort numbers are in and they are not good — 4% of the "
+            "group opened the paywall at all, and nobody completed a purchase. "
+            "Holding receipt export until we understand why.",
+        ),
+        _ev(
+            T(33, 10, 0),
+            "task.comment",
+            task(wbs["Activity feed"]),
+            "priya",
+            body="Same call on the rest of the monetization slice. We are pulling "
+            "receipt export, activity feed and bookmark sync back to the backlog "
+            "rather than finish building on a bet the beta just disproved.",
+        ),
+        _ev(
+            T(33, 10, 30),
             "task.status",
+            task(wbs["Receipt export"]),
+            "priya",
+            to="BACKLOG",
+        ),
+        _ev(
+            T(33, 10, 35),
+            "task.status",
+            task(wbs["Activity feed"]),
+            "priya",
+            to="BACKLOG",
+        ),
+        _ev(
+            T(33, 10, 40),
+            "task.status",
+            task(wbs["Bookmark sync"]),
+            "priya",
+            to="BACKLOG",
+        ),
+        _ev(
+            T(33, 14, 0),
+            "task.comment",
+            task(wbs["Share sheet"]),
+            "sam",
+            body="With the monetization work pulled there is no way to refill the "
+            "sprint this late. Share sheet and pull-to-refresh move to the "
+            "re-plan rather than get half-started here.",
+        ),
+        _ev(T(34, 9, 0), "risk.status", "risk:scope-creep", "priya", to="MITIGATING"),
+        _ev(
+            T(36, 15, 0),
+            "task.comment",
             task(wbs["Offline cache"]),
             "mei",
-            to="IN_PROGRESS",
+            body="Offline cache is green on the device farm. Merging — at least "
+            "the increment ships something.",
         ),
         _ev(
-            T(30, 10, 0),
-            "task.status",
-            task(wbs["Photo upload"]),
-            "nadia",
-            to="IN_PROGRESS",
+            T(41, 17, 0),
+            "sprint.close",
+            sprint("au-sprint-3"),
+            "sam",
+            goal_outcome="MISSED",
         ),
         _ev(
-            T(30, 9, 30),
+            T(41, 17, 30),
+            "retro.action",
+            sprint("au-sprint-3"),
+            "sam",
+            body=pivot_action,
+        ),
+        _ev(
+            T(41, 17, 40),
+            "retro.action",
+            sprint("au-sprint-3"),
+            "sam",
+            body="Re-plan the next sprint from the surviving backlog before "
+            "committing, instead of carrying the old plan forward by default.",
+        ),
+        _ev(
+            T(42, 10, 0),
+            "retro.promote",
+            sprint("au-sprint-3"),
+            "priya",
+            body=pivot_action,
+        ),
+        # --- Sprint 4: the recovery ----------------------------------------
+        # Smaller capacity (a new joiner still ramping), a commitment sized to
+        # the surviving backlog, and it lands. This is the half of a pivot that
+        # samples usually leave out — without it the dip reads as decline.
+        _ev(T(42, 9, 0), "sprint.activate", sprint("au-sprint-4"), "sam"),
+        _ev(
+            T(43, 9, 30),
+            "task.comment",
+            task(wbs["Dark mode"]),
+            "diego",
+            body="Re-planned sprint is core polish only. Dark mode first — it is "
+            "the most-asked-for thing in the beta feedback we just acted on.",
+        ),
+        _ev(
+            T(45, 9, 30),
             "task.comment",
             task(wbs["Widget gallery"]),
             "priya",
@@ -690,65 +901,98 @@ def build_aurora() -> dict:
             "pulling it into the sprint.",
         ),
         _ev(
-            T(30, 9, 35),
+            T(45, 9, 35),
             "sprint.scope_inject",
             task(wbs["Widget gallery"]),
             "priya",
             goal_impact=True,
         ),
         _ev(
-            T(31, 11, 0),
+            T(46, 11, 0),
             "task.comment",
             task(wbs["Widget gallery"]),
             "sam",
-            body="Talked it through at standup — we'll drop a lower-priority story to "
-            "protect the goal. Accepting the injection.",
+            body="We have the room this time — the re-plan left us under capacity "
+            "on purpose. Accepting the injection.",
         ),
         _ev(
-            T(31, 11, 5),
+            T(46, 11, 5),
             "sprint.scope_resolve",
             task(wbs["Widget gallery"]),
             "sam",
             to="ACCEPTED",
         ),
-        _ev(T(31, 12, 0), "risk.status", "risk:scope-creep", "priya", to="MITIGATING"),
-        # Recent beats — the timeline reaches import day mid-sprint (#1784):
-        # a story completes, another lands in review, and a standup note posts
-        # the day before "today".
         _ev(
-            T(32, 15, 0),
-            "task.comment",
-            task(wbs["Offline cache"]),
-            "mei",
-            body="Offline cache is green on the device farm. Merging.",
+            T(55, 17, 0),
+            "sprint.close",
+            sprint("au-sprint-4"),
+            "sam",
+            goal_outcome="MET",
         ),
         _ev(
-            T(32, 15, 30),
+            T(55, 17, 30),
+            "retro.action",
+            sprint("au-sprint-4"),
+            "sam",
+            body="Keep sizing to the trailing two-sprint average rather than the "
+            "best one — 23 committed and 23 delivered is the pattern to repeat.",
+        ),
+        # --- Sprint 5: in flight, and the decision to cancel Sprint 6 -------
+        _ev(T(56, 9, 0), "sprint.activate", sprint("au-sprint-5"), "sam"),
+        _ev(
+            T(57, 10, 0),
             "task.status",
-            task(wbs["Offline cache"]),
+            task(wbs["Biometric login"]),
+            "mei",
+            to="IN_PROGRESS",
+        ),
+        _ev(
+            T(58, 14, 0),
+            "task.comment",
+            task(wbs["Biometric login"]),
+            "mei",
+            body="Secure-enclave path worked first try this time — the spike we "
+            "promoted out of the Sprint 1 retro paid for itself.",
+        ),
+        _ev(
+            T(59, 15, 30),
+            "task.status",
+            task(wbs["Biometric login"]),
             "mei",
             to="COMPLETE",
         ),
         _ev(
-            T(33, 14, 0),
+            T(60, 11, 0),
             "task.comment",
-            task(wbs["Photo upload"]),
-            "nadia",
-            body="Upload pipeline with EXIF scrubbing is ready — PR up for review.",
+            task(wbs["App shortcuts"]),
+            "sam",
+            body="Sprint 6 falls entirely inside the holiday week — 8 points of "
+            "capacity against a 30-point cadence. Cancelling it and folding the "
+            "scope into Sprint 7 rather than running a sprint that cannot finish "
+            "anything.",
         ),
         _ev(
-            T(33, 14, 30),
+            T(61, 14, 0),
+            "task.comment",
+            task(wbs["Crash reporting"]),
+            "nadia",
+            body="Crash reporting is wired to the symbolication service — PR up "
+            "for review.",
+        ),
+        _ev(
+            T(61, 14, 30),
             "task.status",
-            task(wbs["Photo upload"]),
+            task(wbs["Crash reporting"]),
             "nadia",
             to="REVIEW",
         ),
         _ev(
-            T(34, 9, 30),
+            T(62, 9, 30),
             "task.comment",
-            task(wbs["Haptics"]),
-            "nadia",
-            body="Haptics feel right on iOS; tuning Android amplitude curves next.",
+            task(wbs["Settings sync"]),
+            "diego",
+            body="Settings sync conflict resolution is the fiddly part — "
+            "last-write-wins is wrong for the notification prefs.",
         ),
     ]
 
@@ -808,6 +1052,22 @@ def build_aurora() -> dict:
                 ),
                 "labels": labels_catalog,
                 "tasks": tasks,
+                # Aurora had no baseline at all, so its burn-up had no commitment
+                # line and the pivot showed up only as a smaller bar. Captured on
+                # day zero over the whole planned backlog: the descoped stories
+                # are in it, which is the point — the variance view is where a
+                # reviewer sees that the plan lost 12 points of scope.
+                "baselines": [
+                    {
+                        "name": "Sprint-zero baseline",
+                        "is_active": True,
+                        "captured_at": D(0),
+                        "tasks": [
+                            {"task": wbs[name], "story_points": pts}
+                            for name, pts in day_zero_points.items()
+                        ],
+                    }
+                ],
                 "sprints": sprints,
                 "risks": [
                     {
