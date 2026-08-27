@@ -29,7 +29,7 @@ on, not a lesser version of them.
 
 | Data | In backup? | Why |
 |---|---|---|
-| PostgreSQL (`trueppm` database) | **Yes** | The authoritative store — every project, task, sprint, dependency, baseline, comment, and setting. The `pg_dump --format=custom` artifact preserves the `ltree` and `pg_trgm` extensions and the `wbs_path` GiST index. |
+| PostgreSQL (`trueppm` database) | **Yes** | The authoritative store — every project, task, sprint, dependency, baseline, comment, and setting. The `pg_dump --format=custom` artifact preserves the `ltree`, `pg_trgm`, and `btree_gist` extensions and the `wbs_path` GiST index. |
 | Media / attachments (local disk) | **Yes**, when local | `TaskAttachment` files when `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE` is on. When you use S3/MinIO object storage instead, the bucket is backed up by the object store — not by this artifact (see below). |
 | Redis / Valkey (cache + broker) | **No** (by design) | Valkey holds only **ephemeral, reconstructible** state: the Django cache, the Celery broker queue, and the Channels real-time layer. None of it is a source of truth. Restoring a stale Redis snapshot onto a running instance would resurrect dead queue entries and serve stale cache — worse than an empty cache, which simply refills on first read. In-flight Celery tasks are re-triggered by the next write; WebSocket clients reconnect. So the backup omits it deliberately. |
 | `INTEGRATION_ENCRYPTION_KEY` | **No** — and the dump is **useless without it** | Lives in a Kubernetes Secret / `.env`, not in PostgreSQL. See the warning immediately below. |
@@ -175,7 +175,7 @@ For a scheduled backup, enable the chart's CronJob instead of running this by ha
 
 `restore.sh` reloads the artifact onto a **clean target**, is **idempotent**
 (`pg_restore --clean --if-exists`, safe to re-run), and **verifies the required
-extensions** (`ltree`, `pg_trgm`) exist afterward — a schema missing them is
+extensions** (`ltree`, `pg_trgm`, `btree_gist`) exist afterward — a schema missing them is
 silently broken, so the restore fails loudly instead.
 
 ```bash
@@ -210,9 +210,9 @@ explicit object key instead to restore a specific one. The downloaded copy lands
 in a scratch directory and is deleted when the script exits — use `--artifact`
 with a local path if you want to keep it.
 
-### Why the `ltree` / `pg_trgm` extension ordering matters
+### Why the `ltree` / `pg_trgm` / `btree_gist` extension ordering matters
 
-TruePPM's schema **depends on two PostgreSQL extensions**, and a naive
+TruePPM's schema **depends on three PostgreSQL extensions**, and a naive
 dump/restore that reorders or drops their creation produces a database that
 restores "successfully" but is silently broken:
 
@@ -225,6 +225,12 @@ restores "successfully" but is silently broken:
 - **`pg_trgm`** backs the trigram GIN indexes that power fuzzy task and project
   search. Missing it means search either errors (index create fails) or silently
   degrades to unindexed `ILIKE`.
+- **`btree_gist`** backs the `unique_task_wbs_path_per_project_live` exclusion
+  constraint on `projects_task` — the rule that stops two live tasks in one
+  project from occupying the same `wbs_path`. That constraint is a GiST index
+  over `(project, wbs_path)`, and GiST has no native support for scalar equality
+  on a `uuid` column; `btree_gist` is what supplies it. Without the extension the
+  constraint cannot be built and the restore of `projects_task` fails outright.
 
 The extensions must be created **before** any table, column, or index that
 references them. `pg_dump --format=custom` records `CREATE EXTENSION` in the
@@ -235,7 +241,7 @@ runbook uses `--format=custom` and **not** a plain `pg_dump > file.sql` piped
 into `psql`: a plain-SQL dump edited or filtered by hand (for example, stripping
 `CREATE EXTENSION` lines because "the target already has them", or restoring a
 single table) can reorder or drop the extension statements and break exactly the
-two indexes above.
+objects above.
 
 If you restore into a database where a platform policy blocks unprivileged
 `CREATE EXTENSION` (some managed Postgres offerings), create the extensions as a
@@ -244,12 +250,19 @@ superuser **first**, then run the restore:
 ```sql
 CREATE EXTENSION IF NOT EXISTS ltree;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
+-- Must exist before projects_task is created: its exclusion constraint is a
+-- GiST index over (project, wbs_path) and cannot be built without it.
+CREATE EXTENSION IF NOT EXISTS btree_gist;
 ```
 
-`restore.sh` guards against a silent miss: after the restore it asserts both
-extensions are present (`SELECT 1 FROM pg_extension …`) and **fails the whole
-restore** if either is absent, so a broken schema surfaces loudly instead of at
-the first WBS query weeks later.
+All three are `trusted` extensions on PostgreSQL 13 and later, so an ordinary
+database owner can create them unless your platform restricts it explicitly —
+check before assuming you need this step.
+
+`restore.sh` guards against a silent miss: after the restore it asserts all
+three extensions are present (`SELECT 1 FROM pg_extension …`) and **fails the
+whole restore** if any is absent, so a broken schema surfaces loudly instead of
+at the first WBS query weeks later.
 
 ## Scheduled backups with Helm
 
@@ -378,8 +391,8 @@ A backup you have never restored is a hypothesis, not a backup. Prove it:
 - **Cadence** — run a full restore drill on a **throwaway target monthly**, and
   again before any risky upgrade or migration.
 - **What "green" looks like**:
-  1. `restore.sh` exits `0` and prints `extension present: ltree` and
-     `extension present: pg_trgm`.
+  1. `restore.sh` exits `0` and prints `extension present: ltree`,
+     `extension present: pg_trgm`, and `extension present: btree_gist`.
   2. Row counts on the restored database match the source for the core tables
      (`SELECT count(*) FROM projects_project;` and `projects_task`, `sprints_sprint`).
   3. The API boots against the restored database (`/api/v1/health/` returns

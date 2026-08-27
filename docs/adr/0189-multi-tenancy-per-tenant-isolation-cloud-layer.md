@@ -107,13 +107,16 @@ It mirrors the seam patterns already in the codebase:
 
 ### 4. The per-tenant migration tax lives in the paid layer
 Replaying OSS migrations per schema/DB — including the non-regenerable operations
-(`CREATE EXTENSION ltree`, `CREATE EXTENSION pg_trgm`, the GiST index on
-`projects_task.wbs_path` via `RunSQL`, the `CREATE INDEX CONCURRENTLY` on
-`projects_historicaltask`, and the `replaces=` squash path for fresh tenants) — is the
+(`CREATE EXTENSION ltree`, `CREATE EXTENSION pg_trgm`, `CREATE EXTENSION btree_gist`,
+the GiST index on `projects_task.wbs_path` via `RunSQL`, the `CREATE INDEX CONCURRENTLY`
+on `projects_historicaltask`, and the `replaces=` squash path for fresh tenants) — is the
 job of the cloud control plane's **migration runner**, not of OSS. The runner must be
 idempotent, resumable, and observable, and must respect two known hazards:
-- `ltree`/`pg_trgm` are **superuser-only, per-database** DDL — install once per
-  database before schema-mode Django migrations run.
+- `ltree`, `pg_trgm` and `btree_gist` are **per-database** DDL — install once per
+  database before schema-mode Django migrations run. They are *not* superuser-only:
+  all three are `trusted = true` on PostgreSQL 13+, so the tenant's own database
+  owner can create them. A managed platform may still restrict `CREATE EXTENSION`
+  by policy, which is a different constraint and has to be checked per provider.
 - Migration `0090` (`CREATE INDEX CONCURRENTLY`, `atomic = False`) must **not** be
   wrapped in a transaction by the runner.
 
