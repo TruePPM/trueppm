@@ -543,6 +543,10 @@
         "calendar": { "$ref": "#/$defs/slug" },
         "code": { "type": "string", "maxLength": 12 },
         "default_view": { "enum": ["SCHEDULE", "BOARD", "TABLE", "OVERVIEW"] },
+        "health": {
+          "enum": ["AUTO", "ON_TRACK", "AT_RISK", "CRITICAL"],
+          "description": "PM override for the project health chip (#520). Omit or AUTO to defer to the rollup; the explicit values are a manual judgment that surfaces immediately in lists and on the program overview."
+        },
         "estimation_mode": { "enum": ["open", "suggest_approve", "pm_only"] },
         "members": {
           "type": "array",

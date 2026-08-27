@@ -124,6 +124,20 @@ CALENDARS = [
         # main calendar. Ranges also remove those days from date snapping (#376).
         "exceptions": [
             {"exc_start": da(-45), "exc_end": da(-43), "description": "Diego — PTO"},
+            # Parked on Migration Tooling's cutover tail (5.1-5.3), which is
+            # what drives the program finish through the FS+3 edge into GTM's
+            # public launch. Sized deliberately: the migration-complete
+            # milestone carries 2 days of float, and because the whole pack is
+            # anchor-relative this window can land on any weekday, so a short
+            # one would be absorbed on some import days and bite on others. Seven
+            # calendar days always contain at least five working days, so the
+            # launch moves whatever day the demo is loaded — this is the
+            # calendar exception that actually bites (#3095).
+            {
+                "exc_start": d(157),
+                "exc_end": d(163),
+                "description": "Company shutdown — annual office closure",
+            },
         ],
     },
     # GTM team observes a regional holiday calendar (still Mon-Fri here, but a
@@ -565,6 +579,11 @@ PC_BASELINE_WBS = {
     "5.2",
     "5.3",
     "5.4",
+    # The Notifications backlog was shaped before Sprint 0 closed, so a day-3
+    # baseline honestly contains it. Only genuinely later scope stays out.
+    "5.6",
+    "5.7",
+    "5.8",
 }
 
 
@@ -910,12 +929,14 @@ MT_TASK_LINKS = {
 
 def _mt_task_entry(
     p_idx: int, t_idx: int, item: tuple
-) -> tuple[dict, dict, list[dict]]:
+) -> tuple[dict, dict, dict, list[dict]]:
     """Build one Migration Tooling task with its baseline row and dependency rows.
 
-    Returns ``(task, baseline_row, dep_rows)``. The baseline row keeps the
-    ORIGINAL (pre-slip) window; ``slip is None`` leaves off the SNET floor so the
-    task chains its predecessor's variance straight through (#1891).
+    Returns ``(task, baseline_row, replan_row, dep_rows)``. ``baseline_row``
+    keeps the ORIGINAL (pre-slip) window; ``replan_row`` is the same task as the
+    post-dry-run re-plan recorded it, so the two baselines differ by exactly the
+    realized slip. ``slip is None`` leaves off the SNET floor so the task chains
+    its predecessor's variance straight through (#1891).
     """
     name, ml, dep_paths, dep_type, original, slip, risk = item
     wbs = f"{p_idx}.{t_idx}"
@@ -955,17 +976,27 @@ def _mt_task_entry(
         "finish": d(original + ml),
         "duration": ml,
     }
+    # The re-plan re-cut every remaining task by its realized slip; work that had
+    # already completed (phases 1-2, slip 0) is identical in both baselines.
+    shift = slip or 0
+    replan_row = {
+        "task": wbs,
+        "start": d(original + shift),
+        "finish": d(original + shift + ml),
+        "duration": ml,
+    }
     dep_rows = [
         {"predecessor": dep, "successor": wbs, "dep_type": dep_type, "lag": 0}
         for dep in dep_paths
     ]
-    return task, baseline_row, dep_rows
+    return task, baseline_row, replan_row, dep_rows
 
 
 def build_migration_tooling() -> dict:
     tasks: list[dict] = []
     deps: list[dict] = []
     baseline_rows: list[dict] = []
+    replan_rows: list[dict] = []
 
     for p_idx, (phase, items) in enumerate(MT_PHASES, start=1):
         tasks.append(
@@ -978,9 +1009,12 @@ def build_migration_tooling() -> dict:
             }
         )
         for t_idx, item in enumerate(items, start=1):
-            task, baseline_row, dep_rows = _mt_task_entry(p_idx, t_idx, item)
+            task, baseline_row, replan_row, dep_rows = _mt_task_entry(
+                p_idx, t_idx, item
+            )
             tasks.append(task)
             baseline_rows.append(baseline_row)
+            replan_rows.append(replan_row)
             deps.extend(dep_rows)
 
     # Cutover milestone. Deliberately carries NO planned_start pin: a fixed SNET
@@ -1008,19 +1042,34 @@ def build_migration_tooling() -> dict:
         "methodology": "WATERFALL",
         "start_date": d(0),
         "calendar": "standard",
+        # The one project a PM has taken off AUTO: the dry-run findings forced a
+        # re-plan and the cutover tail now runs into the shutdown window, so the
+        # chip is a deliberate judgment rather than a rollup (#520, #3095).
+        "health": "AT_RISK",
         "members": members("migration-tooling"),
         "default_view": "SCHEDULE",
         "forecast_history": FORECAST_HISTORY["migration-tooling"],
         "labels": MT_LABELS,
         "tasks": tasks,
         "dependencies": deps,
+        # Two baselines, because one re-plan happened. The kickoff capture is
+        # retained but no longer active; variance in the Schedule view is
+        # measured against the re-plan, which is what the team is now committed
+        # to. Comparing the two is how a reviewer sees the +6/+7 day slip the
+        # dry-run findings caused (#3095).
         "baselines": [
             {
                 "name": "Kickoff baseline",
-                "is_active": True,
+                "is_active": False,
                 "captured_at": d(3),
                 "tasks": baseline_rows,
-            }
+            },
+            {
+                "name": "Post-dry-run re-plan",
+                "is_active": True,
+                "captured_at": d(80),
+                "tasks": replan_rows,
+            },
         ],
         "risks": [
             {
@@ -1107,6 +1156,11 @@ GTM_TASK_LABELS = {
     "2.5": ["content"],  # Launch blog
     "2.7": ["content"],  # Support runbook
 }
+
+# Days the *current* plan sits later than the launch-planning baseline recorded.
+# Finance review dragged, so the pricing gate and everything behind it slipped 3
+# days — GTM's baseline-vs-current variance is that drift, not a flat zero.
+GTM_BASELINE_DRIFT = {"1.2": 3, "1.3": 3}
 
 # The hybrid stream is genuinely hybrid: a gated waterfall planning lane AND a
 # real sprint cadence over the enablement lane (a 1-2 person content team, so
@@ -1277,6 +1331,25 @@ def build_gtm_readiness() -> dict:
             "planned_start": d(170),
         }
     )
+    # The remaining two dependency types plus a lead, so the flagship pack
+    # demonstrates the whole model without a reader opening Bayside (#3095).
+    #
+    # FF — the launch blog drafts in parallel with pricing sign-off but cannot be
+    # *finished* until pricing is final, because it quotes the price.
+    deps.append({"predecessor": "1.2", "successor": "2.5", "dep_type": "FF", "lag": 0})
+    # SF — webinar prep can only be *finished* once the gate review has *started*;
+    # the deck is built against whatever the gate is actually reviewing. 2.6 is a
+    # leaf, so this cannot close a cycle back through the planning chain.
+    deps.append({"predecessor": "1.3", "successor": "2.6", "dep_type": "SF", "lag": 0})
+    # Lead (negative lag) — the gate review was fast-tracked to open two days
+    # before pricing sign-off completes, rather than waiting on it.
+    for dep in deps:
+        if dep["predecessor"] == "1.2" and dep["successor"] == "1.3":
+            dep["lag"] = -2
+            break
+    else:  # pragma: no cover - guards a silent no-op if the planning rows change
+        raise AssertionError("expected a 1.2 -> 1.3 planning edge to fast-track")
+
     deps.append({"predecessor": "1.3", "successor": "3", "dep_type": "FS", "lag": 2})
     # cross-project: Migration must complete before public launch
     deps.append(
@@ -1302,6 +1375,33 @@ def build_gtm_readiness() -> dict:
         "tasks": tasks,
         "dependencies": deps,
         "sprints": sprints,
+        # GTM had no baseline at all, so its burn-up had no commitment line to
+        # slip against. Captured 3 days in, over both lanes: dated rows for the
+        # gated planning tasks and point rows for the enablement backlog (#3095).
+        "baselines": [
+            {
+                "name": "Launch-planning baseline",
+                "is_active": True,
+                "captured_at": d(43),
+                "tasks": [
+                    {
+                        "task": f"1.{i}",
+                        "start": d(start_day - GTM_BASELINE_DRIFT.get(f"1.{i}", 0)),
+                        "finish": d(
+                            start_day - GTM_BASELINE_DRIFT.get(f"1.{i}", 0) + ml
+                        ),
+                        "duration": ml,
+                    }
+                    for i, (_n, ml, _deps, start_day, _st, _pct) in enumerate(
+                        planning, start=1
+                    )
+                ]
+                + [
+                    {"task": f"2.{minor}", "story_points": points}
+                    for (minor, _n, points, *_rest) in GTM_ENABLEMENT
+                ],
+            }
+        ],
         "risks": [
             {
                 "slug": "gtm-launch-slip",

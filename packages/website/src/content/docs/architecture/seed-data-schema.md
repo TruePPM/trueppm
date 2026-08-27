@@ -84,7 +84,7 @@ entry in that test's `_EXEMPT` map **with the reason** — an unexplained
 exemption would let the gate be silenced by adding a line, which is the failure
 it exists to prevent.
 
-Two consequences worth knowing when authoring:
+Three consequences worth knowing when authoring:
 
 - **`baseline.captured_at` is honored.** It sets `Baseline.created_at`, which is
   otherwise `auto_now_add`. The interval between two baselines is what
@@ -97,6 +97,12 @@ Two consequences worth knowing when authoring:
   list cannot carry it. Omit the key entirely to leave a project on the API's
   defaults; emitting them would turn "uses the defaults" into "pinned today's
   defaults", which is a different claim on re-import.
+- **`project.health` is a PM override, not a computed value.** Omit it (or set
+  `AUTO`) to leave the project's chip to the rollup. The explicit values —
+  `ON_TRACK`, `AT_RISK`, `CRITICAL` — say a human made a judgment, so a pack that
+  sets one on every project turns the chip into decoration. Atlas sets exactly
+  one, on Migration Tooling, and leaves the other two on `AUTO` so the difference
+  is legible.
 
 ### Who can see a project: `accounts[].role` vs `projects[].members[]`
 
@@ -146,7 +152,7 @@ rather than only from a repository checkout:
 
 | Sample | Download | What it demonstrates |
 | --- | --- | --- |
-| Atlas Platform Launch | `GET /api/v1/programs/samples/atlas-platform-launch/download/` | The largest surface — a hybrid multi-project program, cross-project dependencies, three-point estimates, baselines, and a populated risk register. |
+| Atlas Platform Launch | `GET /api/v1/programs/samples/atlas-platform-launch/download/` | The largest surface — a hybrid multi-project program, cross-project dependencies, all four dependency types plus a lead, three-point estimates, two baselines on one project (a kickoff capture and the re-plan that superseded it), a calendar exception that moves the program finish, a manual health override, and a populated risk register with mitigation arcs. |
 | Aurora Mobile App | `.../aurora-mobile-app/download/` | Pure agile — an epic-grouped backlog, sprints with velocity history, no CPM. |
 | Bayside Civic Center | `.../bayside-civic-center/download/` | Pure waterfall — all four dependency types, working calendars, calendar-aware lag, a contract baseline plus a change-order rebaseline. |
 | Helios CRM Replacement | `.../helios-crm-replacement/download/` | The entry-level hybrid — a completed waterfall phase feeding an agile build phase across one cross-phase dependency. |

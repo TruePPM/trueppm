@@ -126,6 +126,11 @@
           "exc_start": "A-45",
           "exc_end": "A-43",
           "description": "Diego — PTO"
+        },
+        {
+          "exc_start": "A+67",
+          "exc_end": "A+73",
+          "description": "Company shutdown — annual office closure"
         }
       ]
     },
@@ -1445,6 +1450,18 @@
             {
               "task": "5.4",
               "story_points": 3
+            },
+            {
+              "task": "5.6",
+              "story_points": 5
+            },
+            {
+              "task": "5.7",
+              "story_points": 2
+            },
+            {
+              "task": "5.8",
+              "story_points": 3
             }
           ]
         }
@@ -1539,6 +1556,7 @@
       "methodology": "WATERFALL",
       "start_date": "A-90",
       "calendar": "standard",
+      "health": "AT_RISK",
       "members": [
         {
           "account": "alex",
@@ -2138,7 +2156,7 @@
       "baselines": [
         {
           "name": "Kickoff baseline",
-          "is_active": true,
+          "is_active": false,
           "captured_at": "A-87",
           "tasks": [
             {
@@ -2235,6 +2253,121 @@
               "task": "5.1",
               "start": "A+55",
               "finish": "A+57",
+              "duration": 2
+            },
+            {
+              "task": "5.2",
+              "start": "A+60",
+              "finish": "A+63",
+              "duration": 3
+            },
+            {
+              "task": "5.3",
+              "start": "A+63",
+              "finish": "A+67",
+              "duration": 4
+            }
+          ]
+        },
+        {
+          "name": "Post-dry-run re-plan",
+          "is_active": true,
+          "captured_at": "A-10",
+          "tasks": [
+            {
+              "task": "1.1",
+              "start": "A-90",
+              "finish": "A-85",
+              "duration": 5
+            },
+            {
+              "task": "1.2",
+              "start": "A-83",
+              "finish": "A-79",
+              "duration": 4
+            },
+            {
+              "task": "1.3",
+              "start": "A-88",
+              "finish": "A-82",
+              "duration": 6
+            },
+            {
+              "task": "1.4",
+              "start": "A-77",
+              "finish": "A-74",
+              "duration": 3
+            },
+            {
+              "task": "2.1",
+              "start": "A-46",
+              "finish": "A-38",
+              "duration": 8
+            },
+            {
+              "task": "2.2",
+              "start": "A-42",
+              "finish": "A-35",
+              "duration": 7
+            },
+            {
+              "task": "2.3",
+              "start": "A-36",
+              "finish": "A-30",
+              "duration": 6
+            },
+            {
+              "task": "2.4",
+              "start": "A-28",
+              "finish": "A-24",
+              "duration": 4
+            },
+            {
+              "task": "3.1",
+              "start": "A-11",
+              "finish": "A-6",
+              "duration": 5
+            },
+            {
+              "task": "3.2",
+              "start": "A+11",
+              "finish": "A+15",
+              "duration": 4
+            },
+            {
+              "task": "3.3",
+              "start": "A+1",
+              "finish": "A+7",
+              "duration": 6
+            },
+            {
+              "task": "3.4",
+              "start": "A+18",
+              "finish": "A+23",
+              "duration": 5
+            },
+            {
+              "task": "4.1",
+              "start": "A+32",
+              "finish": "A+35",
+              "duration": 3
+            },
+            {
+              "task": "4.2",
+              "start": "A+37",
+              "finish": "A+41",
+              "duration": 4
+            },
+            {
+              "task": "4.3",
+              "start": "A+34",
+              "finish": "A+37",
+              "duration": 3
+            },
+            {
+              "task": "5.1",
+              "start": "A+61",
+              "finish": "A+63",
               "duration": 2
             },
             {
@@ -2582,6 +2715,18 @@
           "predecessor": "1.2",
           "successor": "1.3",
           "dep_type": "FS",
+          "lag": -2
+        },
+        {
+          "predecessor": "1.2",
+          "successor": "2.5",
+          "dep_type": "FF",
+          "lag": 0
+        },
+        {
+          "predecessor": "1.3",
+          "successor": "2.6",
+          "dep_type": "SF",
           "lag": 0
         },
         {
@@ -2627,6 +2772,65 @@
           "start_date": "A+8",
           "finish_date": "A+21",
           "capacity_points": 14
+        }
+      ],
+      "baselines": [
+        {
+          "name": "Launch-planning baseline",
+          "is_active": true,
+          "captured_at": "A-47",
+          "tasks": [
+            {
+              "task": "1.1",
+              "start": "A-48",
+              "finish": "A-44",
+              "duration": 4
+            },
+            {
+              "task": "1.2",
+              "start": "A-12",
+              "finish": "A-9",
+              "duration": 3
+            },
+            {
+              "task": "1.3",
+              "start": "A+3",
+              "finish": "A+5",
+              "duration": 2
+            },
+            {
+              "task": "2.1",
+              "story_points": 5
+            },
+            {
+              "task": "2.2",
+              "story_points": 3
+            },
+            {
+              "task": "2.3",
+              "story_points": 5
+            },
+            {
+              "task": "2.4",
+              "story_points": 5
+            },
+            {
+              "task": "2.5",
+              "story_points": 3
+            },
+            {
+              "task": "2.6",
+              "story_points": 5
+            },
+            {
+              "task": "2.7",
+              "story_points": 5
+            },
+            {
+              "task": "2.8",
+              "story_points": 3
+            }
+          ]
         }
       ],
       "risks": [
