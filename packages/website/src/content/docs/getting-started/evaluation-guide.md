@@ -103,6 +103,31 @@ Persona accounts are namespaced `<sample>-<name>` — `aurora-priya`,
 exist but cannot sign in. You can also stay on your own admin account: you own
 every sample you load, so you already see everything the walkthroughs point at.
 
+### Each persona sees only their own projects
+
+Signing in as a persona is not a cosmetic change of name in the corner — access
+is scoped per project, so what a persona can open and what they can change both
+depend on who they are. Atlas is built to show this, because it is the only
+sample with enough projects for one person to hold two different roles:
+
+| Sign in as | Sees | Role |
+| --- | --- | --- |
+| `atlas-alex` | all three projects | Project Admin — the program lead |
+| `atlas-priya` | Platform Core, Migration Tooling | **Project Manager** on Platform Core, **Team Member** on Migration Tooling. She cannot see GTM Readiness at all |
+| `atlas-jordan` | GTM Readiness, Platform Core | **Project Admin** on GTM Readiness, **Team Member** on Platform Core |
+| `atlas-raj` | Migration Tooling only | Resource Manager — the DevOps engineer works one stream and sees one stream |
+| `atlas-clara` | GTM Readiness only | Team Member |
+| `atlas-ivan` | Platform Core, Migration Tooling | Viewer — read-only on both |
+| `atlas-ada` | all three projects | Viewer — the executive sponsor reads everything and edits nothing |
+
+Sign in as `atlas-priya`, then as `atlas-jordan`, and compare the project list
+and the actions each one is offered on Platform Core. That contrast is the
+fastest way to see the five-role model doing real work.
+
+The other three samples give every persona the same role on every project, which
+is the right shape for a single-project team — the roster comes from each
+account's program role.
+
 When you are done, the program owner can **Remove sample data** to tear a demo
 down without touching real work. See
 [Sample projects & JSON import/export](/getting-started/sample-projects/) for

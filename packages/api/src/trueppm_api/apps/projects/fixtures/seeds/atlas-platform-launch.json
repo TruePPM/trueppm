@@ -366,6 +366,60 @@
       "methodology": "AGILE",
       "start_date": "A-90",
       "calendar": "standard",
+      "members": [
+        {
+          "account": "alex",
+          "role": "OWNER"
+        },
+        {
+          "account": "priya",
+          "role": "ADMIN"
+        },
+        {
+          "account": "sam",
+          "role": "SCHEDULER"
+        },
+        {
+          "account": "jordan",
+          "role": "MEMBER"
+        },
+        {
+          "account": "mei",
+          "role": "MEMBER"
+        },
+        {
+          "account": "diego",
+          "role": "MEMBER"
+        },
+        {
+          "account": "nadia",
+          "role": "MEMBER"
+        },
+        {
+          "account": "tom",
+          "role": "MEMBER"
+        },
+        {
+          "account": "yuki",
+          "role": "MEMBER"
+        },
+        {
+          "account": "omar",
+          "role": "MEMBER"
+        },
+        {
+          "account": "lena",
+          "role": "MEMBER"
+        },
+        {
+          "account": "ivan",
+          "role": "VIEWER"
+        },
+        {
+          "account": "ada",
+          "role": "VIEWER"
+        }
+      ],
       "default_view": "BOARD",
       "agile_features": true,
       "forecast_history": {
@@ -1345,6 +1399,44 @@
       "methodology": "WATERFALL",
       "start_date": "A-90",
       "calendar": "standard",
+      "members": [
+        {
+          "account": "alex",
+          "role": "OWNER"
+        },
+        {
+          "account": "sam",
+          "role": "SCHEDULER"
+        },
+        {
+          "account": "raj",
+          "role": "SCHEDULER"
+        },
+        {
+          "account": "priya",
+          "role": "MEMBER"
+        },
+        {
+          "account": "omar",
+          "role": "MEMBER"
+        },
+        {
+          "account": "yuki",
+          "role": "MEMBER"
+        },
+        {
+          "account": "tom",
+          "role": "MEMBER"
+        },
+        {
+          "account": "ivan",
+          "role": "VIEWER"
+        },
+        {
+          "account": "ada",
+          "role": "VIEWER"
+        }
+      ],
       "default_view": "SCHEDULE",
       "forecast_history": {
         "days": 60,
@@ -2100,6 +2192,32 @@
       "methodology": "HYBRID",
       "start_date": "A-50",
       "calendar": "gtm-regional",
+      "members": [
+        {
+          "account": "alex",
+          "role": "OWNER"
+        },
+        {
+          "account": "jordan",
+          "role": "OWNER"
+        },
+        {
+          "account": "sam",
+          "role": "SCHEDULER"
+        },
+        {
+          "account": "clara",
+          "role": "MEMBER"
+        },
+        {
+          "account": "lena",
+          "role": "MEMBER"
+        },
+        {
+          "account": "ada",
+          "role": "VIEWER"
+        }
+      ],
       "default_view": "OVERVIEW",
       "agile_features": true,
       "forecast_history": {

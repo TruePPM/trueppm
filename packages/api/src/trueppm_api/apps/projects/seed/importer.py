@@ -819,6 +819,49 @@ class _SeedImporter:
                 program=program, user=user, defaults={"role": role}
             )
 
+    def _grant_project_memberships(self, project: Project, data: dict[str, Any]) -> None:
+        """Grant the seed's accounts a ``ProjectMembership`` on this project (#3092).
+
+        Project access is scoped by ``ProjectMembership`` — ``ProgramMembership``
+        alone reaches the program rail and *no* project. Before this the importer
+        granted only the owner, so every seeded persona signed in to an empty
+        project list and the documented evaluation walkthrough dead-ended on its
+        "sign in as atlas-alex" step.
+
+        Two modes, and the fallback is what keeps existing packs working:
+
+        * ``members`` **declared** — use exactly those pairs. This is the only way
+          to express one person holding different roles on different projects,
+          which is what makes project-scoped RBAC demonstrable at all.
+        * ``members`` **omitted** — grant every account its program-level role.
+          Equivalent to the flat roster a v2 seed already describes, so a fixture
+          written before this key existed gains working access without an edit.
+
+        The owner is skipped: they were granted OWNER unconditionally by the
+        caller, and a seed must never be able to *demote* the importing user on
+        their own project. Accounts that resolved to ``None`` — a pre-existing
+        real user on an untrusted import (see ``_resolve_accounts``) — are skipped
+        by the same guard that protects every other account reference, so a
+        crafted seed cannot pull a stranger into a project it does not own.
+        """
+        declared = data.get("members")
+        if declared is None:
+            pairs = [
+                (account["slug"], account.get("role", ""))
+                for account in self.payload.get("accounts", [])
+            ]
+        else:
+            pairs = [(entry["account"], entry["role"]) for entry in declared]
+
+        for account_slug, role_name in pairs:
+            user = self.users.get(account_slug)
+            role = _ROLE_BY_NAME.get(role_name)
+            if user is None or role is None or user == self.owner:
+                continue
+            ProjectMembership.objects.update_or_create(
+                project=project, user=user, defaults={"role": role}
+            )
+
     # --- per-project structure (Pass A) ------------------------------------
 
     def _create_project_structure(self, program: Program, data: dict[str, Any]) -> None:
@@ -846,6 +889,7 @@ class _SeedImporter:
         ProjectMembership.objects.update_or_create(
             project=project, user=self.owner, defaults={"role": Role.OWNER}
         )
+        self._grant_project_memberships(project, data)
 
         # Labels (ADR-0400, #1958): the project's curated label catalog. Created
         # here in Pass A so the Pass B ``_link_task_labels`` step can attach each
