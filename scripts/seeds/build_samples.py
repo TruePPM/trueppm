@@ -19,6 +19,44 @@ import json
 import sys
 from pathlib import Path
 
+
+# Kanban board configuration (#3093). ``board_columns`` used to be a list of
+# label strings that the importer ignored; it now mirrors BoardColumnConfig,
+# which is keyed on the canonical status a label list cannot carry. Labels stay
+# the team's own vocabulary — the status underneath is what every downstream
+# reader (burndown, WIP, velocity) uses.
+def board_columns(
+    *,
+    labels: dict[str, str] | None = None,
+    wip: dict[str, int] | None = None,
+    lanes: dict[str, list[dict[str, object]]] | None = None,
+) -> list[dict[str, object]]:
+    """Build a full five-status board config, overriding labels/WIP/lanes by status."""
+    defaults = {
+        "BACKLOG": "Backlog",
+        "NOT_STARTED": "To Do",
+        "IN_PROGRESS": "In Progress",
+        "REVIEW": "In Review",
+        "COMPLETE": "Done",
+    }
+    labels = labels or {}
+    wip = wip or {}
+    lanes = lanes or {}
+    out: list[dict[str, object]] = []
+    for status, default_label in defaults.items():
+        column: dict[str, object] = {
+            "status": status,
+            "label": labels.get(status, default_label),
+            "visible": True,
+        }
+        if status in wip:
+            column["wip_limit"] = wip[status]
+        if status in lanes:
+            column["lanes"] = lanes[status]
+        out.append(column)
+    return out
+
+
 # Anchor-relative dates (ADR-0114, seed v2). Dates are emitted as offsets from
 # the import-day anchor "A" so each demo always reads as a program in flight; the
 # event-replay importer replays the authored event timeline (and synthesizes the
@@ -764,14 +802,10 @@ def build_aurora() -> dict:
                 "start_date": D(0),
                 "calendar": "aurora-core",
                 "default_view": "BOARD",
-                "agile_features": True,
-                "board_columns": [
-                    "Backlog",
-                    "To Do",
-                    "In Progress",
-                    "In Review",
-                    "Done",
-                ],
+                "board_columns": board_columns(
+                    labels={"NOT_STARTED": "Ready", "REVIEW": "In Review"},
+                    wip={"IN_PROGRESS": 4, "REVIEW": 2},
+                ),
                 "labels": labels_catalog,
                 "tasks": tasks,
                 "sprints": sprints,
@@ -1407,13 +1441,6 @@ def build_bayside() -> dict:
         ),
         _ev(
             ts(77, 9, 30), "task.estimate", sw("3.2"), "diego", estimate=three_point(8)
-        ),
-        _ev(
-            ts(77, 12, 0),
-            "baseline.capture",
-            "project:bayside-sitework",
-            "sam",
-            body="Rebaseline — mezzanine change order",
         ),
         # A subsequent weather delay drifts the roof/inspection tail two days past
         # even the fresh rebaseline — the residual variance on the current plan.
@@ -2352,7 +2379,6 @@ def build_helios() -> dict:
                 "start_date": D(0),
                 "calendar": "helios-core",
                 "default_view": "OVERVIEW",
-                "agile_features": True,
                 # Forecast-trend history (#376): ~2 months of snapshots. The
                 # go-live commitment (milestone 4, A+35) holds while the CPM
                 # finish drifts a few days past it and the MC band widens right,

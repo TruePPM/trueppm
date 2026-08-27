@@ -32,6 +32,7 @@ from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership,
 from trueppm_api.apps.projects.models import (
     Baseline,
     BaselineTask,
+    BoardColumnConfig,
     Dependency,
     Label,
     Program,
@@ -435,6 +436,9 @@ class _Exporter:
             block["default_view"] = project.default_view
         if project.estimation_mode and project.estimation_mode != "open":
             block["estimation_mode"] = project.estimation_mode
+        board_columns = self._board_column_blocks(project)
+        if board_columns:
+            block["board_columns"] = board_columns
         member_blocks = self._member_blocks(project)
         if member_blocks:
             block["members"] = member_blocks
@@ -490,6 +494,45 @@ class _Exporter:
             if m.user_id in self.user_slugs
         ]
         return sorted(blocks, key=lambda b: b["account"])
+
+    def _board_column_blocks(self, project: Project) -> list[dict[str, Any]]:
+        """Emit the project's board configuration, if it has one (#3093).
+
+        Absent when the project never configured a board — the API serves
+        hardcoded defaults in that case, and emitting them would turn "this
+        project uses the defaults" into "this project pinned today's defaults",
+        which is a different and worse claim on re-import.
+
+        Optional per-column metadata is emitted only when set, so a plain
+        rename round-trips as a rename rather than as a config that also pins
+        every null.
+        """
+        config = BoardColumnConfig.objects.filter(project=project).first()
+        if config is None or not config.columns:
+            return []
+        blocks: list[dict[str, Any]] = []
+        for column in config.columns:
+            entry: dict[str, Any] = {
+                "status": column["status"],
+                "label": column.get("label", ""),
+            }
+            if column.get("visible") is not None:
+                entry["visible"] = column["visible"]
+            for key in ("color", "wip_limit", "age_threshold_days"):
+                if column.get(key) is not None:
+                    entry[key] = column[key]
+            lanes = [
+                {
+                    "key": lane["key"],
+                    "label": lane["label"],
+                    **({"wip_limit": lane["wip_limit"]} if lane.get("wip_limit") else {}),
+                }
+                for lane in (column.get("lanes") or [])
+            ]
+            if lanes:
+                entry["lanes"] = lanes
+            blocks.append(entry)
+        return blocks
 
     def _label_blocks(self, project: Project) -> list[dict[str, Any]]:
         """Emit the project's labels and index each task's label slugs (#1958).
@@ -561,6 +604,8 @@ class _Exporter:
         if task.parent_epic_id is not None and task.parent_epic_id in self.task_ref:
             block["parent_epic"] = self.task_ref[task.parent_epic_id][1]
         _put(block, "sprint_rank", task.sprint_rank)
+        if task.dor and task.dor != "idea":
+            block["dor"] = task.dor
         if task.governance_class and task.governance_class != "flow":
             block["governance_class"] = task.governance_class
         if task.delivery_mode and task.delivery_mode != "waterfall":
@@ -679,6 +724,10 @@ class _Exporter:
                 _put(row, "story_points", bt.story_points)
                 task_rows.append(row)
             block: dict[str, Any] = {"name": baseline.name, "tasks": task_rows}
+            # Without this the round-trip silently flattens every baseline's
+            # capture date onto import day (#3093), which is the interval
+            # planned-vs-actual is measured over.
+            block["captured_at"] = self._date_str(baseline.created_at.date())
             if baseline.is_active:
                 block["is_active"] = True
             blocks.append(block)

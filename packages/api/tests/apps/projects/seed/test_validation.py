@@ -70,7 +70,12 @@ def _valid_seed() -> dict[str, Any]:
                 "methodology": "AGILE",
                 "start_date": "2026-01-05",
                 "calendar": "default",
-                "board_columns": ["Backlog", "To Do", "In Progress", "Done"],
+                "board_columns": [
+                    {"status": "BACKLOG", "label": "Backlog"},
+                    {"status": "NOT_STARTED", "label": "To Do"},
+                    {"status": "IN_PROGRESS", "label": "In Progress"},
+                    {"status": "COMPLETE", "label": "Done"},
+                ],
                 "tasks": [
                     {
                         "wbs_path": "1",

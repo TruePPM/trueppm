@@ -286,3 +286,110 @@ def test_risk_blocks_export_is_not_n_plus_1(owner: Any, django_assert_num_querie
     probe_blocks = [b for b in blocks if b["title"].startswith("N+1 probe risk")]
     assert len(probe_blocks) == 4
     assert all(b.get("tasks") for b in probe_blocks)
+
+
+def test_board_columns_round_trip_and_omit_unset_metadata(owner: Any) -> None:
+    """The board config exports in the shape the importer reads back (#3093).
+
+    Optional per-column metadata is emitted only when set: a project that merely
+    renamed its columns must round-trip as a rename, not as a config that also
+    pins every null. The importer stores the nulls explicitly, so without the
+    omission the second export would not be byte-stable against the first.
+    """
+    from trueppm_api.apps.projects.models import BoardColumnConfig
+
+    program = import_seed(_seed(), owner=owner, create_users=True)
+    project = program.projects.get(name="Platform Core")
+    BoardColumnConfig.objects.create(
+        project=project,
+        columns=[
+            {"status": "BACKLOG", "label": "Icebox", "visible": False, "color": "#8B5CF6"},
+            {
+                "status": "NOT_STARTED",
+                "label": "Ready",
+                "visible": True,
+                "wip_limit": 3,
+                "age_threshold_days": 5,
+            },
+            {
+                "status": "IN_PROGRESS",
+                "label": "Building",
+                "visible": True,
+                "lanes": [
+                    {"key": "frontend", "label": "Frontend", "wip_limit": 2},
+                    {"key": "backend", "label": "Backend", "wip_limit": None},
+                ],
+            },
+            {"status": "REVIEW", "label": "Review", "visible": True, "wip_limit": 2},
+            {
+                "status": "COMPLETE",
+                "label": "Shipped",
+                "visible": True,
+                "color": None,
+                "wip_limit": None,
+                "age_threshold_days": None,
+                "lanes": [],
+            },
+        ],
+    )
+
+    exported = export_program(program)
+    validate_seed(exported)
+    block = next(p for p in exported["projects"] if p["name"] == project.name)
+    columns = block["board_columns"]
+    assert [c["status"] for c in columns] == [
+        "BACKLOG",
+        "NOT_STARTED",
+        "IN_PROGRESS",
+        "REVIEW",
+        "COMPLETE",
+    ]
+
+    by_status = {c["status"]: c for c in columns}
+    assert by_status["BACKLOG"] == {
+        "status": "BACKLOG",
+        "label": "Icebox",
+        "visible": False,
+        "color": "#8B5CF6",
+    }
+    assert by_status["NOT_STARTED"]["wip_limit"] == 3
+    assert by_status["NOT_STARTED"]["age_threshold_days"] == 5
+    # Every unset value is absent, not null — including the lane's own wip_limit.
+    assert by_status["COMPLETE"] == {"status": "COMPLETE", "label": "Shipped", "visible": True}
+    assert by_status["IN_PROGRESS"]["lanes"] == [
+        {"key": "frontend", "label": "Frontend", "wip_limit": 2},
+        {"key": "backend", "label": "Backend"},
+    ]
+
+    # Re-import: the config materializes with the same authored values.
+    program2 = import_seed(exported, owner=owner, create_users=True, replace=True)
+    project2 = program2.projects.get(name=project.name)
+    config2 = BoardColumnConfig.objects.get(project=project2)
+    assert [c["label"] for c in config2.columns] == [
+        "Icebox",
+        "Ready",
+        "Building",
+        "Review",
+        "Shipped",
+    ]
+    assert config2.columns[0]["visible"] is False
+    assert config2.columns[3]["wip_limit"] == 2
+    assert config2.columns[2]["lanes"][0] == {
+        "key": "frontend",
+        "label": "Frontend",
+        "wip_limit": 2,
+    }
+    # A second export is byte-stable against the first — the null-pinning check.
+    reexported = next(p for p in export_program(program2)["projects"] if p["name"] == project.name)
+    assert reexported["board_columns"] == columns
+
+
+def test_a_project_with_no_board_config_omits_the_key(owner: Any) -> None:
+    """Absent config must stay absent — emitting the API's hardcoded defaults
+    would turn "uses the defaults" into "pinned today's defaults" on re-import.
+    """
+    program = import_seed(_seed(), owner=owner, create_users=True)
+    exported = export_program(program)
+    project = program.projects.get(name="Platform Core")
+    block = next(p for p in exported["projects"] if p["name"] == project.name)
+    assert "board_columns" not in block
