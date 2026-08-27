@@ -17,9 +17,15 @@ let policy = 'keep';
 // ever mounted under a QueryClient, so the hook is real in production and mocked
 // here alongside the policy it already reads.
 let projectHoursPerDay = 8;
+// The server's own date, which the strip reads to disclose the date-gated
+// NOT_STARTED → IN_PROGRESS promote before the user commits a start (#3075).
+// `undefined` is the "project not loaded / older server" case, in which the labels
+// must read exactly as they did before that disclosure existed.
+let serverDate: string | undefined;
 vi.mock('@/hooks/useProject', () => ({
   useEffectiveDurationPolicy: () => policy,
   useProjectHoursPerDay: () => projectHoursPerDay,
+  useProject: () => ({ data: serverDate === undefined ? {} : { server_date: serverDate } }),
 }));
 let coarse = false;
 vi.mock('@/hooks/useIsCoarsePointer', () => ({
@@ -546,5 +552,70 @@ describe('TaskScheduleStrip', () => {
       expect(screen.queryByText('Not on the timeline')).not.toBeInTheDocument();
       expect(screen.queryByText('(computed, not committed)')).not.toBeInTheDocument();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Date-gated promote disclosure (#3075)
+// ---------------------------------------------------------------------------
+
+describe('the drawer discloses the date-gated promote', () => {
+  // Pinned, and every date below is derived from it — the label under test is a
+  // comparison against the *server's* date, so a literal would silently start
+  // testing a different branch on a different day.
+  const SERVER_TODAY = '2026-01-13';
+
+  function shift(days: number): string {
+    const [y, m, d] = SERVER_TODAY.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+  }
+
+  const editableProps = { projectId: 'p1', canEdit: true };
+
+  function uncommittedStartingOn(start: string): Task {
+    return makeTask({ status: 'NOT_STARTED', plannedStart: null, start });
+  }
+
+  afterEach(() => {
+    serverDate = undefined;
+  });
+
+  it('names the status change when the start has already arrived', () => {
+    serverDate = SERVER_TODAY;
+    render(<TaskScheduleStrip task={uncommittedStartingOn(SERVER_TODAY)} {...editableProps} />);
+    expect(
+      screen.getByRole('button', { name: /also marks this task In progress/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('names the backdating for a start in the past', () => {
+    serverDate = SERVER_TODAY;
+    render(<TaskScheduleStrip task={uncommittedStartingOn(shift(-3))} {...editableProps} />);
+    expect(
+      screen.getByRole('button', { name: /In progress, backdated to that day/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('stays silent for a start that has not arrived', () => {
+    serverDate = SERVER_TODAY;
+    render(<TaskScheduleStrip task={uncommittedStartingOn(shift(5))} {...editableProps} />);
+    expect(screen.getByRole('button', { name: /Set committed start/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /In progress/i })).not.toBeInTheDocument();
+  });
+
+  it('stays silent when the project has not loaded, rather than guessing', () => {
+    // The label is a promise about what the click will do. With no server date there
+    // is nothing to base one on, and the browser's clock is exactly the substitute
+    // this must not make.
+    serverDate = undefined;
+    render(<TaskScheduleStrip task={uncommittedStartingOn(shift(-3))} {...editableProps} />);
+    expect(screen.queryByRole('button', { name: /In progress/i })).not.toBeInTheDocument();
+  });
+
+  it('gives the visible label and the accessible name the same text', () => {
+    serverDate = SERVER_TODAY;
+    render(<TaskScheduleStrip task={uncommittedStartingOn(SERVER_TODAY)} {...editableProps} />);
+    const button = screen.getByRole('button', { name: /also marks this task In progress/i });
+    expect(button.getAttribute('aria-label')).toBe(button.textContent);
   });
 });

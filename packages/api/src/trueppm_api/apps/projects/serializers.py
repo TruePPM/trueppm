@@ -560,6 +560,15 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # where no test would catch it. Calls the SAME predicate IsProjectPlanAuthor
     # enforces — one rule, called twice (ADR-0133).
     can_author = serializers.SerializerMethodField()
+    # The server's own current date, so a client can tell whether a date it is about to
+    # commit has already arrived (#3075). Several server rules are gated on
+    # ``timezone.localdate()`` — most visibly the NOT_STARTED → IN_PROGRESS promote in
+    # ``TaskEditSerializer._apply_date_gated_start_transition`` — and a client comparing
+    # against the *browser's* date gets a different answer across a timezone boundary,
+    # which is the one case where the answer matters. Emitted rather than inferred for
+    # the same reason ``can_author`` is: re-deriving a server rule on the client is a
+    # second implementation that can disagree with the first.
+    server_date = serializers.SerializerMethodField()
     # Human label for ``default_member_role`` (ADR-0363, #157) so the settings UI
     # renders "Team Member" without duplicating the ordinal→label map client-side.
     default_member_role_label = serializers.SerializerMethodField()
@@ -818,6 +827,8 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "my_role_label",
             # Whether the caller may enter the Designer's Author mode (ADR-0773 §(d)).
             "can_author",
+            # The server's today, for client-side previews of date-gated server rules (#3075).
+            "server_date",
             # Lifecycle (#530) — read-only; flipped via /archive/ and /unarchive/.
             "lifecycle",
             "draft_started_at",
@@ -832,6 +843,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "my_role",
             "my_role_label",
             "can_author",
+            "server_date",
             "default_member_role_label",
             "effective_calendar",
             "calendar_source",
@@ -1020,6 +1032,19 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         if request is None:
             return False
         return can_user_author_plan(request, obj)
+
+    @extend_schema_field(serializers.DateField())
+    def get_server_date(self, obj: Project) -> str:
+        """The server's current date, as the date-gated task rules resolve it.
+
+        ``timezone.localdate()`` — the exact call
+        ``TaskEditSerializer._apply_date_gated_start_transition`` and the other
+        date-gated rules make — so a client can predict them instead of guessing from
+        the browser clock. Not per-project: it resolves ``settings.TIME_ZONE``, which is
+        what those rules read. Named for what it is rather than "today", because whose
+        today it is is precisely the thing that was ambiguous (#3075).
+        """
+        return timezone.localdate().isoformat()
 
     def get_my_role_label(self, obj: Project) -> str | None:
         """Human-readable label for the caller's role (e.g. "Project Manager").

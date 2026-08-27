@@ -107,6 +107,27 @@ Two consequences worth knowing:
   [Scheduling before the project start](#scheduling-before-the-project-start)
   for the related project-boundary behavior.
 
+### Committing a start that has already arrived
+
+Committing a start on a **To Do** task sets more than the date when that date is
+today or earlier. A task whose committed start has arrived *is* underway, so
+TruePPM also moves it to **In progress**. If the date is in the past, the task's
+**actual start** is recorded as that day too.
+
+Every control that can trigger it says so before you click — the drawer's *Set
+committed start*, and the unscheduled gutter's quick actions and **Promote to
+schedule**. Each gains a clause naming the status change, and the confirmation
+after the write repeats what actually happened. A future date changes nothing but
+the date, and the controls read as they always have.
+
+"Already arrived" is judged against **the server's date**, not your browser's. On
+a team spread across time zones the two can disagree by a day, and it is the
+server that decides.
+
+To commit a past start *without* moving the task out of To Do, set the status back
+to **To Do** after committing — the promote only fires on the write that sets the
+date.
+
 ### Why a task in progress with no committed start is flagged
 
 A task that has reached **In progress**, **Review**, or **Complete** without a
