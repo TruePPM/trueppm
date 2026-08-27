@@ -210,7 +210,7 @@ function CeremonyRow({
                   items[items.length - 1]?.focus();
                 }
               }}
-              className="z-50 min-w-[140px] rounded-card border border-neutral-border bg-neutral-surface-raised py-1 text-[13px]"
+              className="z-50 min-w-[140px] overflow-y-auto rounded-card border border-neutral-border bg-neutral-surface-raised py-1 text-[13px]"
             >
               <button
                 type="button"

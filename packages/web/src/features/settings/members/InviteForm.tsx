@@ -151,7 +151,7 @@ export function InviteForm({ projectId }: InviteFormProps) {
                 className={[
                   'z-50 rounded border border-neutral-border',
                   'bg-neutral-surface shadow-none divide-y divide-neutral-border',
-                  'max-h-52 overflow-y-auto',
+                  'overflow-y-auto',
                 ].join(' ')}
               >
                 {isFetching && (

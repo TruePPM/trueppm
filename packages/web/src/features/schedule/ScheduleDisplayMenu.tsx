@@ -534,8 +534,8 @@ export function ScheduleDisplayMenu({
           aria-label="Display options"
           tabIndex={-1}
           onKeyDown={onMenuKeyDown}
-          className="absolute right-0 top-full mt-1 z-30 min-w-[200px]
-            rounded-card border border-neutral-border bg-neutral-surface py-1"
+          className="absolute right-0 top-full mt-1 z-30 min-w-[200px] max-h-[min(70vh,32rem)]
+            overflow-y-auto rounded-card border border-neutral-border bg-neutral-surface py-1"
         >
           {sections.map((section, si) => {
             const headingId = `${menuId}-${section.id}`;

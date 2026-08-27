@@ -110,14 +110,18 @@ export function BuildModeRowMenu({ anchor, items, onClose }: BuildModeRowMenuPro
   const viewportW = typeof window !== 'undefined' ? window.innerWidth : 1200;
   const top = anchor.y + menuHeight > viewportH ? Math.max(0, anchor.y - menuHeight) : anchor.y;
   const left = anchor.x + MENU_WIDTH > viewportW ? Math.max(0, anchor.x - MENU_WIDTH) : anchor.x;
+  // The flip above only re-derives `top`; on a viewport shorter than the menu
+  // itself neither direction has room, so clamp the panel's own height to what's
+  // actually left and let it scroll rather than spill past the opposite edge.
+  const maxHeight = Math.max(0, viewportH - 16);
 
   return createPortal(
     <ul
       ref={menuRef}
       role="menu"
       aria-label="Row actions"
-      className="fixed z-50 bg-neutral-surface border border-neutral-border rounded-card py-1 text-[13px]"
-      style={{ top, left, width: MENU_WIDTH }}
+      className="fixed z-50 overflow-y-auto bg-neutral-surface border border-neutral-border rounded-card py-1 text-[13px]"
+      style={{ top, left, width: MENU_WIDTH, maxHeight }}
     >
       {items.map((item, idx) => (
         <li key={item.key}>

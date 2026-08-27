@@ -216,10 +216,10 @@ export function EntitySelectCombobox({
             // z-[70] (above the z-[60] modal tier): this combobox is embedded in
             // the z-[60] transfer dialogs, so the portaled panel must sit above the
             // modal scrim to stay clickable.
-            className="z-[70] rounded-card border border-neutral-border bg-neutral-surface"
+            className="z-[70] flex flex-col overflow-hidden rounded-card border border-neutral-border bg-neutral-surface"
           >
             {/* Icon-prefixed search box — ring on the wrapper (rule 157). */}
-            <div className="flex h-7 items-center gap-1.5 border-b border-neutral-border px-2 focus-within:ring-2 focus-within:ring-inset focus-within:ring-brand-primary">
+            <div className="flex h-7 shrink-0 items-center gap-1.5 border-b border-neutral-border px-2 focus-within:ring-2 focus-within:ring-inset focus-within:ring-brand-primary">
               <svg
                 aria-hidden="true"
                 width="12"
@@ -259,7 +259,7 @@ export function EntitySelectCombobox({
               role="listbox"
               aria-label={`Select ${label}`}
               id={listboxId}
-              className="max-h-56 overflow-y-auto py-0.5"
+              className="flex-1 min-h-0 overflow-y-auto py-0.5"
             >
               {isLoading ? (
                 <div role="status" className="px-2 py-1.5 text-xs text-neutral-text-secondary">

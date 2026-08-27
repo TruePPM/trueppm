@@ -258,7 +258,7 @@ export function BoardViewDropdown({
         <div
           role="menu"
           className="absolute left-0 top-full mt-1 z-50 bg-neutral-surface border border-neutral-border
-            rounded-card min-w-[180px] py-1"
+            rounded-card min-w-[180px] max-h-[min(70vh,32rem)] overflow-y-auto py-1"
         >
           {/* Clear selection */}
           {activeViewId && (

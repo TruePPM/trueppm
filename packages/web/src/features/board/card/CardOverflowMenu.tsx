@@ -114,8 +114,9 @@ export function CardOverflowMenu({
           tabIndex={-1}
           aria-label={`Actions for ${task.name}`}
           onKeyDown={onMenuKeyDown}
-          className="absolute right-0 top-7 z-20 bg-neutral-surface border border-neutral-border
-            rounded-card py-1 min-w-[160px] focus:outline-none"
+          className="absolute right-0 top-7 z-20 max-h-[min(70vh,32rem)] overflow-y-auto
+            bg-neutral-surface border border-neutral-border rounded-card py-1 min-w-[160px]
+            focus:outline-none"
         >
           {/* Reject scope injection (ADR-0102) — critical text, gated. The
               additive accept is the single-tap ✓; reject (destructive) lives

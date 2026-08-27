@@ -102,6 +102,37 @@ describe('useAnchoredPopover', () => {
     expect(panel.style.top).toBe('596px');
   });
 
+  it('exposes maxHeight as the real gap to the viewport bottom when opening below', async () => {
+    setViewport(1024, 768);
+    const panel = await open(
+      { width: 200, estimatedHeight: 100 },
+      { top: 100, bottom: 120, left: 50, right: 150, width: 100 },
+    );
+    // below = 124; maxHeight = vh(768) - margin(8) - below(124) = 636 — not the
+    // estimatedHeight, and not a guessed max-h-NN Tailwind class (issue #3109).
+    expect(panel.style.maxHeight).toBe('636px');
+  });
+
+  it('exposes maxHeight as the real gap to the viewport top when flipped above', async () => {
+    setViewport(1024, 768);
+    const panel = await open(
+      { width: 200, estimatedHeight: 100 },
+      { top: 700, bottom: 720, left: 50, right: 150, width: 100 },
+    );
+    // maxHeight = rect.top(700) - gap(4) - margin(8) = 688
+    expect(panel.style.maxHeight).toBe('688px');
+  });
+
+  it('never reports a negative maxHeight on a viewport shorter than the margins', async () => {
+    setViewport(1024, 50);
+    const panel = await open(
+      { width: 200, estimatedHeight: 100 },
+      { top: 5, bottom: 10, left: 50, right: 150, width: 100 },
+    );
+    // below = 14; 14 + 100 = 114 > (50 - 8) → flip: raw maxHeight = top(5) - gap(4) - margin(8) = -7 → clamped to 0
+    expect(panel.style.maxHeight).toBe('0px');
+  });
+
   it('clamps horizontally so a wide panel never leaves the right edge', async () => {
     setViewport(1024, 768);
     const panel = await open(
