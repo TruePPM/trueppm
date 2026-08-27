@@ -215,20 +215,15 @@ def _first_lane_label(column: dict[str, Any] | None) -> str:
     return _column_label(column)
 
 
-def diff_board_config(
-    old_columns: list[dict[str, Any]], new_columns: list[dict[str, Any]]
-) -> tuple[list[_RemovedLane], list[_HiddenColumn]]:
-    """The two board changes that move or hide work.
+def _removed_lanes(
+    old_by_status: dict[str, dict[str, Any]],
+    new_by_status: dict[str, dict[str, Any]],
+) -> list[_RemovedLane]:
+    """Lanes that existed before the write and do not survive it.
 
-    Everything else a board-config PUT can carry — rename, reorder, recolor, a
-    WIP-limit change, an *added* lane, a column being *un*-hidden — leaves every
-    card exactly where the person who owns it last saw it, and produces no
-    notice. Returning the pair (rather than a bool) is what lets the body name
-    the specific lane and column instead of the fact that a PUT happened.
+    Each one carries the destination its orphaned cards will resolve to, read
+    from the *new* column — see :func:`_first_lane_label`.
     """
-    new_by_status = {str(c.get("status")): c for c in new_columns}
-    old_by_status = {str(c.get("status")): c for c in old_columns}
-
     removed: list[_RemovedLane] = []
     for status, old_col in old_by_status.items():
         new_col = new_by_status.get(status)
@@ -245,7 +240,14 @@ def diff_board_config(
                     destination=_first_lane_label(new_col),
                 )
             )
+    return removed
 
+
+def _hidden_columns(
+    old_by_status: dict[str, dict[str, Any]],
+    new_by_status: dict[str, dict[str, Any]],
+) -> list[_HiddenColumn]:
+    """Columns that were visible before the write and are not after it."""
     hidden: list[_HiddenColumn] = []
     for status, old_col in old_by_status.items():
         new_col = new_by_status.get(status)
@@ -256,8 +258,87 @@ def diff_board_config(
         now_visible = new_col.get("visible", True) if new_col is not None else False
         if was_visible and not now_visible:
             hidden.append(_HiddenColumn(status=status, label=_column_label(new_col or old_col)))
+    return hidden
 
-    return removed, hidden
+
+def diff_board_config(
+    old_columns: list[dict[str, Any]], new_columns: list[dict[str, Any]]
+) -> tuple[list[_RemovedLane], list[_HiddenColumn]]:
+    """The two board changes that move or hide work.
+
+    Everything else a board-config PUT can carry — rename, reorder, recolor, a
+    WIP-limit change, an *added* lane, a column being *un*-hidden — leaves every
+    card exactly where the person who owns it last saw it, and produces no
+    notice. Returning the pair (rather than a bool) is what lets the body name
+    the specific lane and column instead of the fact that a PUT happened.
+    """
+    new_by_status = {str(c.get("status")): c for c in new_columns}
+    old_by_status = {str(c.get("status")): c for c in old_columns}
+    return (
+        _removed_lanes(old_by_status, new_by_status),
+        _hidden_columns(old_by_status, new_by_status),
+    )
+
+
+def _removed_clause(actor_name: str, removed: list[_RemovedLane], lane_count: int) -> str:
+    """The removed-lane sentence pair, or ``""`` when no lane was removed.
+
+    Every destination is named against the lane it belongs to. Removing two lanes
+    from two different columns sends their cards to two *different* first lanes,
+    so a single destination borrowed from ``removed[0]`` would send most of the
+    recipient to the wrong place — which is worse than saying nothing, because
+    they will look there, not find their work, and stop trusting the next notice.
+    """
+    if not removed:
+        return ""
+    if len(removed) == 1:
+        lane = removed[0]
+        lead = f"{actor_name} removed the “{lane.label}” lane from {lane.column_label}."
+        tail = (
+            f"Your {_plural(lane_count)} in there now "
+            f"{'shows' if lane_count == 1 else 'show'} in “{lane.destination}” — "
+            f"the first lane of that column."
+            if lane_count
+            else "None of your items were in it."
+        )
+    else:
+        moves = _join_phrases(
+            [
+                f"“{lane.label}” from {lane.column_label} (cards move to “{lane.destination}”)"
+                for lane in removed
+            ]
+        )
+        lead = f"{actor_name} removed {len(removed)} lanes: {moves}."
+        tail = (
+            f"{lane_count} of those items {'is' if lane_count == 1 else 'are'} yours."
+            if lane_count
+            else "None of your items were in them."
+        )
+    return f"{lead} {tail}"
+
+
+def _hidden_clause(actor_name: str, hidden: list[_HiddenColumn], column_count: int) -> str:
+    """The hidden-column sentence pair, or ``""`` when no column was hidden."""
+    if not hidden:
+        return ""
+    names = _join_phrases([f"“{col.label}”" for col in hidden])
+    noun = "column" if len(hidden) == 1 else "columns"
+    lead = f"{actor_name} hid the {names} {noun}."
+    if column_count:
+        # NOT "reach them from My Work": `/me/work/` filters on `assignee` alone
+        # and excludes BACKLOG, so that instruction is false for anyone counted
+        # through a TaskResource booking, and false for everyone when the hidden
+        # column is Backlog. A notice that sends the reader somewhere their work
+        # is not is the failure this whole module is written to avoid — so it
+        # names the two surfaces that show every status and both assignment kinds.
+        it_them = "it" if column_count == 1 else "them"
+        return (
+            f"{lead} Your {_plural(column_count)} with that status "
+            f"{'keeps its' if column_count == 1 else 'keep their'} status and dates, "
+            f"but the board no longer shows {it_them} — find {it_them} in the "
+            f"task list or search."
+        )
+    return f"{lead} None of your items have that status."
 
 
 def _board_body(
@@ -267,61 +348,12 @@ def _board_body(
     lane_count: int,
     column_count: int,
 ) -> str:
-    """One recipient's copy of the board notice.
-
-    Every destination is named against the lane it belongs to. Removing two lanes
-    from two different columns sends their cards to two *different* first lanes,
-    so a single destination borrowed from ``removed[0]`` would send most of the
-    recipient to the wrong place — which is worse than saying nothing, because
-    they will look there, not find their work, and stop trusting the next notice.
-    """
-    parts: list[str] = []
-    if removed:
-        if len(removed) == 1:
-            lane = removed[0]
-            lead = f"{actor_name} removed the “{lane.label}” lane from {lane.column_label}."
-            tail = (
-                f"Your {_plural(lane_count)} in there now "
-                f"{'shows' if lane_count == 1 else 'show'} in “{lane.destination}” — "
-                f"the first lane of that column."
-                if lane_count
-                else "None of your items were in it."
-            )
-        else:
-            moves = _join_phrases(
-                [
-                    f"“{lane.label}” from {lane.column_label} (cards move to “{lane.destination}”)"
-                    for lane in removed
-                ]
-            )
-            lead = f"{actor_name} removed {len(removed)} lanes: {moves}."
-            tail = (
-                f"{lane_count} of those items {'is' if lane_count == 1 else 'are'} yours."
-                if lane_count
-                else "None of your items were in them."
-            )
-        parts.append(f"{lead} {tail}")
-    if hidden:
-        names = _join_phrases([f"“{col.label}”" for col in hidden])
-        noun = "column" if len(hidden) == 1 else "columns"
-        lead = f"{actor_name} hid the {names} {noun}."
-        if column_count:
-            # NOT "reach them from My Work": `/me/work/` filters on `assignee` alone
-            # and excludes BACKLOG, so that instruction is false for anyone counted
-            # through a TaskResource booking, and false for everyone when the hidden
-            # column is Backlog. A notice that sends the reader somewhere their work
-            # is not is the failure this whole module is written to avoid — so it
-            # names the two surfaces that show every status and both assignment kinds.
-            it_them = "it" if column_count == 1 else "them"
-            parts.append(
-                f"{lead} Your {_plural(column_count)} with that status "
-                f"{'keeps its' if column_count == 1 else 'keep their'} status and dates, "
-                f"but the board no longer shows {it_them} — find {it_them} in the "
-                f"task list or search."
-            )
-        else:
-            parts.append(f"{lead} None of your items have that status.")
-    return " ".join(parts)
+    """One recipient's copy of the board notice."""
+    parts = [
+        _removed_clause(actor_name, removed, lane_count),
+        _hidden_clause(actor_name, hidden, column_count),
+    ]
+    return " ".join(part for part in parts if part)
 
 
 def _join_phrases(phrases: list[str]) -> str:
@@ -469,6 +501,60 @@ def capture_project_surface(project: Project, *, workspace: Any = None) -> Proje
     )
 
 
+def _is_are(count: int) -> str:
+    return "is" if count == 1 else "are"
+
+
+def _attribution_clauses(
+    actor_name: str,
+    before: ProjectSurfaceSnapshot,
+    after: ProjectSurfaceSnapshot,
+) -> list[str]:
+    """The preset clause and the surface clauses, in that order.
+
+    The actor is named exactly once, and which clause names them is load-bearing
+    — which is why both sides of the preset-vs-override split live in this one
+    function rather than in two. A preset switch is the deliberate act and the
+    surface changes fall out of it, so the preset clause is attributed and the
+    surfaces are stated as consequence: writing "Dana hid Baselines" for a flip
+    Dana never made surface-by-surface would attribute a decision to them that
+    they did not take. When there is no preset change the override IS the
+    deliberate act, so it takes the attribution.
+    """
+    parts: list[str] = []
+    hidden = [k for k, v in after.visibility.items() if before.visibility.get(k) and not v]
+    shown = [k for k, v in after.visibility.items() if v and not before.visibility.get(k, False)]
+
+    if before.methodology != after.methodology:
+        old_label = METHODOLOGY_LABELS.get(before.methodology, before.methodology or "none")
+        new_label = METHODOLOGY_LABELS.get(after.methodology, after.methodology)
+        parts.append(
+            f"{actor_name} switched this project's planning preset from {old_label} to {new_label}."
+        )
+        if hidden:
+            parts.append(f"{_join_labels(hidden)} {_is_are(len(hidden))} no longer shown here.")
+        if shown:
+            parts.append(f"{_join_labels(shown)} {_is_are(len(shown))} now shown.")
+    else:
+        if hidden:
+            parts.append(f"{actor_name} hid {_join_labels(hidden)} in this project.")
+        if shown:
+            parts.append(f"{actor_name} turned {_join_labels(shown)} back on in this project.")
+    return parts
+
+
+def _ownership_clause(item_count: int) -> str:
+    """The closing clause, which always speaks to the recipient's own items."""
+    if item_count:
+        keeps = "keeps its" if item_count == 1 else "keep their"
+        return (
+            f"Your {_plural(item_count)} {keeps} status, dates and assignments — "
+            f"what changed is where you find "
+            f"{'it' if item_count == 1 else 'them'}."
+        )
+    return "Nothing you own moved."
+
+
 def _surface_body(
     actor_name: str,
     before: ProjectSurfaceSnapshot,
@@ -482,45 +568,9 @@ def _surface_body(
     does not claim anything about which chrome the web client chooses to render
     for a preset — a notice that over-claims is worse than a terse one, because
     the recipient checks it once and stops believing the next one.
-
-    The actor is named exactly once, and which clause names them is load-bearing.
-    A preset switch is the deliberate act and the surface changes fall out of it,
-    so the preset clause is attributed and the surfaces are stated as consequence
-    — writing "Dana hid Baselines" for a flip Dana never made surface-by-surface
-    would attribute a decision to them that they did not take. When there is no
-    preset change the override IS the deliberate act, so it takes the attribution.
     """
-    parts: list[str] = []
-    hidden = [k for k, v in after.visibility.items() if before.visibility.get(k) and not v]
-    shown = [k for k, v in after.visibility.items() if v and not before.visibility.get(k, False)]
-
-    if before.methodology != after.methodology:
-        old_label = METHODOLOGY_LABELS.get(before.methodology, before.methodology or "none")
-        new_label = METHODOLOGY_LABELS.get(after.methodology, after.methodology)
-        parts.append(
-            f"{actor_name} switched this project's planning preset from {old_label} to {new_label}."
-        )
-        if hidden:
-            verb = "is" if len(hidden) == 1 else "are"
-            parts.append(f"{_join_labels(hidden)} {verb} no longer shown here.")
-        if shown:
-            verb = "is" if len(shown) == 1 else "are"
-            parts.append(f"{_join_labels(shown)} {verb} now shown.")
-    else:
-        if hidden:
-            parts.append(f"{actor_name} hid {_join_labels(hidden)} in this project.")
-        if shown:
-            parts.append(f"{actor_name} turned {_join_labels(shown)} back on in this project.")
-
-    if item_count:
-        keeps = "keeps its" if item_count == 1 else "keep their"
-        parts.append(
-            f"Your {_plural(item_count)} {keeps} status, dates and assignments — "
-            f"what changed is where you find "
-            f"{'it' if item_count == 1 else 'them'}."
-        )
-    else:
-        parts.append("Nothing you own moved.")
+    parts = _attribution_clauses(actor_name, before, after)
+    parts.append(_ownership_clause(item_count))
     return " ".join(parts)
 
 

@@ -3644,6 +3644,39 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
 
         return attrs
 
+    def _reject_unconfigured_lane(self, attrs: dict[str, Any], lane: str, new_status: Any) -> None:
+        """Reject a lane key the card's destination column does not configure.
+
+        Split from :meth:`_validate_board_lane` so that method stays the cheap
+        "does this write touch the lane axis at all" gate. Everything here runs
+        only once a non-empty lane key is actually being written, and it either
+        returns or raises — it hands no decision back to its caller, so the two
+        halves stay independently readable.
+
+        Raises:
+            serializers.ValidationError: the destination project or status cannot
+                be resolved, or ``lane`` is not configured on that column.
+        """
+        effective_status = new_status or (self.instance.status if self.instance else None)
+        project = attrs.get("project") or (self.instance.project if self.instance else None)
+        if project is None or effective_status is None:
+            raise serializers.ValidationError(
+                {"board_lane": "Cannot resolve a board lane without a project and status."}
+            )
+
+        config = BoardColumnConfig.objects.filter(project=project).values_list("columns", flat=True)
+        columns = next(iter(config), None) or _DEFAULT_COLUMNS
+        allowed = board_lane_keys_by_status(columns).get(str(effective_status), [])
+        if lane not in allowed:
+            raise serializers.ValidationError(
+                {
+                    "board_lane": (
+                        f"{lane!r} is not a configured lane of the "
+                        f"{effective_status} column on this project."
+                    )
+                }
+            )
+
     def _validate_board_lane(self, attrs: dict[str, Any]) -> None:
         """Bind ``board_lane`` to a lane configured for the card's *effective* status (#2967).
 
@@ -3682,25 +3715,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         if not lane:
             return
 
-        effective_status = new_status or (self.instance.status if self.instance else None)
-        project = attrs.get("project") or (self.instance.project if self.instance else None)
-        if project is None or effective_status is None:
-            raise serializers.ValidationError(
-                {"board_lane": "Cannot resolve a board lane without a project and status."}
-            )
-
-        config = BoardColumnConfig.objects.filter(project=project).values_list("columns", flat=True)
-        columns = next(iter(config), None) or _DEFAULT_COLUMNS
-        allowed = board_lane_keys_by_status(columns).get(str(effective_status), [])
-        if lane not in allowed:
-            raise serializers.ValidationError(
-                {
-                    "board_lane": (
-                        f"{lane!r} is not a configured lane of the "
-                        f"{effective_status} column on this project."
-                    )
-                }
-            )
+        self._reject_unconfigured_lane(attrs, lane, new_status)
 
     def _request_user(self) -> Any:
         """The acting user for the inline-owner audit row, or None outside a request."""

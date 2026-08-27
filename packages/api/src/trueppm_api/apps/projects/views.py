@@ -350,6 +350,15 @@ _MILESTONE_NO_CHILDREN = "A milestone is a single point and cannot have children
 _NON_EMPTY_LIST_REQUIRED = "This field is required and must be a non-empty list."
 _REORDER_TOO_MANY = "Too many entries to reorder in one request (max 2000)."
 _REORDER_DUPLICATE_IDS = "Duplicate task ids in the ordered list."
+_PROJECT_MUST_BE_UUID_DETAIL = "`project` must be a UUID."
+
+# Every structural-operation response carries the same ledger handle, so the four
+# response serializers below share one help_text. Keeping it a single string also
+# keeps the four `operation_id` schemas byte-identical in docs/api/openapi.json.
+_OPERATION_ID_HELP = (
+    "Ledger handle for `POST /structural-operations/{id}/undo/` (ADR-0880). "
+    "Null when the request was a no-op, which has nothing to reverse."
+)
 
 
 def _parse_reorder_entries(entries: list[Any]) -> tuple[list[tuple[str, int]], list[str]]:
@@ -489,10 +498,7 @@ class TaskReorderResponseSerializer(serializers.Serializer[Any]):
     updated = WbsPathEntrySerializer(many=True)
     operation_id = serializers.UUIDField(
         allow_null=True,
-        help_text=(
-            "Ledger handle for `POST /structural-operations/{id}/undo/` (ADR-0880). "
-            "Null when the request was a no-op, which has nothing to reverse."
-        ),
+        help_text=_OPERATION_ID_HELP,
     )
 
 
@@ -509,10 +515,7 @@ class TaskRestructureResponseSerializer(serializers.Serializer[Any]):
     )
     operation_id = serializers.UUIDField(
         allow_null=True,
-        help_text=(
-            "Ledger handle for `POST /structural-operations/{id}/undo/` (ADR-0880). "
-            "Null when the request was a no-op, which has nothing to reverse."
-        ),
+        help_text=_OPERATION_ID_HELP,
     )
 
 
@@ -567,10 +570,7 @@ class TaskGroupResponseSerializer(serializers.Serializer[Any]):
     warning = serializers.CharField(allow_null=True)
     operation_id = serializers.UUIDField(
         allow_null=True,
-        help_text=(
-            "Ledger handle for `POST /structural-operations/{id}/undo/` (ADR-0880). "
-            "Null when the request was a no-op, which has nothing to reverse."
-        ),
+        help_text=_OPERATION_ID_HELP,
     )
 
 
@@ -593,10 +593,7 @@ class TaskUngroupResponseSerializer(serializers.Serializer[Any]):
     warning = serializers.CharField(allow_null=True)
     operation_id = serializers.UUIDField(
         allow_null=True,
-        help_text=(
-            "Ledger handle for `POST /structural-operations/{id}/undo/` (ADR-0880). "
-            "Null when the request was a no-op, which has nothing to reverse."
-        ),
+        help_text=_OPERATION_ID_HELP,
     )
 
 
@@ -5764,7 +5761,7 @@ class TaskViewSet(
             uuid.UUID(project_id)
         except ValueError:
             return Response(
-                {"detail": "`project` must be a UUID."}, status=status.HTTP_400_BAD_REQUEST
+                {"detail": _PROJECT_MUST_BE_UUID_DETAIL}, status=status.HTTP_400_BAD_REQUEST
             )
 
         retention_days = getattr(django_settings, "TRUEPPM_TOMBSTONE_RETENTION_DAYS", 90)
@@ -5968,7 +5965,7 @@ class TaskViewSet(
         raw_project = request.data.get("project") if isinstance(request.data, dict) else None
         if raw_project is not None and not isinstance(raw_project, str):
             return Response(
-                {"detail": "`project` must be a UUID."}, status=status.HTTP_400_BAD_REQUEST
+                {"detail": _PROJECT_MUST_BE_UUID_DETAIL}, status=status.HTTP_400_BAD_REQUEST
             )
         project_id = (raw_project or "").strip()
         if not project_id:
@@ -5980,7 +5977,7 @@ class TaskViewSet(
             uuid.UUID(project_id)
         except (ValueError, TypeError):
             return Response(
-                {"detail": "`project` must be a UUID."}, status=status.HTTP_400_BAD_REQUEST
+                {"detail": _PROJECT_MUST_BE_UUID_DETAIL}, status=status.HTTP_400_BAD_REQUEST
             )
         project = get_object_or_404(Project, pk=project_id, is_deleted=False)
 

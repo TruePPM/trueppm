@@ -221,24 +221,21 @@ def assert_authorable(request: Request, rows: list[Task]) -> None:
         raise SubtreeNotAuthorable(forbidden, len(rows))
 
 
-def _classify_row(
+def _apply_governance(
     task: Task,
     *,
     is_root: bool,
     spec: ClassificationSpec,
-    governance: _AxisTally,
-    delivery: _AxisTally,
-    skipped: list[dict[str, Any]],
-) -> list[str]:
-    """Compute one row's new classification; return the model fields it changed.
+    tally: _AxisTally,
+) -> tuple[list[str], list[str]]:
+    """Resolve the ``governance_class`` axis for one row.
 
-    Mutates ``task`` in memory only — the caller decides whether to save, so a row
-    already at the requested value costs no write, no version bump, and no history row.
+    Returns ``(changed, withheld)`` and mutates ``task`` in memory only — saving is the
+    caller's decision, exactly as in :func:`_classify_row`.
     """
     changed: list[str] = []
     withheld: list[str] = []
 
-    # ── governance_class ────────────────────────────────────────────────────────
     if spec.governance_class is not None:
         if task.is_milestone and spec.skip_milestones:
             withheld.append("governance_class")
@@ -250,7 +247,7 @@ def _classify_row(
             # An explicit override: this node declared its own governance rather than
             # taking its parent's. Preserving it is the default, and it is counted so
             # the caller can see what the cascade deliberately did not touch.
-            governance.overrides_kept += 1
+            tally.overrides_kept += 1
         else:
             # The root is the declaration point — declaring a subtree's governance IS
             # breaking inheritance from whatever sits above it. Cascaded descendants
@@ -265,11 +262,27 @@ def _classify_row(
                 task.governance_class = spec.governance_class
                 task.parent_governance_inherited = target_bit
                 changed += ["governance_class", "parent_governance_inherited"]
-                governance.applied += 1
+                tally.applied += 1
             else:
-                governance.unchanged += 1
+                tally.unchanged += 1
 
-    # ── delivery_mode ───────────────────────────────────────────────────────────
+    return changed, withheld
+
+
+def _apply_delivery(
+    task: Task,
+    *,
+    spec: ClassificationSpec,
+    tally: _AxisTally,
+) -> tuple[list[str], list[str]]:
+    """Resolve the ``delivery_mode`` axis for one row.
+
+    Returns ``(changed, withheld)`` and mutates ``task`` in memory only — saving is the
+    caller's decision, exactly as in :func:`_classify_row`.
+    """
+    changed: list[str] = []
+    withheld: list[str] = []
+
     if spec.delivery_mode is not None:
         if task.is_milestone:
             # Unconditional, and not a flag the caller can waive. is_milestone,
@@ -282,9 +295,38 @@ def _classify_row(
         elif task.delivery_mode != spec.delivery_mode:
             task.delivery_mode = spec.delivery_mode
             changed.append("delivery_mode")
-            delivery.applied += 1
+            tally.applied += 1
         else:
-            delivery.unchanged += 1
+            tally.unchanged += 1
+
+    return changed, withheld
+
+
+def _classify_row(
+    task: Task,
+    *,
+    is_root: bool,
+    spec: ClassificationSpec,
+    governance: _AxisTally,
+    delivery: _AxisTally,
+    skipped: list[dict[str, Any]],
+) -> list[str]:
+    """Compute one row's new classification; return the model fields it changed.
+
+    Mutates ``task`` in memory only — the caller decides whether to save, so a row
+    already at the requested value costs no write, no version bump, and no history row.
+
+    The two axes are resolved independently and their results concatenated, which is
+    what keeps ``changed`` and the skip report's ``axes`` in governance-then-delivery
+    order.
+    """
+    governance_changed, governance_withheld = _apply_governance(
+        task, is_root=is_root, spec=spec, tally=governance
+    )
+    delivery_changed, delivery_withheld = _apply_delivery(task, spec=spec, tally=delivery)
+
+    changed = governance_changed + delivery_changed
+    withheld = governance_withheld + delivery_withheld
 
     if withheld:
         skipped.append(
