@@ -179,7 +179,7 @@ def repair_duplicate_wbs_paths(task_model: Any) -> list[RepairedWbsPath]:
     A moved row is re-pathed among its **own siblings** — ``4.2`` becomes ``4.9``, not a
     new root — so it stays inside the phase a planner put it in. A root-level duplicate
     shifts to a free root ordinal past the project's current max, the same rule
-    ``_root_ordinal_offset()`` applies to template adoption, so repaired and seeded rows
+    ``root_ordinal_offset()`` applies to template adoption, so repaired and seeded rows
     agree about what "the next free root" means.
 
     Takes the model class rather than reaching for ``Task`` directly so the migration can
